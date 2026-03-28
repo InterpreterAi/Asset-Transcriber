@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "For fluid animations, page transitions, and glassmorphism reveals"
+  "react-hook-form": "For robust and performant form state management"
+  "@hookform/resolvers": "For Zod schema validation integration"
+  "zod": "For client-side form validation"
+  "date-fns": "For elegant date formatting in the admin dashboard"
+  "clsx": "For dynamic class name merging"
+  "tailwind-merge": "For safe Tailwind class conflict resolution"
+  "zustand": "For global transcription and audio state management"
+
+images:
+  - path: "artifacts/transcription-app/public/images/auth-bg.png"
+    description: "Abstract dark premium gradient background with subtle glowing cyan and purple neon lines, tech and AI focused, very deep blacks"
+    aspect_ratio: "16:9"
+
+notes:
+  - The API uses session cookies for authentication
+  - Web Audio API and WebSocket are used for the real-time transcription
+  - Soniox WebSocket requires a JSON config payload followed by binary PCM data chunks

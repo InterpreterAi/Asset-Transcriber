@@ -1,22 +1,31 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: AI Transcription & Translation App API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: transcription
+    description: Transcription proxy operations
+  - name: usage
+    description: Usage tracking operations
+  - name: admin
+    description: Admin panel operations
+  - name: feedback
+    description: Feedback operations
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +33,335 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user info
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfo"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /transcription/token:
+    post:
+      operationId: getTranscriptionToken
+      tags: [transcription]
+      summary: Get a short-lived Soniox API token for transcription
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscriptionTokenResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Limit reached or trial expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /transcription/session/start:
+    post:
+      operationId: startSession
+      tags: [transcription]
+      summary: Start a transcription session
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /transcription/session/stop:
+    post:
+      operationId: stopSession
+      tags: [transcription]
+      summary: Stop the current transcription session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StopSessionRequest"
+      responses:
+        "200":
+          description: Session stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /usage/me:
+    get:
+      operationId: getMyUsage
+      tags: [usage]
+      summary: Get usage stats for the current user
+      responses:
+        "200":
+          description: Usage info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageInfo"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /feedback:
+    post:
+      operationId: submitFeedback
+      tags: [feedback]
+      summary: Submit feedback (trial end or general)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+      responses:
+        "200":
+          description: Feedback submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [admin]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: adminCreateUser
+      tags: [admin]
+      summary: Create a new user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminCreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}:
+    patch:
+      operationId: adminUpdateUser
+      tags: [admin]
+      summary: Update a user (admin only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: adminDeleteUser
+      tags: [admin]
+      summary: Delete a user (admin only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/users/{userId}/reset-usage:
+    post:
+      operationId: adminResetUsage
+      tags: [admin]
+      summary: Reset daily usage for a user (admin only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Usage reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/feedback:
+    get:
+      operationId: adminListFeedback
+      tags: [admin]
+      summary: List all feedback (admin only)
+      responses:
+        "200":
+          description: Feedback list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminFeedbackListResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +372,261 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserInfo"
+      required:
+        - user
+
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        isAdmin:
+          type: boolean
+        isActive:
+          type: boolean
+        trialStartedAt:
+          type: string
+          format: date-time
+        trialEndsAt:
+          type: string
+          format: date-time
+        trialDaysRemaining:
+          type: integer
+        trialExpired:
+          type: boolean
+        dailyLimitMinutes:
+          type: integer
+        minutesUsedToday:
+          type: number
+        minutesRemainingToday:
+          type: number
+        totalMinutesUsed:
+          type: number
+        totalSessions:
+          type: integer
+      required:
+        - id
+        - username
+        - isAdmin
+        - isActive
+        - trialDaysRemaining
+        - trialExpired
+        - dailyLimitMinutes
+        - minutesUsedToday
+        - minutesRemainingToday
+        - totalMinutesUsed
+        - totalSessions
+
+    TranscriptionTokenResponse:
+      type: object
+      properties:
+        apiKey:
+          type: string
+        expiresIn:
+          type: integer
+      required:
+        - apiKey
+        - expiresIn
+
+    SessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+        message:
+          type: string
+      required:
+        - sessionId
+        - message
+
+    StopSessionRequest:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+        durationSeconds:
+          type: integer
+      required:
+        - sessionId
+        - durationSeconds
+
+    UsageInfo:
+      type: object
+      properties:
+        minutesUsedToday:
+          type: number
+        minutesRemainingToday:
+          type: number
+        totalMinutesUsed:
+          type: number
+        totalSessions:
+          type: integer
+        dailyLimitMinutes:
+          type: integer
+        trialDaysRemaining:
+          type: integer
+        trialExpired:
+          type: boolean
+      required:
+        - minutesUsedToday
+        - minutesRemainingToday
+        - totalMinutesUsed
+        - totalSessions
+        - dailyLimitMinutes
+        - trialDaysRemaining
+        - trialExpired
+
+    FeedbackRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+      required:
+        - rating
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        isAdmin:
+          type: boolean
+        isActive:
+          type: boolean
+        trialStartedAt:
+          type: string
+          format: date-time
+        trialEndsAt:
+          type: string
+          format: date-time
+        dailyLimitMinutes:
+          type: integer
+        minutesUsedToday:
+          type: number
+        totalMinutesUsed:
+          type: number
+        totalSessions:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - username
+        - isAdmin
+        - isActive
+        - dailyLimitMinutes
+        - minutesUsedToday
+        - totalMinutesUsed
+        - totalSessions
+        - createdAt
+
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+      required:
+        - users
+
+    AdminCreateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        isAdmin:
+          type: boolean
+        dailyLimitMinutes:
+          type: integer
+      required:
+        - username
+        - password
+
+    AdminUpdateUserRequest:
+      type: object
+      properties:
+        isActive:
+          type: boolean
+        isAdmin:
+          type: boolean
+        dailyLimitMinutes:
+          type: integer
+        password:
+          type: string
+
+    AdminFeedbackItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        username:
+          type: string
+        rating:
+          type: integer
+        comment:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - username
+        - rating
+        - createdAt
+
+    AdminFeedbackListResponse:
+      type: object
+      properties:
+        feedback:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminFeedbackItem"
+      required:
+        - feedback

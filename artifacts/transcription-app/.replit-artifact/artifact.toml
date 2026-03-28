@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "AI Transcription & Translation"
+version = "1.0.0"
+id = "artifacts/transcription-app"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19506
+
+[services.development]
+run = "pnpm --filter @workspace/transcription-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/transcription-app", "run", "build" ]
+publicDir = "artifacts/transcription-app/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19506"
+BASE_PATH = "/"
