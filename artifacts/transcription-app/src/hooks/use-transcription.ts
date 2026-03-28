@@ -1,13 +1,12 @@
 import { useRef, useState, useCallback } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
-export interface TranscriptionToken {
+export interface Phrase {
+  id: string;
+  speaker: "Interpreter" | "Caller" | "Unknown";
   text: string;
-  is_final: boolean;
 }
 
-// Capture at 48kHz (native, no virtual driver needed) and send at 48kHz.
-// Soniox supports 48kHz natively.
 const SAMPLE_RATE = 48000;
 
 function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
@@ -19,10 +18,22 @@ function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
   return output.buffer;
 }
 
+// Map Soniox speaker_tag → display label
+// tag 1 → first speaker detected = Interpreter (mic)
+// tag 2 → second speaker = Caller (system audio)
+function tagToSpeaker(tag: number): "Interpreter" | "Caller" | "Unknown" {
+  if (tag === 1) return "Interpreter";
+  if (tag === 2) return "Caller";
+  return "Unknown";
+}
+
+let phraseIdCounter = 0;
+function nextId() { return `p-${++phraseIdCounter}`; }
+
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState<string>("");
-  const [partialTranscript, setPartialTranscript] = useState<string>("");
+  const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [partialPhrase, setPartialPhrase] = useState<Phrase | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -37,13 +48,16 @@ export function useTranscription() {
   const startTimeRef = useRef<number>(0);
   const isRecordingRef = useRef(false);
 
+  // Accumulate tokens per speaker until they are final
+  const pendingBySpeakerRef = useRef<Map<number, string>>(new Map());
+
   const stop = useCallback(async () => {
     if (!isRecordingRef.current) return;
     isRecordingRef.current = false;
     setIsRecording(false);
+    pendingBySpeakerRef.current.clear();
 
     if (wsRef.current) {
-      // Signal end of audio to Soniox
       try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) {}
       wsRef.current.close();
       wsRef.current = null;
@@ -56,9 +70,9 @@ export function useTranscription() {
 
     streamsRef.current.forEach((stream) => stream.getTracks().forEach((t) => t.stop()));
     streamsRef.current = [];
-
     setMicLevel(0);
     setSystemLevel(0);
+    setPartialPhrase(null);
 
     if (sessionIdRef.current) {
       const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -77,35 +91,31 @@ export function useTranscription() {
     async (micDeviceId: string, systemDeviceId: string) => {
       try {
         setError(null);
-        setTranscript("");
-        setPartialTranscript("");
+        setPhrases([]);
+        setPartialPhrase(null);
+        pendingBySpeakerRef.current.clear();
 
-        // 1. Get token + start backend session
         const tokenRes = await getTokenMut.mutateAsync({});
         const sessionRes = await startSessionMut.mutateAsync({});
         sessionIdRef.current = sessionRes.sessionId;
         startTimeRef.current = Date.now();
 
-        // 2. AudioContext at 48kHz — native browser rate, no virtual driver needed
         const AudioContextCtor =
-          window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new AudioContextCtor({ sampleRate: SAMPLE_RATE });
         audioCtxRef.current = ctx;
 
-        // 3. Mic stream
-        const micConstraints: MediaStreamConstraints = {
+        const micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             deviceId: micDeviceId ? { exact: micDeviceId } : undefined,
             echoCancellation: false,
             noiseSuppression: false,
             autoGainControl: false,
-            sampleRate: SAMPLE_RATE,
           },
-        };
-        const micStream = await navigator.mediaDevices.getUserMedia(micConstraints);
+        });
         streamsRef.current.push(micStream);
 
-        // 4. Optional second audio source (system/caller audio via second device)
         let systemStream: MediaStream | null = null;
         if (systemDeviceId && systemDeviceId !== micDeviceId) {
           try {
@@ -115,7 +125,6 @@ export function useTranscription() {
                 echoCancellation: false,
                 noiseSuppression: false,
                 autoGainControl: false,
-                sampleRate: SAMPLE_RATE,
               },
             });
             streamsRef.current.push(systemStream);
@@ -124,7 +133,6 @@ export function useTranscription() {
           }
         }
 
-        // 5. Build audio graph: mix both sources into one channel
         const micSource = ctx.createMediaStreamSource(micStream);
         const micAnalyser = ctx.createAnalyser();
         micAnalyser.fftSize = 256;
@@ -142,7 +150,6 @@ export function useTranscription() {
           sysAnalyser.connect(destination);
         }
 
-        // 6. WebSocket to Soniox
         const ws = new WebSocket("wss://stt.soniox.com/transcribe-websocket");
         wsRef.current = ws;
 
@@ -154,6 +161,8 @@ export function useTranscription() {
               audio_format: "pcm_s16le",
               sample_rate: SAMPLE_RATE,
               num_audio_channels: 1,
+              enable_speaker_diarization: true,
+              num_speakers: 2,
             })
           );
           isRecordingRef.current = true;
@@ -163,17 +172,54 @@ export function useTranscription() {
         ws.onmessage = (e) => {
           try {
             const data = JSON.parse(e.data as string) as {
-              tokens?: { text: string; is_final: boolean }[];
+              tokens?: { text: string; is_final: boolean; speaker_tag?: number }[];
             };
-            if (data.tokens && data.tokens.length > 0) {
-              const hasFinal = data.tokens.some((t) => t.is_final);
-              const text = data.tokens.map((t) => t.text).join("");
-              if (hasFinal) {
-                setTranscript((prev) => (prev ? prev + " " + text : text));
-                setPartialTranscript("");
+
+            if (!data.tokens || data.tokens.length === 0) return;
+
+            // Group tokens by finality + speaker. When a final token arrives,
+            // commit the accumulated text for that speaker as a new phrase.
+            const finalTokensBySpeaker = new Map<number, string>();
+            let hasAnyFinal = false;
+            let partialText = "";
+            let partialTag = 0;
+
+            for (const token of data.tokens) {
+              const tag = token.speaker_tag ?? 1;
+              if (token.is_final) {
+                hasAnyFinal = true;
+                const existing = finalTokensBySpeaker.get(tag) ?? "";
+                finalTokensBySpeaker.set(tag, existing + token.text);
               } else {
-                setPartialTranscript(text);
+                partialText += token.text;
+                partialTag = tag;
               }
+            }
+
+            if (hasAnyFinal) {
+              setPhrases((prev) => {
+                const next = [...prev];
+                finalTokensBySpeaker.forEach((text, tag) => {
+                  const trimmed = text.trim();
+                  if (!trimmed) return;
+                  const speaker = tagToSpeaker(tag);
+                  // Merge with last phrase from same speaker if it's recent
+                  const last = next[next.length - 1];
+                  if (last && last.speaker === speaker) {
+                    next[next.length - 1] = { ...last, text: last.text + " " + trimmed };
+                  } else {
+                    next.push({ id: nextId(), speaker, text: trimmed });
+                  }
+                });
+                return next;
+              });
+              setPartialPhrase(null);
+            } else if (partialText.trim()) {
+              setPartialPhrase({
+                id: "partial",
+                speaker: tagToSpeaker(partialTag),
+                text: partialText.trim(),
+              });
             }
           } catch (err) {
             console.error("WS Parse error", err);
@@ -186,12 +232,9 @@ export function useTranscription() {
         };
 
         ws.onclose = () => {
-          if (isRecordingRef.current) {
-            stop();
-          }
+          if (isRecordingRef.current) stop();
         };
 
-        // 7. ScriptProcessor to stream PCM to WebSocket
         const processor = ctx.createScriptProcessor(4096, 1, 1);
         const mixedSource = ctx.createMediaStreamSource(destination.stream);
         mixedSource.connect(processor);
@@ -207,8 +250,7 @@ export function useTranscription() {
 
         processor.onaudioprocess = (e) => {
           if (ws.readyState !== WebSocket.OPEN) return;
-          const inputData = e.inputBuffer.getChannelData(0);
-          ws.send(floatTo16BitPCM(inputData));
+          ws.send(floatTo16BitPCM(e.inputBuffer.getChannelData(0)));
           updateLevel(micAnalyser, setMicLevel);
           if (systemStream) updateLevel(sysAnalyser, setSystemLevel);
         };
@@ -224,14 +266,14 @@ export function useTranscription() {
 
   return {
     isRecording,
-    transcript,
-    partialTranscript,
+    phrases,
+    partialPhrase,
     micLevel,
     systemLevel,
     error,
     start,
     stop,
-    clearTranscript: () => { setTranscript(""); setPartialTranscript(""); },
+    clear: () => { setPhrases([]); setPartialPhrase(null); },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }
