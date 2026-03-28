@@ -29,63 +29,56 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-background">
-      {/* Background Image/Gradient */}
-      <div className="absolute inset-0 z-0">
-        <img 
-          src={`${import.meta.env.BASE_URL}images/auth-bg.png`} 
-          alt="Abstract Background" 
-          className="w-full h-full object-cover opacity-40"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/50 via-background/80 to-background"></div>
-      </div>
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-[#f5f5f7]">
+      {/* Subtle Background Pattern */}
+      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
 
       <motion.div 
-        initial={{ opacity: 0, y: 30 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="w-full max-w-md px-4 relative z-10"
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="w-full max-w-[400px] px-4 relative z-10"
       >
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-6 backdrop-blur-md border border-primary/20 shadow-lg shadow-primary/20">
+        <div className="text-center mb-10">
+          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-border">
             <Mic2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-4xl font-display font-bold text-white mb-2">InterpretAI</h1>
-          <p className="text-muted-foreground">Professional Transcription Proxy</p>
+          <h1 className="text-3xl font-display font-semibold text-foreground mb-2 tracking-tight">InterpretAI</h1>
+          <p className="text-muted-foreground text-sm">Professional Transcription & Translation</p>
         </div>
 
-        <Card className="p-8 backdrop-blur-2xl bg-card/40 border-white/5">
+        <Card className="p-8 bg-white border border-border shadow-md rounded-2xl">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="bg-destructive/20 text-destructive text-sm p-3 rounded-lg border border-destructive/30 text-center">
+              <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-xl border border-destructive/20 text-center font-medium">
                 {error}
               </div>
             )}
             
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider ml-1">USERNAME</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Username</label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
                 <Input 
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Enter your username" 
-                  className="pl-10"
+                  className="pl-10 h-12 bg-gray-50 border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary"
                   required
                 />
               </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider ml-1">PASSWORD</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
                 <Input 
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••" 
-                  className="pl-10"
+                  className="pl-10 h-12 bg-gray-50 border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary"
                   required
                 />
               </div>
@@ -93,7 +86,7 @@ export default function Login() {
 
             <Button 
               type="submit" 
-              className="w-full mt-6" 
+              className="w-full h-12 mt-4 shadow-sm" 
               size="lg"
               isLoading={loginMut.isPending}
             >
