@@ -1,0 +1,110 @@
+Project Title:
+Desktop AI Transcription & Translation App (Audio Routing + Usage Control)
+
+Project Description:
+
+I am looking for an experienced developer to improve and extend an existing desktop transcription application.
+
+The application captures audio from calls, transcribes it in real time using the Soniox speech-to-text API, and translates the output.
+
+The target users are professional interpreters who need live captions while working.
+
+The current version already includes:
+• Real-time transcription using Soniox API  
+• Translation (Google Translate)  
+• Basic desktop interface  
+
+I need a developer who can improve the application and add the following functionality.
+
+Required Features:
+
+1. Dual Audio Input Support
+The application must allow capturing two audio inputs simultaneously:
+• Interpreter microphone
+• Caller / system audio (for example virtual devices like BlackHole)
+
+The interface should allow selecting both inputs using dropdown menus.
+
+The application should internally mix the audio streams before sending them to the speech recognition engine.
+
+2. Audio Device Selection
+Add device selectors so users can choose:
+• Microphone input
+• Caller audio input
+• Output device (optional)
+
+3. Audio Level Indicators
+Add real-time audio meters so users can see that audio is being captured correctly.
+
+4. Login System
+Add a simple login system so only authorized users can access the application.
+
+Fields:
+• Username
+• Password
+
+5. Trial System
+Each new user should receive:
+• 14-day trial
+• Daily usage limit (example: 3 hours)
+
+Display inside the app:
+• Trial days remaining
+• Minutes remaining today
+
+6. Usage Tracking
+Track usage for each user:
+• Minutes used today
+• Total minutes used
+• Number of sessions
+
+7. Daily Usage Limit
+When the user reaches the daily limit, transcription should stop and display a message.
+
+8. Admin Control Panel
+A simple admin dashboard where I can:
+• Create users
+• Disable users
+• Reset usage
+• View usage statistics
+
+9. Feedback System
+When a user’s trial ends, show a feedback popup asking for:
+• 1–5 star rating
+• optional comment
+
+Feedback should be stored for review.
+
+10. API Key Security
+The Soniox API key must NOT be exposed in the desktop app.
+
+The app should communicate with a small backend proxy that securely sends requests to the Soniox API.
+
+Technical Requirements:
+
+Preferred languages:
+• Python (desktop app)
+• Electron / Node.js (optional alternative)
+
+Experience required:
+• Audio programming
+• Real-time streaming
+• speech-to-text API integration
+• desktop application development
+
+Nice to Have:
+• experience with WebRTC
+• experience with audio routing
+• experience building SaaS tools
+
+Deliverables:
+• fully working desktop application
+• source code
+• build instructions
+• documentation for deployment
+
+Important:
+Please include examples of similar work (audio apps, transcription tools, streaming software).
+
+Budget:
+Open to discussion depending on experience and implementation quality.
