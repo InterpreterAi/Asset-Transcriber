@@ -38,23 +38,21 @@ function langLabel(val: string) {
   return LANG_OPTIONS.find((l) => l.value === val)?.label ?? val.toUpperCase();
 }
 
+/** Auto-detect translation target: if phrase is langA → translate to langB, else → langA */
 function getTargetLang(phraseLanguage: string, langA: string, langB: string): string {
   if (phraseLanguage === langA) return langB;
-  if (phraseLanguage === langB) return langA;
-  return langB;
+  return langA;
 }
 
 // ─── Language badge ────────────────────────────────────────────────────────────
 function LangBadge({ lang }: { lang: string }) {
   const isArabic = lang === "ar" || lang === "he";
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${
-        isArabic
-          ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-          : "bg-blue-100 text-blue-700 border border-blue-200"
-      }`}
-    >
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${
+      isArabic
+        ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+        : "bg-blue-100 text-blue-700 border border-blue-200"
+    }`}>
       {langLabel(lang)}
     </span>
   );
@@ -79,8 +77,15 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ─── Speaker colour ────────────────────────────────────────────────────────────
-const SPEAKER_COLORS = ["text-blue-600", "text-purple-600", "text-orange-600", "text-rose-600"];
-function speakerColor(idx: number) { return SPEAKER_COLORS[idx % SPEAKER_COLORS.length]; }
+const SPEAKER_COLORS = [
+  "text-blue-600", "text-purple-600", "text-orange-600", "text-rose-600",
+  "text-teal-600", "text-indigo-600",
+];
+function speakerColor(idx: number) {
+  // Normalize offset speakers (e.g. idx=100 → 2, 101 → 3)
+  const normalized = idx >= 100 ? (idx - 100) + 2 : idx;
+  return SPEAKER_COLORS[normalized % SPEAKER_COLORS.length];
+}
 
 // ─── Transcript entry ──────────────────────────────────────────────────────────
 function TranscriptEntry({ phrase }: { phrase: Phrase }) {
@@ -136,7 +141,7 @@ function TranslationEntry({
           ) : phrase.active ? (
             <p className="text-sm text-muted-foreground/50 italic">—</p>
           ) : (
-            <p className="text-sm text-muted-foreground italic flex items-center gap-1">
+            <p className="text-sm text-muted-foreground/60 italic flex items-center gap-1">
               Translating
               <span className="inline-flex gap-0.5 ml-1 align-middle">
                 <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -168,10 +173,7 @@ export default function Workspace() {
   const [activeTab, setActiveTab] = useState("mic");
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
-  // Source language: determines which Soniox model to use (en_v2 vs ar_v1)
-  const [sourceLang, setSourceLang] = useState("en");
-
-  // Bidirectional language pair (langA = source, langB = target by default)
+  // Bidirectional translation pair — default English ↔ Arabic
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
@@ -196,17 +198,13 @@ export default function Workspace() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          text: phrase.text,
-          sourceLang: phrase.language,
-          targetLang,
-        }),
+        body: JSON.stringify({ text: phrase.text, sourceLang: phrase.language, targetLang }),
       });
       if (res.ok) {
         const data = await res.json() as { translatedText?: string; text?: string };
         const translated = data.translatedText ?? data.text ?? "";
         if (translated) {
-          setTranslations((prev) => ({ ...prev, [key]: { text: translated, targetLang } }));
+          setTranslations(prev => ({ ...prev, [key]: { text: translated, targetLang } }));
         }
       }
     } catch (err) {
@@ -216,33 +214,22 @@ export default function Workspace() {
     }
   }, []);
 
-  // Translate any sealed (active: false) phrase that hasn't been translated yet
+  // Translate every sealed (active: false) phrase that hasn't been translated yet
   useEffect(() => {
     for (const phrase of transcription.phrases) {
-      if (
-        !phrase.active &&
-        !translations[phrase.id] &&
-        !translatingRef.current.has(phrase.id)
-      ) {
+      if (!phrase.active && !translations[phrase.id] && !translatingRef.current.has(phrase.id)) {
         const target = getTargetLang(phrase.language, langA, langB);
-        translatePhrase(phrase, target);
+        void translatePhrase(phrase, target);
       }
     }
   }, [transcription.phrases, langA, langB, translations, translatePhrase]);
 
-  // When source language changes, keep langA in sync and swap langB if they'd match
-  useEffect(() => {
-    setLangA(sourceLang);
-    setLangB(prev => (prev === sourceLang ? (sourceLang === "en" ? "ar" : "en") : prev));
-  }, [sourceLang]);
-
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
   useEffect(() => { if (devices.length > 0 && !micId) setMicId(devices[0]!.deviceId); }, [devices, micId]);
   useEffect(() => {
-    if (user?.trialExpired) {
-      const t = setTimeout(() => setShowFeedback(true), 1000);
-      return () => clearTimeout(t);
-    }
+    if (!user?.trialExpired) return;
+    const t = setTimeout(() => setShowFeedback(true), 1000);
+    return () => clearTimeout(t);
   }, [user?.trialExpired]);
 
   const handleLogout = async () => {
@@ -257,7 +244,7 @@ export default function Workspace() {
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     } else {
       handleClear();
-      transcription.start(micId, systemId, sourceLang);
+      transcription.start(micId, systemId);
     }
   };
 
@@ -313,7 +300,6 @@ export default function Workspace() {
               {icon}
             </button>
           ))}
-
           {user.isAdmin && (
             <button
               className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
@@ -324,7 +310,6 @@ export default function Workspace() {
             </button>
           )}
         </div>
-
         <button
           className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive transition-colors mt-auto"
           onClick={handleLogout}
@@ -341,7 +326,6 @@ export default function Workspace() {
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-5 shrink-0">
           <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
           <div className="flex items-center gap-2">
-            {/* Clear button */}
             {!isEmpty && (
               <button
                 onClick={handleClear}
@@ -405,7 +389,7 @@ export default function Workspace() {
                 <AudioMeter level={transcription.micLevel} label="" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">System Audio (second speaker)</label>
+                <label className="text-xs font-medium text-muted-foreground">System Audio (optional)</label>
                 <Select value={systemId} onChange={(e) => setSystemId(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm">
                   <option value="">None</option>
                   {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 20)}</option>)}
@@ -435,7 +419,7 @@ export default function Workspace() {
                     <Mic2 className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Speaks English or Arabic — both are recognized</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Automatically detects English and Arabic</p>
                 </div>
               ) : (
                 <div>
@@ -466,7 +450,7 @@ export default function Workspace() {
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Translations appear here</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Auto-direction: English ↔ Arabic</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">English → Arabic · Arabic → English</p>
                 </div>
               ) : (
                 <div>
@@ -492,11 +476,11 @@ export default function Workspace() {
         {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Device selectors */}
+          {/* ROW 1: Microphone device selector */}
           <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Mic:</span>
-              <Select value={micId} onChange={(e) => setMicId(e.target.value)} disabled={transcription.isRecording} className="h-8 text-xs flex-1 min-w-0 max-w-[200px] bg-muted/30">
+              <Select value={micId} onChange={(e) => setMicId(e.target.value)} disabled={transcription.isRecording} className="h-8 text-xs flex-1 min-w-0 max-w-[220px] bg-muted/30">
                 {devices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>{d.label || `Device ${d.deviceId.slice(0, 8)}`}</option>
                 ))}
@@ -508,7 +492,7 @@ export default function Workspace() {
 
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">System:</span>
-              <Select value={systemId} onChange={(e) => setSystemId(e.target.value)} disabled={transcription.isRecording} className="h-8 text-xs flex-1 min-w-0 max-w-[200px] bg-muted/30">
+              <Select value={systemId} onChange={(e) => setSystemId(e.target.value)} disabled={transcription.isRecording} className="h-8 text-xs flex-1 min-w-0 max-w-[220px] bg-muted/30">
                 <option value="">None</option>
                 {devices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>{d.label || `Device ${d.deviceId.slice(0, 8)}`}</option>
@@ -518,31 +502,24 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* ROW 2: Source language + Language pair + Record */}
+          {/* ROW 2: Translate-between pair + record button */}
           <div className="flex items-center px-4 py-3 gap-3">
-            {/* Left: source language + translate pair */}
+
+            {/* Left: translate-between pair */}
             <div className="flex items-center gap-2">
-              {/* Source language toggle */}
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Listen in</span>
-              <div className="flex rounded-lg border border-border overflow-hidden h-9">
-                {(["en", "ar"] as const).map((lang) => (
-                  <button
-                    key={lang}
-                    disabled={transcription.isRecording}
-                    onClick={() => setSourceLang(lang)}
-                    className={`px-3 text-sm font-medium transition-colors disabled:opacity-50 ${
-                      sourceLang === lang
-                        ? "bg-primary text-white"
-                        : "bg-white text-muted-foreground hover:bg-muted/40"
-                    }`}
-                  >
-                    {lang === "en" ? "English" : "Arabic"}
-                  </button>
-                ))}
-              </div>
-              <div className="w-px h-5 bg-border mx-1" />
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">→ Translate to</span>
-              <Select value={langB} onChange={(e) => setLangB(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[150px] bg-white border-border">
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate between</span>
+              <Select value={langA} onChange={(e) => setLangA(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
+                {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+              </Select>
+              <button
+                onClick={handleSwapLangs}
+                disabled={transcription.isRecording}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground transition-colors disabled:opacity-40"
+                title="Swap languages"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+              </button>
+              <Select value={langB} onChange={(e) => setLangB(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
             </div>
@@ -568,16 +545,18 @@ export default function Workspace() {
                     }`}
                   >
                     <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${transcription.isRecording ? "bg-white animate-pulse" : "bg-white/80"}`} />
-                    {transcription.isStarting ? "Starting…" : transcription.isRecording ? "Listening" : "Start"}
+                    {transcription.isStarting ? "Starting…" : transcription.isRecording ? "Stop" : "Start"}
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Right spacer (mirrors the left for true centering) */}
+            {/* Right: mirror spacer for centering */}
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
-              <span className="text-xs font-semibold whitespace-nowrap">Translate Between</span>
-              <div className="h-9 w-[130px]" /><div className="w-8 h-8" /><div className="h-9 w-[130px]" />
+              <span className="text-xs font-semibold whitespace-nowrap">Translate between</span>
+              <div className="h-9 w-[130px]" />
+              <div className="w-8 h-8" />
+              <div className="h-9 w-[130px]" />
             </div>
           </div>
 
