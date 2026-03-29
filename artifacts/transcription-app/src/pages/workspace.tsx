@@ -405,6 +405,11 @@ export default function Workspace() {
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
                 Transcript
               </span>
+              {transcription.audioInfo && (
+                <span className="text-[9px] text-muted-foreground/50 font-mono hidden sm:block">
+                  {transcription.audioInfo}
+                </span>
+              )}
               {transcription.isRecording && (
                 <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
                   <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
