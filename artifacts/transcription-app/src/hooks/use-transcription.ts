@@ -363,11 +363,13 @@ export function useTranscription() {
         api_key:                        apiKey,
         model:                          "stt-rt-v4",
         audio_format:                   "pcm_s16le",
-        sample_rate:                    TARGET_RATE,   // v4 API field (NOT sample_rate_hertz)
-        num_channels:                   1,             // v4 API field (NOT num_audio_channels)
+        sample_rate:                    TARGET_RATE,
+        num_channels:                   1,
         language_hints:                 ["en", "ar"],
         enable_language_identification: true,
+        // Two forms — stt-rt-v4 accepts either; send both for compatibility.
         enable_speaker_diarization:     true,
+        diarization:                    { enable: true },
       };
       ws.send(JSON.stringify(config));
       console.log("[WS] stt-rt-v4 OPEN — config sent:", config);
@@ -416,20 +418,19 @@ export function useTranscription() {
       }
 
       // ── Speaker tracking ──────────────────────────────────────────────────
-      // Push every speaker reading into the per-segment history.
-      // flush() takes the modal across ALL readings for this segment, then
-      // clears the buffer — so each finalized row gets its own clean label.
-      const latestSpk = (
-        [...finalTokens].reverse().find(t => t.speaker !== undefined) ??
-        [...nfTokens].reverse().find(t => t.speaker !== undefined)
-      )?.speaker;
-      if (latestSpk !== undefined) speakerRef.current = latestSpk;
-
-      for (const t of tokens) {
-        if (t.speaker !== undefined) {
-          touchSpeaker(t.speaker);
-          speakerHistoryRef.current.push(t.speaker);
+      // Collect every speaker ID from this batch into per-segment history.
+      // flush() takes the mode across all readings, then clears for the next
+      // segment — no cross-segment contamination.
+      const tokensWithSpk = tokens.filter(t => t.speaker !== undefined);
+      if (tokensWithSpk.length > 0) {
+        for (const t of tokensWithSpk) {
+          touchSpeaker(t.speaker!);
+          speakerHistoryRef.current.push(t.speaker!);
         }
+        // Update the live sticky speaker to the latest reading in this batch.
+        const latestSpk = tokensWithSpk[tokensWithSpk.length - 1].speaker!;
+        speakerRef.current = latestSpk;
+        console.log("[Diarization] speakers in batch:", tokensWithSpk.map(t => t.speaker));
       }
 
       // ── Language detection ────────────────────────────────────────────────
@@ -443,24 +444,15 @@ export function useTranscription() {
       if (newFinalDelta) finalBufRef.current += newFinalDelta;
       nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-      // ── Lock segment-start speaker for display stability ──────────────────
-      // First token of a new segment sets the label; it never changes while
-      // the segment is live, preventing mid-sentence label flicker.
+      // ── Update live row ───────────────────────────────────────────────────
+      // Always show the most current speaker reading — label updates as
+      // diarization converges, which matches Soniox desktop behaviour.
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
-      if (activeText && segStartSpeakerRef.current === -1) {
-        segStartSpeakerRef.current = speakerRef.current;
-      }
-
-      // ── Update live row (no new row created) ─────────────────────────────
       if (activeText) {
         setLiveTranscript({
           text:         activeText,
           language:     langRef.current,
-          speakerLabel: normalizeSpeaker(
-            segStartSpeakerRef.current !== -1
-              ? segStartSpeakerRef.current
-              : speakerRef.current
-          ),
+          speakerLabel: normalizeSpeaker(speakerRef.current),
         });
       }
 
