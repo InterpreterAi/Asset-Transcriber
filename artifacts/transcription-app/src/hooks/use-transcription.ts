@@ -30,7 +30,8 @@ const STORAGE_KEY  = "interpretai_phrases";
 // we were sealing mid-sentence.  1500ms gives natural phrase boundaries —
 // speakers typically pause ≥1.5 s between thoughts; shorter pauses are
 // mid-sentence breaths and should not split a segment.
-const COMMIT_DELAY = 1500; // Seal after 1.5 s of silence
+const COMMIT_DELAY  = 700; // Seal after 700 ms of silence
+const MAX_SEG_WORDS = 12;  // Seal when segment reaches this many words
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -474,6 +475,13 @@ export function useTranscription() {
 
           // Sentence boundary → seal now (also confirms any pending candidate)
           if (SENTENCE_END.test(finalBufRef.current)) {
+            sealAndFlush();
+            continue;
+          }
+
+          // Word-count cap → seal to keep segments short and readable
+          const wordCount = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
+          if (wordCount >= MAX_SEG_WORDS) {
             sealAndFlush();
           }
         }
