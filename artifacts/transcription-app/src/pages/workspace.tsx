@@ -244,7 +244,7 @@ export default function Workspace() {
           console.error("Live translation error:", err);
         }
       }
-    }, 400);
+    }, 200); // 200ms debounce — responsive live mirroring without hammering the API
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transcription.liveTranscript?.text, transcription.liveTranscript?.language, langA, langB]);
 

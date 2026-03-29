@@ -23,7 +23,13 @@ export interface LiveTranscript {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
-const COMMIT_DELAY = 800; // ms of silence after last final token before sealing into history
+
+// How long the token stream must be completely silent before a live phrase
+// is sealed into history.  The Soniox v4 endpoint detector creates natural
+// pauses at clause boundaries (comma, breath) that can be >800 ms.  At 800ms
+// we were sealing mid-sentence.  2000ms matches the API's own default
+// max_endpoint_delay_ms, so a new bubble only starts after a real pause.
+const COMMIT_DELAY = 2000;
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -201,6 +207,11 @@ export function useTranscription() {
         language_hints:                 ["en", "ar"],
         enable_language_identification: true,
         enable_speaker_diarization:     true,
+        // Push the API's own endpoint detector to its maximum (3000ms).
+        // This prevents the API from inserting artificial gaps between clause
+        // boundaries (commas, breaths) that would cause our commit timer to
+        // fire mid-sentence.  Our COMMIT_DELAY = 2000ms is the real boundary.
+        max_endpoint_delay_ms:          3000,
       };
       ws.send(JSON.stringify(config));
       console.log("[WS] stt-rt-v4 OPEN — config sent:", config);
