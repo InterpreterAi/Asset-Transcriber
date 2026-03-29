@@ -263,12 +263,7 @@ export function useTranscription() {
   // finalizedSegments is append-only: once a segment is pushed it is NEVER
   // modified again.  Only activePreviewLine updates in place while speaking.
   //
-  // keepPreview = true: called from inside processTokenBatch — skip the
-  // setActivePreviewLine(null) so the live row stays visible until the
-  // end-of-message update overwrites it with fresh content.  Callers outside
-  // the loop (stop, pause timer, ws.onclose) use the default false so the
-  // preview is cleared promptly when recording ends or speech pauses.
-  const flush = useCallback((keepPreview = false) => {
+  const flush = useCallback(() => {
     const text = finalBufRef.current.trim();
     if (!text) return;
     const lang = langRef.current;
@@ -297,10 +292,11 @@ export function useTranscription() {
     pendingSpeakerRef.current           = null;    // speaker stability window reset
     pendingSpeakerStartTimeRef.current  = 0;
     pendingSpeakerTokenCountRef.current = 0;
-    // Only wipe the live row when the caller is NOT inside processTokenBatch.
-    // In-loop flushes (keepPreview=true) let the end-of-message setActivePreviewLine
-    // call replace the content naturally — no blank flash between segments.
-    if (!keepPreview) setActivePreviewLine(null);
+    // Clear the live preview immediately — setFinalizedSegments and
+    // setActivePreviewLine(null) are batched into a single React render, so the
+    // text moves from the italic preview row to the full-weight finalized row
+    // atomically.  No blank flash occurs.
+    setActivePreviewLine(null);
 
     const speakerLabel = normalizeSpeaker(stableSpeaker);
     const phrase: Phrase = {
@@ -496,7 +492,7 @@ export function useTranscription() {
             ) {
               // Capture the confirmed speaker BEFORE flush() wipes pendingSpeakerRef.
               const confirmedSpk = pendingSpeakerRef.current;
-              flush(true); // seals old segment; keepPreview=true — no blank flash
+              flush(); // seal old segment
               activeSegSpeakerRef.current = confirmedSpk;
               segStartMsRef.current       = Date.now();
             }
@@ -523,7 +519,7 @@ export function useTranscription() {
         // Step 2b: punctuation flush — sentence boundary (rules 2, 5).
         // Fires AFTER appending; punctuation is included in the sealed segment.
         if (hasMinLength() && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
-          flush(true); // keepPreview=true — live row stays visible until next token
+          flush(); // seal segment; preview clears atomically with finalized row
         }
 
         const elapsed = segStartMsRef.current > 0
@@ -535,13 +531,13 @@ export function useTranscription() {
         // will always have enough content to stand on its own.
         const MAX_SEGMENT_MS = 3000;
         if (hasMinLength() && elapsed >= MAX_SEGMENT_MS) {
-          flush(true); // keepPreview=true
+          flush();
         }
 
         // Step 2c-len: length cap — very long buffers flush at a word boundary
         // to avoid splitting a word mid-token.
         else if (hasMinLength() && atWordBoundary() && finalBufRef.current.length >= 120) {
-          flush(true); // keepPreview=true
+          flush();
         }
       }
 
@@ -579,17 +575,22 @@ export function useTranscription() {
         langRef.current = detectLang(newFinalToks, langRef.current);
       }
 
-      // activePreviewLine updates every message — text and speaker together.
-      // speakerRef.current is always the latest known speaker (updated by both
-      // non-final and final tokens above).  flush() is final-only — never here.
+      // activePreviewLine is updated unconditionally on every message.
+      // If there is content (final buffer + any non-final tail), show it.
+      // If the buffer is empty (just flushed, no new tokens yet), clear the
+      // preview so stale text never lingers after a segment commits.
+      // Because React batches flush()'s setActivePreviewLine(null) together
+      // with this call in the same synchronous handler, only the last value
+      // matters — so new content naturally overrides the null from flush().
       const displayText = (finalBufRef.current + nfText).trim();
       if (displayText) {
-        const previewSpeaker = speakerRef.current;   // already the latest
         setActivePreviewLine({
           text:         displayText,
           language:     langRef.current,
-          speakerLabel: normalizeSpeaker(previewSpeaker),
+          speakerLabel: normalizeSpeaker(speakerRef.current),
         });
+      } else {
+        setActivePreviewLine(null);
       }
     };
 
