@@ -264,12 +264,32 @@ export function useTranscription() {
 
         // ── Final tokens: accumulate into the sentence buffer ──────────────
         if (finalTokens.length > 0) {
-          // Lock speaker to the FIRST speaker heard at the start of a new
-          // utterance.  Mid-sentence Soniox cluster IDs can fluctuate by ±1;
-          // only accept a new speaker when the buffer is empty (fresh utterance).
-          if (finalBufRef.current === "") {
-            speakerRef.current = finalTokens[0]?.speaker ?? speakerRef.current;
+          const incomingSpeaker = finalTokens[0]?.speaker;
+
+          // ── Speaker-change detection ─────────────────────────────────────
+          // When Soniox reports a different speaker on incoming final tokens,
+          // seal the current utterance immediately — no silence needed.
+          // This is the primary turn-segmentation signal, matching the
+          // behaviour of the Soniox desktop reference app.
+          if (
+            finalBufRef.current.trim() &&
+            incomingSpeaker !== undefined &&
+            incomingSpeaker !== speakerRef.current
+          ) {
+            if (commitTimerRef.current) {
+              clearTimeout(commitTimerRef.current);
+              commitTimerRef.current = null;
+            }
+            flush();                             // seal previous speaker's turn
+            speakerRef.current = incomingSpeaker; // adopt new speaker
           }
+
+          // Lock speaker at utterance start (buffer was just cleared by flush
+          // or is naturally empty for a fresh start).
+          if (finalBufRef.current === "" && incomingSpeaker !== undefined) {
+            speakerRef.current = incomingSpeaker;
+          }
+
           finalBufRef.current += finalTokens.map(t => t.text).join("");
           langRef.current = detectLang(finalTokens, langRef.current);
         }
@@ -277,27 +297,29 @@ export function useTranscription() {
         // ── Non-final tokens: REPLACE the live suffix (Buffer-and-Overwrite) ─
         nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-        // Language + speaker fallback from non-final when buffer is still empty
+        // Language fallback from non-final when buffer is still empty
         if (nfTokens.length > 0 && !finalBufRef.current) {
           langRef.current = detectLang(nfTokens, langRef.current);
-          // Only capture speaker from non-final if we haven't locked one yet
-          if (speakerRef.current === undefined) {
-            speakerRef.current = nfTokens[0]?.speaker ?? 0;
-          }
         }
 
-        // ── Anti-fragmentation: reset silence timer on ANY token arrival ───
+        // ── Commit-timer logic ──────────────────────────────────────────────
         //
-        // Resetting on final tokens only let non-final-only messages slip
-        // through — if the model held tokens in non-final state for 800ms
-        // the buffer committed mid-sentence, creating extra bubbles.
+        // Priority (highest → lowest):
+        //  1. Speaker change → already handled above with synchronous flush()
+        //  2. Sentence punctuation + no live speech → seal after SHORT_DELAY
+        //     so the last word is confirmed before we close the bubble.
+        //  3. Silence longer than COMMIT_DELAY → normal silence-based seal.
         //
-        // Now: ANY arriving token (final or non-final) proves the speaker is
-        // still active → reset the timer. A new bubble only starts after a
-        // true 800ms gap in the token stream.
+        // We reset the timer on EVERY token (final or non-final) so that
+        // continuous mid-sentence non-final token streams don't cause
+        // premature commits during clause-boundary pauses.
+        //
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-        const endsSentence = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
-        commitTimerRef.current = setTimeout(flush, endsSentence ? 0 : COMMIT_DELAY);
+
+        const endsSentence   = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
+        const hasLiveSpeech  = nfDisplayRef.current.trim().length > 0;
+        const delay = (endsSentence && !hasLiveSpeech) ? 300 : COMMIT_DELAY;
+        commitTimerRef.current = setTimeout(flush, delay);
 
         // ── Update live transcript: confirmed prefix + uncertain suffix ──────
         const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
