@@ -3,24 +3,32 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 
 export interface Phrase {
   id: string;
-  speakerIndex: number;
-  speakerLabel: string;
+  speakerIndex: number;   // globally unique: mic-en 0-99, mic-ar 100-199, sys-en 200-299, sys-ar 300-399
+  speakerLabel: string;   // "Interpreter" | "Interpreter 2" | "Caller" | "Caller 2"
+  source: "mic" | "sys"; // which audio source produced this phrase
   text: string;
-  language: string;
-  /** true while this phrase is still accumulating words from the same speaker */
-  active: boolean;
+  language: string;       // "en" | "ar"
+  active: boolean;        // true while accumulating words
 }
 
-// ── constants ───────────────────────────────────────────────────────────────
-const TARGET_RATE = 16000;  // Soniox requires 16 kHz mono PCM
-const AR_SPK_OFFSET = 100;  // offset ar_v1 speaker indices to avoid collision with en_v2
+// ── constants ──────────────────────────────────────────────────────────────
+const TARGET_RATE = 16000;
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// Speaker-index offsets per channel so indices never collide across the 4 WSs:
+//   mic + en_v2  →  offset   0  (speakers  0…99)
+//   mic + ar_v1  →  offset 100  (speakers 100…199)
+//   sys + en_v2  →  offset 200  (speakers 200…299)
+//   sys + ar_v1  →  offset 300  (speakers 300…399)
+const OFFSETS = {
+  micEn: 0,
+  micAr: 100,
+  sysEn: 200,
+  sysAr: 300,
+} as const;
 
-/**
- * Downsample a Float32 buffer from `fromRate` Hz to `toRate` Hz using
- * linear interpolation. If rates match, returns the input unchanged.
- */
+// ── helpers ────────────────────────────────────────────────────────────────
+
+/** Linear-interpolation downsample from fromRate → toRate (noop when equal). */
 function downsampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (fromRate === toRate) return input;
   const ratio = fromRate / toRate;
@@ -37,7 +45,7 @@ function downsampleLinear(input: Float32Array, fromRate: number, toRate: number)
   return output;
 }
 
-/** Convert a Float32 PCM buffer to 16-bit signed little-endian. */
+/** Float32 PCM → 16-bit signed little-endian ArrayBuffer. */
 function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
   const out = new Int16Array(input.length);
   for (let i = 0; i < input.length; i++) {
@@ -47,16 +55,18 @@ function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
   return out.buffer;
 }
 
-function speakerLabel(idx: number): string {
-  return `Speaker ${idx + 1}`;
-}
-
-/** Returns true when ≥ 35 % of letters in `text` are Arabic script. */
+/** Returns true when ≥35% of letter codepoints in `text` are Arabic script. */
 function isValidArabicOutput(text: string): boolean {
   const letters = (text.match(/\p{L}/gu) ?? []).length;
   if (letters === 0) return false;
   const arabic = (text.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []).length;
   return arabic / letters >= 0.35;
+}
+
+/** Human-readable label for a speaker within a source. */
+function makeSpeakerLabel(source: "mic" | "sys", localSpkIdx: number): string {
+  const base = source === "mic" ? "Interpreter" : "Caller";
+  return localSpkIdx > 0 ? `${base} ${localSpkIdx + 1}` : base;
 }
 
 /** Group consecutive finalized words by speaker into runs. */
@@ -82,44 +92,53 @@ function groupBySpeaker(
 let phraseIdCounter = 0;
 function nextId() { return `p-${++phraseIdCounter}`; }
 
-// ── hook ─────────────────────────────────────────────────────────────────────
+// ── hook ──────────────────────────────────────────────────────────────────
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [connectedModels, setConnectedModels] = useState<string[]>([]);
-  /** Actual audio context sample rate — shown in the UI for diagnostics */
   const [audioInfo, setAudioInfo] = useState<string>("");
 
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const wsEnRef = useRef<WebSocket | null>(null);
-  const wsArRef = useRef<WebSocket | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+
+  // Four WebSocket connections — mic and sys each get their own en_v2 + ar_v1 pair
+  const wsMicEnRef = useRef<WebSocket | null>(null);
+  const wsMicArRef = useRef<WebSocket | null>(null);
+  const wsSysEnRef = useRef<WebSocket | null>(null);
+  const wsSysArRef = useRef<WebSocket | null>(null);
+
+  // Two separate audio processors — mic and sys audio NEVER mix
+  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const sysProcessorRef = useRef<ScriptProcessorNode | null>(null);
+
   const streamsRef = useRef<MediaStream[]>([]);
   const isRecordingRef = useRef(false);
   const sessionIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
-  const chunksSentRef = useRef(0);
 
   const startSessionMut = useStartSession();
   const stopSessionMut = useStopSession();
   const getTokenMut = useGetTranscriptionToken();
 
-  // ── stop ─────────────────────────────────────────────────────────────────
+  // ── stop ────────────────────────────────────────────────────────────────
   const stop = useCallback(async () => {
     if (!isRecordingRef.current) return;
     isRecordingRef.current = false;
     setIsRecording(false);
-    setConnectedModels([]);
 
+    // Seal all active phrases
     setPhrases(prev => prev.map(p => p.active ? { ...p, active: false } : p));
 
-    processorRef.current?.disconnect();
-    processorRef.current = null;
+    // Disconnect processors
+    micProcessorRef.current?.disconnect();
+    micProcessorRef.current = null;
+    sysProcessorRef.current?.disconnect();
+    sysProcessorRef.current = null;
 
-    for (const wsRef of [wsEnRef, wsArRef]) {
+    // Close all four WebSockets (send empty ArrayBuffer = EOF signal to Soniox)
+    for (const wsRef of [wsMicEnRef, wsMicArRef, wsSysEnRef, wsSysArRef]) {
       if (wsRef.current) {
         try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* ignore */ }
         wsRef.current.close();
@@ -127,11 +146,13 @@ export function useTranscription() {
       }
     }
 
+    // Close audio context
     if (audioCtxRef.current) {
       await audioCtxRef.current.close();
       audioCtxRef.current = null;
     }
 
+    // Stop all media tracks
     streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
     streamsRef.current = [];
     setMicLevel(0);
@@ -150,28 +171,32 @@ export function useTranscription() {
     }
   }, [stopSessionMut]);
 
-  // ── build one Soniox WebSocket ────────────────────────────────────────────
+  // ── buildWs ─────────────────────────────────────────────────────────────
+  // Each WS handles audio from exactly ONE source (mic OR sys).
+  // spkOffset ensures speaker indices never collide across the four connections.
   const buildWs = useCallback((
     apiKey: string,
     model: string,
-    langCode: string,
+    langCode: "en" | "ar",
     spkOffset: number,
+    source: "mic" | "sys",
     ownRef: MutableRefObject<WebSocket | null>,
+    // The peer ref for the same source (e.g. wsMicArRef when building wsMicEnRef)
+    // — used to detect when BOTH connections for a source die.
+    sourcePeerRef: MutableRefObject<WebSocket | null>,
   ): WebSocket => {
     const ws = new WebSocket("wss://api.soniox.com/transcribe-websocket");
 
     ws.onopen = () => {
-      const initMsg = {
+      ws.send(JSON.stringify({
         api_key: apiKey,
         model,
         audio_format: "pcm_s16le",
         sample_rate_hertz: TARGET_RATE,
         num_audio_channels: 1,
-        include_nonfinal: false,  // NOTE: true causes disconnect on en_v2/ar_v1 — keep false
-      };
-      ws.send(JSON.stringify(initMsg));
-      console.log(`[WS] ${model} opened → init sent`, initMsg);
-      setConnectedModels(prev => [...prev.filter(m => m !== model), model]);
+        include_nonfinal: false, // keep false — true causes server-side disconnect on these models
+      }));
+      console.log(`[WS] ${source}/${model} connected`);
     };
 
     ws.onmessage = (e: MessageEvent) => {
@@ -183,20 +208,18 @@ export function useTranscription() {
           message?: string;
         };
 
-        // Soniox API error response
+        // Soniox error response
         if (data.error || (typeof data.code === "number" && !data.fw)) {
           const msg = data.error ?? data.message ?? `code ${data.code}`;
-          console.error(`[WS] ${model} API error: ${msg}`, data);
-          setError(`Transcription error (${model}): ${msg}`);
+          console.error(`[WS] ${source}/${model} API error: ${msg}`, data);
+          setError(`Transcription error (${source}/${model}): ${msg}`);
           return;
         }
 
         const finalWords = data.fw ?? [];
         if (finalWords.length === 0) return;
 
-        console.log(`[WS] ${model} fw (${finalWords.length} words):`,
-          finalWords.map(w => w.t ?? w.w ?? w.text).join(""));
-
+        console.log(`[WS] ${source}/${model} fw:`, finalWords.map(w => w.t ?? w.w ?? "").join(""));
         const runs = groupBySpeaker(finalWords);
 
         setPhrases(prev => {
@@ -204,6 +227,8 @@ export function useTranscription() {
           for (const run of runs) {
             const trimmed = run.text.trim();
             if (!trimmed) continue;
+
+            // Language filter: ar_v1 must produce Arabic; en_v2 must not produce Arabic
             if (langCode === "ar" && !isValidArabicOutput(trimmed)) continue;
             if (langCode === "en" && isValidArabicOutput(trimmed)) continue;
 
@@ -211,13 +236,16 @@ export function useTranscription() {
             const last = next[next.length - 1];
 
             if (last && last.active && last.speakerIndex === globalSpk) {
+              // Same source + same speaker → extend current bubble
               next[next.length - 1] = { ...last, text: last.text + " " + trimmed };
             } else {
+              // Source or speaker changed → seal previous bubble, open a new one
               if (last?.active) next[next.length - 1] = { ...last, active: false };
               next.push({
                 id: nextId(),
                 speakerIndex: globalSpk,
-                speakerLabel: speakerLabel(langCode === "ar" ? run.spk + 2 : run.spk),
+                speakerLabel: makeSpeakerLabel(source, run.spk),
+                source,
                 text: trimmed,
                 language: langCode,
                 active: true,
@@ -227,41 +255,47 @@ export function useTranscription() {
           return next;
         });
       } catch (err) {
-        console.error(`[WS] ${model} parse error`, err);
+        console.error(`[WS] ${source}/${model} parse error`, err);
       }
     };
 
     ws.onerror = (e) => {
-      console.error(`[WS] ${model} socket error`, e);
+      console.error(`[WS] ${source}/${model} socket error`, e);
     };
 
     ws.onclose = (e) => {
       const logFn = (e.code === 1000 || e.code === 1001) ? console.log : console.error;
-      logFn(`[WS] ${model} closed — code:${e.code} reason:"${e.reason}" wasClean:${e.wasClean}`);
+      logFn(`[WS] ${source}/${model} closed — code:${e.code} reason:"${e.reason}"`);
 
-      setConnectedModels(prev => prev.filter(m => m !== model));
       if (ownRef.current === ws) ownRef.current = null;
 
-      if (isRecordingRef.current && !e.wasClean) {
-        setError(`${model} disconnected unexpectedly (code ${e.code}${e.reason ? `: ${e.reason}` : ""})`);
+      // Surface unexpected drops to the user
+      if (isRecordingRef.current && !e.wasClean && e.code !== 1000) {
+        setError(`${source === "mic" ? "Mic" : "System"} audio stream dropped (${e.code}${e.reason ? ": " + e.reason : ""})`);
       }
 
-      if (isRecordingRef.current && wsEnRef.current === null && wsArRef.current === null) {
-        void stop();
+      // When BOTH connections for this source die:
+      const bothDead = ownRef.current === null && sourcePeerRef.current === null;
+      if (isRecordingRef.current && bothDead) {
+        if (source === "mic") {
+          // Mic is the primary source — stop the whole session
+          void stop();
+        } else {
+          // Sys audio ended — log but keep mic running
+          console.warn("[WS] System audio stream ended; microphone continues.");
+        }
       }
     };
 
     return ws;
   }, [stop]);
 
-  // ── start ─────────────────────────────────────────────────────────────────
+  // ── start ────────────────────────────────────────────────────────────────
   const start = useCallback(async (micDeviceId: string, systemDeviceId: string) => {
     try {
       setError(null);
       setPhrases([]);
-      setConnectedModels([]);
       setAudioInfo("");
-      chunksSentRef.current = 0;
 
       const tokenRes = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
@@ -272,18 +306,15 @@ export function useTranscription() {
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
 
-      // ── Critical: do NOT specify sampleRate here. ──────────────────────────
-      // Requesting 16 kHz is frequently ignored by browsers and silently falls
-      // back to the hardware rate (44.1 / 48 kHz). We capture at the native
-      // rate and manually downsample to TARGET_RATE (16 kHz) below.
+      // Do NOT specify sampleRate — browser may silently ignore 16 kHz and use
+      // hardware rate. We capture at native rate and downsample manually below.
       const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
       const nativeSR = ctx.sampleRate;
-      const info = `native ${nativeSR} Hz → Soniox ${TARGET_RATE} Hz`;
-      setAudioInfo(info);
-      console.log(`[Audio] Context sample rate: ${nativeSR} Hz (${info})`);
+      setAudioInfo(`native ${nativeSR} Hz → Soniox ${TARGET_RATE} Hz`);
+      console.log(`[Audio] native rate: ${nativeSR} Hz`);
 
-      // Mic: no sampleRate constraint — let the browser use its native rate
+      // ── Mic capture ──────────────────────────────────────────────────────
       const micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: micDeviceId ? { exact: micDeviceId } : undefined,
@@ -295,7 +326,7 @@ export function useTranscription() {
       });
       streamsRef.current.push(micStream);
 
-      // System audio (optional)
+      // ── System audio capture (optional) ─────────────────────────────────
       let systemStream: MediaStream | null = null;
       if (systemDeviceId && systemDeviceId !== micDeviceId) {
         try {
@@ -310,72 +341,88 @@ export function useTranscription() {
           });
           streamsRef.current.push(systemStream);
         } catch (e) {
-          console.warn("Could not open system audio device:", e);
+          console.warn("[Audio] Could not open system device:", e);
         }
       }
 
-      // ── Audio graph ──────────────────────────────────────────────────────
-      // micSource → micAnalyser ──┐
-      //                           ├──→ processor (ScriptProcessorNode) → ctx.destination
-      // sysSource → sysAnalyser ──┘
-      //
-      // ScriptProcessorNode sums all connected inputs into inputBuffer[0].
-      // We then downsample from nativeSR → 16 kHz before sending to Soniox.
+      // ── Open Soniox WebSockets ────────────────────────────────────────────
+      // Mic pair: spkOffset 0 (en) and 100 (ar)
+      const wsMicEn = buildWs(tokenRes.apiKey, "en_v2", "en", OFFSETS.micEn, "mic", wsMicEnRef, wsMicArRef);
+      const wsMicAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.micAr, "mic", wsMicArRef, wsMicEnRef);
+      wsMicEnRef.current = wsMicEn;
+      wsMicArRef.current = wsMicAr;
 
+      // Sys pair: spkOffset 200 (en) and 300 (ar) — only opened if system audio exists
+      let wsSysEn: WebSocket | null = null;
+      let wsSysAr: WebSocket | null = null;
+      if (systemStream) {
+        wsSysEn = buildWs(tokenRes.apiKey, "en_v2", "en", OFFSETS.sysEn, "sys", wsSysEnRef, wsSysArRef);
+        wsSysAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.sysAr, "sys", wsSysArRef, wsSysEnRef);
+        wsSysEnRef.current = wsSysEn;
+        wsSysArRef.current = wsSysAr;
+      }
+
+      // ── Mic audio graph ───────────────────────────────────────────────────
+      // micSource → micAnalyser → micProcessor → ctx.destination
+      // (processor MUST be connected to destination or onaudioprocess won't fire)
       const micSource = ctx.createMediaStreamSource(micStream);
       const micAnalyser = ctx.createAnalyser();
       micAnalyser.fftSize = 256;
       micSource.connect(micAnalyser);
 
-      const sysAnalyser = ctx.createAnalyser();
-      sysAnalyser.fftSize = 256;
+      // 4096 samples @ native 48kHz ≈ 85 ms per chunk → 1365 samples @ 16kHz ≈ 85 ms
+      const micProcessor = ctx.createScriptProcessor(4096, 1, 1);
+      micProcessorRef.current = micProcessor;
+      micAnalyser.connect(micProcessor);
+      micProcessor.connect(ctx.destination);
 
-      // Use a buffer large enough to give ~100 ms at the native rate
-      // Nearest power-of-2 to (nativeSR * 0.1): 48000 * 0.1 = 4800 → 4096
-      const bufSize = 4096;
-      const processor = ctx.createScriptProcessor(bufSize, 1, 1);
-      processorRef.current = processor;
+      let micChunks = 0;
+      micProcessor.onaudioprocess = (e) => {
+        const raw = e.inputBuffer.getChannelData(0);
+        const pcm = floatTo16BitPCM(downsampleLinear(raw, nativeSR, TARGET_RATE));
+        if (++micChunks <= 2) console.log(`[Mic] chunk #${micChunks}: ${raw.length}@${nativeSR} → ${pcm.byteLength}B@${TARGET_RATE}`);
+        if (wsMicEn.readyState === WebSocket.OPEN) wsMicEn.send(pcm);
+        if (wsMicAr.readyState === WebSocket.OPEN) wsMicAr.send(pcm);
 
-      micAnalyser.connect(processor);
-      if (systemStream) {
-        const sysSource = ctx.createMediaStreamSource(systemStream);
-        sysSource.connect(sysAnalyser);
-        sysAnalyser.connect(processor);
-      }
-      processor.connect(ctx.destination);   // must be connected or onaudioprocess won't fire
-
-      // Open BOTH Soniox WebSocket connections
-      const wsEn = buildWs(tokenRes.apiKey, "en_v2", "en", 0, wsEnRef);
-      const wsAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", AR_SPK_OFFSET, wsArRef);
-      wsEnRef.current = wsEn;
-      wsArRef.current = wsAr;
-
-      const updateLevel = (analyser: AnalyserNode, setter: (v: number) => void) => {
-        const buf = new Float32Array(analyser.fftSize);
-        analyser.getFloatTimeDomainData(buf);
+        // Update mic level meter
+        const buf = new Float32Array(micAnalyser.fftSize);
+        micAnalyser.getFloatTimeDomainData(buf);
         let sum = 0;
         for (const a of buf) sum += a * a;
-        setter(Math.min(100, Math.sqrt(sum / buf.length) * 500));
+        setMicLevel(Math.min(100, Math.sqrt(sum / buf.length) * 500));
       };
 
-      processor.onaudioprocess = (e) => {
-        // Downsample from nativeSR to TARGET_RATE (16 kHz)
-        const raw = e.inputBuffer.getChannelData(0);
-        const downsampled = downsampleLinear(raw, nativeSR, TARGET_RATE);
-        const pcm = floatTo16BitPCM(downsampled);
+      // ── System audio graph ────────────────────────────────────────────────
+      // sysSource → sysAnalyser → sysProcessor → ctx.destination
+      if (systemStream && wsSysEn && wsSysAr) {
+        const sysSource = ctx.createMediaStreamSource(systemStream);
+        const sysAnalyser = ctx.createAnalyser();
+        sysAnalyser.fftSize = 256;
+        sysSource.connect(sysAnalyser);
 
-        const n = ++chunksSentRef.current;
-        if (n <= 3) {
-          // Log the first few chunks so we can verify audio is reaching Soniox
-          console.log(`[Audio] chunk #${n}: ${raw.length} samples@${nativeSR}Hz → ${downsampled.length} samples@${TARGET_RATE}Hz (${pcm.byteLength} bytes PCM)`);
-        }
+        const sysProcessor = ctx.createScriptProcessor(4096, 1, 1);
+        sysProcessorRef.current = sysProcessor;
+        sysAnalyser.connect(sysProcessor);
+        sysProcessor.connect(ctx.destination);
 
-        if (wsEn.readyState === WebSocket.OPEN) wsEn.send(pcm);
-        if (wsAr.readyState === WebSocket.OPEN) wsAr.send(pcm);
+        const capturedSysEn = wsSysEn;
+        const capturedSysAr = wsSysAr;
+        let sysChunks = 0;
+        sysProcessor.onaudioprocess = (e) => {
+          const raw = e.inputBuffer.getChannelData(0);
+          const pcm = floatTo16BitPCM(downsampleLinear(raw, nativeSR, TARGET_RATE));
+          if (++sysChunks <= 2) console.log(`[Sys] chunk #${sysChunks}: ${raw.length}@${nativeSR} → ${pcm.byteLength}B@${TARGET_RATE}`);
+          if (capturedSysEn.readyState === WebSocket.OPEN) capturedSysEn.send(pcm);
+          if (capturedSysAr.readyState === WebSocket.OPEN) capturedSysAr.send(pcm);
 
-        updateLevel(micAnalyser, setMicLevel);
-        if (systemStream) updateLevel(sysAnalyser, setSystemLevel);
-      };
+          // Update sys level meter
+          const buf = new Float32Array(sysAnalyser.fftSize);
+          sysAnalyser.getFloatTimeDomainData(buf);
+          let sum = 0;
+          for (const a of buf) sum += a * a;
+          setSystemLevel(Math.min(100, Math.sqrt(sum / buf.length) * 500));
+        };
+      }
 
       isRecordingRef.current = true;
       setIsRecording(true);
@@ -389,7 +436,6 @@ export function useTranscription() {
 
   return {
     isRecording,
-    connectedModels,
     audioInfo,
     phrases,
     micLevel,

@@ -132,21 +132,39 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 
 ### Transcription Flow
 1. User clicks Record → frontend calls `POST /api/transcription/token` (gets Soniox key) + `POST /api/transcription/session/start`
-2. Frontend opens `wss://api.soniox.com/transcribe-websocket` directly from the browser
-3. Audio captured at 48kHz via Web Audio API, mixed mic + system audio into one PCM stream
-4. Soniox v10 API format: `fw[]` (final words) and `nfw[]` (non-final/partial words); diarization via `spk` field per word
-5. Final words grouped into `Phrase[]` objects and rendered as chat bubbles
-6. Each finalized phrase is individually translated via `POST /api/translate`
-7. When stopped → `POST /api/transcription/session/stop` with duration in seconds
+2. Frontend opens up to **4** `wss://api.soniox.com/transcribe-websocket` connections directly from the browser
+3. Audio captured at native hardware rate (48 kHz typical) via Web Audio API; manually downsampled to 16 kHz via linear interpolation
+4. Mic and system audio are **never mixed** — each source has its own pair of WebSocket connections:
+   - `wsMicEn` (en_v2, spkOffset=0) + `wsMicAr` (ar_v1, spkOffset=100) — microphone/interpreter audio
+   - `wsSysEn` (en_v2, spkOffset=200) + `wsSysAr` (ar_v1, spkOffset=300) — system audio/caller (only opened when a system audio device is selected)
+5. Soniox response format: `fw[]` (final words); diarization via `spk` field per word
+6. Final words grouped into `Phrase[]` objects. Each phrase has `source: "mic" | "sys"` and `speakerLabel: "Interpreter" | "Caller"`
+7. Each finalized phrase (active → false) is individually translated via `POST /api/translate`
+8. When stopped → `POST /api/transcription/session/stop` with duration in seconds
+9. If both mic WebSockets die while recording → auto-stop. If sys WebSockets die → warn but continue with mic.
 
-### Soniox API Notes (Updated)
-- **Endpoint**: `wss://api.soniox.com/transcribe-websocket` (old `stt.soniox.com` domain no longer exists)
-- **Init format**: `{ api_key, model: "en_v2_lowlatency", audio_format: "pcm_s16le", sample_rate_hertz: 48000, num_audio_channels: 1, include_nonfinal: true }`
-- **Response format v10**: `{ fw: [{t, spk, lang}], nfw: [{t, spk, lang}], spks: [], metadata: {package_version: "v10"} }`
-- **Speaker diarization**: `spk` index (0-indexed) per word in `fw`/`nfw` arrays; spk 0 → Speaker 1, spk 1 → Speaker 2
-- **Language detection**: `lang` field per word (falls back to Arabic Unicode char ratio detection if absent)
-- **Segmentation**: each batch of final words creates a NEW bubble (no merging with previous phrases)
-- Old fields `sample_rate`, `enable_speaker_diarization`, `num_speakers`, `soniox-1` model are **no longer valid**
+### Soniox API Notes
+- **Endpoint**: `wss://api.soniox.com/transcribe-websocket`
+- **Valid models**: ONLY `en_v2` (English) and `ar_v1` (Arabic). Any other model returns `<invalid_model>`.
+- **Init format**: `{ api_key, model, audio_format: "pcm_s16le", sample_rate_hertz: 16000, num_audio_channels: 1, include_nonfinal: false }`
+- **CRITICAL**: `include_nonfinal` MUST be `false` — setting it to `true` causes Soniox to close the connection after ~3 seconds on en_v2/ar_v1
+- **Response format**: `{ fw: [{t, spk, lang}] }` — `fw` = final words only (no partial words)
+- **Speaker diarization**: `spk` index (0-indexed) per word; offset per connection ensures global uniqueness
+- **Language filter**: ar_v1 output validated by Arabic Unicode char ratio ≥35%; en_v2 output must NOT pass that test
+- **Audio**: Capture at native browser rate (48 kHz), downsample via `downsampleLinear()` to 16 kHz before sending PCM
+
+### Phrase interface
+```typescript
+interface Phrase {
+  id: string;
+  speakerIndex: number;   // global: 0-99 = mic/en, 100-199 = mic/ar, 200-299 = sys/en, 300-399 = sys/ar
+  speakerLabel: string;   // "Interpreter" | "Interpreter 2" | "Caller" | "Caller 2"
+  source: "mic" | "sys"; // audio origin
+  text: string;
+  language: string;       // "en" | "ar"
+  active: boolean;        // true while still accumulating words
+}
+```
 
 ### Bidirectional Translation
 - Two language selectors in the toolbar: Language A ↔ Language B (default: English ↔ Arabic)

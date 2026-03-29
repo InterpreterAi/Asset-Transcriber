@@ -76,15 +76,15 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// ─── Speaker colour ────────────────────────────────────────────────────────────
-const SPEAKER_COLORS = [
-  "text-blue-600", "text-purple-600", "text-orange-600", "text-rose-600",
-  "text-teal-600", "text-indigo-600",
-];
-function speakerColor(idx: number) {
-  // Normalize offset speakers (e.g. idx=100 → 2, 101 → 3)
-  const normalized = idx >= 100 ? (idx - 100) + 2 : idx;
-  return SPEAKER_COLORS[normalized % SPEAKER_COLORS.length];
+// ─── Source colour ─────────────────────────────────────────────────────────────
+// Interpreter (mic) = blue family; Caller (sys) = amber family
+function sourceColor(source: "mic" | "sys") {
+  return source === "mic" ? "text-blue-600" : "text-amber-600";
+}
+function sourceBadgeCls(source: "mic" | "sys") {
+  return source === "mic"
+    ? "bg-blue-50 text-blue-500 border border-blue-100"
+    : "bg-amber-50 text-amber-600 border border-amber-100";
 }
 
 // ─── Transcript entry ──────────────────────────────────────────────────────────
@@ -92,9 +92,14 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
     <div className="group flex flex-col gap-1 mb-4">
-      <span className={`text-[10px] font-bold uppercase tracking-widest ${speakerColor(phrase.speakerIndex)}`}>
-        {phrase.speakerLabel}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className={`text-[10px] font-bold uppercase tracking-widest ${sourceColor(phrase.source)}`}>
+          {phrase.speakerLabel}
+        </span>
+        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${sourceBadgeCls(phrase.source)}`}>
+          {phrase.source === "mic" ? "Mic" : "System"}
+        </span>
+      </div>
       <div className="flex items-start gap-2">
         <div className="flex-1 flex items-start gap-2 flex-wrap">
           <LangBadge lang={phrase.language} />
@@ -128,9 +133,14 @@ function TranslationEntry({
   const isRtl = targetLang === "ar" || targetLang === "he";
   return (
     <div className="group flex flex-col gap-1 mb-4">
-      <span className={`text-[10px] font-bold uppercase tracking-widest ${speakerColor(phrase.speakerIndex)}`}>
-        {phrase.speakerLabel}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className={`text-[10px] font-bold uppercase tracking-widest ${sourceColor(phrase.source)}`}>
+          {phrase.speakerLabel}
+        </span>
+        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${sourceBadgeCls(phrase.source)}`}>
+          {phrase.source === "mic" ? "Mic" : "System"}
+        </span>
+      </div>
       <div className="flex items-start gap-2">
         <div className="flex-1 flex items-start gap-2 flex-wrap">
           <LangBadge lang={targetLang} />
