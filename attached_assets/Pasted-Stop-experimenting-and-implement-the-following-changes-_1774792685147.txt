@@ -1,0 +1,79 @@
+Stop experimenting and implement the following changes exactly as specified. These are required to match Soniox behavior and must be implemented immediately.
+
+1. Fix translation execution
+
+Right now the transcript segments appear but the translation panel stays on "Translating..." and never updates.
+
+Translation must trigger immediately when a segment is committed.
+
+Required behavior:
+- When a transcript segment commits → immediately send translation request
+- When translation returns → update that same segment
+- Translation must not wait for pauses or batching
+
+Pipeline must be:
+
+segment committed  
+→ send translation request  
+→ translation returned  
+→ update UI for that segment
+
+2. Pair English and Arabic in the same segment container
+
+The current UI uses two independent lists (English column and Arabic column). This causes scrolling misalignment.
+
+Replace this structure completely.
+
+Do NOT store:
+englishSegments[]  
+arabicSegments[]
+
+Instead use ONE structure:
+
+segments[]  
+{  
+  speaker_id  
+  english_text  
+  arabic_translation  
+}
+
+Render each row as a paired segment so English and Arabic stay aligned while scrolling exactly like Soniox.
+
+Scrolling must keep both languages synchronized.
+
+3. Fix sentence segmentation
+
+Your segmentation is splitting phrases mid-sentence (example: "skin tone" appearing as two lines).
+
+Segments should only commit when:
+- a sentence boundary occurs
+- a speaker change occurs
+- or the commit timer fires
+
+Do NOT split mid-phrase.
+
+4. Stop button bug
+
+When pressing Stop the UI goes white and the transcript disappears.
+
+Stop must ONLY stop the audio stream.
+
+It must NOT clear transcript state.
+
+Correct behavior:
+
+stop stream  
+→ keep segments array intact  
+→ render final transcript
+
+5. Match Soniox text formatting
+
+Segments should appear exactly like Soniox:
+
+Speaker label  
+Full sentence  
+Translation directly beside it
+
+No delayed translations, no blank translation rows, no independent scrolling columns.
+
+Implement these fixes now before continuing with any other changes.

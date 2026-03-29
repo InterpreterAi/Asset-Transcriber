@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A professional desktop AI transcription and translation web app for interpreters. Built with a light Apple/macOS-style UI ("Soniox Desktop" aesthetic). Real-time speech-to-text via Soniox WebSocket API, live translation via MyMemory, session-based auth with trial + daily limits, and an admin dashboard.
+A professional desktop AI transcription and translation web app for interpreters. Built with a light Apple/macOS-style UI ("Soniox Desktop" aesthetic). Real-time speech-to-text via Soniox WebSocket API, live translation via Google Translate (with MyMemory fallback), session-based auth with trial + daily limits, and an admin dashboard.
 
 ---
 

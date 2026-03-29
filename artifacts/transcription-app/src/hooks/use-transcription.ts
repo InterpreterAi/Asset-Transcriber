@@ -177,6 +177,14 @@ export function useTranscription() {
     setIsRecording(false);
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+
+    // If the final buffer is empty but there is a non-final live suffix
+    // (speaker was mid-word when Stop was pressed), promote that suffix so
+    // flush() has something to commit — prevents the "goes blank" bug.
+    if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
+      finalBufRef.current = nfDisplayRef.current;
+    }
+    nfDisplayRef.current = "";
     flush(); // Commit any unsent text
 
     workletRef.current?.disconnect();
@@ -343,15 +351,27 @@ export function useTranscription() {
 
           if (endsSentence) {
             // Confirmed sentence end — flush immediately.
-            // hasLiveSpeech is NOT checked: the non-final suffix belongs to the
-            // NEXT sentence and will repopulate naturally on the next token event.
+            // The non-final suffix belongs to the NEXT sentence and will
+            // repopulate naturally on the next token event.
             if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
             flush();
           } else {
-            // No sentence boundary — (re)start the silence timer measured from
-            // this final-token batch (the last confirmed word so far).
+            // No sentence boundary — (re)start the silence timer.
+            // The callback checks for live non-final speech before committing
+            // so that grammatically-connected words like "skin" + "tone." are
+            // never split just because "skin" got final tokens first.
             if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-            commitTimerRef.current = setTimeout(flush, COMMIT_DELAY);
+            const checkAndFlush = () => {
+              commitTimerRef.current = null;
+              if (nfDisplayRef.current.trim()) {
+                // Still active non-final speech — keep deferring in short intervals
+                // until the model resolves and live speech clears.
+                commitTimerRef.current = setTimeout(checkAndFlush, 400);
+              } else {
+                flush();
+              }
+            };
+            commitTimerRef.current = setTimeout(checkAndFlush, COMMIT_DELAY);
           }
         }
         // Non-final tokens only: leave commitTimerRef untouched so it fires
