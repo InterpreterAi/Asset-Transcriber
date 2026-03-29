@@ -25,10 +25,6 @@ const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
 
 
-// Safety word cap — only fires if the silence/speaker-change triggers never
-// fire (e.g. no speaker data and no natural pause for a very long time).
-// Since we now flush on speaker change, this is a pure last-resort guard.
-const MAX_SEG_WORDS = 100;
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -383,135 +379,85 @@ export function useTranscription() {
     //
     //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
     //
-    // ── Per-token finalization rules (in strict order) ───────────────────
+    // ── Token processing rules ────────────────────────────────────────────
     //
-    // For each genuinely new final token:
+    // 1. Only is_final tokens are processed — no interim/non-final display.
+    // 2. activeSegment accumulates text continuously.
+    // 3. A new segment is created ONLY when token.speaker changes.
+    // 4. Utterance boundary (all-final message) resets the dedup watermark
+    //    so the next utterance starts fresh — it does NOT flush/split rows.
     //
-    //   1. No active segment?
-    //        → create one using token.speaker.
-    //
-    //   2. Speaker change? (checked FIRST, before any append)
-    //        → flush current segment, open a new one with token.speaker.
-    //
-    //   3. Append token.text to the active segment.
-    //
-    //   4. Sentence boundary? (checked SECOND, after append)
-    //        → flush current segment, open a new one with the SAME speaker.
-    //
-    // Utterance boundary (all tokens final) also flushes.
-    // Safety word cap is a last-resort guard.
-    //
-    const SENTENCE_END = /[.?!]\s*$/;
-
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
-      // ── Walk every token in message order ────────────────────────────────
-      // Non-final tokens → live preview only.
-      // Final tokens     → speaker-change → append → sentence-boundary.
-      //
       // Deduplication: Soniox re-sends ALL prior final tokens in every message.
-      // globalFinalCountRef tracks how many we've consumed this utterance;
-      // anything below the watermark is skipped.  Resets at utterance boundary.
-      //
+      // globalFinalCountRef is the watermark of finals already consumed this
+      // utterance.  We skip anything below it.  Reset at utterance boundary.
       let finalSeenThisMsg = 0;
-      const newFinalToks:  SonioxToken[] = [];
-      const previewParts:  string[]      = [];
-      let   hasNonFinal = false;
+      let hasNonFinal      = false;
+      const newFinalToks: SonioxToken[] = [];
 
       for (const token of tokens) {
-        if (!token.is_final) {
-          previewParts.push(token.text);
-          hasNonFinal = true;
-          continue;
-        }
+        // Rule 1: skip non-final tokens entirely — no interim display.
+        if (!token.is_final) { hasNonFinal = true; continue; }
 
-        // Advance watermark; skip already-processed finals.
+        // Advance watermark; skip already-consumed finals.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
-        // ── Genuinely new final token ─────────────────────────────────────
-        const spk = token.speaker; // undefined when API omits diarization
+        const spk = token.speaker;
 
-        // ── Step 1: open a segment if none is active ──────────────────────
+        // Step 1: open a segment if none is active.
         if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
           activeSegSpeakerRef.current = spk;
         }
 
-        // ── Step 2: speaker-change check (BEFORE append) ──────────────────
+        // Step 2: speaker changed → finalize current segment BEFORE appending.
         if (
           spk !== undefined &&
           activeSegSpeakerRef.current !== undefined &&
           spk !== activeSegSpeakerRef.current &&
           finalBufRef.current.trim()
         ) {
-          flush();                           // seals old segment
-          activeSegSpeakerRef.current = spk; // open new segment immediately
+          flush();
+          activeSegSpeakerRef.current = spk;
         }
 
-        // Track speaker for modal computation at flush() time.
+        // Track speaker history (modal used at flush() time).
         if (spk !== undefined) {
           touchSpeaker(spk);
           speakerHistoryRef.current.push(spk);
           speakerRef.current = spk;
-          console.log("[Diarization] final token — speaker:", spk, "text:", JSON.stringify(token.text));
+          console.log("[Diarization] token speaker:", spk, JSON.stringify(token.text));
         }
 
-        // ── Step 3: append token text to the active segment ───────────────
+        // Step 3: append confirmed text — segment grows continuously.
         finalBufRef.current += token.text;
         newFinalToks.push(token);
-
-        // ── Step 4: sentence-boundary check (AFTER append) ────────────────
-        if (SENTENCE_END.test(token.text) && finalBufRef.current.trim()) {
-          const currentSpk = activeSegSpeakerRef.current; // preserve speaker
-          flush();                                         // seals this sentence
-          // Keep the same speaker open for the next sentence in this turn.
-          if (currentSpk !== undefined) {
-            activeSegSpeakerRef.current = currentSpk;
-          }
-        }
       }
 
-      // Advance the watermark to the total finals seen in this message.
+      // Advance watermark.
       globalFinalCountRef.current = finalSeenThisMsg;
 
-      // ── Language detection ────────────────────────────────────────────────
-      if (newFinalToks.length > 0) {
-        langRef.current = detectLang(newFinalToks, langRef.current);
-      } else if (previewParts.length > 0 && !finalBufRef.current) {
-        langRef.current = detectLang(
-          tokens.filter(t => !t.is_final),
-          langRef.current
-        );
+      // Utterance boundary: Soniox sends an all-final message when its VAD
+      // detects a pause.  Reset the watermark so the NEXT utterance begins
+      // at count 0 — but do NOT flush; the segment keeps growing.
+      if (!hasNonFinal && newFinalToks.length > 0) {
+        globalFinalCountRef.current = 0;
       }
 
-      // ── Non-final preview tail (replaced every message) ──────────────────
-      nfDisplayRef.current = previewParts.join("");
+      // Language detection from newly confirmed tokens.
+      if (newFinalToks.length > 0) {
+        langRef.current = detectLang(newFinalToks, langRef.current);
+      }
 
-      // ── Update active segment (live row — updates in place) ───────────────
-      const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
-      if (activeText) {
+      // Update active segment — confirmed final text only, no interim preview.
+      if (finalBufRef.current.trim()) {
         setActiveSegment({
-          text:         activeText,
+          text:         finalBufRef.current.trim(),
           language:     langRef.current,
           speakerLabel: normalizeSpeaker(speakerRef.current),
         });
-      }
-
-      // ── Utterance boundary: no non-final tokens → Soniox VAD complete ────
-      if (!hasNonFinal && finalBufRef.current.trim()) {
-        globalFinalCountRef.current = 0; // next utterance starts from token 0
-        flush();
-        return;
-      }
-
-      // ── Safety word cap (last resort only) ───────────────────────────────
-      const totalWords = activeText.split(/\s+/).filter(Boolean).length;
-      if (totalWords >= MAX_SEG_WORDS) {
-        // Do NOT promote non-final text — word cap only commits confirmed text.
-        globalFinalCountRef.current = 0;
-        nfDisplayRef.current = "";
-        flush();
       }
     };
 
