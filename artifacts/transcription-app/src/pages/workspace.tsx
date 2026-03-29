@@ -413,7 +413,7 @@ export default function Workspace() {
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {isEmpty ? (
+              {isEmpty && !transcription.interim.en && !transcription.interim.ar ? (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                   <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                     <Mic2 className="w-5 h-5 text-muted-foreground/50" />
@@ -426,6 +426,25 @@ export default function Workspace() {
                   {transcription.phrases.map((p) => (
                     <TranscriptEntry key={p.id} phrase={p} />
                   ))}
+                  {/* Live interim — shows words as they're being spoken */}
+                  {transcription.interim.en && (
+                    <div className="mb-4 opacity-60">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Speaking…</span>
+                      <div className="flex items-start gap-2 mt-1">
+                        <LangBadge lang="en" />
+                        <p className="text-sm leading-relaxed italic text-foreground flex-1">{transcription.interim.en}</p>
+                      </div>
+                    </div>
+                  )}
+                  {transcription.interim.ar && (
+                    <div className="mb-4 opacity-60">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">يتحدث…</span>
+                      <div className="flex items-start gap-2 mt-1">
+                        <LangBadge lang="ar" />
+                        <p className="text-sm leading-relaxed italic text-foreground flex-1" dir="rtl">{transcription.interim.ar}</p>
+                      </div>
+                    </div>
+                  )}
                   <div ref={transcriptEndRef} />
                 </div>
               )}

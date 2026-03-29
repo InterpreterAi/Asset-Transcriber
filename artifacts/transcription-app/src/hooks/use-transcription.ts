@@ -68,6 +68,8 @@ export function useTranscription() {
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /** Live interim (non-final) text per model — shown as ghost while speaking */
+  const [interim, setInterim] = useState<{ en: string; ar: string }>({ en: "", ar: "" });
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const wsEnRef = useRef<WebSocket | null>(null);   // en_v2
@@ -88,8 +90,9 @@ export function useTranscription() {
     isRecordingRef.current = false;
     setIsRecording(false);
 
-    // Seal all active phrases
+    // Seal all active phrases and clear any interim text
     setPhrases(prev => prev.map(p => p.active ? { ...p, active: false } : p));
+    setInterim({ en: "", ar: "" });
 
     // Disconnect script processor
     processorRef.current?.disconnect();
@@ -147,7 +150,7 @@ export function useTranscription() {
         audio_format: "pcm_s16le",
         sample_rate_hertz: SAMPLE_RATE,
         num_audio_channels: 1,
-        include_nonfinal: false,
+        include_nonfinal: true,
       }));
       console.log(`[WS] ${model} connected`);
     };
@@ -156,9 +159,32 @@ export function useTranscription() {
       try {
         const data = JSON.parse(e.data as string) as {
           fw?: { t?: string; w?: string; text?: string; spk?: number; lang?: string; lg?: string }[];
+          nfw?: { t?: string; w?: string; text?: string; spk?: number }[];
         };
 
+        // ── Handle non-final (interim) words ───────────────────────────────
+        const nfwText = (data.nfw ?? [])
+          .map(w => w.t ?? w.w ?? w.text ?? "")
+          .join("")
+          .trim();
+
+        if (langCode === "en") {
+          // Only show en interim if it doesn't look like Arabic garbage
+          const showEn = !nfwText || !isValidArabicOutput(nfwText);
+          setInterim(prev => ({ ...prev, en: showEn ? nfwText : prev.en }));
+        } else {
+          // Only show ar interim if it actually looks like Arabic
+          const showAr = !nfwText || isValidArabicOutput(nfwText);
+          setInterim(prev => ({ ...prev, ar: showAr ? nfwText : prev.ar }));
+        }
+
+        // ── Handle final words ─────────────────────────────────────────────
         const finalWords = data.fw ?? [];
+
+        // When fw arrives, those interim words are now committed — clear interim
+        if (finalWords.length > 0 && langCode === "en") setInterim(prev => ({ ...prev, en: "" }));
+        if (finalWords.length > 0 && langCode === "ar") setInterim(prev => ({ ...prev, ar: "" }));
+
         if (finalWords.length === 0) return;
 
         const runs = groupBySpeaker(finalWords);
@@ -302,9 +328,8 @@ export function useTranscription() {
       wsEnRef.current = wsEn;
       wsArRef.current = wsAr;
 
-      // Script processor: send audio to BOTH models simultaneously
-      const CHUNK = 4096;
-      const processor = ctx.createScriptProcessor(CHUNK, 1, 1);
+      // Script processor: 1024 samples @ 16kHz = ~64ms per chunk (true streaming)
+      const processor = ctx.createScriptProcessor(1024, 1, 1);
       processorRef.current = processor;
 
       const mixedSource = ctx.createMediaStreamSource(destination.stream);
@@ -340,12 +365,13 @@ export function useTranscription() {
   return {
     isRecording,
     phrases,
+    interim,
     micLevel,
     systemLevel,
     error,
     start,
     stop,
-    clear: () => setPhrases([]),
+    clear: () => { setPhrases([]); setInterim({ en: "", ar: "" }); },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }
