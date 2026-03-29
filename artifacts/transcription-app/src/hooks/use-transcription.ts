@@ -13,7 +13,7 @@ export interface Phrase {
   language: LangCode;
 }
 
-/** The sentence currently being spoken.
+/** The sentence currently being spoken — replaced in-place on every nfw/fw event.
  *  Shows committed (fw) + current partial (nfw) in one live line. Null when silent. */
 export interface LiveTranscript {
   text: string;
@@ -25,7 +25,12 @@ export interface LiveTranscript {
 const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
 const COMMIT_DELAY = 800;  // ms of silence before sealing a sentence into history
-const AR_GUARD_MS  = 300;  // ms to suppress EN live display after Arabic activity
+
+// EN nfw debounce: the English channel's first nfw per new sentence is held for
+// this many ms before display.  If Arabic arrives within the window, it cancels
+// the English display and shows Arabic instead — eliminating the "English flash".
+// Pure-English speech is unaffected after the very first word.
+const EN_NFW_DEBOUNCE = 150; // ms
 
 function modelFor(lang: LangCode): string {
   return lang === "en" ? "en_v2_lowlatency" : "ar_v1";
@@ -93,11 +98,14 @@ export function useTranscription() {
   const enTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const arTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Arabic activity guard ──────────────────────────────────────────────────
-  // When Arabic nfw/fw arrives we record the timestamp.
-  // The English channel suppresses its live display for 1 second after that,
-  // preventing en WS garbage from overwriting the Arabic live line.
-  const lastArActivityRef = useRef<number>(0);
+  // ── EN nfw debounce ────────────────────────────────────────────────────────
+  // The English channel's nfw display is debounced by EN_NFW_DEBOUNCE ms at the
+  // start of each new sentence (when enBufRef is empty). This gives the Arabic
+  // engine time to respond first. If Arabic arrives within the window, it cancels
+  // the pending English nfw and shows Arabic instead — zero flicker.
+  // For all subsequent nfw within an already-started English sentence, display
+  // is immediate (enBufRef is non-empty, so we know we're in an English sentence).
+  const enNfwTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -124,6 +132,14 @@ export function useTranscription() {
     setLiveTranscript(null);
   }, []);
 
+  // ── cancelEnNfw: discard any pending EN nfw display ───────────────────────
+  const cancelEnNfw = useCallback(() => {
+    if (enNfwTimerRef.current) {
+      clearTimeout(enNfwTimerRef.current);
+      enNfwTimerRef.current = null;
+    }
+  }, []);
+
   // ── stop ──────────────────────────────────────────────────────────────────
   const stop = useCallback(async () => {
     if (!isRecRef.current) return;
@@ -131,6 +147,7 @@ export function useTranscription() {
     setIsRecording(false);
 
     // Commit any buffered text before tearing down
+    cancelEnNfw();
     if (enTimerRef.current) clearTimeout(enTimerRef.current);
     if (arTimerRef.current) clearTimeout(arTimerRef.current);
     flush("en");
@@ -165,23 +182,25 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, flush]);
+  }, [stopSessionMut, flush, cancelEnNfw]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   //
-  // Two simultaneous WebSockets — en_v2_lowlatency and ar_v1 — receive identical
-  // PCM audio. Language detection via isArabic() decides which channel's output
-  // is valid and visible.
+  // TWO simultaneous WebSockets — en_v2_lowlatency and ar_v1 — receive identical
+  // PCM audio. Language detection via isArabic() filters each channel's output.
   //
-  // nfw (partial):
-  //   Each channel shows its own buffer + current partial in the live line.
-  //   Arabic activity suppresses the English live display for 1 s to prevent
-  //   garbage en WS output from overwriting the Arabic live line.
+  // nfw (partials) — zero-guard, Arabic wins instantly:
+  //   • AR nfw: if text is Arabic → show IMMEDIATELY + cancel any pending EN nfw.
+  //   • EN nfw: if text is English AND enBuf already has content (mid-sentence)
+  //     → show IMMEDIATELY (we're committed to English).
+  //     If enBuf is empty (new sentence start) → wait EN_NFW_DEBOUNCE ms.
+  //     If Arabic arrives within that window → EN display is cancelled, Arabic shows.
   //
-  // fw (committed):
-  //   Filtered by isArabic() — only the correct channel accumulates each word.
-  //   After COMMIT_DELAY ms of silence, the channel's buffer becomes ONE phrase
-  //   in history. Translation fires immediately for that phrase.
+  // fw (committed words) — per-channel buffer, sealed on silence:
+  //   • Each channel accumulates fw into its own buffer.
+  //   • Silence timer (COMMIT_DELAY) seals the buffer into ONE phrase.
+  //   • Punctuation-ending fw → seal immediately (0ms timer).
+  //   • Translation fires on each sealed phrase (never on partials).
   //
   const buildWs = useCallback((
     apiKey: string,
@@ -223,7 +242,7 @@ export function useTranscription() {
           return;
         }
 
-        // ── Non-final words ──────────────────────────────────────────────────
+        // ── Non-final words (partials) ──────────────────────────────────────
         const nfWords = data.nfw ?? [];
         if (nfWords.length > 0) {
           const partial = joinWords(nfWords);
@@ -231,30 +250,43 @@ export function useTranscription() {
 
           const partialIsAr = isArabic(partial);
 
-          // Language filter: each channel only displays its own language
+          // Discard cross-language partials
           if (langCode === "ar" && !partialIsAr) return;
           if (langCode === "en" && partialIsAr)  return;
 
-          if (langCode === "ar") {
-            lastArActivityRef.current = Date.now();
-          }
-
-          // Suppress English live display when Arabic was active recently
-          if (langCode === "en" && Date.now() - lastArActivityRef.current < AR_GUARD_MS) return;
-
-          // Show: committed buffer + current partial (so the full sentence is visible)
+          // Show: committed buffer + current partial (full sentence in one live line)
           const display = bufRef.current
             ? `${bufRef.current} ${partial}`.trim()
             : partial;
+          const speakerLabel = makeSpeakerLabel(nfWords[0]?.spk ?? 0);
 
-          setLiveTranscript({
-            text: display,
-            language: langCode,
-            speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
-          });
+          if (langCode === "ar") {
+            // Arabic: show IMMEDIATELY. Cancel any pending English nfw debounce —
+            // Arabic wins and the English flash is suppressed.
+            cancelEnNfw();
+            setLiveTranscript({ text: display, language: "ar", speakerLabel });
+          } else {
+            // English: if we're already mid-sentence (fw buffer has content),
+            // show immediately. If this is the very first nfw of a new sentence,
+            // debounce to give Arabic time to respond first.
+            if (enBufRef.current.length > 0) {
+              // Mid-sentence — show immediately
+              setLiveTranscript({ text: display, language: "en", speakerLabel });
+            } else {
+              // New sentence start — debounce
+              cancelEnNfw();
+              enNfwTimerRef.current = setTimeout(() => {
+                enNfwTimerRef.current = null;
+                // Only show if Arabic hasn't taken over in the meantime
+                if (arBufRef.current.length === 0) {
+                  setLiveTranscript({ text: display, language: "en", speakerLabel });
+                }
+              }, EN_NFW_DEBOUNCE);
+            }
+          }
         }
 
-        // ── Final words ──────────────────────────────────────────────────────
+        // ── Final (committed) words ─────────────────────────────────────────
         const finalWords = data.fw ?? [];
         if (finalWords.length > 0) {
           const committed = joinWords(finalWords);
@@ -262,15 +294,16 @@ export function useTranscription() {
 
           const committedIsAr = isArabic(committed);
 
-          // Language filter: reject cross-language output
+          // Discard cross-language fw
           if (langCode === "ar" && !committedIsAr) return;
           if (langCode === "en" && committedIsAr)  return;
 
-          if (langCode === "ar") lastArActivityRef.current = Date.now();
+          // Cancel any pending EN nfw debounce — we now have real fw
+          if (langCode === "ar") cancelEnNfw();
 
           // Accumulate into this channel's buffer
-          bufRef.current  = bufRef.current ? `${bufRef.current} ${committed}` : committed;
-          spkRef.current  = finalWords[0]?.spk ?? 0;
+          bufRef.current = bufRef.current ? `${bufRef.current} ${committed}` : committed;
+          spkRef.current = finalWords[0]?.spk ?? 0;
 
           // Update the live line to show the growing committed text
           setLiveTranscript({
@@ -279,11 +312,10 @@ export function useTranscription() {
             speakerLabel: makeSpeakerLabel(spkRef.current),
           });
 
-          // If the committed word ends with sentence-terminal punctuation, seal immediately.
-          // Otherwise wait COMMIT_DELAY ms of silence (speaker paused).
-          const endssentence = /[.!?؟،。！？]\s*$/.test(bufRef.current);
+          // Seal immediately on sentence-terminal punctuation; otherwise wait for silence.
+          const endsSentence = /[.!?؟،。！？]\s*$/.test(bufRef.current);
           if (timRef.current) clearTimeout(timRef.current);
-          timRef.current = setTimeout(() => flush(langCode), endssentence ? 0 : COMMIT_DELAY);
+          timRef.current = setTimeout(() => flush(langCode), endsSentence ? 0 : COMMIT_DELAY);
         }
       } catch (err) {
         console.error(`[WS] ${model} parse error`, err);
@@ -308,7 +340,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, flush]);
+  }, [stop, flush, cancelEnNfw]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
@@ -318,7 +350,7 @@ export function useTranscription() {
       setAudioInfo("");
       enBufRef.current = "";
       arBufRef.current = "";
-      lastArActivityRef.current = 0;
+      cancelEnNfw();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
@@ -388,7 +420,7 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop]);
+  }, [getTokenMut, startSessionMut, buildWs, stop, cancelEnNfw]);
 
   return {
     isRecording,
@@ -404,6 +436,7 @@ export function useTranscription() {
       setLiveTranscript(null);
       enBufRef.current = "";
       arBufRef.current = "";
+      cancelEnNfw();
       if (enTimerRef.current) clearTimeout(enTimerRef.current);
       if (arTimerRef.current) clearTimeout(arTimerRef.current);
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
