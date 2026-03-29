@@ -68,8 +68,8 @@ export function useTranscription() {
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  /** Live interim (non-final) text per model — shown as ghost while speaking */
-  const [interim, setInterim] = useState<{ en: string; ar: string }>({ en: "", ar: "" });
+  /** Which models are currently connected (for status display) */
+  const [connectedModels, setConnectedModels] = useState<string[]>([]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const wsEnRef = useRef<WebSocket | null>(null);   // en_v2
@@ -89,16 +89,16 @@ export function useTranscription() {
     if (!isRecordingRef.current) return;
     isRecordingRef.current = false;
     setIsRecording(false);
+    setConnectedModels([]);
 
-    // Seal all active phrases and clear any interim text
+    // Seal all active phrases
     setPhrases(prev => prev.map(p => p.active ? { ...p, active: false } : p));
-    setInterim({ en: "", ar: "" });
 
     // Disconnect script processor
     processorRef.current?.disconnect();
     processorRef.current = null;
 
-    // Close both WebSockets
+    // Close both WebSockets gracefully (send empty buffer = EOF signal)
     for (const wsRef of [wsEnRef, wsArRef]) {
       if (wsRef.current) {
         try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* ignore */ }
@@ -144,47 +144,39 @@ export function useTranscription() {
     const ws = new WebSocket("wss://api.soniox.com/transcribe-websocket");
 
     ws.onopen = () => {
+      // NOTE: include_nonfinal MUST stay false — Soniox closes both connections
+      // after ~3 seconds if true (not supported by en_v2/ar_v1 on this account).
       ws.send(JSON.stringify({
         api_key: apiKey,
         model,
         audio_format: "pcm_s16le",
         sample_rate_hertz: SAMPLE_RATE,
         num_audio_channels: 1,
-        include_nonfinal: true,
+        include_nonfinal: false,
       }));
       console.log(`[WS] ${model} connected`);
+      setConnectedModels(prev => [...prev.filter(m => m !== model), model]);
     };
 
     ws.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data as string) as {
           fw?: { t?: string; w?: string; text?: string; spk?: number; lang?: string; lg?: string }[];
-          nfw?: { t?: string; w?: string; text?: string; spk?: number }[];
+          // Soniox error response shape
+          error?: string;
+          code?: number;
+          message?: string;
         };
 
-        // ── Handle non-final (interim) words ───────────────────────────────
-        const nfwText = (data.nfw ?? [])
-          .map(w => w.t ?? w.w ?? w.text ?? "")
-          .join("")
-          .trim();
-
-        if (langCode === "en") {
-          // Only show en interim if it doesn't look like Arabic garbage
-          const showEn = !nfwText || !isValidArabicOutput(nfwText);
-          setInterim(prev => ({ ...prev, en: showEn ? nfwText : prev.en }));
-        } else {
-          // Only show ar interim if it actually looks like Arabic
-          const showAr = !nfwText || isValidArabicOutput(nfwText);
-          setInterim(prev => ({ ...prev, ar: showAr ? nfwText : prev.ar }));
+        // ── Detect Soniox API errors (e.g. invalid_model, auth failure) ─────
+        if (data.error || (data.code !== undefined && !data.fw)) {
+          const msg = data.error ?? data.message ?? `Soniox error code ${data.code}`;
+          console.error(`[WS] ${model} API error:`, msg, 'code:', data.code);
+          setError(`Transcription error (${model}): ${msg}`);
+          return;
         }
 
-        // ── Handle final words ─────────────────────────────────────────────
         const finalWords = data.fw ?? [];
-
-        // When fw arrives, those interim words are now committed — clear interim
-        if (finalWords.length > 0 && langCode === "en") setInterim(prev => ({ ...prev, en: "" }));
-        if (finalWords.length > 0 && langCode === "ar") setInterim(prev => ({ ...prev, ar: "" }));
-
         if (finalWords.length === 0) return;
 
         const runs = groupBySpeaker(finalWords);
@@ -237,14 +229,26 @@ export function useTranscription() {
     };
 
     ws.onerror = (e) => {
-      console.error(`[WS] ${model} error`, e);
+      console.error(`[WS] ${model} socket error`, e);
     };
 
     ws.onclose = (e) => {
-      console.log(`[WS] ${model} closed`, e.code, e.reason);
+      // Log as error so it's visible — close code 1000 = normal, 1006 = abnormal
+      const logFn = (e.code === 1000 || e.code === 1001) ? console.log : console.error;
+      logFn(`[WS] ${model} closed — code:${e.code} reason:"${e.reason}" wasClean:${e.wasClean}`);
+
+      setConnectedModels(prev => prev.filter(m => m !== model));
+
       // Null our own ref so both-gone check works
       if (ownRef.current === ws) ownRef.current = null;
-      // If both connections dropped while we're still recording → stop cleanly
+
+      // If Soniox closed us unexpectedly while still recording, surface the error
+      if (isRecordingRef.current && !e.wasClean) {
+        const reason = e.reason || `Connection lost (code ${e.code})`;
+        setError(`${model} disconnected: ${reason}`);
+      }
+
+      // If BOTH connections have dropped while recording → stop cleanly
       if (isRecordingRef.current &&
           wsEnRef.current === null &&
           wsArRef.current === null) {
@@ -260,6 +264,7 @@ export function useTranscription() {
     try {
       setError(null);
       setPhrases([]);
+      setConnectedModels([]);
 
       const tokenRes = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
@@ -328,7 +333,7 @@ export function useTranscription() {
       wsEnRef.current = wsEn;
       wsArRef.current = wsAr;
 
-      // Script processor: 1024 samples @ 16kHz = ~64ms per chunk (true streaming)
+      // Script processor: 1024 samples @ 16kHz = ~64ms per chunk (true streaming latency)
       const processor = ctx.createScriptProcessor(1024, 1, 1);
       processorRef.current = processor;
 
@@ -364,14 +369,14 @@ export function useTranscription() {
 
   return {
     isRecording,
+    connectedModels,
     phrases,
-    interim,
     micLevel,
     systemLevel,
     error,
     start,
     stop,
-    clear: () => { setPhrases([]); setInterim({ en: "", ar: "" }); },
+    clear: () => setPhrases([]),
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }
