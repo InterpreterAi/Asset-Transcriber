@@ -50,8 +50,29 @@ interface SonioxMessage {
   message?:  string;
 }
 
-function makeSpeakerLabel(spk: number | undefined): string {
-  return (spk ?? 0) > 0 ? `Speaker ${(spk ?? 0) + 1}` : "Speaker";
+// ── Speaker normalizer ─────────────────────────────────────────────────────────
+//
+// Soniox v4 returns arbitrary cluster IDs (0, 10, 21, …) that can be large
+// or non-sequential.  We map each unique raw ID to a stable sequential label
+// (Speaker 1, Speaker 2, …) for the duration of the recording session.
+// The map lives outside the hook so it survives React re-renders; it is reset
+// on every fresh recording start and on clear().
+//
+const _speakerMap   = new Map<number, number>(); // rawId → sequential index
+let   _speakerCount = 0;
+
+function resetSpeakerMap() {
+  _speakerMap.clear();
+  _speakerCount = 0;
+}
+
+function normalizeSpeaker(rawId: number | undefined): string {
+  const id = rawId ?? 0;
+  if (!_speakerMap.has(id)) {
+    _speakerCount += 1;
+    _speakerMap.set(id, _speakerCount);
+  }
+  return `Speaker ${_speakerMap.get(id)}`;
 }
 
 function nextId(): string {
@@ -144,7 +165,7 @@ export function useTranscription() {
     nfDisplayRef.current = "";
     setPhrases(prev => [
       ...prev,
-      { id: nextId(), speakerLabel: makeSpeakerLabel(spk), text, language: lang },
+      { id: nextId(), speakerLabel: normalizeSpeaker(spk), text, language: lang },
     ]);
     setLiveTranscript(null);
   }, []);
@@ -243,18 +264,26 @@ export function useTranscription() {
 
         // ── Final tokens: accumulate into the sentence buffer ──────────────
         if (finalTokens.length > 0) {
+          // Lock speaker to the FIRST speaker heard at the start of a new
+          // utterance.  Mid-sentence Soniox cluster IDs can fluctuate by ±1;
+          // only accept a new speaker when the buffer is empty (fresh utterance).
+          if (finalBufRef.current === "") {
+            speakerRef.current = finalTokens[0]?.speaker ?? speakerRef.current;
+          }
           finalBufRef.current += finalTokens.map(t => t.text).join("");
           langRef.current = detectLang(finalTokens, langRef.current);
-          speakerRef.current = finalTokens[finalTokens.length - 1]?.speaker ?? speakerRef.current;
         }
 
         // ── Non-final tokens: REPLACE the live suffix (Buffer-and-Overwrite) ─
         nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-        // Language fallback from non-final when buffer is still empty
+        // Language + speaker fallback from non-final when buffer is still empty
         if (nfTokens.length > 0 && !finalBufRef.current) {
           langRef.current = detectLang(nfTokens, langRef.current);
-          speakerRef.current = nfTokens[0]?.speaker ?? speakerRef.current;
+          // Only capture speaker from non-final if we haven't locked one yet
+          if (speakerRef.current === undefined) {
+            speakerRef.current = nfTokens[0]?.speaker ?? 0;
+          }
         }
 
         // ── Anti-fragmentation: reset silence timer on ANY token arrival ───
@@ -276,7 +305,7 @@ export function useTranscription() {
           setLiveTranscript({
             text:         displayText,
             language:     langRef.current,
-            speakerLabel: makeSpeakerLabel(speakerRef.current),
+            speakerLabel: normalizeSpeaker(speakerRef.current),
           });
         }
       } catch (err) {
@@ -312,6 +341,8 @@ export function useTranscription() {
       finalBufRef.current  = "";
       nfDisplayRef.current = "";
       langRef.current      = "en";
+      speakerRef.current   = 0;
+      resetSpeakerMap(); // fresh sequential labels for this recording session
 
       const tokenRes   = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
@@ -415,6 +446,8 @@ export function useTranscription() {
       setLiveTranscript(null);
       finalBufRef.current  = "";
       nfDisplayRef.current = "";
+      speakerRef.current   = 0;
+      resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
