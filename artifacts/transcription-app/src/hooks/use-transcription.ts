@@ -478,6 +478,7 @@ export function useTranscription() {
           pauseTimerRef.current = null;
           const buf = finalBufRef.current;
           if (
+            Date.now() - lastTokenTimeRef.current > 700 &&
             buf.trim().length >= 20 &&
             /[\s.!?,;:]$/.test(buf)
           ) {
