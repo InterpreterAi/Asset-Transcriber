@@ -11,7 +11,7 @@ export interface Phrase {
   active: boolean;
 }
 
-const SAMPLE_RATE = 48000;
+const SAMPLE_RATE = 16000;
 
 function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
   const output = new Int16Array(input.length);
@@ -54,6 +54,12 @@ function groupBySpeaker(words: { t?: string; w?: string; text?: string; spk?: nu
 
 let phraseIdCounter = 0;
 function nextId() { return `p-${++phraseIdCounter}`; }
+
+/** Map app language code → Soniox model name */
+function getSonioxModel(lang: string): string {
+  if (lang === "ar") return "ar_v1";
+  return "en_v2";          // default: English
+}
 
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
@@ -110,7 +116,7 @@ export function useTranscription() {
   }, [stopSessionMut]);
 
   const start = useCallback(
-    async (micDeviceId: string, systemDeviceId: string) => {
+    async (micDeviceId: string, systemDeviceId: string, sourceLang = "en") => {
       try {
         setError(null);
         setPhrases([]);
@@ -177,7 +183,7 @@ export function useTranscription() {
           ws.send(
             JSON.stringify({
               api_key: tokenRes.apiKey,
-              model: "multilingual",
+              model: getSonioxModel(sourceLang),
               audio_format: "pcm_s16le",
               sample_rate_hertz: SAMPLE_RATE,
               num_audio_channels: 1,
@@ -209,7 +215,8 @@ export function useTranscription() {
                   const trimmed = run.text.trim();
                   if (!trimmed) continue;
 
-                  const lang = run.lang || detectLangFromText(trimmed);
+                  // Prefer Soniox lang tag, fall back to the model's source language
+                  const lang = run.lang || sourceLang || detectLangFromText(trimmed);
                   const last = next[next.length - 1];
 
                   if (last && last.active && last.speakerIndex === run.spk) {

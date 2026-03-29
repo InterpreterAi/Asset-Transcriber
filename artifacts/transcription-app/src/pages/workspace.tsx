@@ -168,7 +168,10 @@ export default function Workspace() {
   const [activeTab, setActiveTab] = useState("mic");
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
-  // Bidirectional language pair
+  // Source language: determines which Soniox model to use (en_v2 vs ar_v1)
+  const [sourceLang, setSourceLang] = useState("en");
+
+  // Bidirectional language pair (langA = source, langB = target by default)
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
@@ -227,6 +230,12 @@ export default function Workspace() {
     }
   }, [transcription.phrases, langA, langB, translations, translatePhrase]);
 
+  // When source language changes, keep langA in sync and swap langB if they'd match
+  useEffect(() => {
+    setLangA(sourceLang);
+    setLangB(prev => (prev === sourceLang ? (sourceLang === "en" ? "ar" : "en") : prev));
+  }, [sourceLang]);
+
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
   useEffect(() => { if (devices.length > 0 && !micId) setMicId(devices[0]!.deviceId); }, [devices, micId]);
   useEffect(() => {
@@ -248,7 +257,7 @@ export default function Workspace() {
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     } else {
       handleClear();
-      transcription.start(micId, systemId);
+      transcription.start(micId, systemId, sourceLang);
     }
   };
 
@@ -509,18 +518,31 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* ROW 2: Language pair + Record */}
+          {/* ROW 2: Source language + Language pair + Record */}
           <div className="flex items-center px-4 py-3 gap-3">
-            {/* Left: language pair */}
+            {/* Left: source language + translate pair */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate Between</span>
-              <Select value={langA} onChange={(e) => setLangA(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
-                {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </Select>
-              <button onClick={handleSwapLangs} disabled={transcription.isRecording} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground transition-colors disabled:opacity-40" title="Swap">
-                <ArrowLeftRight className="w-4 h-4" />
-              </button>
-              <Select value={langB} onChange={(e) => setLangB(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
+              {/* Source language toggle */}
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Listen in</span>
+              <div className="flex rounded-lg border border-border overflow-hidden h-9">
+                {(["en", "ar"] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    disabled={transcription.isRecording}
+                    onClick={() => setSourceLang(lang)}
+                    className={`px-3 text-sm font-medium transition-colors disabled:opacity-50 ${
+                      sourceLang === lang
+                        ? "bg-primary text-white"
+                        : "bg-white text-muted-foreground hover:bg-muted/40"
+                    }`}
+                  >
+                    {lang === "en" ? "English" : "Arabic"}
+                  </button>
+                ))}
+              </div>
+              <div className="w-px h-5 bg-border mx-1" />
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">→ Translate to</span>
+              <Select value={langB} onChange={(e) => setLangB(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[150px] bg-white border-border">
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
             </div>
