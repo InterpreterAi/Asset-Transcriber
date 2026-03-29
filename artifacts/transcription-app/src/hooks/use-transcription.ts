@@ -3,26 +3,24 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 
 export interface Phrase {
   id: string;
-  speakerIndex: number;   // globally unique offset — see OFFSETS constant
-  speakerLabel: string;   // "Interpreter" | "Interpreter 2" | "Caller" | "Caller 2"
-  source: "mic" | "sys"; // which audio source produced this phrase
-  text: string;           // finalized words
-  pendingText?: string;   // non-final (partial) words currently being spoken
+  speakerIndex: number;
+  speakerLabel: string;
+  source: "mic";
+  text: string;           // finalized (committed) words from fw
+  pendingText?: string;   // non-final partial words from nfw — shown dimmed
   language: string;       // "en" | "ar"
-  active: boolean;        // true while this phrase is still accumulating words
+  active: boolean;        // true = partial in-flight; false = sealed, ready to translate
 }
 
-// ── constants ─────────────────────────────────────────────────────────────
+// ── constants ─────────────────────────────────────────────────────────────────
 const TARGET_RATE = 16000; // Soniox requires 16 kHz mono PCM
 
-// Speaker-index offsets per channel — must not collide across the 4 WebSockets:
-//   mic + en_v2_lowlatency → offset   0  (speakers   0…99)
-//   mic + ar_v1            → offset 100  (speakers 100…199)
-//   sys + en_v2_lowlatency → offset 200  (speakers 200…299)
-//   sys + ar_v1            → offset 300  (speakers 300…399)
-const OFFSETS = { micEn: 0, micAr: 100, sysEn: 200, sysAr: 300 } as const;
+// Two WebSocket channels per session (one device → en + ar):
+//   en_v2_lowlatency → offset   0  (speakers   0…99)
+//   ar_v1            → offset 100  (speakers 100…199)
+const OFFSETS = { en: 0, ar: 100 } as const;
 
-// ── helpers ───────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 /** Returns true when ≥35% of letter codepoints in `text` are Arabic script. */
 function isValidArabicOutput(text: string): boolean {
@@ -32,10 +30,9 @@ function isValidArabicOutput(text: string): boolean {
   return arabic / letters >= 0.35;
 }
 
-/** Human-readable label for a speaker within a source. */
-function makeSpeakerLabel(source: "mic" | "sys", localSpkIdx: number): string {
-  const base = source === "mic" ? "Interpreter" : "Caller";
-  return localSpkIdx > 0 ? `${base} ${localSpkIdx + 1}` : base;
+/** Human-readable label for a Soniox speaker index. */
+function makeSpeakerLabel(localSpkIdx: number): string {
+  return localSpkIdx > 0 ? `Speaker ${localSpkIdx + 1}` : "Speaker";
 }
 
 /** Group consecutive finalized words by speaker into runs. */
@@ -56,38 +53,23 @@ function groupBySpeaker(
   return runs;
 }
 
-/** Find the last index in an array satisfying a predicate (like Array.findLastIndex). */
-function findLastIndex<T>(arr: T[], pred: (item: T) => boolean): number {
-  for (let i = arr.length - 1; i >= 0; i--) {
-    if (pred(arr[i]!)) return i;
-  }
-  return -1;
-}
-
 let phraseIdCounter = 0;
 function nextId() { return `p-${++phraseIdCounter}`; }
 
-// ── hook ──────────────────────────────────────────────────────────────────
+// ── hook ──────────────────────────────────────────────────────────────────────
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [micLevel, setMicLevel] = useState(0);
-  const [systemLevel, setSystemLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [audioInfo, setAudioInfo] = useState<string>("");
 
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const apiKeyRef = useRef<string>("");   // stored for auto-reconnect
+  const apiKeyRef = useRef<string>("");
 
-  // Four WebSocket refs — mic and sys each have their own en+ar pair
-  const wsMicEnRef = useRef<WebSocket | null>(null);
-  const wsMicArRef = useRef<WebSocket | null>(null);
-  const wsSysEnRef = useRef<WebSocket | null>(null);
-  const wsSysArRef = useRef<WebSocket | null>(null);
-
-  // Two AudioWorkletNode refs — one per audio source
-  const micWorkletRef = useRef<AudioWorkletNode | null>(null);
-  const sysWorkletRef = useRef<AudioWorkletNode | null>(null);
+  const wsEnRef = useRef<WebSocket | null>(null);
+  const wsArRef = useRef<WebSocket | null>(null);
+  const workletRef = useRef<AudioWorkletNode | null>(null);
 
   const streamsRef = useRef<MediaStream[]>([]);
   const isRecordingRef = useRef(false);
@@ -98,25 +80,23 @@ export function useTranscription() {
   const stopSessionMut = useStopSession();
   const getTokenMut = useGetTranscriptionToken();
 
-  // ── stop ──────────────────────────────────────────────────────────────
+  // ── stop ────────────────────────────────────────────────────────────────────
   const stop = useCallback(async () => {
     if (!isRecordingRef.current) return;
-    isRecordingRef.current = false; // set BEFORE closing WSs so onclose won't reconnect
+    isRecordingRef.current = false;
     setIsRecording(false);
 
-    // Seal all active phrases and clear any pending partial text
-    setPhrases(prev => prev.map(p => p.active ? { ...p, active: false, pendingText: undefined } : p));
+    // Seal any open phrase and clear pending partial text
+    setPhrases(prev =>
+      prev.map(p => p.active ? { ...p, active: false, pendingText: undefined } : p)
+    );
 
-    // Disconnect AudioWorklet nodes
-    micWorkletRef.current?.disconnect();
-    micWorkletRef.current = null;
-    sysWorkletRef.current?.disconnect();
-    sysWorkletRef.current = null;
+    workletRef.current?.disconnect();
+    workletRef.current = null;
 
-    // Send EOF + close all four WebSockets
-    for (const wsRef of [wsMicEnRef, wsMicArRef, wsSysEnRef, wsSysArRef]) {
+    for (const wsRef of [wsEnRef, wsArRef]) {
       if (wsRef.current) {
-        try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* ignore */ }
+        try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
         wsRef.current.close();
         wsRef.current = null;
       }
@@ -130,7 +110,6 @@ export function useTranscription() {
     streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
     streamsRef.current = [];
     setMicLevel(0);
-    setSystemLevel(0);
 
     if (sessionIdRef.current) {
       const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -145,22 +124,30 @@ export function useTranscription() {
     }
   }, [stopSessionMut]);
 
-  // ── buildWs ───────────────────────────────────────────────────────────
-  // Creates one Soniox WebSocket. Includes:
-  //   • non-final words (nfw) → live pendingText updates
-  //   • final words   (fw)  → committed phrase text
-  //   • auto-reconnect on unexpected close while still recording
+  // ── buildWs ─────────────────────────────────────────────────────────────────
+  //
+  // nfw (non-final words): Soniox sends the FULL current partial utterance.
+  //   → We REPLACE pendingText on the active phrase (never append).
+  //   → If no active phrase exists, we create one with text="".
+  //
+  // fw (final words): Soniox sends only the NEWLY committed words.
+  //   → We SEAL the active phrase: text = fw content, pendingText = undefined, active = false.
+  //   → Sealing triggers the translation effect in the UI.
+  //   → If no active phrase, we create a sealed phrase directly.
+  //
+  // This model means each fw batch = one sealed phrase bubble.
+  // It prevents the "text + pendingText = duplicate" display bug that occurs when
+  // Soniox repeats already-committed words in subsequent nfw messages.
+  //
   const buildWs = useCallback((
     apiKey: string,
     model: string,
     langCode: "en" | "ar",
     spkOffset: number,
-    source: "mic" | "sys",
     ownRef: MutableRefObject<WebSocket | null>,
-    sourcePeerRef: MutableRefObject<WebSocket | null>, // the other WS for the same source
+    peerRef: MutableRefObject<WebSocket | null>,
   ): WebSocket => {
     const ws = new WebSocket("wss://api.soniox.com/transcribe-websocket");
-    // Prevents reconnect loops when the API rejects the request (e.g. invalid model)
     let apiErrorOccurred = false;
 
     ws.onopen = () => {
@@ -170,9 +157,9 @@ export function useTranscription() {
         audio_format: "pcm_s16le",
         sample_rate_hertz: TARGET_RATE,
         num_audio_channels: 1,
-        include_nonfinal: true, // enables partial words (nfw) for low-latency display
+        include_nonfinal: true,
       }));
-      console.log(`[WS] ${source}/${model} connected`);
+      console.log(`[WS] ${model} connected`);
     };
 
     ws.onmessage = (e: MessageEvent) => {
@@ -183,38 +170,43 @@ export function useTranscription() {
           error?: string; code?: number; message?: string;
         };
 
-        // Soniox API-level error (e.g. invalid model, bad API key)
+        // API-level error → show once, do not reconnect
         if (data.error || (typeof data.code === "number" && !data.fw && !data.nfw)) {
           const msg = data.error ?? data.message ?? `code ${data.code}`;
-          console.error(`[WS] ${source}/${model} API error:`, msg, data);
-          setError(`Transcription error (${source}/${model}): ${msg}`);
-          apiErrorOccurred = true; // do not reconnect — same error will repeat
+          console.error(`[WS] ${model} API error:`, msg);
+          setError(`Transcription error (${model}): ${msg}`);
+          apiErrorOccurred = true;
           return;
         }
 
-        // ── Non-final words → update pendingText ─────────────────────
+        // ── Non-final words → update pending text ─────────────────────────────
+        // Rule: REPLACE pendingText (never accumulate). This is always the full
+        // current partial from Soniox; we just show whatever Soniox sends.
         const nfWords = data.nfw ?? [];
         if (nfWords.length > 0) {
           const pending = nfWords.map(w => w.t ?? w.w ?? w.text ?? "").join("").trim();
           if (pending) {
-            // Language filter: don't let ar_v1 show English partials or vice-versa
             const isAr = isValidArabicOutput(pending);
             if (langCode === "ar" && !isAr) { /* skip */ }
             else if (langCode === "en" && isAr) { /* skip */ }
             else {
               setPhrases(prev => {
                 const next = [...prev];
-                const idx = findLastIndex(next,
-                  p => p.active && p.source === source && p.language === langCode);
-                if (idx >= 0) {
-                  next[idx] = { ...next[idx]!, pendingText: pending };
+                const last = next[next.length - 1];
+
+                if (last?.active && last.language === langCode) {
+                  // Update pendingText on the existing active phrase (REPLACE)
+                  next[next.length - 1] = { ...last, pendingText: pending };
                 } else {
-                  // No active phrase yet for this source+lang — open one
+                  // No active same-lang phrase → seal any unrelated active, create fresh one
+                  if (last?.active) {
+                    next[next.length - 1] = { ...last, active: false, pendingText: undefined };
+                  }
                   next.push({
                     id: nextId(),
                     speakerIndex: (nfWords[0]?.spk ?? 0) + spkOffset,
-                    speakerLabel: makeSpeakerLabel(source, nfWords[0]?.spk ?? 0),
-                    source,
+                    speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
+                    source: "mic",
                     text: "",
                     pendingText: pending,
                     language: langCode,
@@ -227,7 +219,10 @@ export function useTranscription() {
           }
         }
 
-        // ── Final words → commit text, clear pending ──────────────────
+        // ── Final words → seal the active phrase ──────────────────────────────
+        // Rule: each fw batch SEALS the active phrase. The fw content becomes the
+        // phrase's permanent text; pendingText is discarded. active → false fires
+        // the translation effect. A subsequent nfw will open a new active phrase.
         const finalWords = data.fw ?? [];
         if (finalWords.length > 0) {
           const runs = groupBySpeaker(finalWords);
@@ -237,34 +232,37 @@ export function useTranscription() {
               const trimmed = run.text.trim();
               if (!trimmed) continue;
 
-              // Language filter
+              // Language filter: reject cross-language output
               if (langCode === "ar" && !isValidArabicOutput(trimmed)) continue;
               if (langCode === "en" && isValidArabicOutput(trimmed)) continue;
 
               const globalSpk = run.spk + spkOffset;
               const last = next[next.length - 1];
 
-              if (last && last.active && last.speakerIndex === globalSpk) {
-                // Same speaker continues → append and clear pending
+              if (last?.active && last.language === langCode) {
+                // Seal the active phrase: fw content is authoritative
                 next[next.length - 1] = {
                   ...last,
-                  text: last.text ? `${last.text} ${trimmed}` : trimmed,
+                  speakerIndex: globalSpk,
+                  speakerLabel: makeSpeakerLabel(run.spk),
+                  text: trimmed,
                   pendingText: undefined,
+                  active: false,  // SEALED → translation fires
                 };
               } else {
-                // Speaker changed → seal current, open new
+                // No active same-lang phrase → create a sealed phrase directly
                 if (last?.active) {
                   next[next.length - 1] = { ...last, active: false, pendingText: undefined };
                 }
                 next.push({
                   id: nextId(),
                   speakerIndex: globalSpk,
-                  speakerLabel: makeSpeakerLabel(source, run.spk),
-                  source,
+                  speakerLabel: makeSpeakerLabel(run.spk),
+                  source: "mic",
                   text: trimmed,
                   pendingText: undefined,
                   language: langCode,
-                  active: true,
+                  active: false,
                 });
               }
             }
@@ -272,35 +270,34 @@ export function useTranscription() {
           });
         }
       } catch (err) {
-        console.error(`[WS] ${source}/${model} parse error`, err);
+        console.error(`[WS] ${model} parse error`, err);
       }
     };
 
-    ws.onerror = (e) => console.error(`[WS] ${source}/${model} socket error`, e);
+    ws.onerror = (e) => console.error(`[WS] ${model} socket error`, e);
 
     ws.onclose = (e) => {
       const logFn = (e.code === 1000 || e.code === 1001) ? console.log : console.warn;
-      logFn(`[WS] ${source}/${model} closed — code:${e.code} reason:"${e.reason}"`);
+      logFn(`[WS] ${model} closed — code:${e.code} reason:"${e.reason}"`);
 
       if (ownRef.current === ws) ownRef.current = null;
 
-      // Clear stale pending text from this source+lang when its connection drops
-      setPhrases(prev => prev.map(p =>
-        p.active && p.source === source && p.language === langCode
-          ? { ...p, pendingText: undefined }
-          : p
-      ));
+      // Clear stale pending text when this connection drops
+      setPhrases(prev =>
+        prev.map(p =>
+          p.active && p.language === langCode
+            ? { ...p, pendingText: undefined }
+            : p
+        )
+      );
 
-      // If the session is still running AND the close wasn't due to an API error,
-      // reconnect automatically. isRecordingRef is set false BEFORE closeing WSs
-      // in stop(), so this check correctly skips reconnect when the user stops.
+      // Auto-reconnect if still recording and not an API error
       if (!isRecordingRef.current || apiErrorOccurred) return;
-
-      console.log(`[WS] ${source}/${model} — scheduling reconnect in 200 ms`);
+      console.log(`[WS] ${model} — reconnecting in 200 ms`);
       setTimeout(() => {
         if (!isRecordingRef.current || !apiKeyRef.current) return;
-        console.log(`[WS] ${source}/${model} reconnecting…`);
-        const newWs = buildWs(apiKeyRef.current, model, langCode, spkOffset, source, ownRef, sourcePeerRef);
+        console.log(`[WS] ${model} reconnecting…`);
+        const newWs = buildWs(apiKeyRef.current, model, langCode, spkOffset, ownRef, peerRef);
         ownRef.current = newWs;
       }, 200);
     };
@@ -308,8 +305,8 @@ export function useTranscription() {
     return ws;
   }, [stop]);
 
-  // ── start ─────────────────────────────────────────────────────────────
-  const start = useCallback(async (micDeviceId: string, systemDeviceId: string) => {
+  // ── start ────────────────────────────────────────────────────────────────────
+  const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
       setPhrases([]);
@@ -319,93 +316,58 @@ export function useTranscription() {
       const sessionRes = await startSessionMut.mutateAsync({});
       sessionIdRef.current = sessionRes.sessionId;
       startTimeRef.current = Date.now();
-      apiKeyRef.current = tokenRes.apiKey; // stored for auto-reconnect
+      apiKeyRef.current = tokenRes.apiKey;
 
       const AudioContextCtor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
 
-      // Capture at hardware native rate; worklet downsamples to TARGET_RATE
       const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
       const nativeSR = ctx.sampleRate;
       setAudioInfo(`${nativeSR} Hz → ${TARGET_RATE} Hz (AudioWorklet)`);
       console.log(`[Audio] native rate: ${nativeSR} Hz`);
 
-      // ── Load the AudioWorklet processor ─────────────────────────────
-      // The worklet script lives in /public so Vite serves it at /pcm-processor.js
       await ctx.audioWorklet.addModule("/pcm-processor.js");
 
-      // ── Mic capture ─────────────────────────────────────────────────
-      const micStream = await navigator.mediaDevices.getUserMedia({
+      // ── Capture selected device ──────────────────────────────────────────────
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId: micDeviceId ? { exact: micDeviceId } : undefined,
+          deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
           channelCount: 1,
         },
       });
-      streamsRef.current.push(micStream);
+      streamsRef.current.push(stream);
 
-      // ── System audio capture (optional) ─────────────────────────────
-      let systemStream: MediaStream | null = null;
-      if (systemDeviceId && systemDeviceId !== micDeviceId) {
-        try {
-          systemStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: { exact: systemDeviceId },
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false,
-              channelCount: 1,
-            },
-          });
-          streamsRef.current.push(systemStream);
-        } catch (e) {
-          console.warn("[Audio] Could not open system device:", e);
-        }
-      }
+      // ── Open two Soniox WebSockets (English + Arabic) ────────────────────────
+      const wsEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.en, wsEnRef, wsArRef);
+      const wsAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.ar, wsArRef, wsEnRef);
+      wsEnRef.current = wsEn;
+      wsArRef.current = wsAr;
 
-      // ── Open Soniox WebSocket pairs ──────────────────────────────────
-      // Mic pair (always)
-      const wsMicEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.micEn, "mic", wsMicEnRef, wsMicArRef);
-      const wsMicAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.micAr, "mic", wsMicArRef, wsMicEnRef);
-      wsMicEnRef.current = wsMicEn;
-      wsMicArRef.current = wsMicAr;
+      // ── Audio graph: device → analyser → worklet → both WSs ────────────────
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
 
-      // Sys pair (only when a system audio device is selected)
-      let wsSysEn: WebSocket | null = null;
-      let wsSysAr: WebSocket | null = null;
-      if (systemStream) {
-        wsSysEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.sysEn, "sys", wsSysEnRef, wsSysArRef);
-        wsSysAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.sysAr, "sys", wsSysArRef, wsSysEnRef);
-        wsSysEnRef.current = wsSysEn;
-        wsSysArRef.current = wsSysAr;
-      }
-
-      // ── Mic audio graph ──────────────────────────────────────────────
-      // micSource → micAnalyser → micWorklet → ctx.destination (silent)
-      const micSource = ctx.createMediaStreamSource(micStream);
-      const micAnalyser = ctx.createAnalyser();
-      micAnalyser.fftSize = 256;
-      micSource.connect(micAnalyser);
-
-      const micWorklet = new AudioWorkletNode(ctx, "pcm-processor", {
+      const worklet = new AudioWorkletNode(ctx, "pcm-processor", {
         processorOptions: { targetRate: TARGET_RATE },
       });
-      micWorkletRef.current = micWorklet;
-      micAnalyser.connect(micWorklet);
-      micWorklet.connect(ctx.destination); // AudioWorkletNode must be connected to stay active
+      workletRef.current = worklet;
+      analyser.connect(worklet);
+      worklet.connect(ctx.destination); // must be connected to stay active
 
-      micWorklet.port.onmessage = (e) => {
+      worklet.port.onmessage = (e) => {
         const pcm = e.data as ArrayBuffer;
 
-        // Forward audio to mic WebSockets (use current ref — updated on reconnect)
-        if (wsMicEnRef.current?.readyState === WebSocket.OPEN) wsMicEnRef.current.send(pcm);
-        if (wsMicArRef.current?.readyState === WebSocket.OPEN) wsMicArRef.current.send(pcm);
+        if (wsEnRef.current?.readyState === WebSocket.OPEN) wsEnRef.current.send(pcm);
+        if (wsArRef.current?.readyState === WebSocket.OPEN) wsArRef.current.send(pcm);
 
-        // Compute RMS level from downsampled PCM for the VU meter
+        // RMS level for VU meter
         const samples = new Int16Array(pcm);
         let sum = 0;
         for (let i = 0; i < samples.length; i++) {
@@ -414,36 +376,6 @@ export function useTranscription() {
         }
         setMicLevel(Math.min(100, Math.sqrt(sum / samples.length) * 500));
       };
-
-      // ── System audio graph ───────────────────────────────────────────
-      if (systemStream && wsSysEn && wsSysAr) {
-        const sysSource = ctx.createMediaStreamSource(systemStream);
-        const sysAnalyser = ctx.createAnalyser();
-        sysAnalyser.fftSize = 256;
-        sysSource.connect(sysAnalyser);
-
-        const sysWorklet = new AudioWorkletNode(ctx, "pcm-processor", {
-          processorOptions: { targetRate: TARGET_RATE },
-        });
-        sysWorkletRef.current = sysWorklet;
-        sysAnalyser.connect(sysWorklet);
-        sysWorklet.connect(ctx.destination);
-
-        sysWorklet.port.onmessage = (e) => {
-          const pcm = e.data as ArrayBuffer;
-
-          if (wsSysEnRef.current?.readyState === WebSocket.OPEN) wsSysEnRef.current.send(pcm);
-          if (wsSysArRef.current?.readyState === WebSocket.OPEN) wsSysArRef.current.send(pcm);
-
-          const samples = new Int16Array(pcm);
-          let sum = 0;
-          for (let i = 0; i < samples.length; i++) {
-            const s = (samples[i] ?? 0) / 32768;
-            sum += s * s;
-          }
-          setSystemLevel(Math.min(100, Math.sqrt(sum / samples.length) * 500));
-        };
-      }
 
       isRecordingRef.current = true;
       setIsRecording(true);
@@ -460,7 +392,6 @@ export function useTranscription() {
     audioInfo,
     phrases,
     micLevel,
-    systemLevel,
     error,
     start,
     stop,

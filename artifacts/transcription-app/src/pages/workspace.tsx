@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, Copy, ArrowLeftRight, X, Check, Trash2
+  Globe, Languages, Copy, ArrowLeftRight, Check, Trash2
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -38,7 +38,7 @@ function langLabel(val: string) {
   return LANG_OPTIONS.find((l) => l.value === val)?.label ?? val.toUpperCase();
 }
 
-/** Auto-detect translation target: if phrase is langA → translate to langB, else → langA */
+/** Auto-detect translation target: phrase lang A → translate to B, else → A */
 function getTargetLang(phraseLanguage: string, langA: string, langB: string): string {
   if (phraseLanguage === langA) return langB;
   return langA;
@@ -76,28 +76,14 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// ─── Source colour ─────────────────────────────────────────────────────────────
-// Interpreter (mic) = blue family; Caller (sys) = amber family
-function sourceColor(source: "mic" | "sys") {
-  return source === "mic" ? "text-blue-600" : "text-amber-600";
-}
-function sourceBadgeCls(source: "mic" | "sys") {
-  return source === "mic"
-    ? "bg-blue-50 text-blue-500 border border-blue-100"
-    : "bg-amber-50 text-amber-600 border border-amber-100";
-}
-
 // ─── Transcript entry ──────────────────────────────────────────────────────────
 function TranscriptEntry({ phrase }: { phrase: Phrase }) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
     <div className="group flex flex-col gap-1 mb-4">
       <div className="flex items-center gap-1.5">
-        <span className={`text-[10px] font-bold uppercase tracking-widest ${sourceColor(phrase.source)}`}>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">
           {phrase.speakerLabel}
-        </span>
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${sourceBadgeCls(phrase.source)}`}>
-          {phrase.source === "mic" ? "Mic" : "System"}
         </span>
       </div>
       <div className="flex items-start gap-2">
@@ -105,11 +91,11 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
           <LangBadge lang={phrase.language} />
           <p className="text-sm leading-relaxed text-foreground flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
             {phrase.text}
-            {/* Partial / non-final words from Soniox — shown dimmed while speaker is talking */}
             {phrase.active && phrase.pendingText && (
-              <span className="text-muted-foreground/50 italic">{phrase.text ? " " : ""}{phrase.pendingText}</span>
+              <span className="text-muted-foreground/50 italic">
+                {phrase.text ? " " : ""}{phrase.pendingText}
+              </span>
             )}
-            {/* Waiting dots — only shown when there's no pending text yet */}
             {phrase.active && !phrase.pendingText && !phrase.text && (
               <span className="inline-flex gap-0.5 ml-1 align-middle">
                 <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -139,11 +125,8 @@ function TranslationEntry({
   return (
     <div className="group flex flex-col gap-1 mb-4">
       <div className="flex items-center gap-1.5">
-        <span className={`text-[10px] font-bold uppercase tracking-widest ${sourceColor(phrase.source)}`}>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">
           {phrase.speakerLabel}
-        </span>
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${sourceBadgeCls(phrase.source)}`}>
-          {phrase.source === "mic" ? "Mic" : "System"}
         </span>
       </div>
       <div className="flex items-start gap-2">
@@ -182,11 +165,9 @@ export default function Workspace() {
   const { devices } = useAudioDevices();
   const transcription = useTranscription();
 
-  const [micId, setMicId] = useState("");
-  const [systemId, setSystemId] = useState("");
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
   const [activeTab, setActiveTab] = useState("mic");
-  const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
   // Bidirectional translation pair — default English ↔ Arabic
   const [langA, setLangA] = useState("en");
@@ -199,10 +180,17 @@ export default function Workspace() {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const translationEndRef = useRef<HTMLDivElement>(null);
 
+  // Count only SEALED (finalized) phrases for scroll trigger.
+  // This prevents the panel from jumping on every partial-text update.
+  const finalizedCount = useMemo(
+    () => transcription.phrases.filter(p => !p.active).length,
+    [transcription.phrases]
+  );
+
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
     translationEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcription.phrases]);
+  }, [finalizedCount]);
 
   const translatePhrase = useCallback(async (phrase: Phrase, targetLang: string) => {
     const key = phrase.id;
@@ -229,7 +217,7 @@ export default function Workspace() {
     }
   }, []);
 
-  // Translate every sealed (active: false) phrase that hasn't been translated yet
+  // Translate every sealed phrase that hasn't been translated yet — fires in real-time
   useEffect(() => {
     for (const phrase of transcription.phrases) {
       if (!phrase.active && phrase.text.trim() && !translations[phrase.id] && !translatingRef.current.has(phrase.id)) {
@@ -240,7 +228,14 @@ export default function Workspace() {
   }, [transcription.phrases, langA, langB, translations, translatePhrase]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
-  useEffect(() => { if (devices.length > 0 && !micId) setMicId(devices[0]!.deviceId); }, [devices, micId]);
+
+  // Auto-select first available device
+  useEffect(() => {
+    if (devices.length > 0 && !selectedDeviceId) {
+      setSelectedDeviceId(devices[0]!.deviceId);
+    }
+  }, [devices, selectedDeviceId]);
+
   useEffect(() => {
     if (!user?.trialExpired) return;
     const t = setTimeout(() => setShowFeedback(true), 1000);
@@ -259,7 +254,7 @@ export default function Workspace() {
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     } else {
       handleClear();
-      transcription.start(micId, systemId);
+      transcription.start(selectedDeviceId);
     }
   };
 
@@ -296,12 +291,9 @@ export default function Workspace() {
         <div className="flex-1 flex flex-col gap-1.5">
           {[
             { id: "profile", icon: <User className="w-5 h-5" />, title: "Profile" },
-            {
-              id: "mic", icon: <Mic2 className="w-5 h-5" />, title: "Audio Settings",
-              onClick: () => { setActiveTab("mic"); setShowDeviceSettings(v => !v); }
-            },
-            { id: "lang", icon: <Globe className="w-5 h-5" />, title: "Languages" },
-          ].map(({ id, icon, title, onClick }) => (
+            { id: "mic",     icon: <Mic2 className="w-5 h-5" />, title: "Audio" },
+            { id: "lang",    icon: <Globe className="w-5 h-5" />, title: "Languages" },
+          ].map(({ id, icon, title }) => (
             <button
               key={id}
               className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
@@ -309,7 +301,7 @@ export default function Workspace() {
                   ? "bg-white shadow-sm text-primary"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               }`}
-              onClick={onClick ?? (() => setActiveTab(id))}
+              onClick={() => setActiveTab(id)}
               title={title}
             >
               {icon}
@@ -385,34 +377,7 @@ export default function Workspace() {
         )}
 
         {/* PANELS */}
-        <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden relative">
-
-          {/* Audio Settings Popover */}
-          {showDeviceSettings && (
-            <div className="absolute top-4 left-4 z-30 w-72 bg-white rounded-xl shadow-lg border border-border p-4 flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <h4 className="font-semibold text-sm">Audio Devices</h4>
-                <button onClick={() => setShowDeviceSettings(false)} className="text-muted-foreground hover:text-foreground p-0.5">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Microphone</label>
-                <Select value={micId} onChange={(e) => setMicId(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm">
-                  {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 20)}</option>)}
-                </Select>
-                <AudioMeter level={transcription.micLevel} label="" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">System Audio (optional)</label>
-                <Select value={systemId} onChange={(e) => setSystemId(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm">
-                  <option value="">None</option>
-                  {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 20)}</option>)}
-                </Select>
-                {systemId && <AudioMeter level={transcription.systemLevel} label="" />}
-              </div>
-            </div>
-          )}
+        <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden">
 
           {/* Transcript Panel */}
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
@@ -496,36 +461,30 @@ export default function Workspace() {
         {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Microphone device selector */}
+          {/* ROW 1: Audio input device selector */}
           <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Mic:</span>
-              <Select value={micId} onChange={(e) => setMicId(e.target.value)} disabled={transcription.isRecording} className="h-8 text-xs flex-1 min-w-0 max-w-[220px] bg-muted/30">
-                {devices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Device ${d.deviceId.slice(0, 8)}`}</option>
-                ))}
-              </Select>
-              <div className="w-20 shrink-0"><AudioMeter level={transcription.micLevel} label="" /></div>
-            </div>
-
-            <div className="w-px h-5 bg-border shrink-0" />
-
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">System:</span>
-              <Select value={systemId} onChange={(e) => setSystemId(e.target.value)} disabled={transcription.isRecording} className="h-8 text-xs flex-1 min-w-0 max-w-[220px] bg-muted/30">
-                <option value="">None</option>
-                {devices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Device ${d.deviceId.slice(0, 8)}`}</option>
-                ))}
-              </Select>
-              {systemId && <div className="w-20 shrink-0"><AudioMeter level={transcription.systemLevel} label="" /></div>}
+            <Mic2 className="w-4 h-4 text-muted-foreground shrink-0" />
+            <Select
+              value={selectedDeviceId}
+              onChange={(e) => setSelectedDeviceId(e.target.value)}
+              disabled={transcription.isRecording}
+              className="h-8 text-xs flex-1 min-w-0 max-w-xs bg-muted/30"
+            >
+              {devices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Device ${d.deviceId.slice(0, 8)}`}
+                </option>
+              ))}
+            </Select>
+            <div className="w-24 shrink-0">
+              <AudioMeter level={transcription.micLevel} label="" />
             </div>
           </div>
 
           {/* ROW 2: Translate-between pair + record button */}
           <div className="flex items-center px-4 py-3 gap-3">
 
-            {/* Left: translate-between pair */}
+            {/* Left: translation language pair */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate between</span>
               <Select value={langA} onChange={(e) => setLangA(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
@@ -571,7 +530,7 @@ export default function Workspace() {
               )}
             </div>
 
-            {/* Right: mirror spacer for centering */}
+            {/* Right: mirror spacer for button centering */}
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
               <span className="text-xs font-semibold whitespace-nowrap">Translate between</span>
               <div className="h-9 w-[130px]" />

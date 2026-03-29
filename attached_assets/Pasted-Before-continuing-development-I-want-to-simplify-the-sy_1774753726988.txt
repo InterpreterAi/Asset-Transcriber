@@ -1,0 +1,80 @@
+Before continuing development I want to simplify the system so we can properly test real-time transcription and translation.
+
+Please implement the following changes.
+
+1. Simplify the audio pipeline for testing.
+
+Temporarily remove the dual input system (microphone + system audio).  
+Use only ONE audio input source at a time.
+
+The app should detect and list ALL available audio input devices from the computer automatically.
+
+Examples:
+• MacBook Microphone  
+• USB Headset Microphone  
+• Krisp Microphone  
+• BlackHole  
+• Loopback  
+• Any virtual or hardware input device
+
+The user must be able to select any of these devices from a dropdown.
+
+Only one source should be active at a time and it should stream directly to Soniox.
+
+2. Fix real-time transcription latency.
+
+Audio must be streamed in real-time using small frames (around 100–200 ms).
+
+Do not buffer several seconds of audio before sending.
+
+Enable partial transcription results so words appear while the speaker is talking.
+
+The goal is to match the behavior of the Soniox demo where words appear almost instantly.
+
+3. Fix duplicate transcript sentences.
+
+Right now partial transcripts are being appended repeatedly.
+
+Streaming speech APIs send partial updates before the final sentence.
+
+The UI should replace partial text until the final transcript is received.
+
+Only final segments should be permanently added to the transcript.
+
+4. Fix translation behavior.
+
+Translation currently appears only after recording stops.
+
+Translation must run in real time.
+
+Every transcript segment returned from Soniox should immediately trigger translation and update the Translation panel.
+
+Translation must not wait until the session ends.
+
+5. Fix screen jumping / auto-scroll.
+
+The transcript panel currently jumps while listening.
+
+This happens because the UI scrolls every time the text updates.
+
+Please only auto-scroll when a new FINAL transcript segment is added.
+
+Do not scroll during partial transcript updates.
+
+6. Keep the resampling pipeline.
+
+The current pipeline shows:
+48000 Hz → 16000 Hz (AudioWorklet)
+
+This is correct, but make sure the resampling runs inside an AudioWorklet so it does not block the main thread and slow down streaming.
+
+7. Testing goal.
+
+For now the system should work with one selected audio input and achieve:
+
+• near-instant transcription  
+• stable UI without jumping  
+• real-time translation per transcript segment  
+• ability to select any input device from the computer
+
+Once this single-input pipeline is stable and fast we can reintroduce the dual audio system for caller + interpreter.

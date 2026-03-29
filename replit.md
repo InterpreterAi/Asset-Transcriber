@@ -130,39 +130,40 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 
 ## Key Behaviors
 
-### Transcription Flow
-1. User clicks Record → frontend calls `POST /api/transcription/token` (gets Soniox key) + `POST /api/transcription/session/start`
-2. Frontend opens up to **4** `wss://api.soniox.com/transcribe-websocket` connections directly from the browser
-3. Audio captured at native hardware rate (48 kHz typical) via Web Audio API; manually downsampled to 16 kHz via linear interpolation
-4. Mic and system audio are **never mixed** — each source has its own pair of WebSocket connections:
-   - `wsMicEn` (en_v2, spkOffset=0) + `wsMicAr` (ar_v1, spkOffset=100) — microphone/interpreter audio
-   - `wsSysEn` (en_v2, spkOffset=200) + `wsSysAr` (ar_v1, spkOffset=300) — system audio/caller (only opened when a system audio device is selected)
-5. Soniox response format: `fw[]` (final words); diarization via `spk` field per word
-6. Final words grouped into `Phrase[]` objects. Each phrase has `source: "mic" | "sys"` and `speakerLabel: "Interpreter" | "Caller"`
-7. Each finalized phrase (active → false) is individually translated via `POST /api/translate`
-8. When stopped → `POST /api/transcription/session/stop` with duration in seconds
-9. If both mic WebSockets die while recording → auto-stop. If sys WebSockets die → warn but continue with mic.
+### Transcription Flow (Simplified Single-Input Pipeline)
+1. User selects any audio input device from dropdown (all system devices listed via `enumerateDevices`)
+2. User clicks Record → frontend calls `POST /api/transcription/token` + `POST /api/transcription/session/start`
+3. Frontend opens **2** Soniox WebSocket connections: `wsEn` (en_v2_lowlatency, offset 0) + `wsAr` (ar_v1, offset 100)
+4. Audio captured at native hardware rate via Web Audio API; **AudioWorklet** (`pcm-processor.js`) downsamples to 16 kHz with 60ms chunks in the audio thread
+5. Same PCM stream sent to both WSs; language filter prevents cross-contamination
+6. **nfw** (non-final words): REPLACE `pendingText` on active phrase → shows dimmed italic in real-time
+7. **fw** (final words): SEAL active phrase → `active: false`, text = fw content, translation fires immediately
+8. Each sealed Phrase is individually translated via `POST /api/translate` in real-time
+9. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` flag prevents loops
+10. When stopped → `POST /api/transcription/session/stop` with duration in seconds
+11. **Auto-scroll** only fires when `finalizedCount` increases (not on partial updates)
 
 ### Soniox API Notes
 - **Endpoint**: `wss://api.soniox.com/transcribe-websocket`
-- **Valid models**: ONLY `en_v2` (English) and `ar_v1` (Arabic). Any other model returns `<invalid_model>`.
-- **Init format**: `{ api_key, model, audio_format: "pcm_s16le", sample_rate_hertz: 16000, num_audio_channels: 1, include_nonfinal: false }`
-- **CRITICAL**: `include_nonfinal` MUST be `false` — setting it to `true` causes Soniox to close the connection after ~3 seconds on en_v2/ar_v1
-- **Response format**: `{ fw: [{t, spk, lang}] }` — `fw` = final words only (no partial words)
-- **Speaker diarization**: `spk` index (0-indexed) per word; offset per connection ensures global uniqueness
-- **Language filter**: ar_v1 output validated by Arabic Unicode char ratio ≥35%; en_v2 output must NOT pass that test
-- **Audio**: Capture at native browser rate (48 kHz), downsample via `downsampleLinear()` to 16 kHz before sending PCM
+- **Valid models**: `en_v2_lowlatency` (English, low-latency streaming) and `ar_v1` (Arabic)
+- **Init format**: `{ api_key, model, audio_format: "pcm_s16le", sample_rate_hertz: 16000, num_audio_channels: 1, include_nonfinal: true }`
+- **include_nonfinal: true** enables real-time partial words (`nfw`); `en_v2_lowlatency` handles this correctly
+- **Response format**: `{ fw: [{t, spk}], nfw: [{t, spk}] }` — `fw` = committed words, `nfw` = current partial
+- **Speaker diarization**: `spk` index (0-indexed) per word; offset (0 for en, 100 for ar) ensures global uniqueness
+- **Language filter**: ar_v1 output validated by Arabic Unicode char ratio ≥35%; en must NOT pass that test
+- **AudioWorklet**: 60ms chunks (60ms × sampleRate samples → downsampled to 16kHz PCM Int16)
 
 ### Phrase interface
 ```typescript
 interface Phrase {
   id: string;
-  speakerIndex: number;   // global: 0-99 = mic/en, 100-199 = mic/ar, 200-299 = sys/en, 300-399 = sys/ar
-  speakerLabel: string;   // "Interpreter" | "Interpreter 2" | "Caller" | "Caller 2"
-  source: "mic" | "sys"; // audio origin
-  text: string;
-  language: string;       // "en" | "ar"
-  active: boolean;        // true while still accumulating words
+  speakerIndex: number;  // 0-99 = en channel, 100-199 = ar channel
+  speakerLabel: string;  // "Speaker" | "Speaker 2" | ...
+  source: "mic";         // always "mic" in single-input mode
+  text: string;          // committed fw words
+  pendingText?: string;  // current partial nfw words (shown dimmed italic)
+  language: string;      // "en" | "ar"
+  active: boolean;       // true = partial in-flight; false = sealed (triggers translation)
 }
 ```
 
@@ -176,7 +177,7 @@ interface Phrase {
 - **Sidebar** (64px): User / Mic / Globe / Admin icons + logout at bottom
 - **Header** (52px): "InterpretAI" branding + trial badge + daily usage badge
 - **Split panels**: Left = original transcript (chat bubbles), Right = translations (mirrored bubbles)
-- **Bottom toolbar**: Row 1 = Mic selector + level meter + System selector + level meter; Row 2 = Source lang + swap + Target lang + Record button
+- **Bottom toolbar**: Row 1 = single device selector (all system inputs) + VU meter; Row 2 = Language A + swap + Language B + Record button (centred)
 - Per-bubble copy icon (appears on hover), no "Copy All"
 - Column headers update dynamically with selected language names
 
