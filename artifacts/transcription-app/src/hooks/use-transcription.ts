@@ -345,83 +345,99 @@ export function useTranscription() {
       const finalTokens = tokens.filter(t => t.is_final);
       const nfTokens    = tokens.filter(t => !t.is_final);
 
-      // ── Segment Builder (final tokens) ──────────────────────────────────
+      // ── Active-segment model ─────────────────────────────────────────────
       //
-      // Four segmentation triggers — in order of priority:
-      //   1. Speaker change  → seal immediately, start new row for new speaker
-      //   2. Sentence punctuation → seal immediately
-      //   3. Word-count cap  → seal to prevent run-on segments
-      //   4. Silence (700 ms) → seal if speech pauses with buffered text
+      // One live row updates in place as tokens stream in:
+      //   • Committed text (is_final=true)  → accumulates in finalBufRef
+      //   • Provisional suffix (is_final=false) → replaces nfDisplayRef
+      //   • Active segment display = committed + provisional (shown live)
       //
-      // is_final triggers a seal after the entire batch so each committed
-      // Soniox phrase becomes its own transcript row.
+      // Finalization triggers (segment → history row):
+      //   1. Soniox phrase end: final tokens arrive with NO provisional suffix
+      //   2. Speaker change: new speaker ID while segment has content
+      //   3. Sentence punctuation in committed text
+      //   4. Silence: 700 ms after last token with committed content
+      //   (word-count cap kept as safety valve only)
       //
+
+      // ── Speaker (sticky) ─────────────────────────────────────────────────
+      // Prefer speaker from final tokens, then nf, then keep last known.
+      const incomingSpeaker = (
+        finalTokens.find(t => t.speaker !== undefined) ??
+        nfTokens.find(t => t.speaker !== undefined)
+      )?.speaker;
+
+      if (incomingSpeaker !== undefined) {
+        touchSpeaker(incomingSpeaker);
+      }
+
+      // Speaker change with buffered content → finalize current segment first
+      if (
+        incomingSpeaker !== undefined &&
+        incomingSpeaker !== speakerRef.current &&
+        (finalBufRef.current.trim() || nfDisplayRef.current.trim())
+      ) {
+        if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
+          finalBufRef.current = nfDisplayRef.current; // promote provisional
+        }
+        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+        flush();
+      }
+
+      // Update sticky speaker
+      if (incomingSpeaker !== undefined) speakerRef.current = incomingSpeaker;
+
+      // ── Language detection ───────────────────────────────────────────────
       if (finalTokens.length > 0) {
         langRef.current = detectLang(finalTokens, langRef.current);
-
-        if (import.meta.env.DEV) {
-          console.log(
-            "[SPK] batch:",
-            finalTokens.map(t => `"${t.text.trim()}"→spk:${t.speaker ?? "?"}`).join("  ")
-          );
-        }
-
-        const SENTENCE_END = /[.!?؟。！？]\s*$/;
-
-        // Flush helper — cancels silence timer, seals current buffer
-        const seal = () => {
-          if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-          flush();
-        };
-
-        for (const token of finalTokens) {
-          const tSpk = token.speaker;
-          touchSpeaker(tSpk);
-
-          // Trigger 1 — speaker changed and buffer has content → start new row
-          if (
-            tSpk !== undefined &&
-            tSpk !== speakerRef.current &&
-            finalBufRef.current.trim()
-          ) {
-            seal();
-          }
-
-          // Assign speaker when buffer is empty (start of new segment)
-          if (!finalBufRef.current.trim() && tSpk !== undefined) {
-            speakerRef.current = tSpk;
-          }
-
-          finalBufRef.current += token.text;
-
-          // Trigger 2 — sentence-ending punctuation → seal immediately
-          if (SENTENCE_END.test(finalBufRef.current)) {
-            seal();
-            continue;
-          }
-
-          // Trigger 3 — word-count cap → keep rows concise
-          const wordCount = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
-          if (wordCount >= MAX_SEG_WORDS) {
-            seal();
-          }
-        }
-
-        // Trigger — is_final batch complete → seal whatever remains
-        // This ensures each committed Soniox phrase is its own row.
-        if (finalBufRef.current.trim()) {
-          seal();
-        }
+      } else if (nfTokens.length > 0 && !finalBufRef.current) {
+        langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Non-final tokens: live preview display ──────────────────────────
-      if (nfTokens.length > 0) {
-        nfDisplayRef.current = nfTokens.map(t => t.text).join("");
-        if (!finalBufRef.current) langRef.current = detectLang(nfTokens, langRef.current);
+      // ── Accumulate committed text ────────────────────────────────────────
+      if (finalTokens.length > 0) {
+        finalBufRef.current += finalTokens.map(t => t.text).join("");
       }
 
-      // ── Silence-flush timer (Trigger 4) ─────────────────────────────────
-      // Fallback: seal buffered final text if no new tokens for COMMIT_DELAY ms.
+      // ── Update provisional suffix ────────────────────────────────────────
+      // Non-final tokens REPLACE (not append) — Soniox re-sends corrections
+      nfDisplayRef.current = nfTokens.map(t => t.text).join("");
+
+      // ── Update active segment display ────────────────────────────────────
+      const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
+      if (activeText) {
+        setLiveTranscript({
+          text:         activeText,
+          language:     langRef.current,
+          speakerLabel: normalizeSpeaker(speakerRef.current),
+        });
+      }
+
+      // ── Finalization triggers ────────────────────────────────────────────
+
+      // Trigger 1: Soniox phrase end — all tokens committed, no provisional suffix
+      if (finalTokens.length > 0 && nfTokens.length === 0 && finalBufRef.current.trim()) {
+        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+        flush();
+        return;
+      }
+
+      // Trigger 2: Sentence punctuation in committed text
+      if (/[.!?؟。！？]\s*$/.test(finalBufRef.current) && finalBufRef.current.trim()) {
+        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+        flush();
+        return;
+      }
+
+      // Trigger 3: Word-count safety cap (prevents run-on segments)
+      const wc = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
+      if (wc >= MAX_SEG_WORDS && finalBufRef.current.trim()) {
+        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+        flush();
+        return;
+      }
+
+      // Trigger 4: Silence — 700 ms after the last final token with buffered content
       if (finalTokens.length > 0 && finalBufRef.current.trim()) {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
         const silenceFlush = () => {
@@ -435,10 +451,6 @@ export function useTranscription() {
         };
         commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
       }
-
-      // Non-final tokens are buffered internally only — no live row shown.
-      // Only finalized phrases (sealed by the is_final triggers above) appear
-      // in the transcript, matching Soniox desktop phrase-level behavior.
     };
 
     // ── onmessage: immediate per-message processing ───────────────────────
