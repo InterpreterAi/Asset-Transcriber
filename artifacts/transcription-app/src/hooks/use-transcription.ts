@@ -192,27 +192,31 @@ export function useTranscription() {
     let apiErrorOccurred = false;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        api_key:                       apiKey,
-        model:                         "stt-rt-v4",
-        audio_format:                  "pcm_s16le",
-        sample_rate_hertz:             TARGET_RATE,
-        num_audio_channels:            1,
-        language_hints:                ["en", "ar"],
+      const config = {
+        api_key:                        apiKey,
+        model:                          "stt-rt-v4",
+        audio_format:                   "pcm_s16le",
+        sample_rate:                    TARGET_RATE,   // v4 API field (NOT sample_rate_hertz)
+        num_channels:                   1,             // v4 API field (NOT num_audio_channels)
+        language_hints:                 ["en", "ar"],
         enable_language_identification: true,
-        enable_speaker_diarization:    true,
-      }));
-      console.log("[WS] stt-rt-v4 connected — bilingual EN/AR auto-detect active");
+        enable_speaker_diarization:     true,
+      };
+      ws.send(JSON.stringify(config));
+      console.log("[WS] stt-rt-v4 OPEN — config sent:", config);
     };
 
     ws.onmessage = (e: MessageEvent) => {
+      // Log every raw message so we can confirm tokens are arriving
+      console.log("[WS] RAW message:", e.data);
+
       try {
         const msg = JSON.parse(e.data as string) as SonioxMessage;
 
         // API error — surface once, stop reconnecting
         if (msg.error || (typeof msg.code === "number" && !msg.tokens)) {
           const errMsg = msg.error ?? msg.message ?? `code ${msg.code}`;
-          console.error("[WS] stt-rt-v4 error:", errMsg);
+          console.error("[WS] stt-rt-v4 ERROR:", errMsg, msg);
           setError(`Transcription error: ${errMsg}`);
           apiErrorOccurred = true;
           return;
@@ -220,11 +224,12 @@ export function useTranscription() {
 
         // Stream finished (server closed cleanly)
         if (msg.finished) {
-          console.log("[WS] stt-rt-v4 stream finished");
+          console.log("[WS] stt-rt-v4 finished");
           return;
         }
 
         const tokens = msg.tokens ?? [];
+        console.log("[WS] tokens count:", tokens.length, "| final:", tokens.filter(t => t.is_final).length);
         if (tokens.length === 0) return;
 
         const finalTokens = tokens.filter(t => t.is_final);
@@ -315,6 +320,14 @@ export function useTranscription() {
 
       const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
+
+      // Browsers (especially in iframes) often start AudioContext in "suspended"
+      // state. Resume must be called explicitly inside a user-gesture handler.
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+        console.log("[Audio] AudioContext resumed from suspended state");
+      }
+      console.log("[Audio] AudioContext state:", ctx.state, "sampleRate:", ctx.sampleRate);
       setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz`);
 
       await ctx.audioWorklet.addModule("/pcm-processor.js");
@@ -346,9 +359,22 @@ export function useTranscription() {
       analyser.connect(worklet);
       worklet.connect(ctx.destination);
 
+      let chunkCount = 0;
       worklet.port.onmessage = (e) => {
         const pcm = e.data as ArrayBuffer;
-        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(pcm);
+        chunkCount++;
+        const wsState = wsRef.current?.readyState;
+
+        // Log every 50th chunk (≈ every 3 seconds) so we can confirm audio is flowing
+        if (chunkCount % 50 === 1) {
+          console.log(`[Worklet] chunk #${chunkCount} — ${pcm.byteLength} bytes — WS readyState: ${wsState}`);
+        }
+
+        if (wsState === WebSocket.OPEN) {
+          wsRef.current!.send(pcm);
+        } else if (chunkCount % 50 === 1) {
+          console.warn(`[Worklet] WS not OPEN (state=${wsState}), dropping chunk`);
+        }
 
         // VU meter
         const samples = new Int16Array(pcm);
