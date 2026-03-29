@@ -150,19 +150,18 @@ export function useTranscription() {
           sysAnalyser.connect(destination);
         }
 
-        const ws = new WebSocket("wss://stt.soniox.com/transcribe-websocket");
+        const ws = new WebSocket("wss://api.soniox.com/transcribe-websocket");
         wsRef.current = ws;
 
         ws.onopen = () => {
           ws.send(
             JSON.stringify({
               api_key: tokenRes.apiKey,
-              model: "soniox-1",
+              model: "en_v2_lowlatency",
               audio_format: "pcm_s16le",
-              sample_rate: SAMPLE_RATE,
+              sample_rate_hertz: SAMPLE_RATE,
               num_audio_channels: 1,
-              enable_speaker_diarization: true,
-              num_speakers: 2,
+              include_nonfinal: true,
             })
           );
           isRecordingRef.current = true;
@@ -172,13 +171,62 @@ export function useTranscription() {
         ws.onmessage = (e) => {
           try {
             const data = JSON.parse(e.data as string) as {
+              // New Soniox v10 API format
+              fw?: { t?: string; w?: string; text?: string; spk?: number }[];
+              nfw?: { t?: string; w?: string; text?: string; spk?: number }[];
+              // Legacy format
               tokens?: { text: string; is_final: boolean; speaker_tag?: number }[];
             };
 
+            function wordText(w: { t?: string; w?: string; text?: string }) {
+              return w.t ?? w.w ?? w.text ?? "";
+            }
+
+            // --- New v10 format ---
+            if (data.fw !== undefined || data.nfw !== undefined) {
+              const finalWords = data.fw ?? [];
+              const nonFinalWords = data.nfw ?? [];
+
+              if (finalWords.length > 0) {
+                // Group final words by speaker
+                const bySpeaker = new Map<number, string>();
+                for (const w of finalWords) {
+                  const spk = w.spk ?? 0;
+                  bySpeaker.set(spk, (bySpeaker.get(spk) ?? "") + wordText(w));
+                }
+                setPhrases((prev) => {
+                  const next = [...prev];
+                  bySpeaker.forEach((text, spk) => {
+                    const trimmed = text.trim();
+                    if (!trimmed) return;
+                    const speaker = tagToSpeaker(spk + 1); // spk 0 → tag 1, spk 1 → tag 2
+                    const last = next[next.length - 1];
+                    if (last && last.speaker === speaker) {
+                      next[next.length - 1] = { ...last, text: last.text + " " + trimmed };
+                    } else {
+                      next.push({ id: nextId(), speaker, text: trimmed });
+                    }
+                  });
+                  return next;
+                });
+                setPartialPhrase(null);
+              } else if (nonFinalWords.length > 0) {
+                const partialText = nonFinalWords.map(wordText).join("").trim();
+                const partialSpk = nonFinalWords[0]?.spk ?? 0;
+                if (partialText) {
+                  setPartialPhrase({
+                    id: "partial",
+                    speaker: tagToSpeaker(partialSpk + 1),
+                    text: partialText,
+                  });
+                }
+              }
+              return;
+            }
+
+            // --- Legacy token format ---
             if (!data.tokens || data.tokens.length === 0) return;
 
-            // Group tokens by finality + speaker. When a final token arrives,
-            // commit the accumulated text for that speaker as a new phrase.
             const finalTokensBySpeaker = new Map<number, string>();
             let hasAnyFinal = false;
             let partialText = "";
@@ -188,8 +236,7 @@ export function useTranscription() {
               const tag = token.speaker_tag ?? 1;
               if (token.is_final) {
                 hasAnyFinal = true;
-                const existing = finalTokensBySpeaker.get(tag) ?? "";
-                finalTokensBySpeaker.set(tag, existing + token.text);
+                finalTokensBySpeaker.set(tag, (finalTokensBySpeaker.get(tag) ?? "") + token.text);
               } else {
                 partialText += token.text;
                 partialTag = tag;
@@ -203,7 +250,6 @@ export function useTranscription() {
                   const trimmed = text.trim();
                   if (!trimmed) return;
                   const speaker = tagToSpeaker(tag);
-                  // Merge with last phrase from same speaker if it's recent
                   const last = next[next.length - 1];
                   if (last && last.speaker === speaker) {
                     next[next.length - 1] = { ...last, text: last.text + " " + trimmed };

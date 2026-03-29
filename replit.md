@@ -132,12 +132,19 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 
 ### Transcription Flow
 1. User clicks Record → frontend calls `POST /api/transcription/token` (gets Soniox key) + `POST /api/transcription/session/start`
-2. Frontend opens `wss://stt.soniox.com/transcribe-websocket` directly from the browser
+2. Frontend opens `wss://api.soniox.com/transcribe-websocket` directly from the browser
 3. Audio captured at 48kHz via Web Audio API, mixed mic + system audio into one PCM stream
-4. Soniox diarization enabled: `speaker_tag: 1` → **Interpreter** (mic), `speaker_tag: 2` → **Caller** (system audio)
-5. Final tokens grouped into `Phrase[]` objects and rendered as chat bubbles
+4. Soniox v10 API format: `fw[]` (final words) and `nfw[]` (non-final/partial words); diarization via `spk` field per word
+5. Final words grouped into `Phrase[]` objects and rendered as chat bubbles
 6. Each finalized phrase is individually translated via `POST /api/translate`
 7. When stopped → `POST /api/transcription/session/stop` with duration in seconds
+
+### Soniox API Notes (Updated)
+- **Endpoint**: `wss://api.soniox.com/transcribe-websocket` (old `stt.soniox.com` domain no longer exists)
+- **Init format**: `{ api_key, model: "en_v2_lowlatency", audio_format: "pcm_s16le", sample_rate_hertz: 48000, num_audio_channels: 1, include_nonfinal: true }`
+- **Response format v10**: `{ fw: [{t, spk}], nfw: [{t, spk}], spks: [], metadata: {package_version: "v10"} }`
+- **Diarization**: `spk` index per word in `fw`/`nfw` arrays (0-indexed); spk 0 → Interpreter, spk 1 → Caller
+- Old fields `sample_rate`, `enable_speaker_diarization`, `num_speakers`, `soniox-1` model are **no longer valid**
 
 ### UI Layout
 - **Sidebar** (64px): User / Mic / Globe / Admin icons + logout at bottom
@@ -180,9 +187,9 @@ pnpm --filter @workspace/db run push
 | Password hashing | `crypto.scrypt` (bcrypt/argon2 had native build issues in pnpm) |
 | Session store | `createTableIfMissing: false` — table must exist before server start |
 | Audio | 48kHz native capture, no virtual drivers needed |
-| Soniox key | Never sent to client — served via backend `/api/transcription/token` endpoint |
+| Soniox key | Fetched server-side, sent to browser via `/api/transcription/token`; browser connects to Soniox WS directly |
 | Translation | MyMemory free tier (500 chars/request, ~5 req/sec limit) |
-| Diarization | Speaker tags assigned by Soniox in order of first speech — tag 1 = Interpreter assumption |
+| Soniox API v10 | Response uses `fw`/`nfw` word arrays; `spk` index per word (0 = Interpreter, 1 = Caller) |
 
 ---
 
