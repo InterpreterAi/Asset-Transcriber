@@ -223,9 +223,17 @@ export function useTranscription() {
 
   // ── Segment start timestamp ────────────────────────────────────────────────
   // Date.now() when the CURRENT segment opened (first token after a flush).
-  // Used by the 2-second time-cap flush trigger.
+  // Used by the 3.2-second time-cap flush trigger.
   // 0 = no segment is open.
   const segStartMsRef = useRef<number>(0);
+
+  // ── Pause-based segmentation ───────────────────────────────────────────────
+  // lastTokenTimeRef: Date.now() when the most recent FINAL token was confirmed.
+  // pauseTimerRef:    handle for the 700ms silence timer — cleared and rescheduled
+  //                   on every new final token; when it fires it checks conditions
+  //                   and calls flush() if the segment is ready to seal.
+  const lastTokenTimeRef = useRef<number>(0);
+  const pauseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -288,6 +296,7 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
+    if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
     speakerHistoryRef.current     = [];
     activeSegSpeakerRef.current   = undefined;
     globalFinalCountRef.current   = 0;
@@ -458,6 +467,25 @@ export function useTranscription() {
         }
       }
 
+      // Step 2d: pause-based flush — 700ms of silence triggers a segment seal.
+      // Reset and reschedule on every message that contains new final tokens so
+      // the 700ms window always starts from the LAST confirmed token.
+      // The callback re-checks conditions at fire-time using current ref values.
+      if (newFinalToks.length > 0) {
+        lastTokenTimeRef.current = Date.now();
+        if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+        pauseTimerRef.current = setTimeout(() => {
+          pauseTimerRef.current = null;
+          const buf = finalBufRef.current;
+          if (
+            buf.trim().length >= 20 &&
+            /[\s.!?,;:]$/.test(buf)
+          ) {
+            flush();
+          }
+        }, 700);
+      }
+
       // Advance the watermark.
       globalFinalCountRef.current = finalSeenThisMsg;
 
@@ -547,10 +575,12 @@ export function useTranscription() {
       setError(null);
       setActivePreviewLine(null);
       setAudioInfo("");
+      if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
       finalBufRef.current         = "";
       globalFinalCountRef.current = 0;
       activeSegSpeakerRef.current = undefined;
       segStartMsRef.current       = 0;
+      lastTokenTimeRef.current    = 0;
       speakerHistoryRef.current   = [];
       langRef.current             = "en";
       speakerRef.current          = undefined; // reset — no speaker until API sends one
@@ -654,12 +684,14 @@ export function useTranscription() {
     start,
     stop,
     clear: () => {
+      if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
       setFinalizedSegments([]);
       setActivePreviewLine(null);
       finalBufRef.current         = "";
       speakerRef.current          = undefined;
       activeSegSpeakerRef.current = undefined;
       segStartMsRef.current       = 0;
+      lastTokenTimeRef.current    = 0;
       globalFinalCountRef.current = 0;
       speakerHistoryRef.current   = [];
       resetSpeakerMap();
