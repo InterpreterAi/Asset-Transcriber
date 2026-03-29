@@ -399,36 +399,47 @@ export function useTranscription() {
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
-      const finalTokens = tokens.filter(t => t.is_final);
-      const nfTokens    = tokens.filter(t => !t.is_final);
+      // ── Walk every token in message order ────────────────────────────────
+      // Rule 1: non-final token  → live preview only  (never append to buffer)
+      // Rule 2: final token      → speaker-change check → append to buffer
+      //
+      // Deduplication: Soniox re-sends ALL prior final tokens in every message.
+      // We track how many final tokens we have already consumed this utterance
+      // (globalFinalCountRef) and skip any that fall below that watermark.
+      // The counter resets to 0 at each utterance boundary (all-final message).
+      //
+      let finalSeenThisMsg = 0;     // running count of final tokens in this msg
+      const newFinalToks:  SonioxToken[] = []; // only the genuinely new ones
+      const previewParts:  string[]      = []; // non-final text for live preview
+      let   hasNonFinal = false;
 
-      // ── New final tokens (Soniox re-sends all prior finals each message) ──
-      // Slice from the count we've already consumed — only the truly new tail.
-      const prevCount    = globalFinalCountRef.current;
-      const newFinalToks = finalTokens.slice(prevCount);
-      if (finalTokens.length > prevCount) {
-        globalFinalCountRef.current = finalTokens.length;
-      }
+      for (const token of tokens) {
+        if (!token.is_final) {
+          // Non-final — update preview only, never touch the committed buffer.
+          previewParts.push(token.text);
+          hasNonFinal = true;
+          continue;
+        }
 
-      // ── Process new final tokens one-by-one ───────────────────────────────
-      // For each token:
-      //   1. If it carries a speaker different from the active segment → flush
-      //      the current segment and open a new one for the new speaker.
-      //   2. Accumulate text and speaker history for the active segment.
-      for (const token of newFinalToks) {
-        const spk = token.speaker; // undefined if the API omitted it
+        // Final token: advance the count, skip if already processed.
+        finalSeenThisMsg++;
+        if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
-        // Speaker-change: both sides must be known to avoid false splits.
+        // ── This is a genuinely new final token ──────────────────────────
+        const spk = token.speaker; // undefined when API omits diarization
+
+        // Speaker-change: finalize current segment and open a fresh one.
+        // Require BOTH sides to carry a known speaker to avoid spurious splits.
         if (
           spk !== undefined &&
           activeSegSpeakerRef.current !== undefined &&
           spk !== activeSegSpeakerRef.current &&
           finalBufRef.current.trim()
         ) {
-          flush(); // seals current segment; resets activeSegSpeakerRef → undefined
+          flush(); // seals segment; resets activeSegSpeakerRef → undefined
         }
 
-        // Open a new segment the first time we see a known speaker.
+        // First token of a new segment: record its speaker.
         if (spk !== undefined && activeSegSpeakerRef.current === undefined) {
           activeSegSpeakerRef.current = spk;
         }
@@ -438,22 +449,29 @@ export function useTranscription() {
           touchSpeaker(spk);
           speakerHistoryRef.current.push(spk);
           speakerRef.current = spk;
-          console.log("[Diarization] token speaker:", spk, "| text:", token.text);
+          console.log("[Diarization] final token — speaker:", spk, "text:", JSON.stringify(token.text));
         }
 
-        // Accumulate finalized text into the active segment buffer.
+        // Append ONLY this final token's text to the committed buffer.
         finalBufRef.current += token.text;
+        newFinalToks.push(token);
       }
+
+      // Advance the watermark to the total finals seen in this message.
+      globalFinalCountRef.current = finalSeenThisMsg;
 
       // ── Language detection ────────────────────────────────────────────────
       if (newFinalToks.length > 0) {
         langRef.current = detectLang(newFinalToks, langRef.current);
-      } else if (nfTokens.length > 0 && !finalBufRef.current) {
-        langRef.current = detectLang(nfTokens, langRef.current);
+      } else if (previewParts.length > 0 && !finalBufRef.current) {
+        langRef.current = detectLang(
+          tokens.filter(t => !t.is_final),
+          langRef.current
+        );
       }
 
-      // ── Non-final display tail (replaced every message) ──────────────────
-      nfDisplayRef.current = nfTokens.map(t => t.text).join("");
+      // ── Non-final preview tail (replaced every message) ──────────────────
+      nfDisplayRef.current = previewParts.join("");
 
       // ── Update live row ───────────────────────────────────────────────────
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
@@ -465,9 +483,9 @@ export function useTranscription() {
         });
       }
 
-      // ── Utterance boundary: all tokens final → Soniox VAD complete ───────
-      if (nfTokens.length === 0 && finalBufRef.current.trim()) {
-        globalFinalCountRef.current = 0; // Soniox resets token indices next utterance
+      // ── Utterance boundary: no non-final tokens → Soniox VAD complete ────
+      if (!hasNonFinal && finalBufRef.current.trim()) {
+        globalFinalCountRef.current = 0; // next utterance starts from token 0
         flush();
         return;
       }
@@ -475,11 +493,9 @@ export function useTranscription() {
       // ── Safety word cap (last resort only) ───────────────────────────────
       const totalWords = activeText.split(/\s+/).filter(Boolean).length;
       if (totalWords >= MAX_SEG_WORDS) {
-        if (nfDisplayRef.current.trim()) {
-          finalBufRef.current += nfDisplayRef.current;
-          nfDisplayRef.current = "";
-        }
+        // Do NOT promote non-final text — word cap only commits confirmed text.
         globalFinalCountRef.current = 0;
+        nfDisplayRef.current = "";
         flush();
       }
     };
