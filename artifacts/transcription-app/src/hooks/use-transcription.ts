@@ -414,31 +414,29 @@ export function useTranscription() {
       }
 
       // ── Finalization triggers ────────────────────────────────────────────
+      //
+      // Only two reliable phrase-boundary signals:
+      //   1. Silence — 700 ms with no new tokens from any speaker
+      //   2. Speaker change (handled above, before text is updated)
+      //
+      // We do NOT finalize on "all tokens final" alone — that fires on every
+      // word confirmation message and creates a new row per token update.
+      // Punctuation in committed text is used as a silence-timer reset only
+      // (it doesn't trigger an immediate flush — the timer still expires).
+      //
+      // Safety valve: word-count cap prevents unbounded segments.
+      //
 
-      // Trigger 1: Soniox phrase end — all tokens committed, no provisional suffix
-      if (finalTokens.length > 0 && nfTokens.length === 0 && finalBufRef.current.trim()) {
-        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-        flush();
-        return;
-      }
-
-      // Trigger 2: Sentence punctuation in committed text
-      if (/[.!?؟。！？]\s*$/.test(finalBufRef.current) && finalBufRef.current.trim()) {
-        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-        flush();
-        return;
-      }
-
-      // Trigger 3: Word-count safety cap (prevents run-on segments)
+      // Safety — flush if committed text is very long (30 words)
       const wc = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
-      if (wc >= MAX_SEG_WORDS && finalBufRef.current.trim()) {
+      if (wc >= 30 && finalBufRef.current.trim()) {
         if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
         flush();
         return;
       }
 
-      // Trigger 4: Silence — 700 ms after the last final token with buffered content
-      if (finalTokens.length > 0 && finalBufRef.current.trim()) {
+      // Primary — 700 ms silence with any buffered content
+      if ((finalBufRef.current.trim() || nfDisplayRef.current.trim())) {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
         const silenceFlush = () => {
           commitTimerRef.current = null;
@@ -446,6 +444,11 @@ export function useTranscription() {
           if (silentFor < COMMIT_DELAY) {
             commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
           } else {
+            // Promote provisional to committed if no committed content
+            if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
+              finalBufRef.current = nfDisplayRef.current;
+              nfDisplayRef.current = "";
+            }
             flush();
           }
         };
