@@ -9,11 +9,12 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type Phrase, type LiveTranscript } from "@/hooks/use-transcription";
+import { useTranscription, type Phrase, type LiveTranscript, type LangMode } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
 
+// ── Translation language options ───────────────────────────────────────────────
 const LANG_OPTIONS = [
   { value: "en",    label: "English" },
   { value: "ar",    label: "Arabic" },
@@ -42,7 +43,7 @@ function getTargetLang(phraseLanguage: string, langA: string, langB: string): st
   return phraseLanguage === langA ? langB : langA;
 }
 
-// ─── Language badge ────────────────────────────────────────────────────────────
+// ── Language badge ─────────────────────────────────────────────────────────────
 function LangBadge({ lang }: { lang: string }) {
   const isArabic = lang === "ar" || lang === "he";
   return (
@@ -56,7 +57,7 @@ function LangBadge({ lang }: { lang: string }) {
   );
 }
 
-// ─── Copy button ───────────────────────────────────────────────────────────────
+// ── Copy button ────────────────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -74,7 +75,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// ─── Finalized phrase bubble ───────────────────────────────────────────────────
+// ── Finalized phrase bubble ────────────────────────────────────────────────────
 function TranscriptEntry({ phrase }: { phrase: Phrase }) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
@@ -95,17 +96,20 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
   );
 }
 
-// ─── Live "in-progress" bubble (replaces in-place, never added to history) ─────
+// ── Live "in-progress" bubble — updates in-place, never added to history ──────
 function LiveEntry({ live }: { live: LiveTranscript }) {
   const isRtl = live.language === "ar" || live.language === "he";
   return (
-    <div className="flex flex-col gap-1 mb-4">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/60">
+    <div className="flex flex-col gap-1 mb-4 animate-in fade-in duration-150">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/50">
         {live.speakerLabel}
       </span>
       <div className="flex items-start gap-2">
         <LangBadge lang={live.language} />
-        <p className="text-sm leading-relaxed text-muted-foreground/60 italic flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
+        <p
+          className="text-sm leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0"
+          dir={isRtl ? "rtl" : "ltr"}
+        >
           {live.text}
         </p>
       </div>
@@ -113,15 +117,17 @@ function LiveEntry({ live }: { live: LiveTranscript }) {
   );
 }
 
-// ─── Translation entry ─────────────────────────────────────────────────────────
+// ── Translation entry ──────────────────────────────────────────────────────────
 function TranslationEntry({
   phrase,
   translation,
   targetLang,
+  pending,
 }: {
   phrase: Phrase;
   translation?: string;
   targetLang: string;
+  pending?: boolean;
 }) {
   const isRtl = targetLang === "ar" || targetLang === "he";
   return (
@@ -138,12 +144,14 @@ function TranslationEntry({
             </p>
           ) : (
             <p className="text-sm text-muted-foreground/60 italic flex items-center gap-1">
-              Translating
-              <span className="inline-flex gap-0.5 ml-1 align-middle">
-                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </span>
+              {pending ? "Translating" : "—"}
+              {pending && (
+                <span className="inline-flex gap-0.5 ml-1 align-middle">
+                  <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </span>
+              )}
             </p>
           )}
         </div>
@@ -153,7 +161,7 @@ function TranslationEntry({
   );
 }
 
-// ─── Main workspace ────────────────────────────────────────────────────────────
+// ── Main workspace ─────────────────────────────────────────────────────────────
 export default function Workspace() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -164,24 +172,78 @@ export default function Workspace() {
   const transcription = useTranscription();
 
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
-  const [showFeedback, setShowFeedback] = useState(false);
-  const [activeTab, setActiveTab] = useState("mic");
+  const [showFeedback, setShowFeedback]         = useState(false);
+  const [activeTab, setActiveTab]               = useState("mic");
+
+  // Translation language pair
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
+
+  // Speech input language — single WS, model chosen by this
+  const [langMode, setLangMode] = useState<LangMode>("en");
+
+  // Translations keyed by phrase id
   const [translations, setTranslations] = useState<Record<string, { text: string; targetLang: string }>>({});
   const translatingRef = useRef<Set<string>>(new Set());
+
+  // Live translation (debounced, updated while speaking)
+  const [liveTranslation, setLiveTranslation] = useState<string | null>(null);
+  const liveTranslateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const transcriptEndRef  = useRef<HTMLDivElement>(null);
   const translationEndRef = useRef<HTMLDivElement>(null);
 
-  // ── Auto-scroll: ONLY when a new FINAL phrase is added ────────────────────
-  // Does NOT fire when liveTranscript updates — prevents screen jumping.
+  // ── Auto-scroll: ONLY when a new FINAL phrase is added ──────────────────
+  // Does NOT fire on liveTranscript updates to prevent screen jumping.
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
     translationEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcription.phrases.length]);  // length change = new final sentence
+  }, [transcription.phrases.length]);
 
-  // ── Translation: fire immediately when a new final phrase is added ─────────
+  // ── Debounced live translation ───────────────────────────────────────────
+  // While the user is speaking (liveTranscript is non-null), fire a translation
+  // every 2 seconds so the right panel stays in sync.
+  useEffect(() => {
+    if (liveTranslateTimerRef.current) {
+      clearTimeout(liveTranslateTimerRef.current);
+      liveTranslateTimerRef.current = null;
+    }
+
+    const live = transcription.liveTranscript;
+    if (!live?.text) {
+      setLiveTranslation(null);
+      return;
+    }
+
+    const targetLang = getTargetLang(live.language, langA, langB);
+
+    liveTranslateTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ text: live.text, sourceLang: live.language, targetLang }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { translatedText?: string; text?: string };
+          const translated = data.translatedText ?? data.text ?? "";
+          if (translated) setLiveTranslation(translated);
+        }
+      } catch { /* ignore live translation errors */ }
+    }, 2000);
+
+    return () => {
+      if (liveTranslateTimerRef.current) clearTimeout(liveTranslateTimerRef.current);
+    };
+  }, [transcription.liveTranscript?.text, langA, langB]);
+
+  // Clear live translation when speech ends
+  useEffect(() => {
+    if (!transcription.liveTranscript) setLiveTranslation(null);
+  }, [transcription.liveTranscript]);
+
+  // ── Translation: fire immediately for each new final phrase ─────────────
   const translatePhrase = useCallback(async (phrase: Phrase, targetLang: string) => {
     const key = phrase.id;
     if (translatingRef.current.has(key)) return;
@@ -216,9 +278,11 @@ export default function Workspace() {
   }, [transcription.phrases, langA, langB, translations, translatePhrase]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
+
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
   }, [devices, selectedDeviceId]);
+
   useEffect(() => {
     if (!user?.trialExpired) return;
     const t = setTimeout(() => setShowFeedback(true), 1000);
@@ -234,6 +298,7 @@ export default function Workspace() {
   const handleClear = () => {
     transcription.clear();
     setTranslations({});
+    setLiveTranslation(null);
     translatingRef.current.clear();
   };
 
@@ -242,8 +307,7 @@ export default function Workspace() {
       transcription.stop();
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     } else {
-      handleClear();
-      transcription.start(selectedDeviceId);
+      transcription.start(selectedDeviceId, langMode);
     }
   };
 
@@ -311,16 +375,15 @@ export default function Workspace() {
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-5 shrink-0">
           <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
           <div className="flex items-center gap-2">
-            {!isEmpty && (
-              <button
-                onClick={handleClear}
-                disabled={transcription.isRecording}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Clear
-              </button>
-            )}
+            {/* Clear button — always visible, disabled when empty or recording */}
+            <button
+              onClick={handleClear}
+              disabled={transcription.isRecording || isEmpty}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear
+            </button>
             <div className="bg-muted px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1.5 border border-border/50">
               <Clock className="w-3 h-3" />
               <span>{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
@@ -360,7 +423,7 @@ export default function Workspace() {
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
             <div className="h-10 border-b border-border bg-muted/20 flex items-center px-4 shrink-0 gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                Transcript
+                Original · {langLabel(langMode)}
               </span>
               {transcription.audioInfo && (
                 <span className="text-[9px] text-muted-foreground/50 font-mono hidden sm:block">
@@ -381,15 +444,15 @@ export default function Workspace() {
                     <Mic2 className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Automatically detects English and Arabic</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    Speaking mode: {langMode === "en" ? "English" : "Arabic"}
+                  </p>
                 </div>
               ) : (
                 <div>
-                  {/* History — finalized sentences */}
                   {transcription.phrases.map((p) => (
                     <TranscriptEntry key={p.id} phrase={p} />
                   ))}
-                  {/* Live entry — replaces in-place, never scrolls */}
                   {transcription.liveTranscript && (
                     <LiveEntry live={transcription.liveTranscript} />
                   )}
@@ -403,7 +466,7 @@ export default function Workspace() {
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
             <div className="h-10 border-b border-border bg-muted/20 flex items-center px-4 shrink-0 gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                Translation
+                Translation · {langLabel(langMode === langA ? langB : langA)}
               </span>
               <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
                 <ArrowLeftRight className="w-3 h-3" />
@@ -417,7 +480,7 @@ export default function Workspace() {
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Translations appear here</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">English → Arabic · Arabic → English</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Real-time · Per sentence</p>
                 </div>
               ) : (
                 <div>
@@ -430,16 +493,23 @@ export default function Workspace() {
                         phrase={p}
                         translation={tr?.text}
                         targetLang={targetLang}
+                        pending={!tr && translatingRef.current.has(p.id)}
                       />
                     );
                   })}
-                  {/* Placeholder row aligned with the live transcript entry */}
+
+                  {/* Live translation aligned with the live transcript row */}
                   {transcription.liveTranscript && (
                     <div className="flex flex-col gap-1 mb-4">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/60">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/50">
                         {transcription.liveTranscript.speakerLabel}
                       </span>
-                      <p className="text-sm text-muted-foreground/40 italic">—</p>
+                      <div className="flex items-start gap-2">
+                        <LangBadge lang={getTargetLang(transcription.liveTranscript.language, langA, langB)} />
+                        <p className="text-sm text-muted-foreground/60 italic flex-1 min-w-0">
+                          {liveTranslation ?? "—"}
+                        </p>
+                      </div>
                     </div>
                   )}
                   <div ref={translationEndRef} />
@@ -452,7 +522,7 @@ export default function Workspace() {
         {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Audio input device */}
+          {/* ROW 1: Audio device + language mode toggle */}
           <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
             <Mic2 className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select
@@ -467,16 +537,41 @@ export default function Workspace() {
                 </option>
               ))}
             </Select>
+
+            {/* Language mode toggle — EN | AR */}
+            <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
+              {(["en", "ar"] as LangMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setLangMode(mode)}
+                  disabled={transcription.isRecording}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    langMode === mode
+                      ? "bg-white shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  } disabled:opacity-50`}
+                  title={mode === "en" ? "English speech recognition" : "Arabic speech recognition"}
+                >
+                  {mode === "en" ? "EN" : "AR"}
+                </button>
+              ))}
+            </div>
+
             <div className="w-24 shrink-0">
               <AudioMeter level={transcription.micLevel} label="" />
             </div>
           </div>
 
-          {/* ROW 2: Language pair + record button */}
+          {/* ROW 2: Translation pair + record button */}
           <div className="flex items-center px-4 py-3 gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate between</span>
-              <Select value={langA} onChange={(e) => setLangA(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate to</span>
+              <Select
+                value={langA}
+                onChange={(e) => setLangA(e.target.value)}
+                disabled={transcription.isRecording}
+                className="h-9 text-sm w-[130px] bg-white border-border"
+              >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
               <button
@@ -487,7 +582,12 @@ export default function Workspace() {
               >
                 <ArrowLeftRight className="w-4 h-4" />
               </button>
-              <Select value={langB} onChange={(e) => setLangB(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm w-[130px] bg-white border-border">
+              <Select
+                value={langB}
+                onChange={(e) => setLangB(e.target.value)}
+                disabled={transcription.isRecording}
+                className="h-9 text-sm w-[130px] bg-white border-border"
+              >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
             </div>
@@ -520,7 +620,7 @@ export default function Workspace() {
 
             {/* Mirror spacer to keep button centred */}
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
-              <span className="text-xs font-semibold whitespace-nowrap">Translate between</span>
+              <span className="text-xs font-semibold whitespace-nowrap">Translate to</span>
               <div className="h-9 w-[130px]" />
               <div className="w-8 h-8" />
               <div className="h-9 w-[130px]" />

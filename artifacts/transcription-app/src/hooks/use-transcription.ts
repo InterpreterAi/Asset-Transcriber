@@ -1,104 +1,109 @@
-import { useRef, useState, useCallback, type MutableRefObject } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
+export type LangMode = "en" | "ar";
+
 /** A completed, permanent transcript entry. All entries in `phrases` are final. */
 export interface Phrase {
   id: string;
-  speakerIndex: number;
   speakerLabel: string;
-  source: "mic";
   text: string;
-  language: "en" | "ar";
+  language: LangMode;
 }
 
 /** The sentence currently being spoken — replaced in-place on every partial update.
  *  Null when no speech is in progress. */
 export interface LiveTranscript {
   text: string;
-  language: "en" | "ar";
+  language: LangMode;
   speakerLabel: string;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE = 16000;
-const OFFSETS = { en: 0, ar: 100 } as const;
+const STORAGE_KEY = "interpretai_phrases";
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function isValidArabicOutput(text: string): boolean {
-  const letters = (text.match(/\p{L}/gu) ?? []).length;
-  if (letters === 0) return false;
-  const arabic = (text.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []).length;
-  return arabic / letters >= 0.35;
+/** Select the Soniox model appropriate for the active language. */
+function modelFor(lang: LangMode): string {
+  return lang === "en" ? "en_v2_lowlatency" : "ar_v1";
 }
 
+/** Human-readable label for a Soniox speaker index. */
 function makeSpeakerLabel(localSpkIdx: number): string {
   return localSpkIdx > 0 ? `Speaker ${localSpkIdx + 1}` : "Speaker";
 }
 
-function groupBySpeaker(
-  words: { t?: string; w?: string; text?: string; spk?: number }[]
-): { spk: number; text: string }[] {
-  const runs: { spk: number; text: string }[] = [];
-  for (const w of words) {
-    const spk = w.spk ?? 0;
-    const txt = w.t ?? w.w ?? w.text ?? "";
-    const last = runs[runs.length - 1];
-    if (last && last.spk === spk) last.text += txt;
-    else runs.push({ spk, text: txt });
-  }
-  return runs;
+/** Stable unique ID — timestamp + random suffix avoids collisions with localStorage IDs. */
+function nextId(): string {
+  return `p-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-let phraseIdCounter = 0;
-function nextId() { return `p-${++phraseIdCounter}`; }
+/** Load phrases from localStorage. Returns [] on any error. */
+function loadPhrases(): Phrase[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Phrase[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
 
-  /** Permanent history — finalized sentences only. Never contains partials. */
-  const [phrases, setPhrases] = useState<Phrase[]>([]);
+  /**
+   * Permanent history — finalized sentences only.
+   * Initialised from localStorage so transcripts survive page refreshes.
+   */
+  const [phrases, setPhrases] = useState<Phrase[]>(loadPhrases);
 
   /** The sentence currently in progress. Replaced on every nfw. Null when silent. */
   const [liveTranscript, setLiveTranscript] = useState<LiveTranscript | null>(null);
 
-  const [micLevel, setMicLevel] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [micLevel, setMicLevel]   = useState(0);
+  const [error, setError]         = useState<string | null>(null);
   const [audioInfo, setAudioInfo] = useState<string>("");
 
-  const audioCtxRef   = useRef<AudioContext | null>(null);
-  const apiKeyRef     = useRef<string>("");
-  const wsEnRef       = useRef<WebSocket | null>(null);
-  const wsArRef       = useRef<WebSocket | null>(null);
-  const workletRef    = useRef<AudioWorkletNode | null>(null);
-  const streamsRef    = useRef<MediaStream[]>([]);
+  const audioCtxRef    = useRef<AudioContext | null>(null);
+  const apiKeyRef      = useRef<string>("");
+  const wsRef          = useRef<WebSocket | null>(null);   // single WS now
+  const workletRef     = useRef<AudioWorkletNode | null>(null);
+  const streamsRef     = useRef<MediaStream[]>([]);
   const isRecordingRef = useRef(false);
-  const sessionIdRef  = useRef<number | null>(null);
-  const startTimeRef  = useRef<number>(0);
+  const sessionIdRef   = useRef<number | null>(null);
+  const startTimeRef   = useRef<number>(0);
+  const langModeRef    = useRef<LangMode>("en");
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
+
+  // ── Persist history to localStorage whenever it changes ───────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(phrases));
+    } catch { /* storage full — ignore */ }
+  }, [phrases]);
 
   // ── stop ──────────────────────────────────────────────────────────────────
   const stop = useCallback(async () => {
     if (!isRecordingRef.current) return;
     isRecordingRef.current = false;
     setIsRecording(false);
-    setLiveTranscript(null); // discard any in-progress partial on stop
+    setLiveTranscript(null);
 
     workletRef.current?.disconnect();
     workletRef.current = null;
 
-    for (const wsRef of [wsEnRef, wsArRef]) {
-      if (wsRef.current) {
-        try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+    if (wsRef.current) {
+      try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
+      wsRef.current.close();
+      wsRef.current = null;
     }
 
     if (audioCtxRef.current) {
@@ -125,22 +130,14 @@ export function useTranscription() {
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   //
-  // nfw (non-final words) — "is_final: false" in the user's model
-  //   → Replace liveTranscript in-place. No new bubble, no translation.
+  // Single WebSocket per session. Language is fixed at session start.
   //
-  // fw (final words) — "is_final: true" in the user's model
-  //   → Commit to phrases history + clear liveTranscript + translation fires
-  //     via the useEffect in workspace that watches phrases.length.
+  // nfw → replace liveTranscript in-place (no new bubble, no translation)
+  // fw  → commit phrase to history, clear liveTranscript, fire translation
   //
-  const buildWs = useCallback((
-    apiKey: string,
-    model: string,
-    langCode: "en" | "ar",
-    spkOffset: number,
-    ownRef: MutableRefObject<WebSocket | null>,
-    peerRef: MutableRefObject<WebSocket | null>,
-  ): WebSocket => {
-    const ws = new WebSocket("wss://api.soniox.com/transcribe-websocket");
+  const buildWs = useCallback((apiKey: string, langMode: LangMode): WebSocket => {
+    const model = modelFor(langMode);
+    const ws    = new WebSocket("wss://api.soniox.com/transcribe-websocket");
     let apiErrorOccurred = false;
 
     ws.onopen = () => {
@@ -167,60 +164,54 @@ export function useTranscription() {
         if (data.error || (typeof data.code === "number" && !data.fw && !data.nfw)) {
           const msg = data.error ?? data.message ?? `code ${data.code}`;
           console.error(`[WS] ${model} API error:`, msg);
-          setError(`Transcription error (${model}): ${msg}`);
+          setError(`Transcription error: ${msg}`);
           apiErrorOccurred = true;
           return;
         }
 
-        // ── Non-final words: update liveTranscript in-place ─────────────────
-        // This is the "is_final: false" branch from the user's pseudocode.
-        // We REPLACE the live text every time — no new bubble, no translation.
+        // ── Non-final words → replace liveTranscript in place ───────────────
+        // "is_final: false" path — no new bubble, no translation.
         const nfWords = data.nfw ?? [];
         if (nfWords.length > 0) {
           const text = nfWords.map(w => w.t ?? w.w ?? w.text ?? "").join("").trim();
           if (text) {
-            const isAr = isValidArabicOutput(text);
-            const isCorrectLang = langCode === "ar" ? isAr : !isAr;
-            if (isCorrectLang) {
-              setLiveTranscript({
-                text,
-                language: langCode,
-                speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
-              });
-            }
+            setLiveTranscript({
+              text,
+              language: langMode,
+              speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
+            });
           }
         }
 
-        // ── Final words: commit to history, clear live, fire translation ─────
-        // This is the "is_final: true" branch from the user's pseudocode.
+        // ── Final words → commit to history, clear live ──────────────────────
+        // "is_final: true" path — one entry per fw batch → translate immediately.
         const finalWords = data.fw ?? [];
         if (finalWords.length > 0) {
-          const runs = groupBySpeaker(finalWords);
-          const newPhrases: Phrase[] = [];
+          // Group by speaker
+          const runs: { spk: number; text: string }[] = [];
+          for (const w of finalWords) {
+            const spk = w.spk ?? 0;
+            const txt = w.t ?? w.w ?? w.text ?? "";
+            const last = runs[runs.length - 1];
+            if (last && last.spk === spk) last.text += txt;
+            else runs.push({ spk, text: txt });
+          }
 
+          const newPhrases: Phrase[] = [];
           for (const run of runs) {
             const trimmed = run.text.trim();
             if (!trimmed) continue;
-
-            // Language filter — reject cross-language output from the wrong WS
-            if (langCode === "ar" && !isValidArabicOutput(trimmed)) continue;
-            if (langCode === "en" && isValidArabicOutput(trimmed)) continue;
-
             newPhrases.push({
               id: nextId(),
-              speakerIndex: run.spk + spkOffset,
               speakerLabel: makeSpeakerLabel(run.spk),
-              source: "mic",
               text: trimmed,
-              language: langCode,
+              language: langMode,
             });
           }
 
           if (newPhrases.length > 0) {
-            // Add all new final phrases to history
             setPhrases(prev => [...prev, ...newPhrases]);
-            // Clear the live transcript — this sentence is now committed
-            setLiveTranscript(null);
+            setLiveTranscript(null); // clear the live line — this sentence is committed
           }
         }
       } catch (err) {
@@ -234,10 +225,8 @@ export function useTranscription() {
       const logFn = (e.code === 1000 || e.code === 1001) ? console.log : console.warn;
       logFn(`[WS] ${model} closed — code:${e.code} reason:"${e.reason}"`);
 
-      if (ownRef.current === ws) ownRef.current = null;
-
-      // Clear live transcript if it belongs to this language channel
-      setLiveTranscript(prev => (prev?.language === langCode ? null : prev));
+      if (wsRef.current === ws) wsRef.current = null;
+      setLiveTranscript(null);
 
       // Auto-reconnect if still recording and no API error
       if (!isRecordingRef.current || apiErrorOccurred) return;
@@ -245,8 +234,8 @@ export function useTranscription() {
       setTimeout(() => {
         if (!isRecordingRef.current || !apiKeyRef.current) return;
         console.log(`[WS] ${model} reconnecting…`);
-        const newWs = buildWs(apiKeyRef.current, model, langCode, spkOffset, ownRef, peerRef);
-        ownRef.current = newWs;
+        const newWs = buildWs(apiKeyRef.current, langModeRef.current);
+        wsRef.current = newWs;
       }, 200);
     };
 
@@ -254,18 +243,18 @@ export function useTranscription() {
   }, [stop]);
 
   // ── start ─────────────────────────────────────────────────────────────────
-  const start = useCallback(async (deviceId: string) => {
+  const start = useCallback(async (deviceId: string, langMode: LangMode) => {
     try {
       setError(null);
-      setPhrases([]);
       setLiveTranscript(null);
       setAudioInfo("");
+      langModeRef.current = langMode;
 
       const tokenRes   = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
-      sessionIdRef.current  = sessionRes.sessionId;
-      startTimeRef.current  = Date.now();
-      apiKeyRef.current     = tokenRes.apiKey;
+      sessionIdRef.current = sessionRes.sessionId;
+      startTimeRef.current = Date.now();
+      apiKeyRef.current    = tokenRes.apiKey;
 
       const AudioContextCtor =
         window.AudioContext ||
@@ -273,7 +262,7 @@ export function useTranscription() {
 
       const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
-      setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz (AudioWorklet)`);
+      setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz`);
 
       await ctx.audioWorklet.addModule("/pcm-processor.js");
 
@@ -288,10 +277,8 @@ export function useTranscription() {
       });
       streamsRef.current.push(stream);
 
-      const wsEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.en, wsEnRef, wsArRef);
-      const wsAr = buildWs(tokenRes.apiKey, "ar_v1",            "ar", OFFSETS.ar, wsArRef, wsEnRef);
-      wsEnRef.current = wsEn;
-      wsArRef.current = wsAr;
+      const ws = buildWs(tokenRes.apiKey, langMode);
+      wsRef.current = ws;
 
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
@@ -307,9 +294,7 @@ export function useTranscription() {
 
       worklet.port.onmessage = (e) => {
         const pcm = e.data as ArrayBuffer;
-
-        if (wsEnRef.current?.readyState === WebSocket.OPEN) wsEnRef.current.send(pcm);
-        if (wsArRef.current?.readyState === WebSocket.OPEN) wsArRef.current.send(pcm);
+        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(pcm);
 
         // RMS level for VU meter
         const samples = new Int16Array(pcm);
@@ -334,13 +319,17 @@ export function useTranscription() {
   return {
     isRecording,
     audioInfo,
-    phrases,        // history: final entries only
-    liveTranscript, // current partial (null when silent)
+    phrases,
+    liveTranscript,
     micLevel,
     error,
     start,
     stop,
-    clear: () => { setPhrases([]); setLiveTranscript(null); },
+    clear: () => {
+      setPhrases([]);
+      setLiveTranscript(null);
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }

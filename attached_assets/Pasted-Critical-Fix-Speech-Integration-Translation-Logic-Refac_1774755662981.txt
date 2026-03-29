@@ -1,0 +1,38 @@
+Critical Fix: Speech Integration & Translation Logic Refactor
+The current implementation is still fragmenting sentences and the Arabic recognition is not working. Please implement the following specific technical changes to ensure a "Mirror" experience:
+1. Fix Sentence Fragmentation (The "One Bubble" Rule):
+ * Logic: Do not create a new Speaker/Bubble entry for every onMessage event.
+ * Implementation: * Maintain a tempTranscript string.
+   * If is_final is False, overwrite tempTranscript and display it in the current active bubble.
+   * If is_final is True, append that string to the permanent history and only then trigger the final translation.
+   * This prevents the "Hydrogen... Peroxide... also..." fragmentation seen in the screenshots.
+2. Enable Arabic Speech Recognition:
+ * The engine is currently stuck in English-only mode. Update the Soniox RealtimeSTTConfig:
+   * Set model to 'v4' or 'multilingual'.
+   * Add language: 'auto' or provide a toggle to set language: 'ar' when speaking Arabic.
+   * Ensure the include_non_final parameter is set to True to maintain the real-time "mirror" feel.
+3. Instant Translation (Stream, don't Wait):
+ * To make translation "Instant," do not wait for the end of the session.
+ * Once a segment is marked is_final: True, immediately send that segment to the translation API.
+ * While the user is still speaking (is_final: False), you can optionally perform a "de-bounced" translation every 2 seconds to keep the Arabic panel moving.
+4. UI Auto-Scroll Fix:
+ * Only trigger window.scrollTo or element.scrollIntoView when a NEW final bubble is added.
+ * Stop the auto-scroll during partial (non-final) updates so the text doesn't jump while the user is reading it.
+5. Audio Resampling Verification:
+ * Ensure the AudioWorklet is consistently outputting 16000Hz mono. If the sample rate fluctuates, Soniox will cut words or produce gibberish.
+
+Urgent: Fix App Stability, Mic Disconnects, and Missing UI Elements
+The app is currently unstable—the microphone disconnects randomly, the screen clears itself, and the "Clear" button has disappeared. Please fix the following:
+1. Prevent State Loss on Refresh:
+• Problem: Every time a code change is made or the server blips, all transcripts vanish.
+• Fix: Use localStorage to persist the history array. When the app loads, it should check if there are previous transcripts so the screen doesn't start empty every time.
+2. Fix the "Vanishing" Clear Button:
+• Problem: The "Clear" button is missing from the UI.
+• Fix: Ensure the Clear button component is properly rendered in the header or footer. It should NOT be conditionally hidden unless the transcript is already empty. Check the JSX/TSX to ensure it wasn't accidentally deleted during the last refactor.
+3. Microphone Connection Resilience:
+• Problem: The mic stops "Listening" after a few seconds or after a background refresh.
+• Fix: * Wrap the AudioContext and MediaStream initialization in a useCallback or useRef to prevent them from being re-created on every render.
+• Add an onclose handler to the WebSocket that attempts to auto-reconnect if the connection drops unexpectedly.
+• Add a visual indicator (like a pulsing red dot) that only stays active if the AudioContext state is truly 'running'.
+4. Language Detection Configuration (Arabic Fix):
+• Please explicitly add a language toggle or set the Soniox config to language: 'ar-SA' or language: 'en-US' so it doesn't get confused and stop transcribing whben I switch between languages.
