@@ -485,6 +485,14 @@ export function useTranscription() {
             sealAndFlush();
           }
         }
+
+        // ── is_final → commit phrase ──────────────────────────────────────
+        // Each WebSocket message carrying is_final tokens represents a phrase
+        // Soniox has committed to. Seal it immediately — never carry finalized
+        // text forward into the next segment.
+        if (finalBufRef.current.trim()) {
+          sealAndFlush();
+        }
       }
 
       // ── Non-final tokens: update live suffix display ────────────────────
