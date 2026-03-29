@@ -428,9 +428,16 @@ export function useTranscription() {
         };
 
         const sealAndFlush = () => {
-          resetCandidate();
+          // If a speaker change was pending in the confirmation window, confirm
+          // it first — the speaker change takes priority over pause/punctuation.
+          // This ensures short replies like "I wish we did." land under the
+          // correct speaker even when they end with punctuation mid-window.
+          if (candidateSpeakerRef.current !== undefined) {
+            if (candidateTimerRef.current) { clearTimeout(candidateTimerRef.current); candidateTimerRef.current = null; }
+            confirmSpeaker(); // splits finalBuf, seals old speaker, sets new speaker
+          }
           if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-          flush();
+          flush(); // seal whatever is now in finalBufRef (the new speaker's text)
         };
 
         for (const token of finalTokens) {
