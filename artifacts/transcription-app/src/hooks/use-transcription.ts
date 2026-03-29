@@ -307,29 +307,35 @@ export function useTranscription() {
         if (finalTokens.length > 0) {
           langRef.current = detectLang(finalTokens, langRef.current);
 
-          // ── Sequential speaker-change detection ──────────────────────────
+          // ── Sequential per-token processing ──────────────────────────────
           //
-          // Scan token-by-token.  The instant the speaker ID changes, flush
-          // the current buffer and start a fresh one for the new speaker.
+          // Two segmentation triggers are checked after EACH token:
           //
-          // Previous "isLast || nextSame" guard was WRONG: when it failed
-          // (single mid-batch change token) the new speaker's text was still
-          // appended to the old buffer (line: finalBufRef += token.text),
-          // silently misattributing speech and delaying the segment split
-          // until the NEXT batch confirmed the change.  Removing the guard
-          // means occasional single-token misassignments create a tiny
-          // isolated segment — acceptable vs. silent text misattribution.
+          //   1. Speaker change: flush immediately the instant the speaker ID
+          //      changes.  No lookahead guard — any detected change is real.
           //
+          //   2. Sentence punctuation: if the buffer ends with . ? ! ؟ etc.
+          //      AFTER a mid-batch token is appended, flush immediately.
+          //      This is critical: multiple complete sentences often arrive in
+          //      a single batch (e.g. "Ugh. Wow. You need ClickUp.").  The
+          //      old end-of-batch punctuation check saw only the final state
+          //      of the buffer and never flushed the mid-batch "Ugh." and
+          //      "Wow." boundaries, causing them all to merge into one block.
+          //
+          //   The last token in the batch is EXCLUDED from the intra-loop
+          //   punctuation check — the post-loop commit-timer block handles it
+          //   so we don't double-flush.
+          //
+          const SENTENCE_END = /[.!?؟،。！？]\s*$/;
+          const isIntraFlush = (i: number) => i < finalTokens.length - 1;
+
           for (let i = 0; i < finalTokens.length; i++) {
             const token = finalTokens[i]!;
             const tSpk  = token.speaker;
 
+            // ── 1. Speaker change ─────────────────────────────────────────
             if (tSpk !== undefined && tSpk !== speakerRef.current && finalBufRef.current.trim()) {
-              // Speaker changed — seal the previous speaker's segment immediately.
-              if (commitTimerRef.current) {
-                clearTimeout(commitTimerRef.current);
-                commitTimerRef.current = null;
-              }
+              if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
               flush();
               speakerRef.current = tSpk;
             }
@@ -340,6 +346,12 @@ export function useTranscription() {
             }
 
             finalBufRef.current += token.text;
+
+            // ── 2. Mid-batch sentence boundary ────────────────────────────
+            if (isIntraFlush(i) && SENTENCE_END.test(finalBufRef.current)) {
+              if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+              flush();
+            }
           }
         }
 
