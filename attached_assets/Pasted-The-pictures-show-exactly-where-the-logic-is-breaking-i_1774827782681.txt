@@ -1,0 +1,18 @@
+The pictures show exactly where the logic is breaking: in your app (InterpretAI), the text is being treated as one long block, and the speaker label only updates after a long delay. In the Soniox desktop app, the UI is instantly creating a new row the moment "Speaker 2" starts talking.
+The problem is that your code is likely waiting for a "final" flag or a period (full stop) before it checks who the speaker is. To fix this in Replit, you need to tell the AI to prioritize the Speaker ID over the Text Status.
+The Master Prompt for Replit
+Copy and paste this entire block into your Replit AI chat:
+> "I need to fix my Soniox transcription logic to match their official desktop app. Look at my message handling function (where the WebSocket or API receives data) and make these specific changes:
+>  * Stop Waiting for Sentences: Do NOT wait for a 'final' status or a sentence to end before creating a new speaker bubble.
+>  * Instant Speaker Detection: On EVERY incoming data packet, compare the speaker or speaker_id to the previous_speaker variable.
+>  * The 'New Bubble' Trigger: If the Speaker ID changes, immediately 'close' the current UI element and create a brand new line/bubble for the new speaker, even if it's just one word like 'Okay'.
+>  * Live Mirroring: Keep appending the text to the active speaker's bubble in real-time so it still looks like a mirror, but ensure that as soon as the ID changes, the mirror shifts to a new bubble.
+>  * Fix Diarization Timing: Ensure the code is checking the speaker label provided in the interim results, not just the final results."
+> 
+What is likely wrong in your code?
+If you want to check it yourself, look for a line like this:
+if (result.is_final) or if (text.endsWith('.'))
+That is the "Headache" source. Your code should instead look like this:
+ * Wrong: "Wait for sentence to finish → check speaker → post to UI."
+ * Right: "New packet arrives → Is speaker different? → Yes? Start new bubble → No? Add text to current bubble."
+Would you like me to look at your on_message function? If you paste the code here, I can tell you exactly which line to delete.
