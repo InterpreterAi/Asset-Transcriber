@@ -105,16 +105,21 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
           <LangBadge lang={phrase.language} />
           <p className="text-sm leading-relaxed text-foreground flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
             {phrase.text}
-            {phrase.active && (
-              <span className="inline-flex gap-0.5 ml-2 align-middle">
-                <span className="w-1 h-1 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1 h-1 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1 h-1 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            {/* Partial / non-final words from Soniox — shown dimmed while speaker is talking */}
+            {phrase.active && phrase.pendingText && (
+              <span className="text-muted-foreground/50 italic">{phrase.text ? " " : ""}{phrase.pendingText}</span>
+            )}
+            {/* Waiting dots — only shown when there's no pending text yet */}
+            {phrase.active && !phrase.pendingText && !phrase.text && (
+              <span className="inline-flex gap-0.5 ml-1 align-middle">
+                <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
               </span>
             )}
           </p>
         </div>
-        {!phrase.active && <CopyButton text={phrase.text} />}
+        {!phrase.active && phrase.text && <CopyButton text={phrase.text} />}
       </div>
     </div>
   );
@@ -227,7 +232,7 @@ export default function Workspace() {
   // Translate every sealed (active: false) phrase that hasn't been translated yet
   useEffect(() => {
     for (const phrase of transcription.phrases) {
-      if (!phrase.active && !translations[phrase.id] && !translatingRef.current.has(phrase.id)) {
+      if (!phrase.active && phrase.text.trim() && !translations[phrase.id] && !translatingRef.current.has(phrase.id)) {
         const target = getTargetLang(phrase.language, langA, langB);
         void translatePhrase(phrase, target);
       }
