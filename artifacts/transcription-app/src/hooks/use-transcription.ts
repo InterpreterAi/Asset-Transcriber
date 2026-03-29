@@ -100,10 +100,9 @@ function resetSpeakerMap() {
   _slotCount = 0;
 }
 
-/** Mark a raw ID as recently active (call on every token). */
-function touchSpeaker(rawId: number | undefined): void {
-  const id   = rawId ?? 0;
-  const slot = _speakerMap.get(id);
+/** Mark a raw speaker ID as recently active (called once per token that carries one). */
+function touchSpeaker(rawId: number): void {
+  const slot = _speakerMap.get(rawId);
   if (slot !== undefined) _slotLastMs.set(slot, Date.now());
 }
 
@@ -117,24 +116,27 @@ function touchSpeaker(rawId: number | undefined): void {
  *      (The idle speaker is the most likely match for the new cluster ID.)
  */
 function normalizeSpeaker(rawId: number | undefined): string {
-  const id = rawId ?? 0;
+  // No real speaker data from the API yet — return empty so the UI never
+  // shows a hardcoded "Speaker 1" without actual diarization evidence.
+  if (rawId === undefined) return "";
 
-  // 1. Known raw ID — refresh and return.
-  if (_speakerMap.has(id)) {
-    const slot = _speakerMap.get(id)!;
+  // 1. Known raw ID — refresh its timestamp and return the existing label.
+  if (_speakerMap.has(rawId)) {
+    const slot = _speakerMap.get(rawId)!;
     _slotLastMs.set(slot, Date.now());
     return `Speaker ${slot}`;
   }
 
-  // 2. Pool has room — allocate a new slot.
+  // 2. Pool has room — allocate a new sequential slot.
   if (_slotCount < MAX_SPEAKERS) {
     _slotCount++;
-    _speakerMap.set(id, _slotCount);
+    _speakerMap.set(rawId, _slotCount);
     _slotLastMs.set(_slotCount, Date.now());
     return `Speaker ${_slotCount}`;
   }
 
-  // 3. Pool full — find the LRU slot and reassign this raw ID to it.
+  // 3. Pool full — reuse the Least Recently Used slot (idle speaker most
+  //    likely to have been re-assigned a new cluster ID by the model).
   let lruSlot = 1;
   let lruMs   = _slotLastMs.get(1) ?? 0;
   for (let s = 2; s <= _slotCount; s++) {
@@ -142,7 +144,7 @@ function normalizeSpeaker(rawId: number | undefined): string {
     if (t < lruMs) { lruMs = t; lruSlot = s; }
   }
 
-  _speakerMap.set(id, lruSlot);
+  _speakerMap.set(rawId, lruSlot);
   _slotLastMs.set(lruSlot, Date.now());
   return `Speaker ${lruSlot}`;
 }
@@ -214,7 +216,9 @@ export function useTranscription() {
   const finalBufRef    = useRef<string>("");
   const nfDisplayRef   = useRef<string>(""); // latest non-final suffix (replaced each message)
   const langRef        = useRef<LangCode>("en");
-  const speakerRef     = useRef<number>(0);
+  // undefined until a real token.speaker arrives from the API — never falls
+  // back to 0 / "Speaker 1" without actual diarization data.
+  const speakerRef     = useRef<number | undefined>(undefined);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cumulative final text received from Soniox for the current utterance.
   // Soniox re-sends ALL previously-finalized tokens in every message; we
@@ -554,7 +558,7 @@ export function useTranscription() {
       segStartSpeakerRef.current = -1;
       speakerHistoryRef.current  = [];
       langRef.current            = "en";
-      speakerRef.current         = 0;
+      speakerRef.current         = undefined; // reset — no speaker until API sends one
       resetSpeakerMap(); // fresh sequential labels for this recording session
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -659,7 +663,7 @@ export function useTranscription() {
       setLiveTranscript(null);
       finalBufRef.current  = "";
       nfDisplayRef.current = "";
-      speakerRef.current         = 0;
+      speakerRef.current         = undefined; // reset — no speaker until API sends one
       segStartSpeakerRef.current = -1;
       globalFinalRef.current     = "";
       resetSpeakerMap(); // wipe speaker identities with the history

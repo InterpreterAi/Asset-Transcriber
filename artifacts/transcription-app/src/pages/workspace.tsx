@@ -58,6 +58,7 @@ function CopyBtn({ text }: { text: string }) {
 
 // ── Speaker label ──────────────────────────────────────────────────────────────
 function SpeakerTag({ label }: { label: string }) {
+  if (!label) return null; // no API speaker data yet — render nothing
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1 w-fit">
       {label}
