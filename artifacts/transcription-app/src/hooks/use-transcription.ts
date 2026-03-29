@@ -148,6 +148,18 @@ export function useTranscription() {
   // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
 
+  // ── Speaker stabilization state ────────────────────────────────────────────
+  // When a token arrives with a different speaker ID we don't immediately flip.
+  // Instead we track a "candidate" new speaker and only confirm once we see
+  // ≥ 3 consecutive tokens with that ID  OR  ≥ 300 ms of continuous presence.
+  // If the speaker reverts to the current speaker before confirmation the
+  // candidate is cancelled and the transitional tokens stay in the current
+  // segment.  This prevents single-word utterances (e.g. "Oh.") from being
+  // incorrectly split into a new Speaker-N segment.
+  const candidateSpeakerRef  = useRef<number | undefined>(undefined);
+  const candidateCountRef    = useRef<number>(0);
+  const candidateStartMsRef  = useRef<number>(0);
+
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
@@ -180,6 +192,9 @@ export function useTranscription() {
     setIsRecording(false);
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    candidateSpeakerRef.current = undefined;
+    candidateCountRef.current   = 0;
+    candidateStartMsRef.current = 0;
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -290,8 +305,8 @@ export function useTranscription() {
         if (finalTokens.length > 0) {
           langRef.current = detectLang(finalTokens, langRef.current);
 
-          // Debug: log the raw speaker IDs on each final token so we can
-          // verify whether Soniox is providing speaker IDs in real-time.
+          // Debug: log speaker IDs arriving per token so we can see what
+          // Soniox is actually providing in real-time.
           if (import.meta.env.DEV) {
             console.log(
               "[SPK] final batch:",
@@ -299,45 +314,90 @@ export function useTranscription() {
             );
           }
 
-          // ── Per-token segmentation ────────────────────────────────────────
+          // ── Per-token segmentation with speaker stabilization ─────────────
           //
-          // For every token, exactly two checks are run in order:
+          // Algorithm for each token:
           //
-          //   1. Speaker change → flush the current buffer immediately and
-          //      start a fresh segment for the new speaker.  This is the
-          //      highest-priority trigger and overrides all timers.
+          //   Case A — buffer is empty (fresh segment):
+          //     Accept whatever speaker ID is present.  No candidate needed.
           //
-          //   2. Sentence boundary → if the buffer ends with . ? ! ؟ etc.
-          //      after appending this token, flush immediately.  Applies to
-          //      ALL tokens including the last in a batch (the post-loop
-          //      check handles the same case for symmetry — no double-flush
-          //      because flush() clears the buffer, so the post-loop guard
-          //      `finalBufRef.current.trim()` will be false).
+          //   Case B — same speaker as current (or no speaker ID):
+          //     Normal append.  Reset any pending candidate.
+          //
+          //   Case C — different speaker ID, buffer has content:
+          //     Do NOT flush immediately.  Instead maintain a "candidate":
+          //       • start/continue counting consecutive tokens with the new ID
+          //       • start/continue timing from first appearance
+          //     Append the token to the CURRENT buffer optimistically.
+          //     Confirm the speaker change only when:
+          //       – ≥ 3 consecutive tokens have the same new speaker ID, OR
+          //       – the candidate has persisted for ≥ 300 ms
+          //     If the speaker reverts to the current ID before confirmation,
+          //     cancel the candidate — the transitional tokens stay in the
+          //     current segment (mirrors Soniox's stability for brief
+          //     utterances like "Oh." that get a transient diarization ID).
+          //
+          //   After appending any token, also check sentence punctuation and
+          //   flush immediately if the buffer ends with . ? ! ؟ etc.
           //
           const SENTENCE_END = /[.!?؟،。！？]\s*$/;
 
-          for (let i = 0; i < finalTokens.length; i++) {
-            const token = finalTokens[i]!;
-            const tSpk  = token.speaker;
+          const resetCandidate = () => {
+            candidateSpeakerRef.current = undefined;
+            candidateCountRef.current   = 0;
+            candidateStartMsRef.current = 0;
+          };
 
-            // ── 1. Speaker change ─────────────────────────────────────────
-            if (tSpk !== undefined && tSpk !== speakerRef.current && finalBufRef.current.trim()) {
-              if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-              flush();
-              speakerRef.current = tSpk;
+          const confirmCandidate = (newSpk: number) => {
+            // Flush whatever is in the buffer (old speaker + transition tokens)
+            // then adopt the new speaker for the next segment.
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+            flush();
+            speakerRef.current = newSpk;
+            resetCandidate();
+          };
+
+          for (const token of finalTokens) {
+            const tSpk = token.speaker;
+
+            if (!finalBufRef.current.trim()) {
+              // ── Case A: empty buffer — start fresh segment ──────────────
+              if (tSpk !== undefined) speakerRef.current = tSpk;
+              resetCandidate();
+              finalBufRef.current += token.text;
+
+            } else if (tSpk === undefined || tSpk === speakerRef.current) {
+              // ── Case B: same speaker (or no ID) ─────────────────────────
+              resetCandidate();
+              finalBufRef.current += token.text;
+
+            } else {
+              // ── Case C: different speaker ID ─────────────────────────────
+              if (candidateSpeakerRef.current !== tSpk) {
+                // New candidate speaker (or reverting to yet another speaker)
+                candidateSpeakerRef.current = tSpk;
+                candidateCountRef.current   = 1;
+                candidateStartMsRef.current = Date.now();
+              } else {
+                // Same candidate — keep counting
+                candidateCountRef.current++;
+              }
+
+              finalBufRef.current += token.text;
+
+              const enoughTokens = candidateCountRef.current >= 3;
+              const enoughTime   = (Date.now() - candidateStartMsRef.current) >= 300;
+
+              if (enoughTokens || enoughTime) {
+                confirmCandidate(tSpk);
+              }
             }
 
-            // Lock speaker at utterance start (empty buffer = fresh segment)
-            if (finalBufRef.current === "" && tSpk !== undefined) {
-              speakerRef.current = tSpk;
-            }
-
-            finalBufRef.current += token.text;
-
-            // ── 2. Sentence boundary ──────────────────────────────────────
+            // ── Sentence boundary flush (applies in all cases) ────────────
             if (SENTENCE_END.test(finalBufRef.current)) {
               if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
               flush();
+              resetCandidate();
             }
           }
         }
@@ -564,6 +624,9 @@ export function useTranscription() {
       speakerRef.current   = 0;
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      candidateSpeakerRef.current = undefined;
+      candidateCountRef.current   = 0;
+      candidateStartMsRef.current = 0;
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
