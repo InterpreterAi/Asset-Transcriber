@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type Phrase, type LiveTranscript } from "@/hooks/use-transcription";
+import { useTranscription, type Phrase } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
@@ -55,16 +55,6 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
-// ── Pulsing dots ───────────────────────────────────────────────────────────────
-function Dots() {
-  return (
-    <span className="inline-flex gap-[3px] ml-1.5 align-middle">
-      <span className="w-1 h-1 bg-primary/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-      <span className="w-1 h-1 bg-primary/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-      <span className="w-1 h-1 bg-primary/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-    </span>
-  );
-}
 
 // ── Speaker label ──────────────────────────────────────────────────────────────
 function SpeakerTag({ label }: { label: string }) {
@@ -91,19 +81,6 @@ function SegmentRow({ phrase }: { phrase: Phrase }) {
   );
 }
 
-// ── Live segment row ───────────────────────────────────────────────────────────
-// Full-width single column — speaker label + growing live text.
-function LiveRow({ live }: { live: LiveTranscript }) {
-  const isRtl = live.language === "ar" || live.language === "he";
-  return (
-    <div className="mb-4">
-      <SpeakerTag label={live.speakerLabel} />
-      <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
-        {live.text}<Dots />
-      </p>
-    </div>
-  );
-}
 
 // ── Main workspace ─────────────────────────────────────────────────────────────
 export default function Workspace() {
@@ -173,7 +150,7 @@ export default function Workspace() {
   const isBlocked      = user.trialExpired || isLimitReached;
 
   // isEmpty only shows the empty-state placeholder — never go blank after Stop
-  const hasContent = transcription.phrases.length > 0 || !!transcription.liveTranscript;
+  const hasContent = transcription.phrases.length > 0;
 
   return (
     <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
@@ -311,9 +288,6 @@ export default function Workspace() {
                   {transcription.phrases.map((phrase) => (
                     <SegmentRow key={phrase.id} phrase={phrase} />
                   ))}
-                  {transcription.liveTranscript && (
-                    <LiveRow live={transcription.liveTranscript} />
-                  )}
                   <div ref={scrollEndRef} />
                 </div>
               )}

@@ -436,17 +436,9 @@ export function useTranscription() {
         commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
       }
 
-      // ── Live row UI update ───────────────────────────────────────────────
-      const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
-      if (displayText) {
-        setLiveTranscript({
-          text:         displayText,
-          language:     langRef.current,
-          speakerLabel: normalizeSpeaker(speakerRef.current),
-        });
-      } else if (!finalBufRef.current && !nfDisplayRef.current) {
-        setLiveTranscript(null);
-      }
+      // Non-final tokens are buffered internally only — no live row shown.
+      // Only finalized phrases (sealed by the is_final triggers above) appear
+      // in the transcript, matching Soniox desktop phrase-level behavior.
     };
 
     // ── onmessage: immediate per-message processing ───────────────────────
