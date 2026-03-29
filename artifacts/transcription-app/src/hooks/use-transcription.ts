@@ -260,9 +260,16 @@ export function useTranscription() {
           return;
         }
 
-        // Stream finished (server closed cleanly)
+        // Stream finished (server closed cleanly) — commit any remaining content
+        // immediately rather than waiting for the silence timer.
         if (msg.finished) {
           console.log("[WS] stt-rt-v4 finished");
+          if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+          if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
+            finalBufRef.current = nfDisplayRef.current;
+          }
+          nfDisplayRef.current = "";
+          flush();
           return;
         }
 
@@ -285,40 +292,32 @@ export function useTranscription() {
 
           // ── Sequential speaker-change detection ──────────────────────────
           //
-          // Majority vote suppresses real speaker changes when one speaker
-          // has more tokens in the batch.  Example: "Hi, I'm Vanessa …
-          // SpeakEnglishWithVanessa.com. And I'm Dan." arrives in a single
-          // message — Vanessa's tokens outvote Dan's, hiding the split.
+          // Scan token-by-token.  The instant the speaker ID changes, flush
+          // the current buffer and start a fresh one for the new speaker.
           //
-          // Instead we scan token-by-token and flush as soon as we see a
-          // SUSTAINED speaker change:
-          //   • at least 2 consecutive tokens with the new speaker ID, OR
-          //   • the last token in the batch (confirmation arrives next msg)
-          //
-          // A single isolated token with a different speaker is treated as
-          // a transient misassignment and absorbed into the current buffer.
+          // Previous "isLast || nextSame" guard was WRONG: when it failed
+          // (single mid-batch change token) the new speaker's text was still
+          // appended to the old buffer (line: finalBufRef += token.text),
+          // silently misattributing speech and delaying the segment split
+          // until the NEXT batch confirmed the change.  Removing the guard
+          // means occasional single-token misassignments create a tiny
+          // isolated segment — acceptable vs. silent text misattribution.
           //
           for (let i = 0; i < finalTokens.length; i++) {
             const token = finalTokens[i]!;
             const tSpk  = token.speaker;
 
             if (tSpk !== undefined && tSpk !== speakerRef.current && finalBufRef.current.trim()) {
-              const isLast   = i === finalTokens.length - 1;
-              const nextSame = !isLast && finalTokens[i + 1]?.speaker === tSpk;
-
-              if (isLast || nextSame) {
-                // Sustained change — seal the current speaker's turn
-                if (commitTimerRef.current) {
-                  clearTimeout(commitTimerRef.current);
-                  commitTimerRef.current = null;
-                }
-                flush();
-                speakerRef.current = tSpk;
+              // Speaker changed — seal the previous speaker's segment immediately.
+              if (commitTimerRef.current) {
+                clearTimeout(commitTimerRef.current);
+                commitTimerRef.current = null;
               }
-              // Single stray token → fall through and absorb into current buffer
+              flush();
+              speakerRef.current = tSpk;
             }
 
-            // Lock speaker at utterance start
+            // Lock speaker at utterance start (empty buffer = fresh segment)
             if (finalBufRef.current === "" && tSpk !== undefined) {
               speakerRef.current = tSpk;
             }
@@ -410,6 +409,15 @@ export function useTranscription() {
       const logFn = (ev.code === 1000 || ev.code === 1001) ? console.log : console.warn;
       logFn(`[WS] stt-rt-v4 closed — code:${ev.code} reason:"${ev.reason}"`);
       if (wsRef.current === ws) wsRef.current = null;
+
+      // Flush any buffered content immediately on close — do not wait for the
+      // silence timer, which can leave content dangling for up to COMMIT_DELAY ms.
+      if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+      if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
+        finalBufRef.current = nfDisplayRef.current;
+      }
+      nfDisplayRef.current = "";
+      flush();
 
       // Auto-reconnect — preserves history and liveTranscript
       if (!isRecRef.current || apiErrorOccurred) return;
