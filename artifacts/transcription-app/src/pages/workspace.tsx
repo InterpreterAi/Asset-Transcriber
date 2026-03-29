@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, ArrowLeftRight, Trash2
+  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -42,6 +42,27 @@ function getTargetLang(srcLang: string, langA: string, langB: string): string {
   return srcLang === langA ? langB : langA;
 }
 
+// ── Copy button — appears on hover ────────────────────────────────────────────
+function CopyBtn({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(text);
+    setDone(true);
+    setTimeout(() => setDone(false), 1500);
+  };
+  return (
+    <button
+      onClick={copy}
+      className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1.5 p-0.5 rounded hover:bg-black/8 text-muted-foreground/60 hover:text-foreground flex-shrink-0 align-middle"
+      title="Copy to clipboard"
+    >
+      {done
+        ? <Check className="w-3 h-3 text-green-500" />
+        : <Copy className="w-3 h-3" />}
+    </button>
+  );
+}
+
 // ── Pulsing dots ───────────────────────────────────────────────────────────────
 function Dots() {
   return (
@@ -62,9 +83,24 @@ function SpeakerTag({ label }: { label: string }) {
   );
 }
 
+// ── Translating indicator ──────────────────────────────────────────────────────
+function TranslatingDots() {
+  return (
+    <p className="text-[13px] text-muted-foreground/50 italic flex items-center gap-1">
+      Translating
+      <span className="inline-flex gap-[3px] ml-1 align-middle">
+        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+      </span>
+    </p>
+  );
+}
+
 // ── Paired segment row (finalized) ────────────────────────────────────────────
 // One row shows BOTH the original text and its translation side-by-side.
-// Left column is always langA (e.g. English), right is langB (e.g. Arabic).
+// Left column = langA (e.g. English), right column = langB (e.g. Arabic).
+// Each text cell is individually hoverable — the copy icon appears on hover.
 //
 function SegmentRow({
   phrase, translation, langA, langB,
@@ -76,49 +112,38 @@ function SegmentRow({
 }) {
   const targetLang = translation?.targetLang ?? getTargetLang(phrase.language, langA, langB);
 
-  // Which physical column each piece of text goes into
-  const originalIsLeft = phrase.language === langA || (phrase.language !== langB);
+  // Determine which physical column each piece of text goes into
+  const originalIsLeft = phrase.language === langA || phrase.language !== langB;
   const leftText  = originalIsLeft ? phrase.text : translation?.text;
   const rightText = originalIsLeft ? translation?.text : phrase.text;
   const leftRtl   = langA === "ar" || langA === "he";
-  const rightRtl  = (targetLang === "ar" || targetLang === "he") || (!originalIsLeft && (phrase.language === "ar" || phrase.language === "he"));
+  const rightRtl  = targetLang === "ar" || targetLang === "he" ||
+                    (!originalIsLeft && (phrase.language === "ar" || phrase.language === "he"));
 
   return (
     <div className="grid grid-cols-2 gap-6 mb-5 pb-5 border-b border-border/25 last:border-0 last:pb-0 last:mb-0">
       {/* Left column (langA) */}
-      <div>
+      <div className="group">
         <SpeakerTag label={phrase.speakerLabel} />
         {leftText ? (
           <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={leftRtl ? "rtl" : "ltr"}>
             {leftText}
+            <CopyBtn text={leftText} />
           </p>
         ) : (
-          <p className="text-[13px] text-muted-foreground/50 italic flex items-center gap-1">
-            Translating
-            <span className="inline-flex gap-[3px] ml-1 align-middle">
-              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-            </span>
-          </p>
+          <TranslatingDots />
         )}
       </div>
       {/* Right column (langB) */}
-      <div className="border-l border-border/20 pl-6">
+      <div className="group border-l border-border/20 pl-6">
         <SpeakerTag label={phrase.speakerLabel} />
         {rightText ? (
           <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={rightRtl ? "rtl" : "ltr"}>
             {rightText}
+            <CopyBtn text={rightText} />
           </p>
         ) : (
-          <p className="text-[13px] text-muted-foreground/50 italic flex items-center gap-1">
-            Translating
-            <span className="inline-flex gap-[3px] ml-1 align-middle">
-              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-            </span>
-          </p>
+          <TranslatingDots />
         )}
       </div>
     </div>
@@ -148,14 +173,7 @@ function LiveRow({
       {liveTranslation.text}<Dots />
     </p>
   ) : (
-    <p className="text-[13px] text-muted-foreground/50 italic flex items-center gap-1">
-      Translating
-      <span className="inline-flex gap-[3px] ml-1 align-middle">
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-      </span>
-    </p>
+    <TranslatingDots />
   );
 
   const rightContent = !originalIsLeft ? (
@@ -167,14 +185,7 @@ function LiveRow({
       {liveTranslation.text}<Dots />
     </p>
   ) : (
-    <p className="text-[13px] text-muted-foreground/50 italic flex items-center gap-1">
-      Translating
-      <span className="inline-flex gap-[3px] ml-1 align-middle">
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-      </span>
-    </p>
+    <TranslatingDots />
   );
 
   return (

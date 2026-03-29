@@ -356,22 +356,17 @@ export function useTranscription() {
             if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
             flush();
           } else {
-            // No sentence boundary — (re)start the silence timer.
-            // The callback checks for live non-final speech before committing
-            // so that grammatically-connected words like "skin" + "tone." are
-            // never split just because "skin" got final tokens first.
+            // No sentence boundary — (re)start COMMIT_DELAY timer from this
+            // final-token batch.
+            //
+            // IMPORTANT: do NOT check hasLiveSpeech here.  Deferring the flush
+            // until non-final tokens clear (the old checkAndFlush approach)
+            // means NOTHING ever commits during continuous speech — the live
+            // buffer just grows until a long pause.  Instead we fire on
+            // schedule.  Speaker changes and punctuation already handle the
+            // in-stream split cases; this timer is purely the silence fallback.
             if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-            const checkAndFlush = () => {
-              commitTimerRef.current = null;
-              if (nfDisplayRef.current.trim()) {
-                // Still active non-final speech — keep deferring in short intervals
-                // until the model resolves and live speech clears.
-                commitTimerRef.current = setTimeout(checkAndFlush, 400);
-              } else {
-                flush();
-              }
-            };
-            commitTimerRef.current = setTimeout(checkAndFlush, COMMIT_DELAY);
+            commitTimerRef.current = setTimeout(flush, COMMIT_DELAY);
           }
         }
         // Non-final tokens only: leave commitTimerRef untouched so it fires
