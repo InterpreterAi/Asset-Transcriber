@@ -220,28 +220,25 @@ export function useTranscription() {
   // back to 0 / "Speaker 1" without actual diarization data.
   const speakerRef     = useRef<number | undefined>(undefined);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Cumulative final text received from Soniox for the current utterance.
-  // Soniox re-sends ALL previously-finalized tokens in every message; we
-  // compare against this to extract only the truly new delta.
-  const globalFinalRef = useRef<string>("");
+  // Soniox re-sends ALL previously-finalized tokens in every message.
+  // Track how many we have already processed so each message only yields the
+  // truly new tail.  Reset to 0 at every utterance boundary.
+  const globalFinalCountRef = useRef<number>(0);
   // Timestamp of the most recent token arrival — final OR non-final.
-  // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
 
   // ── Per-segment speaker history ────────────────────────────────────────────
   // Records every speaker reading seen during the CURRENT active segment.
-  // flush() takes the MODE (most-frequent) of ALL readings, then clears the
-  // buffer so the next segment starts completely fresh.  This prevents earlier
-  // segments' diarization readings from contaminating later segments' labels.
+  // flush() takes the MODE (most-frequent) of ALL readings, then clears so
+  // the next segment starts completely fresh — no cross-segment contamination.
   const speakerHistoryRef = useRef<number[]>([]);
 
-  // ── Active-segment display speaker ─────────────────────────────────────────
-  // Lock the speaker label shown on the live row to the FIRST reading of each
-  // segment.  Diarization updates continue being recorded in speakerHistoryRef
-  // for the modal calculation at flush() time, but the visible label stays
-  // stable — the user never sees the label flicker mid-sentence.
-  // Reset to -1 by flush() so the next batch knows to start a fresh segment.
-  const segStartSpeakerRef = useRef<number>(-1); // -1 = no active segment
+  // ── Active-segment speaker ─────────────────────────────────────────────────
+  // Set to token.speaker when the first token of a new segment arrives.
+  // When the next token carries a DIFFERENT speaker, the current segment is
+  // flushed and this ref is updated to the new speaker.
+  // undefined = no segment is currently open.
+  const activeSegSpeakerRef = useRef<number | undefined>(undefined);
 
   // ── Token Buffer (100 ms) ──────────────────────────────────────────────────
   // WebSocket messages arrive individually, often carrying 1–3 tokens each.
@@ -289,11 +286,11 @@ export function useTranscription() {
       stableSpeaker = best;
     }
 
-    // Clear per-segment history so the next segment starts fresh.
-    speakerHistoryRef.current  = [];
-    finalBufRef.current        = "";
-    nfDisplayRef.current       = "";
-    segStartSpeakerRef.current = -1;
+    // Clear per-segment state so the next segment starts fresh.
+    speakerHistoryRef.current   = [];
+    finalBufRef.current         = "";
+    nfDisplayRef.current        = "";
+    activeSegSpeakerRef.current = undefined; // no open segment after flush
     setPhrases(prev => [
       ...prev,
       { id: nextId(), speakerLabel: normalizeSpeaker(stableSpeaker), text, language: lang },
@@ -309,10 +306,10 @@ export function useTranscription() {
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-    wsTokenBufferRef.current     = [];
-    speakerHistoryRef.current    = [];
-    segStartSpeakerRef.current   = -1;
-    globalFinalRef.current       = "";
+    wsTokenBufferRef.current      = [];
+    speakerHistoryRef.current     = [];
+    activeSegSpeakerRef.current   = undefined;
+    globalFinalCountRef.current   = 0;
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -405,52 +402,60 @@ export function useTranscription() {
       const finalTokens = tokens.filter(t => t.is_final);
       const nfTokens    = tokens.filter(t => !t.is_final);
 
-      // ── Cumulative-aware final delta ──────────────────────────────────────
-      // Soniox re-sends ALL previously-finalized tokens in every message.
-      // Compare the new cumulative string to the last one seen:
-      //   • Extends the previous string → take only the new tail.
-      //   • Doesn't start with the previous string → new utterance, take all.
-      const cumulativeFinal = finalTokens.map(t => t.text).join("");
-      let newFinalDelta = "";
-      if (cumulativeFinal !== "") {
-        if (cumulativeFinal.startsWith(globalFinalRef.current)) {
-          newFinalDelta = cumulativeFinal.slice(globalFinalRef.current.length);
-        } else {
-          newFinalDelta = cumulativeFinal; // new utterance window
-        }
-        globalFinalRef.current = cumulativeFinal;
+      // ── New final tokens (Soniox re-sends all prior finals each message) ──
+      // Slice from the count we've already consumed — only the truly new tail.
+      const prevCount    = globalFinalCountRef.current;
+      const newFinalToks = finalTokens.slice(prevCount);
+      if (finalTokens.length > prevCount) {
+        globalFinalCountRef.current = finalTokens.length;
       }
 
-      // ── Speaker tracking ──────────────────────────────────────────────────
-      // Collect every speaker ID from this batch into per-segment history.
-      // flush() takes the mode across all readings, then clears for the next
-      // segment — no cross-segment contamination.
-      const tokensWithSpk = tokens.filter(t => t.speaker !== undefined);
-      if (tokensWithSpk.length > 0) {
-        for (const t of tokensWithSpk) {
-          touchSpeaker(t.speaker!);
-          speakerHistoryRef.current.push(t.speaker!);
+      // ── Process new final tokens one-by-one ───────────────────────────────
+      // For each token:
+      //   1. If it carries a speaker different from the active segment → flush
+      //      the current segment and open a new one for the new speaker.
+      //   2. Accumulate text and speaker history for the active segment.
+      for (const token of newFinalToks) {
+        const spk = token.speaker; // undefined if the API omitted it
+
+        // Speaker-change: both sides must be known to avoid false splits.
+        if (
+          spk !== undefined &&
+          activeSegSpeakerRef.current !== undefined &&
+          spk !== activeSegSpeakerRef.current &&
+          finalBufRef.current.trim()
+        ) {
+          flush(); // seals current segment; resets activeSegSpeakerRef → undefined
         }
-        // Update the live sticky speaker to the latest reading in this batch.
-        const latestSpk = tokensWithSpk[tokensWithSpk.length - 1].speaker!;
-        speakerRef.current = latestSpk;
-        console.log("[Diarization] speakers in batch:", tokensWithSpk.map(t => t.speaker));
+
+        // Open a new segment the first time we see a known speaker.
+        if (spk !== undefined && activeSegSpeakerRef.current === undefined) {
+          activeSegSpeakerRef.current = spk;
+        }
+
+        // Track speaker for modal computation at flush() time.
+        if (spk !== undefined) {
+          touchSpeaker(spk);
+          speakerHistoryRef.current.push(spk);
+          speakerRef.current = spk;
+          console.log("[Diarization] token speaker:", spk, "| text:", token.text);
+        }
+
+        // Accumulate finalized text into the active segment buffer.
+        finalBufRef.current += token.text;
       }
 
       // ── Language detection ────────────────────────────────────────────────
-      if (finalTokens.length > 0) {
-        langRef.current = detectLang(finalTokens, langRef.current);
+      if (newFinalToks.length > 0) {
+        langRef.current = detectLang(newFinalToks, langRef.current);
       } else if (nfTokens.length > 0 && !finalBufRef.current) {
         langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Accumulate text ───────────────────────────────────────────────────
-      if (newFinalDelta) finalBufRef.current += newFinalDelta;
+      // ── Non-final display tail (replaced every message) ──────────────────
       nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
       // ── Update live row ───────────────────────────────────────────────────
-      // Always show the most current speaker reading — label updates as
-      // diarization converges, which matches Soniox desktop behaviour.
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
       if (activeText) {
         setLiveTranscript({
@@ -460,9 +465,9 @@ export function useTranscription() {
         });
       }
 
-      // ── Finalize: all tokens final → Soniox says utterance is complete ────
+      // ── Utterance boundary: all tokens final → Soniox VAD complete ───────
       if (nfTokens.length === 0 && finalBufRef.current.trim()) {
-        globalFinalRef.current = ""; // reset for the next utterance window
+        globalFinalCountRef.current = 0; // Soniox resets token indices next utterance
         flush();
         return;
       }
@@ -474,7 +479,7 @@ export function useTranscription() {
           finalBufRef.current += nfDisplayRef.current;
           nfDisplayRef.current = "";
         }
-        globalFinalRef.current = "";
+        globalFinalCountRef.current = 0;
         flush();
       }
     };
@@ -552,13 +557,13 @@ export function useTranscription() {
       setError(null);
       setLiveTranscript(null);
       setAudioInfo("");
-      finalBufRef.current        = "";
-      nfDisplayRef.current       = "";
-      globalFinalRef.current     = "";
-      segStartSpeakerRef.current = -1;
-      speakerHistoryRef.current  = [];
-      langRef.current            = "en";
-      speakerRef.current         = undefined; // reset — no speaker until API sends one
+      finalBufRef.current         = "";
+      nfDisplayRef.current        = "";
+      globalFinalCountRef.current = 0;
+      activeSegSpeakerRef.current = undefined;
+      speakerHistoryRef.current   = [];
+      langRef.current             = "en";
+      speakerRef.current          = undefined; // reset — no speaker until API sends one
       resetSpeakerMap(); // fresh sequential labels for this recording session
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -663,9 +668,9 @@ export function useTranscription() {
       setLiveTranscript(null);
       finalBufRef.current  = "";
       nfDisplayRef.current = "";
-      speakerRef.current         = undefined; // reset — no speaker until API sends one
-      segStartSpeakerRef.current = -1;
-      globalFinalRef.current     = "";
+      speakerRef.current          = undefined; // reset — no speaker until API sends one
+      activeSegSpeakerRef.current = undefined;
+      globalFinalCountRef.current = 0;
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
