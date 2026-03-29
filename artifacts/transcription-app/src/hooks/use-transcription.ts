@@ -207,11 +207,6 @@ export function useTranscription() {
         language_hints:                 ["en", "ar"],
         enable_language_identification: true,
         enable_speaker_diarization:     true,
-        // Push the API's own endpoint detector to its maximum (3000ms).
-        // This prevents the API from inserting artificial gaps between clause
-        // boundaries (commas, breaths) that would cause our commit timer to
-        // fire mid-sentence.  Our COMMIT_DELAY = 2000ms is the real boundary.
-        max_endpoint_delay_ms:          3000,
       };
       ws.send(JSON.stringify(config));
       console.log("[WS] stt-rt-v4 OPEN — config sent:", config);
