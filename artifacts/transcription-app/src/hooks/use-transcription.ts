@@ -35,9 +35,10 @@ const COMMIT_DELAY = 1000; // ms of silence → seal active segment
 // 1.5 s is far more accurate than the label on the very last token batch.
 const SPEAKER_WINDOW_MS = 1500;
 
-// Safety cap: seal if a single segment accumulates this many words.
-// Prevents a runaway segment if COMMIT_DELAY is never triggered.
-const MAX_SEG_WORDS = 30;
+// Safety word cap — only fires if the silence/speaker-change triggers never
+// fire (e.g. no speaker data and no natural pause for a very long time).
+// Since we now flush on speaker change, this is a pure last-resort guard.
+const MAX_SEG_WORDS = 100;
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -215,6 +216,10 @@ export function useTranscription() {
   const langRef        = useRef<LangCode>("en");
   const speakerRef     = useRef<number>(0);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Cumulative final text received from Soniox for the current utterance.
+  // Soniox re-sends ALL previously-finalized tokens in every message; we
+  // compare against this to extract only the truly new delta.
+  const globalFinalRef = useRef<string>("");
   // Timestamp of the most recent token arrival — final OR non-final.
   // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
@@ -305,6 +310,7 @@ export function useTranscription() {
     wsTokenBufferRef.current     = [];
     speakerHistoryRef.current    = [];
     segStartSpeakerRef.current   = -1;
+    globalFinalRef.current       = "";
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -411,7 +417,32 @@ export function useTranscription() {
       const finalTokens = tokens.filter(t => t.is_final);
       const nfTokens    = tokens.filter(t => !t.is_final);
 
-      // ── Rule 3: Record speaker readings for stabilization ────────────────
+      // ── Cumulative-aware final delta ──────────────────────────────────────
+      // Soniox re-sends ALL previously-finalized tokens in every message.
+      // We compare the new cumulative string against the last one we saw:
+      //   • If it extends (starts with) what we already have → take the tail.
+      //   • Otherwise a new utterance started → take everything as new.
+      const cumulativeFinal = finalTokens.map(t => t.text).join("");
+      let newFinalDelta = "";
+      if (cumulativeFinal !== "") {
+        if (cumulativeFinal.startsWith(globalFinalRef.current)) {
+          newFinalDelta = cumulativeFinal.slice(globalFinalRef.current.length);
+        } else {
+          // New utterance — treat entire cumulative string as fresh content.
+          newFinalDelta = cumulativeFinal;
+        }
+        globalFinalRef.current = cumulativeFinal;
+      }
+
+      // ── Speaker detection ─────────────────────────────────────────────────
+      // Use the LAST token with a speaker tag in each category — it represents
+      // the most recently spoken word and is the most stable reading.
+      const latestFinalSpk = [...finalTokens].reverse().find(t => t.speaker !== undefined)?.speaker;
+      const latestNfSpk    = [...nfTokens].reverse().find(t => t.speaker !== undefined)?.speaker;
+      const incomingSpk    = latestFinalSpk ?? latestNfSpk;
+      if (incomingSpk !== undefined) speakerRef.current = incomingSpk;
+
+      // ── Speaker history (for silence-flush modal) ─────────────────────────
       const nowTs = Date.now();
       for (const t of tokens) {
         if (t.speaker !== undefined) {
@@ -419,18 +450,24 @@ export function useTranscription() {
           speakerHistoryRef.current.push({ speaker: t.speaker, ts: nowTs });
         }
       }
-      // Trim history older than 2× the stabilization window
       const trimCutoff = nowTs - SPEAKER_WINDOW_MS * 2;
       if (speakerHistoryRef.current.length > 200) {
         speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= trimCutoff);
       }
 
-      // ── Sticky speaker (most-recent, used for history + flush fallback) ────
-      const incomingSpk = (
-        finalTokens.find(t => t.speaker !== undefined) ??
-        nfTokens.find(t => t.speaker !== undefined)
-      )?.speaker;
-      if (incomingSpk !== undefined) speakerRef.current = incomingSpk;
+      // ── Speaker-change flush (primary segmentation) ───────────────────────
+      // When FINAL tokens confirm a new speaker, seal the current segment
+      // immediately — before accumulating the new speaker's text.
+      // This mirrors Soniox desktop: each speaker turn = its own row.
+      if (
+        latestFinalSpk !== undefined &&
+        segStartSpeakerRef.current !== -1 &&
+        latestFinalSpk !== segStartSpeakerRef.current &&
+        finalBufRef.current.trim()
+      ) {
+        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+        flush(); // seals current segment; resets finalBufRef + segStartSpeakerRef
+      }
 
       // ── Language detection ────────────────────────────────────────────────
       if (finalTokens.length > 0) {
@@ -439,31 +476,26 @@ export function useTranscription() {
         langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Rule 1 & 2: Update active segment text ───────────────────────────
-      // Committed text accumulates across messages (delta stream).
-      if (finalTokens.length > 0) {
-        finalBufRef.current += finalTokens.map(t => t.text).join("");
+      // ── Accumulate new committed text ─────────────────────────────────────
+      if (newFinalDelta) {
+        finalBufRef.current += newFinalDelta;
       }
-      // Provisional suffix replaces each message (Soniox re-sends corrections).
+      // Provisional suffix replaces each message (Soniox sends corrections).
       nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-      // ── Lock segment-start speaker (stable display label) ────────────────
-      // On the FIRST token after a flush, capture the current speaker as the
-      // display label for this entire segment.  Subsequent diarization updates
-      // keep feeding speakerHistoryRef (for the modal at flush time) but the
-      // visible label never changes mid-sentence.
+      // ── Lock segment-start speaker ────────────────────────────────────────
+      // On the first token after a flush, capture the speaker once.
+      // The label stays fixed for the whole segment — no mid-sentence flicker.
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
       if (activeText && segStartSpeakerRef.current === -1) {
         segStartSpeakerRef.current = speakerRef.current;
       }
 
-      // Update the live row — single in-place update, no new row created.
+      // ── Update live row ───────────────────────────────────────────────────
       if (activeText) {
         setLiveTranscript({
           text:         activeText,
           language:     langRef.current,
-          // Use segment-start speaker for a stable label; fall back to sticky
-          // speakerRef if no segment-start reading exists yet.
           speakerLabel: normalizeSpeaker(
             segStartSpeakerRef.current !== -1
               ? segStartSpeakerRef.current
@@ -472,30 +504,28 @@ export function useTranscription() {
         });
       }
 
-      // ── Finalization (Rule C — word cap) ─────────────────────────────────
-      const wc = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
-      if (wc >= MAX_SEG_WORDS) {
+      // ── Word cap (safety — last resort) ──────────────────────────────────
+      const totalWords = activeText.split(/\s+/).filter(Boolean).length;
+      if (totalWords >= MAX_SEG_WORDS) {
         if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-        if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
-          finalBufRef.current = nfDisplayRef.current;
-          nfDisplayRef.current = "";
+        // Promote provisional suffix so it's included in the sealed phrase.
+        if (nfDisplayRef.current.trim()) {
+          finalBufRef.current  += nfDisplayRef.current;
+          nfDisplayRef.current  = "";
         }
         flush();
         return;
       }
 
-      // ── Finalization (Rule A — silence timer) ────────────────────────────
-      // Restart the silence timer on every token arrival.
+      // ── Silence timer (secondary segmentation) ────────────────────────────
       if (finalBufRef.current.trim() || nfDisplayRef.current.trim()) {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
         const silenceFlush = () => {
           commitTimerRef.current = null;
           const silentFor = Date.now() - lastTokenTimeRef.current;
           if (silentFor < COMMIT_DELAY) {
-            // More tokens arrived — wait longer
             commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
           } else {
-            // True silence: promote provisional if no committed content, then seal
             if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
               finalBufRef.current = nfDisplayRef.current;
               nfDisplayRef.current = "";
@@ -580,10 +610,13 @@ export function useTranscription() {
       setError(null);
       setLiveTranscript(null);
       setAudioInfo("");
-      finalBufRef.current  = "";
-      nfDisplayRef.current = "";
-      langRef.current      = "en";
-      speakerRef.current   = 0;
+      finalBufRef.current        = "";
+      nfDisplayRef.current       = "";
+      globalFinalRef.current     = "";
+      segStartSpeakerRef.current = -1;
+      speakerHistoryRef.current  = [];
+      langRef.current            = "en";
+      speakerRef.current         = 0;
       resetSpeakerMap(); // fresh sequential labels for this recording session
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -690,6 +723,7 @@ export function useTranscription() {
       nfDisplayRef.current = "";
       speakerRef.current         = 0;
       segStartSpeakerRef.current = -1;
+      globalFinalRef.current     = "";
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
