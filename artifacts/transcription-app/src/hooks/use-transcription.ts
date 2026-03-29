@@ -294,15 +294,31 @@ export function useTranscription() {
     pendingSpeakerTokenCountRef.current = 0;
     setActivePreviewLine(null); // live row disappears; finalized row appears below
 
+    const speakerLabel = normalizeSpeaker(stableSpeaker);
     const phrase: Phrase = {
-      id:           nextId(),
-      speakerLabel: normalizeSpeaker(stableSpeaker),
+      id: nextId(),
+      speakerLabel,
       text,
-      language:     lang,
+      language: lang,
     };
 
-    // Append to the immutable finalized list — never rebuild from scratch.
-    setFinalizedSegments(prev => [...prev, phrase]);
+    // Same-speaker merge: if the last finalized segment belongs to the same
+    // speaker, extend its text instead of creating a new row.  This collapses
+    // pause-split or punctuation-split segments from a continuous speaker into
+    // a single readable block.  Different speaker → always a new row.
+    setFinalizedSegments(prev => {
+      if (prev.length === 0) return [phrase];
+      const last = prev[prev.length - 1];
+      if (last.speakerLabel === speakerLabel) {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          ...last,
+          text: (last.text + " " + text).trim(),
+        };
+        return updated;
+      }
+      return [...prev, phrase];
+    });
   }, []);
 
   // ── stop ──────────────────────────────────────────────────────────────────
