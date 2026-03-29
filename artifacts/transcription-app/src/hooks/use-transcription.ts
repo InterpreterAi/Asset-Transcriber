@@ -7,6 +7,8 @@ export interface Phrase {
   speakerLabel: string;
   text: string;
   language: string;
+  /** true while this phrase is still accumulating words from the same speaker */
+  active: boolean;
 }
 
 const SAMPLE_RATE = 48000;
@@ -24,12 +26,30 @@ function speakerLabel(spkIndex: number): string {
   return `Speaker ${spkIndex + 1}`;
 }
 
-/** Detect language from text content (Arabic Unicode range check) */
+/** Detect language from text — Arabic Unicode range check */
 function detectLangFromText(text: string): string {
-  const arabicChars = (text.match(/[\u0600-\u06FF\u0750-\u077F]/g) || []).length;
+  const arabicCount = (text.match(/[\u0600-\u06FF\u0750-\u077F]/g) ?? []).length;
   const total = text.replace(/\s/g, "").length;
   if (total === 0) return "en";
-  return arabicChars / total > 0.3 ? "ar" : "en";
+  return arabicCount / total > 0.25 ? "ar" : "en";
+}
+
+/** Group consecutive words from the same speaker into runs */
+function groupBySpeaker(words: { t?: string; w?: string; text?: string; spk?: number; lang?: string; lg?: string }[]) {
+  const runs: { spk: number; text: string; lang: string }[] = [];
+  for (const w of words) {
+    const spk = w.spk ?? 0;
+    const txt = (w.t ?? w.w ?? w.text ?? "");
+    const lang = w.lang ?? w.lg ?? "";
+    const last = runs[runs.length - 1];
+    if (last && last.spk === spk) {
+      last.text += txt;
+      if (!last.lang && lang) last.lang = lang;
+    } else {
+      runs.push({ spk, text: txt, lang });
+    }
+  }
+  return runs;
 }
 
 let phraseIdCounter = 0;
@@ -38,7 +58,6 @@ function nextId() { return `p-${++phraseIdCounter}`; }
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
   const [phrases, setPhrases] = useState<Phrase[]>([]);
-  const [partialPhrase, setPartialPhrase] = useState<Phrase | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +77,9 @@ export function useTranscription() {
     isRecordingRef.current = false;
     setIsRecording(false);
 
+    // Seal all active phrases when recording stops
+    setPhrases(prev => prev.map(p => p.active ? { ...p, active: false } : p));
+
     if (wsRef.current) {
       try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) {}
       wsRef.current.close();
@@ -73,7 +95,6 @@ export function useTranscription() {
     streamsRef.current = [];
     setMicLevel(0);
     setSystemLevel(0);
-    setPartialPhrase(null);
 
     if (sessionIdRef.current) {
       const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -93,7 +114,6 @@ export function useTranscription() {
       try {
         setError(null);
         setPhrases([]);
-        setPartialPhrase(null);
 
         const tokenRes = await getTokenMut.mutateAsync({});
         const sessionRes = await startSessionMut.mutateAsync({});
@@ -157,11 +177,11 @@ export function useTranscription() {
           ws.send(
             JSON.stringify({
               api_key: tokenRes.apiKey,
-              model: "en_v2_lowlatency",
+              model: "multilingual",
               audio_format: "pcm_s16le",
               sample_rate_hertz: SAMPLE_RATE,
               num_audio_channels: 1,
-              include_nonfinal: true,
+              include_nonfinal: false,
             })
           );
           isRecordingRef.current = true;
@@ -171,127 +191,93 @@ export function useTranscription() {
         ws.onmessage = (e) => {
           try {
             const data = JSON.parse(e.data as string) as {
-              fw?: { t?: string; w?: string; text?: string; spk?: number; lang?: string; lg?: string; language?: string }[];
-              nfw?: { t?: string; w?: string; text?: string; spk?: number; lang?: string; lg?: string; language?: string }[];
+              fw?: { t?: string; w?: string; text?: string; spk?: number; lang?: string; lg?: string }[];
               tokens?: { text: string; is_final: boolean; speaker_tag?: number }[];
             };
 
-            function wordText(w: { t?: string; w?: string; text?: string }) {
-              return w.t ?? w.w ?? w.text ?? "";
-            }
-            function wordLang(w: { lang?: string; lg?: string; language?: string }) {
-              return w.lang ?? w.lg ?? w.language ?? "";
-            }
-
-            // --- New v10 format: fw / nfw ---
-            if (data.fw !== undefined || data.nfw !== undefined) {
+            // ── New v10 format ──────────────────────────────────────────
+            if (data.fw !== undefined) {
               const finalWords = data.fw ?? [];
-              const nonFinalWords = data.nfw ?? [];
+              if (finalWords.length === 0) return;
 
-              if (finalWords.length > 0) {
-                // Group consecutive words by speaker index
-                // Each group of words from the same speaker in this batch → one new bubble
-                const groups: { spk: number; text: string; lang: string }[] = [];
-                for (const w of finalWords) {
-                  const spk = w.spk ?? 0;
-                  const text = wordText(w);
-                  const lang = wordLang(w);
-                  const last = groups[groups.length - 1];
-                  if (last && last.spk === spk) {
-                    last.text += text;
-                    if (!last.lang && lang) last.lang = lang;
+              const runs = groupBySpeaker(finalWords);
+
+              setPhrases(prev => {
+                const next = [...prev];
+
+                for (const run of runs) {
+                  const trimmed = run.text.trim();
+                  if (!trimmed) continue;
+
+                  const lang = run.lang || detectLangFromText(trimmed);
+                  const last = next[next.length - 1];
+
+                  if (last && last.active && last.speakerIndex === run.spk) {
+                    // Same active speaker → append words to current bubble, keep active
+                    next[next.length - 1] = {
+                      ...last,
+                      text: last.text + " " + trimmed,
+                      language: lang || last.language,
+                    };
                   } else {
-                    groups.push({ spk, text, lang });
-                  }
-                }
-
-                setPhrases((prev) => {
-                  const next = [...prev];
-                  for (const g of groups) {
-                    const trimmed = g.text.trim();
-                    if (!trimmed) continue;
-                    const detectedLang = g.lang || detectLangFromText(trimmed);
+                    // Speaker changed (or no phrase yet) → seal previous, open new one
+                    if (last && last.active) {
+                      next[next.length - 1] = { ...last, active: false };
+                    }
                     next.push({
                       id: nextId(),
-                      speakerIndex: g.spk,
-                      speakerLabel: speakerLabel(g.spk),
+                      speakerIndex: run.spk,
+                      speakerLabel: speakerLabel(run.spk),
                       text: trimmed,
-                      language: detectedLang,
+                      language: lang,
+                      active: true,
                     });
                   }
-                  return next;
-                });
-                setPartialPhrase(null);
-              } else if (nonFinalWords.length > 0) {
-                const text = nonFinalWords.map(wordText).join("").trim();
-                const spk = nonFinalWords[0]?.spk ?? 0;
-                const lang = wordLang(nonFinalWords[0] ?? {});
-                if (text) {
-                  setPartialPhrase({
-                    id: "partial",
-                    speakerIndex: spk,
-                    speakerLabel: speakerLabel(spk),
-                    text,
-                    language: lang || detectLangFromText(text),
-                  });
                 }
-              }
+
+                return next;
+              });
               return;
             }
 
-            // --- Legacy token format ---
-            if (!data.tokens || data.tokens.length === 0) return;
-            const groups: { tag: number; text: string }[] = [];
-            let hasAnyFinal = false;
-            let partialText = "";
-            let partialTag = 0;
+            // ── Legacy token format ─────────────────────────────────────
+            if (!data.tokens) return;
+            const finalTokens = data.tokens.filter(t => t.is_final);
+            if (finalTokens.length === 0) return;
 
-            for (const token of data.tokens) {
-              const tag = token.speaker_tag ?? 1;
-              if (token.is_final) {
-                hasAnyFinal = true;
-                const last = groups[groups.length - 1];
-                if (last && last.tag === tag) {
-                  last.text += token.text;
-                } else {
-                  groups.push({ tag, text: token.text });
-                }
-              } else {
-                partialText += token.text;
-                partialTag = tag;
-              }
+            const groups: { tag: number; text: string }[] = [];
+            for (const t of finalTokens) {
+              const tag = t.speaker_tag ?? 1;
+              const last = groups[groups.length - 1];
+              if (last && last.tag === tag) last.text += t.text;
+              else groups.push({ tag, text: t.text });
             }
 
-            if (hasAnyFinal) {
-              setPhrases((prev) => {
-                const next = [...prev];
-                for (const g of groups) {
-                  const trimmed = g.text.trim();
-                  if (!trimmed) continue;
-                  const spkIdx = g.tag - 1;
+            setPhrases(prev => {
+              const next = [...prev];
+              for (const g of groups) {
+                const trimmed = g.text.trim();
+                if (!trimmed) continue;
+                const spkIdx = g.tag - 1;
+                const last = next[next.length - 1];
+                if (last && last.active && last.speakerIndex === spkIdx) {
+                  next[next.length - 1] = { ...last, text: last.text + " " + trimmed };
+                } else {
+                  if (last?.active) next[next.length - 1] = { ...last, active: false };
                   next.push({
                     id: nextId(),
                     speakerIndex: spkIdx,
                     speakerLabel: speakerLabel(spkIdx),
                     text: trimmed,
                     language: detectLangFromText(trimmed),
+                    active: true,
                   });
                 }
-                return next;
-              });
-              setPartialPhrase(null);
-            } else if (partialText.trim()) {
-              const spkIdx = partialTag - 1;
-              setPartialPhrase({
-                id: "partial",
-                speakerIndex: spkIdx,
-                speakerLabel: speakerLabel(spkIdx),
-                text: partialText.trim(),
-                language: detectLangFromText(partialText),
-              });
-            }
+              }
+              return next;
+            });
           } catch (err) {
-            console.error("WS Parse error", err);
+            console.error("WS parse error", err);
           }
         };
 
@@ -336,13 +322,12 @@ export function useTranscription() {
   return {
     isRecording,
     phrases,
-    partialPhrase,
     micLevel,
     systemLevel,
     error,
     start,
     stop,
-    clear: () => { setPhrases([]); setPartialPhrase(null); },
+    clear: () => setPhrases([]),
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }
