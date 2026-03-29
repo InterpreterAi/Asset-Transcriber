@@ -383,66 +383,49 @@ export function useTranscription() {
     //
     //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
     //
-    // Segmentation triggers: speaker change, punctuation, word cap, silence
+    // ── Finalization rule ─────────────────────────────────────────────────
+    // A segment is finalized ONLY when Soniox marks the entire result as done:
+    // every token in the message is is_final:true and there is no provisional
+    // suffix.  This is Soniox's internal VAD signal — "utterance complete".
     //
-    // ── Segment Engine ────────────────────────────────────────────────────
-    //
-    // Implements the three-rule active-segment model:
-    //
-    //   Rule 1 — ONE live row at a time
-    //     finalBufRef  = committed text (is_final tokens, delta-appended)
-    //     nfDisplayRef = current provisional suffix (replaced each message)
-    //     Active row shows (committed + provisional).trim() in real time.
-    //
-    //   Rule 2 — Partial updates → update row, never create new row
-    //     Every incoming token batch updates finalBuf/nfDisplay and calls
-    //     setLiveTranscript().  No flush happens mid-stream.
-    //
-    //   Rule 3 — Speaker stabilization buffer
-    //     Every token batch that carries a speaker ID is pushed to
-    //     speakerHistoryRef.  flush() reads the MODE over the last
-    //     SPEAKER_WINDOW_MS instead of the most-recent label.  This lets
-    //     diarization converge before the row is locked into history.
-    //
-    // Finalization only happens via:
-    //   A. Silence — COMMIT_DELAY ms with no new tokens (primary signal)
-    //   B. Speaker change confirmed by the stabilizer (carry-over flush)
-    //   C. Safety word cap (MAX_SEG_WORDS) — prevents unbounded segments
+    // Nothing else triggers a flush:
+    //   ✗  Speaker change  — diarization fluctuates mid-sentence
+    //   ✗  Silence timer   — Soniox handles its own silence detection
+    //   ✗  Punctuation     — not a reliable boundary
+    //   ✓  All tokens final (nfTokens.length === 0)
+    //   ✓  Safety word cap (MAX_SEG_WORDS) — pure last-resort guard
     //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
-
-      lastTokenTimeRef.current = Date.now();
 
       const finalTokens = tokens.filter(t => t.is_final);
       const nfTokens    = tokens.filter(t => !t.is_final);
 
       // ── Cumulative-aware final delta ──────────────────────────────────────
       // Soniox re-sends ALL previously-finalized tokens in every message.
-      // We compare the new cumulative string against the last one we saw:
-      //   • If it extends (starts with) what we already have → take the tail.
-      //   • Otherwise a new utterance started → take everything as new.
+      // Compare the new cumulative string to the last one seen:
+      //   • Extends the previous string → take only the new tail.
+      //   • Doesn't start with the previous string → new utterance, take all.
       const cumulativeFinal = finalTokens.map(t => t.text).join("");
       let newFinalDelta = "";
       if (cumulativeFinal !== "") {
         if (cumulativeFinal.startsWith(globalFinalRef.current)) {
           newFinalDelta = cumulativeFinal.slice(globalFinalRef.current.length);
         } else {
-          // New utterance — treat entire cumulative string as fresh content.
-          newFinalDelta = cumulativeFinal;
+          newFinalDelta = cumulativeFinal; // new utterance window
         }
         globalFinalRef.current = cumulativeFinal;
       }
 
-      // ── Speaker detection ─────────────────────────────────────────────────
-      // Use the LAST token with a speaker tag in each category — it represents
-      // the most recently spoken word and is the most stable reading.
-      const latestFinalSpk = [...finalTokens].reverse().find(t => t.speaker !== undefined)?.speaker;
-      const latestNfSpk    = [...nfTokens].reverse().find(t => t.speaker !== undefined)?.speaker;
-      const incomingSpk    = latestFinalSpk ?? latestNfSpk;
-      if (incomingSpk !== undefined) speakerRef.current = incomingSpk;
+      // ── Speaker tracking ──────────────────────────────────────────────────
+      // Record the latest speaker for both final and non-final tokens.
+      // The history feeds flush() for a stable modal label at commit time.
+      const latestSpk = (
+        [...finalTokens].reverse().find(t => t.speaker !== undefined) ??
+        [...nfTokens].reverse().find(t => t.speaker !== undefined)
+      )?.speaker;
+      if (latestSpk !== undefined) speakerRef.current = latestSpk;
 
-      // ── Speaker history (for silence-flush modal) ─────────────────────────
       const nowTs = Date.now();
       for (const t of tokens) {
         if (t.speaker !== undefined) {
@@ -450,23 +433,9 @@ export function useTranscription() {
           speakerHistoryRef.current.push({ speaker: t.speaker, ts: nowTs });
         }
       }
-      const trimCutoff = nowTs - SPEAKER_WINDOW_MS * 2;
-      if (speakerHistoryRef.current.length > 200) {
+      if (speakerHistoryRef.current.length > 400) {
+        const trimCutoff = nowTs - SPEAKER_WINDOW_MS * 2;
         speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= trimCutoff);
-      }
-
-      // ── Speaker-change flush (primary segmentation) ───────────────────────
-      // When FINAL tokens confirm a new speaker, seal the current segment
-      // immediately — before accumulating the new speaker's text.
-      // This mirrors Soniox desktop: each speaker turn = its own row.
-      if (
-        latestFinalSpk !== undefined &&
-        segStartSpeakerRef.current !== -1 &&
-        latestFinalSpk !== segStartSpeakerRef.current &&
-        finalBufRef.current.trim()
-      ) {
-        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-        flush(); // seals current segment; resets finalBufRef + segStartSpeakerRef
       }
 
       // ── Language detection ────────────────────────────────────────────────
@@ -476,22 +445,19 @@ export function useTranscription() {
         langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Accumulate new committed text ─────────────────────────────────────
-      if (newFinalDelta) {
-        finalBufRef.current += newFinalDelta;
-      }
-      // Provisional suffix replaces each message (Soniox sends corrections).
+      // ── Accumulate text ───────────────────────────────────────────────────
+      if (newFinalDelta) finalBufRef.current += newFinalDelta;
       nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-      // ── Lock segment-start speaker ────────────────────────────────────────
-      // On the first token after a flush, capture the speaker once.
-      // The label stays fixed for the whole segment — no mid-sentence flicker.
+      // ── Lock segment-start speaker for display stability ──────────────────
+      // First token of a new segment sets the label; it never changes while
+      // the segment is live, preventing mid-sentence label flicker.
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
       if (activeText && segStartSpeakerRef.current === -1) {
         segStartSpeakerRef.current = speakerRef.current;
       }
 
-      // ── Update live row ───────────────────────────────────────────────────
+      // ── Update live row (no new row created) ─────────────────────────────
       if (activeText) {
         setLiveTranscript({
           text:         activeText,
@@ -504,36 +470,22 @@ export function useTranscription() {
         });
       }
 
-      // ── Word cap (safety — last resort) ──────────────────────────────────
-      const totalWords = activeText.split(/\s+/).filter(Boolean).length;
-      if (totalWords >= MAX_SEG_WORDS) {
-        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-        // Promote provisional suffix so it's included in the sealed phrase.
-        if (nfDisplayRef.current.trim()) {
-          finalBufRef.current  += nfDisplayRef.current;
-          nfDisplayRef.current  = "";
-        }
+      // ── Finalize: all tokens final → Soniox says utterance is complete ────
+      if (nfTokens.length === 0 && finalBufRef.current.trim()) {
+        globalFinalRef.current = ""; // reset for the next utterance window
         flush();
         return;
       }
 
-      // ── Silence timer (secondary segmentation) ────────────────────────────
-      if (finalBufRef.current.trim() || nfDisplayRef.current.trim()) {
-        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-        const silenceFlush = () => {
-          commitTimerRef.current = null;
-          const silentFor = Date.now() - lastTokenTimeRef.current;
-          if (silentFor < COMMIT_DELAY) {
-            commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
-          } else {
-            if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
-              finalBufRef.current = nfDisplayRef.current;
-              nfDisplayRef.current = "";
-            }
-            flush();
-          }
-        };
-        commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
+      // ── Safety word cap (last resort only) ───────────────────────────────
+      const totalWords = activeText.split(/\s+/).filter(Boolean).length;
+      if (totalWords >= MAX_SEG_WORDS) {
+        if (nfDisplayRef.current.trim()) {
+          finalBufRef.current += nfDisplayRef.current;
+          nfDisplayRef.current = "";
+        }
+        globalFinalRef.current = "";
+        flush();
       }
     };
 
