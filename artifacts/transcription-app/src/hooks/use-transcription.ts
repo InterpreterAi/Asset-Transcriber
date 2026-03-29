@@ -264,13 +264,24 @@ export function useTranscription() {
 
         // ── Final tokens: accumulate into the sentence buffer ──────────────
         if (finalTokens.length > 0) {
-          const incomingSpeaker = finalTokens[0]?.speaker;
+          // ── Majority-vote speaker ───────────────────────────────────────
+          // Soniox can transiently misassign 1–2 tokens to the wrong cluster
+          // (especially at turn boundaries).  Using the first token alone
+          // causes false speaker-change splits.  Instead, count votes across
+          // all final tokens in this batch and pick the dominant speaker.
+          const votes: Record<number, number> = {};
+          for (const t of finalTokens) {
+            if (t.speaker !== undefined) votes[t.speaker] = (votes[t.speaker] ?? 0) + 1;
+          }
+          const voteEntries = Object.entries(votes).sort((a, b) => b[1] - a[1]);
+          const incomingSpeaker = voteEntries.length > 0
+            ? parseInt(voteEntries[0]![0])
+            : undefined;
 
           // ── Speaker-change detection ─────────────────────────────────────
-          // When Soniox reports a different speaker on incoming final tokens,
-          // seal the current utterance immediately — no silence needed.
-          // This is the primary turn-segmentation signal, matching the
-          // behaviour of the Soniox desktop reference app.
+          // When the majority speaker in this batch differs from the current
+          // utterance speaker, seal immediately — no silence needed.
+          // This is the primary turn-segmentation signal.
           if (
             finalBufRef.current.trim() &&
             incomingSpeaker !== undefined &&
@@ -280,12 +291,11 @@ export function useTranscription() {
               clearTimeout(commitTimerRef.current);
               commitTimerRef.current = null;
             }
-            flush();                             // seal previous speaker's turn
+            flush();                              // seal previous speaker's turn
             speakerRef.current = incomingSpeaker; // adopt new speaker
           }
 
-          // Lock speaker at utterance start (buffer was just cleared by flush
-          // or is naturally empty for a fresh start).
+          // Lock speaker at utterance start (buffer just cleared, or fresh start).
           if (finalBufRef.current === "" && incomingSpeaker !== undefined) {
             speakerRef.current = incomingSpeaker;
           }
@@ -305,21 +315,29 @@ export function useTranscription() {
         // ── Commit-timer logic ──────────────────────────────────────────────
         //
         // Priority (highest → lowest):
-        //  1. Speaker change → already handled above with synchronous flush()
-        //  2. Sentence punctuation + no live speech → seal after SHORT_DELAY
-        //     so the last word is confirmed before we close the bubble.
+        //  1. Speaker change → handled above with synchronous flush()
+        //  2. Sentence punctuation + no live speech → flush synchronously so
+        //     the seal can never be cancelled by an incoming token from the
+        //     NEXT sentence (which would reset a 300ms timer).
         //  3. Silence longer than COMMIT_DELAY → normal silence-based seal.
         //
-        // We reset the timer on EVERY token (final or non-final) so that
-        // continuous mid-sentence non-final token streams don't cause
-        // premature commits during clause-boundary pauses.
+        // We still reset the timer on every token so mid-sentence clause
+        // pauses (commas, breaths) don't trigger a premature commit.
         //
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
 
-        const endsSentence   = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
-        const hasLiveSpeech  = nfDisplayRef.current.trim().length > 0;
-        const delay = (endsSentence && !hasLiveSpeech) ? 300 : COMMIT_DELAY;
-        commitTimerRef.current = setTimeout(flush, delay);
+        const endsSentence  = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
+        const hasLiveSpeech = nfDisplayRef.current.trim().length > 0;
+
+        if (endsSentence && !hasLiveSpeech && finalBufRef.current.trim()) {
+          // Flush synchronously — a completed sentence with no in-progress
+          // speech.  setTimeout(flush, 0) would be cancelled by the very next
+          // non-final token from the next sentence.
+          flush();
+        } else {
+          commitTimerRef.current = setTimeout(flush, COMMIT_DELAY);
+        }
 
         // ── Update live transcript: confirmed prefix + uncertain suffix ──────
         const displayText = (finalBufRef.current + nfDisplayRef.current).trim();

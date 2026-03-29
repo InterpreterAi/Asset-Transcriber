@@ -288,16 +288,10 @@ export default function Workspace() {
       if (translatingRef.current.has(phrase.id))   continue;
 
       const targetLang = getTargetLang(phrase.language, langA, langB);
-
-      // Pre-seed instantly with the live translation so the panel never goes
-      // blank when the phrase seals — the final translation overwrites this.
-      if (liveTranslation && !translations[phrase.id]) {
-        setTranslations(prev => ({
-          ...prev,
-          [phrase.id]: { text: liveTranslation.text, targetLang: liveTranslation.targetLang },
-        }));
-      }
-
+      // Do NOT pre-seed with liveTranslation: when multiple phrases seal
+      // quickly (speaker change creates rapid flushes) the live translation
+      // belongs to a different phrase and causes mis-alignment.
+      // Each phrase gets its own dedicated translation request.
       void translatePhrase(phrase, targetLang);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
