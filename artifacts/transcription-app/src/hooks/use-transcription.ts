@@ -147,6 +147,14 @@ export function useTranscription() {
   // Timestamp of the most recent token arrival — final OR non-final.
   // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
+  // Predictive speaker detection from non-final tokens.
+  // Soniox's diarization sometimes assigns the correct speaker ID to
+  // non-final tokens several hundred ms BEFORE those tokens become final.
+  // By watching non-final speaker IDs we can pre-flush the current speaker's
+  // buffer before the new speaker's words arrive as final tokens — eliminating
+  // the "reorganization" effect where text appears under the wrong speaker.
+  const speakerPredictTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNfSpeakerRef    = useRef<number | undefined>(undefined);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -166,6 +174,13 @@ export function useTranscription() {
     const spk  = speakerRef.current;
     finalBufRef.current = "";
     nfDisplayRef.current = "";
+    // Cancel any pending predictive speaker timer — once a segment is sealed
+    // the prediction is no longer relevant for the previous buffer.
+    if (speakerPredictTimerRef.current) {
+      clearTimeout(speakerPredictTimerRef.current);
+      speakerPredictTimerRef.current = null;
+    }
+    pendingNfSpeakerRef.current = undefined;
     setPhrases(prev => [
       ...prev,
       { id: nextId(), speakerLabel: normalizeSpeaker(spk), text, language: lang },
@@ -180,6 +195,8 @@ export function useTranscription() {
     setIsRecording(false);
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    if (speakerPredictTimerRef.current) { clearTimeout(speakerPredictTimerRef.current); speakerPredictTimerRef.current = null; }
+    pendingNfSpeakerRef.current = undefined;
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -332,6 +349,68 @@ export function useTranscription() {
         // Language fallback from non-final when buffer is still empty
         if (nfTokens.length > 0 && !finalBufRef.current) {
           langRef.current = detectLang(nfTokens, langRef.current);
+        }
+
+        // ── Predictive speaker detection from non-final tokens ──────────────
+        //
+        // The Soniox diarization model often assigns the correct speaker ID
+        // to non-final tokens 200–500 ms BEFORE those tokens become final.
+        // By watching for a stable non-final speaker change we can pre-flush
+        // the current speaker's buffer early, so when the tokens ARE finalized
+        // they land in a fresh buffer attributed to the correct speaker.
+        //
+        // To avoid false positives from single-batch noise, we require the
+        // same new speaker to appear in non-final tokens for 200 ms
+        // continuously before acting.
+        //
+        if (nfTokens.length > 0 && finalBufRef.current.trim()) {
+          // Take the first non-final token that has a speaker ID
+          const nfSpk = nfTokens.find(t => t.speaker !== undefined)?.speaker;
+
+          if (nfSpk !== undefined && nfSpk !== speakerRef.current) {
+            // Non-final tokens predict a speaker change
+            if (pendingNfSpeakerRef.current !== nfSpk) {
+              // New prediction — reset the confirmation window
+              pendingNfSpeakerRef.current = nfSpk;
+              if (speakerPredictTimerRef.current) {
+                clearTimeout(speakerPredictTimerRef.current);
+                speakerPredictTimerRef.current = null;
+              }
+              speakerPredictTimerRef.current = setTimeout(() => {
+                speakerPredictTimerRef.current = null;
+                // Confirmed: same new speaker in non-final tokens for 200 ms
+                // → pre-flush the current speaker's buffer
+                if (
+                  pendingNfSpeakerRef.current !== undefined &&
+                  pendingNfSpeakerRef.current !== speakerRef.current &&
+                  finalBufRef.current.trim()
+                ) {
+                  if (commitTimerRef.current) {
+                    clearTimeout(commitTimerRef.current);
+                    commitTimerRef.current = null;
+                  }
+                  flush();
+                  speakerRef.current = pendingNfSpeakerRef.current;
+                }
+                pendingNfSpeakerRef.current = undefined;
+              }, 200);
+            }
+            // else: same prediction already pending, let the timer run
+          } else {
+            // No change (or reverted) — cancel any pending prediction
+            if (speakerPredictTimerRef.current) {
+              clearTimeout(speakerPredictTimerRef.current);
+              speakerPredictTimerRef.current = null;
+            }
+            pendingNfSpeakerRef.current = undefined;
+          }
+        } else if (nfTokens.length === 0) {
+          // No non-final tokens (silence) — cancel pending prediction
+          if (speakerPredictTimerRef.current) {
+            clearTimeout(speakerPredictTimerRef.current);
+            speakerPredictTimerRef.current = null;
+          }
+          pendingNfSpeakerRef.current = undefined;
         }
 
         // ── Commit-timer logic ──────────────────────────────────────────────
@@ -548,6 +627,8 @@ export function useTranscription() {
       speakerRef.current   = 0;
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      if (speakerPredictTimerRef.current) { clearTimeout(speakerPredictTimerRef.current); speakerPredictTimerRef.current = null; }
+      pendingNfSpeakerRef.current = undefined;
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
