@@ -5,7 +5,7 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 
 export type LangCode = "en" | "ar";
 
-/** A completed, permanent transcript entry — finalized after COMMIT_DELAY ms silence. */
+/** A completed, permanent transcript entry — sealed on speaker change, sentence boundary, or utterance end. */
 export interface Phrase {
   id: string;
   speakerLabel: string;
@@ -24,9 +24,6 @@ export interface ActiveSegment {
 const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
 
-// Declared for reference; silence-based sealing is currently handled by
-// Soniox's own VAD (all-final message) rather than a client-side timer.
-const COMMIT_DELAY = 1000; // ms — kept for future use
 
 // Safety word cap — only fires if the silence/speaker-change triggers never
 // fire (e.g. no speaker data and no natural pause for a very long time).
@@ -195,24 +192,23 @@ export function useTranscription() {
   const sessionIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  // ── Sentence buffer ────────────────────────────────────────────────────────
+  // ── Token buffer refs ──────────────────────────────────────────────────────
   //
   // v4 token stream logic:
-  //   • Final tokens (is_final: true) accumulate in `finalBuf` — they are
-  //     confirmed and never change.
-  //   • Non-final tokens (is_final: false) represent the uncertain suffix.
-  //     Each message REPLACES the previous non-final display (not appends).
-  //   • liveTranscript.text = finalBuf + nfDisplay (one growing live line).
-  //   • COMMIT_DELAY ms after the last final token, the entire finalBuf
-  //     becomes a sealed phrase in history and translation fires.
+  //   • Final tokens (is_final: true) accumulate in `finalBufRef` — committed,
+  //     never change.  Cleared only by flush().
+  //   • Non-final tokens (is_final: false) replace `nfDisplayRef` each message
+  //     (provisional suffix shown in the active row, never committed).
+  //   • activeSegment.text = finalBufRef + nfDisplayRef (live, updates in place).
+  //
+  // Segments are sealed immediately on:
+  //   (a) speaker change   (b) sentence boundary   (c) Soniox VAD all-final msg
+  // No timers — no queues — no delays.
   //
   const finalBufRef    = useRef<string>("");
-  const nfDisplayRef   = useRef<string>(""); // latest non-final suffix (replaced each message)
+  const nfDisplayRef   = useRef<string>("");
   const langRef        = useRef<LangCode>("en");
-  // undefined until a real token.speaker arrives from the API — never falls
-  // back to 0 / "Speaker 1" without actual diarization data.
   const speakerRef     = useRef<number | undefined>(undefined);
-  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Soniox re-sends ALL previously-finalized tokens in every message.
   // Track how many we have already processed so each message only yields the
   // truly new tail.  Reset to 0 at every utterance boundary.
@@ -308,7 +304,6 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
     wsTokenBufferRef.current      = [];
     speakerHistoryRef.current     = [];
@@ -540,7 +535,6 @@ export function useTranscription() {
 
         if (msg.finished) {
           console.log("[WS] stt-rt-v4 finished — committing remaining content");
-          if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
           if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
             finalBufRef.current = nfDisplayRef.current;
           }
@@ -567,14 +561,13 @@ export function useTranscription() {
       if (wsRef.current === ws) wsRef.current = null;
 
       // Finalize any remaining buffered content on close.
-      if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
       if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
         finalBufRef.current = nfDisplayRef.current;
       }
       nfDisplayRef.current = "";
       flush(); // socket gone — finalize immediately
 
-      // Auto-reconnect — preserves history and liveTranscript
+      // Auto-reconnect — finalizedSegments and activeSegment are preserved in refs
       if (!isRecRef.current || apiErrorOccurred) return;
       console.log("[WS] stt-rt-v4 reconnecting in 200 ms…");
       setTimeout(() => {
@@ -707,7 +700,6 @@ export function useTranscription() {
       activeSegSpeakerRef.current = undefined;
       globalFinalCountRef.current = 0;
       resetSpeakerMap();
-      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
       wsTokenBufferRef.current  = [];
       speakerHistoryRef.current = [];
