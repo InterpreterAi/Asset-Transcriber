@@ -518,16 +518,21 @@ export function useTranscription() {
           flush();
         }
 
-        // Step 2c: length / time cap — prevent runaway segments (rules 2, 3, 5).
-        // Flush only at a word boundary to avoid splitting mid-word (rule 5).
         const elapsed = segStartMsRef.current > 0
           ? Date.now() - segStartMsRef.current
           : 0;
-        if (
-          hasMinLength() &&
-          atWordBoundary() &&
-          (finalBufRef.current.length >= 120 || elapsed >= 3200)
-        ) {
+
+        // Step 2c-time: hard max-segment duration — 3 000 ms forces a flush
+        // regardless of word boundary.  A segment that has been open this long
+        // will always have enough content to stand on its own.
+        const MAX_SEGMENT_MS = 3000;
+        if (hasMinLength() && elapsed >= MAX_SEGMENT_MS) {
+          flush();
+        }
+
+        // Step 2c-len: length cap — very long buffers flush at a word boundary
+        // to avoid splitting a word mid-token.
+        else if (hasMinLength() && atWordBoundary() && finalBufRef.current.length >= 120) {
           flush();
         }
       }
