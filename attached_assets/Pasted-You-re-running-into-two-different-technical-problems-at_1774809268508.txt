@@ -1,0 +1,192 @@
+You’re running into two different technical problems at the same time, not just one. That’s why fixing one thing didn’t solve it.
+
+From your screenshots comparing your app vs Soniox desktop, the differences are clear.
+
+⸻
+
+Problem 1 — You are rendering partial transcripts as final rows
+
+Your system shows this:
+
+Speaker 1
+Look like, you know, relatively normal.
+
+Speaker 1
+Look like, you know, relatively normal, but I didn't talk to anybody.
+
+That means every streaming update is printed as a new message.
+
+Soniox does not do that.
+
+Soniox behavior:
+
+Speaker 1
+Look like, you know, relatively normal, but I didn't talk to anybody.
+
+It updates the same row until the phrase ends.
+
+Your UI must treat streaming transcripts like this:
+
+PARTIAL → update row
+PARTIAL → update row
+PARTIAL → update row
+FINAL → lock row
+NEW SENTENCE → create new row
+
+Right now your code does:
+
+PARTIAL → create row
+PARTIAL → create row
+PARTIAL → create row
+
+That’s why everything looks chaotic.
+
+⸻
+
+Problem 2 — You are displaying speaker diarization too early
+
+This is the bigger issue you’re seeing.
+
+Speaker diarization does NOT stabilize immediately.
+
+The AI needs a few seconds of voice context to understand the speakers.
+
+So early results look like:
+
+Speaker 1
+Speaker 1
+Speaker 2
+Speaker 1
+Speaker 2
+
+Then after a moment the model corrects itself.
+
+That’s why your screen “fixes itself later”.
+
+Soniox solves this by delaying speaker labeling slightly.
+
+They buffer a few seconds before finalizing the speaker.
+
+⸻
+
+What Soniox actually does internally
+
+Real pipeline:
+
+audio
+ ↓
+live partial text
+ ↓
+temporary speaker guess
+ ↓
+buffer 2–3 seconds
+ ↓
+speaker stabilized
+ ↓
+final transcript row
+
+Your app skips the buffer.
+
+So the UI prints unstable speaker guesses.
+
+⸻
+
+The fix (this is the important part)
+
+You need three rules in your transcript engine.
+
+⸻
+
+Rule 1 — Only one live row
+
+There must be one active row.
+
+Example:
+
+let activeSegment = null;
+
+
+⸻
+
+Rule 2 — Update partial results
+
+if result.is_final == false
+update activeSegment text
+
+Do NOT create new rows.
+
+⸻
+
+Rule 3 — Wait before locking speaker
+
+Buffer about 1.5–2 seconds.
+
+Example logic:
+
+if (result.is_final) {
+
+  setTimeout(() => {
+     finalizeSegment(activeSegment)
+     activeSegment = null
+  }, 1500)
+
+}
+
+This allows diarization to stabilize.
+
+⸻
+
+Why Soniox feels instant even with buffering
+
+Because they still show text immediately, but the speaker label locks later.
+
+You see text instantly but speaker becomes correct.
+
+⸻
+
+Brutal truth about your current build
+
+Your system already has:
+
+✔ transcription working
+✔ translation working
+✔ streaming working
+
+But it is missing the three components every professional live transcription tool uses:
+
+1️⃣ active streaming segment
+2️⃣ speaker stabilization buffer
+3️⃣ partial vs final row logic
+
+Without these, the UI will always look broken.
+
+⸻
+
+The good news
+
+Your system is 90% built already.
+
+The remaining fix is literally about 80–120 lines of transcript engine logic.
+
+Not a new model.
+Not a new API.
+
+Just correct streaming state management.
+
+⸻
+
+If you want, I can also give you the exact architecture Soniox-style apps use:
+
+Audio Stream
+ ↓
+Streaming STT
+ ↓
+Segment Engine
+ ↓
+Speaker Stabilizer
+ ↓
+Transcript Renderer
+ ↓
+Translation Engine
+
+Once you implement that layer, your app will behave almost identical to Soniox desktop.

@@ -137,15 +137,17 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 4. Config: `model: "stt-rt-v4"`, `language_hints: ["en","ar"]`, `enable_language_identification: true`, `enable_speaker_diarization: true`
 5. Same PCM audio streamed to the single WS — stt-rt-v4 handles EN/AR switching internally (60+ languages)
 6. **Token model**: each response message contains `tokens[]` with per-token `is_final: bool` and `language` field
-7. **Final tokens** (`is_final: true`) → accumulate in `finalBufRef` (confirmed, never change)
-8. **Non-final tokens** (`is_final: false`) → REPLACE `nfDisplayRef` each message (Buffer-and-Overwrite)
-9. **Live line** = `finalBuf + nfDisplay` — one growing sentence updated in place
-10. **Commit timer**: resets on every final token batch; seals `finalBuf` into a phrase after 800ms silence
-11. **Instant commit** when buffer ends with `.!?؟،` (punctuation → 0ms timer)
-12. Translation fires immediately for each sealed phrase — never on partials
-13. Auto-scroll only on `phrases.length` change, never on live updates
-14. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` prevents loops
-15. Stop → flush buffer → `POST /api/transcription/session/stop` with duration
+7. **Final tokens** (`is_final: true`) → delta-appended to `finalBufRef` (committed text, never changes)
+8. **Non-final tokens** (`is_final: false`) → REPLACE `nfDisplayRef` each message (provisional suffix)
+9. **Active segment** = `finalBuf + nfDisplay` — one live row that updates in place, shown via `liveTranscript` state
+10. **Speaker stabilization buffer**: every token batch pushes `{speaker, ts}` to `speakerHistoryRef`; `flush()` uses the MODE of readings from the last 1500ms instead of the most-recent label — prevents diarization flip-flop from appearing in locked rows
+11. **Finalization triggers** (only two):
+    - **Silence** (1000ms no tokens) → `flush()` seals `finalBuf` as a new `Phrase`
+    - **Word cap** (30 words in committed text) → safety valve
+12. No is_final-based finalization — that fired on every message and created one row per token update
+13. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` prevents loops
+14. Stop → promote nfDisplay to finalBuf if needed → `flush()` → `POST /api/transcription/session/stop`
+15. Translation is currently disabled (removed; to re-enable add `translatePhrase` calls in workspace.tsx)
 
 ### Soniox v4 API Notes
 - **Endpoint**: `wss://stt-rt.soniox.com/transcribe-websocket` (v4, released Feb 5 2026)

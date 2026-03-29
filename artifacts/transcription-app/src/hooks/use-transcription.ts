@@ -24,14 +24,20 @@ export interface LiveTranscript {
 const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
 
-// How long the token stream must be completely silent before a live phrase
-// is sealed into history.  The Soniox v4 endpoint detector creates natural
-// pauses at clause boundaries (comma, breath) that can be >800 ms.  At 800ms
-// we were sealing mid-sentence.  1500ms gives natural phrase boundaries —
-// speakers typically pause ≥1.5 s between thoughts; shorter pauses are
-// mid-sentence breaths and should not split a segment.
-const COMMIT_DELAY  = 700; // Seal after 700 ms of silence
-const MAX_SEG_WORDS = 12;  // Seal when segment reaches this many words
+// Silence threshold: how long the token stream must be idle before the
+// active segment is sealed into history.  1 second matches natural speech
+// pause durations — shorter pauses are mid-sentence breaths, not boundaries.
+const COMMIT_DELAY = 1000; // ms of silence → seal active segment
+
+// Speaker-stabilization window: we collect speaker readings over this window
+// and use the most-common speaker (mode) when sealing — not the most recent.
+// Soniox diarization takes a few seconds to converge; the mode over the last
+// 1.5 s is far more accurate than the label on the very last token batch.
+const SPEAKER_WINDOW_MS = 1500;
+
+// Safety cap: seal if a single segment accumulates this many words.
+// Prevents a runaway segment if COMMIT_DELAY is never triggered.
+const MAX_SEG_WORDS = 30;
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -213,8 +219,12 @@ export function useTranscription() {
   // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
 
-  // ── Speaker stabilization state ────────────────────────────────────────────
-  // (No speaker-confirmation window — sealing is immediate on speaker change)
+  // ── Speaker stabilization buffer ───────────────────────────────────────────
+  // Records {speaker, ts} for every token batch that carries a speaker ID.
+  // flush() reads the last SPEAKER_WINDOW_MS of entries and picks the MODE
+  // (most-frequent) speaker — not the most-recent one.  This compensates for
+  // Soniox diarization instability in the first 1–2 s of a new speaker.
+  const speakerHistoryRef = useRef<Array<{ speaker: number; ts: number }>>([]);
 
   // ── Token Buffer (100 ms) ──────────────────────────────────────────────────
   // WebSocket messages arrive individually, often carrying 1–3 tokens each.
@@ -239,17 +249,38 @@ export function useTranscription() {
     catch { /* storage full */ }
   }, [phrases]);
 
-  // ── flush: seal the accumulated buffer into a permanent phrase ─────────────
+  // ── flush: seal the active segment into a permanent phrase ────────────────
   const flush = useCallback(() => {
     const text = finalBufRef.current.trim();
     if (!text) return;
     const lang = langRef.current;
-    const spk  = speakerRef.current;
-    finalBufRef.current = "";
+
+    // ── Speaker stabilization ─────────────────────────────────────────────
+    // Use the MODE of speaker readings over the last SPEAKER_WINDOW_MS, not
+    // the most-recent reading.  Diarization is still converging in the first
+    // few seconds; the modal speaker over 1.5 s is far more accurate.
+    const cutoff = Date.now() - SPEAKER_WINDOW_MS;
+    const recentReadings = speakerHistoryRef.current.filter(h => h.ts >= cutoff);
+    let stableSpeaker = speakerRef.current;
+    if (recentReadings.length > 0) {
+      const counts = new Map<number, number>();
+      for (const { speaker } of recentReadings) {
+        counts.set(speaker, (counts.get(speaker) ?? 0) + 1);
+      }
+      let best = stableSpeaker, bestCount = 0;
+      for (const [spk, count] of counts) {
+        if (count > bestCount) { bestCount = count; best = spk; }
+      }
+      stableSpeaker = best;
+    }
+    // Trim old entries (keep only recent window)
+    speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= cutoff);
+
+    finalBufRef.current  = "";
     nfDisplayRef.current = "";
     setPhrases(prev => [
       ...prev,
-      { id: nextId(), speakerLabel: normalizeSpeaker(spk), text, language: lang },
+      { id: nextId(), speakerLabel: normalizeSpeaker(stableSpeaker), text, language: lang },
     ]);
     setLiveTranscript(null);
   }, []);
@@ -262,7 +293,8 @@ export function useTranscription() {
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-    wsTokenBufferRef.current = [];
+    wsTokenBufferRef.current    = [];
+    speakerHistoryRef.current   = [];
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -337,6 +369,30 @@ export function useTranscription() {
     //
     // Segmentation triggers: speaker change, punctuation, word cap, silence
     //
+    // ── Segment Engine ────────────────────────────────────────────────────
+    //
+    // Implements the three-rule active-segment model:
+    //
+    //   Rule 1 — ONE live row at a time
+    //     finalBufRef  = committed text (is_final tokens, delta-appended)
+    //     nfDisplayRef = current provisional suffix (replaced each message)
+    //     Active row shows (committed + provisional).trim() in real time.
+    //
+    //   Rule 2 — Partial updates → update row, never create new row
+    //     Every incoming token batch updates finalBuf/nfDisplay and calls
+    //     setLiveTranscript().  No flush happens mid-stream.
+    //
+    //   Rule 3 — Speaker stabilization buffer
+    //     Every token batch that carries a speaker ID is pushed to
+    //     speakerHistoryRef.  flush() reads the MODE over the last
+    //     SPEAKER_WINDOW_MS instead of the most-recent label.  This lets
+    //     diarization converge before the row is locked into history.
+    //
+    // Finalization only happens via:
+    //   A. Silence — COMMIT_DELAY ms with no new tokens (primary signal)
+    //   B. Speaker change confirmed by the stabilizer (carry-over flush)
+    //   C. Safety word cap (MAX_SEG_WORDS) — prevents unbounded segments
+    //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
@@ -345,65 +401,43 @@ export function useTranscription() {
       const finalTokens = tokens.filter(t => t.is_final);
       const nfTokens    = tokens.filter(t => !t.is_final);
 
-      // ── Active-segment model ─────────────────────────────────────────────
-      //
-      // One live row updates in place as tokens stream in:
-      //   • Committed text (is_final=true)  → accumulates in finalBufRef
-      //   • Provisional suffix (is_final=false) → replaces nfDisplayRef
-      //   • Active segment display = committed + provisional (shown live)
-      //
-      // Finalization triggers (segment → history row):
-      //   1. Soniox phrase end: final tokens arrive with NO provisional suffix
-      //   2. Speaker change: new speaker ID while segment has content
-      //   3. Sentence punctuation in committed text
-      //   4. Silence: 700 ms after last token with committed content
-      //   (word-count cap kept as safety valve only)
-      //
+      // ── Rule 3: Record speaker readings for stabilization ────────────────
+      const nowTs = Date.now();
+      for (const t of tokens) {
+        if (t.speaker !== undefined) {
+          touchSpeaker(t.speaker);
+          speakerHistoryRef.current.push({ speaker: t.speaker, ts: nowTs });
+        }
+      }
+      // Trim history older than 2× the stabilization window
+      const trimCutoff = nowTs - SPEAKER_WINDOW_MS * 2;
+      if (speakerHistoryRef.current.length > 200) {
+        speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= trimCutoff);
+      }
 
-      // ── Speaker (sticky) ─────────────────────────────────────────────────
-      // Prefer speaker from final tokens, then nf, then keep last known.
-      const incomingSpeaker = (
+      // ── Sticky speaker (for live display while stabilizing) ───────────────
+      const incomingSpk = (
         finalTokens.find(t => t.speaker !== undefined) ??
         nfTokens.find(t => t.speaker !== undefined)
       )?.speaker;
+      if (incomingSpk !== undefined) speakerRef.current = incomingSpk;
 
-      if (incomingSpeaker !== undefined) {
-        touchSpeaker(incomingSpeaker);
-      }
-
-      // Speaker change with buffered content → finalize current segment first
-      if (
-        incomingSpeaker !== undefined &&
-        incomingSpeaker !== speakerRef.current &&
-        (finalBufRef.current.trim() || nfDisplayRef.current.trim())
-      ) {
-        if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
-          finalBufRef.current = nfDisplayRef.current; // promote provisional
-        }
-        if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-        flush();
-      }
-
-      // Update sticky speaker
-      if (incomingSpeaker !== undefined) speakerRef.current = incomingSpeaker;
-
-      // ── Language detection ───────────────────────────────────────────────
+      // ── Language detection ────────────────────────────────────────────────
       if (finalTokens.length > 0) {
         langRef.current = detectLang(finalTokens, langRef.current);
       } else if (nfTokens.length > 0 && !finalBufRef.current) {
         langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Accumulate committed text ────────────────────────────────────────
+      // ── Rule 1 & 2: Update active segment text ───────────────────────────
+      // Committed text accumulates across messages (delta stream).
       if (finalTokens.length > 0) {
         finalBufRef.current += finalTokens.map(t => t.text).join("");
       }
-
-      // ── Update provisional suffix ────────────────────────────────────────
-      // Non-final tokens REPLACE (not append) — Soniox re-sends corrections
+      // Provisional suffix replaces each message (Soniox re-sends corrections).
       nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-      // ── Update active segment display ────────────────────────────────────
+      // Update the live row — single in-place update, no new row created.
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
       if (activeText) {
         setLiveTranscript({
@@ -413,38 +447,30 @@ export function useTranscription() {
         });
       }
 
-      // ── Finalization triggers ────────────────────────────────────────────
-      //
-      // Only two reliable phrase-boundary signals:
-      //   1. Silence — 700 ms with no new tokens from any speaker
-      //   2. Speaker change (handled above, before text is updated)
-      //
-      // We do NOT finalize on "all tokens final" alone — that fires on every
-      // word confirmation message and creates a new row per token update.
-      // Punctuation in committed text is used as a silence-timer reset only
-      // (it doesn't trigger an immediate flush — the timer still expires).
-      //
-      // Safety valve: word-count cap prevents unbounded segments.
-      //
-
-      // Safety — flush if committed text is very long (30 words)
+      // ── Finalization (Rule C — word cap) ─────────────────────────────────
       const wc = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
-      if (wc >= 30 && finalBufRef.current.trim()) {
+      if (wc >= MAX_SEG_WORDS) {
         if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+        if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
+          finalBufRef.current = nfDisplayRef.current;
+          nfDisplayRef.current = "";
+        }
         flush();
         return;
       }
 
-      // Primary — 700 ms silence with any buffered content
-      if ((finalBufRef.current.trim() || nfDisplayRef.current.trim())) {
+      // ── Finalization (Rule A — silence timer) ────────────────────────────
+      // Restart the silence timer on every token arrival.
+      if (finalBufRef.current.trim() || nfDisplayRef.current.trim()) {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
         const silenceFlush = () => {
           commitTimerRef.current = null;
           const silentFor = Date.now() - lastTokenTimeRef.current;
           if (silentFor < COMMIT_DELAY) {
+            // More tokens arrived — wait longer
             commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
           } else {
-            // Promote provisional to committed if no committed content
+            // True silence: promote provisional if no committed content, then seal
             if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
               finalBufRef.current = nfDisplayRef.current;
               nfDisplayRef.current = "";
@@ -641,7 +667,8 @@ export function useTranscription() {
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-      wsTokenBufferRef.current = [];
+      wsTokenBufferRef.current  = [];
+      speakerHistoryRef.current = [];
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
