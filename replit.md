@@ -130,43 +130,43 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 
 ## Key Behaviors
 
-### Transcription Flow — True Bilingual Auto-detect
+### Transcription Flow — Single-Socket Bilingual (stt-rt-v4)
 1. User selects any audio input device from dropdown; clicks **Start** — no language toggle needed
 2. Frontend calls `POST /api/transcription/token` + `POST /api/transcription/session/start`
-3. Frontend opens **2 simultaneous** Soniox WebSocket connections: `wsEn` (`en_v2_lowlatency`) + `wsAr` (`ar_v1`)
-4. **Same PCM** stream sent to both WSs — each engine transcribes in its language independently
-5. Language filter `isArabic()` (≥35% Arabic Unicode codepoints) routes output to correct channel:
-   - `ar WS nfw/fw` that fails Arabic test → discarded (garbage English from ar engine)
-   - `en WS nfw/fw` that passes Arabic test → discarded (prevents English engine from stealing Arabic words)
-6. **Arabic activity guard**: `lastArActivityRef` records timestamp of last valid Arabic output; English WS live display suppressed for 1 s after Arabic activity prevents en WS garbage from overwriting the Arabic live line
-7. **fw buffer (per channel)**: committed words accumulate in `enBufRef` / `arBufRef` — NO immediate phrase creation
-8. **1.5 s silence timer** (per channel): resets on every nfw/fw event; when it fires the entire buffer becomes ONE phrase in history
-9. **Live line**: shows `fwBuffer + current nfw partial` in one italic line — replaced in place, never auto-scrolls
-10. **Auto-scroll** only fires when `phrases.length` changes (final phrase added), never on partials
-11. Translation fires immediately on each sealed phrase (`POST /api/translate`)
-12. Auto-reconnect on unexpected WS close (200 ms delay); `apiErrorOccurred` prevents loops
-13. Stop → flush both buffers → `POST /api/transcription/session/stop` with duration
+3. Frontend opens **ONE** WebSocket to `wss://stt-rt.soniox.com/transcribe-websocket`
+4. Config: `model: "stt-rt-v4"`, `language_hints: ["en","ar"]`, `enable_language_identification: true`, `enable_speaker_diarization: true`
+5. Same PCM audio streamed to the single WS — stt-rt-v4 handles EN/AR switching internally (60+ languages)
+6. **Token model**: each response message contains `tokens[]` with per-token `is_final: bool` and `language` field
+7. **Final tokens** (`is_final: true`) → accumulate in `finalBufRef` (confirmed, never change)
+8. **Non-final tokens** (`is_final: false`) → REPLACE `nfDisplayRef` each message (Buffer-and-Overwrite)
+9. **Live line** = `finalBuf + nfDisplay` — one growing sentence updated in place
+10. **Commit timer**: resets on every final token batch; seals `finalBuf` into a phrase after 800ms silence
+11. **Instant commit** when buffer ends with `.!?؟،` (punctuation → 0ms timer)
+12. Translation fires immediately for each sealed phrase — never on partials
+13. Auto-scroll only on `phrases.length` change, never on live updates
+14. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` prevents loops
+15. Stop → flush buffer → `POST /api/transcription/session/stop` with duration
 
-### Soniox API Notes
-- **Endpoint**: `wss://api.soniox.com/transcribe-websocket`
-- **VALID models ONLY**: `en_v2_lowlatency` (English) and `ar_v1` (Arabic). `multilingual`, `v4`, `auto` → `<invalid_model>` error
-- **Init format**: `{ api_key, model, audio_format: "pcm_s16le", sample_rate_hertz: 16000, num_audio_channels: 1, include_nonfinal: true }`
-- **No `language` field in init** — model name implies the language
-- **Response format**: `{ fw: [{t, spk}], nfw: [{t, spk}] }` — `fw` = committed words, `nfw` = current partial
+### Soniox v4 API Notes
+- **Endpoint**: `wss://stt-rt.soniox.com/transcribe-websocket` (v4, released Feb 5 2026)
+- **Model**: `stt-rt-v4` — 60+ languages, per-token language ID, speaker diarization, sub-200ms latency
+- **Old endpoint** `wss://api.soniox.com` with models `en_v2_lowlatency` / `ar_v1` is legacy
+- **Init format**: `{ api_key, model, audio_format: "pcm_s16le", sample_rate_hertz: 16000, num_audio_channels: 1, language_hints, enable_language_identification, enable_speaker_diarization }`
+- **Response**: `{ tokens: [{text, is_final, language?, speaker?}], audio_final_proc_ms, audio_total_proc_ms, finished? }`
 - **AudioWorklet**: 60ms chunks (48kHz → 16kHz downsampled), no `sampleRate` in `AudioContext` constructor
 
-### Phrase interface
+### Phrase & LiveTranscript interfaces
 ```typescript
 interface Phrase {
   id: string;
   speakerLabel: string;  // "Speaker" | "Speaker 2" | ...
-  text: string;          // complete sentence committed after 1.5 s silence
-  language: "en" | "ar"; // set by the WS channel that produced it
+  text: string;          // complete sentence committed after 800ms silence
+  language: "en" | "ar"; // from stt-rt-v4 token.language field
 }
 
 interface LiveTranscript {
-  text: string;          // fwBuffer + current nfw partial (one growing line)
-  language: "en" | "ar";
+  text: string;          // finalBuf + nfDisplay (one growing live line)
+  language: "en" | "ar"; // detected from latest token batch
   speakerLabel: string;
 }
 ```
