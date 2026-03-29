@@ -27,9 +27,10 @@ const STORAGE_KEY  = "interpretai_phrases";
 // How long the token stream must be completely silent before a live phrase
 // is sealed into history.  The Soniox v4 endpoint detector creates natural
 // pauses at clause boundaries (comma, breath) that can be >800 ms.  At 800ms
-// we were sealing mid-sentence.  2000ms matches the API's own default
-// max_endpoint_delay_ms, so a new bubble only starts after a real pause.
-const COMMIT_DELAY = 2000; // Segment on silence only — 2 s of no tokens from same speaker
+// we were sealing mid-sentence.  1500ms gives natural phrase boundaries —
+// speakers typically pause ≥1.5 s between thoughts; shorter pauses are
+// mid-sentence breaths and should not split a segment.
+const COMMIT_DELAY = 1500; // Seal after 1.5 s of silence
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -374,6 +375,12 @@ export function useTranscription() {
           );
         }
 
+        // Sentence-end punctuation seals the current segment immediately.
+        // This is a seal-for-translation trigger — not a display split.
+        // The segment commits to history and triggers translation, then a
+        // fresh live segment starts for whatever the speaker says next.
+        const SENTENCE_END = /[.!?؟。！？]\s*$/;
+
         const resetCandidate = () => {
           candidateSpeakerRef.current = undefined;
           candidateCountRef.current   = 0;
@@ -416,6 +423,14 @@ export function useTranscription() {
             if (candidateCountRef.current >= 3 || (Date.now() - candidateStartMsRef.current) >= 300) {
               confirmCandidate(tSpk);
             }
+          }
+
+          // Sentence boundary → seal immediately so translation fires now.
+          // The speaker continues into a fresh segment after the punctuation.
+          if (SENTENCE_END.test(finalBufRef.current)) {
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+            flush();
+            resetCandidate();
           }
         }
       }
