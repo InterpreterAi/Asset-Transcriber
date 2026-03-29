@@ -29,7 +29,7 @@ const STORAGE_KEY  = "interpretai_phrases";
 // pauses at clause boundaries (comma, breath) that can be >800 ms.  At 800ms
 // we were sealing mid-sentence.  2000ms matches the API's own default
 // max_endpoint_delay_ms, so a new bubble only starts after a real pause.
-const COMMIT_DELAY = 1500;
+const COMMIT_DELAY = 2000; // Segment on silence only — 2 s of no tokens from same speaker
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -368,8 +368,6 @@ export function useTranscription() {
           );
         }
 
-        const SENTENCE_END = /[.!?؟،。！？]\s*$/;
-
         const resetCandidate = () => {
           candidateSpeakerRef.current = undefined;
           candidateCountRef.current   = 0;
@@ -413,13 +411,6 @@ export function useTranscription() {
               confirmCandidate(tSpk);
             }
           }
-
-          // Segment Builder: sentence boundary → commit immediately
-          if (SENTENCE_END.test(finalBufRef.current)) {
-            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-            flush();
-            resetCandidate();
-          }
         }
       }
 
@@ -430,7 +421,7 @@ export function useTranscription() {
         if (!finalBufRef.current) langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Silence-flush timer (arms only when no sentence boundary fired) ──
+      // ── Silence-flush timer — the only non-speaker-change segment trigger ──
       if (finalTokens.length > 0 && finalBufRef.current.trim()) {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
         const silenceFlush = () => {
