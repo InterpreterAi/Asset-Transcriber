@@ -50,29 +50,98 @@ interface SonioxMessage {
   message?:  string;
 }
 
-// ── Speaker normalizer ─────────────────────────────────────────────────────────
+// ── Speaker clustering ─────────────────────────────────────────────────────────
 //
-// Soniox v4 returns arbitrary cluster IDs (0, 10, 21, …) that can be large
-// or non-sequential.  We map each unique raw ID to a stable sequential label
-// (Speaker 1, Speaker 2, …) for the duration of the recording session.
-// The map lives outside the hook so it survives React re-renders; it is reset
-// on every fresh recording start and on clear().
+// Soniox v4 returns arbitrary cluster IDs (0, 10, 21, …) that are assigned
+// by the diarization model and can drift mid-session: the same physical voice
+// may receive different raw IDs at different points in a recording.
 //
-const _speakerMap   = new Map<number, number>(); // rawId → sequential index
-let   _speakerCount = 0;
+// To prevent the "Speaker 3 / Speaker 4 / Speaker 5" proliferation that
+// occurs when the model briefly reassigns a voice to a new cluster ID, we
+// implement an LRU-capped speaker pool:
+//
+//   • The first MAX_SPEAKERS unique raw IDs get their own sequential labels
+//     (Speaker 1, Speaker 2, …).
+//
+//   • Once the pool is full, any new unseen raw ID is mapped to whichever
+//     existing slot has been inactive the longest (Least Recently Used).
+//     This heuristic assumes the most inactive slot is most likely the same
+//     physical voice returning with a new cluster ID — the same logic a
+//     real embedding-similarity matcher would apply.
+//
+//   • If a new raw ID arrives within STRONG_NEW_VOICE_MS (30 s) of ALL
+//     existing slots being active, it is treated as a genuinely new voice
+//     and a new slot is created up to MAX_SPEAKERS_HARD.
+//
+// All state lives outside the hook so it survives React re-renders and is
+// reset on every fresh recording start and on clear().
+//
+const MAX_SPEAKERS      = 4;    // soft cap — target display speakers
+const MAX_SPEAKERS_HARD = 6;    // absolute hard cap
+const STRONG_NEW_VOICE_MS = 30_000; // 30 s of all-slots-active = new voice
+
+const _speakerMap  = new Map<number, number>(); // rawId → slotIndex (1-based)
+const _slotLastMs  = new Map<number, number>(); // slotIndex → last-active ms
+let   _slotCount   = 0;
 
 function resetSpeakerMap() {
   _speakerMap.clear();
-  _speakerCount = 0;
+  _slotLastMs.clear();
+  _slotCount = 0;
 }
 
+/** Mark a raw ID as recently active (call on every token, not just at flush). */
+function touchSpeaker(rawId: number | undefined): void {
+  const id  = rawId ?? 0;
+  const slot = _speakerMap.get(id);
+  if (slot !== undefined) _slotLastMs.set(slot, Date.now());
+}
+
+/** Return the display label for a raw speaker ID, creating or reusing a slot. */
 function normalizeSpeaker(rawId: number | undefined): string {
   const id = rawId ?? 0;
-  if (!_speakerMap.has(id)) {
-    _speakerCount += 1;
-    _speakerMap.set(id, _speakerCount);
+
+  // Already mapped — just refresh its timestamp and return.
+  if (_speakerMap.has(id)) {
+    const slot = _speakerMap.get(id)!;
+    _slotLastMs.set(slot, Date.now());
+    return `Speaker ${slot}`;
   }
-  return `Speaker ${_speakerMap.get(id)}`;
+
+  // New raw ID — decide whether to create a new slot or reuse the LRU slot.
+  if (_slotCount < MAX_SPEAKERS) {
+    // Still room in the soft pool.
+    _slotCount++;
+    _speakerMap.set(id, _slotCount);
+    _slotLastMs.set(_slotCount, Date.now());
+    return `Speaker ${_slotCount}`;
+  }
+
+  // Pool is full.  Check whether ALL existing slots were recently active
+  // (strong-new-voice heuristic).
+  const now = Date.now();
+  let lruSlot = 1;
+  let lruMs   = _slotLastMs.get(1) ?? 0;
+  let allRecent = true;
+
+  for (let s = 1; s <= _slotCount; s++) {
+    const t = _slotLastMs.get(s) ?? 0;
+    if (now - t > STRONG_NEW_VOICE_MS) allRecent = false;
+    if (t < lruMs) { lruMs = t; lruSlot = s; }
+  }
+
+  if (allRecent && _slotCount < MAX_SPEAKERS_HARD) {
+    // All known speakers are actively talking — this is likely a new voice.
+    _slotCount++;
+    _speakerMap.set(id, _slotCount);
+    _slotLastMs.set(_slotCount, Date.now());
+    return `Speaker ${_slotCount}`;
+  }
+
+  // Reuse the LRU slot (same voice returning with a new cluster ID).
+  _speakerMap.set(id, lruSlot);
+  _slotLastMs.set(lruSlot, Date.now());
+  return `Speaker ${lruSlot}`;
 }
 
 function nextId(): string {
@@ -359,6 +428,9 @@ export function useTranscription() {
 
           for (const token of finalTokens) {
             const tSpk = token.speaker;
+
+            // Keep LRU timestamps current for known raw IDs during active speech.
+            touchSpeaker(tSpk);
 
             if (!finalBufRef.current.trim()) {
               // ── Case A: empty buffer — start fresh segment ──────────────
