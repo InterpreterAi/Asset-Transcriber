@@ -320,30 +320,42 @@ export function useTranscription() {
 
         // ── Commit-timer logic ──────────────────────────────────────────────
         //
+        // THE KEY RULE: only touch the timer when FINAL tokens arrive.
+        //
+        // Non-final tokens arrive every 60–200 ms during active speech.
+        // Resetting the timer on every non-final token means the timer
+        // NEVER fires during continuous speech — everything piles up in the
+        // live buffer until a long silence, producing the "commits only after
+        // the audio stops" symptom.
+        //
+        // By resetting only on final tokens, the commit fires COMMIT_DELAY ms
+        // after the last *confirmed* word, even while the model continues
+        // emitting speculative non-final tokens for the next words.
+        //
         // Priority (highest → lowest):
-        //  1. Speaker change → handled above with synchronous flush()
-        //  2. Sentence punctuation + no live speech → flush synchronously so
-        //     the seal can never be cancelled by an incoming token from the
-        //     NEXT sentence (which would reset a 300ms timer).
-        //  3. Silence longer than COMMIT_DELAY → normal silence-based seal.
+        //  1. Speaker change  → synchronous flush inside the loop above
+        //  2. Sentence punctuation in finalBuf → synchronous flush here
+        //  3. Final tokens with no boundary    → restart COMMIT_DELAY timer
+        //  4. Non-final tokens only            → leave the timer untouched
         //
-        // We still reset the timer on every token so mid-sentence clause
-        // pauses (commas, breaths) don't trigger a premature commit.
-        //
-        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-        commitTimerRef.current = null;
+        if (finalTokens.length > 0 && finalBufRef.current.trim()) {
+          const endsSentence = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
 
-        const endsSentence  = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
-        const hasLiveSpeech = nfDisplayRef.current.trim().length > 0;
-
-        if (endsSentence && !hasLiveSpeech && finalBufRef.current.trim()) {
-          // Flush synchronously — a completed sentence with no in-progress
-          // speech.  setTimeout(flush, 0) would be cancelled by the very next
-          // non-final token from the next sentence.
-          flush();
-        } else {
-          commitTimerRef.current = setTimeout(flush, COMMIT_DELAY);
+          if (endsSentence) {
+            // Confirmed sentence end — flush immediately.
+            // hasLiveSpeech is NOT checked: the non-final suffix belongs to the
+            // NEXT sentence and will repopulate naturally on the next token event.
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+            flush();
+          } else {
+            // No sentence boundary — (re)start the silence timer measured from
+            // this final-token batch (the last confirmed word so far).
+            if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+            commitTimerRef.current = setTimeout(flush, COMMIT_DELAY);
+          }
         }
+        // Non-final tokens only: leave commitTimerRef untouched so it fires
+        // on schedule from the last final-token batch.
 
         // ── Update live transcript: confirmed prefix + uncertain suffix ──────
         const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
