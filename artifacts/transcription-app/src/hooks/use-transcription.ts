@@ -139,11 +139,14 @@ export function useTranscription() {
   //   • COMMIT_DELAY ms after the last final token, the entire finalBuf
   //     becomes a sealed phrase in history and translation fires.
   //
-  const finalBufRef   = useRef<string>("");
-  const nfDisplayRef  = useRef<string>(""); // latest non-final suffix (replaced each message)
-  const langRef       = useRef<LangCode>("en");
-  const speakerRef    = useRef<number>(0);
+  const finalBufRef    = useRef<string>("");
+  const nfDisplayRef   = useRef<string>(""); // latest non-final suffix (replaced each message)
+  const langRef        = useRef<LangCode>("en");
+  const speakerRef     = useRef<number>(0);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Timestamp of the most recent token arrival — final OR non-final.
+  // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
+  const lastTokenTimeRef = useRef<number>(0);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -267,6 +270,12 @@ export function useTranscription() {
         console.log("[WS] tokens count:", tokens.length, "| final:", tokens.filter(t => t.is_final).length);
         if (tokens.length === 0) return;
 
+        // Stamp every arrival — used by the silence-flush guard below.
+        // Non-final tokens arrive every 60–200 ms during active speech;
+        // this prevents the commit timer from firing mid-sentence when
+        // there is merely a gap between two consecutive final-token batches.
+        lastTokenTimeRef.current = Date.now();
+
         const finalTokens = tokens.filter(t => t.is_final);
         const nfTokens    = tokens.filter(t => !t.is_final);
 
@@ -328,23 +337,22 @@ export function useTranscription() {
 
         // ── Commit-timer logic ──────────────────────────────────────────────
         //
-        // THE KEY RULE: only touch the timer when FINAL tokens arrive.
-        //
-        // Non-final tokens arrive every 60–200 ms during active speech.
-        // Resetting the timer on every non-final token means the timer
-        // NEVER fires during continuous speech — everything piles up in the
-        // live buffer until a long silence, producing the "commits only after
-        // the audio stops" symptom.
-        //
-        // By resetting only on final tokens, the commit fires COMMIT_DELAY ms
-        // after the last *confirmed* word, even while the model continues
-        // emitting speculative non-final tokens for the next words.
-        //
         // Priority (highest → lowest):
-        //  1. Speaker change  → synchronous flush inside the loop above
-        //  2. Sentence punctuation in finalBuf → synchronous flush here
-        //  3. Final tokens with no boundary    → restart COMMIT_DELAY timer
-        //  4. Non-final tokens only            → leave the timer untouched
+        //  1. Speaker change           → synchronous flush inside the loop above
+        //  2. Sentence punctuation     → synchronous flush here
+        //  3. Final tokens, no boundary → (re)arm the silence-flush timer
+        //  4. Non-final tokens only    → leave the timer untouched
+        //
+        // The silence-flush timer fires COMMIT_DELAY ms after it is armed,
+        // but it ALSO checks lastTokenTimeRef at fire time.  If any token
+        // arrived since the timer was armed (even just a non-final token from
+        // the model continuing to emit during ongoing speech) the callback
+        // reschedules itself for the remaining silence gap.
+        //
+        // This prevents the mid-word fragment bug: "express" commits before
+        // "ions" when there is a ≥ COMMIT_DELAY gap between two consecutive
+        // *final* token batches even though non-final tokens were arriving
+        // continuously in that interval, showing the speaker was still talking.
         //
         if (finalTokens.length > 0 && finalBufRef.current.trim()) {
           const endsSentence = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
@@ -356,17 +364,27 @@ export function useTranscription() {
             if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
             flush();
           } else {
-            // No sentence boundary — (re)start COMMIT_DELAY timer from this
-            // final-token batch.
+            // No sentence boundary — schedule a silence-aware flush.
             //
-            // IMPORTANT: do NOT check hasLiveSpeech here.  Deferring the flush
-            // until non-final tokens clear (the old checkAndFlush approach)
-            // means NOTHING ever commits during continuous speech — the live
-            // buffer just grows until a long pause.  Instead we fire on
-            // schedule.  Speaker changes and punctuation already handle the
-            // in-stream split cases; this timer is purely the silence fallback.
+            // The callback re-checks lastTokenTimeRef when it fires.  If any
+            // token (final or non-final) has arrived in the interim, speech is
+            // still ongoing and the callback reschedules itself for the
+            // remaining silence needed.  This prevents the mid-word commit
+            // ("express" → "ions from my mom") caused by a gap between two
+            // consecutive final-token batches while non-final tokens show
+            // continuous speech in between.
             if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-            commitTimerRef.current = setTimeout(flush, COMMIT_DELAY);
+            const silenceFlush = () => {
+              commitTimerRef.current = null;
+              const silentFor = Date.now() - lastTokenTimeRef.current;
+              if (silentFor < COMMIT_DELAY) {
+                // Tokens still arriving — wait out the remaining silence needed.
+                commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
+              } else {
+                flush();
+              }
+            };
+            commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
           }
         }
         // Non-final tokens only: leave commitTimerRef untouched so it fires
