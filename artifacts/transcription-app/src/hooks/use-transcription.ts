@@ -381,27 +381,35 @@ export function useTranscription() {
     //
     // ── Token processing rules ────────────────────────────────────────────
     //
-    // 1. Only is_final tokens are processed — no interim/non-final display.
-    // 2. activeSegment accumulates text continuously.
-    // 3. A new segment is created ONLY when token.speaker changes.
+    // 1. Non-final tokens  → update activeSegment immediately (live preview).
+    //    They are a REPLACEMENT suffix each message — never committed.
+    // 2. Final tokens      → commit to finalBufRef, detect speaker changes.
+    // 3. A new segment (flush) is created ONLY on token.speaker change.
     // 4. Utterance boundary (all-final message) resets the dedup watermark
-    //    so the next utterance starts fresh — it does NOT flush/split rows.
+    //    only — it does NOT flush/split rows.
+    //
+    // activeSegment.text = finalBufRef (confirmed) + nfText (live interim suffix)
     //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
-      // Deduplication: Soniox re-sends ALL prior final tokens in every message.
-      // globalFinalCountRef is the watermark of finals already consumed this
-      // utterance.  We skip anything below it.  Reset at utterance boundary.
+      // Non-final text for this message — Soniox sends a complete replacement
+      // of the uncertain suffix, not a cumulative append.  Use a local variable
+      // (not a ref) so it resets to "" on every message automatically.
+      let nfText           = "";
       let finalSeenThisMsg = 0;
       let hasNonFinal      = false;
       const newFinalToks: SonioxToken[] = [];
 
       for (const token of tokens) {
-        // Rule 1: skip non-final tokens entirely — no interim display.
-        if (!token.is_final) { hasNonFinal = true; continue; }
+        if (!token.is_final) {
+          // Rule 1: non-final → collect for live display, never commit.
+          nfText += token.text;
+          hasNonFinal = true;
+          continue;
+        }
 
-        // Advance watermark; skip already-consumed finals.
+        // Dedup: skip already-consumed finals.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
@@ -412,7 +420,8 @@ export function useTranscription() {
           activeSegSpeakerRef.current = spk;
         }
 
-        // Step 2: speaker changed → finalize current segment BEFORE appending.
+        // Step 2: speaker changed → flush current segment BEFORE appending.
+        // Rule 4: is_final is the ONLY finalization trigger via speaker change.
         if (
           spk !== undefined &&
           activeSegSpeakerRef.current !== undefined &&
@@ -423,7 +432,7 @@ export function useTranscription() {
           activeSegSpeakerRef.current = spk;
         }
 
-        // Track speaker history (modal used at flush() time).
+        // Track speaker history (modal label computed at flush time).
         if (spk !== undefined) {
           touchSpeaker(spk);
           speakerHistoryRef.current.push(spk);
@@ -431,17 +440,16 @@ export function useTranscription() {
           console.log("[Diarization] token speaker:", spk, JSON.stringify(token.text));
         }
 
-        // Step 3: append confirmed text — segment grows continuously.
+        // Step 3: commit confirmed text.
         finalBufRef.current += token.text;
         newFinalToks.push(token);
       }
 
-      // Advance watermark.
+      // Advance the watermark.
       globalFinalCountRef.current = finalSeenThisMsg;
 
-      // Utterance boundary: Soniox sends an all-final message when its VAD
-      // detects a pause.  Reset the watermark so the NEXT utterance begins
-      // at count 0 — but do NOT flush; the segment keeps growing.
+      // Utterance boundary: all-final message → reset watermark for next
+      // utterance (Soniox resets its own count).  No flush — segment grows on.
       if (!hasNonFinal && newFinalToks.length > 0) {
         globalFinalCountRef.current = 0;
       }
@@ -451,10 +459,12 @@ export function useTranscription() {
         langRef.current = detectLang(newFinalToks, langRef.current);
       }
 
-      // Update active segment — confirmed final text only, no interim preview.
-      if (finalBufRef.current.trim()) {
+      // Rule 5: activeSegment updates continuously.
+      // text = confirmed finals + live interim suffix (replaced each message).
+      const displayText = (finalBufRef.current + nfText).trim();
+      if (displayText) {
         setActiveSegment({
-          text:         finalBufRef.current.trim(),
+          text:         displayText,
           language:     langRef.current,
           speakerLabel: normalizeSpeaker(speakerRef.current),
         });
