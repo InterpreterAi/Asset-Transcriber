@@ -393,25 +393,23 @@ export function useTranscription() {
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
-      // Non-final text for this message — Soniox sends a complete replacement
-      // of the uncertain suffix, not a cumulative append.  Use local variables
-      // (not refs) so they reset to their defaults on every message automatically.
-      let nfText             = "";
-      // Speaker from the most recent non-final token that carried one this message.
-      // undefined = no non-final speaker seen yet → fall back to last final speaker.
-      let nfSpeaker: number | undefined = undefined;
-      let finalSeenThisMsg   = 0;
-      let hasNonFinal        = false;
+      // Non-final text — Soniox sends a complete replacement suffix each message,
+      // not a cumulative append.  Local variable resets automatically each call.
+      let nfText           = "";
+      let finalSeenThisMsg = 0;
+      let hasNonFinal      = false;
       const newFinalToks: SonioxToken[] = [];
 
       for (const token of tokens) {
         if (!token.is_final) {
-          // Rule 1: non-final → collect for live display, never commit.
+          // Non-final → collect text for live display, never commit to finalBufRef.
           nfText += token.text;
           hasNonFinal = true;
-          // Rule 2: assign speaker immediately; if missing, nfSpeaker stays
-          // as the last non-final speaker seen (or undefined → inherited below).
-          if (token.speaker !== undefined) nfSpeaker = token.speaker;
+          // Update speakerRef immediately so the preview label is always current.
+          // If the token carries no speaker, inherit by leaving speakerRef unchanged.
+          if (token.speaker != null) {
+            speakerRef.current = token.speaker;
+          }
           continue;
         }
 
@@ -465,19 +463,16 @@ export function useTranscription() {
         langRef.current = detectLang(newFinalToks, langRef.current);
       }
 
-      // Rules 1–3: activePreviewLine updates continuously with both text and speaker.
-      // text    = confirmed finals + live interim suffix (replaced each message).
-      // speaker = most recent interim speaker → last confirmed speaker → none.
-      //           Interim tokens NEVER touch finalizedSegments.
-      // Rule 5: speaker changes (flush) are driven by final tokens only — never here.
+      // activePreviewLine updates every message — text and speaker together.
+      // speakerRef.current is always the latest known speaker (updated by both
+      // non-final and final tokens above).  flush() is final-only — never here.
       const displayText = (finalBufRef.current + nfText).trim();
       if (displayText) {
-        // Rule 2: inherit last confirmed speaker when interim carries none.
-        const previewSpeakerRaw = nfSpeaker ?? speakerRef.current;
+        const previewSpeaker = speakerRef.current;   // already the latest
         setActivePreviewLine({
           text:         displayText,
           language:     langRef.current,
-          speakerLabel: normalizeSpeaker(previewSpeakerRaw),
+          speakerLabel: normalizeSpeaker(previewSpeaker),
         });
       }
     };
