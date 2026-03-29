@@ -224,12 +224,12 @@ export function useTranscription() {
   // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
 
-  // ── Speaker stabilization buffer ───────────────────────────────────────────
-  // Records {speaker, ts} for every token batch that carries a speaker ID.
-  // flush() reads the last SPEAKER_WINDOW_MS of entries and picks the MODE
-  // (most-frequent) speaker — not the most-recent one.  This compensates for
-  // Soniox diarization instability in the first 1–2 s of a new speaker.
-  const speakerHistoryRef = useRef<Array<{ speaker: number; ts: number }>>([]);
+  // ── Per-segment speaker history ────────────────────────────────────────────
+  // Records every speaker reading seen during the CURRENT active segment.
+  // flush() takes the MODE (most-frequent) of ALL readings, then clears the
+  // buffer so the next segment starts completely fresh.  This prevents earlier
+  // segments' diarization readings from contaminating later segments' labels.
+  const speakerHistoryRef = useRef<number[]>([]);
 
   // ── Active-segment display speaker ─────────────────────────────────────────
   // Lock the speaker label shown on the live row to the FIRST reading of each
@@ -268,17 +268,15 @@ export function useTranscription() {
     if (!text) return;
     const lang = langRef.current;
 
-    // ── Speaker stabilization ─────────────────────────────────────────────
-    // Use the MODE of speaker readings over the last SPEAKER_WINDOW_MS, not
-    // the most-recent reading.  Diarization is still converging in the first
-    // few seconds; the modal speaker over 1.5 s is far more accurate.
-    const cutoff = Date.now() - SPEAKER_WINDOW_MS;
-    const recentReadings = speakerHistoryRef.current.filter(h => h.ts >= cutoff);
+    // ── Per-segment speaker modal ─────────────────────────────────────────
+    // Use the MODE of ALL speaker readings collected during this segment.
+    // The history is cleared after each flush so readings from previous
+    // segments never contaminate this one's label.
     let stableSpeaker = speakerRef.current;
-    if (recentReadings.length > 0) {
+    if (speakerHistoryRef.current.length > 0) {
       const counts = new Map<number, number>();
-      for (const { speaker } of recentReadings) {
-        counts.set(speaker, (counts.get(speaker) ?? 0) + 1);
+      for (const spk of speakerHistoryRef.current) {
+        counts.set(spk, (counts.get(spk) ?? 0) + 1);
       }
       let best = stableSpeaker, bestCount = 0;
       for (const [spk, count] of counts) {
@@ -286,12 +284,12 @@ export function useTranscription() {
       }
       stableSpeaker = best;
     }
-    // Trim old entries (keep only recent window)
-    speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= cutoff);
 
-    finalBufRef.current      = "";
-    nfDisplayRef.current     = "";
-    segStartSpeakerRef.current = -1;  // ← reset so next segment gets a fresh lock
+    // Clear per-segment history so the next segment starts fresh.
+    speakerHistoryRef.current  = [];
+    finalBufRef.current        = "";
+    nfDisplayRef.current       = "";
+    segStartSpeakerRef.current = -1;
     setPhrases(prev => [
       ...prev,
       { id: nextId(), speakerLabel: normalizeSpeaker(stableSpeaker), text, language: lang },
@@ -418,24 +416,20 @@ export function useTranscription() {
       }
 
       // ── Speaker tracking ──────────────────────────────────────────────────
-      // Record the latest speaker for both final and non-final tokens.
-      // The history feeds flush() for a stable modal label at commit time.
+      // Push every speaker reading into the per-segment history.
+      // flush() takes the modal across ALL readings for this segment, then
+      // clears the buffer — so each finalized row gets its own clean label.
       const latestSpk = (
         [...finalTokens].reverse().find(t => t.speaker !== undefined) ??
         [...nfTokens].reverse().find(t => t.speaker !== undefined)
       )?.speaker;
       if (latestSpk !== undefined) speakerRef.current = latestSpk;
 
-      const nowTs = Date.now();
       for (const t of tokens) {
         if (t.speaker !== undefined) {
           touchSpeaker(t.speaker);
-          speakerHistoryRef.current.push({ speaker: t.speaker, ts: nowTs });
+          speakerHistoryRef.current.push(t.speaker);
         }
-      }
-      if (speakerHistoryRef.current.length > 400) {
-        const trimCutoff = nowTs - SPEAKER_WINDOW_MS * 2;
-        speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= trimCutoff);
       }
 
       // ── Language detection ────────────────────────────────────────────────
