@@ -263,7 +263,12 @@ export function useTranscription() {
   // finalizedSegments is append-only: once a segment is pushed it is NEVER
   // modified again.  Only activePreviewLine updates in place while speaking.
   //
-  const flush = useCallback(() => {
+  // keepPreview = true: called from inside processTokenBatch — skip the
+  // setActivePreviewLine(null) so the live row stays visible until the
+  // end-of-message update overwrites it with fresh content.  Callers outside
+  // the loop (stop, pause timer, ws.onclose) use the default false so the
+  // preview is cleared promptly when recording ends or speech pauses.
+  const flush = useCallback((keepPreview = false) => {
     const text = finalBufRef.current.trim();
     if (!text) return;
     const lang = langRef.current;
@@ -292,7 +297,10 @@ export function useTranscription() {
     pendingSpeakerRef.current           = null;    // speaker stability window reset
     pendingSpeakerStartTimeRef.current  = 0;
     pendingSpeakerTokenCountRef.current = 0;
-    setActivePreviewLine(null); // live row disappears; finalized row appears below
+    // Only wipe the live row when the caller is NOT inside processTokenBatch.
+    // In-loop flushes (keepPreview=true) let the end-of-message setActivePreviewLine
+    // call replace the content naturally — no blank flash between segments.
+    if (!keepPreview) setActivePreviewLine(null);
 
     const speakerLabel = normalizeSpeaker(stableSpeaker);
     const phrase: Phrase = {
@@ -488,7 +496,7 @@ export function useTranscription() {
             ) {
               // Capture the confirmed speaker BEFORE flush() wipes pendingSpeakerRef.
               const confirmedSpk = pendingSpeakerRef.current;
-              flush(); // seals old segment; also clears pendingSpeaker* refs
+              flush(true); // seals old segment; keepPreview=true — no blank flash
               activeSegSpeakerRef.current = confirmedSpk;
               segStartMsRef.current       = Date.now();
             }
@@ -515,7 +523,7 @@ export function useTranscription() {
         // Step 2b: punctuation flush — sentence boundary (rules 2, 5).
         // Fires AFTER appending; punctuation is included in the sealed segment.
         if (hasMinLength() && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
-          flush();
+          flush(true); // keepPreview=true — live row stays visible until next token
         }
 
         const elapsed = segStartMsRef.current > 0
@@ -527,13 +535,13 @@ export function useTranscription() {
         // will always have enough content to stand on its own.
         const MAX_SEGMENT_MS = 3000;
         if (hasMinLength() && elapsed >= MAX_SEGMENT_MS) {
-          flush();
+          flush(true); // keepPreview=true
         }
 
         // Step 2c-len: length cap — very long buffers flush at a word boundary
         // to avoid splitting a word mid-token.
         else if (hasMinLength() && atWordBoundary() && finalBufRef.current.length >= 120) {
-          flush();
+          flush(true); // keepPreview=true
         }
       }
 
