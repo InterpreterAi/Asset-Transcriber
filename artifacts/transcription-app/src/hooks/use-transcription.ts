@@ -432,64 +432,70 @@ export function useTranscription() {
     //
     //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
     //
-    // ── Finalization rule ─────────────────────────────────────────────────
-    // A segment is finalized ONLY when Soniox marks the entire result as done:
-    // every token in the message is is_final:true and there is no provisional
-    // suffix.  This is Soniox's internal VAD signal — "utterance complete".
+    // ── Per-token finalization rules (in strict order) ───────────────────
     //
-    // Nothing else triggers a flush:
-    //   ✗  Speaker change  — diarization fluctuates mid-sentence
-    //   ✗  Silence timer   — Soniox handles its own silence detection
-    //   ✗  Punctuation     — not a reliable boundary
-    //   ✓  All tokens final (nfTokens.length === 0)
-    //   ✓  Safety word cap (MAX_SEG_WORDS) — pure last-resort guard
+    // For each genuinely new final token:
     //
+    //   1. No active segment?
+    //        → create one using token.speaker.
+    //
+    //   2. Speaker change? (checked FIRST, before any append)
+    //        → flush current segment, open a new one with token.speaker.
+    //
+    //   3. Append token.text to the active segment.
+    //
+    //   4. Sentence boundary? (checked SECOND, after append)
+    //        → flush current segment, open a new one with the SAME speaker.
+    //
+    // Utterance boundary (all tokens final) also flushes.
+    // Safety word cap is a last-resort guard.
+    //
+    const SENTENCE_END = /[.?!]\s*$/;
+
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
       // ── Walk every token in message order ────────────────────────────────
-      // Rule 1: non-final token  → live preview only  (never append to buffer)
-      // Rule 2: final token      → speaker-change check → append to buffer
+      // Non-final tokens → live preview only.
+      // Final tokens     → speaker-change → append → sentence-boundary.
       //
       // Deduplication: Soniox re-sends ALL prior final tokens in every message.
-      // We track how many final tokens we have already consumed this utterance
-      // (globalFinalCountRef) and skip any that fall below that watermark.
-      // The counter resets to 0 at each utterance boundary (all-final message).
+      // globalFinalCountRef tracks how many we've consumed this utterance;
+      // anything below the watermark is skipped.  Resets at utterance boundary.
       //
-      let finalSeenThisMsg = 0;     // running count of final tokens in this msg
-      const newFinalToks:  SonioxToken[] = []; // only the genuinely new ones
-      const previewParts:  string[]      = []; // non-final text for live preview
+      let finalSeenThisMsg = 0;
+      const newFinalToks:  SonioxToken[] = [];
+      const previewParts:  string[]      = [];
       let   hasNonFinal = false;
 
       for (const token of tokens) {
         if (!token.is_final) {
-          // Non-final — update preview only, never touch the committed buffer.
           previewParts.push(token.text);
           hasNonFinal = true;
           continue;
         }
 
-        // Final token: advance the count, skip if already processed.
+        // Advance watermark; skip already-processed finals.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
-        // ── This is a genuinely new final token ──────────────────────────
+        // ── Genuinely new final token ─────────────────────────────────────
         const spk = token.speaker; // undefined when API omits diarization
 
-        // Speaker-change: finalize current segment and open a fresh one.
-        // Require BOTH sides to carry a known speaker to avoid spurious splits.
+        // ── Step 1: open a segment if none is active ──────────────────────
+        if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
+          activeSegSpeakerRef.current = spk;
+        }
+
+        // ── Step 2: speaker-change check (BEFORE append) ──────────────────
         if (
           spk !== undefined &&
           activeSegSpeakerRef.current !== undefined &&
           spk !== activeSegSpeakerRef.current &&
           finalBufRef.current.trim()
         ) {
-          flush(); // seals segment; resets activeSegSpeakerRef → undefined
-        }
-
-        // First token of a new segment: record its speaker.
-        if (spk !== undefined && activeSegSpeakerRef.current === undefined) {
-          activeSegSpeakerRef.current = spk;
+          flush();                           // seals old segment
+          activeSegSpeakerRef.current = spk; // open new segment immediately
         }
 
         // Track speaker for modal computation at flush() time.
@@ -500,9 +506,19 @@ export function useTranscription() {
           console.log("[Diarization] final token — speaker:", spk, "text:", JSON.stringify(token.text));
         }
 
-        // Append ONLY this final token's text to the committed buffer.
+        // ── Step 3: append token text to the active segment ───────────────
         finalBufRef.current += token.text;
         newFinalToks.push(token);
+
+        // ── Step 4: sentence-boundary check (AFTER append) ────────────────
+        if (SENTENCE_END.test(token.text) && finalBufRef.current.trim()) {
+          const currentSpk = activeSegSpeakerRef.current; // preserve speaker
+          flush();                                         // seals this sentence
+          // Keep the same speaker open for the next sentence in this turn.
+          if (currentSpk !== undefined) {
+            activeSegSpeakerRef.current = currentSpk;
+          }
+        }
       }
 
       // Advance the watermark to the total finals seen in this message.
