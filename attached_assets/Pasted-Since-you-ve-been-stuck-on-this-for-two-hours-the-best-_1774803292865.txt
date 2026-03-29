@@ -1,0 +1,16 @@
+Since you've been stuck on this for two hours, the best way to fix this in Replit is to give the AI a very specific set of instructions that addresses the Diarization Logic Gap.
+Your app is likely "grouping" everything until a sentence ends, while the Soniox desktop app is "splitting" as soon as it hears a new voice.
+Copy and paste this exact prompt into your Replit AI chat:
+The Fix Request
+"I need to fix the speaker diarization logic in my transcription app. Currently, the app waits to read a large chunk of text before assigning a speaker, which makes it look delayed compared to the Soniox desktop app.
+Please rewrite my message handling logic (WebSocket or API response handler) to do the following:
+ * Immediate Splitting: Do not wait for a 'final' transcript or the end of a sentence to change speakers.
+ * Speaker Comparison: Compare the speaker or speaker_id of the incoming data packet with the last_speaker variable.
+ * New Bubble Trigger: If the speaker_id changes—even in the middle of a sentence—immediately 'close' the current text bubble and create a new UI element (speech bubble) for the new speaker.
+ * Real-Time Appending: Ensure that interim (partial) results are appended to the currently active speaker bubble only, so the text appears to 'flow' in real-time like a mirror.
+ * State Management: Update the current_speaker state immediately upon detecting a change so the next words don't accidentally go into the old speaker's bubble.
+Please check my on_message (Python) or socket.onmessage (JavaScript) function and apply these changes so the UI matches the split-screen behavior of the Soniox desktop version."
+Why this works:
+ * It stops the "Wait and See" approach: By telling Replit to compare IDs on every packet, you force the UI to jump to a new line the millisecond the engine detects Speaker 2.
+ * It handles "Interim" results: This ensures your "Mirror" style stays intact while the speaker labels catch up.
+Would you like me to look at your current message handling code to see if I can spot the exact line that needs changing?
