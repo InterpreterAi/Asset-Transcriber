@@ -151,42 +151,32 @@ function SegmentRow({
 }
 
 // ── Live paired row ────────────────────────────────────────────────────────────
+// Shows live transcription text growing word-by-word on the original side.
+// The translation column is intentionally empty while the segment is live —
+// translation fires only after the segment seals, matching Soniox desktop.
 function LiveRow({
-  live, liveTranslation, langA, langB,
+  live, langA, langB,
 }: {
   live: LiveTranscript;
-  liveTranslation: { text: string; targetLang: string } | null;
   langA: string;
   langB: string;
 }) {
-  const targetLang = getTargetLang(live.language, langA, langB);
   const originalIsLeft = live.language === langA || live.language !== langB;
   const leftRtl  = langA === "ar" || langA === "he";
+  const targetLang = getTargetLang(live.language, langA, langB);
   const rightRtl = targetLang === "ar" || targetLang === "he";
 
   const leftContent = originalIsLeft ? (
     <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={leftRtl ? "rtl" : "ltr"}>
       {live.text}<Dots />
     </p>
-  ) : liveTranslation ? (
-    <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={leftRtl ? "rtl" : "ltr"}>
-      {liveTranslation.text}<Dots />
-    </p>
-  ) : (
-    <TranslatingDots />
-  );
+  ) : null;
 
   const rightContent = !originalIsLeft ? (
     <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={rightRtl ? "rtl" : "ltr"}>
       {live.text}<Dots />
     </p>
-  ) : liveTranslation ? (
-    <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={rightRtl ? "rtl" : "ltr"}>
-      {liveTranslation.text}<Dots />
-    </p>
-  ) : (
-    <TranslatingDots />
-  );
+  ) : null;
 
   return (
     <div className="grid grid-cols-2 gap-6 mb-5">
@@ -220,13 +210,10 @@ export default function Workspace() {
   const [langB, setLangB] = useState("ar");
 
   // translations[phrase.id] = { text, targetLang }
-  const [translations,    setTranslations]    = useState<Record<string, { text: string; targetLang: string }>>({});
-  const [liveTranslation, setLiveTranslation] = useState<{ text: string; targetLang: string } | null>(null);
+  const [translations, setTranslations] = useState<Record<string, { text: string; targetLang: string }>>({});
 
   const translatingRef   = useRef<Set<string>>(new Set());
   const translationsDone = useRef<Set<string>>(new Set());
-  const liveXlatTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const liveXlatAbort    = useRef<AbortController | null>(null);
 
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
@@ -234,45 +221,6 @@ export default function Workspace() {
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcription.phrases.length]);
-
-  // ── Live translation — debounced 200 ms ───────────────────────────────────
-  useEffect(() => {
-    if (!transcription.liveTranscript) {
-      if (liveXlatTimer.current) clearTimeout(liveXlatTimer.current);
-      return;
-    }
-
-    const { text, language } = transcription.liveTranscript;
-    const targetLang = getTargetLang(language, langA, langB);
-
-    if (liveXlatTimer.current) clearTimeout(liveXlatTimer.current);
-
-    liveXlatTimer.current = setTimeout(async () => {
-      if (liveXlatAbort.current) liveXlatAbort.current.abort();
-      const controller = new AbortController();
-      liveXlatAbort.current = controller;
-
-      try {
-        const res = await fetch("/api/translate", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          signal:  controller.signal,
-          body:    JSON.stringify({ text, sourceLang: language, targetLang }),
-        });
-        if (res.ok) {
-          const data = await res.json() as { translatedText?: string; text?: string };
-          const translated = data.translatedText ?? data.text ?? "";
-          if (translated) setLiveTranslation({ text: translated, targetLang });
-        }
-      } catch (err: unknown) {
-        if (!(err instanceof Error && err.name === "AbortError")) {
-          console.error("Live translation error:", err);
-        }
-      }
-    }, 200);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transcription.liveTranscript?.text, transcription.liveTranscript?.language, langA, langB]);
 
   // ── Phrase translation — fires immediately when a phrase seals ────────────
   const translatePhrase = useCallback(async (phrase: Phrase, targetLang: string) => {
@@ -527,7 +475,6 @@ export default function Workspace() {
                   {transcription.liveTranscript && (
                     <LiveRow
                       live={transcription.liveTranscript}
-                      liveTranslation={liveTranslation}
                       langA={langA}
                       langB={langB}
                     />
