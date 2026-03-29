@@ -147,14 +147,6 @@ export function useTranscription() {
   // Timestamp of the most recent token arrival — final OR non-final.
   // The silence flush only commits when this has been stale for ≥ COMMIT_DELAY.
   const lastTokenTimeRef = useRef<number>(0);
-  // Predictive speaker detection from non-final tokens.
-  // Soniox's diarization sometimes assigns the correct speaker ID to
-  // non-final tokens several hundred ms BEFORE those tokens become final.
-  // By watching non-final speaker IDs we can pre-flush the current speaker's
-  // buffer before the new speaker's words arrive as final tokens — eliminating
-  // the "reorganization" effect where text appears under the wrong speaker.
-  const speakerPredictTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingNfSpeakerRef    = useRef<number | undefined>(undefined);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -174,13 +166,6 @@ export function useTranscription() {
     const spk  = speakerRef.current;
     finalBufRef.current = "";
     nfDisplayRef.current = "";
-    // Cancel any pending predictive speaker timer — once a segment is sealed
-    // the prediction is no longer relevant for the previous buffer.
-    if (speakerPredictTimerRef.current) {
-      clearTimeout(speakerPredictTimerRef.current);
-      speakerPredictTimerRef.current = null;
-    }
-    pendingNfSpeakerRef.current = undefined;
     setPhrases(prev => [
       ...prev,
       { id: nextId(), speakerLabel: normalizeSpeaker(spk), text, language: lang },
@@ -195,8 +180,6 @@ export function useTranscription() {
     setIsRecording(false);
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    if (speakerPredictTimerRef.current) { clearTimeout(speakerPredictTimerRef.current); speakerPredictTimerRef.current = null; }
-    pendingNfSpeakerRef.current = undefined;
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -307,27 +290,31 @@ export function useTranscription() {
         if (finalTokens.length > 0) {
           langRef.current = detectLang(finalTokens, langRef.current);
 
-          // ── Sequential per-token processing ──────────────────────────────
+          // Debug: log the raw speaker IDs on each final token so we can
+          // verify whether Soniox is providing speaker IDs in real-time.
+          if (import.meta.env.DEV) {
+            console.log(
+              "[SPK] final batch:",
+              finalTokens.map(t => `"${t.text.trim()}"→spk:${t.speaker ?? "?"}`).join("  ")
+            );
+          }
+
+          // ── Per-token segmentation ────────────────────────────────────────
           //
-          // Two segmentation triggers are checked after EACH token:
+          // For every token, exactly two checks are run in order:
           //
-          //   1. Speaker change: flush immediately the instant the speaker ID
-          //      changes.  No lookahead guard — any detected change is real.
+          //   1. Speaker change → flush the current buffer immediately and
+          //      start a fresh segment for the new speaker.  This is the
+          //      highest-priority trigger and overrides all timers.
           //
-          //   2. Sentence punctuation: if the buffer ends with . ? ! ؟ etc.
-          //      AFTER a mid-batch token is appended, flush immediately.
-          //      This is critical: multiple complete sentences often arrive in
-          //      a single batch (e.g. "Ugh. Wow. You need ClickUp.").  The
-          //      old end-of-batch punctuation check saw only the final state
-          //      of the buffer and never flushed the mid-batch "Ugh." and
-          //      "Wow." boundaries, causing them all to merge into one block.
-          //
-          //   The last token in the batch is EXCLUDED from the intra-loop
-          //   punctuation check — the post-loop commit-timer block handles it
-          //   so we don't double-flush.
+          //   2. Sentence boundary → if the buffer ends with . ? ! ؟ etc.
+          //      after appending this token, flush immediately.  Applies to
+          //      ALL tokens including the last in a batch (the post-loop
+          //      check handles the same case for symmetry — no double-flush
+          //      because flush() clears the buffer, so the post-loop guard
+          //      `finalBufRef.current.trim()` will be false).
           //
           const SENTENCE_END = /[.!?؟،。！？]\s*$/;
-          const isIntraFlush = (i: number) => i < finalTokens.length - 1;
 
           for (let i = 0; i < finalTokens.length; i++) {
             const token = finalTokens[i]!;
@@ -347,8 +334,8 @@ export function useTranscription() {
 
             finalBufRef.current += token.text;
 
-            // ── 2. Mid-batch sentence boundary ────────────────────────────
-            if (isIntraFlush(i) && SENTENCE_END.test(finalBufRef.current)) {
+            // ── 2. Sentence boundary ──────────────────────────────────────
+            if (SENTENCE_END.test(finalBufRef.current)) {
               if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
               flush();
             }
@@ -361,68 +348,6 @@ export function useTranscription() {
         // Language fallback from non-final when buffer is still empty
         if (nfTokens.length > 0 && !finalBufRef.current) {
           langRef.current = detectLang(nfTokens, langRef.current);
-        }
-
-        // ── Predictive speaker detection from non-final tokens ──────────────
-        //
-        // The Soniox diarization model often assigns the correct speaker ID
-        // to non-final tokens 200–500 ms BEFORE those tokens become final.
-        // By watching for a stable non-final speaker change we can pre-flush
-        // the current speaker's buffer early, so when the tokens ARE finalized
-        // they land in a fresh buffer attributed to the correct speaker.
-        //
-        // To avoid false positives from single-batch noise, we require the
-        // same new speaker to appear in non-final tokens for 200 ms
-        // continuously before acting.
-        //
-        if (nfTokens.length > 0 && finalBufRef.current.trim()) {
-          // Take the first non-final token that has a speaker ID
-          const nfSpk = nfTokens.find(t => t.speaker !== undefined)?.speaker;
-
-          if (nfSpk !== undefined && nfSpk !== speakerRef.current) {
-            // Non-final tokens predict a speaker change
-            if (pendingNfSpeakerRef.current !== nfSpk) {
-              // New prediction — reset the confirmation window
-              pendingNfSpeakerRef.current = nfSpk;
-              if (speakerPredictTimerRef.current) {
-                clearTimeout(speakerPredictTimerRef.current);
-                speakerPredictTimerRef.current = null;
-              }
-              speakerPredictTimerRef.current = setTimeout(() => {
-                speakerPredictTimerRef.current = null;
-                // Confirmed: same new speaker in non-final tokens for 200 ms
-                // → pre-flush the current speaker's buffer
-                if (
-                  pendingNfSpeakerRef.current !== undefined &&
-                  pendingNfSpeakerRef.current !== speakerRef.current &&
-                  finalBufRef.current.trim()
-                ) {
-                  if (commitTimerRef.current) {
-                    clearTimeout(commitTimerRef.current);
-                    commitTimerRef.current = null;
-                  }
-                  flush();
-                  speakerRef.current = pendingNfSpeakerRef.current;
-                }
-                pendingNfSpeakerRef.current = undefined;
-              }, 200);
-            }
-            // else: same prediction already pending, let the timer run
-          } else {
-            // No change (or reverted) — cancel any pending prediction
-            if (speakerPredictTimerRef.current) {
-              clearTimeout(speakerPredictTimerRef.current);
-              speakerPredictTimerRef.current = null;
-            }
-            pendingNfSpeakerRef.current = undefined;
-          }
-        } else if (nfTokens.length === 0) {
-          // No non-final tokens (silence) — cancel pending prediction
-          if (speakerPredictTimerRef.current) {
-            clearTimeout(speakerPredictTimerRef.current);
-            speakerPredictTimerRef.current = null;
-          }
-          pendingNfSpeakerRef.current = undefined;
         }
 
         // ── Commit-timer logic ──────────────────────────────────────────────
@@ -639,8 +564,6 @@ export function useTranscription() {
       speakerRef.current   = 0;
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-      if (speakerPredictTimerRef.current) { clearTimeout(speakerPredictTimerRef.current); speakerPredictTimerRef.current = null; }
-      pendingNfSpeakerRef.current = undefined;
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
