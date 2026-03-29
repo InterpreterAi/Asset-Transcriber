@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type Phrase, type LiveTranscript } from "@/hooks/use-transcription";
+import { useTranscription, type Phrase, type ActiveSegment } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
@@ -84,17 +84,17 @@ function SegmentRow({ phrase }: { phrase: Phrase }) {
 
 
 // ── Active (live) segment row ──────────────────────────────────────────────────
-// Updates in place as tokens stream in. Replaced by a SegmentRow on finalization.
-function ActiveRow({ live }: { live: LiveTranscript }) {
-  const isRtl = live.language === "ar" || live.language === "he";
+// Updates in place as tokens stream in. Never unmounts while a segment is open.
+function ActiveRow({ segment }: { segment: ActiveSegment }) {
+  const isRtl = segment.language === "ar" || segment.language === "he";
   return (
     <div className="mb-4">
-      <SpeakerTag label={live.speakerLabel} />
+      <SpeakerTag label={segment.speakerLabel} />
       <p
         className="text-[13px] leading-relaxed text-foreground/70 font-medium italic"
         dir={isRtl ? "rtl" : "ltr"}
       >
-        {live.text}
+        {segment.text}
       </p>
     </div>
   );
@@ -122,7 +122,7 @@ export default function Workspace() {
   // ── Auto-scroll on new phrase ──────────────────────────────────────────────
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcription.phrases.length, transcription.liveTranscript?.text]);
+  }, [transcription.finalizedSegments.length, transcription.activeSegment?.text]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -168,7 +168,7 @@ export default function Workspace() {
   const isBlocked      = user.trialExpired || isLimitReached;
 
   // isEmpty only shows the empty-state placeholder — never go blank after Stop
-  const hasContent = transcription.phrases.length > 0 || !!transcription.liveTranscript;
+  const hasContent = transcription.finalizedSegments.length > 0 || !!transcription.activeSegment;
 
   return (
     <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
@@ -303,11 +303,11 @@ export default function Workspace() {
                 </div>
               ) : (
                 <div>
-                  {transcription.phrases.map((phrase) => (
+                  {transcription.finalizedSegments.map((phrase) => (
                     <SegmentRow key={phrase.id} phrase={phrase} />
                   ))}
-                  {transcription.liveTranscript && (
-                    <ActiveRow live={transcription.liveTranscript} />
+                  {transcription.activeSegment && (
+                    <ActiveRow segment={transcription.activeSegment} />
                   )}
                   <div ref={scrollEndRef} />
                 </div>

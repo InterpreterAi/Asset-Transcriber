@@ -139,15 +139,20 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 6. **Token model**: each response message contains `tokens[]` with per-token `is_final: bool` and `language` field
 7. **Final tokens** (`is_final: true`) → delta-appended to `finalBufRef` (committed text, never changes)
 8. **Non-final tokens** (`is_final: false`) → REPLACE `nfDisplayRef` each message (provisional suffix)
-9. **Active segment** = `finalBuf + nfDisplay` — one live row that updates in place, shown via `liveTranscript` state
-10. **Speaker stabilization buffer**: every token batch pushes `{speaker, ts}` to `speakerHistoryRef`; `flush()` uses the MODE of readings from the last 1500ms instead of the most-recent label — prevents diarization flip-flop from appearing in locked rows
-11. **Finalization triggers** (only two):
-    - **Silence** (1000ms no tokens) → `flush()` seals `finalBuf` as a new `Phrase`
-    - **Word cap** (30 words in committed text) → safety valve
-12. No is_final-based finalization — that fired on every message and created one row per token update
-13. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` prevents loops
-14. Stop → promote nfDisplay to finalBuf if needed → `flush()` → `POST /api/transcription/session/stop`
-15. Translation is currently disabled (removed; to re-enable add `translatePhrase` calls in workspace.tsx)
+9. **Transcript state** = two independent structures, NEVER rebuilt from scratch:
+   - `finalizedSegments: Phrase[]` — append-only; once pushed, never modified again
+   - `activeSegment: ActiveSegment | null` — updates in place (`finalBuf + nfDisplay`) as tokens stream
+10. **UI rendering**: `finalizedSegments.map(SegmentRow)` + `activeSegment && <ActiveRow>` — finalized rows never re-render; only the active row changes
+11. **flush()** — always immediate; computes modal speaker from `speakerHistoryRef`, appends to `finalizedSegments`, clears refs, sets `activeSegment = null`
+12. **Finalization triggers** (three):
+    - **Speaker change** — speaker A token arrives when segment is open for speaker B → flush before appending
+    - **Sentence boundary** — token ends with `.?!` → flush after appending
+    - **Utterance boundary** — all tokens in message are final (Soniox VAD) → flush
+    - **Word cap** (100 words) — last-resort safety valve
+13. Per-token processing order: (1) open segment if none, (2) speaker-change check BEFORE append, (3) append text, (4) sentence-boundary check AFTER append
+14. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` prevents loops
+15. Stop → promote nfDisplay to finalBuf if needed → `flush()` → `POST /api/transcription/session/stop`
+16. Translation is currently disabled (removed; to re-enable add `translatePhrase` calls in workspace.tsx)
 
 ### Soniox v4 API Notes
 - **Endpoint**: `wss://stt-rt.soniox.com/transcribe-websocket` (v4, released Feb 5 2026)

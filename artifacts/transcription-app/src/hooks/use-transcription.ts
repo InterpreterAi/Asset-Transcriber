@@ -13,14 +13,8 @@ export interface Phrase {
   language: LangCode;
 }
 
-/** A phrase that has been computed but is waiting for the stabilization delay. */
-interface PendingPhrase {
-  phrase: Phrase;
-  timer:  ReturnType<typeof setTimeout>;
-}
-
-/** The sentence currently being spoken — updated in place on every token event. */
-export interface LiveTranscript {
+/** The segment currently being spoken — updated in place on every token event. */
+export interface ActiveSegment {
   text: string;
   language: LangCode;
   speakerLabel: string;
@@ -30,22 +24,9 @@ export interface LiveTranscript {
 const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
 
-// Silence threshold: how long the token stream must be idle before the
-// active segment is sealed into history.  1 second matches natural speech
-// pause durations — shorter pauses are mid-sentence breaths, not boundaries.
-const COMMIT_DELAY = 1000; // ms of silence → seal active segment
-
-// How long to hold a finalized segment before it appears in the transcript UI.
-// Diarization labels can drift on the first few tokens of a speaker turn;
-// waiting ~1 s lets Soniox's model settle so the committed row shows the
-// correct speaker from the moment it appears — no label corrections visible.
-const STABILIZE_MS = 900;
-
-// Speaker-stabilization window: we collect speaker readings over this window
-// and use the most-common speaker (mode) when sealing — not the most recent.
-// Soniox diarization takes a few seconds to converge; the mode over the last
-// 1.5 s is far more accurate than the label on the very last token batch.
-const SPEAKER_WINDOW_MS = 1500;
+// Declared for reference; silence-based sealing is currently handled by
+// Soniox's own VAD (all-final message) rather than a client-side timer.
+const COMMIT_DELAY = 1000; // ms — kept for future use
 
 // Safety word cap — only fires if the silence/speaker-change triggers never
 // fire (e.g. no speaker data and no natural pause for a very long time).
@@ -198,12 +179,12 @@ function detectLang(tokens: SonioxToken[], fallback: LangCode): LangCode {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
-  const [isRecording, setIsRecording]       = useState(false);
-  const [phrases, setPhrases]               = useState<Phrase[]>(loadPhrases);
-  const [liveTranscript, setLiveTranscript] = useState<LiveTranscript | null>(null);
-  const [micLevel, setMicLevel]             = useState(0);
-  const [error, setError]                   = useState<string | null>(null);
-  const [audioInfo, setAudioInfo]           = useState<string>("");
+  const [isRecording, setIsRecording]             = useState(false);
+  const [finalizedSegments, setFinalizedSegments] = useState<Phrase[]>(loadPhrases);
+  const [activeSegment, setActiveSegment]         = useState<ActiveSegment | null>(null);
+  const [micLevel, setMicLevel]                   = useState(0);
+  const [error, setError]                         = useState<string | null>(null);
+  const [audioInfo, setAudioInfo]                 = useState<string>("");
 
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const apiKeyRef    = useRef<string>("");
@@ -265,11 +246,6 @@ export function useTranscription() {
   const wsTokenBufferRef    = useRef<SonioxToken[]>([]);
   const wsBufferTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Stabilization queue ────────────────────────────────────────────────────
-  // Phrases computed by flush() sit here for STABILIZE_MS before being pushed
-  // to the `phrases` state array.  During the wait window Soniox diarization
-  // finishes converging, so every committed row appears with a stable label.
-  const pendingPhrasesRef = useRef<PendingPhrase[]>([]);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -277,30 +253,24 @@ export function useTranscription() {
 
   // ── Persist history to localStorage ───────────────────────────────────────
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(phrases)); }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(finalizedSegments)); }
     catch { /* storage full */ }
-  }, [phrases]);
+  }, [finalizedSegments]);
 
-  // ── commitAllPending: force all staged phrases to the UI immediately ──────
-  // Called on stop / close / clear so no content is ever lost.
-  const commitAllPending = useCallback(() => {
-    const batch = pendingPhrasesRef.current.splice(0); // drain the queue
-    if (batch.length === 0) return;
-    for (const p of batch) clearTimeout(p.timer);
-    setPhrases(prev => [...prev, ...batch.map(p => p.phrase)]);
-  }, []);
-
-  // ── flush: seal the active segment into a permanent phrase ────────────────
-  // immediate = true  → commit directly to `phrases` (used on stop/close)
-  // immediate = false → stage for STABILIZE_MS, then commit (normal path)
-  const flush = useCallback((immediate = false) => {
+  // ── flush: seal the active segment into a finalized row ───────────────────
+  //
+  // Always immediate — no staging delay.
+  // finalizedSegments is append-only: once a segment is pushed it is NEVER
+  // modified again.  Only activeSegment updates in place while speaking.
+  //
+  const flush = useCallback(() => {
     const text = finalBufRef.current.trim();
     if (!text) return;
     const lang = langRef.current;
 
     // ── Per-segment speaker modal ─────────────────────────────────────────
-    // Use the MODE of ALL speaker readings collected during this segment.
-    // History cleared here so the next segment starts completely fresh.
+    // Use the MODE of ALL speaker readings collected during this segment so
+    // transient diarization flips at the edges don't corrupt the label.
     let stableSpeaker = speakerRef.current;
     if (speakerHistoryRef.current.length > 0) {
       const counts = new Map<number, number>();
@@ -314,12 +284,12 @@ export function useTranscription() {
       stableSpeaker = best;
     }
 
-    // Clear per-segment state so the next segment starts fresh.
+    // Clear per-segment state so the next segment starts completely fresh.
     speakerHistoryRef.current   = [];
     finalBufRef.current         = "";
     nfDisplayRef.current        = "";
     activeSegSpeakerRef.current = undefined;
-    setLiveTranscript(null);
+    setActiveSegment(null); // live row disappears; finalized row appears below
 
     const phrase: Phrase = {
       id:           nextId(),
@@ -328,21 +298,8 @@ export function useTranscription() {
       language:     lang,
     };
 
-    if (immediate) {
-      // Commit right away — used during stop / close so content is never lost.
-      setPhrases(prev => [...prev, phrase]);
-    } else {
-      // Stage the phrase: commit to UI after STABILIZE_MS.
-      // This lets Soniox diarization fully converge before the row appears,
-      // so the speaker label is correct from the first moment it's visible.
-      const timer = setTimeout(() => {
-        pendingPhrasesRef.current = pendingPhrasesRef.current.filter(
-          p => p.timer !== timer
-        );
-        setPhrases(prev => [...prev, phrase]);
-      }, STABILIZE_MS);
-      pendingPhrasesRef.current.push({ phrase, timer });
-    }
+    // Append to the immutable finalized list — never rebuild from scratch.
+    setFinalizedSegments(prev => [...prev, phrase]);
   }, []);
 
   // ── stop ──────────────────────────────────────────────────────────────────
@@ -365,8 +322,7 @@ export function useTranscription() {
       finalBufRef.current = nfDisplayRef.current;
     }
     nfDisplayRef.current = "";
-    flush(true);         // immediate — no stabilization delay on explicit stop
-    commitAllPending();  // force-commit anything still in the staging queue
+    flush(); // seals any remaining buffered text into a finalized row
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -395,7 +351,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, flush, commitAllPending]);
+  }, [stopSessionMut, flush]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   //
@@ -537,10 +493,10 @@ export function useTranscription() {
       // ── Non-final preview tail (replaced every message) ──────────────────
       nfDisplayRef.current = previewParts.join("");
 
-      // ── Update live row ───────────────────────────────────────────────────
+      // ── Update active segment (live row — updates in place) ───────────────
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
       if (activeText) {
-        setLiveTranscript({
+        setActiveSegment({
           text:         activeText,
           language:     langRef.current,
           speakerLabel: normalizeSpeaker(speakerRef.current),
@@ -589,8 +545,7 @@ export function useTranscription() {
             finalBufRef.current = nfDisplayRef.current;
           }
           nfDisplayRef.current = "";
-          flush(true);        // immediate — stream is done, nothing more to wait for
-          commitAllPending(); // drain any staged phrases
+          flush(); // stream done — finalize whatever is in the buffer
           return;
         }
 
@@ -611,14 +566,13 @@ export function useTranscription() {
       logFn(`[WS] stt-rt-v4 closed — code:${ev.code} reason:"${ev.reason}"`);
       if (wsRef.current === ws) wsRef.current = null;
 
-      // Commit remaining content immediately on close.
+      // Finalize any remaining buffered content on close.
       if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
       if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
         finalBufRef.current = nfDisplayRef.current;
       }
       nfDisplayRef.current = "";
-      flush(true);        // immediate — socket is gone, stabilization would lose content
-      commitAllPending(); // drain any staged phrases
+      flush(); // socket gone — finalize immediately
 
       // Auto-reconnect — preserves history and liveTranscript
       if (!isRecRef.current || apiErrorOccurred) return;
@@ -630,13 +584,13 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, flush, commitAllPending]);
+  }, [stop, flush]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
-      setLiveTranscript(null);
+      setActiveSegment(null);
       setAudioInfo("");
       finalBufRef.current         = "";
       nfDisplayRef.current        = "";
@@ -738,18 +692,15 @@ export function useTranscription() {
   return {
     isRecording,
     audioInfo,
-    phrases,
-    liveTranscript,
+    finalizedSegments,
+    activeSegment,
     micLevel,
     error,
     start,
     stop,
     clear: () => {
-      // Cancel and discard all staged phrases — user wants a clean slate.
-      for (const p of pendingPhrasesRef.current) clearTimeout(p.timer);
-      pendingPhrasesRef.current = [];
-      setPhrases([]);
-      setLiveTranscript(null);
+      setFinalizedSegments([]);
+      setActiveSegment(null);
       finalBufRef.current         = "";
       nfDisplayRef.current        = "";
       speakerRef.current          = undefined;
