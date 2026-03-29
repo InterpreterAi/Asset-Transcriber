@@ -1,0 +1,98 @@
+Copy this entire message and send it to your developer/agent exactly as it is.
+
+⸻
+
+Message:
+
+We need to change the transcript UI to behave like Soniox real-time streaming.
+Right now the UI only shows text after flush() / final segments. That creates delay.
+Interpreters must see words while the speaker is still talking.
+
+So implement live preview streaming using non-final tokens.
+
+1. Maintain two states
+
+const [segments, setSegments] = useState([])        // finalized transcript rows
+const [activePreviewLine, setActivePreviewLine] = useState("") // live streaming text
+
+2. Update preview immediately on every non-final token
+
+Do NOT wait for flush.
+
+function onToken(token) {
+  setActivePreviewLine(prev => prev + token)
+}
+
+This must run on every websocket message from Soniox.
+
+3. When a final segment arrives
+
+Commit the preview into the transcript and reset preview.
+
+function onFinalSegment(text, speaker) {
+  setSegments(prev => {
+    const last = prev[prev.length - 1]
+
+    // merge if same speaker
+    if (last && last.speaker === speaker) {
+      const updated = [...prev]
+      updated[updated.length - 1] = {
+        ...last,
+        text: last.text + " " + text
+      }
+      return updated
+    }
+
+    return [...prev, { speaker, text }]
+  })
+
+  setActivePreviewLine("")
+}
+
+4. Render finalized transcript first
+
+{segments.map((s, i) => (
+  <TranscriptRow
+    key={i}
+    speaker={s.speaker}
+    text={s.text}
+  />
+))}
+
+5. Render the live preview line under it
+
+{activePreviewLine && (
+  <TranscriptRow
+    speaker="Speaker 1"
+    text={activePreviewLine}
+    isLive={true}
+  />
+)}
+
+6. Style the preview line slightly lighter
+
+.liveLine {
+  opacity: 0.7;
+}
+
+Expected behavior
+
+Text must grow word-by-word in real time, like:
+
+It is
+It is kind
+It is kind of
+It is kind of the
+It is kind of the opposite
+
+Then finalize into the transcript when Soniox sends the final segment.
+
+Important
+
+flush() should only finalize segments, not control when text first appears.
+
+The preview line must update immediately when non-final tokens arrive (200–400ms after speech starts).
+
+⸻
+
+Send that exactly. It clearly tells him what to implement.
