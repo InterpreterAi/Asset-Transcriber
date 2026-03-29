@@ -226,6 +226,14 @@ export function useTranscription() {
   // Soniox diarization instability in the first 1–2 s of a new speaker.
   const speakerHistoryRef = useRef<Array<{ speaker: number; ts: number }>>([]);
 
+  // ── Active-segment display speaker ─────────────────────────────────────────
+  // Lock the speaker label shown on the live row to the FIRST reading of each
+  // segment.  Diarization updates continue being recorded in speakerHistoryRef
+  // for the modal calculation at flush() time, but the visible label stays
+  // stable — the user never sees the label flicker mid-sentence.
+  // Reset to -1 by flush() so the next batch knows to start a fresh segment.
+  const segStartSpeakerRef = useRef<number>(-1); // -1 = no active segment
+
   // ── Token Buffer (100 ms) ──────────────────────────────────────────────────
   // WebSocket messages arrive individually, often carrying 1–3 tokens each.
   // Accumulating them over a 100 ms window before processing gives the
@@ -276,8 +284,9 @@ export function useTranscription() {
     // Trim old entries (keep only recent window)
     speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= cutoff);
 
-    finalBufRef.current  = "";
-    nfDisplayRef.current = "";
+    finalBufRef.current      = "";
+    nfDisplayRef.current     = "";
+    segStartSpeakerRef.current = -1;  // ← reset so next segment gets a fresh lock
     setPhrases(prev => [
       ...prev,
       { id: nextId(), speakerLabel: normalizeSpeaker(stableSpeaker), text, language: lang },
@@ -293,8 +302,9 @@ export function useTranscription() {
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-    wsTokenBufferRef.current    = [];
-    speakerHistoryRef.current   = [];
+    wsTokenBufferRef.current     = [];
+    speakerHistoryRef.current    = [];
+    segStartSpeakerRef.current   = -1;
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -415,7 +425,7 @@ export function useTranscription() {
         speakerHistoryRef.current = speakerHistoryRef.current.filter(h => h.ts >= trimCutoff);
       }
 
-      // ── Sticky speaker (for live display while stabilizing) ───────────────
+      // ── Sticky speaker (most-recent, used for history + flush fallback) ────
       const incomingSpk = (
         finalTokens.find(t => t.speaker !== undefined) ??
         nfTokens.find(t => t.speaker !== undefined)
@@ -437,13 +447,28 @@ export function useTranscription() {
       // Provisional suffix replaces each message (Soniox re-sends corrections).
       nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-      // Update the live row — single in-place update, no new row created.
+      // ── Lock segment-start speaker (stable display label) ────────────────
+      // On the FIRST token after a flush, capture the current speaker as the
+      // display label for this entire segment.  Subsequent diarization updates
+      // keep feeding speakerHistoryRef (for the modal at flush time) but the
+      // visible label never changes mid-sentence.
       const activeText = (finalBufRef.current + nfDisplayRef.current).trim();
+      if (activeText && segStartSpeakerRef.current === -1) {
+        segStartSpeakerRef.current = speakerRef.current;
+      }
+
+      // Update the live row — single in-place update, no new row created.
       if (activeText) {
         setLiveTranscript({
           text:         activeText,
           language:     langRef.current,
-          speakerLabel: normalizeSpeaker(speakerRef.current),
+          // Use segment-start speaker for a stable label; fall back to sticky
+          // speakerRef if no segment-start reading exists yet.
+          speakerLabel: normalizeSpeaker(
+            segStartSpeakerRef.current !== -1
+              ? segStartSpeakerRef.current
+              : speakerRef.current
+          ),
         });
       }
 
@@ -663,7 +688,8 @@ export function useTranscription() {
       setLiveTranscript(null);
       finalBufRef.current  = "";
       nfDisplayRef.current = "";
-      speakerRef.current   = 0;
+      speakerRef.current         = 0;
+      segStartSpeakerRef.current = -1;
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
