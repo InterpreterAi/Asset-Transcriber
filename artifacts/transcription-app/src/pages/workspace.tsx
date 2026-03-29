@@ -7,15 +7,14 @@ import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Copy, ArrowLeftRight, X, Check
 } from "lucide-react";
-import { Button, Card, Select } from "@/components/ui-components";
+import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription, type Phrase } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
 
-const LANGUAGES = [
-  { value: "auto", label: "Auto-detect", sourceOnly: true },
+const LANG_OPTIONS = [
   { value: "en", label: "English" },
   { value: "ar", label: "Arabic" },
   { value: "es", label: "Spanish" },
@@ -25,33 +24,44 @@ const LANGUAGES = [
   { value: "pt", label: "Portuguese" },
   { value: "ru", label: "Russian" },
   { value: "zh-CN", label: "Chinese (Simplified)" },
-  { value: "zh-TW", label: "Chinese (Traditional)" },
   { value: "ja", label: "Japanese" },
   { value: "ko", label: "Korean" },
   { value: "hi", label: "Hindi" },
   { value: "tr", label: "Turkish" },
   { value: "nl", label: "Dutch" },
   { value: "pl", label: "Polish" },
-  { value: "sv", label: "Swedish" },
-  { value: "no", label: "Norwegian" },
-  { value: "da", label: "Danish" },
-  { value: "fi", label: "Finnish" },
-  { value: "el", label: "Greek" },
   { value: "he", label: "Hebrew" },
-  { value: "cs", label: "Czech" },
-  { value: "ro", label: "Romanian" },
-  { value: "hu", label: "Hungarian" },
   { value: "uk", label: "Ukrainian" },
-  { value: "th", label: "Thai" },
-  { value: "vi", label: "Vietnamese" },
-  { value: "id", label: "Indonesian" },
-  { value: "ms", label: "Malay" },
 ];
 
 function langLabel(val: string) {
-  return LANGUAGES.find((l) => l.value === val)?.label ?? val;
+  return LANG_OPTIONS.find((l) => l.value === val)?.label ?? val.toUpperCase();
 }
 
+/** Determine the target translation language for a given phrase */
+function getTargetLang(phraseLanguage: string, langA: string, langB: string): string {
+  if (phraseLanguage === langA) return langB;
+  if (phraseLanguage === langB) return langA;
+  return langB;
+}
+
+// ─── Language badge ────────────────────────────────────────────────────────────
+function LangBadge({ lang }: { lang: string }) {
+  const isArabic = lang === "ar";
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold mr-2 flex-shrink-0 ${
+        isArabic
+          ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+          : "bg-blue-100 text-blue-700 border border-blue-200"
+      }`}
+    >
+      {langLabel(lang)}
+    </span>
+  );
+}
+
+// ─── Copy button ───────────────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handle = () => {
@@ -63,69 +73,113 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handle}
-      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-black/5 text-muted-foreground hover:text-foreground flex-shrink-0"
+      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-black/5 text-muted-foreground hover:text-foreground"
       title="Copy"
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
     </button>
   );
 }
 
-function PhraseBubble({ phrase, translation }: { phrase: Phrase; translation?: string }) {
-  const isInterpreter = phrase.speaker === "Interpreter";
+// ─── Speaker colour palette ────────────────────────────────────────────────────
+const SPEAKER_COLORS = [
+  "text-blue-600",
+  "text-purple-600",
+  "text-orange-600",
+  "text-rose-600",
+];
+function speakerColor(idx: number) {
+  return SPEAKER_COLORS[idx % SPEAKER_COLORS.length];
+}
+
+// ─── Single transcript entry (original) ───────────────────────────────────────
+function TranscriptEntry({ phrase }: { phrase: Phrase }) {
+  const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
-    <div className={`flex flex-col gap-0.5 mb-3 ${isInterpreter ? "items-end" : "items-start"}`}>
-      <span className="text-[10px] font-semibold text-muted-foreground px-1 uppercase tracking-wide">
-        {phrase.speaker}
+    <div className="group flex flex-col gap-1 mb-4">
+      <span className={`text-[10px] font-bold uppercase tracking-widest ${speakerColor(phrase.speakerIndex)}`}>
+        {phrase.speakerLabel}
       </span>
-      <div className={`group relative max-w-[85%] flex items-start gap-1.5 ${isInterpreter ? "flex-row-reverse" : "flex-row"}`}>
-        <div
-          className={`px-3.5 py-2.5 rounded-2xl text-[14px] leading-relaxed ${
-            isInterpreter
-              ? "bg-primary text-primary-foreground rounded-tr-sm"
-              : "bg-muted text-foreground rounded-tl-sm border border-border/60"
-          }`}
-        >
+      <div className="flex items-start gap-2">
+        <div className="flex-1 flex items-start gap-1.5">
+          <LangBadge lang={phrase.language} />
+          <p
+            className="text-sm leading-relaxed text-foreground"
+            dir={isRtl ? "rtl" : "ltr"}
+          >
+            {phrase.text}
+          </p>
+        </div>
+        <CopyButton text={phrase.text} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Partial (live) transcript entry ──────────────────────────────────────────
+function PartialEntry({ phrase }: { phrase: Phrase }) {
+  const isRtl = phrase.language === "ar" || phrase.language === "he";
+  return (
+    <div className="flex flex-col gap-1 mb-4 opacity-60">
+      <span className={`text-[10px] font-bold uppercase tracking-widest ${speakerColor(phrase.speakerIndex)}`}>
+        {phrase.speakerLabel}
+      </span>
+      <div className="flex items-start gap-1.5">
+        <LangBadge lang={phrase.language} />
+        <p className="text-sm leading-relaxed text-foreground italic" dir={isRtl ? "rtl" : "ltr"}>
           {phrase.text}
-          {translation && (
-            <p className={`mt-1.5 text-[12px] opacity-75 border-t pt-1.5 ${isInterpreter ? "border-white/20" : "border-border"}`}>
+          <span className="inline-flex gap-0.5 ml-1.5 align-middle">
+            <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Single translation entry (right panel) ───────────────────────────────────
+function TranslationEntry({
+  phrase,
+  translation,
+  targetLang,
+}: {
+  phrase: Phrase;
+  translation?: string;
+  targetLang: string;
+}) {
+  const isRtl = targetLang === "ar" || targetLang === "he";
+  return (
+    <div className="group flex flex-col gap-1 mb-4">
+      <span className={`text-[10px] font-bold uppercase tracking-widest ${speakerColor(phrase.speakerIndex)}`}>
+        {phrase.speakerLabel}
+      </span>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 flex items-start gap-1.5">
+          <LangBadge lang={targetLang} />
+          {translation ? (
+            <p className="text-sm leading-relaxed text-foreground" dir={isRtl ? "rtl" : "ltr"}>
               {translation}
+            </p>
+          ) : (
+            <p className="text-sm leading-relaxed text-muted-foreground italic">
+              Translating
+              <span className="inline-flex gap-0.5 ml-1 align-middle">
+                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </span>
             </p>
           )}
         </div>
-        <div className="mt-1">
-          <CopyButton text={translation ? `${phrase.text}\n${translation}` : phrase.text} />
-        </div>
+        {translation && <CopyButton text={translation} />}
       </div>
     </div>
   );
 }
 
-function PartialBubble({ phrase }: { phrase: Phrase }) {
-  const isInterpreter = phrase.speaker === "Interpreter";
-  return (
-    <div className={`flex flex-col gap-0.5 mb-3 ${isInterpreter ? "items-end" : "items-start"}`}>
-      <span className="text-[10px] font-semibold text-muted-foreground px-1 uppercase tracking-wide">
-        {phrase.speaker}
-      </span>
-      <div
-        className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-[14px] leading-relaxed italic opacity-60 ${
-          isInterpreter
-            ? "bg-primary/30 text-primary-foreground rounded-tr-sm"
-            : "bg-muted text-foreground rounded-tl-sm border border-border/60"
-        }`}
-      >
-        {phrase.text}
-        <span className="inline-flex gap-0.5 ml-1 align-middle">
-          <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-          <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-          <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-        </span>
-      </div>
-    </div>
-  );
-}
-
+// ─── Workspace ─────────────────────────────────────────────────────────────────
 export default function Workspace() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -138,27 +192,30 @@ export default function Workspace() {
   const [micId, setMicId] = useState("");
   const [systemId, setSystemId] = useState("");
   const [showFeedback, setShowFeedback] = useState(false);
-  const [sourceLang, setSourceLang] = useState("auto");
-  const [targetLang, setTargetLang] = useState("es");
   const [activeTab, setActiveTab] = useState("mic");
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
-  // Per-phrase translations: map from phrase.id → translated string
-  const [translations, setTranslations] = useState<Record<string, string>>({});
+  // The two languages to translate between (bidirectional)
+  const [langA, setLangA] = useState("en");
+  const [langB, setLangB] = useState("ar");
+
+  // Per-phrase: { phraseId → { text: string, targetLang: string } }
+  const [translations, setTranslations] = useState<Record<string, { text: string; targetLang: string }>>({});
   const translatingRef = useRef<Set<string>>(new Set());
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const translationEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll as phrases come in
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    translationEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcription.phrases, transcription.partialPhrase]);
 
-  // Translate each new final phrase individually
   const translatePhrase = useCallback(
-    async (phrase: Phrase, src: string, tgt: string) => {
-      if (translatingRef.current.has(phrase.id)) return;
-      translatingRef.current.add(phrase.id);
+    async (phrase: Phrase, targetLang: string) => {
+      const key = phrase.id;
+      if (translatingRef.current.has(key)) return;
+      translatingRef.current.add(key);
       try {
         const res = await fetch("/api/translate", {
           method: "POST",
@@ -166,36 +223,39 @@ export default function Workspace() {
           credentials: "include",
           body: JSON.stringify({
             text: phrase.text,
-            sourceLang: src === "auto" ? undefined : src,
-            targetLang: tgt,
+            sourceLang: phrase.language !== "en" && phrase.language !== "ar" ? undefined : phrase.language,
+            targetLang,
           }),
         });
         if (res.ok) {
           const data = await res.json() as { translatedText?: string; text?: string };
           const translated = data.translatedText ?? data.text ?? "";
-          setTranslations((prev) => ({ ...prev, [phrase.id]: translated }));
+          setTranslations((prev) => ({ ...prev, [key]: { text: translated, targetLang } }));
         }
       } catch (err) {
         console.error("Translation error", err);
       } finally {
-        translatingRef.current.delete(phrase.id);
+        translatingRef.current.delete(key);
       }
     },
     []
   );
 
-  // Watch for new final phrases and translate them
+  // Watch for new phrases and auto-translate them
   const prevPhraseCountRef = useRef(0);
   useEffect(() => {
     const phrases = transcription.phrases;
     if (phrases.length > prevPhraseCountRef.current) {
       const newPhrases = phrases.slice(prevPhraseCountRef.current);
       newPhrases.forEach((p) => {
-        if (!translations[p.id]) translatePhrase(p, sourceLang, targetLang);
+        if (!translations[p.id]) {
+          const target = getTargetLang(p.language, langA, langB);
+          translatePhrase(p, target);
+        }
       });
     }
     prevPhraseCountRef.current = phrases.length;
-  }, [transcription.phrases, sourceLang, targetLang, translations, translatePhrase]);
+  }, [transcription.phrases, langA, langB, translations, translatePhrase]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
   useEffect(() => { if (devices.length > 0 && !micId) setMicId(devices[0]!.deviceId); }, [devices, micId]);
@@ -225,13 +285,8 @@ export default function Workspace() {
   };
 
   const handleSwapLangs = () => {
-    if (sourceLang === "auto") {
-      setSourceLang(targetLang);
-      setTargetLang("en");
-    } else {
-      setSourceLang(targetLang);
-      setTargetLang(sourceLang);
-    }
+    setLangA(langB);
+    setLangB(langA);
   };
 
   if (userLoading) {
@@ -245,9 +300,7 @@ export default function Workspace() {
 
   const isLimitReached = user.minutesRemainingToday <= 0;
   const isBlocked = user.trialExpired || isLimitReached;
-
-  const sourceLangLabel = langLabel(sourceLang);
-  const targetLangLabel = langLabel(targetLang);
+  const isEmpty = transcription.phrases.length === 0 && !transcription.partialPhrase;
 
   return (
     <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
@@ -350,14 +403,14 @@ export default function Workspace() {
                 </button>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Microphone (Interpreter)</label>
+                <label className="text-xs font-medium text-muted-foreground">Microphone</label>
                 <Select value={micId} onChange={(e) => setMicId(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm">
                   {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 20)}</option>)}
                 </Select>
                 <AudioMeter level={transcription.micLevel} label="" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">System Audio (Caller)</label>
+                <label className="text-xs font-medium text-muted-foreground">System Audio (second speaker)</label>
                 <Select value={systemId} onChange={(e) => setSystemId(e.target.value)} disabled={transcription.isRecording} className="h-9 text-sm">
                   <option value="">None</option>
                   {devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 20)}</option>)}
@@ -371,26 +424,31 @@ export default function Workspace() {
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
             <div className="h-10 border-b border-border bg-muted/20 flex items-center px-4 shrink-0 gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                {sourceLangLabel === "Auto-detect" ? "Original" : sourceLangLabel}
+                Transcript
               </span>
-              <span className="text-[10px] text-muted-foreground/60">Original</span>
+              {transcription.isRecording && (
+                <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
+                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                  Live
+                </span>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {transcription.phrases.length === 0 && !transcription.partialPhrase && !transcription.isRecording ? (
+              {isEmpty && !transcription.isRecording ? (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                   <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                     <Mic2 className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Interpreter and Caller will appear as chat bubbles</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Each speaker gets a separate segment</p>
                 </div>
               ) : (
                 <div>
                   {transcription.phrases.map((p) => (
-                    <PhraseBubble key={p.id} phrase={p} />
+                    <TranscriptEntry key={p.id} phrase={p} />
                   ))}
                   {transcription.partialPhrase && (
-                    <PartialBubble phrase={transcription.partialPhrase} />
+                    <PartialEntry phrase={transcription.partialPhrase} />
                   )}
                   <div ref={transcriptEndRef} />
                 </div>
@@ -402,9 +460,12 @@ export default function Workspace() {
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
             <div className="h-10 border-b border-border bg-muted/20 flex items-center px-4 shrink-0 gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                {targetLangLabel}
+                Translation
               </span>
-              <span className="text-[10px] text-muted-foreground/60">Translation</span>
+              <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+                <ArrowLeftRight className="w-3 h-3" />
+                {langLabel(langA)} ↔ {langLabel(langB)}
+              </span>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               {transcription.phrases.length === 0 && !transcription.isRecording ? (
@@ -413,26 +474,44 @@ export default function Workspace() {
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Translations appear here</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Matched to each speaker's phrase</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Auto-detected and translated in real time</p>
                 </div>
               ) : (
                 <div>
-                  {transcription.phrases.map((p) => (
-                    <PhraseBubble key={p.id} phrase={p} translation={translations[p.id]} />
-                  ))}
+                  {transcription.phrases.map((p) => {
+                    const tr = translations[p.id];
+                    const targetLang = tr?.targetLang ?? getTargetLang(p.language, langA, langB);
+                    return (
+                      <TranslationEntry
+                        key={p.id}
+                        phrase={p}
+                        translation={tr?.text}
+                        targetLang={targetLang}
+                      />
+                    );
+                  })}
                   {transcription.partialPhrase && (
-                    <PartialBubble phrase={{ ...transcription.partialPhrase, text: "…" }} />
+                    <div className="flex flex-col gap-1 mb-4 opacity-40">
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${speakerColor(transcription.partialPhrase.speakerIndex)}`}>
+                        {transcription.partialPhrase.speakerLabel}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <LangBadge lang={getTargetLang(transcription.partialPhrase.language, langA, langB)} />
+                        <p className="text-sm text-muted-foreground italic">…</p>
+                      </div>
+                    </div>
                   )}
+                  <div ref={translationEndRef} />
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* BOTTOM TOOLBAR — two clear rows, no overlap */}
+        {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Device selectors */}
+          {/* ROW 1: Audio devices */}
           <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Mic:</span>
@@ -478,17 +557,19 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* ROW 2: Language selectors + Record button */}
+          {/* ROW 2: Language pair + Record */}
           <div className="flex items-center px-4 py-3 gap-3">
-            {/* Language controls — left side */}
+            {/* "Translate Between" label + language pair */}
             <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate Between</span>
+
               <Select
-                value={sourceLang}
-                onChange={(e) => setSourceLang(e.target.value)}
+                value={langA}
+                onChange={(e) => setLangA(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-9 text-sm w-[140px] bg-white border-border"
+                className="h-9 text-sm w-[130px] bg-white border-border"
               >
-                {LANGUAGES.map((l) => (
+                {LANG_OPTIONS.map((l) => (
                   <option key={l.value} value={l.value}>{l.label}</option>
                 ))}
               </Select>
@@ -503,18 +584,18 @@ export default function Workspace() {
               </button>
 
               <Select
-                value={targetLang}
-                onChange={(e) => setTargetLang(e.target.value)}
+                value={langB}
+                onChange={(e) => setLangB(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-9 text-sm w-[140px] bg-white border-border"
+                className="h-9 text-sm w-[130px] bg-white border-border"
               >
-                {LANGUAGES.filter((l) => !l.sourceOnly).map((l) => (
+                {LANG_OPTIONS.map((l) => (
                   <option key={l.value} value={l.value}>{l.label}</option>
                 ))}
               </Select>
             </div>
 
-            {/* Record button — pushed to center/right */}
+            {/* Record button — centred */}
             <div className="flex-1 flex justify-center">
               {isBlocked ? (
                 <div className="h-11 px-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center font-medium text-sm border border-border">
@@ -530,35 +611,35 @@ export default function Workspace() {
                     disabled={transcription.isStarting}
                     className={`h-11 px-10 rounded-full flex items-center gap-2.5 font-semibold text-[15px] shadow-md transition-all active:scale-95 disabled:opacity-70 ${
                       transcription.isRecording
-                        ? "bg-white text-destructive border-2 border-destructive/30 hover:bg-destructive/5"
-                        : "bg-destructive text-white hover:bg-destructive/90 border border-transparent"
+                        ? "bg-destructive text-white hover:bg-destructive/90"
+                        : "bg-primary text-white hover:bg-primary/90"
                     }`}
                   >
-                    {transcription.isStarting ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : transcription.isRecording ? (
-                      <>
-                        <div className="w-3 h-3 bg-destructive rounded-sm animate-pulse" />
-                        Stop
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-3 h-3 bg-white rounded-full" />
-                        Record
-                      </>
-                    )}
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${transcription.isRecording ? "bg-white animate-pulse" : "bg-white/80"}`} />
+                    {transcription.isStarting ? "Starting…" : transcription.isRecording ? "Listening" : "Start"}
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Error indicator */}
-            {transcription.error && (
-              <div className="text-xs text-destructive max-w-[160px] truncate" title={transcription.error}>
-                ⚠ {transcription.error}
-              </div>
-            )}
+            {/* Right spacer (matches left width for centering) */}
+            <div className="flex items-center gap-2 opacity-0 pointer-events-none">
+              <span className="text-xs font-semibold whitespace-nowrap">Translate Between</span>
+              <div className="h-9 w-[130px]" />
+              <div className="w-8 h-8" />
+              <div className="h-9 w-[130px]" />
+            </div>
           </div>
+
+          {/* Error bar */}
+          {transcription.error && (
+            <div className="px-4 pb-3">
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 flex items-center gap-2 text-xs text-destructive">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                {transcription.error}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

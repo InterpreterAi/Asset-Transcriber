@@ -142,9 +142,17 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 ### Soniox API Notes (Updated)
 - **Endpoint**: `wss://api.soniox.com/transcribe-websocket` (old `stt.soniox.com` domain no longer exists)
 - **Init format**: `{ api_key, model: "en_v2_lowlatency", audio_format: "pcm_s16le", sample_rate_hertz: 48000, num_audio_channels: 1, include_nonfinal: true }`
-- **Response format v10**: `{ fw: [{t, spk}], nfw: [{t, spk}], spks: [], metadata: {package_version: "v10"} }`
-- **Diarization**: `spk` index per word in `fw`/`nfw` arrays (0-indexed); spk 0 → Interpreter, spk 1 → Caller
+- **Response format v10**: `{ fw: [{t, spk, lang}], nfw: [{t, spk, lang}], spks: [], metadata: {package_version: "v10"} }`
+- **Speaker diarization**: `spk` index (0-indexed) per word in `fw`/`nfw` arrays; spk 0 → Speaker 1, spk 1 → Speaker 2
+- **Language detection**: `lang` field per word (falls back to Arabic Unicode char ratio detection if absent)
+- **Segmentation**: each batch of final words creates a NEW bubble (no merging with previous phrases)
 - Old fields `sample_rate`, `enable_speaker_diarization`, `num_speakers`, `soniox-1` model are **no longer valid**
+
+### Bidirectional Translation
+- Two language selectors in the toolbar: Language A ↔ Language B (default: English ↔ Arabic)
+- Each phrase is auto-translated: if detected as Language A → translate to B, if detected as Language B → translate to A
+- Language detected from Soniox `lang` field; falls back to Arabic Unicode character ratio
+- Right panel shows translation with a language badge for the target language
 
 ### UI Layout
 - **Sidebar** (64px): User / Mic / Globe / Admin icons + logout at bottom
