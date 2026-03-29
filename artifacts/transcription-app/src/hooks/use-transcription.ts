@@ -214,20 +214,7 @@ export function useTranscription() {
   const lastTokenTimeRef = useRef<number>(0);
 
   // ── Speaker stabilization state ────────────────────────────────────────────
-  // ── Speaker confirmation window ────────────────────────────────────────────
-  // When a token with a different speaker_id arrives we do NOT immediately
-  // seal and split.  Instead we:
-  //   1. Append the text to the live row immediately (nothing looks frozen).
-  //   2. Start a 600 ms confirmation timer.
-  //   3. If the timer fires without a reversion → retroactively split:
-  //        • Commit everything before the candidate's first token as the old
-  //          speaker's sealed phrase.
-  //        • The remaining text becomes the new speaker's live row.
-  //   4. If the old speaker returns within 600 ms → cancel, absorb, no split.
-  //
-  const candidateSpeakerRef    = useRef<number | undefined>(undefined);
-  const candidateTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const candidateTextStartRef  = useRef<number>(0); // byte offset in finalBufRef when candidate started
+  // (No speaker-confirmation window — sealing is immediate on speaker change)
 
   // ── Token Buffer (100 ms) ──────────────────────────────────────────────────
   // WebSocket messages arrive individually, often carrying 1–3 tokens each.
@@ -275,10 +262,7 @@ export function useTranscription() {
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-    if (candidateTimerRef.current) { clearTimeout(candidateTimerRef.current); candidateTimerRef.current = null; }
-    wsTokenBufferRef.current        = [];
-    candidateSpeakerRef.current     = undefined;
-    candidateTextStartRef.current   = 0;
+    wsTokenBufferRef.current = [];
 
     // If the final buffer is empty but there is a non-final live suffix
     // (speaker was mid-word when Stop was pressed), promote that suffix so
@@ -351,9 +335,7 @@ export function useTranscription() {
     //
     //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
     //
-    // Segmentation triggers (only two):
-    //   1. Confirmed speaker change (≥ 3 tokens or ≥ 300 ms same new speaker)
-    //   2. Long silence (≥ 2 s with no tokens from any speaker)
+    // Segmentation triggers: speaker change, punctuation, word cap, silence
     //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
@@ -363,7 +345,17 @@ export function useTranscription() {
       const finalTokens = tokens.filter(t => t.is_final);
       const nfTokens    = tokens.filter(t => !t.is_final);
 
-      // ── Speaker Stabilizer + Segment Builder (final tokens) ─────────────
+      // ── Segment Builder (final tokens) ──────────────────────────────────
+      //
+      // Four segmentation triggers — in order of priority:
+      //   1. Speaker change  → seal immediately, start new row for new speaker
+      //   2. Sentence punctuation → seal immediately
+      //   3. Word-count cap  → seal to prevent run-on segments
+      //   4. Silence (700 ms) → seal if speech pauses with buffered text
+      //
+      // is_final triggers a seal after the entire batch so each committed
+      // Soniox phrase becomes its own transcript row.
+      //
       if (finalTokens.length > 0) {
         langRef.current = detectLang(finalTokens, langRef.current);
 
@@ -374,135 +366,62 @@ export function useTranscription() {
           );
         }
 
-        // ── Segment Builder with 600 ms speaker confirmation window ──────
-        //
-        // Text flows to the live row immediately so nothing appears frozen.
-        // Speaker label and bubble boundary are only committed after 600 ms
-        // of continuous tokens from the same new speaker (or a sentence end).
-        //
-        //   A. Buffer empty         → assign speaker, start segment.
-        //   B. Same as confirmed speaker (no change) → append.
-        //      • If a candidate was pending, cancel it (reversion = same speaker).
-        //   C. Same as pending candidate → append text, let timer run.
-        //   D. New different speaker → record split point, start 600 ms timer.
-        //      Text is appended immediately so the live row keeps growing.
-        //
-        // On timer fire (confirmSpeaker):
-        //   • Slice finalBuf at the split point recorded when candidate started.
-        //   • Flush the pre-split portion as the old speaker's sealed phrase.
-        //   • New speaker's text becomes the new live segment.
-        //
-        const SENTENCE_END    = /[.!?؟。！？]\s*$/;
-        const CONFIRM_DELAY_MS = 600;
+        const SENTENCE_END = /[.!?؟。！？]\s*$/;
 
-        const resetCandidate = () => {
-          if (candidateTimerRef.current) { clearTimeout(candidateTimerRef.current); candidateTimerRef.current = null; }
-          candidateSpeakerRef.current   = undefined;
-          candidateTextStartRef.current = 0;
-        };
-
-        const confirmSpeaker = () => {
-          candidateTimerRef.current = null;
-          const newSpk  = candidateSpeakerRef.current;
-          const splitAt = candidateTextStartRef.current;
-          candidateSpeakerRef.current   = undefined;
-          candidateTextStartRef.current = 0;
-
-          if (newSpk === undefined) return;
-
-          const prevText = finalBufRef.current.slice(0, splitAt).trim();
-          const newText  = finalBufRef.current.slice(splitAt).trim();
-
-          // Seal old speaker's portion
-          if (prevText) {
-            const oldBuf = finalBufRef.current;
-            finalBufRef.current = prevText;
-            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-            flush();
-            // If flush consumed nothing (already cleared), restore newText below
-            void oldBuf; // suppress lint
-          }
-
-          // Start new speaker's live segment
-          speakerRef.current  = newSpk;
-          finalBufRef.current = newText;
-        };
-
-        const sealAndFlush = () => {
-          // If a speaker change was pending in the confirmation window, confirm
-          // it first — the speaker change takes priority over pause/punctuation.
-          // This ensures short replies like "I wish we did." land under the
-          // correct speaker even when they end with punctuation mid-window.
-          if (candidateSpeakerRef.current !== undefined) {
-            if (candidateTimerRef.current) { clearTimeout(candidateTimerRef.current); candidateTimerRef.current = null; }
-            confirmSpeaker(); // splits finalBuf, seals old speaker, sets new speaker
-          }
+        // Flush helper — cancels silence timer, seals current buffer
+        const seal = () => {
           if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-          flush(); // seal whatever is now in finalBufRef (the new speaker's text)
+          flush();
         };
 
         for (const token of finalTokens) {
           const tSpk = token.speaker;
           touchSpeaker(tSpk);
 
-          if (!finalBufRef.current.trim()) {
-            // A — buffer empty: start fresh segment
-            resetCandidate();
-            if (tSpk !== undefined) speakerRef.current = tSpk;
-            finalBufRef.current += token.text;
-
-          } else if (tSpk === undefined || tSpk === speakerRef.current) {
-            // B — same as confirmed speaker (or no ID): normal append
-            // If a candidate was building up, cancel it (reversion)
-            resetCandidate();
-            finalBufRef.current += token.text;
-
-          } else if (candidateSpeakerRef.current === tSpk) {
-            // C — same as pending candidate: keep timer running, append text
-            finalBufRef.current += token.text;
-
-          } else {
-            // D — new/different speaker: record split point, start confirm timer
-            if (candidateSpeakerRef.current !== undefined) {
-              // Was tracking a different candidate — cancel it first
-              if (candidateTimerRef.current) { clearTimeout(candidateTimerRef.current); candidateTimerRef.current = null; }
-            }
-            candidateSpeakerRef.current   = tSpk;
-            candidateTextStartRef.current = finalBufRef.current.length; // split point
-            candidateTimerRef.current     = setTimeout(confirmSpeaker, CONFIRM_DELAY_MS);
-            finalBufRef.current          += token.text; // text flows immediately
+          // Trigger 1 — speaker changed and buffer has content → start new row
+          if (
+            tSpk !== undefined &&
+            tSpk !== speakerRef.current &&
+            finalBufRef.current.trim()
+          ) {
+            seal();
           }
 
-          // Sentence boundary → seal now (also confirms any pending candidate)
+          // Assign speaker when buffer is empty (start of new segment)
+          if (!finalBufRef.current.trim() && tSpk !== undefined) {
+            speakerRef.current = tSpk;
+          }
+
+          finalBufRef.current += token.text;
+
+          // Trigger 2 — sentence-ending punctuation → seal immediately
           if (SENTENCE_END.test(finalBufRef.current)) {
-            sealAndFlush();
+            seal();
             continue;
           }
 
-          // Word-count cap → seal to keep segments short and readable
+          // Trigger 3 — word-count cap → keep rows concise
           const wordCount = finalBufRef.current.trim().split(/\s+/).filter(Boolean).length;
           if (wordCount >= MAX_SEG_WORDS) {
-            sealAndFlush();
+            seal();
           }
         }
 
-        // ── is_final → commit phrase ──────────────────────────────────────
-        // Each WebSocket message carrying is_final tokens represents a phrase
-        // Soniox has committed to. Seal it immediately — never carry finalized
-        // text forward into the next segment.
+        // Trigger — is_final batch complete → seal whatever remains
+        // This ensures each committed Soniox phrase is its own row.
         if (finalBufRef.current.trim()) {
-          sealAndFlush();
+          seal();
         }
       }
 
-      // ── Non-final tokens: update live suffix display ────────────────────
-      // Take only the LAST batch of nf tokens (most recent wins).
+      // ── Non-final tokens: live preview display ──────────────────────────
       if (nfTokens.length > 0) {
         nfDisplayRef.current = nfTokens.map(t => t.text).join("");
         if (!finalBufRef.current) langRef.current = detectLang(nfTokens, langRef.current);
       }
 
-      // ── Silence-flush timer — the only non-speaker-change segment trigger ──
+      // ── Silence-flush timer (Trigger 4) ─────────────────────────────────
+      // Fallback: seal buffered final text if no new tokens for COMMIT_DELAY ms.
       if (finalTokens.length > 0 && finalBufRef.current.trim()) {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
         const silenceFlush = () => {
@@ -517,7 +436,7 @@ export function useTranscription() {
         commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
       }
 
-      // ── UI update ────────────────────────────────────────────────────────
+      // ── Live row UI update ───────────────────────────────────────────────
       const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
       if (displayText) {
         setLiveTranscript({
@@ -525,6 +444,8 @@ export function useTranscription() {
           language:     langRef.current,
           speakerLabel: normalizeSpeaker(speakerRef.current),
         });
+      } else if (!finalBufRef.current && !nfDisplayRef.current) {
+        setLiveTranscript(null);
       }
     };
 
@@ -713,10 +634,7 @@ export function useTranscription() {
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-      if (candidateTimerRef.current) { clearTimeout(candidateTimerRef.current); candidateTimerRef.current = null; }
-      wsTokenBufferRef.current      = [];
-      candidateSpeakerRef.current   = undefined;
-      candidateTextStartRef.current = 0;
+      wsTokenBufferRef.current = [];
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
