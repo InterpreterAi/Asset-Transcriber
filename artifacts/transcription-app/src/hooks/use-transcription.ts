@@ -221,6 +221,12 @@ export function useTranscription() {
   // undefined = no segment is currently open.
   const activeSegSpeakerRef = useRef<number | undefined>(undefined);
 
+  // ── Segment start timestamp ────────────────────────────────────────────────
+  // Date.now() when the CURRENT segment opened (first token after a flush).
+  // Used by the 2-second time-cap flush trigger.
+  // 0 = no segment is open.
+  const segStartMsRef = useRef<number>(0);
+
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
@@ -262,6 +268,7 @@ export function useTranscription() {
     speakerHistoryRef.current   = [];
     finalBufRef.current         = "";
     activeSegSpeakerRef.current = undefined;
+    segStartMsRef.current       = 0;        // no segment open until next token
     setActivePreviewLine(null); // live row disappears; finalized row appears below
 
     const phrase: Phrase = {
@@ -393,10 +400,10 @@ export function useTranscription() {
         // Step 1: open a segment if none is active.
         if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
           activeSegSpeakerRef.current = spk;
+          segStartMsRef.current       = Date.now();
         }
 
-        // Step 2: speaker changed → flush current segment BEFORE appending.
-        // Rule 4: is_final is the ONLY finalization trigger via speaker change.
+        // Step 2a: speaker changed → flush BEFORE appending, start new segment.
         if (
           spk !== undefined &&
           activeSegSpeakerRef.current !== undefined &&
@@ -405,6 +412,7 @@ export function useTranscription() {
         ) {
           flush();
           activeSegSpeakerRef.current = spk;
+          segStartMsRef.current       = Date.now();
         }
 
         // Track speaker history (modal label computed at flush time).
@@ -418,6 +426,21 @@ export function useTranscription() {
         // Step 3: commit confirmed text.
         finalBufRef.current += token.text;
         newFinalToks.push(token);
+
+        // Step 2b: punctuation flush — sentence ended on this final token.
+        // Fires AFTER appending so the punctuation is included in the segment.
+        if (/[.!?]$/.test(finalBufRef.current.trimEnd())) {
+          flush();
+        }
+
+        // Step 2c: length / time cap — prevent runaway segments.
+        // Flush when confirmed text hits ~120 chars OR the segment is ~2 s old.
+        const elapsed = segStartMsRef.current > 0
+          ? Date.now() - segStartMsRef.current
+          : 0;
+        if (finalBufRef.current.length >= 120 || elapsed >= 2000) {
+          flush();
+        }
       }
 
       // Advance the watermark.
@@ -512,6 +535,7 @@ export function useTranscription() {
       finalBufRef.current         = "";
       globalFinalCountRef.current = 0;
       activeSegSpeakerRef.current = undefined;
+      segStartMsRef.current       = 0;
       speakerHistoryRef.current   = [];
       langRef.current             = "en";
       speakerRef.current          = undefined; // reset — no speaker until API sends one
@@ -620,6 +644,7 @@ export function useTranscription() {
       finalBufRef.current         = "";
       speakerRef.current          = undefined;
       activeSegSpeakerRef.current = undefined;
+      segStartMsRef.current       = 0;
       globalFinalCountRef.current = 0;
       speakerHistoryRef.current   = [];
       resetSpeakerMap();
