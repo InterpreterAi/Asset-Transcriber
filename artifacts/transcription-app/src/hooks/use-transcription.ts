@@ -235,6 +235,18 @@ export function useTranscription() {
   const lastTokenTimeRef = useRef<number>(0);
   const pauseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Speaker stability filter ───────────────────────────────────────────────
+  // Brief speaker flips (A→B→A) caused by noise, "mm", or breathing are NOT
+  // treated as real changes.  A new speaker must hold for ≥1200 ms OR produce
+  // ≥4 tokens before we accept the change and flush the segment.
+  //
+  // pendingSpeakerRef:           the candidate new-speaker label being evaluated.
+  // pendingSpeakerStartTimeRef:  Date.now() when the candidate was first seen.
+  // pendingSpeakerTokenCountRef: number of consecutive tokens from the candidate.
+  const pendingSpeakerRef           = useRef<number | null>(null);
+  const pendingSpeakerStartTimeRef  = useRef<number>(0);
+  const pendingSpeakerTokenCountRef = useRef<number>(0);
+
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
@@ -273,10 +285,13 @@ export function useTranscription() {
     }
 
     // Clear per-segment state so the next segment starts completely fresh.
-    speakerHistoryRef.current   = [];
-    finalBufRef.current         = "";
-    activeSegSpeakerRef.current = undefined;
-    segStartMsRef.current       = 0;        // no segment open until next token
+    speakerHistoryRef.current           = [];
+    finalBufRef.current                 = "";
+    activeSegSpeakerRef.current         = undefined;
+    segStartMsRef.current               = 0;       // no segment open until next token
+    pendingSpeakerRef.current           = null;    // speaker stability window reset
+    pendingSpeakerStartTimeRef.current  = 0;
+    pendingSpeakerTokenCountRef.current = 0;
     setActivePreviewLine(null); // live row disappears; finalized row appears below
 
     const phrase: Phrase = {
@@ -297,9 +312,12 @@ export function useTranscription() {
     setIsRecording(false);
 
     if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
-    speakerHistoryRef.current     = [];
-    activeSegSpeakerRef.current   = undefined;
-    globalFinalCountRef.current   = 0;
+    speakerHistoryRef.current           = [];
+    activeSegSpeakerRef.current         = undefined;
+    globalFinalCountRef.current         = 0;
+    pendingSpeakerRef.current           = null;
+    pendingSpeakerStartTimeRef.current  = 0;
+    pendingSpeakerTokenCountRef.current = 0;
     flush(); // seals any remaining confirmed text into a finalized row
 
     workletRef.current?.disconnect();
@@ -421,18 +439,46 @@ export function useTranscription() {
         const atWordBoundary  = () => /[\s.!?,;:]$/.test(finalBufRef.current);
         const hasMinLength    = () => finalBufRef.current.trim().length >= MIN_FLUSH_LEN;
 
-        // Step 2a: speaker changed → flush BEFORE appending (rule 1, 2, 4, 5).
-        // Requires: different speaker + ≥20 confirmed chars + at a word boundary.
-        if (
-          spk !== undefined &&
-          activeSegSpeakerRef.current !== undefined &&
-          spk !== activeSegSpeakerRef.current &&
-          hasMinLength() &&
-          atWordBoundary()
-        ) {
-          flush();
-          activeSegSpeakerRef.current = spk;
-          segStartMsRef.current       = Date.now();
+        // Step 2a: speaker-change stability filter.
+        // A brief flip (A→B→A) from noise / breathing is not a real change.
+        // The new speaker must hold for ≥1200 ms OR produce ≥4 tokens before
+        // we accept the change, flush the old segment, and open a new one.
+        if (spk !== undefined && activeSegSpeakerRef.current !== undefined) {
+          if (spk !== activeSegSpeakerRef.current) {
+            if (pendingSpeakerRef.current === null) {
+              // First token from a new speaker — open a provisional stability window.
+              pendingSpeakerRef.current           = spk;
+              pendingSpeakerStartTimeRef.current  = Date.now();
+              pendingSpeakerTokenCountRef.current = 1;
+            } else if (spk === pendingSpeakerRef.current) {
+              // Same candidate — extend its window.
+              pendingSpeakerTokenCountRef.current++;
+            } else {
+              // A third speaker appeared — reset the window to this new candidate.
+              pendingSpeakerRef.current           = spk;
+              pendingSpeakerStartTimeRef.current  = Date.now();
+              pendingSpeakerTokenCountRef.current = 1;
+            }
+
+            // Confirm the change once the candidate meets the stability threshold.
+            const pendingElapsed = Date.now() - pendingSpeakerStartTimeRef.current;
+            if (
+              (pendingElapsed >= 1200 || pendingSpeakerTokenCountRef.current >= 4) &&
+              hasMinLength() &&
+              atWordBoundary()
+            ) {
+              // Capture the confirmed speaker BEFORE flush() wipes pendingSpeakerRef.
+              const confirmedSpk = pendingSpeakerRef.current;
+              flush(); // seals old segment; also clears pendingSpeaker* refs
+              activeSegSpeakerRef.current = confirmedSpk;
+              segStartMsRef.current       = Date.now();
+            }
+          } else {
+            // Returned to the current speaker — the flip was noise; cancel pending.
+            pendingSpeakerRef.current           = null;
+            pendingSpeakerStartTimeRef.current  = 0;
+            pendingSpeakerTokenCountRef.current = 0;
+          }
         }
 
         // Track speaker history (modal label computed at flush time).
@@ -578,12 +624,15 @@ export function useTranscription() {
       setAudioInfo("");
       if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
       finalBufRef.current         = "";
-      globalFinalCountRef.current = 0;
-      activeSegSpeakerRef.current = undefined;
-      segStartMsRef.current       = 0;
-      lastTokenTimeRef.current    = 0;
-      speakerHistoryRef.current   = [];
-      langRef.current             = "en";
+      globalFinalCountRef.current         = 0;
+      activeSegSpeakerRef.current         = undefined;
+      segStartMsRef.current               = 0;
+      lastTokenTimeRef.current            = 0;
+      pendingSpeakerRef.current           = null;
+      pendingSpeakerStartTimeRef.current  = 0;
+      pendingSpeakerTokenCountRef.current = 0;
+      speakerHistoryRef.current           = [];
+      langRef.current                     = "en";
       speakerRef.current          = undefined; // reset — no speaker until API sends one
       resetSpeakerMap(); // fresh sequential labels for this recording session
 
@@ -690,11 +739,14 @@ export function useTranscription() {
       setActivePreviewLine(null);
       finalBufRef.current         = "";
       speakerRef.current          = undefined;
-      activeSegSpeakerRef.current = undefined;
-      segStartMsRef.current       = 0;
-      lastTokenTimeRef.current    = 0;
-      globalFinalCountRef.current = 0;
-      speakerHistoryRef.current   = [];
+      activeSegSpeakerRef.current         = undefined;
+      segStartMsRef.current               = 0;
+      lastTokenTimeRef.current            = 0;
+      pendingSpeakerRef.current           = null;
+      pendingSpeakerStartTimeRef.current  = 0;
+      pendingSpeakerTokenCountRef.current = 0;
+      globalFinalCountRef.current         = 0;
+      speakerHistoryRef.current           = [];
       resetSpeakerMap();
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
