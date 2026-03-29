@@ -457,8 +457,11 @@ export function useTranscription() {
 
         // Step 2a: speaker-change stability filter.
         // A brief flip (A→B→A) from noise / breathing is not a real change.
-        // The new speaker must hold for ≥1200 ms OR produce ≥4 tokens before
+        // The new speaker must hold for ≥600 ms OR produce ≥2 tokens before
         // we accept the change, flush the old segment, and open a new one.
+        // Kept deliberately low so natural turn-taking ("Yes, yeah.") is
+        // confirmed quickly — Soniox's server-side model is accurate enough
+        // that single-token glitches are rare.
         if (spk !== undefined && activeSegSpeakerRef.current !== undefined) {
           if (spk !== activeSegSpeakerRef.current) {
             if (pendingSpeakerRef.current === null) {
@@ -479,7 +482,7 @@ export function useTranscription() {
             // Confirm the change once the candidate meets the stability threshold.
             const pendingElapsed = Date.now() - pendingSpeakerStartTimeRef.current;
             if (
-              (pendingElapsed >= 1200 || pendingSpeakerTokenCountRef.current >= 4) &&
+              (pendingElapsed >= 600 || pendingSpeakerTokenCountRef.current >= 2) &&
               hasMinLength() &&
               atWordBoundary()
             ) {
