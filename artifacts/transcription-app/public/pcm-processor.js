@@ -20,8 +20,10 @@ class PcmProcessor extends AudioWorkletProcessor {
     this._targetRate = (options.processorOptions && options.processorOptions.targetRate) || 16000;
     this._ratio = sampleRate / this._targetRate;
 
-    // Accumulate 100 ms worth of input samples before sending
-    this._chunkSize = Math.round(sampleRate * 0.1);  // e.g. 4800 @ 48 kHz
+    // Accumulate 60 ms worth of input samples before sending.
+    // Smaller than 100 ms → lower end-to-end latency; still large enough for
+    // the lowlatency model to process reliably.
+    this._chunkSize = Math.round(sampleRate * 0.06);  // e.g. 2880 @ 48 kHz → 960 @ 16 kHz
     this._buf = new Float32Array(this._chunkSize * 2); // pre-alloc, grow if needed
     this._bufLen = 0;
   }

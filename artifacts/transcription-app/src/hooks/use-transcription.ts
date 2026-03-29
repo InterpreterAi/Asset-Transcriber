@@ -16,10 +16,10 @@ export interface Phrase {
 const TARGET_RATE = 16000; // Soniox requires 16 kHz mono PCM
 
 // Speaker-index offsets per channel — must not collide across the 4 WebSockets:
-//   mic + en_v2  → offset   0  (speakers   0…99)
-//   mic + ar_v1  → offset 100  (speakers 100…199)
-//   sys + en_v2  → offset 200  (speakers 200…299)
-//   sys + ar_v1  → offset 300  (speakers 300…399)
+//   mic + en_v2_lowlatency → offset   0  (speakers   0…99)
+//   mic + ar_v1            → offset 100  (speakers 100…199)
+//   sys + en_v2_lowlatency → offset 200  (speakers 200…299)
+//   sys + ar_v1            → offset 300  (speakers 300…399)
 const OFFSETS = { micEn: 0, micAr: 100, sysEn: 200, sysAr: 300 } as const;
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -160,6 +160,8 @@ export function useTranscription() {
     sourcePeerRef: MutableRefObject<WebSocket | null>, // the other WS for the same source
   ): WebSocket => {
     const ws = new WebSocket("wss://api.soniox.com/transcribe-websocket");
+    // Prevents reconnect loops when the API rejects the request (e.g. invalid model)
+    let apiErrorOccurred = false;
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
@@ -181,11 +183,12 @@ export function useTranscription() {
           error?: string; code?: number; message?: string;
         };
 
-        // Soniox API-level error
+        // Soniox API-level error (e.g. invalid model, bad API key)
         if (data.error || (typeof data.code === "number" && !data.fw && !data.nfw)) {
           const msg = data.error ?? data.message ?? `code ${data.code}`;
           console.error(`[WS] ${source}/${model} API error:`, msg, data);
           setError(`Transcription error (${source}/${model}): ${msg}`);
+          apiErrorOccurred = true; // do not reconnect — same error will repeat
           return;
         }
 
@@ -288,10 +291,10 @@ export function useTranscription() {
           : p
       ));
 
-      // If the session is still running, reconnect automatically.
-      // (isRecordingRef is set to false BEFORE WSs are closed in stop(), so this
-      //  check correctly skips reconnect when the user explicitly stops.)
-      if (!isRecordingRef.current) return;
+      // If the session is still running AND the close wasn't due to an API error,
+      // reconnect automatically. isRecordingRef is set false BEFORE closeing WSs
+      // in stop(), so this check correctly skips reconnect when the user stops.
+      if (!isRecordingRef.current || apiErrorOccurred) return;
 
       console.log(`[WS] ${source}/${model} — scheduling reconnect in 200 ms`);
       setTimeout(() => {
@@ -366,7 +369,7 @@ export function useTranscription() {
 
       // ── Open Soniox WebSocket pairs ──────────────────────────────────
       // Mic pair (always)
-      const wsMicEn = buildWs(tokenRes.apiKey, "en_v2", "en", OFFSETS.micEn, "mic", wsMicEnRef, wsMicArRef);
+      const wsMicEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.micEn, "mic", wsMicEnRef, wsMicArRef);
       const wsMicAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.micAr, "mic", wsMicArRef, wsMicEnRef);
       wsMicEnRef.current = wsMicEn;
       wsMicArRef.current = wsMicAr;
@@ -375,7 +378,7 @@ export function useTranscription() {
       let wsSysEn: WebSocket | null = null;
       let wsSysAr: WebSocket | null = null;
       if (systemStream) {
-        wsSysEn = buildWs(tokenRes.apiKey, "en_v2", "en", OFFSETS.sysEn, "sys", wsSysEnRef, wsSysArRef);
+        wsSysEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.sysEn, "sys", wsSysEnRef, wsSysArRef);
         wsSysAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.sysAr, "sys", wsSysArRef, wsSysEnRef);
         wsSysEnRef.current = wsSysEn;
         wsSysArRef.current = wsSysAr;
