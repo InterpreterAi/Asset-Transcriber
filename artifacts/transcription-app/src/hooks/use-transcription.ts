@@ -343,11 +343,17 @@ export function useTranscription() {
       console.log("[WS] stt-rt-v4 OPEN — config sent:", config);
     };
 
-    // ── processTokenBatch: Speaker Stabilizer + Segment Builder ──────────
+    // ── processTokens: Speaker Stabilizer + Segment Builder ──────────────
     //
-    // Receives a batch of tokens accumulated over the 100 ms window and
-    // runs the full pipeline:
-    //   Speaker Stabilizer → Segment Builder → Silence Timer → UI update
+    // Called immediately on every WebSocket message — no buffering delay.
+    // Runs the full pipeline inline so tokens reach the UI the moment they
+    // arrive from Soniox:
+    //
+    //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
+    //
+    // Segmentation triggers (only two):
+    //   1. Confirmed speaker change (≥ 3 tokens or ≥ 300 ms same new speaker)
+    //   2. Long silence (≥ 2 s with no tokens from any speaker)
     //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
@@ -447,11 +453,11 @@ export function useTranscription() {
       }
     };
 
-    // ── onmessage: Token Buffer (100 ms) ──────────────────────────────────
+    // ── onmessage: immediate per-message processing ───────────────────────
     //
-    // Accumulate raw tokens from every WebSocket message into a buffer.
-    // A single 100 ms timer drains the buffer into processTokenBatch.
-    // Error and finished events bypass the buffer and are handled inline.
+    // Every WebSocket message is processed synchronously — no buffering step.
+    // Tokens flow straight into processTokens → Speaker Stabilizer → UI.
+    // Text appears on screen the instant Soniox delivers each token.
     //
     ws.onmessage = (e: MessageEvent) => {
       try {
@@ -466,13 +472,7 @@ export function useTranscription() {
         }
 
         if (msg.finished) {
-          console.log("[WS] stt-rt-v4 finished — draining buffer");
-          // Drain any buffered tokens first, then commit.
-          if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-          if (wsTokenBufferRef.current.length > 0) {
-            processTokenBatch(wsTokenBufferRef.current);
-            wsTokenBufferRef.current = [];
-          }
+          console.log("[WS] stt-rt-v4 finished — committing remaining content");
           if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
           if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
             finalBufRef.current = nfDisplayRef.current;
@@ -485,18 +485,8 @@ export function useTranscription() {
         const tokens = msg.tokens ?? [];
         if (tokens.length === 0) return;
 
-        // Accumulate into the 100 ms buffer.
-        wsTokenBufferRef.current.push(...tokens);
-
-        // Arm the drain timer if not already running.
-        if (!wsBufferTimerRef.current) {
-          wsBufferTimerRef.current = setTimeout(() => {
-            wsBufferTimerRef.current = null;
-            const batch = wsTokenBufferRef.current;
-            wsTokenBufferRef.current = [];
-            processTokenBatch(batch);
-          }, 100);
-        }
+        // Process immediately — no buffer wait.
+        processTokenBatch(tokens);
       } catch (err) {
         console.error("[WS] stt-rt-v4 parse error", err);
       }
