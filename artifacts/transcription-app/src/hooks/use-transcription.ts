@@ -24,7 +24,8 @@ export interface LiveTranscript {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE  = 16000;
 const STORAGE_KEY  = "interpretai_phrases";
-const COMMIT_DELAY = 1500; // ms of silence before sealing a sentence into history
+const COMMIT_DELAY = 800;  // ms of silence before sealing a sentence into history
+const AR_GUARD_MS  = 300;  // ms to suppress EN live display after Arabic activity
 
 function modelFor(lang: LangCode): string {
   return lang === "en" ? "en_v2_lowlatency" : "ar_v1";
@@ -238,8 +239,8 @@ export function useTranscription() {
             lastArActivityRef.current = Date.now();
           }
 
-          // Suppress English live display when Arabic was active within last 1 s
-          if (langCode === "en" && Date.now() - lastArActivityRef.current < 1000) return;
+          // Suppress English live display when Arabic was active recently
+          if (langCode === "en" && Date.now() - lastArActivityRef.current < AR_GUARD_MS) return;
 
           // Show: committed buffer + current partial (so the full sentence is visible)
           const display = bufRef.current
@@ -278,9 +279,11 @@ export function useTranscription() {
             speakerLabel: makeSpeakerLabel(spkRef.current),
           });
 
-          // Reset the silence countdown — fires when speech pauses for COMMIT_DELAY
+          // If the committed word ends with sentence-terminal punctuation, seal immediately.
+          // Otherwise wait COMMIT_DELAY ms of silence (speaker paused).
+          const endssentence = /[.!?؟،。！？]\s*$/.test(bufRef.current);
           if (timRef.current) clearTimeout(timRef.current);
-          timRef.current = setTimeout(() => flush(langCode), COMMIT_DELAY);
+          timRef.current = setTimeout(() => flush(langCode), endssentence ? 0 : COMMIT_DELAY);
         }
       } catch (err) {
         console.error(`[WS] ${model} parse error`, err);
