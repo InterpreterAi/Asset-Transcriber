@@ -193,24 +193,20 @@ export function useTranscription() {
   // v4 token stream logic:
   //   • Final tokens (is_final: true) accumulate in `finalBufRef` — committed,
   //     never change.  Cleared only by flush().
-  //   • Non-final tokens (is_final: false) replace `nfDisplayRef` each message
-  //     (provisional suffix shown in the active row, never committed).
+  //   • Non-final tokens (is_final: false) contribute `nfText` (local variable,
+  //     reset per message) — a live replacement suffix, never committed.
   //   • activePreviewLine.text = finalBufRef + nfText (live, updates in place).
   //
-  // Segments are sealed immediately on:
-  //   (a) speaker change   (b) sentence boundary   (c) Soniox VAD all-final msg
-  // No timers — no queues — no delays.
+  // No timers — no queues — no delays.  processTokenBatch() runs synchronously
+  // on every WebSocket message.
   //
   const finalBufRef    = useRef<string>("");
-  const nfDisplayRef   = useRef<string>("");
   const langRef        = useRef<LangCode>("en");
   const speakerRef     = useRef<number | undefined>(undefined);
   // Soniox re-sends ALL previously-finalized tokens in every message.
   // Track how many we have already processed so each message only yields the
   // truly new tail.  Reset to 0 at every utterance boundary.
   const globalFinalCountRef = useRef<number>(0);
-  // Timestamp of the most recent token arrival — final OR non-final.
-  const lastTokenTimeRef = useRef<number>(0);
 
   // ── Per-segment speaker history ────────────────────────────────────────────
   // Records every speaker reading seen during the CURRENT active segment.
@@ -224,20 +220,6 @@ export function useTranscription() {
   // flushed and this ref is updated to the new speaker.
   // undefined = no segment is currently open.
   const activeSegSpeakerRef = useRef<number | undefined>(undefined);
-
-  // ── Token Buffer (100 ms) ──────────────────────────────────────────────────
-  // WebSocket messages arrive individually, often carrying 1–3 tokens each.
-  // Accumulating them over a 100 ms window before processing gives the
-  // Speaker Stabilizer a larger, more representative token batch, so the
-  // 3-consecutive-token confirmation threshold is reached faster and false
-  // speaker flips are less likely to cross the threshold in isolation.
-  //
-  // Pipeline: Soniox WS → Token Buffer (100 ms) → Speaker Stabilizer
-  //           → Segment Builder → Translation → UI
-  //
-  const wsTokenBufferRef    = useRef<SonioxToken[]>([]);
-  const wsBufferTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -279,7 +261,6 @@ export function useTranscription() {
     // Clear per-segment state so the next segment starts completely fresh.
     speakerHistoryRef.current   = [];
     finalBufRef.current         = "";
-    nfDisplayRef.current        = "";
     activeSegSpeakerRef.current = undefined;
     setActivePreviewLine(null); // live row disappears; finalized row appears below
 
@@ -300,20 +281,10 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-    wsTokenBufferRef.current      = [];
     speakerHistoryRef.current     = [];
     activeSegSpeakerRef.current   = undefined;
     globalFinalCountRef.current   = 0;
-
-    // If the final buffer is empty but there is a non-final live suffix
-    // (speaker was mid-word when Stop was pressed), promote that suffix so
-    // flush() has something to commit — prevents the "goes blank" bug.
-    if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
-      finalBufRef.current = nfDisplayRef.current;
-    }
-    nfDisplayRef.current = "";
-    flush(); // seals any remaining buffered text into a finalized row
+    flush(); // seals any remaining confirmed text into a finalized row
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -497,10 +468,6 @@ export function useTranscription() {
 
         if (msg.finished) {
           console.log("[WS] stt-rt-v4 finished — committing remaining content");
-          if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
-            finalBufRef.current = nfDisplayRef.current;
-          }
-          nfDisplayRef.current = "";
           flush(); // stream done — finalize whatever is in the buffer
           return;
         }
@@ -522,12 +489,7 @@ export function useTranscription() {
       logFn(`[WS] stt-rt-v4 closed — code:${ev.code} reason:"${ev.reason}"`);
       if (wsRef.current === ws) wsRef.current = null;
 
-      // Finalize any remaining buffered content on close.
-      if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
-        finalBufRef.current = nfDisplayRef.current;
-      }
-      nfDisplayRef.current = "";
-      flush(); // socket gone — finalize immediately
+      flush(); // socket gone — finalize any remaining confirmed text
 
       // Auto-reconnect — finalizedSegments and activePreviewLine are preserved in refs
       if (!isRecRef.current || apiErrorOccurred) return;
@@ -548,7 +510,6 @@ export function useTranscription() {
       setActivePreviewLine(null);
       setAudioInfo("");
       finalBufRef.current         = "";
-      nfDisplayRef.current        = "";
       globalFinalCountRef.current = 0;
       activeSegSpeakerRef.current = undefined;
       speakerHistoryRef.current   = [];
@@ -657,14 +618,11 @@ export function useTranscription() {
       setFinalizedSegments([]);
       setActivePreviewLine(null);
       finalBufRef.current         = "";
-      nfDisplayRef.current        = "";
       speakerRef.current          = undefined;
       activeSegSpeakerRef.current = undefined;
       globalFinalCountRef.current = 0;
+      speakerHistoryRef.current   = [];
       resetSpeakerMap();
-      if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
-      wsTokenBufferRef.current  = [];
-      speakerHistoryRef.current = [];
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
