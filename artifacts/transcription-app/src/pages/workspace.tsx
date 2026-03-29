@@ -85,7 +85,8 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
       <div className="flex items-start gap-2">
         <div className="flex-1 flex items-start gap-2 flex-wrap">
           <LangBadge lang={phrase.language} />
-          <p className="text-sm leading-relaxed text-foreground flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
+          {/* Same weight as LiveEntry — sealing a phrase should feel continuous, not a visual downgrade */}
+          <p className="text-sm font-semibold leading-relaxed text-foreground flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
             {phrase.text}
           </p>
         </div>
@@ -95,25 +96,26 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
   );
 }
 
-// ── Live bubble — fw buffer + current nfw partial in one line ─────────────────
+// ── Live bubble — bold and dark from the first token, dots show it's live ─────
 function LiveEntry({ live }: { live: LiveTranscript }) {
   const isRtl = live.language === "ar" || live.language === "he";
   return (
     <div className="flex flex-col gap-1 mb-4">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/50">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">
         {live.speakerLabel}
       </span>
       <div className="flex items-start gap-2">
         <LangBadge lang={live.language} />
         <p
-          className="text-sm leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0"
+          className="text-sm font-semibold leading-relaxed text-foreground flex-1 min-w-0"
           dir={isRtl ? "rtl" : "ltr"}
         >
           {live.text}
-          <span className="inline-flex gap-0.5 ml-1.5 align-middle">
-            <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-            <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-            <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+          {/* Subtle pulse indicator — the only visual cue that this is still live */}
+          <span className="inline-flex gap-[3px] ml-2 align-middle">
+            <span className="w-1 h-1 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-1 h-1 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-1 h-1 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
           </span>
         </p>
       </div>
@@ -139,13 +141,13 @@ function TranslationEntry({
         <div className="flex-1 flex items-start gap-2 flex-wrap">
           <LangBadge lang={targetLang} />
           {translation ? (
-            <p className="text-sm leading-relaxed text-foreground flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
+            <p className="text-sm font-semibold leading-relaxed text-foreground flex-1 min-w-0" dir={isRtl ? "rtl" : "ltr"}>
               {translation}
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground/60 italic flex items-center gap-1">
+            <p className="text-sm text-muted-foreground/50 italic flex items-center gap-1.5">
               Translating
-              <span className="inline-flex gap-0.5 ml-1 align-middle">
+              <span className="inline-flex gap-[3px] align-middle">
                 <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                 <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                 <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />

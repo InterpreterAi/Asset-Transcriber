@@ -236,34 +236,33 @@ export function useTranscription() {
         const nfTokens    = tokens.filter(t => !t.is_final);
 
         // ── Final tokens: accumulate into the sentence buffer ──────────────
-        // Each batch of final tokens extends the confirmed prefix.
-        // This is the text that will NEVER change — it's locked.
         if (finalTokens.length > 0) {
-          const newFinalText = finalTokens.map(t => t.text).join("");
-          finalBufRef.current += newFinalText;
-
-          // Update language from the most common language in final tokens
+          finalBufRef.current += finalTokens.map(t => t.text).join("");
           langRef.current = detectLang(finalTokens, langRef.current);
           speakerRef.current = finalTokens[finalTokens.length - 1]?.speaker ?? speakerRef.current;
-
-          // Reset the silence timer — commit fires COMMIT_DELAY after the last final token
-          if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-
-          // Punctuation at sentence end → seal immediately (0ms)
-          const endsSentence = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
-          commitTimerRef.current = setTimeout(flush, endsSentence ? 0 : COMMIT_DELAY);
         }
 
         // ── Non-final tokens: REPLACE the live suffix (Buffer-and-Overwrite) ─
-        // Each message gives us the current best guess for audio not yet finalized.
-        // We REPLACE (not append) the previous non-final display each time.
         nfDisplayRef.current = nfTokens.map(t => t.text).join("");
 
-        // If no language detected yet from final tokens, infer from non-final
+        // Language fallback from non-final when buffer is still empty
         if (nfTokens.length > 0 && !finalBufRef.current) {
           langRef.current = detectLang(nfTokens, langRef.current);
           speakerRef.current = nfTokens[0]?.speaker ?? speakerRef.current;
         }
+
+        // ── Anti-fragmentation: reset silence timer on ANY token arrival ───
+        //
+        // Resetting on final tokens only let non-final-only messages slip
+        // through — if the model held tokens in non-final state for 800ms
+        // the buffer committed mid-sentence, creating extra bubbles.
+        //
+        // Now: ANY arriving token (final or non-final) proves the speaker is
+        // still active → reset the timer. A new bubble only starts after a
+        // true 800ms gap in the token stream.
+        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+        const endsSentence = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
+        commitTimerRef.current = setTimeout(flush, endsSentence ? 0 : COMMIT_DELAY);
 
         // ── Update live transcript: confirmed prefix + uncertain suffix ──────
         const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
