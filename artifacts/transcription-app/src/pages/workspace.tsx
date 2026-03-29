@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,14 +33,6 @@ const LANG_OPTIONS = [
   { value: "he",    label: "Hebrew" },
   { value: "uk",    label: "Ukrainian" },
 ];
-
-function langLabel(val: string) {
-  return LANG_OPTIONS.find((l) => l.value === val)?.label ?? val.toUpperCase();
-}
-
-function getTargetLang(srcLang: string, langA: string, langB: string): string {
-  return srcLang === langA ? langB : langA;
-}
 
 // ── Copy button — appears on hover ────────────────────────────────────────────
 function CopyBtn({ text }: { text: string }) {
@@ -83,111 +75,32 @@ function SpeakerTag({ label }: { label: string }) {
   );
 }
 
-// ── Translating indicator ──────────────────────────────────────────────────────
-function TranslatingDots() {
+// ── Finalized segment row ──────────────────────────────────────────────────────
+// Full-width single column — speaker label + transcript text.
+// Translation is disabled; this component shows transcription only.
+function SegmentRow({ phrase }: { phrase: Phrase }) {
+  const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
-    <p className="text-[13px] text-muted-foreground/50 italic flex items-center gap-1">
-      Translating
-      <span className="inline-flex gap-[3px] ml-1 align-middle">
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-        <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-      </span>
-    </p>
-  );
-}
-
-// ── Paired segment row (finalized) ────────────────────────────────────────────
-// One row shows BOTH the original text and its translation side-by-side.
-// Left column = langA (e.g. English), right column = langB (e.g. Arabic).
-// Each text cell is individually hoverable — the copy icon appears on hover.
-//
-function SegmentRow({
-  phrase, translation, langA, langB,
-}: {
-  phrase: Phrase;
-  translation?: { text: string; targetLang: string };
-  langA: string;
-  langB: string;
-}) {
-  const targetLang = translation?.targetLang ?? getTargetLang(phrase.language, langA, langB);
-
-  // Determine which physical column each piece of text goes into
-  const originalIsLeft = phrase.language === langA || phrase.language !== langB;
-  const leftText  = originalIsLeft ? phrase.text : translation?.text;
-  const rightText = originalIsLeft ? translation?.text : phrase.text;
-  const leftRtl   = langA === "ar" || langA === "he";
-  const rightRtl  = targetLang === "ar" || targetLang === "he" ||
-                    (!originalIsLeft && (phrase.language === "ar" || phrase.language === "he"));
-
-  return (
-    <div className="grid grid-cols-2 gap-6 mb-5 pb-5 border-b border-border/25 last:border-0 last:pb-0 last:mb-0">
-      {/* Left column (langA) */}
-      <div className="group">
-        <SpeakerTag label={phrase.speakerLabel} />
-        {leftText ? (
-          <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={leftRtl ? "rtl" : "ltr"}>
-            {leftText}
-            <CopyBtn text={leftText} />
-          </p>
-        ) : (
-          <TranslatingDots />
-        )}
-      </div>
-      {/* Right column (langB) */}
-      <div className="group border-l border-border/20 pl-6">
-        <SpeakerTag label={phrase.speakerLabel} />
-        {rightText ? (
-          <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={rightRtl ? "rtl" : "ltr"}>
-            {rightText}
-            <CopyBtn text={rightText} />
-          </p>
-        ) : (
-          <TranslatingDots />
-        )}
-      </div>
+    <div className="mb-4 pb-4 border-b border-border/25 last:border-0 last:pb-0 last:mb-0 group">
+      <SpeakerTag label={phrase.speakerLabel} />
+      <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
+        {phrase.text}
+        <CopyBtn text={phrase.text} />
+      </p>
     </div>
   );
 }
 
-// ── Live paired row ────────────────────────────────────────────────────────────
-// Shows live transcription text growing word-by-word on the original side.
-// The translation column is intentionally empty while the segment is live —
-// translation fires only after the segment seals, matching Soniox desktop.
-function LiveRow({
-  live, langA, langB,
-}: {
-  live: LiveTranscript;
-  langA: string;
-  langB: string;
-}) {
-  const originalIsLeft = live.language === langA || live.language !== langB;
-  const leftRtl  = langA === "ar" || langA === "he";
-  const targetLang = getTargetLang(live.language, langA, langB);
-  const rightRtl = targetLang === "ar" || targetLang === "he";
-
-  const leftContent = originalIsLeft ? (
-    <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={leftRtl ? "rtl" : "ltr"}>
-      {live.text}<Dots />
-    </p>
-  ) : null;
-
-  const rightContent = !originalIsLeft ? (
-    <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={rightRtl ? "rtl" : "ltr"}>
-      {live.text}<Dots />
-    </p>
-  ) : null;
-
+// ── Live segment row ───────────────────────────────────────────────────────────
+// Full-width single column — speaker label + growing live text.
+function LiveRow({ live }: { live: LiveTranscript }) {
+  const isRtl = live.language === "ar" || live.language === "he";
   return (
-    <div className="grid grid-cols-2 gap-6 mb-5">
-      <div>
-        <SpeakerTag label={live.speakerLabel} />
-        {leftContent}
-      </div>
-      <div className="border-l border-border/20 pl-6">
-        <SpeakerTag label={live.speakerLabel} />
-        {rightContent}
-      </div>
+    <div className="mb-4">
+      <SpeakerTag label={live.speakerLabel} />
+      <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
+        {live.text}<Dots />
+      </p>
     </div>
   );
 }
@@ -209,67 +122,12 @@ export default function Workspace() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
-  // translations[phrase.id] = { text, targetLang }
-  const [translations, setTranslations] = useState<Record<string, { text: string; targetLang: string }>>({});
-
-  const translatingRef   = useRef<Set<string>>(new Set());
-  const translationsDone = useRef<Set<string>>(new Set());
-
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
   // ── Auto-scroll on new phrase ──────────────────────────────────────────────
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcription.phrases.length]);
-
-  // ── Phrase translation — fires immediately when a phrase seals ────────────
-  const translatePhrase = useCallback(async (phrase: Phrase, targetLang: string) => {
-    const key = phrase.id;
-    if (translatingRef.current.has(key))   return;
-    if (translationsDone.current.has(key)) return;
-    translatingRef.current.add(key);
-
-    const MAX_ATTEMPTS = 3;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      try {
-        const res = await fetch("/api/translate", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ text: phrase.text, sourceLang: phrase.language, targetLang }),
-        });
-        if (res.ok) {
-          const data = await res.json() as { translatedText?: string; text?: string };
-          const translated = data.translatedText ?? data.text ?? "";
-          if (translated) {
-            setTranslations(prev => ({ ...prev, [key]: { text: translated, targetLang } }));
-            translationsDone.current.add(key);
-          }
-          break;
-        }
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
-        }
-      } catch (err) {
-        console.error("Phrase translation error:", err);
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
-        }
-      }
-    }
-
-    translatingRef.current.delete(key);
-  }, []);
-
-  useEffect(() => {
-    for (const phrase of transcription.phrases) {
-      if (!phrase.text.trim()) continue;
-      if (translationsDone.current.has(phrase.id)) continue;
-      if (translatingRef.current.has(phrase.id))   continue;
-      void translatePhrase(phrase, getTargetLang(phrase.language, langA, langB));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transcription.phrases, langA, langB, translatePhrase]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -291,12 +149,6 @@ export default function Workspace() {
 
   const handleClear = () => {
     transcription.clear();
-    setTranslations({});
-    setLiveTranslation(null);
-    translatingRef.current.clear();
-    translationsDone.current.clear();
-    if (liveXlatTimer.current) clearTimeout(liveXlatTimer.current);
-    if (liveXlatAbort.current) liveXlatAbort.current.abort();
   };
 
   const handleToggleRecording = () => {
@@ -424,29 +276,22 @@ export default function Workspace() {
         <div className="flex-1 p-4 min-h-0 overflow-hidden">
           <div className="h-full bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
-            {/* Two-column header — English | Arabic */}
-            <div className="h-10 border-b border-border bg-muted/20 grid grid-cols-2 shrink-0">
-              <div className="flex items-center gap-2 px-4 border-r border-border/50">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                  {langLabel(langA)}
+            {/* Transcript header */}
+            <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-3 px-4 shrink-0">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
+                Transcript
+              </span>
+              {transcription.audioInfo && (
+                <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
+                  {transcription.audioInfo}
                 </span>
-                {transcription.audioInfo && (
-                  <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
-                    {transcription.audioInfo}
-                  </span>
-                )}
-                {transcription.isRecording && (
-                  <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
-                    <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                    Listening
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 px-4">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  {langLabel(langB)}
+              )}
+              {transcription.isRecording && (
+                <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
+                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                  Listening
                 </span>
-              </div>
+              )}
             </div>
 
             {/* Scrollable content */}
@@ -464,20 +309,10 @@ export default function Workspace() {
               ) : (
                 <div>
                   {transcription.phrases.map((phrase) => (
-                    <SegmentRow
-                      key={phrase.id}
-                      phrase={phrase}
-                      translation={translations[phrase.id]}
-                      langA={langA}
-                      langB={langB}
-                    />
+                    <SegmentRow key={phrase.id} phrase={phrase} />
                   ))}
                   {transcription.liveTranscript && (
-                    <LiveRow
-                      live={transcription.liveTranscript}
-                      langA={langA}
-                      langB={langB}
-                    />
+                    <LiveRow live={transcription.liveTranscript} />
                   )}
                   <div ref={scrollEndRef} />
                 </div>
