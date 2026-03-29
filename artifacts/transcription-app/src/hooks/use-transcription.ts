@@ -1,28 +1,32 @@
 import { useRef, useState, useCallback, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
+// ── Public types ───────────────────────────────────────────────────────────────
+
+/** A completed, permanent transcript entry. All entries in `phrases` are final. */
 export interface Phrase {
   id: string;
   speakerIndex: number;
   speakerLabel: string;
   source: "mic";
-  text: string;           // finalized (committed) words from fw
-  pendingText?: string;   // non-final partial words from nfw — shown dimmed
-  language: string;       // "en" | "ar"
-  active: boolean;        // true = partial in-flight; false = sealed, ready to translate
+  text: string;
+  language: "en" | "ar";
 }
 
-// ── constants ─────────────────────────────────────────────────────────────────
-const TARGET_RATE = 16000; // Soniox requires 16 kHz mono PCM
+/** The sentence currently being spoken — replaced in-place on every partial update.
+ *  Null when no speech is in progress. */
+export interface LiveTranscript {
+  text: string;
+  language: "en" | "ar";
+  speakerLabel: string;
+}
 
-// Two WebSocket channels per session (one device → en + ar):
-//   en_v2_lowlatency → offset   0  (speakers   0…99)
-//   ar_v1            → offset 100  (speakers 100…199)
+// ── Constants ──────────────────────────────────────────────────────────────────
+const TARGET_RATE = 16000;
 const OFFSETS = { en: 0, ar: 100 } as const;
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-/** Returns true when ≥35% of letter codepoints in `text` are Arabic script. */
 function isValidArabicOutput(text: string): boolean {
   const letters = (text.match(/\p{L}/gu) ?? []).length;
   if (letters === 0) return false;
@@ -30,12 +34,10 @@ function isValidArabicOutput(text: string): boolean {
   return arabic / letters >= 0.35;
 }
 
-/** Human-readable label for a Soniox speaker index. */
 function makeSpeakerLabel(localSpkIdx: number): string {
   return localSpkIdx > 0 ? `Speaker ${localSpkIdx + 1}` : "Speaker";
 }
 
-/** Group consecutive finalized words by speaker into runs. */
 function groupBySpeaker(
   words: { t?: string; w?: string; text?: string; spk?: number }[]
 ): { spk: number; text: string }[] {
@@ -44,11 +46,8 @@ function groupBySpeaker(
     const spk = w.spk ?? 0;
     const txt = w.t ?? w.w ?? w.text ?? "";
     const last = runs[runs.length - 1];
-    if (last && last.spk === spk) {
-      last.text += txt;
-    } else {
-      runs.push({ spk, text: txt });
-    }
+    if (last && last.spk === spk) last.text += txt;
+    else runs.push({ spk, text: txt });
   }
   return runs;
 }
@@ -56,40 +55,40 @@ function groupBySpeaker(
 let phraseIdCounter = 0;
 function nextId() { return `p-${++phraseIdCounter}`; }
 
-// ── hook ──────────────────────────────────────────────────────────────────────
+// ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
   const [isRecording, setIsRecording] = useState(false);
+
+  /** Permanent history — finalized sentences only. Never contains partials. */
   const [phrases, setPhrases] = useState<Phrase[]>([]);
+
+  /** The sentence currently in progress. Replaced on every nfw. Null when silent. */
+  const [liveTranscript, setLiveTranscript] = useState<LiveTranscript | null>(null);
+
   const [micLevel, setMicLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [audioInfo, setAudioInfo] = useState<string>("");
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const apiKeyRef = useRef<string>("");
-
-  const wsEnRef = useRef<WebSocket | null>(null);
-  const wsArRef = useRef<WebSocket | null>(null);
-  const workletRef = useRef<AudioWorkletNode | null>(null);
-
-  const streamsRef = useRef<MediaStream[]>([]);
+  const audioCtxRef   = useRef<AudioContext | null>(null);
+  const apiKeyRef     = useRef<string>("");
+  const wsEnRef       = useRef<WebSocket | null>(null);
+  const wsArRef       = useRef<WebSocket | null>(null);
+  const workletRef    = useRef<AudioWorkletNode | null>(null);
+  const streamsRef    = useRef<MediaStream[]>([]);
   const isRecordingRef = useRef(false);
-  const sessionIdRef = useRef<number | null>(null);
-  const startTimeRef = useRef<number>(0);
+  const sessionIdRef  = useRef<number | null>(null);
+  const startTimeRef  = useRef<number>(0);
 
   const startSessionMut = useStartSession();
-  const stopSessionMut = useStopSession();
-  const getTokenMut = useGetTranscriptionToken();
+  const stopSessionMut  = useStopSession();
+  const getTokenMut     = useGetTranscriptionToken();
 
-  // ── stop ────────────────────────────────────────────────────────────────────
+  // ── stop ──────────────────────────────────────────────────────────────────
   const stop = useCallback(async () => {
     if (!isRecordingRef.current) return;
     isRecordingRef.current = false;
     setIsRecording(false);
-
-    // Seal any open phrase and clear pending partial text
-    setPhrases(prev =>
-      prev.map(p => p.active ? { ...p, active: false, pendingText: undefined } : p)
-    );
+    setLiveTranscript(null); // discard any in-progress partial on stop
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -124,20 +123,14 @@ export function useTranscription() {
     }
   }, [stopSessionMut]);
 
-  // ── buildWs ─────────────────────────────────────────────────────────────────
+  // ── buildWs ───────────────────────────────────────────────────────────────
   //
-  // nfw (non-final words): Soniox sends the FULL current partial utterance.
-  //   → We REPLACE pendingText on the active phrase (never append).
-  //   → If no active phrase exists, we create one with text="".
+  // nfw (non-final words) — "is_final: false" in the user's model
+  //   → Replace liveTranscript in-place. No new bubble, no translation.
   //
-  // fw (final words): Soniox sends only the NEWLY committed words.
-  //   → We SEAL the active phrase: text = fw content, pendingText = undefined, active = false.
-  //   → Sealing triggers the translation effect in the UI.
-  //   → If no active phrase, we create a sealed phrase directly.
-  //
-  // This model means each fw batch = one sealed phrase bubble.
-  // It prevents the "text + pendingText = duplicate" display bug that occurs when
-  // Soniox repeats already-committed words in subsequent nfw messages.
+  // fw (final words) — "is_final: true" in the user's model
+  //   → Commit to phrases history + clear liveTranscript + translation fires
+  //     via the useEffect in workspace that watches phrases.length.
   //
   const buildWs = useCallback((
     apiKey: string,
@@ -165,12 +158,12 @@ export function useTranscription() {
     ws.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data as string) as {
-          fw?: { t?: string; w?: string; text?: string; spk?: number }[];
+          fw?:  { t?: string; w?: string; text?: string; spk?: number }[];
           nfw?: { t?: string; w?: string; text?: string; spk?: number }[];
           error?: string; code?: number; message?: string;
         };
 
-        // API-level error → show once, do not reconnect
+        // API-level error → surface once, stop reconnecting
         if (data.error || (typeof data.code === "number" && !data.fw && !data.nfw)) {
           const msg = data.error ?? data.message ?? `code ${data.code}`;
           console.error(`[WS] ${model} API error:`, msg);
@@ -179,95 +172,56 @@ export function useTranscription() {
           return;
         }
 
-        // ── Non-final words → update pending text ─────────────────────────────
-        // Rule: REPLACE pendingText (never accumulate). This is always the full
-        // current partial from Soniox; we just show whatever Soniox sends.
+        // ── Non-final words: update liveTranscript in-place ─────────────────
+        // This is the "is_final: false" branch from the user's pseudocode.
+        // We REPLACE the live text every time — no new bubble, no translation.
         const nfWords = data.nfw ?? [];
         if (nfWords.length > 0) {
-          const pending = nfWords.map(w => w.t ?? w.w ?? w.text ?? "").join("").trim();
-          if (pending) {
-            const isAr = isValidArabicOutput(pending);
-            if (langCode === "ar" && !isAr) { /* skip */ }
-            else if (langCode === "en" && isAr) { /* skip */ }
-            else {
-              setPhrases(prev => {
-                const next = [...prev];
-                const last = next[next.length - 1];
-
-                if (last?.active && last.language === langCode) {
-                  // Update pendingText on the existing active phrase (REPLACE)
-                  next[next.length - 1] = { ...last, pendingText: pending };
-                } else {
-                  // No active same-lang phrase → seal any unrelated active, create fresh one
-                  if (last?.active) {
-                    next[next.length - 1] = { ...last, active: false, pendingText: undefined };
-                  }
-                  next.push({
-                    id: nextId(),
-                    speakerIndex: (nfWords[0]?.spk ?? 0) + spkOffset,
-                    speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
-                    source: "mic",
-                    text: "",
-                    pendingText: pending,
-                    language: langCode,
-                    active: true,
-                  });
-                }
-                return next;
+          const text = nfWords.map(w => w.t ?? w.w ?? w.text ?? "").join("").trim();
+          if (text) {
+            const isAr = isValidArabicOutput(text);
+            const isCorrectLang = langCode === "ar" ? isAr : !isAr;
+            if (isCorrectLang) {
+              setLiveTranscript({
+                text,
+                language: langCode,
+                speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
               });
             }
           }
         }
 
-        // ── Final words → seal the active phrase ──────────────────────────────
-        // Rule: each fw batch SEALS the active phrase. The fw content becomes the
-        // phrase's permanent text; pendingText is discarded. active → false fires
-        // the translation effect. A subsequent nfw will open a new active phrase.
+        // ── Final words: commit to history, clear live, fire translation ─────
+        // This is the "is_final: true" branch from the user's pseudocode.
         const finalWords = data.fw ?? [];
         if (finalWords.length > 0) {
           const runs = groupBySpeaker(finalWords);
-          setPhrases(prev => {
-            const next = [...prev];
-            for (const run of runs) {
-              const trimmed = run.text.trim();
-              if (!trimmed) continue;
+          const newPhrases: Phrase[] = [];
 
-              // Language filter: reject cross-language output
-              if (langCode === "ar" && !isValidArabicOutput(trimmed)) continue;
-              if (langCode === "en" && isValidArabicOutput(trimmed)) continue;
+          for (const run of runs) {
+            const trimmed = run.text.trim();
+            if (!trimmed) continue;
 
-              const globalSpk = run.spk + spkOffset;
-              const last = next[next.length - 1];
+            // Language filter — reject cross-language output from the wrong WS
+            if (langCode === "ar" && !isValidArabicOutput(trimmed)) continue;
+            if (langCode === "en" && isValidArabicOutput(trimmed)) continue;
 
-              if (last?.active && last.language === langCode) {
-                // Seal the active phrase: fw content is authoritative
-                next[next.length - 1] = {
-                  ...last,
-                  speakerIndex: globalSpk,
-                  speakerLabel: makeSpeakerLabel(run.spk),
-                  text: trimmed,
-                  pendingText: undefined,
-                  active: false,  // SEALED → translation fires
-                };
-              } else {
-                // No active same-lang phrase → create a sealed phrase directly
-                if (last?.active) {
-                  next[next.length - 1] = { ...last, active: false, pendingText: undefined };
-                }
-                next.push({
-                  id: nextId(),
-                  speakerIndex: globalSpk,
-                  speakerLabel: makeSpeakerLabel(run.spk),
-                  source: "mic",
-                  text: trimmed,
-                  pendingText: undefined,
-                  language: langCode,
-                  active: false,
-                });
-              }
-            }
-            return next;
-          });
+            newPhrases.push({
+              id: nextId(),
+              speakerIndex: run.spk + spkOffset,
+              speakerLabel: makeSpeakerLabel(run.spk),
+              source: "mic",
+              text: trimmed,
+              language: langCode,
+            });
+          }
+
+          if (newPhrases.length > 0) {
+            // Add all new final phrases to history
+            setPhrases(prev => [...prev, ...newPhrases]);
+            // Clear the live transcript — this sentence is now committed
+            setLiveTranscript(null);
+          }
         }
       } catch (err) {
         console.error(`[WS] ${model} parse error`, err);
@@ -282,16 +236,10 @@ export function useTranscription() {
 
       if (ownRef.current === ws) ownRef.current = null;
 
-      // Clear stale pending text when this connection drops
-      setPhrases(prev =>
-        prev.map(p =>
-          p.active && p.language === langCode
-            ? { ...p, pendingText: undefined }
-            : p
-        )
-      );
+      // Clear live transcript if it belongs to this language channel
+      setLiveTranscript(prev => (prev?.language === langCode ? null : prev));
 
-      // Auto-reconnect if still recording and not an API error
+      // Auto-reconnect if still recording and no API error
       if (!isRecordingRef.current || apiErrorOccurred) return;
       console.log(`[WS] ${model} — reconnecting in 200 ms`);
       setTimeout(() => {
@@ -305,18 +253,19 @@ export function useTranscription() {
     return ws;
   }, [stop]);
 
-  // ── start ────────────────────────────────────────────────────────────────────
+  // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
       setPhrases([]);
+      setLiveTranscript(null);
       setAudioInfo("");
 
-      const tokenRes = await getTokenMut.mutateAsync({});
+      const tokenRes   = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
-      sessionIdRef.current = sessionRes.sessionId;
-      startTimeRef.current = Date.now();
-      apiKeyRef.current = tokenRes.apiKey;
+      sessionIdRef.current  = sessionRes.sessionId;
+      startTimeRef.current  = Date.now();
+      apiKeyRef.current     = tokenRes.apiKey;
 
       const AudioContextCtor =
         window.AudioContext ||
@@ -324,13 +273,10 @@ export function useTranscription() {
 
       const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
-      const nativeSR = ctx.sampleRate;
-      setAudioInfo(`${nativeSR} Hz → ${TARGET_RATE} Hz (AudioWorklet)`);
-      console.log(`[Audio] native rate: ${nativeSR} Hz`);
+      setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz (AudioWorklet)`);
 
       await ctx.audioWorklet.addModule("/pcm-processor.js");
 
-      // ── Capture selected device ──────────────────────────────────────────────
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -342,24 +288,22 @@ export function useTranscription() {
       });
       streamsRef.current.push(stream);
 
-      // ── Open two Soniox WebSockets (English + Arabic) ────────────────────────
       const wsEn = buildWs(tokenRes.apiKey, "en_v2_lowlatency", "en", OFFSETS.en, wsEnRef, wsArRef);
-      const wsAr = buildWs(tokenRes.apiKey, "ar_v1", "ar", OFFSETS.ar, wsArRef, wsEnRef);
+      const wsAr = buildWs(tokenRes.apiKey, "ar_v1",            "ar", OFFSETS.ar, wsArRef, wsEnRef);
       wsEnRef.current = wsEn;
       wsArRef.current = wsAr;
 
-      // ── Audio graph: device → analyser → worklet → both WSs ────────────────
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
+      const audioSource = ctx.createMediaStreamSource(stream);
+      const analyser    = ctx.createAnalyser();
+      analyser.fftSize  = 256;
+      audioSource.connect(analyser);
 
       const worklet = new AudioWorkletNode(ctx, "pcm-processor", {
         processorOptions: { targetRate: TARGET_RATE },
       });
       workletRef.current = worklet;
       analyser.connect(worklet);
-      worklet.connect(ctx.destination); // must be connected to stay active
+      worklet.connect(ctx.destination);
 
       worklet.port.onmessage = (e) => {
         const pcm = e.data as ArrayBuffer;
@@ -390,12 +334,13 @@ export function useTranscription() {
   return {
     isRecording,
     audioInfo,
-    phrases,
+    phrases,        // history: final entries only
+    liveTranscript, // current partial (null when silent)
     micLevel,
     error,
     start,
     stop,
-    clear: () => setPhrases([]),
+    clear: () => { setPhrases([]); setLiveTranscript(null); },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }
