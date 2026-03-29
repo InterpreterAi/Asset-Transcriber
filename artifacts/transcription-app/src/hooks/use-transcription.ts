@@ -375,62 +375,38 @@ export function useTranscription() {
           );
         }
 
-        // Sentence-end punctuation seals the current segment immediately.
-        // This is a seal-for-translation trigger — not a display split.
-        // The segment commits to history and triggers translation, then a
-        // fresh live segment starts for whatever the speaker says next.
+        // Segmentation triggers (checked after each token):
+        //   1. Speaker change — seal immediately, new speaker starts fresh
+        //   2. Sentence-end punctuation — seal immediately for translation
+        //   3. Silence ≥ 1.5 s — handled by the silence-flush timer below
         const SENTENCE_END = /[.!?؟。！？]\s*$/;
-
-        const resetCandidate = () => {
-          candidateSpeakerRef.current = undefined;
-          candidateCountRef.current   = 0;
-          candidateStartMsRef.current = 0;
-        };
-
-        const confirmCandidate = (newSpk: number) => {
-          if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-          flush();
-          speakerRef.current = newSpk;
-          resetCandidate();
-        };
 
         for (const token of finalTokens) {
           const tSpk = token.speaker;
           touchSpeaker(tSpk);
 
           if (!finalBufRef.current.trim()) {
-            // Case A — empty buffer: start fresh segment
+            // Empty buffer — start fresh segment with this speaker
             if (tSpk !== undefined) speakerRef.current = tSpk;
-            resetCandidate();
             finalBufRef.current += token.text;
 
           } else if (tSpk === undefined || tSpk === speakerRef.current) {
-            // Case B — same speaker (or no ID): append, reset candidate
-            resetCandidate();
+            // Same speaker (or no ID) — append to current segment
             finalBufRef.current += token.text;
 
           } else {
-            // Case C — different speaker: stabilization window
-            if (candidateSpeakerRef.current !== tSpk) {
-              candidateSpeakerRef.current = tSpk;
-              candidateCountRef.current   = 1;
-              candidateStartMsRef.current = Date.now();
-            } else {
-              candidateCountRef.current++;
-            }
+            // Different speaker — seal current segment immediately, then
+            // start a fresh one for the new speaker with this token.
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+            flush();
+            speakerRef.current = tSpk;
             finalBufRef.current += token.text;
-
-            if (candidateCountRef.current >= 3 || (Date.now() - candidateStartMsRef.current) >= 300) {
-              confirmCandidate(tSpk);
-            }
           }
 
-          // Sentence boundary → seal immediately so translation fires now.
-          // The speaker continues into a fresh segment after the punctuation.
+          // Sentence boundary — seal immediately so translation fires now.
           if (SENTENCE_END.test(finalBufRef.current)) {
             if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
             flush();
-            resetCandidate();
           }
         }
       }
