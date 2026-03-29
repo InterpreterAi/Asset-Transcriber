@@ -439,7 +439,6 @@ export function useTranscription() {
           if (token.speaker != null) {
             speakerRef.current = token.speaker;
           }
-          console.log("[NF]", JSON.stringify(token.text), "→ preview:", JSON.stringify(finalBufRef.current + nfText));
           continue;
         }
 
