@@ -9,12 +9,11 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type Phrase, type LiveTranscript, type LangMode } from "@/hooks/use-transcription";
+import { useTranscription, type Phrase, type LiveTranscript } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
 
-// ── Translation language options ───────────────────────────────────────────────
 const LANG_OPTIONS = [
   { value: "en",    label: "English" },
   { value: "ar",    label: "Arabic" },
@@ -96,7 +95,7 @@ function TranscriptEntry({ phrase }: { phrase: Phrase }) {
   );
 }
 
-// ── Live bubble — shows committed words + current partial in one line ──────────
+// ── Live bubble — fw buffer + current nfw partial in one line ─────────────────
 function LiveEntry({ live }: { live: LiveTranscript }) {
   const isRtl = live.language === "ar" || live.language === "he";
   return (
@@ -174,11 +173,9 @@ export default function Workspace() {
   const [showFeedback, setShowFeedback]         = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
 
+  // Translation output language pair — independent of the auto-detected input
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
-
-  // Speech recognition mode — EN or AR — can be toggled even mid-recording
-  const [langMode, setLangMode] = useState<LangMode>("en");
 
   // Translations keyed by phrase id
   const [translations, setTranslations] = useState<Record<string, { text: string; targetLang: string }>>({});
@@ -187,13 +184,16 @@ export default function Workspace() {
   const transcriptEndRef  = useRef<HTMLDivElement>(null);
   const translationEndRef = useRef<HTMLDivElement>(null);
 
-  // ── Auto-scroll: ONLY on new final phrase ─────────────────────────────────
+  // ── Auto-scroll: fires ONLY when a new final phrase is committed ──────────
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
     translationEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcription.phrases.length]);
 
-  // ── Translation: fires only on FINAL phrases, never on partials ──────────
+  // ── Translation: fires immediately when a final phrase is sealed ──────────
+  // If detected language is English → translate to langB (Arabic).
+  // If detected language is Arabic  → translate to langA (English).
+  // Never runs on partial/live text.
   const translatePhrase = useCallback(async (phrase: Phrase, targetLang: string) => {
     const key = phrase.id;
     if (translatingRef.current.has(key)) return;
@@ -227,23 +227,6 @@ export default function Workspace() {
     }
   }, [transcription.phrases, langA, langB, translations, translatePhrase]);
 
-  // ── EN/AR language toggle — restarts stream if currently recording ────────
-  const selectedDeviceRef = useRef(selectedDeviceId);
-  useEffect(() => { selectedDeviceRef.current = selectedDeviceId; }, [selectedDeviceId]);
-
-  const handleLangModeChange = useCallback(async (newMode: LangMode) => {
-    if (newMode === langMode) return;
-    const wasRecording = transcription.isRecording;
-    if (wasRecording) await transcription.stop();
-    setLangMode(newMode);
-    if (wasRecording) {
-      // Small delay so state settles before restarting
-      setTimeout(() => {
-        void transcription.start(selectedDeviceRef.current, newMode);
-      }, 100);
-    }
-  }, [langMode, transcription]);
-
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
   useEffect(() => {
@@ -273,7 +256,8 @@ export default function Workspace() {
       transcription.stop();
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     } else {
-      transcription.start(selectedDeviceId, langMode);
+      // No language parameter — both channels start automatically
+      transcription.start(selectedDeviceId);
     }
   };
 
@@ -339,9 +323,15 @@ export default function Workspace() {
 
         {/* HEADER */}
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-5 shrink-0">
-          <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
+          <div className="flex items-center gap-3">
+            <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
+            {/* Auto-detect pill — shows which language is currently live */}
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
+              <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
+              EN + AR Auto-detect
+            </span>
+          </div>
           <div className="flex items-center gap-2">
-            {/* Clear button — always visible; disabled only when empty or recording */}
             <button
               onClick={handleClear}
               disabled={transcription.isRecording || isEmpty}
@@ -389,7 +379,7 @@ export default function Workspace() {
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
             <div className="h-10 border-b border-border bg-muted/20 flex items-center px-4 shrink-0 gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                Original · {langMode === "en" ? "English" : "Arabic"}
+                Original
               </span>
               {transcription.audioInfo && (
                 <span className="text-[9px] text-muted-foreground/50 font-mono hidden sm:block">
@@ -411,16 +401,14 @@ export default function Workspace() {
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Mode: {langMode === "en" ? "English (EN)" : "Arabic (AR)"} · toggle below
+                    Speaks English or Arabic — both detected automatically
                   </p>
                 </div>
               ) : (
                 <div>
-                  {/* History — finalized sentences (sealed after 1.5 s silence) */}
                   {transcription.phrases.map((p) => (
                     <TranscriptEntry key={p.id} phrase={p} />
                   ))}
-                  {/* Live line — updates in place while speaking */}
                   {transcription.liveTranscript && (
                     <LiveEntry live={transcription.liveTranscript} />
                   )}
@@ -434,7 +422,7 @@ export default function Workspace() {
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
             <div className="h-10 border-b border-border bg-muted/20 flex items-center px-4 shrink-0 gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                Translation · {langLabel(getTargetLang(langMode, langA, langB))}
+                Translation
               </span>
               <span className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
                 <ArrowLeftRight className="w-3 h-3" />
@@ -448,7 +436,9 @@ export default function Workspace() {
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Translations appear here</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Fires after each sentence is finalized</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    English → Arabic · Arabic → English · Per sentence
+                  </p>
                 </div>
               ) : (
                 <div>
@@ -464,7 +454,7 @@ export default function Workspace() {
                       />
                     );
                   })}
-                  {/* Placeholder row aligned with the live transcript entry */}
+                  {/* Placeholder row aligned with the live transcript */}
                   {transcription.liveTranscript && (
                     <div className="flex flex-col gap-1 mb-4">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/40">
@@ -486,7 +476,7 @@ export default function Workspace() {
         {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Device + EN/AR toggle + VU meter */}
+          {/* ROW 1: Audio device + VU meter */}
           <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
             <Mic2 className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select
@@ -501,29 +491,6 @@ export default function Workspace() {
                 </option>
               ))}
             </Select>
-
-            {/* Language mode toggle — EN | AR. Works even while recording (restarts WS). */}
-            <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
-              {(["en", "ar"] as LangMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => void handleLangModeChange(mode)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    langMode === mode
-                      ? "bg-white shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  title={
-                    mode === "en"
-                      ? "English speech recognition (en_v2_lowlatency)"
-                      : "Arabic speech recognition (ar_v1)"
-                  }
-                >
-                  {mode === "en" ? "EN" : "AR"}
-                </button>
-              ))}
-            </div>
-
             <div className="w-24 shrink-0">
               <AudioMeter level={transcription.micLevel} label="" />
             </div>

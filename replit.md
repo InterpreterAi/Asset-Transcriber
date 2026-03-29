@@ -130,40 +130,44 @@ All fetch calls use `credentials: "include"` for cookie auth (set in `lib/api-cl
 
 ## Key Behaviors
 
-### Transcription Flow (Simplified Single-Input Pipeline)
-1. User selects any audio input device from dropdown (all system devices listed via `enumerateDevices`)
-2. User clicks Record → frontend calls `POST /api/transcription/token` + `POST /api/transcription/session/start`
-3. Frontend opens **2** Soniox WebSocket connections: `wsEn` (en_v2_lowlatency, offset 0) + `wsAr` (ar_v1, offset 100)
-4. Audio captured at native hardware rate via Web Audio API; **AudioWorklet** (`pcm-processor.js`) downsamples to 16 kHz with 60ms chunks in the audio thread
-5. Same PCM stream sent to both WSs; language filter prevents cross-contamination
-6. **nfw** (non-final words): REPLACE `pendingText` on active phrase → shows dimmed italic in real-time
-7. **fw** (final words): SEAL active phrase → `active: false`, text = fw content, translation fires immediately
-8. Each sealed Phrase is individually translated via `POST /api/translate` in real-time
-9. Auto-reconnect on unexpected WS close (200ms delay); `apiErrorOccurred` flag prevents loops
-10. When stopped → `POST /api/transcription/session/stop` with duration in seconds
-11. **Auto-scroll** only fires when `finalizedCount` increases (not on partial updates)
+### Transcription Flow — True Bilingual Auto-detect
+1. User selects any audio input device from dropdown; clicks **Start** — no language toggle needed
+2. Frontend calls `POST /api/transcription/token` + `POST /api/transcription/session/start`
+3. Frontend opens **2 simultaneous** Soniox WebSocket connections: `wsEn` (`en_v2_lowlatency`) + `wsAr` (`ar_v1`)
+4. **Same PCM** stream sent to both WSs — each engine transcribes in its language independently
+5. Language filter `isArabic()` (≥35% Arabic Unicode codepoints) routes output to correct channel:
+   - `ar WS nfw/fw` that fails Arabic test → discarded (garbage English from ar engine)
+   - `en WS nfw/fw` that passes Arabic test → discarded (prevents English engine from stealing Arabic words)
+6. **Arabic activity guard**: `lastArActivityRef` records timestamp of last valid Arabic output; English WS live display suppressed for 1 s after Arabic activity prevents en WS garbage from overwriting the Arabic live line
+7. **fw buffer (per channel)**: committed words accumulate in `enBufRef` / `arBufRef` — NO immediate phrase creation
+8. **1.5 s silence timer** (per channel): resets on every nfw/fw event; when it fires the entire buffer becomes ONE phrase in history
+9. **Live line**: shows `fwBuffer + current nfw partial` in one italic line — replaced in place, never auto-scrolls
+10. **Auto-scroll** only fires when `phrases.length` changes (final phrase added), never on partials
+11. Translation fires immediately on each sealed phrase (`POST /api/translate`)
+12. Auto-reconnect on unexpected WS close (200 ms delay); `apiErrorOccurred` prevents loops
+13. Stop → flush both buffers → `POST /api/transcription/session/stop` with duration
 
 ### Soniox API Notes
 - **Endpoint**: `wss://api.soniox.com/transcribe-websocket`
-- **Valid models**: `en_v2_lowlatency` (English, low-latency streaming) and `ar_v1` (Arabic)
+- **VALID models ONLY**: `en_v2_lowlatency` (English) and `ar_v1` (Arabic). `multilingual`, `v4`, `auto` → `<invalid_model>` error
 - **Init format**: `{ api_key, model, audio_format: "pcm_s16le", sample_rate_hertz: 16000, num_audio_channels: 1, include_nonfinal: true }`
-- **include_nonfinal: true** enables real-time partial words (`nfw`); `en_v2_lowlatency` handles this correctly
+- **No `language` field in init** — model name implies the language
 - **Response format**: `{ fw: [{t, spk}], nfw: [{t, spk}] }` — `fw` = committed words, `nfw` = current partial
-- **Speaker diarization**: `spk` index (0-indexed) per word; offset (0 for en, 100 for ar) ensures global uniqueness
-- **Language filter**: ar_v1 output validated by Arabic Unicode char ratio ≥35%; en must NOT pass that test
-- **AudioWorklet**: 60ms chunks (60ms × sampleRate samples → downsampled to 16kHz PCM Int16)
+- **AudioWorklet**: 60ms chunks (48kHz → 16kHz downsampled), no `sampleRate` in `AudioContext` constructor
 
 ### Phrase interface
 ```typescript
 interface Phrase {
   id: string;
-  speakerIndex: number;  // 0-99 = en channel, 100-199 = ar channel
   speakerLabel: string;  // "Speaker" | "Speaker 2" | ...
-  source: "mic";         // always "mic" in single-input mode
-  text: string;          // committed fw words
-  pendingText?: string;  // current partial nfw words (shown dimmed italic)
-  language: string;      // "en" | "ar"
-  active: boolean;       // true = partial in-flight; false = sealed (triggers translation)
+  text: string;          // complete sentence committed after 1.5 s silence
+  language: "en" | "ar"; // set by the WS channel that produced it
+}
+
+interface LiveTranscript {
+  text: string;          // fwBuffer + current nfw partial (one growing line)
+  language: "en" | "ar";
+  speakerLabel: string;
 }
 ```
 

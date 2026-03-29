@@ -1,34 +1,32 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
-export type LangMode = "en" | "ar";
+export type LangCode = "en" | "ar";
 
 /** A completed, permanent transcript entry. All entries in `phrases` are final. */
 export interface Phrase {
   id: string;
   speakerLabel: string;
   text: string;
-  language: LangMode;
+  language: LangCode;
 }
 
-/** The sentence currently being spoken — replaced in-place on every partial update.
- *  Shows committed (fw) words PLUS the current partial (nfw) words in one line.
- *  Null when no speech is in progress. */
+/** The sentence currently being spoken.
+ *  Shows committed (fw) + current partial (nfw) in one live line. Null when silent. */
 export interface LiveTranscript {
   text: string;
-  language: LangMode;
+  language: LangCode;
   speakerLabel: string;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const TARGET_RATE    = 16000;
-const STORAGE_KEY    = "interpretai_phrases";
-const COMMIT_DELAY   = 1500; // ms of silence before sealing a sentence
+const TARGET_RATE  = 16000;
+const STORAGE_KEY  = "interpretai_phrases";
+const COMMIT_DELAY = 1500; // ms of silence before sealing a sentence into history
 
-/** Select the Soniox model for the active language. */
-function modelFor(lang: LangMode): string {
+function modelFor(lang: LangCode): string {
   return lang === "en" ? "en_v2_lowlatency" : "ar_v1";
 }
 
@@ -49,50 +47,75 @@ function loadPhrases(): Phrase[] {
   } catch { return []; }
 }
 
+/** True when ≥35% of letter codepoints in `text` are Arabic script. */
+function isArabic(text: string): boolean {
+  const letters = (text.match(/\p{L}/gu) ?? []).length;
+  if (letters === 0) return false;
+  const arChars = (
+    text.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? []
+  ).length;
+  return arChars / letters >= 0.35;
+}
+
+function joinWords(
+  words: { t?: string; w?: string; text?: string }[]
+): string {
+  return words.map(w => w.t ?? w.w ?? w.text ?? "").join("").trim();
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [phrases, setPhrases]         = useState<Phrase[]>(loadPhrases);
-  const [liveTranscript, setLiveTranscript] = useState<LiveTranscript | null>(null);
-  const [micLevel, setMicLevel]       = useState(0);
-  const [error, setError]             = useState<string | null>(null);
-  const [audioInfo, setAudioInfo]     = useState<string>("");
+  const [isRecording, setIsRecording]         = useState(false);
+  const [phrases, setPhrases]                 = useState<Phrase[]>(loadPhrases);
+  const [liveTranscript, setLiveTranscript]   = useState<LiveTranscript | null>(null);
+  const [micLevel, setMicLevel]               = useState(0);
+  const [error, setError]                     = useState<string | null>(null);
+  const [audioInfo, setAudioInfo]             = useState<string>("");
 
-  const audioCtxRef    = useRef<AudioContext | null>(null);
-  const apiKeyRef      = useRef<string>("");
-  const wsRef          = useRef<WebSocket | null>(null);
-  const workletRef     = useRef<AudioWorkletNode | null>(null);
-  const streamsRef     = useRef<MediaStream[]>([]);
-  const isRecordingRef = useRef(false);
-  const sessionIdRef   = useRef<number | null>(null);
-  const startTimeRef   = useRef<number>(0);
-  const langModeRef    = useRef<LangMode>("en");
+  const audioCtxRef  = useRef<AudioContext | null>(null);
+  const apiKeyRef    = useRef<string>("");
+  const wsEnRef      = useRef<WebSocket | null>(null);
+  const wsArRef      = useRef<WebSocket | null>(null);
+  const workletRef   = useRef<AudioWorkletNode | null>(null);
+  const streamsRef   = useRef<MediaStream[]>([]);
+  const isRecRef     = useRef(false);
+  const sessionIdRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
 
-  // ── Sentence buffer: accumulates fw words until silence ───────────────────
-  // Every fw message appends to this buffer instead of creating a new phrase.
-  // A commit timer fires after COMMIT_DELAY ms of silence and seals the buffer
-  // into one final phrase in history.
-  const fwBufferRef     = useRef<string>("");
-  const fwSpeakerRef    = useRef<number>(0);
-  const commitTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Per-channel fw buffers ─────────────────────────────────────────────────
+  // Each language channel accumulates committed words independently.
+  // A per-channel commit timer seals the buffer into one phrase after COMMIT_DELAY.
+  const enBufRef   = useRef<string>("");
+  const arBufRef   = useRef<string>("");
+  const enSpkRef   = useRef<number>(0);
+  const arSpkRef   = useRef<number>(0);
+  const enTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Arabic activity guard ──────────────────────────────────────────────────
+  // When Arabic nfw/fw arrives we record the timestamp.
+  // The English channel suppresses its live display for 1 second after that,
+  // preventing en WS garbage from overwriting the Arabic live line.
+  const lastArActivityRef = useRef<number>(0);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
 
-  // ── Persist history to localStorage ───────────────────────────────────────
+  // ── Persist phrases to localStorage ───────────────────────────────────────
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(phrases)); }
     catch { /* storage full */ }
   }, [phrases]);
 
-  // ── flushBuffer: commit accumulated fw text to history ────────────────────
-  // Called by the commit timer and by stop().
-  const flushBuffer = useCallback((lang: LangMode) => {
-    const text = fwBufferRef.current.trim();
+  // ── flush: commit one channel's buffer to history ─────────────────────────
+  const flush = useCallback((lang: LangCode) => {
+    const bufRef = lang === "en" ? enBufRef : arBufRef;
+    const spkRef = lang === "en" ? enSpkRef : arSpkRef;
+    const text   = bufRef.current.trim();
     if (!text) return;
-    const spk = fwSpeakerRef.current;
-    fwBufferRef.current = "";
+    const spk = spkRef.current;
+    bufRef.current = "";
     setPhrases(prev => [
       ...prev,
       { id: nextId(), speakerLabel: makeSpeakerLabel(spk), text, language: lang },
@@ -100,31 +123,27 @@ export function useTranscription() {
     setLiveTranscript(null);
   }, []);
 
-  // ── scheduleCommit: reset the silence timer ────────────────────────────────
-  const scheduleCommit = useCallback((lang: LangMode) => {
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    commitTimerRef.current = setTimeout(() => {
-      flushBuffer(lang);
-    }, COMMIT_DELAY);
-  }, [flushBuffer]);
-
   // ── stop ──────────────────────────────────────────────────────────────────
   const stop = useCallback(async () => {
-    if (!isRecordingRef.current) return;
-    isRecordingRef.current = false;
+    if (!isRecRef.current) return;
+    isRecRef.current = false;
     setIsRecording(false);
 
-    // Commit any buffered text before cleaning up
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    flushBuffer(langModeRef.current);
+    // Commit any buffered text before tearing down
+    if (enTimerRef.current) clearTimeout(enTimerRef.current);
+    if (arTimerRef.current) clearTimeout(arTimerRef.current);
+    flush("en");
+    flush("ar");
 
     workletRef.current?.disconnect();
     workletRef.current = null;
 
-    if (wsRef.current) {
-      try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
-      wsRef.current.close();
-      wsRef.current = null;
+    for (const wsRef of [wsEnRef, wsArRef]) {
+      if (wsRef.current) {
+        try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     }
 
     if (audioCtxRef.current) {
@@ -145,38 +164,46 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, flushBuffer]);
+  }, [stopSessionMut, flush]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   //
-  // ONE WebSocket, language fixed at session start by the EN/AR toggle.
+  // Two simultaneous WebSockets — en_v2_lowlatency and ar_v1 — receive identical
+  // PCM audio. Language detection via isArabic() decides which channel's output
+  // is valid and visible.
   //
-  // nfw (non-final):
-  //   → Show the fw buffer + current partial words as ONE live line.
-  //   → Reset the commit timer (user is still speaking).
+  // nfw (partial):
+  //   Each channel shows its own buffer + current partial in the live line.
+  //   Arabic activity suppresses the English live display for 1 s to prevent
+  //   garbage en WS output from overwriting the Arabic live line.
   //
-  // fw (final):
-  //   → APPEND to fwBuffer (do NOT create a phrase immediately).
-  //   → Update the live line to show the growing accumulated text.
-  //   → Reset the commit timer. When it finally fires (1.5 s of silence),
-  //     the whole buffer becomes ONE phrase and translation fires.
+  // fw (committed):
+  //   Filtered by isArabic() — only the correct channel accumulates each word.
+  //   After COMMIT_DELAY ms of silence, the channel's buffer becomes ONE phrase
+  //   in history. Translation fires immediately for that phrase.
   //
-  const buildWs = useCallback((apiKey: string, langMode: LangMode): WebSocket => {
-    const model = modelFor(langMode);
-    const ws    = new WebSocket("wss://api.soniox.com/transcribe-websocket");
+  const buildWs = useCallback((
+    apiKey: string,
+    langCode: LangCode,
+    ownRef: MutableRefObject<WebSocket | null>,
+  ): WebSocket => {
+    const model   = modelFor(langCode);
+    const ws      = new WebSocket("wss://api.soniox.com/transcribe-websocket");
+    const bufRef  = langCode === "en" ? enBufRef : arBufRef;
+    const spkRef  = langCode === "en" ? enSpkRef : arSpkRef;
+    const timRef  = langCode === "en" ? enTimerRef : arTimerRef;
     let apiErrorOccurred = false;
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
         api_key: apiKey,
         model,
-        language: langMode,          // explicit language so Soniox uses the right acoustic model
         audio_format: "pcm_s16le",
         sample_rate_hertz: TARGET_RATE,
         num_audio_channels: 1,
         include_nonfinal: true,
       }));
-      console.log(`[WS] ${model} (lang=${langMode}) connected`);
+      console.log(`[WS] ${model} connected`);
     };
 
     ws.onmessage = (e: MessageEvent) => {
@@ -187,7 +214,6 @@ export function useTranscription() {
           error?: string; code?: number; message?: string;
         };
 
-        // API-level error → surface once, stop reconnecting
         if (data.error || (typeof data.code === "number" && !data.fw && !data.nfw)) {
           const msg = data.error ?? data.message ?? `code ${data.code}`;
           console.error(`[WS] ${model} API error:`, msg);
@@ -196,50 +222,65 @@ export function useTranscription() {
           return;
         }
 
-        // ── Non-final words (is_final: false) ──────────────────────────────
-        // Show: already committed text (fwBuffer) + current partial words.
-        // Reset the silence timer — user is still speaking.
+        // ── Non-final words ──────────────────────────────────────────────────
         const nfWords = data.nfw ?? [];
         if (nfWords.length > 0) {
-          const partial = nfWords.map(w => w.t ?? w.w ?? w.text ?? "").join("").trim();
-          if (partial) {
-            const display = fwBufferRef.current
-              ? `${fwBufferRef.current} ${partial}`.trim()
-              : partial;
-            setLiveTranscript({
-              text: display,
-              language: langMode,
-              speakerLabel: makeSpeakerLabel(fwSpeakerRef.current),
-            });
-            scheduleCommit(langMode); // reset timer — silence hasn't started yet
+          const partial = joinWords(nfWords);
+          if (!partial) return;
+
+          const partialIsAr = isArabic(partial);
+
+          // Language filter: each channel only displays its own language
+          if (langCode === "ar" && !partialIsAr) return;
+          if (langCode === "en" && partialIsAr)  return;
+
+          if (langCode === "ar") {
+            lastArActivityRef.current = Date.now();
           }
+
+          // Suppress English live display when Arabic was active within last 1 s
+          if (langCode === "en" && Date.now() - lastArActivityRef.current < 1000) return;
+
+          // Show: committed buffer + current partial (so the full sentence is visible)
+          const display = bufRef.current
+            ? `${bufRef.current} ${partial}`.trim()
+            : partial;
+
+          setLiveTranscript({
+            text: display,
+            language: langCode,
+            speakerLabel: makeSpeakerLabel(nfWords[0]?.spk ?? 0),
+          });
         }
 
-        // ── Final words (is_final: true) ────────────────────────────────────
-        // ACCUMULATE into the fw buffer (do NOT create a phrase yet).
-        // Update the live line to show the full committed text so far.
-        // Reset the silence timer — a new phrase seals after COMMIT_DELAY.
+        // ── Final words ──────────────────────────────────────────────────────
         const finalWords = data.fw ?? [];
         if (finalWords.length > 0) {
-          for (const w of finalWords) {
-            const txt = (w.t ?? w.w ?? w.text ?? "").trim();
-            if (txt) {
-              fwBufferRef.current = fwBufferRef.current
-                ? `${fwBufferRef.current} ${txt}`
-                : txt;
-              fwSpeakerRef.current = w.spk ?? 0;
-            }
-          }
+          const committed = joinWords(finalWords);
+          if (!committed) return;
 
-          if (fwBufferRef.current) {
-            setLiveTranscript({
-              text: fwBufferRef.current,
-              language: langMode,
-              speakerLabel: makeSpeakerLabel(fwSpeakerRef.current),
-            });
-          }
+          const committedIsAr = isArabic(committed);
 
-          scheduleCommit(langMode); // reset 1.5 s silence countdown
+          // Language filter: reject cross-language output
+          if (langCode === "ar" && !committedIsAr) return;
+          if (langCode === "en" && committedIsAr)  return;
+
+          if (langCode === "ar") lastArActivityRef.current = Date.now();
+
+          // Accumulate into this channel's buffer
+          bufRef.current  = bufRef.current ? `${bufRef.current} ${committed}` : committed;
+          spkRef.current  = finalWords[0]?.spk ?? 0;
+
+          // Update the live line to show the growing committed text
+          setLiveTranscript({
+            text: bufRef.current,
+            language: langCode,
+            speakerLabel: makeSpeakerLabel(spkRef.current),
+          });
+
+          // Reset the silence countdown — fires when speech pauses for COMMIT_DELAY
+          if (timRef.current) clearTimeout(timRef.current);
+          timRef.current = setTimeout(() => flush(langCode), COMMIT_DELAY);
         }
       } catch (err) {
         console.error(`[WS] ${model} parse error`, err);
@@ -248,33 +289,33 @@ export function useTranscription() {
 
     ws.onerror = (e) => console.error(`[WS] ${model} socket error`, e);
 
-    ws.onclose = (e) => {
-      const logFn = (e.code === 1000 || e.code === 1001) ? console.log : console.warn;
-      logFn(`[WS] ${model} closed — code:${e.code} reason:"${e.reason}"`);
-      if (wsRef.current === ws) wsRef.current = null;
+    ws.onclose = (ev) => {
+      const logFn = (ev.code === 1000 || ev.code === 1001) ? console.log : console.warn;
+      logFn(`[WS] ${model} closed — code:${ev.code} reason:"${ev.reason}"`);
+      if (ownRef.current === ws) ownRef.current = null;
 
-      // Auto-reconnect (keeps phrases intact — never clears history)
-      if (!isRecordingRef.current || apiErrorOccurred) return;
-      console.log(`[WS] ${model} — reconnecting in 200 ms`);
+      // Auto-reconnect — does NOT clear history or liveTranscript
+      if (!isRecRef.current || apiErrorOccurred) return;
+      console.log(`[WS] ${model} reconnecting in 200 ms…`);
       setTimeout(() => {
-        if (!isRecordingRef.current || !apiKeyRef.current) return;
-        const newWs = buildWs(apiKeyRef.current, langModeRef.current);
-        wsRef.current = newWs;
+        if (!isRecRef.current || !apiKeyRef.current) return;
+        const newWs = buildWs(apiKeyRef.current, langCode, ownRef);
+        ownRef.current = newWs;
       }, 200);
     };
 
     return ws;
-  }, [stop, scheduleCommit]);
+  }, [stop, flush]);
 
   // ── start ─────────────────────────────────────────────────────────────────
-  const start = useCallback(async (deviceId: string, langMode: LangMode) => {
+  const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
       setLiveTranscript(null);
       setAudioInfo("");
-      fwBufferRef.current  = "";
-      fwSpeakerRef.current = 0;
-      langModeRef.current  = langMode;
+      enBufRef.current = "";
+      arBufRef.current = "";
+      lastArActivityRef.current = 0;
 
       const tokenRes   = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
@@ -303,8 +344,11 @@ export function useTranscription() {
       });
       streamsRef.current.push(stream);
 
-      const ws = buildWs(tokenRes.apiKey, langMode);
-      wsRef.current = ws;
+      // Open BOTH language WebSockets simultaneously
+      const wsEn = buildWs(tokenRes.apiKey, "en", wsEnRef);
+      const wsAr = buildWs(tokenRes.apiKey, "ar", wsArRef);
+      wsEnRef.current = wsEn;
+      wsArRef.current = wsAr;
 
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
@@ -320,9 +364,10 @@ export function useTranscription() {
 
       worklet.port.onmessage = (e) => {
         const pcm = e.data as ArrayBuffer;
-        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(pcm);
+        // Feed identical audio to both language channels
+        if (wsEnRef.current?.readyState === WebSocket.OPEN) wsEnRef.current.send(pcm);
+        if (wsArRef.current?.readyState === WebSocket.OPEN) wsArRef.current.send(pcm);
 
-        // RMS level for VU meter
         const samples = new Int16Array(pcm);
         let sum = 0;
         for (let i = 0; i < samples.length; i++) {
@@ -332,7 +377,7 @@ export function useTranscription() {
         setMicLevel(Math.min(100, Math.sqrt(sum / samples.length) * 500));
       };
 
-      isRecordingRef.current = true;
+      isRecRef.current = true;
       setIsRecording(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to start transcription";
@@ -354,8 +399,10 @@ export function useTranscription() {
     clear: () => {
       setPhrases([]);
       setLiveTranscript(null);
-      fwBufferRef.current = "";
-      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      enBufRef.current = "";
+      arBufRef.current = "";
+      if (enTimerRef.current) clearTimeout(enTimerRef.current);
+      if (arTimerRef.current) clearTimeout(arTimerRef.current);
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
