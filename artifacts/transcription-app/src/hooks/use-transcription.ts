@@ -229,6 +229,19 @@ export function useTranscription() {
   const candidateCountRef    = useRef<number>(0);
   const candidateStartMsRef  = useRef<number>(0);
 
+  // ── Token Buffer (100 ms) ──────────────────────────────────────────────────
+  // WebSocket messages arrive individually, often carrying 1–3 tokens each.
+  // Accumulating them over a 100 ms window before processing gives the
+  // Speaker Stabilizer a larger, more representative token batch, so the
+  // 3-consecutive-token confirmation threshold is reached faster and false
+  // speaker flips are less likely to cross the threshold in isolation.
+  //
+  // Pipeline: Soniox WS → Token Buffer (100 ms) → Speaker Stabilizer
+  //           → Segment Builder → Translation → UI
+  //
+  const wsTokenBufferRef   = useRef<SonioxToken[]>([]);
+  const wsBufferTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
@@ -261,6 +274,8 @@ export function useTranscription() {
     setIsRecording(false);
 
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
+    wsTokenBufferRef.current = [];
     candidateSpeakerRef.current = undefined;
     candidateCountRef.current   = 0;
     candidateStartMsRef.current = 0;
@@ -328,14 +343,129 @@ export function useTranscription() {
       console.log("[WS] stt-rt-v4 OPEN — config sent:", config);
     };
 
-    ws.onmessage = (e: MessageEvent) => {
-      // Log every raw message so we can confirm tokens are arriving
-      console.log("[WS] RAW message:", e.data);
+    // ── processTokenBatch: Speaker Stabilizer + Segment Builder ──────────
+    //
+    // Receives a batch of tokens accumulated over the 100 ms window and
+    // runs the full pipeline:
+    //   Speaker Stabilizer → Segment Builder → Silence Timer → UI update
+    //
+    const processTokenBatch = (tokens: SonioxToken[]) => {
+      if (tokens.length === 0) return;
 
+      lastTokenTimeRef.current = Date.now();
+
+      const finalTokens = tokens.filter(t => t.is_final);
+      const nfTokens    = tokens.filter(t => !t.is_final);
+
+      // ── Speaker Stabilizer + Segment Builder (final tokens) ─────────────
+      if (finalTokens.length > 0) {
+        langRef.current = detectLang(finalTokens, langRef.current);
+
+        if (import.meta.env.DEV) {
+          console.log(
+            "[SPK] batch:",
+            finalTokens.map(t => `"${t.text.trim()}"→spk:${t.speaker ?? "?"}`).join("  ")
+          );
+        }
+
+        const SENTENCE_END = /[.!?؟،。！？]\s*$/;
+
+        const resetCandidate = () => {
+          candidateSpeakerRef.current = undefined;
+          candidateCountRef.current   = 0;
+          candidateStartMsRef.current = 0;
+        };
+
+        const confirmCandidate = (newSpk: number) => {
+          if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+          flush();
+          speakerRef.current = newSpk;
+          resetCandidate();
+        };
+
+        for (const token of finalTokens) {
+          const tSpk = token.speaker;
+          touchSpeaker(tSpk);
+
+          if (!finalBufRef.current.trim()) {
+            // Case A — empty buffer: start fresh segment
+            if (tSpk !== undefined) speakerRef.current = tSpk;
+            resetCandidate();
+            finalBufRef.current += token.text;
+
+          } else if (tSpk === undefined || tSpk === speakerRef.current) {
+            // Case B — same speaker (or no ID): append, reset candidate
+            resetCandidate();
+            finalBufRef.current += token.text;
+
+          } else {
+            // Case C — different speaker: stabilization window
+            if (candidateSpeakerRef.current !== tSpk) {
+              candidateSpeakerRef.current = tSpk;
+              candidateCountRef.current   = 1;
+              candidateStartMsRef.current = Date.now();
+            } else {
+              candidateCountRef.current++;
+            }
+            finalBufRef.current += token.text;
+
+            if (candidateCountRef.current >= 3 || (Date.now() - candidateStartMsRef.current) >= 300) {
+              confirmCandidate(tSpk);
+            }
+          }
+
+          // Segment Builder: sentence boundary → commit immediately
+          if (SENTENCE_END.test(finalBufRef.current)) {
+            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
+            flush();
+            resetCandidate();
+          }
+        }
+      }
+
+      // ── Non-final tokens: update live suffix display ────────────────────
+      // Take only the LAST batch of nf tokens (most recent wins).
+      if (nfTokens.length > 0) {
+        nfDisplayRef.current = nfTokens.map(t => t.text).join("");
+        if (!finalBufRef.current) langRef.current = detectLang(nfTokens, langRef.current);
+      }
+
+      // ── Silence-flush timer (arms only when no sentence boundary fired) ──
+      if (finalTokens.length > 0 && finalBufRef.current.trim()) {
+        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+        const silenceFlush = () => {
+          commitTimerRef.current = null;
+          const silentFor = Date.now() - lastTokenTimeRef.current;
+          if (silentFor < COMMIT_DELAY) {
+            commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
+          } else {
+            flush();
+          }
+        };
+        commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
+      }
+
+      // ── UI update ────────────────────────────────────────────────────────
+      const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
+      if (displayText) {
+        setLiveTranscript({
+          text:         displayText,
+          language:     langRef.current,
+          speakerLabel: normalizeSpeaker(speakerRef.current),
+        });
+      }
+    };
+
+    // ── onmessage: Token Buffer (100 ms) ──────────────────────────────────
+    //
+    // Accumulate raw tokens from every WebSocket message into a buffer.
+    // A single 100 ms timer drains the buffer into processTokenBatch.
+    // Error and finished events bypass the buffer and are handled inline.
+    //
+    ws.onmessage = (e: MessageEvent) => {
       try {
         const msg = JSON.parse(e.data as string) as SonioxMessage;
 
-        // API error — surface once, stop reconnecting
         if (msg.error || (typeof msg.code === "number" && !msg.tokens)) {
           const errMsg = msg.error ?? msg.message ?? `code ${msg.code}`;
           console.error("[WS] stt-rt-v4 ERROR:", errMsg, msg);
@@ -344,10 +474,14 @@ export function useTranscription() {
           return;
         }
 
-        // Stream finished (server closed cleanly) — commit any remaining content
-        // immediately rather than waiting for the silence timer.
         if (msg.finished) {
-          console.log("[WS] stt-rt-v4 finished");
+          console.log("[WS] stt-rt-v4 finished — draining buffer");
+          // Drain any buffered tokens first, then commit.
+          if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
+          if (wsTokenBufferRef.current.length > 0) {
+            processTokenBatch(wsTokenBufferRef.current);
+            wsTokenBufferRef.current = [];
+          }
           if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
           if (!finalBufRef.current.trim() && nfDisplayRef.current.trim()) {
             finalBufRef.current = nfDisplayRef.current;
@@ -358,193 +492,19 @@ export function useTranscription() {
         }
 
         const tokens = msg.tokens ?? [];
-        console.log("[WS] tokens count:", tokens.length, "| final:", tokens.filter(t => t.is_final).length);
         if (tokens.length === 0) return;
 
-        // Stamp every arrival — used by the silence-flush guard below.
-        // Non-final tokens arrive every 60–200 ms during active speech;
-        // this prevents the commit timer from firing mid-sentence when
-        // there is merely a gap between two consecutive final-token batches.
-        lastTokenTimeRef.current = Date.now();
+        // Accumulate into the 100 ms buffer.
+        wsTokenBufferRef.current.push(...tokens);
 
-        const finalTokens = tokens.filter(t => t.is_final);
-        const nfTokens    = tokens.filter(t => !t.is_final);
-
-        // ── Final tokens: accumulate into the sentence buffer ──────────────
-        if (finalTokens.length > 0) {
-          langRef.current = detectLang(finalTokens, langRef.current);
-
-          // Debug: log speaker IDs arriving per token so we can see what
-          // Soniox is actually providing in real-time.
-          if (import.meta.env.DEV) {
-            console.log(
-              "[SPK] final batch:",
-              finalTokens.map(t => `"${t.text.trim()}"→spk:${t.speaker ?? "?"}`).join("  ")
-            );
-          }
-
-          // ── Per-token segmentation with speaker stabilization ─────────────
-          //
-          // Algorithm for each token:
-          //
-          //   Case A — buffer is empty (fresh segment):
-          //     Accept whatever speaker ID is present.  No candidate needed.
-          //
-          //   Case B — same speaker as current (or no speaker ID):
-          //     Normal append.  Reset any pending candidate.
-          //
-          //   Case C — different speaker ID, buffer has content:
-          //     Do NOT flush immediately.  Instead maintain a "candidate":
-          //       • start/continue counting consecutive tokens with the new ID
-          //       • start/continue timing from first appearance
-          //     Append the token to the CURRENT buffer optimistically.
-          //     Confirm the speaker change only when:
-          //       – ≥ 3 consecutive tokens have the same new speaker ID, OR
-          //       – the candidate has persisted for ≥ 300 ms
-          //     If the speaker reverts to the current ID before confirmation,
-          //     cancel the candidate — the transitional tokens stay in the
-          //     current segment (mirrors Soniox's stability for brief
-          //     utterances like "Oh." that get a transient diarization ID).
-          //
-          //   After appending any token, also check sentence punctuation and
-          //   flush immediately if the buffer ends with . ? ! ؟ etc.
-          //
-          const SENTENCE_END = /[.!?؟،。！？]\s*$/;
-
-          const resetCandidate = () => {
-            candidateSpeakerRef.current = undefined;
-            candidateCountRef.current   = 0;
-            candidateStartMsRef.current = 0;
-          };
-
-          const confirmCandidate = (newSpk: number) => {
-            // Flush whatever is in the buffer (old speaker + transition tokens)
-            // then adopt the new speaker for the next segment.
-            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-            flush();
-            speakerRef.current = newSpk;
-            resetCandidate();
-          };
-
-          for (const token of finalTokens) {
-            const tSpk = token.speaker;
-
-            // Keep LRU timestamps current for known raw IDs during active speech.
-            touchSpeaker(tSpk);
-
-            if (!finalBufRef.current.trim()) {
-              // ── Case A: empty buffer — start fresh segment ──────────────
-              if (tSpk !== undefined) speakerRef.current = tSpk;
-              resetCandidate();
-              finalBufRef.current += token.text;
-
-            } else if (tSpk === undefined || tSpk === speakerRef.current) {
-              // ── Case B: same speaker (or no ID) ─────────────────────────
-              resetCandidate();
-              finalBufRef.current += token.text;
-
-            } else {
-              // ── Case C: different speaker ID ─────────────────────────────
-              if (candidateSpeakerRef.current !== tSpk) {
-                // New candidate speaker (or reverting to yet another speaker)
-                candidateSpeakerRef.current = tSpk;
-                candidateCountRef.current   = 1;
-                candidateStartMsRef.current = Date.now();
-              } else {
-                // Same candidate — keep counting
-                candidateCountRef.current++;
-              }
-
-              finalBufRef.current += token.text;
-
-              const enoughTokens = candidateCountRef.current >= 3;
-              const enoughTime   = (Date.now() - candidateStartMsRef.current) >= 300;
-
-              if (enoughTokens || enoughTime) {
-                confirmCandidate(tSpk);
-              }
-            }
-
-            // ── Sentence boundary flush (applies in all cases) ────────────
-            if (SENTENCE_END.test(finalBufRef.current)) {
-              if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-              flush();
-              resetCandidate();
-            }
-          }
-        }
-
-        // ── Non-final tokens: REPLACE the live suffix (Buffer-and-Overwrite) ─
-        nfDisplayRef.current = nfTokens.map(t => t.text).join("");
-
-        // Language fallback from non-final when buffer is still empty
-        if (nfTokens.length > 0 && !finalBufRef.current) {
-          langRef.current = detectLang(nfTokens, langRef.current);
-        }
-
-        // ── Commit-timer logic ──────────────────────────────────────────────
-        //
-        // Priority (highest → lowest):
-        //  1. Speaker change           → synchronous flush inside the loop above
-        //  2. Sentence punctuation     → synchronous flush here
-        //  3. Final tokens, no boundary → (re)arm the silence-flush timer
-        //  4. Non-final tokens only    → leave the timer untouched
-        //
-        // The silence-flush timer fires COMMIT_DELAY ms after it is armed,
-        // but it ALSO checks lastTokenTimeRef at fire time.  If any token
-        // arrived since the timer was armed (even just a non-final token from
-        // the model continuing to emit during ongoing speech) the callback
-        // reschedules itself for the remaining silence gap.
-        //
-        // This prevents the mid-word fragment bug: "express" commits before
-        // "ions" when there is a ≥ COMMIT_DELAY gap between two consecutive
-        // *final* token batches even though non-final tokens were arriving
-        // continuously in that interval, showing the speaker was still talking.
-        //
-        if (finalTokens.length > 0 && finalBufRef.current.trim()) {
-          const endsSentence = /[.!?؟،。！？]\s*$/.test(finalBufRef.current);
-
-          if (endsSentence) {
-            // Confirmed sentence end — flush immediately.
-            // The non-final suffix belongs to the NEXT sentence and will
-            // repopulate naturally on the next token event.
-            if (commitTimerRef.current) { clearTimeout(commitTimerRef.current); commitTimerRef.current = null; }
-            flush();
-          } else {
-            // No sentence boundary — schedule a silence-aware flush.
-            //
-            // The callback re-checks lastTokenTimeRef when it fires.  If any
-            // token (final or non-final) has arrived in the interim, speech is
-            // still ongoing and the callback reschedules itself for the
-            // remaining silence needed.  This prevents the mid-word commit
-            // ("express" → "ions from my mom") caused by a gap between two
-            // consecutive final-token batches while non-final tokens show
-            // continuous speech in between.
-            if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-            const silenceFlush = () => {
-              commitTimerRef.current = null;
-              const silentFor = Date.now() - lastTokenTimeRef.current;
-              if (silentFor < COMMIT_DELAY) {
-                // Tokens still arriving — wait out the remaining silence needed.
-                commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY - silentFor + 50);
-              } else {
-                flush();
-              }
-            };
-            commitTimerRef.current = setTimeout(silenceFlush, COMMIT_DELAY);
-          }
-        }
-        // Non-final tokens only: leave commitTimerRef untouched so it fires
-        // on schedule from the last final-token batch.
-
-        // ── Update live transcript: confirmed prefix + uncertain suffix ──────
-        const displayText = (finalBufRef.current + nfDisplayRef.current).trim();
-        if (displayText) {
-          setLiveTranscript({
-            text:         displayText,
-            language:     langRef.current,
-            speakerLabel: normalizeSpeaker(speakerRef.current),
-          });
+        // Arm the drain timer if not already running.
+        if (!wsBufferTimerRef.current) {
+          wsBufferTimerRef.current = setTimeout(() => {
+            wsBufferTimerRef.current = null;
+            const batch = wsTokenBufferRef.current;
+            wsTokenBufferRef.current = [];
+            processTokenBatch(batch);
+          }, 100);
         }
       } catch (err) {
         console.error("[WS] stt-rt-v4 parse error", err);
@@ -696,6 +656,8 @@ export function useTranscription() {
       speakerRef.current   = 0;
       resetSpeakerMap(); // wipe speaker identities with the history
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      if (wsBufferTimerRef.current) { clearTimeout(wsBufferTimerRef.current); wsBufferTimerRef.current = null; }
+      wsTokenBufferRef.current = [];
       candidateSpeakerRef.current = undefined;
       candidateCountRef.current   = 0;
       candidateStartMsRef.current = 0;
