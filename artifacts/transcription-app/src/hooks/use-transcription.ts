@@ -428,31 +428,15 @@ export function useTranscription() {
       for (const token of tokens) {
         if (!token.is_final) {
           // Non-final → collect text for live display, never commit to finalBufRef.
-          hasNonFinal = true;
-
-          // ── Instant speaker-change detection on interim tokens ───────────
-          // Soniox provides speaker IDs on non-final tokens.  Check on every
-          // packet — do NOT wait for is_final or a sentence boundary.
-          // If the speaker has changed AND we have committed text in the buffer,
-          // seal the old segment immediately so the new speaker gets a fresh row.
-          if (token.speaker != null) {
-            speakerRef.current = token.speaker;
-
-            if (
-              activeSegSpeakerRef.current !== undefined &&
-              token.speaker !== activeSegSpeakerRef.current &&
-              finalBufRef.current.trim().length > 0
-            ) {
-              // Discard any tentative text already collected for the OLD speaker
-              // in this message — it belonged to whoever was speaking before.
-              nfText = "";
-              flush(); // seal old speaker's confirmed text into a finalized row
-              activeSegSpeakerRef.current = token.speaker;
-              segStartMsRef.current       = Date.now();
-            }
-          }
-
+          // Do NOT trigger speaker-change logic here — non-final speaker assignments
+          // are Soniox's live guesses and flip constantly.  Acting on them causes
+          // segment flickering (new rows created and collapsed every few words).
+          // Speaker-change flushes happen only in the final-token path below,
+          // where diarization is confirmed and stable.
           nfText += token.text;
+          hasNonFinal = true;
+          // Update speakerRef so the preview label stays current, but nothing more.
+          if (token.speaker != null) speakerRef.current = token.speaker;
           continue;
         }
 

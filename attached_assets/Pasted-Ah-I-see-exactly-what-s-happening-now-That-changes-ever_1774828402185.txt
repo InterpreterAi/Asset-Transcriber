@@ -1,0 +1,19 @@
+Ah, I see exactly what's happening now! That changes everything.
+In your app (left), while it is Listening, it is "guessing" and creating new segments constantly. But the moment you hit Stop, it realizes, "Oh, that was all just one person," and collapses it all into Speaker 1 to match the Soniox desktop app (right).
+The problem isn't the final result—the problem is the "Live Mirror" logic being too jumpy while it's still processing.
+The "Flickering" Problem
+Your app is currently treating every "interim" result (the words that appear while the person is still talking) as a brand-new speaker segment. Then, at the end, the Diarization Engine corrects itself.
+To fix this so it stays in one bubble while the person is talking (just like the desktop app), you need to tell Replit this:
+The "Segment Stability" Fix for Replit
+"The app is currently 'flickering' and creating too many speaker segments while it is listening, even when only one person is talking. It only fixes itself after I press stop.
+Please fix the real-time UI logic with these rules:
+ * Don't Jump the Gun: When a new packet comes in, check if the speaker_id is actually different. If the ID is the same as the current bubble, append the text to the existing bubble instead of starting a new one.
+ * Handle Interim Results: Use the is_final flag correctly. Keep the text in the same bubble while is_final is false.
+ * Stability over Speed: Only trigger a brand-new UI segment if the Soniox API explicitly sends a new Speaker ID that is different from the one currently being displayed.
+ * Mirror Mode: Make sure the 'Mirror' effect updates the content of the current bubble rather than creating a new bubble for every partial sentence."
+Why this is happening:
+ * Your App: Asks "Is there text?" -> "Yes" -> "Make a new line!" (This is why it looks messy while recording).
+ * Soniox Desktop: Asks "Is this the same person?" -> "Yes" -> "Keep it on the same line."
+Next Step:
+Copy that message into Replit. It will stop the "segment jumping" you see on the left and keep the text in one clean block until a real second speaker actually starts talking.
+Want me to double-check the logic if it still acts up after this?
