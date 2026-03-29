@@ -13,8 +13,8 @@ export interface Phrase {
   language: LangCode;
 }
 
-/** The segment currently being spoken — updated in place on every token event. */
-export interface ActiveSegment {
+/** The live preview row — updated on every token event, never part of finalizedSegments. */
+export interface ActivePreviewLine {
   text: string;
   language: LangCode;
   speakerLabel: string;
@@ -174,7 +174,7 @@ function detectLang(tokens: SonioxToken[], fallback: LangCode): LangCode {
 export function useTranscription() {
   const [isRecording, setIsRecording]             = useState(false);
   const [finalizedSegments, setFinalizedSegments] = useState<Phrase[]>(loadPhrases);
-  const [activeSegment, setActiveSegment]         = useState<ActiveSegment | null>(null);
+  const [activePreviewLine, setActivePreviewLine]  = useState<ActivePreviewLine | null>(null);
   const [micLevel, setMicLevel]                   = useState(0);
   const [error, setError]                         = useState<string | null>(null);
   const [audioInfo, setAudioInfo]                 = useState<string>("");
@@ -195,7 +195,7 @@ export function useTranscription() {
   //     never change.  Cleared only by flush().
   //   • Non-final tokens (is_final: false) replace `nfDisplayRef` each message
   //     (provisional suffix shown in the active row, never committed).
-  //   • activeSegment.text = finalBufRef + nfDisplayRef (live, updates in place).
+  //   • activePreviewLine.text = finalBufRef + nfText (live, updates in place).
   //
   // Segments are sealed immediately on:
   //   (a) speaker change   (b) sentence boundary   (c) Soniox VAD all-final msg
@@ -253,7 +253,7 @@ export function useTranscription() {
   //
   // Always immediate — no staging delay.
   // finalizedSegments is append-only: once a segment is pushed it is NEVER
-  // modified again.  Only activeSegment updates in place while speaking.
+  // modified again.  Only activePreviewLine updates in place while speaking.
   //
   const flush = useCallback(() => {
     const text = finalBufRef.current.trim();
@@ -281,7 +281,7 @@ export function useTranscription() {
     finalBufRef.current         = "";
     nfDisplayRef.current        = "";
     activeSegSpeakerRef.current = undefined;
-    setActiveSegment(null); // live row disappears; finalized row appears below
+    setActivePreviewLine(null); // live row disappears; finalized row appears below
 
     const phrase: Phrase = {
       id:           nextId(),
@@ -381,14 +381,14 @@ export function useTranscription() {
     //
     // ── Token processing rules ────────────────────────────────────────────
     //
-    // 1. Non-final tokens  → update activeSegment immediately (live preview).
-    //    They are a REPLACEMENT suffix each message — never committed.
+    // 1. Non-final tokens  → update activePreviewLine immediately (live preview).
+    //    They are a REPLACEMENT suffix each message — NEVER touch finalizedSegments.
     // 2. Final tokens      → commit to finalBufRef, detect speaker changes.
-    // 3. A new segment (flush) is created ONLY on token.speaker change.
+    // 3. A new finalized segment is created ONLY on token.speaker change.
     // 4. Utterance boundary (all-final message) resets the dedup watermark
     //    only — it does NOT flush/split rows.
     //
-    // activeSegment.text = finalBufRef (confirmed) + nfText (live interim suffix)
+    // activePreviewLine.text = finalBufRef (confirmed) + nfText (live interim suffix)
     //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
@@ -459,11 +459,12 @@ export function useTranscription() {
         langRef.current = detectLang(newFinalToks, langRef.current);
       }
 
-      // Rule 5: activeSegment updates continuously.
+      // Rule 5: activePreviewLine updates continuously.
       // text = confirmed finals + live interim suffix (replaced each message).
+      // Interim tokens NEVER reach finalizedSegments — only this preview row.
       const displayText = (finalBufRef.current + nfText).trim();
       if (displayText) {
-        setActiveSegment({
+        setActivePreviewLine({
           text:         displayText,
           language:     langRef.current,
           speakerLabel: normalizeSpeaker(speakerRef.current),
@@ -523,7 +524,7 @@ export function useTranscription() {
       nfDisplayRef.current = "";
       flush(); // socket gone — finalize immediately
 
-      // Auto-reconnect — finalizedSegments and activeSegment are preserved in refs
+      // Auto-reconnect — finalizedSegments and activePreviewLine are preserved in refs
       if (!isRecRef.current || apiErrorOccurred) return;
       console.log("[WS] stt-rt-v4 reconnecting in 200 ms…");
       setTimeout(() => {
@@ -539,7 +540,7 @@ export function useTranscription() {
   const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
-      setActiveSegment(null);
+      setActivePreviewLine(null);
       setAudioInfo("");
       finalBufRef.current         = "";
       nfDisplayRef.current        = "";
@@ -642,14 +643,14 @@ export function useTranscription() {
     isRecording,
     audioInfo,
     finalizedSegments,
-    activeSegment,
+    activePreviewLine,
     micLevel,
     error,
     start,
     stop,
     clear: () => {
       setFinalizedSegments([]);
-      setActiveSegment(null);
+      setActivePreviewLine(null);
       finalBufRef.current         = "";
       nfDisplayRef.current        = "";
       speakerRef.current          = undefined;

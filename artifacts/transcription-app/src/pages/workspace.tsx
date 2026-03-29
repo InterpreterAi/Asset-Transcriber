@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type Phrase, type ActiveSegment } from "@/hooks/use-transcription";
+import { useTranscription, type Phrase, type ActivePreviewLine } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
@@ -85,7 +85,7 @@ function SegmentRow({ phrase }: { phrase: Phrase }) {
 
 // ── Active (live) segment row ──────────────────────────────────────────────────
 // Updates in place as tokens stream in. Never unmounts while a segment is open.
-function ActiveRow({ segment }: { segment: ActiveSegment }) {
+function ActiveRow({ segment }: { segment: ActivePreviewLine }) {
   const isRtl = segment.language === "ar" || segment.language === "he";
   return (
     <div className="mb-4">
@@ -122,7 +122,7 @@ export default function Workspace() {
   // ── Auto-scroll on new phrase ──────────────────────────────────────────────
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcription.finalizedSegments.length, transcription.activeSegment?.text]);
+  }, [transcription.finalizedSegments.length, transcription.activePreviewLine?.text]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -168,7 +168,7 @@ export default function Workspace() {
   const isBlocked      = user.trialExpired || isLimitReached;
 
   // isEmpty only shows the empty-state placeholder — never go blank after Stop
-  const hasContent = transcription.finalizedSegments.length > 0 || !!transcription.activeSegment;
+  const hasContent = transcription.finalizedSegments.length > 0 || !!transcription.activePreviewLine;
 
   return (
     <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
@@ -306,8 +306,8 @@ export default function Workspace() {
                   {transcription.finalizedSegments.map((phrase) => (
                     <SegmentRow key={phrase.id} phrase={phrase} />
                   ))}
-                  {transcription.activeSegment && (
-                    <ActiveRow segment={transcription.activeSegment} />
+                  {transcription.activePreviewLine && (
+                    <ActiveRow segment={transcription.activePreviewLine} />
                   )}
                   <div ref={scrollEndRef} />
                 </div>
