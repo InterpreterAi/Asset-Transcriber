@@ -403,12 +403,23 @@ export function useTranscription() {
           segStartMsRef.current       = Date.now();
         }
 
-        // Step 2a: speaker changed → flush BEFORE appending, start new segment.
+        // ── Flush guards ───────────────────────────────────────────────────
+        // MIN_FLUSH_LEN: never flush a segment shorter than this — prevents
+        //   single-word rows and mid-sentence speaker splits.
+        // isWordBoundary: never flush inside a word; the current buffer must
+        //   end with a space or punctuation before we seal it.
+        const MIN_FLUSH_LEN   = 20;
+        const atWordBoundary  = () => /[\s.!?,;:]$/.test(finalBufRef.current);
+        const hasMinLength    = () => finalBufRef.current.trim().length >= MIN_FLUSH_LEN;
+
+        // Step 2a: speaker changed → flush BEFORE appending (rule 1, 2, 4, 5).
+        // Requires: different speaker + ≥20 confirmed chars + at a word boundary.
         if (
           spk !== undefined &&
           activeSegSpeakerRef.current !== undefined &&
           spk !== activeSegSpeakerRef.current &&
-          finalBufRef.current.trim()
+          hasMinLength() &&
+          atWordBoundary()
         ) {
           flush();
           activeSegSpeakerRef.current = spk;
@@ -423,22 +434,26 @@ export function useTranscription() {
           console.log("[Diarization] token speaker:", spk, JSON.stringify(token.text));
         }
 
-        // Step 3: commit confirmed text.
+        // Step 3: commit confirmed text (final tokens only — rule 1).
         finalBufRef.current += token.text;
         newFinalToks.push(token);
 
-        // Step 2b: punctuation flush — sentence ended on this final token.
-        // Fires AFTER appending so the punctuation is included in the segment.
-        if (/[.!?]$/.test(finalBufRef.current.trimEnd())) {
+        // Step 2b: punctuation flush — sentence boundary (rules 2, 5).
+        // Fires AFTER appending; punctuation is included in the sealed segment.
+        if (hasMinLength() && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
           flush();
         }
 
-        // Step 2c: length / time cap — prevent runaway segments.
-        // Flush when confirmed text hits ~120 chars OR the segment is ~2 s old.
+        // Step 2c: length / time cap — prevent runaway segments (rules 2, 3, 5).
+        // Flush only at a word boundary to avoid splitting mid-word (rule 5).
         const elapsed = segStartMsRef.current > 0
           ? Date.now() - segStartMsRef.current
           : 0;
-        if (finalBufRef.current.length >= 120 || elapsed >= 2000) {
+        if (
+          hasMinLength() &&
+          atWordBoundary() &&
+          (finalBufRef.current.length >= 120 || elapsed >= 3200)
+        ) {
           flush();
         }
       }
