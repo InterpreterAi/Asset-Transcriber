@@ -179,30 +179,89 @@ export default function Workspace() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
-  // Translations keyed by phrase id
-  const [translations, setTranslations] = useState<Record<string, { text: string; targetLang: string }>>({});
-  const translatingRef = useRef<Set<string>>(new Set());
+  // ── Translation state ─────────────────────────────────────────────────────
+  // `translations`   — finalized translations keyed by phrase.id
+  // `liveTranslation`— growing translation of the current live transcript
+  //                    updates every ~400ms while the speaker is active
+  const [translations,    setTranslations]    = useState<Record<string, { text: string; targetLang: string }>>({});
+  const [liveTranslation, setLiveTranslation] = useState<{ text: string; targetLang: string } | null>(null);
+
+  const translatingRef     = useRef<Set<string>>(new Set());
+  const translationsDone   = useRef<Set<string>>(new Set()); // phrases fully translated
+  const liveXlatTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveXlatAbort      = useRef<AbortController | null>(null);
 
   const transcriptEndRef  = useRef<HTMLDivElement>(null);
   const translationEndRef = useRef<HTMLDivElement>(null);
 
-  // ── Auto-scroll: fires ONLY when a new final phrase is committed ──────────
+  // ── Auto-scroll on new sealed phrase ─────────────────────────────────────
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
     translationEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcription.phrases.length]);
 
-  // ── Translation: fires immediately when a final phrase is sealed ──────────
-  // If detected language is English → translate to langB (Arabic).
-  // If detected language is Arabic  → translate to langA (English).
-  // Never runs on partial/live text.
+  // ── LIVE translation — debounced, aborts previous in-flight request ───────
+  //
+  // Fires on every liveTranscript.text change with a 400ms debounce so we
+  // don't hammer the API on every single token. Aborts previous fetch if a
+  // newer update arrives before it resolves.
+  //
+  useEffect(() => {
+    if (!transcription.liveTranscript) {
+      // Transcript cleared (phrase sealed) — stop the timer but keep
+      // liveTranslation visible until the phrase's own translation replaces it.
+      if (liveXlatTimer.current) clearTimeout(liveXlatTimer.current);
+      return;
+    }
+
+    const { text, language } = transcription.liveTranscript;
+    const targetLang = getTargetLang(language, langA, langB);
+
+    if (liveXlatTimer.current) clearTimeout(liveXlatTimer.current);
+
+    liveXlatTimer.current = setTimeout(async () => {
+      // Cancel the previous in-flight request
+      if (liveXlatAbort.current) liveXlatAbort.current.abort();
+      const controller = new AbortController();
+      liveXlatAbort.current = controller;
+
+      try {
+        const res = await fetch("/api/translate", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          signal:  controller.signal,
+          body:    JSON.stringify({ text, sourceLang: language, targetLang }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { translatedText?: string; text?: string };
+          const translated = data.translatedText ?? data.text ?? "";
+          if (translated) setLiveTranslation({ text: translated, targetLang });
+        }
+      } catch (err: unknown) {
+        // AbortError is expected — previous request superseded by newer text
+        if (!(err instanceof Error && err.name === "AbortError")) {
+          console.error("Live translation error:", err);
+        }
+      }
+    }, 400);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcription.liveTranscript?.text, transcription.liveTranscript?.language, langA, langB]);
+
+  // ── Phrase (finalized) translation ────────────────────────────────────────
+  //
+  // Runs when a phrase is sealed. Pre-seeds the phrase's translation slot
+  // with liveTranslation immediately (zero latency for the user), then fires
+  // a clean translatePhrase call with the final text which overwrites it.
+  //
   const translatePhrase = useCallback(async (phrase: Phrase, targetLang: string) => {
     const key = phrase.id;
-    if (translatingRef.current.has(key)) return;
+    if (translatingRef.current.has(key))   return;
+    if (translationsDone.current.has(key)) return;
     translatingRef.current.add(key);
     try {
       const res = await fetch("/api/translate", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ text: phrase.text, sourceLang: phrase.language, targetLang }),
@@ -212,10 +271,11 @@ export default function Workspace() {
         const translated = data.translatedText ?? data.text ?? "";
         if (translated) {
           setTranslations(prev => ({ ...prev, [key]: { text: translated, targetLang } }));
+          translationsDone.current.add(key);
         }
       }
     } catch (err) {
-      console.error("Translation error", err);
+      console.error("Phrase translation error:", err);
     } finally {
       translatingRef.current.delete(key);
     }
@@ -223,11 +283,25 @@ export default function Workspace() {
 
   useEffect(() => {
     for (const phrase of transcription.phrases) {
-      if (phrase.text.trim() && !translations[phrase.id] && !translatingRef.current.has(phrase.id)) {
-        void translatePhrase(phrase, getTargetLang(phrase.language, langA, langB));
+      if (!phrase.text.trim()) continue;
+      if (translationsDone.current.has(phrase.id)) continue;
+      if (translatingRef.current.has(phrase.id))   continue;
+
+      const targetLang = getTargetLang(phrase.language, langA, langB);
+
+      // Pre-seed instantly with the live translation so the panel never goes
+      // blank when the phrase seals — the final translation overwrites this.
+      if (liveTranslation && !translations[phrase.id]) {
+        setTranslations(prev => ({
+          ...prev,
+          [phrase.id]: { text: liveTranslation.text, targetLang: liveTranslation.targetLang },
+        }));
       }
+
+      void translatePhrase(phrase, targetLang);
     }
-  }, [transcription.phrases, langA, langB, translations, translatePhrase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcription.phrases, langA, langB, translatePhrase]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -250,7 +324,11 @@ export default function Workspace() {
   const handleClear = () => {
     transcription.clear();
     setTranslations({});
+    setLiveTranslation(null);
     translatingRef.current.clear();
+    translationsDone.current.clear();
+    if (liveXlatTimer.current) clearTimeout(liveXlatTimer.current);
+    if (liveXlatAbort.current) liveXlatAbort.current.abort();
   };
 
   const handleToggleRecording = () => {
@@ -456,15 +534,40 @@ export default function Workspace() {
                       />
                     );
                   })}
-                  {/* Placeholder row aligned with the live transcript */}
+                  {/* Live translation row — mirrors the live transcript, grows word-by-word */}
                   {transcription.liveTranscript && (
                     <div className="flex flex-col gap-1 mb-4">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600/40">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-600">
                         {transcription.liveTranscript.speakerLabel}
                       </span>
                       <div className="flex items-start gap-2">
                         <LangBadge lang={getTargetLang(transcription.liveTranscript.language, langA, langB)} />
-                        <p className="text-sm text-muted-foreground/40 italic">—</p>
+                        {liveTranslation ? (
+                          <p
+                            className="text-sm font-semibold leading-relaxed text-foreground flex-1 min-w-0"
+                            dir={
+                              (getTargetLang(transcription.liveTranscript.language, langA, langB) === "ar" ||
+                               getTargetLang(transcription.liveTranscript.language, langA, langB) === "he")
+                                ? "rtl" : "ltr"
+                            }
+                          >
+                            {liveTranslation.text}
+                            <span className="inline-flex gap-[3px] ml-2 align-middle">
+                              <span className="w-1 h-1 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                              <span className="w-1 h-1 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                              <span className="w-1 h-1 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground/50 italic flex items-center gap-1.5">
+                            Translating
+                            <span className="inline-flex gap-[3px] align-middle">
+                              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                              <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                            </span>
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
