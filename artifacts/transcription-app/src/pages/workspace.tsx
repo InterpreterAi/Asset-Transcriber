@@ -259,26 +259,41 @@ export default function Workspace() {
     if (translatingRef.current.has(key))   return;
     if (translationsDone.current.has(key)) return;
     translatingRef.current.add(key);
-    try {
-      const res = await fetch("/api/translate", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ text: phrase.text, sourceLang: phrase.language, targetLang }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { translatedText?: string; text?: string };
-        const translated = data.translatedText ?? data.text ?? "";
-        if (translated) {
-          setTranslations(prev => ({ ...prev, [key]: { text: translated, targetLang } }));
-          translationsDone.current.add(key);
+
+    // Retry up to 3 times with exponential back-off so that transient 502s
+    // from the translation API don't leave phrases permanently stuck in
+    // "Translating…".
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch("/api/translate", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ text: phrase.text, sourceLang: phrase.language, targetLang }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { translatedText?: string; text?: string };
+          const translated = data.translatedText ?? data.text ?? "";
+          if (translated) {
+            setTranslations(prev => ({ ...prev, [key]: { text: translated, targetLang } }));
+            translationsDone.current.add(key);
+          }
+          break; // success — stop retrying
+        }
+        // Non-OK and more attempts remain → wait then retry
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        }
+      } catch (err) {
+        console.error("Phrase translation error:", err);
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
         }
       }
-    } catch (err) {
-      console.error("Phrase translation error:", err);
-    } finally {
-      translatingRef.current.delete(key);
     }
+
+    translatingRef.current.delete(key);
   }, []);
 
   useEffect(() => {

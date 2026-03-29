@@ -29,7 +29,7 @@ const STORAGE_KEY  = "interpretai_phrases";
 // pauses at clause boundaries (comma, breath) that can be >800 ms.  At 800ms
 // we were sealing mid-sentence.  2000ms matches the API's own default
 // max_endpoint_delay_ms, so a new bubble only starts after a real pause.
-const COMMIT_DELAY = 2000;
+const COMMIT_DELAY = 1500;
 
 // Soniox v4 real-time endpoint (released Feb 5 2026)
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -264,44 +264,50 @@ export function useTranscription() {
 
         // ── Final tokens: accumulate into the sentence buffer ──────────────
         if (finalTokens.length > 0) {
-          // ── Majority-vote speaker ───────────────────────────────────────
-          // Soniox can transiently misassign 1–2 tokens to the wrong cluster
-          // (especially at turn boundaries).  Using the first token alone
-          // causes false speaker-change splits.  Instead, count votes across
-          // all final tokens in this batch and pick the dominant speaker.
-          const votes: Record<number, number> = {};
-          for (const t of finalTokens) {
-            if (t.speaker !== undefined) votes[t.speaker] = (votes[t.speaker] ?? 0) + 1;
-          }
-          const voteEntries = Object.entries(votes).sort((a, b) => b[1] - a[1]);
-          const incomingSpeaker = voteEntries.length > 0
-            ? parseInt(voteEntries[0]![0])
-            : undefined;
-
-          // ── Speaker-change detection ─────────────────────────────────────
-          // When the majority speaker in this batch differs from the current
-          // utterance speaker, seal immediately — no silence needed.
-          // This is the primary turn-segmentation signal.
-          if (
-            finalBufRef.current.trim() &&
-            incomingSpeaker !== undefined &&
-            incomingSpeaker !== speakerRef.current
-          ) {
-            if (commitTimerRef.current) {
-              clearTimeout(commitTimerRef.current);
-              commitTimerRef.current = null;
-            }
-            flush();                              // seal previous speaker's turn
-            speakerRef.current = incomingSpeaker; // adopt new speaker
-          }
-
-          // Lock speaker at utterance start (buffer just cleared, or fresh start).
-          if (finalBufRef.current === "" && incomingSpeaker !== undefined) {
-            speakerRef.current = incomingSpeaker;
-          }
-
-          finalBufRef.current += finalTokens.map(t => t.text).join("");
           langRef.current = detectLang(finalTokens, langRef.current);
+
+          // ── Sequential speaker-change detection ──────────────────────────
+          //
+          // Majority vote suppresses real speaker changes when one speaker
+          // has more tokens in the batch.  Example: "Hi, I'm Vanessa …
+          // SpeakEnglishWithVanessa.com. And I'm Dan." arrives in a single
+          // message — Vanessa's tokens outvote Dan's, hiding the split.
+          //
+          // Instead we scan token-by-token and flush as soon as we see a
+          // SUSTAINED speaker change:
+          //   • at least 2 consecutive tokens with the new speaker ID, OR
+          //   • the last token in the batch (confirmation arrives next msg)
+          //
+          // A single isolated token with a different speaker is treated as
+          // a transient misassignment and absorbed into the current buffer.
+          //
+          for (let i = 0; i < finalTokens.length; i++) {
+            const token = finalTokens[i]!;
+            const tSpk  = token.speaker;
+
+            if (tSpk !== undefined && tSpk !== speakerRef.current && finalBufRef.current.trim()) {
+              const isLast   = i === finalTokens.length - 1;
+              const nextSame = !isLast && finalTokens[i + 1]?.speaker === tSpk;
+
+              if (isLast || nextSame) {
+                // Sustained change — seal the current speaker's turn
+                if (commitTimerRef.current) {
+                  clearTimeout(commitTimerRef.current);
+                  commitTimerRef.current = null;
+                }
+                flush();
+                speakerRef.current = tSpk;
+              }
+              // Single stray token → fall through and absorb into current buffer
+            }
+
+            // Lock speaker at utterance start
+            if (finalBufRef.current === "" && tSpk !== undefined) {
+              speakerRef.current = tSpk;
+            }
+
+            finalBufRef.current += token.text;
+          }
         }
 
         // ── Non-final tokens: REPLACE the live suffix (Buffer-and-Overwrite) ─
