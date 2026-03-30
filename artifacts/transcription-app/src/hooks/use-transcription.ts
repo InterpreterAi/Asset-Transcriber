@@ -403,7 +403,9 @@ export function useTranscription() {
     styleUpgradedRef.current     = false;
     liveBufferRef.current        = "";
     lastTranslatedBuffer.current = "";
-    detectedLangRef.current      = "en";
+    // Do NOT reset detectedLangRef here — carry the last confirmed detected
+    // language into the new bubble so early dispatches (before Soniox sends
+    // language data for this segment) use the correct translation direction.
 
     scrollPanel(true);
     return finalSpan;
@@ -500,7 +502,7 @@ export function useTranscription() {
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
-        language_hints:                 ["en", "ar"],
+        language_hints:                 [langARef.current, targetLangRef.current],
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         diarization:                    { enable: true },
@@ -654,7 +656,7 @@ export function useTranscription() {
       liveBufferRef.current        = "";
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
-      detectedLangRef.current      = "en";
+      detectedLangRef.current      = langARef.current; // default: assume langA until Soniox detects otherwise
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
