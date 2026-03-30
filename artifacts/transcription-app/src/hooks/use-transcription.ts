@@ -235,17 +235,13 @@ export function useTranscription() {
   const lastTokenTimeRef = useRef<number>(0);
   const pauseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Speaker stability filter ───────────────────────────────────────────────
-  // Brief speaker flips (A→B→A) caused by noise, "mm", or breathing are NOT
-  // treated as real changes.  A new speaker must hold for ≥1200 ms OR produce
-  // ≥4 tokens before we accept the change and flush the segment.
-  //
-  // pendingSpeakerRef:           the candidate new-speaker label being evaluated.
-  // pendingSpeakerStartTimeRef:  Date.now() when the candidate was first seen.
-  // pendingSpeakerTokenCountRef: number of consecutive tokens from the candidate.
-  const pendingSpeakerRef           = useRef<number | null>(null);
-  const pendingSpeakerStartTimeRef  = useRef<number>(0);
-  const pendingSpeakerTokenCountRef = useRef<number>(0);
+  // ── Speaker tracking ───────────────────────────────────────────────────────
+  // No stability window — speaker changes are instant.  When a final token
+  // arrives with a different speaker_id, flush the current segment immediately
+  // and open a new one.  The same-speaker merge in flush() corrects any brief
+  // mislabelings by consolidating consecutive same-speaker rows into one bubble.
+  // (Stability windows caused 600ms+ lag where new-speaker tokens piled up in
+  // the old speaker's buffer and then burst onto the screen as a giant chunk.)
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -289,9 +285,6 @@ export function useTranscription() {
     finalBufRef.current                 = "";
     activeSegSpeakerRef.current         = undefined;
     segStartMsRef.current               = 0;       // no segment open until next token
-    pendingSpeakerRef.current           = null;    // speaker stability window reset
-    pendingSpeakerStartTimeRef.current  = 0;
-    pendingSpeakerTokenCountRef.current = 0;
     // Clear the live preview immediately — setFinalizedSegments and
     // setActivePreviewLine(null) are batched into a single React render, so the
     // text moves from the italic preview row to the full-weight finalized row
@@ -352,9 +345,6 @@ export function useTranscription() {
     speakerHistoryRef.current           = [];
     activeSegSpeakerRef.current         = undefined;
     globalFinalCountRef.current         = 0;
-    pendingSpeakerRef.current           = null;
-    pendingSpeakerStartTimeRef.current  = 0;
-    pendingSpeakerTokenCountRef.current = 0;
     flush(); // seals any remaining confirmed text into a finalized row
 
     workletRef.current?.disconnect();
@@ -480,48 +470,24 @@ export function useTranscription() {
         const hasMinLength    = () => finalBufRef.current.trim().length >= SPEAKER_FLUSH_LEN;
         const hasMinLengthForPunct = () => finalBufRef.current.trim().length >= PUNCT_FLUSH_LEN;
 
-        // Step 2a: speaker-change stability filter.
-        // A brief flip (A→B→A) from noise / breathing is not a real change.
-        // The new speaker must hold for ≥600 ms OR produce ≥2 tokens before
-        // we accept the change, flush the old segment, and open a new one.
-        // Kept deliberately low so natural turn-taking ("Yes, yeah.") is
-        // confirmed quickly — Soniox's server-side model is accurate enough
-        // that single-token glitches are rare.
+        // Step 2a: instant speaker-change detection.
+        // As soon as a final token arrives from a different speaker_id, flush
+        // the current segment immediately and open a new one for the new speaker.
+        // No stability window — that caused 600ms+ delay where new-speaker tokens
+        // accumulated in the old speaker's buffer and burst onto screen as a chunk.
+        // Any brief mislabelings (noise, "mm") get collapsed by the same-speaker
+        // merge in flush(), so they never produce visible orphan rows.
         if (spk !== undefined && activeSegSpeakerRef.current !== undefined) {
           if (spk !== activeSegSpeakerRef.current) {
-            if (pendingSpeakerRef.current === null) {
-              // First token from a new speaker — open a provisional stability window.
-              pendingSpeakerRef.current           = spk;
-              pendingSpeakerStartTimeRef.current  = Date.now();
-              pendingSpeakerTokenCountRef.current = 1;
-            } else if (spk === pendingSpeakerRef.current) {
-              // Same candidate — extend its window.
-              pendingSpeakerTokenCountRef.current++;
-            } else {
-              // A third speaker appeared — reset the window to this new candidate.
-              pendingSpeakerRef.current           = spk;
-              pendingSpeakerStartTimeRef.current  = Date.now();
-              pendingSpeakerTokenCountRef.current = 1;
+            // Flush the old segment if it has any content.
+            // The token from the new speaker is committed to finalBufRef AFTER this
+            // flush (step 3 below), so it lands correctly in the new segment.
+            if (finalBufRef.current.trim().length > 0) {
+              flush(); // seal old speaker's segment instantly
             }
-
-            // Confirm the change once the candidate meets the stability threshold.
-            const pendingElapsed = Date.now() - pendingSpeakerStartTimeRef.current;
-            if (
-              (pendingElapsed >= 600 || pendingSpeakerTokenCountRef.current >= 2) &&
-              hasMinLength() &&
-              atWordBoundary()
-            ) {
-              // Capture the confirmed speaker BEFORE flush() wipes pendingSpeakerRef.
-              const confirmedSpk = pendingSpeakerRef.current;
-              flush(); // seal old segment
-              activeSegSpeakerRef.current = confirmedSpk;
-              segStartMsRef.current       = Date.now();
-            }
-          } else {
-            // Returned to the current speaker — the flip was noise; cancel pending.
-            pendingSpeakerRef.current           = null;
-            pendingSpeakerStartTimeRef.current  = 0;
-            pendingSpeakerTokenCountRef.current = 0;
+            // Switch active speaker immediately — no waiting.
+            activeSegSpeakerRef.current = spk;
+            segStartMsRef.current       = Date.now();
           }
         }
 
@@ -682,9 +648,6 @@ export function useTranscription() {
       activeSegSpeakerRef.current         = undefined;
       segStartMsRef.current               = 0;
       lastTokenTimeRef.current            = 0;
-      pendingSpeakerRef.current           = null;
-      pendingSpeakerStartTimeRef.current  = 0;
-      pendingSpeakerTokenCountRef.current = 0;
       speakerHistoryRef.current           = [];
       langRef.current                     = "en";
       speakerRef.current          = undefined; // reset — no speaker until API sends one
@@ -796,9 +759,6 @@ export function useTranscription() {
       activeSegSpeakerRef.current         = undefined;
       segStartMsRef.current               = 0;
       lastTokenTimeRef.current            = 0;
-      pendingSpeakerRef.current           = null;
-      pendingSpeakerStartTimeRef.current  = 0;
-      pendingSpeakerTokenCountRef.current = 0;
       globalFinalCountRef.current         = 0;
       speakerHistoryRef.current           = [];
       resetSpeakerMap();
