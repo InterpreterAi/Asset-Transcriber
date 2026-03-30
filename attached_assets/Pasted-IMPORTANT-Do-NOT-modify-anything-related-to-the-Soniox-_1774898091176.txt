@@ -1,0 +1,109 @@
+IMPORTANT: Do NOT modify anything related to the Soniox transcription pipeline.
+
+Do NOT change:
+- streaming tokens
+- interim transcript behavior
+- transcript segmentation
+- speaker detection
+- audio streaming
+- timing logic of Soniox
+
+The transcription system is already correct and must remain untouched.
+
+Only fix translation behavior and transcript layout.
+
+-------------------------------------
+
+TRANSLATION TRIGGER FIX
+
+Current behavior:
+Translation only appears when the next segment begins.
+
+Correct behavior:
+
+When Soniox marks a transcript segment as FINAL (text becomes bold), translation must run immediately.
+
+Pipeline must be:
+
+speech
+→ interim transcript (grey text)
+→ segment becomes FINAL (bold text)
+→ send that finalized text to the translation API
+→ display translation immediately in the same row
+
+Translation must NOT wait for another segment.
+
+Do NOT translate interim text.
+
+Only translate finalized segments.
+
+-------------------------------------
+
+TRANSLATION STYLE
+
+Translation text must be displayed as finalized text.
+
+Do NOT render translation in grey.
+
+Translation should use the same style as finalized transcript text (normal or bold).
+
+-------------------------------------
+
+ROW ALIGNMENT
+
+Each transcript segment must render as a single row with two aligned columns.
+
+Left column:
+Original transcript.
+
+Right column:
+Translation.
+
+Both columns must stay horizontally aligned so each segment appears as a single row.
+
+Example layout:
+
+ORIGINAL                             TRANSLATION
+
+Hello my name is Nancy               مرحبا اسمي نانسي
+
+Use a grid layout so both texts align vertically per segment.
+
+-------------------------------------
+
+ARABIC RTL FIX
+
+Arabic translation must be rendered with proper RTL direction.
+
+Apply:
+
+direction: rtl
+text-align: right
+
+Ensure English words inside Arabic sentences maintain proper order.
+
+-------------------------------------
+
+COPY ICONS
+
+Keep the existing copy buttons.
+
+Each segment must have:
+
+• one copy icon for the original text
+• one copy icon for the translation
+
+Icons should appear on hover only.
+
+-------------------------------------
+
+CRITICAL
+
+Do NOT modify any part of the transcription engine.
+
+Only update:
+
+• translation trigger timing
+• translation text styling
+• layout alignment
+• Arabic RTL formatting

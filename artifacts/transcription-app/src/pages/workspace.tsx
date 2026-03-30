@@ -233,11 +233,11 @@ export default function Workspace() {
 
             {/* Two-column label row — visible only once transcript starts */}
             {transcription.hasTranscript && (
-              <div className="flex gap-0 px-4 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
-                <div className="flex-1 pr-6 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+              <div className="grid grid-cols-2 gap-6 px-4 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
+                <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                   Original
                 </div>
-                <div className="flex-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                   Translation
                 </div>
               </div>

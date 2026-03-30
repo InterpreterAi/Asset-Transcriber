@@ -2,15 +2,14 @@ import { useRef, useState, useCallback } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Translation mode toggle ────────────────────────────────────────────────────
-// "final"   → translate only when a segment is finalized (speaker changes / stop)
-// "interim" → also translate during live speech with a 600 ms debounce, then
-//             replace with a final translation once the segment is locked
+// "final"   → translate only when a segment is finalized (NF→0, or speaker change)
+// "interim" → also translate during live speech with a 600 ms debounce
 const TRANSLATION_MODE: "final" | "interim" = "final";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const TARGET_RATE       = 16000;
-const SONIOX_WS_URL     = "wss://stt-rt.soniox.com/transcribe-websocket";
-const INTERIM_DEBOUNCE  = 600; // ms
+const TARGET_RATE      = 16000;
+const SONIOX_WS_URL    = "wss://stt-rt.soniox.com/transcribe-websocket";
+const INTERIM_DEBOUNCE = 600; // ms
 
 // ── SVG icon strings ──────────────────────────────────────────────────────────
 const COPY_SVG =
@@ -26,22 +25,22 @@ const CHECK_SVG =
 
 // ── DOM class names — defined here so Tailwind's scanner preserves them ───────
 const CLS = {
-  // Segment row — CSS `group` enables hover-reveal of copy icons
-  row:        "group relative flex gap-0 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors",
-  // Left column (original), right column (translation)
-  colOrig:    "flex-1 min-w-0 pr-6",
-  colTrans:   "flex-1 min-w-0",
-  // Inner row wrapping text + copy icon inside each column
+  // Two-column grid row — `group` enables hover-reveal of copy icons
+  row:        "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors",
+  // Columns (no padding-right needed — grid gap handles spacing)
+  colOrig:    "min-w-0",
+  colTrans:   "min-w-0",
+  // Inner flex row: text fills space, copy icon sits at far right
   textRow:    "flex items-start gap-1",
   speakerTag: "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
-  // Live (grey/italic) vs finalized (solid) — both carry flex-1 so they fill their text-row
+  // Live (grey/italic) vs finalized (bold/solid) — flex-1 so text fills the row
   textLive:   "text-[13px] leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
   textFin:    "text-[13px] leading-relaxed text-foreground font-medium flex-1 min-w-0",
   nf:         "text-muted-foreground/45 italic",
-  // Translation paragraph (right column)
-  transText:  "text-[13px] leading-relaxed text-muted-foreground/60 flex-1 min-w-0",
+  // Translation text — same weight as finalized original (not grey)
+  transText:  "text-[13px] leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transPend:  "text-[11px] text-muted-foreground/30 italic flex-1 min-w-0",
-  // Copy icon button — enabled (with hover effect) vs disabled
+  // Copy icon button states
   copyIcon:    "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 opacity-0 group-hover:opacity-100 transition-all cursor-pointer",
   copyIconDis: "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/20 opacity-0 group-hover:opacity-30 cursor-not-allowed transition-opacity",
 } as const;
@@ -106,25 +105,29 @@ async function fetchTranslation(text: string, lang: string): Promise<string> {
   return d.translation?.trim() ?? "";
 }
 
+// ── enableCopyBtn ──────────────────────────────────────────────────────────────
+// Upgrades a disabled copy button to enabled, pointing at the given element for text.
+function enableCopyBtn(btn: HTMLButtonElement, getText: () => string) {
+  btn.className = CLS.copyIcon;
+  btn.disabled  = false;
+  btn.onclick   = () => {
+    void navigator.clipboard.writeText(getText());
+    btn.innerHTML        = CHECK_SVG;
+    btn.style.color      = "var(--color-green-500, #22c55e)";
+    setTimeout(() => { btn.innerHTML = COPY_SVG; btn.style.color = ""; }, 1500);
+  };
+}
+
 // ── makeCopyButton ─────────────────────────────────────────────────────────────
-// Creates a styled copy-icon button. `getTextFn` is called at click-time so it
-// always reads the latest text from the DOM.
 function makeCopyButton(enabled: boolean, getTextFn: () => string): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.type      = "button";
   btn.innerHTML = COPY_SVG;
-  btn.className = enabled ? CLS.copyIcon : CLS.copyIconDis;
-  btn.disabled  = !enabled;
   if (enabled) {
-    btn.onclick = () => {
-      void navigator.clipboard.writeText(getTextFn());
-      btn.innerHTML = CHECK_SVG;
-      btn.style.color = "var(--color-green-500, #22c55e)";
-      setTimeout(() => {
-        btn.innerHTML   = COPY_SVG;
-        btn.style.color = "";
-      }, 1500);
-    };
+    enableCopyBtn(btn, getTextFn);
+  } else {
+    btn.className = CLS.copyIconDis;
+    btn.disabled  = true;
   }
   return btn;
 }
@@ -147,31 +150,35 @@ export function useTranscription() {
   const startTimeRef = useRef<number>(0);
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
-  const containerRef        = useRef<HTMLDivElement | null>(null);
-  const currentSpeakerRef   = useRef<number | undefined>(undefined);
-  // <span> receiving confirmed final text inside the current row's <p>
-  const activeBubbleRef     = useRef<HTMLSpanElement | null>(null);
-  // <span> for the live non-final hypothesis
-  const activeBubbleNFRef   = useRef<HTMLSpanElement | null>(null);
-  // <p> inside the right (translation) column — updated by translation fetches
-  const activeTransTextRef  = useRef<HTMLParagraphElement | null>(null);
-  // copy-icon button inside the right column — enabled after first translation
-  const activeCopyTransRef  = useRef<HTMLButtonElement | null>(null);
+  const containerRef       = useRef<HTMLDivElement | null>(null);
+  const currentSpeakerRef  = useRef<number | undefined>(undefined);
+  // The <span> receiving confirmed final text inside the active row
+  const activeBubbleRef    = useRef<HTMLSpanElement | null>(null);
+  // The <span> for the live non-final hypothesis
+  const activeBubbleNFRef  = useRef<HTMLSpanElement | null>(null);
+  // The <p> in the right (translation) column — updated by translation fetches
+  const activeTransTextRef = useRef<HTMLParagraphElement | null>(null);
+  // Copy icon in the right column — enabled after translation arrives
+  const activeCopyTransRef = useRef<HTMLButtonElement | null>(null);
+  // Tracks whether the active bubble has already been style-upgraded + translated.
+  // Set true by softFinalize(); reset by createBubble().
+  // Prevents double-translation when NF→0 fires first and speaker-change fires later.
+  const bubbleFinalizedRef = useRef(false);
   // Soniox re-sends all prior finals; skip already-seen ones
-  const finalCountRef       = useRef(0);
-  const lastFinalTimeRef    = useRef(0);
+  const finalCountRef      = useRef(0);
+  const lastFinalTimeRef   = useRef(0);
   // Detected language for translation direction ("en", "ar", …)
-  const detectedLangRef     = useRef<string>("en");
+  const detectedLangRef    = useRef<string>("en");
   // Interim-mode debounce timer
-  const interimDebounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const interimDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
 
   // ── scrollPanel ────────────────────────────────────────────────────────────
-  // force=true  → always scroll (new segment)
-  // force=false → smart: only if within 150 px of bottom (pauses when scrolled up)
+  // force=true  → always scroll (new segment boundary)
+  // force=false → smart: only if within 150 px of bottom (pauses if user scrolled up)
   const scrollPanel = useCallback((force = false) => {
     const el = containerRef.current?.parentElement;
     if (!el) return;
@@ -182,13 +189,11 @@ export function useTranscription() {
   }, []);
 
   // ── createBubble ──────────────────────────────────────────────────────────
-  // Builds one two-column segment row imperatively in the DOM.
-  // Returns the final-text <span> that receives confirmed tokens.
+  // Builds one two-column segment row in the DOM and resets the finalized flag.
   const createBubble = useCallback((rawSpeaker: number | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
     const label     = normalizeSpeaker(rawSpeaker);
 
-    // ── Row wrapper ──────────────────────────────────────────────────────────
     const row = document.createElement("div");
     row.className = CLS.row;
 
@@ -203,12 +208,11 @@ export function useTranscription() {
       colOrig.appendChild(tag);
     }
 
-    // text + copy-icon row
-    const origRow   = document.createElement("div");
+    const origRow = document.createElement("div");
     origRow.className = CLS.textRow;
 
     const p = document.createElement("p");
-    p.className = CLS.textLive;          // grey/italic while streaming
+    p.className = CLS.textLive;
     const finalSpan = document.createElement("span");
     const nfSpan    = document.createElement("span");
     nfSpan.className = CLS.nf;
@@ -216,17 +220,17 @@ export function useTranscription() {
     p.appendChild(nfSpan);
     origRow.appendChild(p);
 
-    // Copy icon for original — reads finalSpan text at click-time
+    // Copy icon for original — reads live span at click-time
     const copyOrigBtn = makeCopyButton(true, () => finalSpan.textContent?.trim() ?? "");
     origRow.appendChild(copyOrigBtn);
     colOrig.appendChild(origRow);
     row.appendChild(colOrig);
 
     // ── RIGHT COLUMN: translation ────────────────────────────────────────────
-    const colTrans  = document.createElement("div");
+    const colTrans = document.createElement("div");
     colTrans.className = CLS.colTrans;
 
-    const transRow  = document.createElement("div");
+    const transRow = document.createElement("div");
     transRow.className = CLS.textRow;
 
     const transTextP = document.createElement("p");
@@ -234,7 +238,6 @@ export function useTranscription() {
     transTextP.textContent = "…";
     transRow.appendChild(transTextP);
 
-    // Copy icon for translation — disabled until translation arrives
     const copyTransBtn = makeCopyButton(false, () => transTextP.textContent?.trim() ?? "");
     transRow.appendChild(copyTransBtn);
     colTrans.appendChild(transRow);
@@ -242,99 +245,101 @@ export function useTranscription() {
 
     container.appendChild(row);
 
-    // Update active refs
     activeBubbleNFRef.current  = nfSpan;
     activeTransTextRef.current = transTextP;
     activeCopyTransRef.current = copyTransBtn;
+    bubbleFinalizedRef.current = false;   // new bubble is not yet finalized
 
-    // Force-scroll on new segment so it's always visible
     scrollPanel(true);
 
     return finalSpan;
   }, [scrollPanel]);
 
-  // ── finalizeLiveBubble ────────────────────────────────────────────────────
-  // Called when speaker changes or recording stops.
-  // 1. Cancels any pending interim-debounce
-  // 2. Locks style: grey/italic → solid
-  // 3. Fires a final translation request and updates the right column
-  const finalizeLiveBubble = useCallback(() => {
-    if (!activeBubbleRef.current) return;
+  // ── softFinalize ──────────────────────────────────────────────────────────
+  // Idempotent: upgrades the active bubble from live→finalized style and fires
+  // the translation request. Called either when NF tokens disappear (speech
+  // pause/end) or from finalizeLiveBubble on speaker change (whichever comes
+  // first). The bubbleFinalizedRef flag ensures it only runs once per bubble.
+  const softFinalize = useCallback(() => {
+    if (!activeBubbleRef.current || bubbleFinalizedRef.current) return;
 
-    // Cancel any pending interim translation
-    if (interimDebounceRef.current !== null) {
-      clearTimeout(interimDebounceRef.current);
-      interimDebounceRef.current = null;
-    }
+    bubbleFinalizedRef.current = true;
 
-    // Snapshot synchronously before any async gap
-    const confirmedText  = activeBubbleRef.current.textContent?.trim() ?? "";
-    const lang           = detectedLangRef.current;
-    const transTextEl    = activeTransTextRef.current;
-    const copyTransBtn   = activeCopyTransRef.current;
+    // Snapshot synchronously before async translation gap
+    const confirmedText = activeBubbleRef.current.textContent?.trim() ?? "";
+    const lang          = detectedLangRef.current;
+    const transTextEl   = activeTransTextRef.current;
+    const copyTransBtn  = activeCopyTransRef.current;
 
     // Clear NF preview
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
 
-    // Upgrade <p> class: live → finalized
+    // Upgrade original <p>: grey/italic → solid/bold
     const p = activeBubbleRef.current.parentElement;
     if (p) p.className = CLS.textFin;
 
-    // Reset lang for next segment
+    // Reset language detector for the next segment
     detectedLangRef.current = "en";
 
-    // Fire-and-forget final translation
     if (confirmedText.length > 2 && transTextEl) {
       void (async () => {
         try {
           const translated = await fetchTranslation(confirmedText, lang);
           if (!translated || !transTextEl.isConnected) return;
 
-          // Replace placeholder / interim text with final translation
-          transTextEl.textContent = translated;
-          transTextEl.className   = CLS.transText;
+          // Arabic text needs RTL rendering
+          const isArabic = /[\u0600-\u06FF]/.test(translated);
+          transTextEl.dir              = isArabic ? "rtl" : "ltr";
+          transTextEl.style.textAlign  = isArabic ? "right" : "";
+          transTextEl.textContent      = translated;
+          transTextEl.className        = CLS.transText;
 
-          // Enable copy icon for translation
+          // Enable copy icon
           if (copyTransBtn) {
-            copyTransBtn.className = CLS.copyIcon;
-            copyTransBtn.disabled  = false;
-            copyTransBtn.onclick   = () => {
-              void navigator.clipboard.writeText(translated);
-              copyTransBtn.innerHTML  = CHECK_SVG;
-              copyTransBtn.style.color = "var(--color-green-500, #22c55e)";
-              setTimeout(() => {
-                copyTransBtn.innerHTML   = COPY_SVG;
-                copyTransBtn.style.color = "";
-              }, 1500);
-            };
+            enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
           }
 
           scrollPanel();
         } catch { /* silent — translation is best-effort */ }
       })();
     } else if (transTextEl) {
-      // Nothing to translate — hide placeholder
       transTextEl.textContent = "";
       transTextEl.className   = CLS.transText;
     }
   }, [scrollPanel]);
 
+  // ── finalizeLiveBubble ────────────────────────────────────────────────────
+  // Called when speaker changes or recording stops.
+  // Delegates to softFinalize (idempotent — safe to call even if NF→0 already
+  // triggered it). Also cancels any pending interim debounce.
+  const finalizeLiveBubble = useCallback(() => {
+    if (!activeBubbleRef.current) return;
+
+    // Cancel pending interim translation
+    if (interimDebounceRef.current !== null) {
+      clearTimeout(interimDebounceRef.current);
+      interimDebounceRef.current = null;
+    }
+
+    // softFinalize is idempotent — if NF→0 already ran it, this is a no-op
+    softFinalize();
+  }, [softFinalize]);
+
   // ── scheduleInterimTranslation ────────────────────────────────────────────
   // Debounces translation of interim (NF) text. Only active in "interim" mode.
   const scheduleInterimTranslation = useCallback((nfText: string, lang: string) => {
-    if (interimDebounceRef.current !== null) {
-      clearTimeout(interimDebounceRef.current);
-    }
-    // Capture refs at scheduling time so they stay valid even if finalize runs
-    // first (finalize clears the timer, so the callback won't fire in that case)
+    if (bubbleFinalizedRef.current) return;  // segment already finalized
+    if (interimDebounceRef.current !== null) clearTimeout(interimDebounceRef.current);
+
     const capturedTransText = activeTransTextRef.current;
     const capturedCopyBtn   = activeCopyTransRef.current;
     const capturedFinalText = activeBubbleRef.current?.textContent ?? "";
 
     interimDebounceRef.current = setTimeout(() => {
       interimDebounceRef.current = null;
+      if (bubbleFinalizedRef.current) return;
       const fullText = (capturedFinalText + " " + nfText).trim();
       if (fullText.length < 2 || !capturedTransText?.isConnected) return;
 
@@ -342,21 +347,15 @@ export function useTranscription() {
         try {
           const translated = await fetchTranslation(fullText, lang);
           if (!translated || !capturedTransText.isConnected) return;
-          capturedTransText.textContent = translated;
-          capturedTransText.className   = CLS.transText;
-          // Enable copy button with current interim translation
+
+          const isArabic = /[\u0600-\u06FF]/.test(translated);
+          capturedTransText.dir             = isArabic ? "rtl" : "ltr";
+          capturedTransText.style.textAlign = isArabic ? "right" : "";
+          capturedTransText.textContent     = translated;
+          capturedTransText.className       = CLS.transText;
+
           if (capturedCopyBtn && capturedCopyBtn.disabled) {
-            capturedCopyBtn.className = CLS.copyIcon;
-            capturedCopyBtn.disabled  = false;
-            capturedCopyBtn.onclick   = () => {
-              void navigator.clipboard.writeText(capturedTransText.textContent?.trim() ?? "");
-              capturedCopyBtn.innerHTML   = CHECK_SVG;
-              capturedCopyBtn.style.color = "var(--color-green-500, #22c55e)";
-              setTimeout(() => {
-                capturedCopyBtn.innerHTML    = COPY_SVG;
-                capturedCopyBtn.style.color  = "";
-              }, 1500);
-            };
+            enableCopyBtn(capturedCopyBtn, () => capturedTransText.textContent?.trim() ?? "");
           }
           scrollPanel();
         } catch { /* silent */ }
@@ -410,7 +409,7 @@ export function useTranscription() {
   }, [stopSessionMut, finalizeLiveBubble]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
-  // !! Soniox pipeline — do NOT modify !!
+  // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
   const buildWs = useCallback((apiKey: string): WebSocket => {
     const ws = new WebSocket(SONIOX_WS_URL);
 
@@ -446,11 +445,12 @@ export function useTranscription() {
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
-      // Track detected language
+      // Track detected language from any incoming final token
       const langToken = newFinals.find(t => t.language) ?? finals.find(t => t.language);
       if (langToken?.language) detectedLangRef.current = langToken.language;
 
       for (const token of newFinals) {
+        // Speaker changed (or first token) → finalize current, open new bubble
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
           finalizeLiveBubble();
           currentSpeakerRef.current = token.speaker;
@@ -465,11 +465,11 @@ export function useTranscription() {
 
       finalCountRef.current = finals.length;
 
-      // Smart scroll — respects manual scroll-up pause
+      // Smart scroll — pauses when user has scrolled up
       scrollPanel();
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
-      // Each message's NF set REPLACES the previous one — not additive.
+      // Each message's NF set REPLACES the previous — not additive.
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
       if (activeBubbleNFRef.current) {
         activeBubbleNFRef.current.textContent = nfText;
@@ -483,6 +483,19 @@ export function useTranscription() {
         if (activeBubbleNFRef.current) {
           activeBubbleNFRef.current.textContent = nfText;
         }
+      }
+
+      // ── Early finalization ───────────────────────────────────────────────
+      // When Soniox commits all pending speech (NF tokens gone), finalize the
+      // current segment IMMEDIATELY — don't wait for the next speaker change.
+      // softFinalize is idempotent so a subsequent speaker-change call is safe.
+      if (
+        nfText.length === 0 &&
+        activeBubbleRef.current &&
+        !bubbleFinalizedRef.current &&
+        (activeBubbleRef.current.textContent?.trim().length ?? 0) > 2
+      ) {
+        softFinalize();
       }
 
       // ── Interim translation (only in "interim" mode) ──────────────────────
@@ -501,7 +514,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, scheduleInterimTranslation, scrollPanel]);
+  }, [stop, createBubble, finalizeLiveBubble, softFinalize, scheduleInterimTranslation, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
@@ -513,6 +526,7 @@ export function useTranscription() {
       activeBubbleNFRef.current  = null;
       activeTransTextRef.current = null;
       activeCopyTransRef.current = null;
+      bubbleFinalizedRef.current = false;
       finalCountRef.current      = 0;
       lastFinalTimeRef.current   = 0;
       detectedLangRef.current    = "en";
@@ -614,6 +628,7 @@ export function useTranscription() {
       activeBubbleNFRef.current  = null;
       activeTransTextRef.current = null;
       activeCopyTransRef.current = null;
+      bubbleFinalizedRef.current = false;
       finalCountRef.current      = 0;
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
