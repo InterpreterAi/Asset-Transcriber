@@ -436,30 +436,30 @@ export function useTranscription() {
     //
     //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
     //
-    // ── How tokens work in Soniox stt-rt-v4 ─────────────────────────────
+    // ── Token processing: Soniox stt-rt-v4 stream model ────────────────────
     //
-    // Each WebSocket message contains a MIX of final and non-final tokens:
+    // Each WebSocket message contains a MIX of final and non-final tokens.
     //
-    //   Final tokens   (is_final: true)  — permanently confirmed words.
-    //                                       They accumulate in finalBufRef and
-    //                                       are NEVER modified or removed.
+    //   Final tokens (is_final: true)
+    //     Permanently confirmed words — commit to finalBufRef, never removed.
+    //     Deduplicated via globalFinalCountRef (Soniox re-sends prior finals
+    //     as a prefix in every message).
     //
-    //   Non-final tokens (is_final: false) — the model's CURRENT hypothesis for
-    //                                        speech not yet confirmed.  Each
-    //                                        message REPLACES the previous NF
-    //                                        display (they are not additive).
-    //                                        Used for: live interim display and
-    //                                        instant speaker label updates.
+    //   Non-final tokens (is_final: false)
+    //     The model's CURRENT hypothesis for unfinished speech.  The NF tokens
+    //     in each message together form the full current guess — they REPLACE
+    //     the previous message's interim display (not additive across messages).
     //
-    // Display at all times: finalBufRef.current  +  nfSuffix (from latest msg).
+    // Display: finalBufRef.current + nfSuffix (latest NF from this message).
     //
-    // Speaker splits happen ONLY on final tokens — NF speaker assignments
-    // fluctuate during active speech and cause flickering if used for splits.
-    // NF speaker_id IS used to update the bubble label instantly (the label
-    // shows who is speaking right now without committing a new segment).
-    //
-    // Nothing ever clears the displayed text mid-stream.  React atomically
-    // swaps the active bubble for a finalized row only at flush() time.
+    // Speaker splitting strategy:
+    //   • NF token with new speaker_id → instant bubble split.  flush() is
+    //     called BEFORE speakerRef is updated so it attributes the sealed text
+    //     to the old speaker correctly.  nfSuffix resets to just the tokens
+    //     from the new speaker's side of the split.
+    //   • Final token with new speaker_id → same instant split.
+    //   • No punctuation or time-cap flushes — only speaker changes create
+    //     new bubbles, exactly matching the Soniox Desktop behaviour.
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
@@ -472,56 +472,61 @@ export function useTranscription() {
 
         if (!token.is_final) {
           // ── Non-final token ───────────────────────────────────────────────
-          // Each NF token is part of the FULL current hypothesis for this
-          // message.  Accumulate all of them into nfSuffix — this REPLACES
-          // the previous message's nfSuffix at the DOM write below.
-          //
-          // Do NOT flush here.  NF diarization fluctuates; flushing on NF
-          // speaker changes causes premature splits and the "deleting" effect.
-          // The speaker_id is only used to update the bubble label instantly.
           hasNonFinal = true;
-          nfSuffix   += token.text;
-          if (spk != null) speakerRef.current = spk; // label update only
+
+          if (spk !== undefined && activeSegSpeakerRef.current !== undefined && spk !== activeSegSpeakerRef.current) {
+            // ── Instant NF speaker split ──────────────────────────────────
+            // CRITICAL: flush() BEFORE updating speakerRef so the old bubble
+            // is attributed to the correct (previous) speaker.
+            if (finalBufRef.current.trim().length > 0) flush();
+
+            // NOW switch to new speaker.
+            speakerRef.current          = spk;
+            activeSegSpeakerRef.current = spk;
+            segStartMsRef.current       = Date.now();
+
+            // Start fresh — this token opens the new speaker's NF display.
+            nfSuffix = token.text;
+          } else {
+            // Same speaker (or first token) — accumulate into interim display.
+            if (spk != null) speakerRef.current = spk;
+            if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
+              activeSegSpeakerRef.current = spk;
+              segStartMsRef.current       = Date.now();
+            }
+            nfSuffix += token.text;
+          }
           continue;
         }
 
         // ── Final token ───────────────────────────────────────────────────
-        // Dedup — skip finals already committed in a previous message.
+        // Dedup — Soniox re-sends all prior finals as a prefix every message.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
         if (spk !== undefined) {
+          // Open segment on first final if not already open from an NF split.
+          if (activeSegSpeakerRef.current === undefined) {
+            activeSegSpeakerRef.current = spk;
+            segStartMsRef.current       = Date.now();
+          }
+
+          // Instant speaker split on a new final speaker — same ordering rule:
+          // flush BEFORE updating speakerRef.
+          if (spk !== activeSegSpeakerRef.current && finalBufRef.current.trim().length > 0) {
+            flush();
+            activeSegSpeakerRef.current = spk;
+            segStartMsRef.current       = Date.now();
+          }
+
           speakerRef.current = spk;
           speakerHistoryRef.current.push(spk);
           touchSpeaker(spk);
         }
 
-        // Open segment if none is active yet.
-        if (activeSegSpeakerRef.current === undefined) {
-          activeSegSpeakerRef.current = spk;
-          segStartMsRef.current       = Date.now();
-        }
-
-        // Instant speaker split on the first final token from a new speaker.
-        // finalBufRef must be non-empty to avoid creating ghost empty rows.
-        if (spk !== undefined && spk !== activeSegSpeakerRef.current && finalBufRef.current.trim().length > 0) {
-          flush();
-          activeSegSpeakerRef.current = spk;
-          segStartMsRef.current       = Date.now();
-        }
-
-        // Commit confirmed word — this text is permanent and never removed.
+        // Commit confirmed word — permanent, never removed.
         finalBufRef.current += token.text;
-
-        // Punctuation flush — seal at natural sentence boundaries.
-        if (finalBufRef.current.trim().length >= 60 && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
-          flush();
-        }
-
-        // Time cap — 6 s max per segment to keep bubbles scannable.
-        if (finalBufRef.current.trim().length >= 20 && segStartMsRef.current > 0 && Date.now() - segStartMsRef.current >= 6000) {
-          flush();
-        }
+        // No punctuation or time-cap flushes — only speaker change splits.
       }
 
       // Advance watermark after processing all tokens in this message.
