@@ -181,8 +181,11 @@ export function useTranscription() {
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
-  // User-selected target language code (e.g. "ar", "es", "fr").
-  // Updated by workspace via setTargetLang without causing re-renders.
+  // Both sides of the user-selected language pair.
+  // langARef = left / source side  (default: "en")
+  // targetLangRef = right / target side (default: "ar")
+  // Updated by workspace via setLangA / setTargetLang without re-renders.
+  const langARef          = useRef<string>("en");
   const targetLangRef     = useRef<string>("ar");
   const styleUpgradedRef  = useRef(false);
 
@@ -248,8 +251,16 @@ export function useTranscription() {
     lastTranslatedBuffer.current = text;
     state.seq += 1;
     const mySeq           = state.seq;
-    const myTargetLang    = targetLangRef.current;  // captured at dispatch time
     const capturedOrigLen = text.length;            // full length at dispatch time
+
+    // Bidirectional direction logic (captured at dispatch time):
+    // If the spoken language matches langB (target side), translate back to langA.
+    // If it matches langA (or is unknown), translate to langB.
+    // This prevents Arabic→Arabic or English→English identity translations.
+    const detected     = lang;  // detectedLangRef.current passed in as `lang`
+    const myTargetLang = (detected === targetLangRef.current)
+      ? langARef.current
+      : targetLangRef.current;
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
@@ -721,10 +732,13 @@ export function useTranscription() {
     }
   }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
 
-  // ── setTargetLang ──────────────────────────────────────────────────────────
-  // Called by workspace whenever the user changes the target language selector.
-  // Updating the ref is instantaneous and side-effect-free; the new value is
-  // captured at the next dispatchTranslation call.
+  // ── setLangA / setTargetLang ──────────────────────────────────────────────
+  // Called by workspace whenever the user changes either language selector.
+  // Updating the refs is instantaneous; values are captured at next dispatch.
+  const setLangA = useCallback((lang: string) => {
+    langARef.current = lang;
+  }, []);
+
   const setTargetLang = useCallback((lang: string) => {
     targetLangRef.current = lang;
   }, []);
@@ -738,6 +752,7 @@ export function useTranscription() {
     containerRef,
     start,
     stop,
+    setLangA,
     setTargetLang,
     clear: () => {
       if (silenceTimerRef.current !== null) {

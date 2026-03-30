@@ -88,9 +88,12 @@ export default function Workspace() {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
   }, [devices, selectedDeviceId]);
 
-  // Keep the hook's target-language ref in sync with the user's selector choice.
-  // Using a ref inside the hook means this never triggers a re-render or
-  // restarts the audio pipeline — it's instantaneous.
+  // Keep both sides of the language pair synced into the hook.
+  // These update refs directly — no re-renders, no pipeline restarts.
+  useEffect(() => {
+    transcription.setLangA(langA);
+  }, [langA, transcription.setLangA]);
+
   useEffect(() => {
     transcription.setTargetLang(langB);
   }, [langB, transcription.setTargetLang]);
