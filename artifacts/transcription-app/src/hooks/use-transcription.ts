@@ -280,6 +280,10 @@ export function useTranscription() {
         if (mySeq <= state.lastShownSeq) return;
         // DOM no longer connected (bubble was cleared).
         if (!translated || !transTextEl.isConnected) return;
+        // Re-check lock after the async round-trip. Another in-flight request
+        // may have already written + locked this segment while we were waiting.
+        // This is the critical guard that prevents the overwrite race.
+        if (state.translationLocked) return;
 
         // Stabilization: only update if final, first result, or meaningfully longer.
         if (!isFinal && state.lastShownLen > 0 && translated.length < state.lastShownLen * STABILIZE_RATIO) return;
