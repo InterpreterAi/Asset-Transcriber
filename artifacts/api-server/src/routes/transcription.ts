@@ -109,30 +109,31 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 });
 
 // ── POST /translate ────────────────────────────────────────────────────────
-// Translates a finalized transcript segment using GPT.
-// sourceLang: "en" | "ar" (or any BCP-47 code Soniox returns)
-// Automatically picks the opposite language as target.
+// Translates a finalized transcript segment using gpt-4o-mini.
+// Auto-detects language and translates: EN↔AR.
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, sourceLang } = req.body as { text?: string; sourceLang?: string };
+  const { text } = req.body as { text?: string; sourceLang?: string };
   if (!text || typeof text !== "string" || text.trim().length < 2) {
     res.status(400).json({ error: "text is required" });
     return;
   }
 
-  const src = (sourceLang ?? "en").toLowerCase();
-  const tgt = src === "ar" ? "English" : "Arabic";
-  const srcName = src === "ar" ? "Arabic" : "English";
+  const prompt = `Translate the following speech segment.
+
+Detect the language automatically.
+If the text is English translate it into Arabic.
+If the text is Arabic translate it into English.
+
+Return ONLY the translation.
+Do not add explanations.
+
+Text:
+${text.trim()}`;
 
   try {
     const resp = await openai.chat.completions.create({
-      model: "gpt-5-nano",
-      messages: [
-        {
-          role: "system",
-          content: `You are a professional interpreter. Translate the ${srcName} text to ${tgt}. Return ONLY the translation — no explanations, no quotes, no commentary.`,
-        },
-        { role: "user", content: text.trim() },
-      ],
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
       max_completion_tokens: 512,
     });
     const translation = resp.choices[0]?.message?.content?.trim() ?? "";

@@ -1,0 +1,168 @@
+Update the interpreter application so it works as a real-time interpreter console and uses the OpenAI API for translation.
+
+Apply ALL of the following changes in one update.
+
+--------------------------------------------------
+1. USE OPENAI FOR TRANSLATION
+--------------------------------------------------
+
+Use the OpenAI API with model:
+
+gpt-4o-mini
+
+Environment variable for the API key:
+
+OPENAI_API_KEY
+
+The application must read this key from environment variables.
+
+Example translation call:
+
+model: gpt-4o-mini
+
+The translation request must run asynchronously so transcription never pauses.
+
+--------------------------------------------------
+2. TRANSLATION PROMPT
+--------------------------------------------------
+
+Use this prompt for translation:
+
+Translate the following speech segment.
+
+Detect the language automatically.
+
+If the text is English translate it into Arabic.
+If the text is Arabic translate it into English.
+
+Return ONLY the translation.
+Do not add explanations.
+
+Text:
+{segment_text}
+
+--------------------------------------------------
+3. FINAL SEGMENTS ONLY
+--------------------------------------------------
+
+The interface must display ONLY FINAL transcript segments.
+
+Ignore interim or partial tokens from Soniox.
+
+Current problem:
+The UI shows grey streaming text and repeatedly rewrites sentences.
+
+Required behavior:
+
+• When Soniox emits a segment with is_final = true
+• Create a new transcript row
+• Lock the row permanently
+• Never rewrite or move it
+
+Remove all grey interim text from the UI.
+
+--------------------------------------------------
+4. SEGMENT STRUCTURE
+--------------------------------------------------
+
+Each transcript segment must be stored like this:
+
+{
+id,
+speaker,
+original_text,
+translated_text,
+timestamp
+}
+
+--------------------------------------------------
+5. INSTANT TRANSLATION
+--------------------------------------------------
+
+When a final segment arrives:
+
+1. Add it to the transcript
+2. Immediately send original_text to OpenAI translation
+3. Update translated_text when the API returns
+
+Translation must appear within ~200-300ms.
+
+--------------------------------------------------
+6. INTERPRETER LAYOUT
+--------------------------------------------------
+
+Replace the current stacked transcript with a dual column interpreter layout.
+
+LEFT COLUMN:
+Original transcript
+
+RIGHT COLUMN:
+Translation
+
+Example:
+
+| Original | Translation |
+|----------|-------------|
+| We are all in one big room | نحن جميعاً في غرفة واحدة |
+| Okay small talk finished | حسناً انتهى الحديث القصير |
+
+Segments must remain fixed and never move when new text arrives.
+
+--------------------------------------------------
+7. HOVER COPY BUTTONS
+--------------------------------------------------
+
+Each segment must support hover controls:
+
+Copy original text
+Copy translated text
+
+Buttons should appear only when the user hovers over the segment.
+
+--------------------------------------------------
+8. NO DUPLICATED SEGMENTS
+--------------------------------------------------
+
+Prevent duplicate sentences.
+
+Only append a segment once when is_final = true.
+
+Do not update existing rows.
+
+--------------------------------------------------
+9. PERFORMANCE TARGET
+--------------------------------------------------
+
+Target interpreter latency:
+
+speech → transcript ≈ 200ms  
+transcript → translation ≈ 200ms  
+
+Total delay must stay under 500ms.
+
+--------------------------------------------------
+10. DO NOT MODIFY
+--------------------------------------------------
+
+Do not modify:
+
+• Soniox transcription streaming
+• speaker diarization
+• audio routing
+
+Only update UI rendering and translation logic.
+
+--------------------------------------------------
+11. AFTER IMPLEMENTATION
+--------------------------------------------------
+
+Restart the dev server automatically.
+
+Verify:
+
+• no grey interim text
+• no duplicated segments
+• segments do not move
+• translation appears instantly
+• original text on LEFT
+• translation on RIGH
