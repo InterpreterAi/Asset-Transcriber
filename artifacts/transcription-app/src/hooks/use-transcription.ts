@@ -244,6 +244,11 @@ export function useTranscription() {
   // Text content is never stored in React state — only in these DOM refs.
   const activeFinalSpanRef = useRef<HTMLSpanElement | null>(null);
   const activeNFSpanRef    = useRef<HTMLSpanElement | null>(null);
+  // rAF batching: store the latest text to display and a handle to the pending frame.
+  // Multiple token messages that arrive within the same 16ms frame collapse into
+  // one DOM write, preventing layout thrash without adding perceptible delay.
+  const pendingTextRef  = useRef<string>("");
+  const rafPendingRef   = useRef<number | null>(null);
 
   // ── Speaker tracking ───────────────────────────────────────────────────────
   // No stability window — speaker changes are instant.  When a final token
@@ -355,8 +360,13 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    activeFinalSpanRef.current = null;
-    activeNFSpanRef.current    = null;
+    // Cancel any pending rAF write so it doesn't fire after refs are nulled.
+    if (rafPendingRef.current != null) {
+      cancelAnimationFrame(rafPendingRef.current);
+      rafPendingRef.current = null;
+    }
+    activeFinalSpanRef.current          = null;
+    activeNFSpanRef.current             = null;
     speakerHistoryRef.current           = [];
     activeSegSpeakerRef.current         = undefined;
     globalFinalCountRef.current         = 0;
@@ -440,40 +450,55 @@ export function useTranscription() {
       let hasNonFinal      = false;
 
       for (const token of tokens) {
+        const spk = token.speaker;
+
         if (!token.is_final) {
-          nfSuffix += token.text;
+          // ── Non-final token ──────────────────────────────────────────────
           hasNonFinal = true;
-          if (token.speaker != null) speakerRef.current = token.speaker;
+          nfSuffix   += token.text;
+          if (spk != null) speakerRef.current = spk;
+
+          // INSTANT speaker split on NF token — don't wait for finals.
+          // This is the key change for responsive conversation: the moment
+          // Soniox assigns a different speaker_id to any token, we split.
+          if (spk !== undefined && activeSegSpeakerRef.current !== undefined && spk !== activeSegSpeakerRef.current) {
+            if (finalBufRef.current.trim().length > 0) flush();
+            activeSegSpeakerRef.current = spk;
+            segStartMsRef.current       = Date.now();
+            nfSuffix                    = token.text; // only THIS token's text for new speaker
+          } else if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
+            activeSegSpeakerRef.current = spk;
+            segStartMsRef.current       = Date.now();
+          }
           continue;
         }
 
+        // ── Final token ──────────────────────────────────────────────────
         // Dedup — skip finals already committed in a previous message.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
-        const spk = token.speaker;
         if (spk !== undefined) {
           speakerRef.current = spk;
           speakerHistoryRef.current.push(spk);
           touchSpeaker(spk);
         }
 
-        // Open segment if none active.
         if (activeSegSpeakerRef.current === undefined) {
           activeSegSpeakerRef.current = spk;
-          segStartMsRef.current = Date.now();
+          segStartMsRef.current       = Date.now();
         }
 
-        // Instant speaker split on first final token from a new speaker.
+        // Speaker split on final token (catches cases NF detection missed).
         if (spk !== undefined && spk !== activeSegSpeakerRef.current && finalBufRef.current.trim().length > 0) {
           flush();
           activeSegSpeakerRef.current = spk;
-          segStartMsRef.current = Date.now();
+          segStartMsRef.current       = Date.now();
         }
 
         finalBufRef.current += token.text;
 
-        // Punctuation flush — seal long sentences at natural boundaries.
+        // Punctuation flush — seal at sentence boundaries.
         if (finalBufRef.current.trim().length >= 60 && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
           flush();
         }
@@ -484,20 +509,29 @@ export function useTranscription() {
         }
       }
 
-      // Update watermark.
+      // Watermark — advance after processing all tokens.
       globalFinalCountRef.current = finalSeenThisMsg;
       if (!hasNonFinal && finalSeenThisMsg > 0) globalFinalCountRef.current = 0;
 
-      // Language detection.
+      // Language detection from newly confirmed tokens.
       if (finalSeenThisMsg > 0) langRef.current = detectLang(tokens.filter(t => t.is_final), langRef.current);
 
-      // ── Direct DOM write — every message, zero scheduler overhead ──────────
-      // Single target: activeFinalSpanRef holds the combined live text.
-      // confirmed finals + current NF suffix written in one assignment.
+      // ── rAF-batched DOM write ─────────────────────────────────────────────
+      // Store the latest text.  If a frame isn't already scheduled, schedule
+      // one.  Multiple messages within the same 16 ms frame collapse into a
+      // single DOM write — no layout thrash, no perceptible delay.
       const liveText = finalBufRef.current + nfSuffix;
-      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = liveText;
+      pendingTextRef.current = liveText;
+      if (rafPendingRef.current == null) {
+        rafPendingRef.current = requestAnimationFrame(() => {
+          rafPendingRef.current = null;
+          if (activeFinalSpanRef.current) {
+            activeFinalSpanRef.current.textContent = pendingTextRef.current;
+          }
+        });
+      }
 
-      // Structural React update — only when the bubble needs to open.
+      // Structural React update — only when bubble label/language changes.
       if (liveText) {
         const label = normalizeSpeaker(speakerRef.current);
         const lang  = langRef.current;
@@ -679,6 +713,10 @@ export function useTranscription() {
     start,
     stop,
     clear: () => {
+      if (rafPendingRef.current != null) {
+        cancelAnimationFrame(rafPendingRef.current);
+        rafPendingRef.current = null;
+      }
       activeFinalSpanRef.current = null;
       activeNFSpanRef.current    = null;
       setFinalizedSegments([]);
