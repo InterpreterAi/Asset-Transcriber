@@ -223,59 +223,28 @@ export function useTranscription() {
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
-      // Gap (ms) since the last final token was written — measured once per
-      // message so tokens within the same response are treated as instantaneous.
-      const MERGE_GAP_MS = 4_000;
-      const now          = Date.now();
-      const sinceLastFinal = lastFinalTimeRef.current > 0
-        ? now - lastFinalTimeRef.current : Infinity;
-
       for (const token of newFinals) {
-        const speakerChanged = token.speaker !== currentSpeakerRef.current;
-
-        if (speakerChanged) {
-          // Track the new speaker and reset the final-count baseline so old
-          // finals aren't re-appended into the new bubble.
+        // Speaker changed → start a new bubble, reset the final counter
+        // to the current total (new bubble = new baseline; don't re-process
+        // old finals into the new speaker's text).
+        if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
           currentSpeakerRef.current = token.speaker;
           finalCountRef.current     = finals.length - newFinals.length +
-            newFinals.indexOf(token);
-        }
-
-        // Decide: merge into the current bubble, or start a new one?
-        //
-        //  Create new bubble when:
-        //    • No active bubble yet                      (first token ever)
-        //    • Speaker changed
-        //    • Gap since last final > 4 s               (pause in speech)
-        //    • Last char of active bubble is . ? !      (sentence ended)
-        //
-        //  Merge (append) when none of the above apply.
-        //
-        // Note: activeBubbleRef.current IS the finalSpan <span> returned by
-        // createBubble(), not the <p> — so read textContent directly from it.
-        const lastChar    = activeBubbleRef.current?.textContent?.trimEnd().slice(-1) ?? "";
-        const strongPunct = /[.?!]/.test(lastChar);
-        const needNew     = !activeBubbleRef.current
-          || speakerChanged
-          || sinceLastFinal > MERGE_GAP_MS
-          || strongPunct;
-
-        if (needNew) {
+            newFinals.indexOf(token); // processed up to (not including) this token
           activeBubbleRef.current = createBubble(token.speaker);
           setHasTranscript(true);
         }
 
-        // activeBubbleRef IS the finalSpan — append directly
-        activeBubbleRef.current.textContent = (activeBubbleRef.current.textContent ?? "") + token.text;
+        activeBubbleRef.current.textContent =
+          (activeBubbleRef.current.textContent ?? "") + token.text;
 
         activeBubbleRef.current
           .closest("div")
           ?.scrollIntoView({ block: "end", behavior: "smooth" });
       }
 
-      // Update counters once for the whole batch
-      finalCountRef.current   = finals.length;
-      if (newFinals.length > 0) lastFinalTimeRef.current = now;
+      // Update final count to include everything processed this message
+      finalCountRef.current = finals.length;
 
       // ── NF (non-final) tokens ─────────────────────────────────────────
       //
