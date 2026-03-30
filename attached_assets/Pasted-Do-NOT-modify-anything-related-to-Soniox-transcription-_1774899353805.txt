@@ -1,0 +1,70 @@
+Do NOT modify anything related to Soniox transcription, streaming, segmentation, or audio logic.
+
+The transcription is working correctly. The issues are only related to translation behavior and UI alignment.
+
+1) Translation delay
+
+Currently translation appears about 7 seconds after the speaker finishes talking. The translation does appear eventually even if nobody speaks afterward, but the delay is too long.
+
+For interpreter usage this is unacceptable because interpreters must translate immediately after the speaker finishes.
+
+The correct workflow must be:
+
+• While the speaker is talking → Soniox shows interim transcript (grey text).  
+• When Soniox finalizes the segment (text becomes bold / isFinal = true) → immediately send that finalized text to the translation API.  
+• Translation must appear instantly in the translation column for that same segment.
+
+There must be no artificial delay.
+
+Remove any debounce, timeout, batching, buffering, or “wait for transcript stability” logic such as setTimeout or similar mechanisms that delay translation for several seconds.
+
+Translation must trigger immediately when the segment becomes FINAL.
+
+Expected translation latency should be under 1 second.
+
+Do not wait for another speaker or another segment before translating.
+
+2) Translation alignment
+
+The translation column is not vertically aligned with the original segment.
+
+The Arabic translation must start on the same vertical level as the English segment.
+
+Each segment should look visually aligned like this:
+
+ORIGINAL COLUMN                     TRANSLATION COLUMN
+
+Speaker 1                           Speaker 1  
+Thank you for calling...            شكراً لاتصالك...  
+My name is Mohammed...              اسمي محمد...  
+How can I help you today?           كيف يمكنني مساعدتك اليوم؟
+
+The translation should move slightly down so that it lines up with the speaker label and text of the original segment.
+
+Both columns should appear visually symmetrical.
+
+3) Text style behavior
+
+Interim transcript (grey text) should appear only in the original transcription column.
+
+Translation should never appear as interim grey text.
+
+When a segment is finalized and becomes bold in the original column, the translation should appear as finalized text in the translation column using the same visual weight.
+
+Translation must always represent the finalized segment exactly, with no additional words and no missing words.
+
+4) Interpreter usage requirement
+
+This application is designed for live interpreters working in real-time conversations between doctors and patients.
+
+The interpreter reads the finalized English segment and immediately translates it verbally into Arabic.
+
+Because of this:
+
+• Translation must appear immediately after the speaker finishes the sentence.  
+• There must be no delay waiting for another segment or another speaker.  
+• The translation must mirror the finalized text exactly.
+
+Do not change any Soniox transcription logic or streaming behavior.
+
+Only modify the translation trigger timing and the visual alignment of the translation column.
