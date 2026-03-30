@@ -165,11 +165,12 @@ function applyTextStyle(el: HTMLElement) {
 // capture the state object at the time of dispatch, so in-flight requests from
 // a previous segment can NEVER write into a later segment's DOM element.
 interface BubbleTransState {
-  transTextEl:  HTMLParagraphElement;
-  copyTransBtn: HTMLButtonElement;
-  seq:          number;  // incremented on every dispatch FOR THIS bubble
-  lastShownSeq: number;  // highest seq whose result was written to DOM
-  lastShownLen: number;  // char length of last shown translation (for stabilization)
+  transTextEl:       HTMLParagraphElement;
+  copyTransBtn:      HTMLButtonElement;
+  seq:               number;   // incremented on every dispatch FOR THIS bubble
+  lastShownSeq:      number;   // highest seq whose result was written to DOM
+  lastShownLen:      number;   // char length of last shown translation (for stabilization)
+  translationLocked: boolean;  // true after first finalized translation — no further updates
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -251,6 +252,10 @@ export function useTranscription() {
     const state = activeBubbleStateRef.current;
     if (!state || text.length < 3) return;
 
+    // Lock guard: once a finalized translation has been written for this
+    // segment, never overwrite it — not from polling, not from re-finalization.
+    if (state.translationLocked) return;
+
     lastTranslatedBuffer.current = text;
 
     // Guard: only translate if the detected language belongs to the selected pair.
@@ -293,6 +298,10 @@ export function useTranscription() {
           transTextEl.className = CLS.transText;
         }
         transTextEl.textContent = translated;
+
+        // Lock: after a finalized translation is written, no further update
+        // may overwrite it. The next speech creates a brand-new segment.
+        if (isFinal) state.translationLocked = true;
 
         if (copyTransBtn.disabled) {
           enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
@@ -399,8 +408,9 @@ export function useTranscription() {
       transTextEl:  transTextP,
       copyTransBtn: copyTransBtn,
       seq:          0,
-      lastShownSeq: 0,
-      lastShownLen: 0,
+      lastShownSeq:      0,
+      lastShownLen:      0,
+      translationLocked: false,
     };
     styleUpgradedRef.current     = false;
     liveBufferRef.current        = "";

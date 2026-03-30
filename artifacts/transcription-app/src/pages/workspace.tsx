@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check, Type,
+  Globe, Languages, Trash2, Copy, Check, Type,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -342,14 +342,7 @@ export default function Workspace() {
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
-              <button
-                onClick={() => { setLangA(langB); setLangB(langA); }}
-                disabled={transcription.isRecording}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground transition-colors disabled:opacity-40"
-                title="Swap languages"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-              </button>
+              <span className="text-xs font-semibold text-muted-foreground">↔</span>
               <Select
                 value={langB}
                 onChange={(e) => setLangB(e.target.value)}
@@ -390,7 +383,7 @@ export default function Workspace() {
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
               <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
               <div className="h-9 w-[130px]" />
-              <div className="w-8 h-8" />
+              <span className="text-xs font-semibold">↔</span>
               <div className="h-9 w-[130px]" />
             </div>
           </div>
