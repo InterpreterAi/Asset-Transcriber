@@ -92,8 +92,8 @@ export default function Workspace() {
   // Using a ref inside the hook means this never triggers a re-render or
   // restarts the audio pipeline — it's instantaneous.
   useEffect(() => {
-    transcription.setTargetLang(langB);
-  }, [langB, transcription.setTargetLang]);
+    transcription.setLangPair(langA, langB);
+  }, [langA, langB, transcription.setLangPair]);
 
   useEffect(() => {
     if (!user?.trialExpired) return;

@@ -99,9 +99,24 @@ function normalizeSpeaker(rawId: number | undefined): { label: string; slot: num
   return { label: `Speaker ${lruSlot}`, slot: lruSlot };
 }
 
+// ── Language-pair helpers ──────────────────────────────────────────────────────
+// Compare two BCP-47 codes loosely (e.g. "zh-CN" matches "zh").
+function matchesLang(detected: string, selected: string): boolean {
+  const d = detected.toLowerCase();
+  const s = selected.toLowerCase();
+  return d === s || d.split("-")[0] === s.split("-")[0];
+}
+
+// Given a detected language code and the selected {a, b} pair, return the
+// target language code: if detected is B → translate to A, otherwise → B.
+// This makes the translation always go to the OPPOSITE of what was spoken.
+function resolveTarget(detectedLang: string, pair: { a: string; b: string }): string {
+  return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
+}
+
 // ── Translation fetch ──────────────────────────────────────────────────────────
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
-// targetLang: BCP-47 code chosen by the user in the UI (e.g. "ar", "es").
+// targetLang: BCP-47 code resolved from the language pair (always the opposite).
 async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
@@ -180,9 +195,9 @@ export function useTranscription() {
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
-  // User-selected target language code (e.g. "ar", "es", "fr").
-  // Updated by workspace via setTargetLang without causing re-renders.
-  const targetLangRef     = useRef<string>("ar");
+  // The user's selected language pair {a, b}. Per-segment target is computed
+  // dynamically: if detected matches b → translate to a; otherwise translate to b.
+  const langPairRef       = useRef<{ a: string; b: string }>({ a: "en", b: "ar" });
   const styleUpgradedRef  = useRef(false);
 
   // ── Per-bubble translation state ───────────────────────────────────────────
@@ -238,8 +253,11 @@ export function useTranscription() {
 
     lastTranslatedBuffer.current = text;
     state.seq += 1;
-    const mySeq       = state.seq;
-    const myTargetLang = targetLangRef.current;   // captured at dispatch time
+    const mySeq        = state.seq;
+    // Resolve target at dispatch time: opposite of the detected source language.
+    // If Soniox detected "ar" and pair is {a:"en", b:"ar"} → target = "en".
+    // If Soniox detected "en" → target = "ar".
+    const myTargetLang = resolveTarget(lang, langPairRef.current);
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
@@ -692,12 +710,12 @@ export function useTranscription() {
     }
   }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
 
-  // ── setTargetLang ──────────────────────────────────────────────────────────
-  // Called by workspace whenever the user changes the target language selector.
-  // Updating the ref is instantaneous and side-effect-free; the new value is
-  // captured at the next dispatchTranslation call.
-  const setTargetLang = useCallback((lang: string) => {
-    targetLangRef.current = lang;
+  // ── setLangPair ────────────────────────────────────────────────────────────
+  // Called by workspace whenever the user changes either language selector.
+  // Per-segment target is resolved at dispatchTranslation time: if Soniox
+  // detected language matches B → translate to A, otherwise → translate to B.
+  const setLangPair = useCallback((a: string, b: string) => {
+    langPairRef.current = { a, b };
   }, []);
 
   return {
@@ -709,7 +727,7 @@ export function useTranscription() {
     containerRef,
     start,
     stop,
-    setTargetLang,
+    setLangPair,
     clear: () => {
       if (silenceTimerRef.current !== null) {
         clearTimeout(silenceTimerRef.current);
