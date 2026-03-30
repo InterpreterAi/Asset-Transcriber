@@ -8,6 +8,10 @@ const TRANSLATION_POLL_MS = 700;
 // A new translation is accepted during live speech only if it is at least
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
+// How long a gap in incoming tokens (ms) triggers automatic segment finalization.
+// Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
+// but short enough that natural sentence-end pauses close the segment cleanly.
+const SILENCE_TIMEOUT_MS  = 1200;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -189,6 +193,11 @@ export function useTranscription() {
   const lastTranslatedBuffer = useRef<string>("");
   // setInterval handle.
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Silence / pause detection ──────────────────────────────────────────────
+  // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
+  // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -405,6 +414,11 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
+    // Cancel any pending silence timer before we finalize below.
+    if (silenceTimerRef.current !== null) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     stopTranslationInterval();
     finalizeLiveBubble();
 
@@ -475,6 +489,24 @@ export function useTranscription() {
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
+      // ── Fix 1: Silence / pause-based segment finalization ─────────────────
+      // Every message with tokens resets the silence timer.  After
+      // SILENCE_TIMEOUT_MS of no tokens the current segment is finalized and
+      // the active-bubble refs are cleared so the next token opens a new one.
+      if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        silenceTimerRef.current = null;
+        if (!activeBubbleRef.current) return;  // nothing open — nothing to do
+        softFinalize();
+        // Drop active refs so the next speech token creates a fresh segment.
+        currentSpeakerRef.current = undefined;
+        activeBubbleRef.current   = null;
+        activeBubbleNFRef.current = null;
+        styleUpgradedRef.current  = false;
+        // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
+        // so slicing from the current count will correctly pick up only new finals.
+      }, SILENCE_TIMEOUT_MS);
+
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
@@ -499,12 +531,31 @@ export function useTranscription() {
       scrollPanel();
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
-      const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      const nfSpeaker = tokens.find(t => !t.is_final && t.speaker !== undefined)?.speaker;
+
+      // ── Fix 2: Immediate speaker-change on NF tokens ──────────────────────
+      // When Soniox NF tokens show a new speaker while a segment is open,
+      // finalize the current segment immediately and open a fresh one for the
+      // new speaker.  This prevents the new speaker's text from appearing in
+      // the old bubble even for a fraction of a second, eliminating the "text
+      // jumps to a new segment" visual artifact.
+      if (
+        nfSpeaker !== undefined &&
+        activeBubbleRef.current !== null &&
+        nfSpeaker !== currentSpeakerRef.current
+      ) {
+        finalizeLiveBubble();
+        currentSpeakerRef.current = nfSpeaker;
+        activeBubbleRef.current   = createBubble(nfSpeaker);
+        setHasTranscript(true);
+      }
+
       if (activeBubbleNFRef.current) {
         activeBubbleNFRef.current.textContent = nfText;
       } else if (nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
-          const spk = tokens.find(t => t.speaker !== undefined)?.speaker;
+          const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
           currentSpeakerRef.current = spk;
           activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
@@ -545,6 +596,10 @@ export function useTranscription() {
     try {
       setError(null);
       setAudioInfo("");
+      if (silenceTimerRef.current !== null) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
       activeBubbleNFRef.current    = null;
@@ -641,6 +696,10 @@ export function useTranscription() {
     start,
     stop,
     clear: () => {
+      if (silenceTimerRef.current !== null) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
       stopTranslationInterval();
       activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
