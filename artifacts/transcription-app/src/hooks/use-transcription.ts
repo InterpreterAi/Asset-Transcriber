@@ -99,14 +99,14 @@ export function useTranscription() {
   // ── flushSegment ──────────────────────────────────────────────────────────
   // Moves the accumulated buffer into the locked segment list, then fires
   // an async translation call that updates the same row when it returns.
-  // Minimum 8 characters required; shorter buffers are silently discarded.
+  // Minimum 12 characters required; shorter buffers are silently discarded.
   const flushSegment = useCallback(() => {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
     const text = buildingTextRef.current.trim();
-    if (text.length < 8) {
+    if (text.length < 12) {
       // Too short to be meaningful — reset buffer without creating a segment
       buildingTextRef.current    = "";
       buildingSpeakerRef.current = undefined;
@@ -248,11 +248,11 @@ export function useTranscription() {
         for (const token of newFinals) {
           const accumulated = buildingTextRef.current.trim();
 
-          // Speaker changed — flush if buffer is long enough to be its own segment
+          // Speaker changed — flush if buffer meets minimum length
           if (
             buildingSpeakerRef.current !== undefined &&
             token.speaker !== buildingSpeakerRef.current &&
-            accumulated.length >= 8
+            accumulated.length >= 12
           ) {
             flushSegment();
           }
@@ -265,25 +265,25 @@ export function useTranscription() {
 
           const buf = buildingTextRef.current.trim();
 
-          // Rule 1: Force-flush at 60 chars
-          if (buf.length >= 60) {
+          // Rule 1: Force-flush at 55 chars
+          if (buf.length >= 55) {
             flushSegment();
           }
-          // Rule 2: Flush on sentence-ending punctuation (min 8 chars)
-          else if (buf.length >= 8 && /[.!?]$/.test(buf)) {
+          // Rule 2: Flush on sentence-ending punctuation (min 12 chars)
+          else if (buf.length >= 12 && /[.!?]$/.test(buf)) {
             flushSegment();
           }
         }
 
         // ── Silence / pause detection ─────────────────────────────────────
-        // Reset the 800ms silence timer every time new final tokens arrive.
-        // If no new finals come in for 800ms, the speaker has paused →
+        // Reset the 900ms silence timer every time new final tokens arrive.
+        // If no new finals come in for 900ms, the speaker has paused →
         // flush whatever is in the buffer as a completed segment.
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
           silenceTimerRef.current = null;
           flushSegment();
-        }, 800);
+        }, 900);
 
         finalCountRef.current = finals.length;
       }
