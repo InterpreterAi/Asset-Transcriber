@@ -529,6 +529,13 @@ export function useTranscription() {
           activeBubbleRef.current = createBubble(token.speaker);
           setHasTranscript(true);
         }
+        // A word is committing from live → final.
+        // Clear the live (grey) span FIRST so the word leaves it immediately,
+        // then append the committed text to the final (bold) span.
+        // This prevents any word from appearing in both spans at the same time.
+        if (activeBubbleNFRef.current) {
+          activeBubbleNFRef.current.textContent = "";
+        }
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
       }
@@ -538,25 +545,23 @@ export function useTranscription() {
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       //
-      // ORDERING GUARANTEE: speaker routing is fully resolved before any
-      // text is written to the DOM.  No NF token ever touches the wrong bubble.
+      // Soniox NF tokens represent the CURRENT live hypothesis — they are a
+      // complete replacement of the live buffer every message, not a delta.
+      // The live (grey) span is always set via textContent= (REPLACE).
+      // It is never appended to across messages.
       //
       const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
       const nfSpeaker = tokens.find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
       // ── Step 1: Speaker routing — zero DOM writes ─────────────────────────
-      // Decide which bubble should receive the NF text.  Finalize the old
-      // bubble and create a new one whenever the speaker changes.  This must
-      // complete before any text is inserted so no word ever appears in the
-      // wrong segment.
+      // Resolve which bubble owns this NF text before touching the DOM.
+      // Speaker changes finalize the old segment and open a new one.
       if (nfSpeaker !== undefined) {
         if (!activeBubbleRef.current) {
-          // No segment open yet → open one for this speaker.
           currentSpeakerRef.current = nfSpeaker;
           activeBubbleRef.current   = createBubble(nfSpeaker);
           setHasTranscript(true);
         } else if (nfSpeaker !== currentSpeakerRef.current) {
-          // Speaker changed → close current segment, open a new one.
           finalizeLiveBubble();
           currentSpeakerRef.current = nfSpeaker;
           activeBubbleRef.current   = createBubble(nfSpeaker);
@@ -564,9 +569,10 @@ export function useTranscription() {
         }
       }
 
-      // ── Step 2: Write NF text — only after routing is confirmed ───────────
-      // If speaker was unknown above and still no bubble exists, open a
-      // generic one so the text has somewhere to land.
+      // ── Step 2: REPLACE the live span with current NF ────────────────────
+      // This is always a replacement — the NF span holds only the words
+      // Soniox has not yet committed.  Words that just became final were
+      // already moved to the bold span above and cleared from here.
       if (nfText) {
         if (!activeBubbleRef.current && containerRef.current) {
           currentSpeakerRef.current = undefined;
@@ -574,10 +580,9 @@ export function useTranscription() {
           setHasTranscript(true);
         }
         if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = nfText;
+          activeBubbleNFRef.current.textContent = nfText;  // REPLACE, never append
         }
       } else if (activeBubbleNFRef.current) {
-        // NF text cleared (end of non-final stream) → blank the NF span.
         activeBubbleNFRef.current.textContent = "";
       }
 
