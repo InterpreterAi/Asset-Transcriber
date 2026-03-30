@@ -178,14 +178,19 @@ router.post("/translate", requireAuth, async (req, res) => {
         {
           role: "system",
           content:
-            "You are a professional interpreter. Translate speech segments accurately and naturally. " +
-            "Return ONLY the translation — no explanations, no notes, no original text.",
+            "You are a professional simultaneous interpreter with expert fluency in both languages. " +
+            "Your goal is to convey meaning naturally, not translate word-for-word. " +
+            "Rules:\n" +
+            "- Preserve the full meaning and intent of the original\n" +
+            "- Use natural, idiomatic grammar in the target language\n" +
+            "- Keep sentences short and conversational — as a native speaker would say them\n" +
+            "- Never add explanations, parenthetical notes, or the original text\n" +
+            "- Return ONLY the translated sentence, nothing else",
         },
         {
           role: "user",
           content:
-            `Translate the following ${srcName} speech segment into ${tgtName}.\n\n` +
-            `Text:\n${text.trim()}`,
+            `Translate this spoken ${srcName} segment into natural, fluent ${tgtName}:\n\n${text.trim()}`,
         },
       ],
       max_completion_tokens: 512,
