@@ -9,8 +9,11 @@ const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 const CLS = {
   wrapper:    "mb-4",
   speakerTag: "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
-  text:       "text-[13px] leading-relaxed text-foreground font-medium",
-  nf:         "text-muted-foreground/55 italic",
+  // Live segment: grey/dim while speech is still streaming
+  textLive:   "text-[13px] leading-relaxed text-muted-foreground/70",
+  // Finalized segment: solid black, slightly bolder once the speaker changes
+  textFin:    "text-[13px] leading-relaxed text-foreground font-semibold",
+  nf:         "text-muted-foreground/45 italic",
 } as const;
 
 // ── Soniox v4 types ────────────────────────────────────────────────────────────
@@ -120,9 +123,10 @@ export function useTranscription() {
     }
 
     const p = document.createElement("p");
-    p.className = CLS.text;
+    // Start in "live" style (grey). finalizeLiveBubble() upgrades it to textFin.
+    p.className = CLS.textLive;
 
-    // Two child spans: confirmed text (black) + live NF guess (gray italic)
+    // Two child spans: confirmed text + live NF hypothesis (dimmer italic)
     const finalSpan = document.createElement("span");
     const nfSpan    = document.createElement("span");
     nfSpan.className = CLS.nf;
@@ -134,10 +138,27 @@ export function useTranscription() {
 
     activeBubbleNFRef.current = nfSpan;
 
-    // Keep bottom of transcript visible
+    // Scroll once when the new segment appears — not on every token.
     wrapper.scrollIntoView({ block: "end", behavior: "smooth" });
 
     return finalSpan as HTMLParagraphElement;
+  }, []);
+
+  // ── finalizeLiveBubble ────────────────────────────────────────────────────
+  // Called when the active speaker changes or recording ends.
+  // Promotes the current live segment from grey → black/bold and clears any
+  // dangling NF preview text so only confirmed words remain.
+  const finalizeLiveBubble = useCallback(() => {
+    if (!activeBubbleRef.current) return;
+
+    // Clear NF preview — only confirmed text survives finalization
+    if (activeBubbleNFRef.current) {
+      activeBubbleNFRef.current.textContent = "";
+    }
+
+    // activeBubbleRef IS the finalSpan; its parent is <p>
+    const p = activeBubbleRef.current.parentElement;
+    if (p) p.className = CLS.textFin;
   }, []);
 
   // ── stop ──────────────────────────────────────────────────────────────────
@@ -145,6 +166,9 @@ export function useTranscription() {
     if (!isRecRef.current) return;
     isRecRef.current = false;
     setIsRecording(false);
+
+    // Promote the last live segment to finalized styling before teardown
+    finalizeLiveBubble();
 
     currentSpeakerRef.current  = undefined;
     activeBubbleRef.current    = null;
@@ -179,7 +203,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut]);
+  }, [stopSessionMut, finalizeLiveBubble]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   const buildWs = useCallback((apiKey: string): WebSocket => {
@@ -224,23 +248,21 @@ export function useTranscription() {
       const newFinals = finals.slice(finalCountRef.current);
 
       for (const token of newFinals) {
-        // Speaker changed → start a new bubble, reset the final counter
-        // to the current total (new bubble = new baseline; don't re-process
-        // old finals into the new speaker's text).
+        // Speaker changed (or first token ever) → finalize the current live
+        // segment, then open a new one. Text grows in place within a segment
+        // — no scroll on every token, only when the speaker boundary fires.
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
+          finalizeLiveBubble();                    // grey → black/bold, clears NF
           currentSpeakerRef.current = token.speaker;
           finalCountRef.current     = finals.length - newFinals.length +
-            newFinals.indexOf(token); // processed up to (not including) this token
-          activeBubbleRef.current = createBubble(token.speaker);
+            newFinals.indexOf(token);
+          activeBubbleRef.current = createBubble(token.speaker); // scrolls once
           setHasTranscript(true);
         }
 
+        // Append confirmed text to the live span — no scroll here
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
-
-        activeBubbleRef.current
-          .closest("div")
-          ?.scrollIntoView({ block: "end", behavior: "smooth" });
       }
 
       // Update final count to include everything processed this message
@@ -279,7 +301,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble]);
+  }, [stop, createBubble, finalizeLiveBubble]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
