@@ -514,6 +514,10 @@ export function useTranscription() {
       }, SILENCE_TIMEOUT_MS);
 
       // ── FINAL tokens ─────────────────────────────────────────────────────
+      // Finals only promote text to confirmed style — NO speaker segmentation.
+      // Speaker routing is handled exclusively by the NF section below, which
+      // always sees a new speaker's tokens first.  Finals arriving here will
+      // always find the correct bubble already open.
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
@@ -521,14 +525,13 @@ export function useTranscription() {
       if (langToken?.language) detectedLangRef.current = langToken.language;
 
       for (const token of newFinals) {
-        if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
-          finalizeLiveBubble();
+        // Fallback: if no bubble is open yet (cold start edge case), create one.
+        if (!activeBubbleRef.current) {
           currentSpeakerRef.current = token.speaker;
-          finalCountRef.current     = finals.length - newFinals.length +
-            newFinals.indexOf(token);
-          activeBubbleRef.current = createBubble(token.speaker);
+          activeBubbleRef.current   = createBubble(token.speaker);
           setHasTranscript(true);
         }
+        // Append text only — no speaker check, no segment switch.
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
       }
