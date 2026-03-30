@@ -1,0 +1,166 @@
+IMPORTANT: Do NOT modify the Soniox transcription system.
+
+Do not change:
+- streaming tokens
+- interim text behavior
+- transcript segmentation
+- speaker detection
+- audio streaming
+- transcript generation logic
+
+The real-time transcription pipeline is working correctly and must remain untouched.
+
+Only modify translation behavior and UI layout.
+
+-------------------------------------
+
+TRANSLATION SYSTEM (TEST MODE)
+
+Implement a translation mode toggle so we can test two translation behaviors.
+
+Add a constant in the code:
+
+TRANSLATION_MODE
+
+Possible values:
+
+"interim"
+"final"
+
+-------------------------------------
+
+MODE 1 — INTERIM TRANSLATION
+
+If TRANSLATION_MODE = "interim":
+
+Translate the interim transcript while the user is speaking.
+
+Behavior:
+
+• When interim text updates from Soniox  
+• Send that text to OpenAI translation  
+• Update the translation column immediately  
+
+Add a small debounce so translation is not called too frequently.
+
+Debounce interval:
+600 milliseconds
+
+Pipeline:
+
+speech
+→ interim transcription
+→ debounce 600ms
+→ send to OpenAI translation
+→ update translation column
+
+When the segment becomes FINAL:
+
+• Replace the interim translation with a final translation
+• This ensures accuracy
+
+-------------------------------------
+
+MODE 2 — FINAL TRANSLATION
+
+If TRANSLATION_MODE = "final":
+
+Only translate when a transcript segment becomes FINAL.
+
+Pipeline:
+
+speech
+→ interim transcription (grey text)
+→ segment finalizes (bold text)
+→ send text to OpenAI translation
+→ display translation
+
+Translation must appear immediately after finalization.
+
+-------------------------------------
+
+TWO COLUMN TRANSCRIPT LAYOUT
+
+Each transcript segment must render as a single row with two aligned columns.
+
+LEFT COLUMN:
+Original transcript
+
+RIGHT COLUMN:
+Translation
+
+Both columns must stay horizontally aligned so the rows look symmetric.
+
+Example layout:
+
+ORIGINAL                         TRANSLATION
+
+Hello my name is Nancy          مرحباً اسمي نانسي
+
+-------------------------------------
+
+COPY ICONS
+
+Add two small copy icons per segment.
+
+Placement:
+
+Original column:
+small copy icon fixed at the far right of the original column.
+
+Translation column:
+small copy icon fixed at the far right of the translation column.
+
+Example:
+
+Hello my name is Nancy   [copy]
+
+مرحبا اسمي نانسي        [copy]
+
+Each icon copies only its own text.
+
+-------------------------------------
+
+HOVER BEHAVIOR
+
+Copy icons must be hidden by default.
+
+When the mouse hovers over the segment row:
+
+• show the copy icon for the original column
+• show the copy icon for the translation column
+
+When the mouse leaves the row:
+
+• hide both icons again.
+
+-------------------------------------
+
+SCROLL BEHAVIOR
+
+Transcript should auto-scroll to the newest segment while the user is at the bottom.
+
+If the user scrolls up to read older segments:
+
+• auto-scroll must pause.
+
+If the user scrolls back to the bottom:
+
+• auto-scroll resumes automatically.
+
+-------------------------------------
+
+IMPORTANT
+
+Do NOT modify anything related to:
+
+• Soniox streaming
+• transcription timing
+• segmentation logic
+
+Only update:
+
+• translation trigger
+• UI layout
+• copy icon behavior
+• scroll behavior.
