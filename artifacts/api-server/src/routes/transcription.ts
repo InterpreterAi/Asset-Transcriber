@@ -5,10 +5,13 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
 
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
-});
+// Use OPENAI_API_KEY directly if set; otherwise fall back to the Replit AI integration proxy
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : new OpenAI({
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
+    });
 
 const router = Router();
 
