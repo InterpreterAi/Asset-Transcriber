@@ -4,6 +4,10 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
+const TRANSLATION_POLL_MS = 700;
+// A new translation is accepted during live speech only if it is at least
+// this much longer than the last shown translation (prevents constant rewrites).
+const STABILIZE_RATIO     = 1.15;
 // How long a gap in incoming tokens (ms) triggers automatic segment finalization.
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
@@ -96,14 +100,14 @@ function normalizeSpeaker(rawId: number | undefined): { label: string; slot: num
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
-// Sends the text and both sides of the language pair to the API.
-// GPT detects which language the text is in and translates to the other one.
-async function fetchTranslation(text: string, langA: string, langB: string): Promise<string> {
+// sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
+// targetLang: BCP-47 code chosen by the user in the UI (e.g. "ar", "es").
+async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "include",
-    body:        JSON.stringify({ text, langA, langB }),
+    body:        JSON.stringify({ text, sourceLang, targetLang }),
   });
   if (!r.ok) return "";
   const d = await r.json() as { translation?: string };
@@ -142,14 +146,15 @@ function applyTextStyle(el: HTMLElement) {
 }
 
 // ── Per-bubble translation state ───────────────────────────────────────────────
-// Each segment gets its own isolated state object so in-flight requests from
+// Each segment gets its own isolated state object. dispatchTranslation closures
+// capture the state object at the time of dispatch, so in-flight requests from
 // a previous segment can NEVER write into a later segment's DOM element.
-// `translated` is set to true immediately on the single translation call and
-// acts as a permanent lock — the segment is NEVER re-translated or updated.
 interface BubbleTransState {
   transTextEl:  HTMLParagraphElement;
   copyTransBtn: HTMLButtonElement;
-  translated:   boolean;  // once true, this segment is locked forever
+  seq:          number;  // incremented on every dispatch FOR THIS bubble
+  lastShownSeq: number;  // highest seq whose result was written to DOM
+  lastShownLen: number;  // char length of last shown translation (for stabilization)
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -175,11 +180,8 @@ export function useTranscription() {
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
-  // Both sides of the user-selected language pair.
-  // langARef = left / source side  (default: "en")
-  // targetLangRef = right / target side (default: "ar")
-  // Updated by workspace via setLangA / setTargetLang without re-renders.
-  const langARef          = useRef<string>("en");
+  // User-selected target language code (e.g. "ar", "es", "fr").
+  // Updated by workspace via setTargetLang without causing re-renders.
   const targetLangRef     = useRef<string>("ar");
   const styleUpgradedRef  = useRef(false);
 
@@ -188,6 +190,14 @@ export function useTranscription() {
   // dispatchTranslation capture it — so old bubbles' in-flight requests stay
   // bound to their own element and can never bleed into a new bubble.
   const activeBubbleStateRef = useRef<BubbleTransState | null>(null);
+
+  // ── Translation polling refs ───────────────────────────────────────────────
+  // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
+  const liveBufferRef        = useRef<string>("");
+  // lastTranslatedBuffer: text last SENT to the API. Interval skips if unchanged.
+  const lastTranslatedBuffer = useRef<string>("");
+  // setInterval handle.
+  const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -209,27 +219,45 @@ export function useTranscription() {
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Called ONCE per segment, after finalization. Sets `translated = true`
-  // immediately as a permanent lock so the segment is never translated again.
-  // Direction detection is done server-side (GPT reads the text content).
-  const dispatchTranslation = useCallback((text: string) => {
+  // Fires a translation request for the active bubble's text.
+  //
+  // Isolation: captures `state` (per-bubble object) at call time — old requests
+  //   always write to the correct bubble's DOM element even after speaker switch.
+  //
+  // Monotonic gate (per-bubble): a result is accepted only if its seq number
+  //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
+  //   out-of-order arrivals while still showing every result in order.
+  //
+  // Stabilization: during live speech (isFinal=false), skip a result if the
+  //   translation is not significantly longer than the previous one. This
+  //   prevents the translation column from constantly rewriting small changes.
+  //   When a segment finalizes (isFinal=true), always show the result.
+  const dispatchTranslation = useCallback((text: string, lang: string, isFinal = false) => {
     const state = activeBubbleStateRef.current;
-    if (!state || state.translated || text.trim().length < 2) return;
+    if (!state || text.length < 3) return;
 
-    // Lock immediately — no second calls, no retries, no updates.
-    state.translated = true;
-
-    const myLangA = langARef.current;
-    const myLangB = targetLangRef.current;
+    lastTranslatedBuffer.current = text;
+    state.seq += 1;
+    const mySeq       = state.seq;
+    const myTargetLang = targetLangRef.current;   // captured at dispatch time
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
-        const result = await fetchTranslation(text.trim(), myLangA, myLangB);
-        if (!result || !transTextEl.isConnected) return;
+        const translated = await fetchTranslation(text, lang, myTargetLang);
 
-        // Render once — never touch this element again.
-        const isArabic = /[\u0600-\u06FF]/.test(result);
+        // Out-of-order gate: a newer result for THIS bubble already arrived.
+        if (mySeq <= state.lastShownSeq) return;
+        // DOM no longer connected (bubble was cleared).
+        if (!translated || !transTextEl.isConnected) return;
+
+        // Stabilization: only update if final, first result, or meaningfully longer.
+        if (!isFinal && state.lastShownLen > 0 && translated.length < state.lastShownLen * STABILIZE_RATIO) return;
+
+        state.lastShownSeq = mySeq;
+        state.lastShownLen = translated.length;
+
+        const isArabic = /[\u0600-\u06FF]/.test(translated);
         transTextEl.dir             = isArabic ? "rtl" : "ltr";
         transTextEl.style.textAlign = isArabic ? "right" : "";
         if (isArabic) {
@@ -239,7 +267,7 @@ export function useTranscription() {
           transTextEl.removeAttribute("lang");
           transTextEl.className = CLS.transText;
         }
-        transTextEl.textContent = result;
+        transTextEl.textContent = translated;
 
         if (copyTransBtn.disabled) {
           enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
@@ -250,6 +278,24 @@ export function useTranscription() {
       }
     })();
   }, [scrollPanel]);
+
+  // ── startTranslationInterval ───────────────────────────────────────────────
+  const startTranslationInterval = useCallback(() => {
+    if (translationIntervalRef.current !== null) return;
+    translationIntervalRef.current = setInterval(() => {
+      const buffer = liveBufferRef.current;
+      if (!buffer || buffer === lastTranslatedBuffer.current) return;
+      dispatchTranslation(buffer, detectedLangRef.current, false);
+    }, TRANSLATION_POLL_MS);
+  }, [dispatchTranslation]);
+
+  // ── stopTranslationInterval ────────────────────────────────────────────────
+  const stopTranslationInterval = useCallback(() => {
+    if (translationIntervalRef.current !== null) {
+      clearInterval(translationIntervalRef.current);
+      translationIntervalRef.current = null;
+    }
+  }, []);
 
   // ── createBubble ──────────────────────────────────────────────────────────
   // Builds a two-column segment row with color-coded speaker tags.
@@ -327,17 +373,22 @@ export function useTranscription() {
     activeBubbleStateRef.current   = {
       transTextEl:  transTextP,
       copyTransBtn: copyTransBtn,
-      translated:   false,
+      seq:          0,
+      lastShownSeq: 0,
+      lastShownLen: 0,
     };
-    styleUpgradedRef.current = false;
+    styleUpgradedRef.current     = false;
+    liveBufferRef.current        = "";
+    lastTranslatedBuffer.current = "";
+    detectedLangRef.current      = "en";
 
     scrollPanel(true);
     return finalSpan;
   }, [scrollPanel]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
-  // Upgrades the active bubble style (grey/italic → bold) then dispatches a
-  // single one-shot translation of the complete finalized segment text.
+  // Upgrades the active bubble style (grey/italic → bold) and dispatches a
+  // final translation. isFinal=true bypasses the stabilization check.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
@@ -351,10 +402,9 @@ export function useTranscription() {
       if (p) p.className = CLS.textFin;
     }
 
-    // Translate the complete segment exactly once.
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
-    if (finalText.length > 0) {
-      dispatchTranslation(finalText);
+    if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+      dispatchTranslation(finalText, detectedLangRef.current, true);
     }
   }, [dispatchTranslation]);
 
@@ -375,6 +425,7 @@ export function useTranscription() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    stopTranslationInterval();
     finalizeLiveBubble();
 
     currentSpeakerRef.current     = undefined;
@@ -410,7 +461,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble]);
+  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
@@ -424,7 +475,7 @@ export function useTranscription() {
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
-        language_hints:                 [langARef.current, targetLangRef.current],
+        language_hints:                 ["en", "ar"],
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         diarization:                    { enable: true },
@@ -478,13 +529,6 @@ export function useTranscription() {
           activeBubbleRef.current = createBubble(token.speaker);
           setHasTranscript(true);
         }
-        // A word is committing from live → final.
-        // Clear the live (grey) span FIRST so the word leaves it immediately,
-        // then append the committed text to the final (bold) span.
-        // This prevents any word from appearing in both spans at the same time.
-        if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = "";
-        }
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
       }
@@ -493,50 +537,45 @@ export function useTranscription() {
       scrollPanel();
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
-      //
-      // Soniox NF tokens represent the CURRENT live hypothesis — they are a
-      // complete replacement of the live buffer every message, not a delta.
-      // The live (grey) span is always set via textContent= (REPLACE).
-      // It is never appended to across messages.
-      //
       const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
       const nfSpeaker = tokens.find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
-      // ── Step 1: Speaker routing — zero DOM writes ─────────────────────────
-      // Resolve which bubble owns this NF text before touching the DOM.
-      // Speaker changes finalize the old segment and open a new one.
-      if (nfSpeaker !== undefined) {
-        if (!activeBubbleRef.current) {
-          currentSpeakerRef.current = nfSpeaker;
-          activeBubbleRef.current   = createBubble(nfSpeaker);
-          setHasTranscript(true);
-        } else if (nfSpeaker !== currentSpeakerRef.current) {
-          finalizeLiveBubble();
-          currentSpeakerRef.current = nfSpeaker;
-          activeBubbleRef.current   = createBubble(nfSpeaker);
-          setHasTranscript(true);
-        }
+      // ── Fix 2: Immediate speaker-change on NF tokens ──────────────────────
+      // When Soniox NF tokens show a new speaker while a segment is open,
+      // finalize the current segment immediately and open a fresh one for the
+      // new speaker.  This prevents the new speaker's text from appearing in
+      // the old bubble even for a fraction of a second, eliminating the "text
+      // jumps to a new segment" visual artifact.
+      if (
+        nfSpeaker !== undefined &&
+        activeBubbleRef.current !== null &&
+        nfSpeaker !== currentSpeakerRef.current
+      ) {
+        finalizeLiveBubble();
+        currentSpeakerRef.current = nfSpeaker;
+        activeBubbleRef.current   = createBubble(nfSpeaker);
+        setHasTranscript(true);
       }
 
-      // ── Step 2: REPLACE the live span with current NF ────────────────────
-      // This is always a replacement — the NF span holds only the words
-      // Soniox has not yet committed.  Words that just became final were
-      // already moved to the bold span above and cleared from here.
-      if (nfText) {
-        if (!activeBubbleRef.current && containerRef.current) {
-          currentSpeakerRef.current = undefined;
-          activeBubbleRef.current   = createBubble(undefined);
+      if (activeBubbleNFRef.current) {
+        activeBubbleNFRef.current.textContent = nfText;
+      } else if (nfText && containerRef.current) {
+        if (!activeBubbleRef.current) {
+          const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
+          currentSpeakerRef.current = spk;
+          activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
         }
         if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = nfText;  // REPLACE, never append
+          activeBubbleNFRef.current.textContent = nfText;
         }
-      } else if (activeBubbleNFRef.current) {
-        activeBubbleNFRef.current.textContent = "";
       }
 
-      // When Soniox commits all text (NF gone), immediately finalize style.
+      // ── Update live translation buffer ────────────────────────────────────
       const finalText = activeBubbleRef.current?.textContent ?? "";
+      liveBufferRef.current = (finalText + nfText).trim();
+
+      // When Soniox commits all text (NF gone), immediately finalize style.
       if (nfText.length === 0 && finalText.trim().length > 2) {
         if (!styleUpgradedRef.current) {
           styleUpgradedRef.current = true;
@@ -572,8 +611,10 @@ export function useTranscription() {
       activeBubbleNFRef.current    = null;
       activeBubbleStateRef.current = null;
       styleUpgradedRef.current     = false;
+      liveBufferRef.current        = "";
+      lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
-      detectedLangRef.current      = langARef.current; // default: assume langA until Soniox detects otherwise
+      detectedLangRef.current      = "en";
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -606,6 +647,8 @@ export function useTranscription() {
 
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
+
+      startTranslationInterval();
 
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
@@ -647,15 +690,12 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop]);
+  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
 
-  // ── setLangA / setTargetLang ──────────────────────────────────────────────
-  // Called by workspace whenever the user changes either language selector.
-  // Updating the refs is instantaneous; values are captured at next dispatch.
-  const setLangA = useCallback((lang: string) => {
-    langARef.current = lang;
-  }, []);
-
+  // ── setTargetLang ──────────────────────────────────────────────────────────
+  // Called by workspace whenever the user changes the target language selector.
+  // Updating the ref is instantaneous and side-effect-free; the new value is
+  // captured at the next dispatchTranslation call.
   const setTargetLang = useCallback((lang: string) => {
     targetLangRef.current = lang;
   }, []);
@@ -669,18 +709,20 @@ export function useTranscription() {
     containerRef,
     start,
     stop,
-    setLangA,
     setTargetLang,
     clear: () => {
       if (silenceTimerRef.current !== null) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
       }
+      stopTranslationInterval();
       activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
       activeBubbleNFRef.current    = null;
       styleUpgradedRef.current     = false;
+      liveBufferRef.current        = "";
+      lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);

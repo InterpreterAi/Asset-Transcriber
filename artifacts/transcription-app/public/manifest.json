@@ -1,6 +1,6 @@
 {
-  "name": "InterpreterAI",
-  "short_name": "InterpreterAI",
+  "name": "InterpretAI",
+  "short_name": "InterpretAI",
   "description": "Professional AI Transcription & Translation for Interpreters",
   "start_url": "/",
   "display": "standalone",

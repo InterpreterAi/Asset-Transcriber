@@ -88,12 +88,9 @@ export default function Workspace() {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
   }, [devices, selectedDeviceId]);
 
-  // Keep both sides of the language pair synced into the hook.
-  // These update refs directly — no re-renders, no pipeline restarts.
-  useEffect(() => {
-    transcription.setLangA(langA);
-  }, [langA, transcription.setLangA]);
-
+  // Keep the hook's target-language ref in sync with the user's selector choice.
+  // Using a ref inside the hook means this never triggers a re-render or
+  // restarts the audio pipeline — it's instantaneous.
   useEffect(() => {
     transcription.setTargetLang(langB);
   }, [langB, transcription.setTargetLang]);
@@ -181,7 +178,11 @@ export default function Workspace() {
         {/* HEADER */}
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-5 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="font-bold text-[15px] tracking-tight">InterpreterAI</span>
+            <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
+              <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
+              {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <button

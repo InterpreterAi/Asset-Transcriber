@@ -153,24 +153,23 @@ function langName(code: string | undefined, fallback: string): string {
 }
 
 // ── POST /translate ────────────────────────────────────────────────────────
-// Bidirectional interpreter translation using GPT-4o-mini.
-//
-// Accepts a language pair (langA + langB). GPT detects which of the two
-// languages the text is written in and translates to the OTHER one.
-// Direction is always determined by text content — never by a fixed assumption.
+// Translates a finalized transcript segment using GPT-4o-mini.
+// sourceLang: BCP-47 code detected by Soniox (auto-detected at runtime).
+// targetLang: BCP-47 code selected by the user in the UI.
+// Both map through LANG_NAMES for a human-readable prompt.
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, langA, langB } = req.body as {
-    text?:  string;
-    langA?: string;
-    langB?: string;
+  const { text, sourceLang, targetLang } = req.body as {
+    text?: string;
+    sourceLang?: string;
+    targetLang?: string;
   };
   if (!text || typeof text !== "string" || text.trim().length < 2) {
     res.status(400).json({ error: "text is required" });
     return;
   }
 
-  const nameA = langName(langA, "Language A");
-  const nameB = langName(langB, "Language B");
+  const srcName = langName(sourceLang, "the source language");
+  const tgtName = langName(targetLang, "English");
 
   try {
     const resp = await openai.chat.completions.create({
@@ -179,17 +178,13 @@ router.post("/translate", requireAuth, async (req, res) => {
         {
           role: "system",
           content:
-            "You are a professional simultaneous interpreter. " +
-            "You work with a fixed language pair. " +
-            "For each text segment: detect which language of the pair it is written in, " +
-            "then translate it into the OTHER language of the pair. " +
-            "Return ONLY the translation — no explanations, no labels, no original text.",
+            "You are a professional interpreter. Translate speech segments accurately and naturally. " +
+            "Return ONLY the translation — no explanations, no notes, no original text.",
         },
         {
           role: "user",
           content:
-            `Language pair: ${nameA} ↔ ${nameB}\n\n` +
-            `Detect the language of the following text and translate it to the other language in the pair.\n\n` +
+            `Translate the following ${srcName} speech segment into ${tgtName}.\n\n` +
             `Text:\n${text.trim()}`,
         },
       ],
