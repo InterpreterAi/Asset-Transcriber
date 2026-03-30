@@ -310,9 +310,14 @@ export function useTranscription() {
       wsRef.current = ws;
 
       worklet.port.onmessage = (e: MessageEvent) => {
-        const { pcm, rms } = e.data as { pcm: Int16Array; rms: number };
-        if (ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer);
-        setMicLevel(Math.min(100, rms * 500));
+        // pcm-processor.js transfers a raw ArrayBuffer (Int16 PCM at 16 kHz)
+        const buf = e.data as ArrayBuffer;
+        if (ws.readyState === WebSocket.OPEN) ws.send(buf);
+        // Compute RMS for the VU meter from the Int16 samples
+        const samples = new Int16Array(buf);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i++) sum += (samples[i] / 32768) ** 2;
+        setMicLevel(Math.min(100, Math.sqrt(sum / (samples.length || 1)) * 500));
       };
 
       source.connect(worklet);
