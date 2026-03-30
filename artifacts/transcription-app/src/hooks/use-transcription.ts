@@ -310,13 +310,30 @@ export function useTranscription() {
     // speaker, extend its text instead of creating a new row.  This collapses
     // pause-split or punctuation-split segments from a continuous speaker into
     // a single readable block.  Different speaker → always a new row.
+    //
+    // Extra cases that should also merge (not create a new row):
+    //  • last.speakerLabel is "" (early token before Soniox assigned a speaker)
+    //    → promote it to the current known label and append.
+    //  • speakerLabel is "" (current flush has no speaker info yet)
+    //    → treat as same speaker; don't create an orphan unlabeled row.
+    // Speaker IDs from Soniox are numbers in JSON; String() coercion ensures
+    // the label comparison is always string–string (defensive, labels are already
+    // strings from normalizeSpeaker but guard against any future refactor).
     setFinalizedSegments(prev => {
       if (prev.length === 0) return [phrase];
       const last = prev[prev.length - 1];
-      if (last.speakerLabel === speakerLabel) {
+      const lastLabel   = String(last.speakerLabel);
+      const currentLabel = String(speakerLabel);
+      const sameOrUnknown =
+        lastLabel === currentLabel ||
+        lastLabel === ""           ||   // last row had no speaker yet → adopt
+        currentLabel === "";            // this flush has no speaker → don't split
+      if (sameOrUnknown) {
         const updated = [...prev];
         updated[updated.length - 1] = {
           ...last,
+          // Use whichever label is more informative (non-empty wins).
+          speakerLabel: currentLabel !== "" ? currentLabel : lastLabel,
           text: (last.text + " " + text).trim(),
         };
         return updated;
@@ -453,13 +470,15 @@ export function useTranscription() {
         }
 
         // ── Flush guards ───────────────────────────────────────────────────
-        // MIN_FLUSH_LEN: never flush a segment shorter than this — prevents
-        //   single-word rows and mid-sentence speaker splits.
-        // isWordBoundary: never flush inside a word; the current buffer must
-        //   end with a space or punctuation before we seal it.
-        const MIN_FLUSH_LEN   = 20;
+        // PUNCT_FLUSH_LEN: minimum chars before a punctuation flush seals a row.
+        //   60 chars prevents the staircase effect where every comma creates a
+        //   new row.  Speaker-change and pause flushes still use SPEAKER_FLUSH_LEN.
+        // atWordBoundary: never flush inside a word.
+        const PUNCT_FLUSH_LEN   = 60;
+        const SPEAKER_FLUSH_LEN = 20;
         const atWordBoundary  = () => /[\s.!?,;:]$/.test(finalBufRef.current);
-        const hasMinLength    = () => finalBufRef.current.trim().length >= MIN_FLUSH_LEN;
+        const hasMinLength    = () => finalBufRef.current.trim().length >= SPEAKER_FLUSH_LEN;
+        const hasMinLengthForPunct = () => finalBufRef.current.trim().length >= PUNCT_FLUSH_LEN;
 
         // Step 2a: speaker-change stability filter.
         // A brief flip (A→B→A) from noise / breathing is not a real change.
@@ -517,9 +536,11 @@ export function useTranscription() {
         finalBufRef.current += token.text;
         newFinalToks.push(token);
 
-        // Step 2b: punctuation flush — sentence boundary (rules 2, 5).
-        // Fires AFTER appending; punctuation is included in the sealed segment.
-        if (hasMinLength() && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
+        // Step 2b: punctuation flush — sentence boundary.
+        // Uses the higher PUNCT_FLUSH_LEN (60 chars) to prevent every comma or
+        // short clause from creating a new row (the staircase effect).
+        // Fires AFTER appending so punctuation is included in the sealed segment.
+        if (hasMinLengthForPunct() && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
           flush(); // seal segment; preview clears atomically with finalized row
         }
 
@@ -527,19 +548,15 @@ export function useTranscription() {
           ? Date.now() - segStartMsRef.current
           : 0;
 
-        // Step 2c-time: hard max-segment duration — 3 000 ms forces a flush
-        // regardless of word boundary.  A segment that has been open this long
-        // will always have enough content to stand on its own.
-        const MAX_SEGMENT_MS = 3000;
+        // Step 2c-time: hard max-segment duration — 6 000 ms forces a flush
+        // on very long continuous speech.  Increased from 3 s to avoid splitting
+        // a long sentence mid-way unnecessarily.
+        const MAX_SEGMENT_MS = 6000;
         if (hasMinLength() && elapsed >= MAX_SEGMENT_MS) {
           flush();
         }
-
-        // Step 2c-len: length cap — very long buffers flush at a word boundary
-        // to avoid splitting a word mid-token.
-        else if (hasMinLength() && atWordBoundary() && finalBufRef.current.length >= 120) {
-          flush();
-        }
+        // NOTE: 120-char length cap removed per user request.  Long sentences
+        // now grow freely inside one bubble.
       }
 
       // Step 2d: pause-based flush — 700ms of silence triggers a segment seal.

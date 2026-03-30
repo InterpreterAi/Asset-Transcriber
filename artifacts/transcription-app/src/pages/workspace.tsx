@@ -67,24 +67,38 @@ function SpeakerTag({ label }: { label: string }) {
 }
 
 // ── Finalized segment row ──────────────────────────────────────────────────────
-// Full-width single column — speaker label + transcript text.
-// Translation is disabled; this component shows transcription only.
-function SegmentRow({ phrase }: { phrase: Phrase }) {
+// `inlinePreview` is the live interim text to show appended inside this bubble
+// when the active preview belongs to the same speaker.  By rendering it here
+// (not as a separate <ActiveRow> below), we avoid the staircase where the user
+// sees "Hello world." (finalized) on one line and "this is a test" (preview) as
+// a second separate bubble beneath it.
+function SegmentRow({
+  phrase,
+  inlinePreview,
+}: {
+  phrase: Phrase;
+  inlinePreview?: string;
+}) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
     <div className="mb-4 pb-4 border-b border-border/25 last:border-0 last:pb-0 last:mb-0 group">
       <SpeakerTag label={phrase.speakerLabel} />
       <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
         {phrase.text}
-        <CopyBtn text={phrase.text} />
+        {inlinePreview && (
+          <span className="text-foreground/55 italic font-normal"> {inlinePreview}</span>
+        )}
+        {!inlinePreview && <CopyBtn text={phrase.text} />}
       </p>
     </div>
   );
 }
 
-
 // ── Active (live) segment row ──────────────────────────────────────────────────
-// Updates in place as tokens stream in. Never unmounts while a segment is open.
+// Only rendered when there are NO finalized segments yet (first words of a new
+// speaker turn before any flush has happened).  Once a flush creates the first
+// finalized row for this speaker, subsequent preview text is inlined there via
+// the inlinePreview prop above so the bubble never splits.
 function ActiveRow({ segment }: { segment: ActivePreviewLine }) {
   const isRtl = segment.language === "ar" || segment.language === "he";
   return (
@@ -303,12 +317,42 @@ export default function Workspace() {
                 </div>
               ) : (
                 <div>
-                  {transcription.finalizedSegments.map((phrase) => (
-                    <SegmentRow key={phrase.id} phrase={phrase} />
-                  ))}
-                  {transcription.activePreviewLine && (
-                    <ActiveRow segment={transcription.activePreviewLine} />
-                  )}
+                  {(() => {
+                    const segs   = transcription.finalizedSegments;
+                    const preview = transcription.activePreviewLine;
+                    const lastSeg = segs.length > 0 ? segs[segs.length - 1] : null;
+
+                    // Decide whether the active preview belongs to the same speaker
+                    // as the last finalized row.  If yes, inline the preview text
+                    // inside that row's bubble instead of rendering a separate ActiveRow.
+                    // Speaker labels are compared as strings; empty labels are treated
+                    // as "same" so early unlabeled tokens don't create orphan rows.
+                    const previewSameSpeaker = preview && lastSeg && (() => {
+                      const a = String(lastSeg.speakerLabel);
+                      const b = String(preview.speakerLabel);
+                      return a === b || a === "" || b === "";
+                    })();
+
+                    return (
+                      <>
+                        {segs.map((phrase, idx) => {
+                          const isLast = idx === segs.length - 1;
+                          return (
+                            <SegmentRow
+                              key={phrase.id}
+                              phrase={phrase}
+                              inlinePreview={isLast && previewSameSpeaker && preview ? preview.text : undefined}
+                            />
+                          );
+                        })}
+                        {/* Only show a standalone ActiveRow if there are no finalized
+                            segments yet (very start of a recording before the first flush). */}
+                        {preview && !previewSameSpeaker && (
+                          <ActiveRow segment={preview} />
+                        )}
+                      </>
+                    );
+                  })()}
                   <div ref={scrollEndRef} />
                 </div>
               )}
