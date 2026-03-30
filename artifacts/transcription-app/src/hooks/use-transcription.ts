@@ -100,14 +100,14 @@ function normalizeSpeaker(rawId: number | undefined): { label: string; slot: num
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
-// sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
-// targetLang: BCP-47 code chosen by the user in the UI (e.g. "ar", "es").
-async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
+// Sends the text and both sides of the language pair to the API.
+// GPT detects which language the text is in and translates to the other one.
+async function fetchTranslation(text: string, langA: string, langB: string): Promise<string> {
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "include",
-    body:        JSON.stringify({ text, sourceLang, targetLang }),
+    body:        JSON.stringify({ text, langA, langB }),
   });
   if (!r.ok) return "";
   const d = await r.json() as { translation?: string };
@@ -251,21 +251,16 @@ export function useTranscription() {
     lastTranslatedBuffer.current = text;
     state.seq += 1;
     const mySeq           = state.seq;
-    const capturedOrigLen = text.length;            // full length at dispatch time
-
-    // Bidirectional direction logic (captured at dispatch time):
-    // If the spoken language matches langB (target side), translate back to langA.
-    // If it matches langA (or is unknown), translate to langB.
-    // This prevents Arabic→Arabic or English→English identity translations.
-    const detected     = lang;  // detectedLangRef.current passed in as `lang`
-    const myTargetLang = (detected === targetLangRef.current)
-      ? langARef.current
-      : targetLangRef.current;
+    const capturedOrigLen = text.length;   // full length at dispatch time
+    // Capture both sides of the pair at dispatch time.
+    // Direction detection is done server-side by GPT reading the text content.
+    const myLangA         = langARef.current;
+    const myLangB         = targetLangRef.current;
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(newText, lang, myTargetLang);
+        const translated = await fetchTranslation(newText, myLangA, myLangB);
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
