@@ -8,15 +8,9 @@ const TRANSLATION_POLL_MS = 700;
 // A new translation is accepted during live speech only if it is at least
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
-// ── Adaptive silence thresholds ────────────────────────────────────────────────
-// Token arrival intervals are tracked via an exponential moving average (EMA).
-// Fast speech → short inter-token gaps → shorter silence before segment close.
-// Slow speech → longer gaps → give more breathing room before closing.
-function adaptiveSilenceMs(avgIntervalMs: number): number {
-  if (avgIntervalMs < 200) return 850;   // fast speaker
-  if (avgIntervalMs < 400) return 950;   // normal pace
-  return 1100;                           // slow / deliberate speech
-}
+// After this many ms with no new tokens the active segment is finalized and
+// the next speech will start in a fresh bubble.
+const SILENCE_MS = 900;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -205,16 +199,9 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Silence timer ─────────────────────────────────────────────────────────
-  // Armed on every onmessage that has tokens; fires adaptiveSilenceMs later to
+  // Armed on every onmessage that has tokens; fires SILENCE_MS later to
   // finalize the active segment. The next token after silence starts a fresh bubble.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Adaptive speech-speed tracking ────────────────────────────────────────
-  // lastTokenMsRef: timestamp of the most recent onmessage with tokens.
-  // tokenIntervalEmaRef: exponential moving average (α=0.3) of inter-arrival ms.
-  //   Starts at 350ms (mid-normal range) so the first silence fires around 950ms.
-  const lastTokenMsRef       = useRef<number>(0);
-  const tokenIntervalEmaRef  = useRef<number>(350);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -591,22 +578,8 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
         }
       }
 
-      // ── Adaptive silence timer ────────────────────────────────────────────
-      // Compute EMA of inter-arrival intervals to estimate speech pace.
-      // α=0.3 gives a smooth rolling average that reacts to speed changes
-      // within a few token batches without jumping on single outliers.
-      const nowMs = Date.now();
-      if (lastTokenMsRef.current > 0) {
-        const dt = nowMs - lastTokenMsRef.current;
-        // Clamp to [30, 1500] ms — ignore spurious tiny or huge gaps.
-        const clamped = Math.min(1500, Math.max(30, dt));
-        tokenIntervalEmaRef.current = 0.3 * clamped + 0.7 * tokenIntervalEmaRef.current;
-      }
-      lastTokenMsRef.current = nowMs;
-
-      const silenceMs = adaptiveSilenceMs(tokenIntervalEmaRef.current);
-
-      // Every batch of tokens resets the clock. If silenceMs passes with no
+      // ── Silence timer ─────────────────────────────────────────────────────
+      // Every batch of tokens resets the clock. If SILENCE_MS passes with no
       // further tokens, the segment is finalized and the next speech starts fresh.
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
@@ -651,8 +624,6 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
-      lastTokenMsRef.current       = 0;
-      tokenIntervalEmaRef.current  = 350;   // reset to mid-normal pace
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
