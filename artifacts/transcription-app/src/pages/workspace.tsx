@@ -66,59 +66,43 @@ function SpeakerTag({ label }: { label: string }) {
   );
 }
 
-// ── Finalized segment row ──────────────────────────────────────────────────────
-// When isLast=true, two empty <span> elements are rendered at the end of the
-// bubble.  The hook writes live text DIRECTLY to those spans via DOM refs,
-// bypassing React entirely for maximum rendering speed.  React never updates
-// the text content of those spans — only the hook does.
-const SegmentRow = memo(function SegmentRow({
-  phrase,
-  isLast,
-  finalSpanRef,
-  nfSpanRef,
-}: {
-  phrase: Phrase;
-  isLast?: boolean;
-  finalSpanRef?: React.RefObject<HTMLSpanElement | null>;
-  nfSpanRef?: React.RefObject<HTMLSpanElement | null>;
-}) {
+// ── Finalized segment row — sealed, never changes after render ─────────────
+const SegmentRow = memo(function SegmentRow({ phrase }: { phrase: Phrase }) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
     <div className="mb-4 pb-4 border-b border-border/25 last:border-0 last:pb-0 last:mb-0 group">
       <SpeakerTag label={phrase.speakerLabel} />
       <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
         {phrase.text}
-        {isLast && finalSpanRef && <span ref={finalSpanRef} />}
-        {isLast && nfSpanRef   && <span ref={nfSpanRef} className="text-muted-foreground/55 italic" />}
-        {!isLast && <CopyBtn text={phrase.text} />}
+        <CopyBtn text={phrase.text} />
       </p>
     </div>
   );
 });
 
-// ── Active bubble (first words before first flush) ─────────────────────────────
-// Rendered only when segs.length === 0 — before the very first flush creates
-// a finalized row.  Same DOM-ref pattern: two empty spans written directly.
-// Memoized so React never re-renders it while streaming (speaker/lang are stable
-// per segment; text is imperative).
+// ── Active bubble — live text for the CURRENT speaker ──────────────────────
+// Always rendered whenever activePreviewLine is non-null, regardless of how
+// many finalized rows exist.  Uses ref CALLBACKS (not useRef props) so React
+// calls connectFinalSpan / connectNFSpan the instant the spans mount, writing
+// any pending text immediately — no rAF race condition possible.
 const ActiveBubble = memo(function ActiveBubble({
   speakerLabel,
   language,
-  finalSpanRef,
-  nfSpanRef,
+  connectFinalSpan,
+  connectNFSpan,
 }: {
-  speakerLabel: string;
-  language: string;
-  finalSpanRef: React.RefObject<HTMLSpanElement | null>;
-  nfSpanRef:    React.RefObject<HTMLSpanElement | null>;
+  speakerLabel:     string;
+  language:         string;
+  connectFinalSpan: (el: HTMLSpanElement | null) => void;
+  connectNFSpan:    (el: HTMLSpanElement | null) => void;
 }) {
   const isRtl = language === "ar" || language === "he";
   return (
     <div className="mb-4">
       <SpeakerTag label={speakerLabel} />
       <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
-        <span ref={finalSpanRef} />
-        <span ref={nfSpanRef} className="text-muted-foreground/55 italic" />
+        <span ref={connectFinalSpan} />
+        <span ref={connectNFSpan} className="text-muted-foreground/55 italic" />
       </p>
     </div>
   );
@@ -334,25 +318,20 @@ export default function Workspace() {
                     const preview = transcription.activePreviewLine;
                     return (
                       <>
-                        {segs.map((phrase, idx) => {
-                          const isLast = idx === segs.length - 1;
-                          return (
-                            <SegmentRow
-                              key={phrase.id}
-                              phrase={phrase}
-                              isLast={isLast && !!preview}
-                              finalSpanRef={isLast ? transcription.activeFinalSpanRef : undefined}
-                              nfSpanRef={isLast ? transcription.activeNFSpanRef : undefined}
-                            />
-                          );
-                        })}
-                        {/* Standalone bubble only before the very first flush */}
-                        {preview && segs.length === 0 && (
+                        {/* Sealed rows — static, never updated after render */}
+                        {segs.map((phrase) => (
+                          <SegmentRow key={phrase.id} phrase={phrase} />
+                        ))}
+                        {/* Live bubble — always mounted for the current speaker.
+                            Ref callbacks write pending text the instant spans mount,
+                            so no tokens are ever lost to a mount-timing race. */}
+                        {preview && (
                           <ActiveBubble
+                            key={`${preview.speakerLabel}-${segs.length}`}
                             speakerLabel={preview.speakerLabel}
                             language={preview.language}
-                            finalSpanRef={transcription.activeFinalSpanRef}
-                            nfSpanRef={transcription.activeNFSpanRef}
+                            connectFinalSpan={transcription.connectFinalSpan}
+                            connectNFSpan={transcription.connectNFSpan}
                           />
                         )}
                       </>

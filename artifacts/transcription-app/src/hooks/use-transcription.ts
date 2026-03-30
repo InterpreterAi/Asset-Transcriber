@@ -244,12 +244,9 @@ export function useTranscription() {
   // Text content is never stored in React state — only in these DOM refs.
   const activeFinalSpanRef = useRef<HTMLSpanElement | null>(null);
   const activeNFSpanRef    = useRef<HTMLSpanElement | null>(null);
-  // rAF batching: store the latest text to display and a handle to the pending frame.
-  // Multiple token messages that arrive within the same 16ms frame collapse into
-  // one DOM write, preventing layout thrash without adding perceptible delay.
-  const pendingFinalRef = useRef<string>("");   // latest finalBuf snapshot for rAF
-  const pendingNFRef    = useRef<string>("");   // latest nfSuffix snapshot for rAF
-  const rafPendingRef   = useRef<number | null>(null);
+  // Persists the last nfSuffix so ref callbacks can write it immediately when
+  // a new span mounts (closing the mount-timing race condition).
+  const nfSuffixRef = useRef<string>("");
 
   // ── Speaker tracking ───────────────────────────────────────────────────────
   // No stability window — speaker changes are instant.  When a final token
@@ -302,12 +299,10 @@ export function useTranscription() {
     activeSegSpeakerRef.current         = undefined;
     segStartMsRef.current               = 0;       // no segment open until next token
 
-    // Null refs so in-flight token writes skip the old span (no-op).
-    // Do NOT set textContent = "" — that clears the bubble synchronously and
-    // produces a visible blank frame before React can render the finalized row.
-    // React will unmount the old span atomically with mounting the finalized row.
+    // Null refs — in-flight writes become no-ops until new spans mount.
     activeFinalSpanRef.current = null;
     activeNFSpanRef.current    = null;
+    nfSuffixRef.current        = "";
 
     setActivePreviewLine(null);
 
@@ -361,13 +356,9 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    // Cancel any pending rAF write so it doesn't fire after refs are nulled.
-    if (rafPendingRef.current != null) {
-      cancelAnimationFrame(rafPendingRef.current);
-      rafPendingRef.current = null;
-    }
     activeFinalSpanRef.current          = null;
     activeNFSpanRef.current             = null;
+    nfSuffixRef.current                 = "";
     speakerHistoryRef.current           = [];
     activeSegSpeakerRef.current         = undefined;
     globalFinalCountRef.current         = 0;
@@ -537,23 +528,25 @@ export function useTranscription() {
       // Language detection from newly confirmed tokens.
       if (finalSeenThisMsg > 0) langRef.current = detectLang(tokens.filter(t => t.is_final), langRef.current);
 
-      // ── rAF-batched DOM write ─────────────────────────────────────────────
-      // Two separate spans, one rAF:
-      //   activeFinalSpanRef ← confirmed finals only (black text)
-      //   activeNFSpanRef    ← current NF hypothesis (gray/italic — "live guess")
-      // When a final arrives for a word already shown in gray, finalBuf grows
-      // and nfSuffix shrinks → the word visually "turns black" in the same bubble.
-      // Multiple messages per frame collapse into one paint — no layout thrash.
+      // ── Direct synchronous DOM writes ────────────────────────────────────
+      // Two spans in the active bubble:
+      //   activeFinalSpanRef ← confirmed text (black)
+      //   activeNFSpanRef    ← live NF hypothesis (gray italic — "live guess")
+      // When a word is finalized, finalBuf grows and nfSuffix shrinks, so the
+      // word visually "turns black" in place — matching Soniox Desktop behaviour.
+      //
+      // Synchronous (no rAF) because:
+      //   • rAF fires BEFORE React commits the new bubble's spans after a speaker
+      //     split, writing to null refs and silently dropping the first tokens.
+      //   • Token messages arrive every 100-300 ms — far below the 60 fps budget.
+      //     There is no layout-thrash risk at this frequency.
+      // The ref CALLBACKS (connectFinalSpan / connectNFSpan) handle the initial
+      // write the moment a new bubble's spans mount, closing the race window.
+      nfSuffixRef.current = nfSuffix; // persisted so callbacks can write on mount
+      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = finalBufRef.current;
+      if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = nfSuffix;
+
       const liveText = finalBufRef.current + nfSuffix; // for structural guard below
-      pendingFinalRef.current = finalBufRef.current;
-      pendingNFRef.current    = nfSuffix;
-      if (rafPendingRef.current == null) {
-        rafPendingRef.current = requestAnimationFrame(() => {
-          rafPendingRef.current = null;
-          if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = pendingFinalRef.current;
-          if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = pendingNFRef.current;
-        });
-      }
 
       // Structural React update — fires only when bubble label or language
       // actually changes (the equality guard prevents redundant renders).
@@ -627,14 +620,15 @@ export function useTranscription() {
       setError(null);
       setActivePreviewLine(null);
       setAudioInfo("");
-      activeFinalSpanRef.current = null;
-      activeNFSpanRef.current    = null;
+      activeFinalSpanRef.current  = null;
+      activeNFSpanRef.current     = null;
+      nfSuffixRef.current         = "";
       finalBufRef.current         = "";
-      globalFinalCountRef.current         = 0;
-      activeSegSpeakerRef.current         = undefined;
-      segStartMsRef.current               = 0;
-      speakerHistoryRef.current           = [];
-      langRef.current                     = "en";
+      globalFinalCountRef.current = 0;
+      activeSegSpeakerRef.current = undefined;
+      segStartMsRef.current       = 0;
+      speakerHistoryRef.current   = [];
+      langRef.current             = "en";
       speakerRef.current          = undefined; // reset — no speaker until API sends one
       resetSpeakerMap(); // fresh sequential labels for this recording session
 
@@ -726,6 +720,22 @@ export function useTranscription() {
     }
   }, [getTokenMut, startSessionMut, buildWs, stop]);
 
+  // ── Ref callbacks ────────────────────────────────────────────────────────
+  // React calls these the moment a span element mounts or unmounts.
+  // On MOUNT (el !== null): immediately write pending text so the very first
+  //   tokens from a new speaker are visible even if processTokenBatch already
+  //   ran (and wrote to null refs) before React committed the new bubble.
+  // On UNMOUNT (el === null): null the ref so subsequent writes are no-ops.
+  const connectFinalSpan = useCallback((el: HTMLSpanElement | null) => {
+    activeFinalSpanRef.current = el;
+    if (el) el.textContent = finalBufRef.current;
+  }, []);
+
+  const connectNFSpan = useCallback((el: HTMLSpanElement | null) => {
+    activeNFSpanRef.current = el;
+    if (el) el.textContent = nfSuffixRef.current;
+  }, []);
+
   return {
     isRecording,
     audioInfo,
@@ -733,17 +743,14 @@ export function useTranscription() {
     activePreviewLine,
     micLevel,
     error,
-    activeFinalSpanRef,
-    activeNFSpanRef,
+    connectFinalSpan,
+    connectNFSpan,
     start,
     stop,
     clear: () => {
-      if (rafPendingRef.current != null) {
-        cancelAnimationFrame(rafPendingRef.current);
-        rafPendingRef.current = null;
-      }
       activeFinalSpanRef.current = null;
       activeNFSpanRef.current    = null;
+      nfSuffixRef.current        = "";
       setFinalizedSegments([]);
       setActivePreviewLine(null);
       finalBufRef.current         = "";
