@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type Phrase, type ActivePreviewLine } from "@/hooks/use-transcription";
+import { useTranscription } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
@@ -55,59 +55,6 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
-
-// ── Speaker label ──────────────────────────────────────────────────────────────
-function SpeakerTag({ label }: { label: string }) {
-  if (!label) return null; // no API speaker data yet — render nothing
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1 w-fit">
-      {label}
-    </span>
-  );
-}
-
-// ── Finalized segment row — sealed, never changes after render ─────────────
-const SegmentRow = memo(function SegmentRow({ phrase }: { phrase: Phrase }) {
-  const isRtl = phrase.language === "ar" || phrase.language === "he";
-  return (
-    <div className="mb-4 pb-4 border-b border-border/25 last:border-0 last:pb-0 last:mb-0 group">
-      <SpeakerTag label={phrase.speakerLabel} />
-      <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
-        {phrase.text}
-        <CopyBtn text={phrase.text} />
-      </p>
-    </div>
-  );
-});
-
-// ── Active bubble — live text for the CURRENT speaker ──────────────────────
-// Always rendered whenever activePreviewLine is non-null, regardless of how
-// many finalized rows exist.  Uses ref CALLBACKS (not useRef props) so React
-// calls connectFinalSpan / connectNFSpan the instant the spans mount, writing
-// any pending text immediately — no rAF race condition possible.
-const ActiveBubble = memo(function ActiveBubble({
-  speakerLabel,
-  language,
-  connectFinalSpan,
-  connectNFSpan,
-}: {
-  speakerLabel:     string;
-  language:         string;
-  connectFinalSpan: (el: HTMLSpanElement | null) => void;
-  connectNFSpan:    (el: HTMLSpanElement | null) => void;
-}) {
-  const isRtl = language === "ar" || language === "he";
-  return (
-    <div className="mb-4">
-      <SpeakerTag label={speakerLabel} />
-      <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
-        <span ref={connectFinalSpan} />
-        <span ref={connectNFSpan} className="text-muted-foreground/55 italic" />
-      </p>
-    </div>
-  );
-});
-
 // ── Main workspace ─────────────────────────────────────────────────────────────
 export default function Workspace() {
   const [, setLocation]   = useLocation();
@@ -127,12 +74,12 @@ export default function Workspace() {
 
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
-  // ── Auto-scroll on new phrase ──────────────────────────────────────────────
-  // Scroll on structural changes (new segment, bubble appearing) only.
-  // Text content is written via DOM refs and does not trigger re-renders.
+  // Scroll into view when transcription starts (container appears)
   useEffect(() => {
-    scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcription.finalizedSegments.length, !!transcription.activePreviewLine]);
+    if (transcription.isRecording) {
+      scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [transcription.isRecording]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -150,10 +97,6 @@ export default function Workspace() {
     await logoutMut.mutateAsync();
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     setLocation("/login");
-  };
-
-  const handleClear = () => {
-    transcription.clear();
   };
 
   const handleToggleRecording = () => {
@@ -176,9 +119,6 @@ export default function Workspace() {
 
   const isLimitReached = user.minutesRemainingToday <= 0;
   const isBlocked      = user.trialExpired || isLimitReached;
-
-  // isEmpty only shows the empty-state placeholder — never go blank after Stop
-  const hasContent = transcription.finalizedSegments.length > 0 || !!transcription.activePreviewLine;
 
   return (
     <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
@@ -238,8 +178,8 @@ export default function Workspace() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleClear}
-              disabled={transcription.isRecording || !hasContent}
+              onClick={() => transcription.clear()}
+              disabled={transcription.isRecording || !transcription.hasTranscript}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -277,7 +217,7 @@ export default function Workspace() {
           </div>
         )}
 
-        {/* UNIFIED TRANSCRIPT + TRANSLATION PANEL */}
+        {/* TRANSCRIPT PANEL */}
         <div className="flex-1 p-4 min-h-0 overflow-hidden">
           <div className="h-full bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
@@ -299,47 +239,28 @@ export default function Workspace() {
               )}
             </div>
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-5">
-              {!hasContent ? (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+            {/* Scrollable transcript area
+                containerRef is always mounted so the hook can imperatively
+                append speaker bubbles the instant tokens arrive.
+                The empty-state overlay sits on top until the first bubble appears. */}
+            <div className="flex-1 overflow-y-auto p-5 relative">
+              {/* Direct-to-DOM transcript container — React never touches contents */}
+              <div ref={transcription.containerRef} />
+
+              {/* Empty state — absolute overlay, hidden once content exists */}
+              {!transcription.hasTranscript && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground pointer-events-none">
                   <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    English or Arabic — both detected automatically · Translated in real time
+                    English or Arabic — both detected automatically
                   </p>
                 </div>
-              ) : (
-                <div>
-                  {(() => {
-                    const segs    = transcription.finalizedSegments;
-                    const preview = transcription.activePreviewLine;
-                    return (
-                      <>
-                        {/* Sealed rows — static, never updated after render */}
-                        {segs.map((phrase) => (
-                          <SegmentRow key={phrase.id} phrase={phrase} />
-                        ))}
-                        {/* Live bubble — always mounted for the current speaker.
-                            Ref callbacks write pending text the instant spans mount,
-                            so no tokens are ever lost to a mount-timing race. */}
-                        {preview && (
-                          <ActiveBubble
-                            key={`${preview.speakerLabel}-${segs.length}`}
-                            speakerLabel={preview.speakerLabel}
-                            language={preview.language}
-                            connectFinalSpan={transcription.connectFinalSpan}
-                            connectNFSpan={transcription.connectNFSpan}
-                          />
-                        )}
-                      </>
-                    );
-                  })()}
-                  <div ref={scrollEndRef} />
-                </div>
               )}
+
+              <div ref={scrollEndRef} />
             </div>
           </div>
         </div>
