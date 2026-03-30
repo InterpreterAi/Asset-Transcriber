@@ -4,9 +4,10 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE          = 16000;
 const SONIOX_WS_URL        = "wss://stt-rt.soniox.com/transcribe-websocket";
-// Streaming translation poll interval — fires every N ms and translates the
-// live buffer if it has changed since the last request.
-const TRANSLATION_POLL_MS  = 800;
+// Streaming translation poll interval. On every tick the full live buffer
+// (finals + NF) is dispatched if it changed. Concurrent requests are allowed
+// to run — a version counter ensures only the newest completed response wins.
+const TRANSLATION_POLL_MS  = 700;
 
 // ── SVG icon strings ──────────────────────────────────────────────────────────
 const COPY_SVG =
@@ -86,12 +87,11 @@ function normalizeSpeaker(rawId: number | undefined): string {
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
-async function fetchTranslation(text: string, lang: string, signal?: AbortSignal): Promise<string> {
+async function fetchTranslation(text: string, lang: string): Promise<string> {
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "include",
-    signal,
     body:        JSON.stringify({ text, sourceLang: lang }),
   });
   if (!r.ok) return "";
@@ -151,18 +151,21 @@ export function useTranscription() {
   const detectedLangRef    = useRef<string>("en");
 
   // ── Streaming translation refs ─────────────────────────────────────────────
-  // liveBufferRef: the full text of the active segment (finals + current NF).
+  // liveBufferRef: full text of the active segment (finals + current NF).
   // Updated on every Soniox message; read by the translation interval.
-  const liveBufferRef         = useRef<string>("");
-  // lastTranslatedBuffer: text that was most recently dispatched for translation.
+  const liveBufferRef          = useRef<string>("");
+  // lastTranslatedBuffer: text most recently sent to the translation API.
   // The interval skips fetching when the buffer hasn't changed.
-  const lastTranslatedBuffer  = useRef<string>("");
-  // AbortController for any in-flight translation request.
-  const translationAbortRef   = useRef<AbortController | null>(null);
+  const lastTranslatedBuffer   = useRef<string>("");
+  // Version counter. Incremented on every dispatch; concurrent requests
+  // that complete out-of-order are discarded when their version is stale.
+  // Also incremented on bubble change / stop / clear to drop all in-flight
+  // requests that belong to a previous segment.
+  const translationVersionRef  = useRef(0);
   // setInterval handle for the streaming translation poll.
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Whether the current bubble's <p> has been upgraded to the finalized style.
-  const styleUpgradedRef      = useRef(false);
+  const styleUpgradedRef       = useRef(false);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -179,23 +182,25 @@ export function useTranscription() {
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Immediately aborts any in-flight request and fires a new translation for
-  // the given text. Called both by the polling interval and by softFinalize.
+  // Fires a translation request for `text`. Requests run concurrently — the
+  // version counter ensures only the response that corresponds to the highest
+  // dispatch number (i.e. the latest text) is written to the DOM. Responses
+  // for older dispatches are silently discarded. This lets every 700 ms tick
+  // produce a visible update without one request blocking the next.
   const dispatchTranslation = useCallback((text: string, lang: string) => {
     const transTextEl  = activeTransTextRef.current;
     const copyTransBtn = activeCopyTransRef.current;
     if (!transTextEl || text.length < 3) return;
 
     lastTranslatedBuffer.current = text;
-
-    translationAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    translationAbortRef.current = ctrl;
+    translationVersionRef.current += 1;
+    const myVersion = translationVersionRef.current;
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, lang, ctrl.signal);
-        if (ctrl.signal.aborted || !translated || !transTextEl.isConnected) return;
+        const translated = await fetchTranslation(text, lang);
+        // Discard if a newer dispatch has already won or the DOM is gone
+        if (translationVersionRef.current !== myVersion || !translated || !transTextEl.isConnected) return;
 
         const isArabic = /[\u0600-\u06FF]/.test(translated);
         transTextEl.dir             = isArabic ? "rtl" : "ltr";
@@ -208,9 +213,7 @@ export function useTranscription() {
         }
         scrollPanel();
       } catch (e) {
-        if (e instanceof Error && e.name !== "AbortError") {
-          console.warn("[translate]", e.message);
-        }
+        console.warn("[translate]", e instanceof Error ? e.message : e);
       }
     })();
   }, [scrollPanel]);
@@ -299,7 +302,9 @@ export function useTranscription() {
     row.appendChild(colTrans);
     container.appendChild(row);
 
-    // Update active refs for this bubble
+    // Update active refs for this bubble.
+    // Increment the version so any in-flight requests for the previous bubble
+    // are discarded when they eventually resolve.
     activeBubbleNFRef.current    = nfSpan;
     activeTransTextRef.current   = transTextP;
     activeCopyTransRef.current   = copyTransBtn;
@@ -307,6 +312,7 @@ export function useTranscription() {
     liveBufferRef.current        = "";
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
+    translationVersionRef.current += 1;
 
     scrollPanel(true);
     return finalSpan;
@@ -504,8 +510,7 @@ export function useTranscription() {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
-      translationAbortRef.current?.abort();
-      translationAbortRef.current  = null;
+      translationVersionRef.current += 1;  // drop any in-flight requests from a previous session
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -595,8 +600,7 @@ export function useTranscription() {
     stop,
     clear: () => {
       stopTranslationInterval();
-      translationAbortRef.current?.abort();
-      translationAbortRef.current  = null;
+      translationVersionRef.current += 1;  // drop all in-flight requests
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
       activeBubbleNFRef.current    = null;
