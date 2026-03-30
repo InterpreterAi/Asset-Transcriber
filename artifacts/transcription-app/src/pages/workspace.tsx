@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check
+  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check, Type,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -71,6 +71,15 @@ export default function Workspace() {
 
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
+  const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
+
+  // CSS variables applied to the transcript scroll container so ALL text
+  // elements (including DOM-created bubbles) inherit the size instantly.
+  const TEXT_SIZE_VARS: Record<typeof textSize, React.CSSProperties> = {
+    sm: { "--ts-font-size": "12px", "--ts-line-height": "1.5" } as React.CSSProperties,
+    md: { "--ts-font-size": "14px", "--ts-line-height": "1.625" } as React.CSSProperties,
+    lg: { "--ts-font-size": "17px", "--ts-line-height": "1.7" } as React.CSSProperties,
+  };
 
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
@@ -229,6 +238,24 @@ export default function Workspace() {
                   Listening
                 </span>
               )}
+              {/* Text size selector */}
+              <div className="flex items-center gap-0.5 border border-border/60 rounded-md overflow-hidden bg-muted/30 shrink-0">
+                <Type className="w-3 h-3 text-muted-foreground/50 ml-1.5" />
+                {(["sm", "md", "lg"] as const).map((sz) => (
+                  <button
+                    key={sz}
+                    onClick={() => setTextSize(sz)}
+                    className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                      textSize === sz
+                        ? "bg-primary text-white"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                    title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
+                  >
+                    {sz === "sm" ? "S" : sz === "md" ? "M" : "L"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Two-column label row — visible only once transcript starts */}
@@ -246,8 +273,14 @@ export default function Workspace() {
             {/* Scrollable transcript area
                 containerRef is always mounted so the hook can imperatively
                 append speaker bubbles the instant tokens arrive.
-                The empty-state overlay sits on top until the first bubble appears. */}
-            <div className="flex-1 overflow-y-auto p-5 relative">
+                The empty-state overlay sits on top until the first bubble appears.
+                TEXT_SIZE_VARS sets CSS custom properties that cascade to all
+                DOM-created text elements via var(--ts-font-size). */}
+            <div
+              className="flex-1 overflow-y-auto p-5 relative"
+              data-tsize={textSize}
+              style={TEXT_SIZE_VARS[textSize]}
+            >
               {/* Direct-to-DOM transcript container — React never touches contents */}
               <div ref={transcription.containerRef} />
 

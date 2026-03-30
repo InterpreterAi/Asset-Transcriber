@@ -2,12 +2,24 @@ import { useRef, useState, useCallback } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const TARGET_RATE          = 16000;
-const SONIOX_WS_URL        = "wss://stt-rt.soniox.com/transcribe-websocket";
-// Streaming translation poll interval. On every tick the full live buffer
-// (finals + NF) is dispatched if it changed. Concurrent requests are allowed
-// to run — a version counter ensures only the newest completed response wins.
-const TRANSLATION_POLL_MS  = 700;
+const TARGET_RATE         = 16000;
+const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
+const TRANSLATION_POLL_MS = 700;
+// A new translation is accepted during live speech only if it is at least
+// this much longer than the last shown translation (prevents constant rewrites).
+const STABILIZE_RATIO     = 1.15;
+
+// ── Speaker color palette ──────────────────────────────────────────────────────
+// Slot numbers start at 1. Index = slot - 1.
+const MAX_SPEAKERS = 3;
+const SPEAKER_COLORS = [
+  // slot 1 — Blue
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
+  // slot 2 — Green
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-green-50 text-green-600 border border-green-100 mb-1",
+  // slot 3 — Orange
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-100 mb-1",
+] as const;
 
 // ── SVG icon strings ──────────────────────────────────────────────────────────
 const COPY_SVG =
@@ -21,20 +33,18 @@ const CHECK_SVG =
   `fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">` +
   `<polyline points="20 6 9 17 4 12"/></svg>`;
 
-// ── DOM class names — defined here so Tailwind's scanner preserves them ───────
+// ── DOM class names ────────────────────────────────────────────────────────────
 const CLS = {
-  row:        "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors",
-  colOrig:    "min-w-0",
-  colTrans:   "min-w-0",
-  textRow:    "flex items-start gap-1",
-  // Speaker tag — same style used in BOTH original and translation columns
-  speakerTag: "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
-  textLive:   "text-[13px] leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
-  textFin:    "text-[13px] leading-relaxed text-foreground font-medium flex-1 min-w-0",
-  nf:         "text-muted-foreground/45 italic",
-  // Translation — same weight/darkness as finalized original
-  transText:  "text-[13px] leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
-  transPend:  "text-[11px] text-muted-foreground/30 italic flex-1 min-w-0",
+  row:         "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors",
+  colOrig:     "min-w-0",
+  colTrans:    "min-w-0",
+  textRow:     "flex items-start gap-1",
+  // font-size is controlled via --ts-font-size CSS variable (set by workspace)
+  textLive:    "ts-text leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
+  textFin:     "ts-text leading-relaxed text-foreground font-medium flex-1 min-w-0",
+  nf:          "text-muted-foreground/45 italic",
+  transText:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
+  transPend:   "ts-text text-muted-foreground/30 italic flex-1 min-w-0",
   copyIcon:    "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 opacity-0 group-hover:opacity-100 transition-all cursor-pointer",
   copyIconDis: "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/20 opacity-0 group-hover:opacity-30 cursor-not-allowed transition-opacity",
 } as const;
@@ -56,25 +66,24 @@ interface SonioxMessage {
 }
 
 // ── Speaker normalization (temporal-LRU pool) ──────────────────────────────────
-const MAX_SPEAKERS = 2;
 const _speakerMap  = new Map<number, number>();
 const _slotLastMs  = new Map<number, number>();
 let   _slotCount   = 0;
 
 function resetSpeakerMap() { _speakerMap.clear(); _slotLastMs.clear(); _slotCount = 0; }
 
-function normalizeSpeaker(rawId: number | undefined): string {
-  if (rawId === undefined) return "";
+function normalizeSpeaker(rawId: number | undefined): { label: string; slot: number } {
+  if (rawId === undefined) return { label: "", slot: 0 };
   if (_speakerMap.has(rawId)) {
     const slot = _speakerMap.get(rawId)!;
     _slotLastMs.set(slot, Date.now());
-    return `Speaker ${slot}`;
+    return { label: `Speaker ${slot}`, slot };
   }
   if (_slotCount < MAX_SPEAKERS) {
     _slotCount++;
     _speakerMap.set(rawId, _slotCount);
     _slotLastMs.set(_slotCount, Date.now());
-    return `Speaker ${_slotCount}`;
+    return { label: `Speaker ${_slotCount}`, slot: _slotCount };
   }
   let lruSlot = 1, lruMs = _slotLastMs.get(1) ?? 0;
   for (let s = 2; s <= _slotCount; s++) {
@@ -83,7 +92,7 @@ function normalizeSpeaker(rawId: number | undefined): string {
   }
   _speakerMap.set(rawId, lruSlot);
   _slotLastMs.set(lruSlot, Date.now());
-  return `Speaker ${lruSlot}`;
+  return { label: `Speaker ${lruSlot}`, slot: lruSlot };
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
@@ -124,6 +133,24 @@ function makeCopyButton(enabled: boolean, getTextFn: () => string): HTMLButtonEl
   return btn;
 }
 
+// Apply inline font-size/line-height that inherit the CSS variables set by workspace.
+function applyTextStyle(el: HTMLElement) {
+  el.style.fontSize   = "var(--ts-font-size, 14px)";
+  el.style.lineHeight = "var(--ts-line-height, 1.625)";
+}
+
+// ── Per-bubble translation state ───────────────────────────────────────────────
+// Each segment gets its own isolated state object. dispatchTranslation closures
+// capture the state object at the time of dispatch, so in-flight requests from
+// a previous segment can NEVER write into a later segment's DOM element.
+interface BubbleTransState {
+  transTextEl:  HTMLParagraphElement;
+  copyTransBtn: HTMLButtonElement;
+  seq:          number;  // incremented on every dispatch FOR THIS bubble
+  lastShownSeq: number;  // highest seq whose result was written to DOM
+  lastShownLen: number;  // char length of last shown translation (for stabilization)
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
   const [isRecording,   setIsRecording]   = useState(false);
@@ -141,36 +168,27 @@ export function useTranscription() {
   const startTimeRef = useRef<number>(0);
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
-  const containerRef       = useRef<HTMLDivElement | null>(null);
-  const currentSpeakerRef  = useRef<number | undefined>(undefined);
-  const activeBubbleRef    = useRef<HTMLSpanElement | null>(null);   // final-text span
-  const activeBubbleNFRef  = useRef<HTMLSpanElement | null>(null);   // NF span
-  const activeTransTextRef = useRef<HTMLParagraphElement | null>(null);
-  const activeCopyTransRef = useRef<HTMLButtonElement | null>(null);
-  const finalCountRef      = useRef(0);
-  const detectedLangRef    = useRef<string>("en");
+  const containerRef      = useRef<HTMLDivElement | null>(null);
+  const currentSpeakerRef = useRef<number | undefined>(undefined);
+  const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
+  const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
+  const finalCountRef     = useRef(0);
+  const detectedLangRef   = useRef<string>("en");
+  const styleUpgradedRef  = useRef(false);
 
-  // ── Streaming translation refs ─────────────────────────────────────────────
-  // liveBufferRef: full text of the active segment (finals + current NF).
-  // Updated on every Soniox message; read by the translation interval.
-  const liveBufferRef          = useRef<string>("");
-  // lastTranslatedBuffer: text most recently SENT to the translation API.
-  // The interval skips fetching when the buffer hasn't changed since last dispatch.
-  const lastTranslatedBuffer   = useRef<string>("");
-  // Monotonic dispatch counter — incremented on every dispatch call and
-  // whenever we switch to a new bubble / stop / clear. Used to discard
-  // out-of-order responses (an older request arriving after a newer one
-  // has already been shown).
-  const translationVersionRef  = useRef(0);
-  // Highest dispatch version whose result was actually written to the DOM.
-  // A response is accepted only when myVersion > lastShownVersionRef.current.
-  // This lets every in-flight request show its result as long as no newer
-  // result has already arrived — giving continuous updates during speech.
-  const lastShownVersionRef    = useRef(0);
-  // setInterval handle for the streaming translation poll.
+  // ── Per-bubble translation state ───────────────────────────────────────────
+  // Each call to createBubble creates a fresh BubbleTransState. Closures in
+  // dispatchTranslation capture it — so old bubbles' in-flight requests stay
+  // bound to their own element and can never bleed into a new bubble.
+  const activeBubbleStateRef = useRef<BubbleTransState | null>(null);
+
+  // ── Translation polling refs ───────────────────────────────────────────────
+  // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
+  const liveBufferRef        = useRef<string>("");
+  // lastTranslatedBuffer: text last SENT to the API. Interval skips if unchanged.
+  const lastTranslatedBuffer = useRef<string>("");
+  // setInterval handle.
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Whether the current bubble's <p> has been upgraded to the finalized style.
-  const styleUpgradedRef       = useRef(false);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -187,41 +205,56 @@ export function useTranscription() {
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Fires a translation request for `text`. Requests run concurrently.
-  // A monotonic gate (lastShownVersionRef) ensures:
-  //   • Any response newer than the last shown result is accepted immediately.
-  //   • Out-of-order responses (older arriving after newer) are discarded.
-  // This gives continuous visible updates during ongoing speech — each
-  // ~700 ms poll that returns while newer requests are still in-flight still
-  // gets written to the DOM, rather than waiting for a pause in speech.
-  const dispatchTranslation = useCallback((text: string, lang: string) => {
-    const transTextEl  = activeTransTextRef.current;
-    const copyTransBtn = activeCopyTransRef.current;
-    if (!transTextEl || text.length < 3) return;
+  // Fires a translation request for the active bubble's text.
+  //
+  // Isolation: captures `state` (per-bubble object) at call time — old requests
+  //   always write to the correct bubble's DOM element even after speaker switch.
+  //
+  // Monotonic gate (per-bubble): a result is accepted only if its seq number
+  //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
+  //   out-of-order arrivals while still showing every result in order.
+  //
+  // Stabilization: during live speech (isFinal=false), skip a result if the
+  //   translation is not significantly longer than the previous one. This
+  //   prevents the translation column from constantly rewriting small changes.
+  //   When a segment finalizes (isFinal=true), always show the result.
+  const dispatchTranslation = useCallback((text: string, lang: string, isFinal = false) => {
+    const state = activeBubbleStateRef.current;
+    if (!state || text.length < 3) return;
 
     lastTranslatedBuffer.current = text;
-    translationVersionRef.current += 1;
-    const myVersion = translationVersionRef.current;
+    state.seq += 1;
+    const mySeq   = state.seq;
+    const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
         const translated = await fetchTranslation(text, lang);
 
-        // Monotonic gate: accept this result only if it is newer than the
-        // last result already shown AND the DOM element is still mounted.
-        // This means any request that completes before a newer one has
-        // already been written will still show — giving continuous updates
-        // during ongoing speech rather than waiting for a pause.
-        if (myVersion <= lastShownVersionRef.current || !translated || !transTextEl.isConnected) return;
-        lastShownVersionRef.current = myVersion;
+        // Out-of-order gate: a newer result for THIS bubble already arrived.
+        if (mySeq <= state.lastShownSeq) return;
+        // DOM no longer connected (bubble was cleared).
+        if (!translated || !transTextEl.isConnected) return;
+
+        // Stabilization: only update if final, first result, or meaningfully longer.
+        if (!isFinal && state.lastShownLen > 0 && translated.length < state.lastShownLen * STABILIZE_RATIO) return;
+
+        state.lastShownSeq = mySeq;
+        state.lastShownLen = translated.length;
 
         const isArabic = /[\u0600-\u06FF]/.test(translated);
         transTextEl.dir             = isArabic ? "rtl" : "ltr";
         transTextEl.style.textAlign = isArabic ? "right" : "";
-        transTextEl.textContent     = translated;
-        transTextEl.className       = CLS.transText;
+        if (isArabic) {
+          transTextEl.lang      = "ar";
+          transTextEl.className = CLS.transText + " ts-arabic";
+        } else {
+          transTextEl.removeAttribute("lang");
+          transTextEl.className = CLS.transText;
+        }
+        transTextEl.textContent = translated;
 
-        if (copyTransBtn && copyTransBtn.disabled) {
+        if (copyTransBtn.disabled) {
           enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
         }
         scrollPanel();
@@ -232,14 +265,12 @@ export function useTranscription() {
   }, [scrollPanel]);
 
   // ── startTranslationInterval ───────────────────────────────────────────────
-  // Starts the 800 ms polling loop. On each tick, if the live buffer has
-  // changed since the last dispatched translation, fires a new request.
   const startTranslationInterval = useCallback(() => {
     if (translationIntervalRef.current !== null) return;
     translationIntervalRef.current = setInterval(() => {
       const buffer = liveBufferRef.current;
       if (!buffer || buffer === lastTranslatedBuffer.current) return;
-      dispatchTranslation(buffer, detectedLangRef.current);
+      dispatchTranslation(buffer, detectedLangRef.current, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
 
@@ -252,11 +283,15 @@ export function useTranscription() {
   }, []);
 
   // ── createBubble ──────────────────────────────────────────────────────────
-  // Builds a two-column segment row. Both columns carry an identical speaker
-  // tag so the layout stays symmetric.
+  // Builds a two-column segment row with color-coded speaker tags.
+  // Creates a fresh BubbleTransState for the new bubble so all translation
+  // requests for previous bubbles are structurally isolated.
   const createBubble = useCallback((rawSpeaker: number | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
-    const label     = normalizeSpeaker(rawSpeaker);
+    const { label, slot } = normalizeSpeaker(rawSpeaker);
+    const tagCls = slot > 0
+      ? SPEAKER_COLORS[Math.min(slot - 1, SPEAKER_COLORS.length - 1)]
+      : undefined;
 
     const row = document.createElement("div");
     row.className = CLS.row;
@@ -269,16 +304,14 @@ export function useTranscription() {
     const colTrans = document.createElement("div");
     colTrans.className = CLS.colTrans;
 
-    if (label) {
-      // Original column: visible speaker tag
+    if (label && tagCls) {
       const tagOrig = document.createElement("span");
-      tagOrig.className   = CLS.speakerTag;
+      tagOrig.className   = tagCls;
       tagOrig.textContent = label;
       colOrig.appendChild(tagOrig);
 
-      // Translation column: identical visible speaker tag — keeps columns symmetric
       const tagTrans = document.createElement("span");
-      tagTrans.className   = CLS.speakerTag;
+      tagTrans.className   = tagCls;
       tagTrans.textContent = label;
       colTrans.appendChild(tagTrans);
     }
@@ -288,6 +321,7 @@ export function useTranscription() {
 
     const p = document.createElement("p");
     p.className = CLS.textLive;
+    applyTextStyle(p);
     const finalSpan = document.createElement("span");
     const nfSpan    = document.createElement("span");
     nfSpan.className = CLS.nf;
@@ -305,6 +339,7 @@ export function useTranscription() {
     const transTextP = document.createElement("p");
     transTextP.className   = CLS.transPend;
     transTextP.textContent = "…";
+    applyTextStyle(transTextP);
     transRow.appendChild(transTextP);
 
     const copyTransBtn = makeCopyButton(false, () => transTextP.textContent?.trim() ?? "");
@@ -315,47 +350,46 @@ export function useTranscription() {
     row.appendChild(colTrans);
     container.appendChild(row);
 
-    // Update active refs for this bubble.
-    // Advance translationVersionRef so in-flight requests from the previous
-    // bubble are discarded (their version will be ≤ lastShownVersionRef).
-    // Reset lastShownVersionRef so the new bubble accepts the first response.
-    activeBubbleNFRef.current    = nfSpan;
-    activeTransTextRef.current   = transTextP;
-    activeCopyTransRef.current   = copyTransBtn;
+    // Fresh per-bubble translation state — replaces the previous bubble's state.
+    // Old in-flight requests captured the OLD state object in their closure, so
+    // they will always write to the old bubble's elements (or discard if already
+    // shown a newer result).
+    activeBubbleNFRef.current      = nfSpan;
+    activeBubbleStateRef.current   = {
+      transTextEl:  transTextP,
+      copyTransBtn: copyTransBtn,
+      seq:          0,
+      lastShownSeq: 0,
+      lastShownLen: 0,
+    };
     styleUpgradedRef.current     = false;
     liveBufferRef.current        = "";
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
-    translationVersionRef.current += 1;
-    lastShownVersionRef.current   = translationVersionRef.current;
 
     scrollPanel(true);
     return finalSpan;
   }, [scrollPanel]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
-  // Upgrades the active bubble style (grey → bold) and immediately dispatches
-  // a final translation for whatever text is in the live buffer.
-  // Called on speaker change or recording stop.
+  // Upgrades the active bubble style (grey/italic → bold) and dispatches a
+  // final translation. isFinal=true bypasses the stabilization check.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    // Clear NF span
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
 
-    // Upgrade style once (grey/italic → bold)
     if (!styleUpgradedRef.current) {
       styleUpgradedRef.current = true;
       const p = activeBubbleRef.current.parentElement;
       if (p) p.className = CLS.textFin;
     }
 
-    // Force one final translation with the committed final text
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
-      dispatchTranslation(finalText, detectedLangRef.current);
+      dispatchTranslation(finalText, detectedLangRef.current, true);
     }
   }, [dispatchTranslation]);
 
@@ -374,12 +408,11 @@ export function useTranscription() {
     stopTranslationInterval();
     finalizeLiveBubble();
 
-    currentSpeakerRef.current  = undefined;
-    activeBubbleRef.current    = null;
-    activeBubbleNFRef.current  = null;
-    activeTransTextRef.current = null;
-    activeCopyTransRef.current = null;
-    finalCountRef.current      = 0;
+    currentSpeakerRef.current     = undefined;
+    activeBubbleRef.current       = null;
+    activeBubbleNFRef.current     = null;
+    activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
+    finalCountRef.current         = 0;
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -482,9 +515,6 @@ export function useTranscription() {
       }
 
       // ── Update live translation buffer ────────────────────────────────────
-      // Combine committed final text with the current NF hypothesis into the
-      // live buffer. The streaming translation interval reads this on every
-      // tick and fires a new request whenever it detects a change.
       const finalText = activeBubbleRef.current?.textContent ?? "";
       liveBufferRef.current = (finalText + nfText).trim();
 
@@ -518,15 +548,12 @@ export function useTranscription() {
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
       activeBubbleNFRef.current    = null;
-      activeTransTextRef.current   = null;
-      activeCopyTransRef.current   = null;
+      activeBubbleStateRef.current = null;
       styleUpgradedRef.current     = false;
       liveBufferRef.current        = "";
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
-      translationVersionRef.current += 1;
-      lastShownVersionRef.current   = translationVersionRef.current;  // fresh gate for new session
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -560,7 +587,6 @@ export function useTranscription() {
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      // Start the streaming translation poll AFTER the WebSocket is created
       startTranslationInterval();
 
       const audioSource = ctx.createMediaStreamSource(stream);
@@ -616,13 +642,10 @@ export function useTranscription() {
     stop,
     clear: () => {
       stopTranslationInterval();
-      translationVersionRef.current += 1;
-      lastShownVersionRef.current   = translationVersionRef.current;  // invalidate all in-flight
+      activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
       activeBubbleNFRef.current    = null;
-      activeTransTextRef.current   = null;
-      activeCopyTransRef.current   = null;
       styleUpgradedRef.current     = false;
       liveBufferRef.current        = "";
       lastTranslatedBuffer.current = "";

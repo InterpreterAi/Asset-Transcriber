@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+Arabic:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme inline {
@@ -146,6 +146,24 @@
 @layer utilities {
   .glass-panel {
     @apply bg-card border border-border shadow-sm;
+  }
+
+  /* ── Transcript text-size scale ──────────────────────────────────────────── */
+  /* CSS custom properties set by workspace on the scroll container.           */
+  /* All transcript <p> elements use var(--ts-font-size) via inline style,     */
+  /* so changing the variable instantly cascades to all existing bubbles.      */
+  [data-tsize="sm"] { --ts-font-size: 12px; --ts-line-height: 1.5; }
+  [data-tsize="md"] { --ts-font-size: 14px; --ts-line-height: 1.625; }
+  [data-tsize="lg"] { --ts-font-size: 17px; --ts-line-height: 1.7; }
+
+  /* ── Arabic / RTL text ───────────────────────────────────────────────────── */
+  [lang="ar"], .ts-arabic {
+    font-family: 'Noto Sans Arabic', 'Arial', sans-serif !important;
+  }
+
+  /* ── English transcript text ─────────────────────────────────────────────── */
+  .ts-text {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   
   /* Custom scrollbar */

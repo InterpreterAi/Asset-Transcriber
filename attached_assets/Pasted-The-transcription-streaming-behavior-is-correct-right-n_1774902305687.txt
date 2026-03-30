@@ -1,0 +1,105 @@
+The transcription streaming behavior is correct right now. Do NOT modify anything related to Soniox transcription, segmentation, or real-time transcript updates.
+
+Only apply the following fixes to translation behavior and UI.
+
+-------------------------------------
+
+1) Fix translation mixing between segments
+
+There is a translation alignment bug.
+
+Translation text is mixing content from multiple transcript segments.  
+For example, Speaker 1's translation sometimes contains text that belongs to Speaker 2.
+
+This means translation is likely using the global transcript buffer instead of individual segments.
+
+Required behavior:
+
+• Each transcript segment must be translated independently.  
+• Send ONLY segment.text to the translation API.  
+• Attach the translation result to that segment's ID.  
+• Never translate the full transcript buffer.  
+• Do NOT append translations across segments.  
+• When a new segment appears, create a new translation entry.
+
+Translation must map 1:1 with transcript segments.
+
+-------------------------------------
+
+2) Stabilize translation text (prevent constant rewriting)
+
+Currently the translation keeps changing while the sentence grows.
+
+Example:
+The Arabic translation rewrites itself several times while the speaker continues talking.
+
+Required behavior:
+
+• When the first translation appears for a segment, display it.
+• Lock the translation so it does not constantly change.
+• Only update translation if:
+  - the transcript segment becomes FINAL, or
+  - the new translation is significantly longer than the previous one.
+
+This prevents interpreters from reading text that keeps changing.
+
+-------------------------------------
+
+3) Speaker color labels
+
+Add color-coded speaker labels for easier visual tracking.
+
+Speaker 1 → Blue  
+Speaker 2 → Green  
+Speaker 3 → Orange  
+
+The color should apply to the speaker label and a small bubble accent or border.
+
+Each speaker must keep the same color consistently.
+
+-------------------------------------
+
+4) Improve readability (fonts)
+
+Improve the readability of transcript and translation text.
+
+Use clearer fonts:
+
+English text → Inter or Roboto  
+Arabic text → Noto Sans Arabic
+
+Adjust typography:
+
+• slightly larger font
+• medium font weight (not thin)
+• slightly increased line spacing
+
+Do not change layout, only improve readability.
+
+-------------------------------------
+
+5) Add text size control
+
+Add a simple text size selector.
+
+Options:
+Small  
+Medium (default)  
+Large  
+
+This should scale both transcript and translation text equally.
+
+Do not allow unlimited sizes.
+
+-------------------------------------
+
+IMPORTANT
+
+Do NOT modify:
+
+• Soniox streaming transcription
+• transcript segmentation
+• speaker detection
+• real-time transcription updates
+
+Only modify translation logic and UI display.
