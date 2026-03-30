@@ -10,7 +10,7 @@ const TRANSLATION_POLL_MS = 700;
 const STABILIZE_RATIO     = 1.15;
 // After this many ms with no new tokens, the active segment is finalized and
 // the next speech will start in a fresh bubble.
-const SILENCE_MS          = 900;
+const SILENCE_MS          = 1200;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -524,11 +524,21 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
       scrollPanel();
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
-      // Speaker changes are handled ONLY from final tokens above.
-      // NF speaker IDs from Soniox can be tentative and are NOT used to split
-      // segments — doing so causes spurious splits when the engine reassigns.
       const nfTokens = tokens.filter(t => !t.is_final);
       const nfText   = nfTokens.map(t => t.text).join("");
+
+      // If NF tokens signal a speaker change, finalize the current segment now
+      // instead of waiting for those tokens to become FINAL. This prevents NF
+      // text from being temporarily shown in the wrong speaker's bubble.
+      if (nfText && nfTokens.length > 0) {
+        const nfSpeaker = nfTokens.find(t => t.speaker !== undefined)?.speaker;
+        if (nfSpeaker !== undefined && nfSpeaker !== currentSpeakerRef.current && activeBubbleRef.current) {
+          finalizeLiveBubble();
+          currentSpeakerRef.current = nfSpeaker;
+          activeBubbleRef.current   = createBubble(nfSpeaker);
+          setHasTranscript(true);
+        }
+      }
 
       if (activeBubbleNFRef.current) {
         activeBubbleNFRef.current.textContent = nfText;
