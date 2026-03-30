@@ -293,41 +293,72 @@ export function useTranscription() {
       sessionIdRef.current = sessionRes.sessionId;
       startTimeRef.current = Date.now();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-      });
-      streamsRef.current = [stream];
-
-      const ctx = new AudioContext({ sampleRate: 48000 });
+      // Use native AudioContext without a forced sample rate — let the browser
+      // pick the device's native rate. The pcm-processor downsamples to 16 kHz.
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
 
-      await ctx.audioWorklet.addModule("/pcm-processor.js");
-      const source  = ctx.createMediaStreamSource(stream);
-      const worklet = new AudioWorkletNode(ctx, "pcm-processor");
-      workletRef.current = worklet;
+      // Browsers inside iframes often start AudioContext in "suspended" state.
+      // Must resume inside the user-gesture call stack.
+      if (ctx.state === "suspended") await ctx.resume();
 
-      const ws = buildWs(tokenRes.token);
+      setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz`);
+
+      await ctx.audioWorklet.addModule("/pcm-processor.js");
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation:  false,
+          noiseSuppression:  false,
+          autoGainControl:   false,
+          channelCount:      1,
+        },
+      });
+      streamsRef.current.push(stream);
+
+      // apiKey field — the API returns { apiKey } not { token }
+      const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      worklet.port.onmessage = (e: MessageEvent) => {
-        // pcm-processor.js transfers a raw ArrayBuffer (Int16 PCM at 16 kHz)
-        const buf = e.data as ArrayBuffer;
-        if (ws.readyState === WebSocket.OPEN) ws.send(buf);
-        // Compute RMS for the VU meter from the Int16 samples
-        const samples = new Int16Array(buf);
-        let sum = 0;
-        for (let i = 0; i < samples.length; i++) sum += (samples[i] / 32768) ** 2;
-        setMicLevel(Math.min(100, Math.sqrt(sum / (samples.length || 1)) * 500));
-      };
+      const audioSource = ctx.createMediaStreamSource(stream);
+      const analyser    = ctx.createAnalyser();
+      analyser.fftSize  = 256;
+      audioSource.connect(analyser);
 
-      source.connect(worklet);
+      const worklet = new AudioWorkletNode(ctx, "pcm-processor", {
+        processorOptions: { targetRate: TARGET_RATE },
+      });
+      workletRef.current = worklet;
+      analyser.connect(worklet);
       worklet.connect(ctx.destination);
 
-      const track = stream.getAudioTracks()[0];
-      if (track) {
-        const settings = track.getSettings();
-        setAudioInfo(`${settings.sampleRate ?? ctx.sampleRate}Hz → 16kHz`);
-      }
+      let chunkCount = 0;
+      worklet.port.onmessage = (e) => {
+        const pcm = e.data as ArrayBuffer;
+        chunkCount++;
+        const wsState = wsRef.current?.readyState;
+
+        if (chunkCount % 50 === 1) {
+          console.log(`[Worklet] chunk #${chunkCount} — ${pcm.byteLength}B — WS state: ${wsState}`);
+        }
+
+        if (wsState === WebSocket.OPEN) {
+          wsRef.current!.send(pcm);
+        }
+
+        // VU meter — read from the transferred buffer (still valid after ws.send)
+        const samples = new Int16Array(pcm);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i++) {
+          const s = (samples[i] ?? 0) / 32768;
+          sum += s * s;
+        }
+        setMicLevel(Math.min(100, Math.sqrt(sum / (samples.length || 1)) * 500));
+      };
 
       isRecRef.current = true;
       setIsRecording(true);
