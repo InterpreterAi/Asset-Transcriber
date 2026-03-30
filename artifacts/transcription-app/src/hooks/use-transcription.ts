@@ -554,11 +554,8 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
         }
       }
 
-      // ── Update live translation buffer ────────────────────────────────────
-      const finalText = activeBubbleRef.current?.textContent ?? "";
-      liveBufferRef.current = (finalText + nfText).trim();
-
       // When Soniox commits all text (NF gone), immediately finalize style.
+      const finalText = activeBubbleRef.current?.textContent ?? "";
       if (nfText.length === 0 && finalText.trim().length > 2) {
         if (!styleUpgradedRef.current) {
           styleUpgradedRef.current = true;
@@ -646,7 +643,9 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      startTranslationInterval();
+      // Translation fires ONLY on segment finalization (via softFinalize),
+      // not from a live buffer poll. This ensures each segment translates
+      // only its own finalized text and never bleeds into adjacent segments.
 
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
@@ -688,7 +687,7 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
+  }, [getTokenMut, startSessionMut, buildWs, stop]);
 
   return {
     isRecording,
