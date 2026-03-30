@@ -97,9 +97,16 @@ export function useTranscription() {
   // ── flushSegment ──────────────────────────────────────────────────────────
   // Moves the accumulated buffer into the locked segment list, then fires
   // an async translation call that updates the same row when it returns.
+  // Minimum 10 characters required; shorter buffers are silently discarded.
   const flushSegment = useCallback(() => {
     const text = buildingTextRef.current.trim();
-    if (!text) return;
+    if (text.length < 10) {
+      // Too short to be meaningful — reset buffer without creating a segment
+      buildingTextRef.current    = "";
+      buildingSpeakerRef.current = undefined;
+      detectedLangRef.current    = "en";
+      return;
+    }
 
     const speaker      = buildingSpeakerRef.current;
     const speakerLabel = normalizeSpeaker(speaker);
@@ -233,19 +240,32 @@ export function useTranscription() {
         if (langToken?.language) detectedLangRef.current = langToken.language;
 
         for (const token of newFinals) {
-          // Speaker changed → flush current buffer as a locked segment
+          const accumulated = buildingTextRef.current.trim();
+
+          // Speaker changed — only flush if the buffer is substantial (≥ 15 chars).
+          // Short fragments stay buffered to avoid single-word segments.
           if (
             buildingSpeakerRef.current !== undefined &&
-            token.speaker !== buildingSpeakerRef.current
+            token.speaker !== buildingSpeakerRef.current &&
+            accumulated.length >= 15
           ) {
             flushSegment();
           }
 
-          buildingSpeakerRef.current = token.speaker;
-          buildingTextRef.current   += token.text;
+          // Set speaker on first token or after a flush emptied the buffer
+          if (buildingSpeakerRef.current === undefined) {
+            buildingSpeakerRef.current = token.speaker;
+          }
+          buildingTextRef.current += token.text;
 
-          // Flush on sentence-ending punctuation for natural segment boundaries
-          if (/[.!?]$/.test(buildingTextRef.current.trim())) {
+          const buf = buildingTextRef.current.trim();
+
+          // Rule 1: Force-flush at 120 chars regardless of punctuation
+          if (buf.length >= 120) {
+            flushSegment();
+          }
+          // Rule 2: Flush on sentence-ending punctuation — only when ≥ 15 chars
+          else if (buf.length >= 15 && /[.!?]$/.test(buf)) {
             flushSegment();
           }
         }
