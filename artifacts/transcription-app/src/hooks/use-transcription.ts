@@ -437,159 +437,80 @@ export function useTranscription() {
     //    They are a REPLACEMENT suffix each message — NEVER touch finalizedSegments.
     // 2. Final tokens      → commit to finalBufRef, detect speaker changes.
     // 3. A new finalized segment is created ONLY on token.speaker change.
-    // 4. Utterance boundary (all-final message) resets the dedup watermark
-    //    only — it does NOT flush/split rows.
-    //
-    // activePreviewLine.text = finalBufRef (confirmed) + nfText (live interim suffix)
-    //
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
-      // Non-final text — Soniox sends a complete replacement suffix each message,
-      // not a cumulative append.  Local variable resets automatically each call.
-      let nfText           = "";
+      let nfSuffix         = "";
       let finalSeenThisMsg = 0;
       let hasNonFinal      = false;
-      const newFinalToks: SonioxToken[] = [];
 
       for (const token of tokens) {
         if (!token.is_final) {
-          // Non-final → collect text for live display, never commit to finalBufRef.
-          // Do NOT trigger speaker-change logic here — non-final speaker assignments
-          // are Soniox's live guesses and flip constantly.  Acting on them causes
-          // segment flickering (new rows created and collapsed every few words).
-          // Speaker-change flushes happen only in the final-token path below,
-          // where diarization is confirmed and stable.
-          nfText += token.text;
+          nfSuffix += token.text;
           hasNonFinal = true;
-          // Update speakerRef so the preview label stays current, but nothing more.
           if (token.speaker != null) speakerRef.current = token.speaker;
           continue;
         }
 
-        // Dedup: skip already-consumed finals.
+        // Dedup — skip finals already committed in a previous message.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
 
         const spk = token.speaker;
-
-        // Step 1: open a segment if none is active.
-        if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
-          activeSegSpeakerRef.current = spk;
-          segStartMsRef.current       = Date.now();
-        }
-
-        // ── Flush guards ───────────────────────────────────────────────────
-        // PUNCT_FLUSH_LEN: minimum chars before a punctuation flush seals a row.
-        //   60 chars prevents the staircase effect where every comma creates a
-        //   new row.  Speaker-change and pause flushes still use SPEAKER_FLUSH_LEN.
-        // atWordBoundary: never flush inside a word.
-        const PUNCT_FLUSH_LEN   = 60;
-        const SPEAKER_FLUSH_LEN = 20;
-        const atWordBoundary  = () => /[\s.!?,;:]$/.test(finalBufRef.current);
-        const hasMinLength    = () => finalBufRef.current.trim().length >= SPEAKER_FLUSH_LEN;
-        const hasMinLengthForPunct = () => finalBufRef.current.trim().length >= PUNCT_FLUSH_LEN;
-
-        // Step 2a: instant speaker-change detection.
-        // As soon as a final token arrives from a different speaker_id, flush
-        // the current segment immediately and open a new one for the new speaker.
-        // No stability window — that caused 600ms+ delay where new-speaker tokens
-        // accumulated in the old speaker's buffer and burst onto screen as a chunk.
-        // Any brief mislabelings (noise, "mm") get collapsed by the same-speaker
-        // merge in flush(), so they never produce visible orphan rows.
-        if (spk !== undefined && activeSegSpeakerRef.current !== undefined) {
-          if (spk !== activeSegSpeakerRef.current) {
-            // Flush the old segment if it has any content.
-            // The token from the new speaker is committed to finalBufRef AFTER this
-            // flush (step 3 below), so it lands correctly in the new segment.
-            if (finalBufRef.current.trim().length > 0) {
-              flush(); // seal old speaker's segment instantly
-            }
-            // Switch active speaker immediately — no waiting.
-            activeSegSpeakerRef.current = spk;
-            segStartMsRef.current       = Date.now();
-          }
-        }
-
-        // Track speaker history (modal label computed at flush time).
         if (spk !== undefined) {
-          touchSpeaker(spk);
-          speakerHistoryRef.current.push(spk);
           speakerRef.current = spk;
+          speakerHistoryRef.current.push(spk);
+          touchSpeaker(spk);
         }
 
-        // Step 3: commit confirmed text (final tokens only — rule 1).
+        // Open segment if none active.
+        if (activeSegSpeakerRef.current === undefined) {
+          activeSegSpeakerRef.current = spk;
+          segStartMsRef.current = Date.now();
+        }
+
+        // Instant speaker split on first final token from a new speaker.
+        if (spk !== undefined && spk !== activeSegSpeakerRef.current && finalBufRef.current.trim().length > 0) {
+          flush();
+          activeSegSpeakerRef.current = spk;
+          segStartMsRef.current = Date.now();
+        }
+
         finalBufRef.current += token.text;
-        newFinalToks.push(token);
 
-        // Step 2b: punctuation flush — sentence boundary.
-        // Uses the higher PUNCT_FLUSH_LEN (60 chars) to prevent every comma or
-        // short clause from creating a new row (the staircase effect).
-        // Fires AFTER appending so punctuation is included in the sealed segment.
-        if (hasMinLengthForPunct() && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
-          flush(); // seal segment; preview clears atomically with finalized row
-        }
-
-        const elapsed = segStartMsRef.current > 0
-          ? Date.now() - segStartMsRef.current
-          : 0;
-
-        // Step 2c-time: hard max-segment duration — 6 000 ms forces a flush
-        // on very long continuous speech.  Increased from 3 s to avoid splitting
-        // a long sentence mid-way unnecessarily.
-        const MAX_SEGMENT_MS = 6000;
-        if (hasMinLength() && elapsed >= MAX_SEGMENT_MS) {
+        // Punctuation flush — seal long sentences at natural boundaries.
+        if (finalBufRef.current.trim().length >= 60 && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
           flush();
         }
-        // NOTE: 120-char length cap removed per user request.  Long sentences
-        // now grow freely inside one bubble.
+
+        // Time cap — 6 s max per segment.
+        if (finalBufRef.current.trim().length >= 20 && segStartMsRef.current > 0 && Date.now() - segStartMsRef.current >= 6000) {
+          flush();
+        }
       }
 
-      // Advance the watermark.
+      // Update watermark.
       globalFinalCountRef.current = finalSeenThisMsg;
+      if (!hasNonFinal && finalSeenThisMsg > 0) globalFinalCountRef.current = 0;
 
-      // Utterance boundary: all-final message → reset watermark for next
-      // utterance (Soniox resets its own count).  No flush — segment grows on.
-      if (!hasNonFinal && newFinalToks.length > 0) {
-        globalFinalCountRef.current = 0;
-      }
+      // Language detection.
+      if (finalSeenThisMsg > 0) langRef.current = detectLang(tokens.filter(t => t.is_final), langRef.current);
 
-      // Language detection from newly confirmed tokens.
-      if (newFinalToks.length > 0) {
-        langRef.current = detectLang(newFinalToks, langRef.current);
-      }
+      // ── Direct DOM write — every message, zero scheduler overhead ──────────
+      // Single target: activeFinalSpanRef holds the combined live text.
+      // confirmed finals + current NF suffix written in one assignment.
+      const liveText = finalBufRef.current + nfSuffix;
+      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = liveText;
+      // NF span cleared — we show everything in one span now.
+      if (activeNFSpanRef.current) activeNFSpanRef.current.textContent = "";
 
-      // ── Direct DOM writes — zero-latency rendering ────────────────────────
-      // Instead of going through React state (which schedules a batched render),
-      // we write directly to the two DOM spans.  This fires the moment onmessage
-      // delivers the data — no scheduler, no diffing, no batching.
-      //
-      // activeFinalSpanRef  → confirmed text accumulated so far (final tokens).
-      // activeNFSpanRef     → live Soniox hypothesis (non-final suffix).
-      //
-      // React state (activePreviewLine) is updated ONLY when the STRUCTURE of the
-      // bubble changes: first token opens the bubble, speaker/lang changes, flush
-      // closes it.  The text inside the spans is never in React state.
-
-      // Step A: Write final text to DOM.  Append each newly confirmed word.
-      if (newFinalToks.length > 0 && activeFinalSpanRef.current) {
-        activeFinalSpanRef.current.textContent = finalBufRef.current;
-      }
-
-      // Step B: Overwrite NF span with the latest live hypothesis.
-      if (activeNFSpanRef.current) {
-        activeNFSpanRef.current.textContent = nfText;
-      }
-
-      // Step C: Open (or update) the React bubble structure when needed.
-      // This is only state-driven so it's deferred — the DOM already shows text.
-      const bubbleLabel    = normalizeSpeaker(speakerRef.current);
-      const bubbleLang     = langRef.current;
-      const hasVisibleText = finalBufRef.current.length > 0 || nfText.length > 0;
-      if (hasVisibleText) {
+      // Structural React update — only when the bubble needs to open.
+      if (liveText) {
+        const label = normalizeSpeaker(speakerRef.current);
+        const lang  = langRef.current;
         setActivePreviewLine(prev => {
-          if (prev?.speakerLabel === bubbleLabel && prev?.language === bubbleLang) return prev;
-          return { text: "", speakerLabel: bubbleLabel, language: bubbleLang };
+          if (prev?.speakerLabel === label && prev?.language === lang) return prev;
+          return { text: "", speakerLabel: label, language: lang };
         });
       }
     };

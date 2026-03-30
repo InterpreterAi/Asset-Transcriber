@@ -75,12 +75,10 @@ const SegmentRow = memo(function SegmentRow({
   phrase,
   isLast,
   finalSpanRef,
-  nfSpanRef,
 }: {
   phrase: Phrase;
   isLast?: boolean;
   finalSpanRef?: React.RefObject<HTMLSpanElement | null>;
-  nfSpanRef?: React.RefObject<HTMLSpanElement | null>;
 }) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
@@ -88,12 +86,7 @@ const SegmentRow = memo(function SegmentRow({
       <SpeakerTag label={phrase.speakerLabel} />
       <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
         {phrase.text}
-        {isLast && finalSpanRef && (
-          <span ref={finalSpanRef} className="text-foreground font-medium" />
-        )}
-        {isLast && nfSpanRef && (
-          <span ref={nfSpanRef} className="text-foreground/55 italic font-normal" />
-        )}
+        {isLast && finalSpanRef && <span ref={finalSpanRef} />}
         {!isLast && <CopyBtn text={phrase.text} />}
       </p>
     </div>
@@ -109,20 +102,17 @@ const ActiveBubble = memo(function ActiveBubble({
   speakerLabel,
   language,
   finalSpanRef,
-  nfSpanRef,
 }: {
   speakerLabel: string;
   language: string;
   finalSpanRef: React.RefObject<HTMLSpanElement | null>;
-  nfSpanRef: React.RefObject<HTMLSpanElement | null>;
 }) {
   const isRtl = language === "ar" || language === "he";
   return (
     <div className="mb-4">
       <SpeakerTag label={speakerLabel} />
-      <p className="text-[13px] leading-relaxed" dir={isRtl ? "rtl" : "ltr"}>
-        <span ref={finalSpanRef} className="text-foreground font-medium" />
-        <span ref={nfSpanRef} className="text-foreground/55 italic font-normal" />
+      <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
+        <span ref={finalSpanRef} />
       </p>
     </div>
   );
@@ -346,7 +336,6 @@ export default function Workspace() {
                               phrase={phrase}
                               isLast={isLast && !!preview}
                               finalSpanRef={isLast ? transcription.activeFinalSpanRef : undefined}
-                              nfSpanRef={isLast ? transcription.activeNFSpanRef : undefined}
                             />
                           );
                         })}
@@ -356,7 +345,6 @@ export default function Workspace() {
                             speakerLabel={preview.speakerLabel}
                             language={preview.language}
                             finalSpanRef={transcription.activeFinalSpanRef}
-                            nfSpanRef={transcription.activeNFSpanRef}
                           />
                         )}
                       </>
