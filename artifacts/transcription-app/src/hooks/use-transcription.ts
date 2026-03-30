@@ -199,9 +199,13 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Silence timer ─────────────────────────────────────────────────────────
-  // Armed on every onmessage that has tokens; fires SILENCE_MS later to
-  // finalize the active segment. The next token after silence starts a fresh bubble.
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Armed on every onmessage that has tokens. The threshold adapts to speech
+  // speed: fast speech → ~850ms, normal → ~950ms, slow → ~1100ms.
+  const silenceTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // EMA of the millisecond gap between successive token batches (α = 0.25).
+  const tokenIntervalEmaRef   = useRef<number>(400);
+  // Timestamp of the last token batch (for computing the interval).
+  const lastTokenTimeRef      = useRef<number>(0);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -395,11 +399,29 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
     return finalSpan;
   }, [scrollPanel]);
 
+  // ── promoteNfToFinal ──────────────────────────────────────────────────────
+  // When a segment is being finalized but contains only non-final (grey) text
+  // — i.e. the user stopped recording or silence fired before Soniox committed
+  // the tokens — promote the NF span's text into the final span so that:
+  //   1. softFinalize has content to work with (style + translation)
+  //   2. the text remains visible instead of being erased
+  const promoteNfToFinal = useCallback(() => {
+    if (!activeBubbleNFRef.current || !activeBubbleRef.current) return;
+    const nfContent = activeBubbleNFRef.current.textContent?.trim() ?? "";
+    if (nfContent && !activeBubbleRef.current.textContent?.trim()) {
+      activeBubbleRef.current.textContent     = nfContent;
+      activeBubbleNFRef.current.textContent   = "";
+    }
+  }, []);
+
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
   // final translation. isFinal=true bypasses the stabilization check.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
+
+    // Make sure any NF-only text is preserved before we clear the NF span.
+    promoteNfToFinal();
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -415,7 +437,7 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
-  }, [dispatchTranslation]);
+  }, [dispatchTranslation, promoteNfToFinal]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   const finalizeLiveBubble = useCallback(() => {
@@ -500,6 +522,16 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
+      // ── Adaptive speech-speed tracking ────────────────────────────────────
+      // Track inter-message intervals with an exponential moving average (α=0.25).
+      // This feeds the adaptive silence threshold computed when arming the timer.
+      const nowMs = Date.now();
+      if (lastTokenTimeRef.current > 0) {
+        const interval = nowMs - lastTokenTimeRef.current;
+        tokenIntervalEmaRef.current = tokenIntervalEmaRef.current * 0.75 + interval * 0.25;
+      }
+      lastTokenTimeRef.current = nowMs;
+
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
@@ -567,14 +599,23 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
         }
       }
 
-      // ── Arm silence timer ─────────────────────────────────────────────────
-      // Every batch of tokens resets the clock. If SILENCE_MS passes with no
-      // further tokens, the segment is finalized and the next speech starts fresh.
+      // ── Arm adaptive silence timer ────────────────────────────────────────
+      // Threshold is derived from the EMA of token-batch intervals:
+      //   EMA ≤ 200 ms  → 850 ms  (fast speech)
+      //   EMA = 450 ms  → 975 ms  (normal speech)
+      //   EMA ≥ 700 ms  → 1100 ms (slow speech)
+      const ema = tokenIntervalEmaRef.current;
+      const adaptiveSilenceMs = Math.round(
+        Math.max(850, Math.min(1100, 850 + ((ema - 200) / 500) * 250))
+      );
+
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
         if (!activeBubbleRef.current) return;
         // Finalize the current bubble — style upgrade + final translation.
+        // promoteNfToFinal is called inside softFinalize so grey-only segments
+        // are preserved and translated correctly.
         softFinalize();
         // Clear active refs so the next token creates a brand-new bubble.
         activeBubbleRef.current      = null;
@@ -584,7 +625,7 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
         styleUpgradedRef.current     = false;
         liveBufferRef.current        = "";
         lastTranslatedBuffer.current = "";
-      }, SILENCE_MS);
+      }, adaptiveSilenceMs);
     };
 
     ws.onerror = () => { setError("WebSocket error"); void stop(); };
@@ -613,6 +654,9 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
+      // Reset adaptive silence tracking for fresh session.
+      lastTokenTimeRef.current    = 0;
+      tokenIntervalEmaRef.current = 400;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
