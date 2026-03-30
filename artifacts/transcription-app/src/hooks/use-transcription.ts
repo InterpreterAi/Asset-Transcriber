@@ -247,7 +247,8 @@ export function useTranscription() {
   // rAF batching: store the latest text to display and a handle to the pending frame.
   // Multiple token messages that arrive within the same 16ms frame collapse into
   // one DOM write, preventing layout thrash without adding perceptible delay.
-  const pendingTextRef  = useRef<string>("");
+  const pendingFinalRef = useRef<string>("");   // latest finalBuf snapshot for rAF
+  const pendingNFRef    = useRef<string>("");   // latest nfSuffix snapshot for rAF
   const rafPendingRef   = useRef<number | null>(null);
 
   // ── Speaker tracking ───────────────────────────────────────────────────────
@@ -537,17 +538,20 @@ export function useTranscription() {
       if (finalSeenThisMsg > 0) langRef.current = detectLang(tokens.filter(t => t.is_final), langRef.current);
 
       // ── rAF-batched DOM write ─────────────────────────────────────────────
-      // finalText (permanent) + interimText (latest NF hypothesis) in one write.
-      // Multiple messages arriving within the same 16 ms paint frame collapse
-      // into a single DOM mutation — no layout thrash, no perceptible delay.
-      const liveText = finalBufRef.current + nfSuffix;
-      pendingTextRef.current = liveText;
+      // Two separate spans, one rAF:
+      //   activeFinalSpanRef ← confirmed finals only (black text)
+      //   activeNFSpanRef    ← current NF hypothesis (gray/italic — "live guess")
+      // When a final arrives for a word already shown in gray, finalBuf grows
+      // and nfSuffix shrinks → the word visually "turns black" in the same bubble.
+      // Multiple messages per frame collapse into one paint — no layout thrash.
+      const liveText = finalBufRef.current + nfSuffix; // for structural guard below
+      pendingFinalRef.current = finalBufRef.current;
+      pendingNFRef.current    = nfSuffix;
       if (rafPendingRef.current == null) {
         rafPendingRef.current = requestAnimationFrame(() => {
           rafPendingRef.current = null;
-          if (activeFinalSpanRef.current) {
-            activeFinalSpanRef.current.textContent = pendingTextRef.current;
-          }
+          if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = pendingFinalRef.current;
+          if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = pendingNFRef.current;
         });
       }
 

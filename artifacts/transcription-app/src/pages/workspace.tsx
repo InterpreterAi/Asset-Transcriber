@@ -75,10 +75,12 @@ const SegmentRow = memo(function SegmentRow({
   phrase,
   isLast,
   finalSpanRef,
+  nfSpanRef,
 }: {
   phrase: Phrase;
   isLast?: boolean;
   finalSpanRef?: React.RefObject<HTMLSpanElement | null>;
+  nfSpanRef?: React.RefObject<HTMLSpanElement | null>;
 }) {
   const isRtl = phrase.language === "ar" || phrase.language === "he";
   return (
@@ -87,6 +89,7 @@ const SegmentRow = memo(function SegmentRow({
       <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
         {phrase.text}
         {isLast && finalSpanRef && <span ref={finalSpanRef} />}
+        {isLast && nfSpanRef   && <span ref={nfSpanRef} className="text-muted-foreground/55 italic" />}
         {!isLast && <CopyBtn text={phrase.text} />}
       </p>
     </div>
@@ -102,10 +105,12 @@ const ActiveBubble = memo(function ActiveBubble({
   speakerLabel,
   language,
   finalSpanRef,
+  nfSpanRef,
 }: {
   speakerLabel: string;
   language: string;
   finalSpanRef: React.RefObject<HTMLSpanElement | null>;
+  nfSpanRef:    React.RefObject<HTMLSpanElement | null>;
 }) {
   const isRtl = language === "ar" || language === "he";
   return (
@@ -113,6 +118,7 @@ const ActiveBubble = memo(function ActiveBubble({
       <SpeakerTag label={speakerLabel} />
       <p className="text-[13px] leading-relaxed text-foreground font-medium" dir={isRtl ? "rtl" : "ltr"}>
         <span ref={finalSpanRef} />
+        <span ref={nfSpanRef} className="text-muted-foreground/55 italic" />
       </p>
     </div>
   );
@@ -336,6 +342,7 @@ export default function Workspace() {
                               phrase={phrase}
                               isLast={isLast && !!preview}
                               finalSpanRef={isLast ? transcription.activeFinalSpanRef : undefined}
+                              nfSpanRef={isLast ? transcription.activeNFSpanRef : undefined}
                             />
                           );
                         })}
@@ -345,6 +352,7 @@ export default function Workspace() {
                             speakerLabel={preview.speakerLabel}
                             language={preview.language}
                             finalSpanRef={transcription.activeFinalSpanRef}
+                            nfSpanRef={transcription.activeNFSpanRef}
                           />
                         )}
                       </>
