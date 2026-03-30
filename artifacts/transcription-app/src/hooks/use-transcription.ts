@@ -1,9 +1,22 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE   = 16000;
 const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
+
+// ── DOM class names — defined here so Tailwind's scanner preserves them ───────
+const CLS = {
+  wrapper:     "mb-4",
+  speakerTag:  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
+  // Live segment: grey/italic while speech is still streaming
+  textLive:    "text-[13px] leading-relaxed text-muted-foreground/70 italic",
+  // Finalized segment: solid black, normal weight once the speaker changes
+  textFin:     "text-[13px] leading-relaxed text-foreground font-medium",
+  nf:          "text-muted-foreground/45 italic",
+  // Translation line: smaller muted text below the original
+  translation: "text-[11px] leading-relaxed text-muted-foreground/60 mt-0.5",
+} as const;
 
 // ── Soniox v4 types ────────────────────────────────────────────────────────────
 interface SonioxToken {
@@ -19,16 +32,6 @@ interface SonioxMessage {
   error?:    string;
   code?:     number;
   message?:  string;
-}
-
-// ── Transcript segment ─────────────────────────────────────────────────────────
-export interface TranscriptSegment {
-  id:             string;
-  speaker:        number | undefined;
-  speakerLabel:   string;
-  originalText:   string;
-  translatedText: string | null;
-  timestamp:      number;
 }
 
 // ── Speaker normalization (temporal-LRU pool) ──────────────────────────────────
@@ -64,14 +67,11 @@ function normalizeSpeaker(rawId: number | undefined): string {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
-  const [isRecording,    setIsRecording]    = useState(false);
-  const [micLevel,       setMicLevel]       = useState(0);
-  const [error,          setError]          = useState<string | null>(null);
-  const [audioInfo,      setAudioInfo]      = useState<string>("");
-  const [segments,       setSegments]       = useState<TranscriptSegment[]>([]);
-  // Live streaming text — shown in the bottom row while the speaker is talking
-  const [interimText,    setInterimText]    = useState("");
-  const [interimSpeaker, setInterimSpeaker] = useState("");
+  const [isRecording,   setIsRecording]   = useState(false);
+  const [micLevel,      setMicLevel]      = useState(0);
+  const [error,         setError]         = useState<string | null>(null);
+  const [audioInfo,     setAudioInfo]     = useState<string>("");
+  const [hasTranscript, setHasTranscript] = useState(false);
 
   // Audio / WebSocket infrastructure refs
   const audioCtxRef  = useRef<AudioContext | null>(null);
@@ -82,73 +82,121 @@ export function useTranscription() {
   const sessionIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  // Soniox re-sends ALL prior finals in every message.
-  // finalCountRef tracks how many we've already processed.
-  const finalCountRef     = useRef(0);
-
-  // Buffer for confirmed final tokens, not yet locked into a segment
-  const buildingTextRef    = useRef("");
-  const buildingSpeakerRef = useRef<number | undefined>(undefined);
-  const detectedLangRef    = useRef<string>("en");
+  // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
+  //
+  // Two simple trackers — exactly as described:
+  //   currentSpeakerRef  — raw Soniox speaker ID of the active bubble
+  //   activeBubbleRef    — the <p> element being filled with live text
+  //   activeBubbleNFRef  — the NF suffix <span> inside that <p>
+  //
+  // containerRef is attached to a <div> in workspace.tsx. Every new speaker
+  // bubble is created imperatively and appended directly — no React state,
+  // no arrays, no flush().
+  //
+  const containerRef     = useRef<HTMLDivElement | null>(null);
+  const currentSpeakerRef = useRef<number | undefined>(undefined);
+  const activeBubbleRef   = useRef<HTMLParagraphElement | null>(null);
+  const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);
+  // Soniox re-sends ALL prior final tokens as a prefix in every message.
+  // This counter tracks how many we have already written so we only process
+  // the new tail. Reset to 0 when speaker changes (new bubble = new baseline).
+  const finalCountRef    = useRef(0);
+  // Date.now() of the last processed final token
+  const lastFinalTimeRef = useRef(0);
+  // Detected language of the current live segment ("en", "ar", etc.)
+  const detectedLangRef  = useRef<string>("en");
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
 
-  // ── flushSegment ──────────────────────────────────────────────────────────
-  // Locks the current buffer into the segments list and fires translation.
-  // Discards buffers shorter than 8 chars (noise / single-word artifacts).
-  const flushSegment = useCallback(() => {
-    const text = buildingTextRef.current.trim();
-    if (text.length < 8) {
-      buildingTextRef.current    = "";
-      buildingSpeakerRef.current = undefined;
-      detectedLangRef.current    = "en";
-      return;
+  // ── createBubble — imperatively build one speaker bubble in the DOM ────────
+  const createBubble = useCallback((rawSpeaker: number | undefined): HTMLParagraphElement => {
+    const container = containerRef.current!;
+    const label     = normalizeSpeaker(rawSpeaker);
+
+    const wrapper = document.createElement("div");
+    wrapper.className = CLS.wrapper;
+
+    if (label) {
+      const tag = document.createElement("span");
+      tag.className   = CLS.speakerTag;
+      tag.textContent = label;
+      wrapper.appendChild(tag);
     }
 
-    const speaker      = buildingSpeakerRef.current;
-    const speakerLabel = normalizeSpeaker(speaker);
-    const lang         = detectedLangRef.current;
-    const id           = `seg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const p = document.createElement("p");
+    // Start in "live" style (grey). finalizeLiveBubble() upgrades it to textFin.
+    p.className = CLS.textLive;
 
-    const seg: TranscriptSegment = {
-      id,
-      speaker,
-      speakerLabel,
-      originalText:   text,
-      translatedText: null,
-      timestamp:      Date.now(),
-    };
+    // Two child spans: confirmed text + live NF hypothesis (dimmer italic)
+    const finalSpan = document.createElement("span");
+    const nfSpan    = document.createElement("span");
+    nfSpan.className = CLS.nf;
+    p.appendChild(finalSpan);
+    p.appendChild(nfSpan);
 
-    setSegments(prev => [...prev, seg]);
+    wrapper.appendChild(p);
+    container.appendChild(wrapper);
 
-    // Reset buffer before async work
-    buildingTextRef.current    = "";
-    buildingSpeakerRef.current = undefined;
-    detectedLangRef.current    = "en";
+    activeBubbleNFRef.current = nfSpan;
 
-    // Fire-and-forget translation — patches translatedText on the same row by id
-    void (async () => {
-      try {
-        const r = await fetch("/api/transcription/translate", {
-          method:      "POST",
-          headers:     { "Content-Type": "application/json" },
-          credentials: "include",
-          body:        JSON.stringify({ text, sourceLang: lang }),
-        });
-        if (!r.ok) return;
-        const data = await r.json() as { translation?: string };
-        if (data.translation) {
-          setSegments(prev =>
-            prev.map(s => s.id === id
-              ? { ...s, translatedText: data.translation! }
-              : s
-            )
-          );
-        }
-      } catch { /* translation is best-effort */ }
-    })();
+    // Scroll the transcript panel to the bottom — NOT scrollIntoView (which
+    // would scroll the whole page). Only the panel's scrollable container moves.
+    const scrollEl = container.parentElement;
+    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+
+    return finalSpan as HTMLParagraphElement;
+  }, []);
+
+  // ── finalizeLiveBubble ────────────────────────────────────────────────────
+  // Called when the active speaker changes or recording ends.
+  // 1. Locks the segment style: grey/italic → black/normal
+  // 2. Fires an async translation request and appends the result below.
+  const finalizeLiveBubble = useCallback(() => {
+    if (!activeBubbleRef.current) return;
+
+    // Snapshot text + lang BEFORE clearing NF
+    const confirmedText = activeBubbleRef.current.textContent?.trim() ?? "";
+    const lang          = detectedLangRef.current;
+
+    // Clear NF preview — only confirmed words survive finalization
+    if (activeBubbleNFRef.current) {
+      activeBubbleNFRef.current.textContent = "";
+    }
+
+    // activeBubbleRef IS the finalSpan; its parent is <p>
+    const p       = activeBubbleRef.current.parentElement;
+    const wrapper = p?.parentElement;             // the .mb-4 wrapper div
+    if (p) p.className = CLS.textFin;
+
+    // Reset lang for the next live segment
+    detectedLangRef.current = "en";
+
+    // Fire-and-forget translation — appends a second line below the original
+    if (confirmedText.length > 2 && wrapper) {
+      void (async () => {
+        try {
+          const r = await fetch("/api/transcription/translate", {
+            method:      "POST",
+            headers:     { "Content-Type": "application/json" },
+            credentials: "include",
+            body:        JSON.stringify({ text: confirmedText, sourceLang: lang }),
+          });
+          if (!r.ok) return;
+          const data = await r.json() as { translation?: string };
+          if (data.translation && wrapper.isConnected) {
+            const tp = document.createElement("p");
+            tp.className   = CLS.translation;
+            tp.textContent = data.translation;
+            wrapper.appendChild(tp);
+            // Keep transcript panel scrolled to bottom
+            const scrollEl = containerRef.current?.parentElement;
+            if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+          }
+        } catch { /* silent — translation is best-effort */ }
+      })();
+    }
   }, []);
 
   // ── stop ──────────────────────────────────────────────────────────────────
@@ -157,16 +205,14 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    // Flush any remaining confirmed text
-    flushSegment();
+    // Promote the last live segment to finalized styling before teardown
+    finalizeLiveBubble();
 
-    // Clear live streaming display
-    setInterimText("");
-    setInterimSpeaker("");
-
+    currentSpeakerRef.current  = undefined;
+    activeBubbleRef.current    = null;
+    activeBubbleNFRef.current  = null;
     finalCountRef.current      = 0;
-    buildingTextRef.current    = "";
-    buildingSpeakerRef.current = undefined;
+    lastFinalTimeRef.current   = 0;
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -195,7 +241,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, flushSegment]);
+  }, [stopSessionMut, finalizeLiveBubble]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   const buildWs = useCallback((apiKey: string): WebSocket => {
@@ -222,63 +268,71 @@ export function useTranscription() {
       let msg: SonioxMessage;
       try { msg = JSON.parse(evt.data as string); } catch { return; }
 
-      if (msg.error)    { setError(msg.error); void stop(); return; }
+      if (msg.error) { setError(msg.error); void stop(); return; }
       if (msg.finished) { void stop(); return; }
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      const finals    = tokens.filter(t =>  t.is_final);
-      const nfs       = tokens.filter(t => !t.is_final);
+      // ── FINAL tokens ────────────────────────────────────────────────────
+      //
+      // Soniox re-sends ALL prior finals as a prefix in every message.
+      // Slice off what we've already written — only the new tail matters.
+      //
+      // NF tokens are the model's CURRENT full hypothesis for in-progress speech.
+      // They REPLACE (not add to) the previous NF display — see NF section below.
+      //
+      const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
-      // ── Live streaming display (NF tokens) ───────────────────────────────
-      //
-      // Show confirmed buffer + current hypothesis so the user sees text
-      // instantly as they speak. Clears automatically when NF tokens stop.
-      //
-      const nfText = nfs.map(t => t.text).join("");
-      const liveText = (buildingTextRef.current + nfText).trim();
-      if (liveText) {
-        const liveSpeakerId = nfs[0]?.speaker ?? buildingSpeakerRef.current;
-        setInterimText(liveText);
-        setInterimSpeaker(normalizeSpeaker(liveSpeakerId));
-      } else {
-        setInterimText("");
-        setInterimSpeaker("");
-      }
+      // Track detected language from final tokens — used for translation
+      const langToken = newFinals.find(t => t.language) ?? finals.find(t => t.language);
+      if (langToken?.language) detectedLangRef.current = langToken.language;
 
-      // ── Final tokens — accumulate into buffer ─────────────────────────
-      if (newFinals.length > 0) {
-        const langToken = newFinals.find(t => t.language);
-        if (langToken?.language) detectedLangRef.current = langToken.language;
-
-        for (const token of newFinals) {
-          // Speaker changed — flush current buffer as a locked segment
-          if (
-            buildingSpeakerRef.current !== undefined &&
-            token.speaker !== buildingSpeakerRef.current
-          ) {
-            flushSegment();
-          }
-          // Set speaker when buffer was just flushed (empty) or on first token
-          if (buildingSpeakerRef.current === undefined) {
-            buildingSpeakerRef.current = token.speaker;
-          }
-          buildingTextRef.current += token.text;
+      for (const token of newFinals) {
+        // Speaker changed (or first token ever) → finalize the current live
+        // segment, then open a new one. Text grows in place within a segment.
+        if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
+          finalizeLiveBubble();                    // grey/italic → black, clears NF
+          currentSpeakerRef.current = token.speaker;
+          finalCountRef.current     = finals.length - newFinals.length +
+            newFinals.indexOf(token);
+          activeBubbleRef.current = createBubble(token.speaker); // scrolls panel once
+          setHasTranscript(true);
         }
 
-        finalCountRef.current = finals.length;
+        // Append confirmed text to the live span
+        activeBubbleRef.current.textContent =
+          (activeBubbleRef.current.textContent ?? "") + token.text;
       }
 
-      // ── Phrase-complete signal ────────────────────────────────────────
+      // Update final count to include everything processed this message
+      finalCountRef.current = finals.length;
+
+      // Scroll panel to bottom so growing live text stays visible
+      const scrollEl = containerRef.current?.parentElement;
+      if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+
+      // ── NF (non-final) tokens ─────────────────────────────────────────
       //
-      // When Soniox sends a message that has final tokens but NO NF tokens,
-      // the model has fully committed the current utterance — no more live
-      // hypothesis is outstanding. This is the natural flush boundary.
+      // NF tokens = the model's LIVE hypothesis for speech still in progress.
+      // Each message's NF set REPLACES the previous one (not additive).
+      // Write the whole suffix directly to the NF span — no append, just assign.
       //
-      if (newFinals.length > 0 && nfs.length === 0) {
-        flushSegment();
+      const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      if (activeBubbleNFRef.current) {
+        activeBubbleNFRef.current.textContent = nfText;
+      } else if (nfText && containerRef.current) {
+        // First tokens are NF before any final arrives — create the bubble now
+        if (!activeBubbleRef.current) {
+          const spk = tokens.find(t => t.speaker !== undefined)?.speaker;
+          currentSpeakerRef.current = spk;
+          activeBubbleRef.current   = createBubble(spk);
+          setHasTranscript(true);
+        }
+        if (activeBubbleNFRef.current) {
+          activeBubbleNFRef.current.textContent = nfText;
+        }
       }
     };
 
@@ -292,34 +346,36 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, flushSegment]);
+  }, [stop, createBubble, finalizeLiveBubble]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
       setAudioInfo("");
-      setInterimText("");
-      setInterimSpeaker("");
-      finalCountRef.current      = 0;
-      buildingTextRef.current    = "";
-      buildingSpeakerRef.current = undefined;
-      detectedLangRef.current    = "en";
+      currentSpeakerRef.current = undefined;
+      activeBubbleRef.current   = null;
+      activeBubbleNFRef.current = null;
+      finalCountRef.current     = 0;
+      lastFinalTimeRef.current  = 0;
+      detectedLangRef.current   = "en";
       resetSpeakerMap();
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tokenRes   = await (getTokenMut.mutateAsync as any)();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sessionRes = await (startSessionMut.mutateAsync as any)();
+      const tokenRes   = await getTokenMut.mutateAsync({});
+      const sessionRes = await startSessionMut.mutateAsync({});
       sessionIdRef.current = sessionRes.sessionId;
       startTimeRef.current = Date.now();
 
+      // Use native AudioContext without a forced sample rate — let the browser
+      // pick the device's native rate. The pcm-processor downsamples to 16 kHz.
       const AudioContextCtor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new AudioContextCtor();
       audioCtxRef.current = ctx;
 
+      // Browsers inside iframes often start AudioContext in "suspended" state.
+      // Must resume inside the user-gesture call stack.
       if (ctx.state === "suspended") await ctx.resume();
 
       setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz`);
@@ -328,7 +384,7 @@ export function useTranscription() {
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId:          deviceId ? { exact: deviceId } : undefined,
+          deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation:  false,
           noiseSuppression:  false,
           autoGainControl:   false,
@@ -337,6 +393,7 @@ export function useTranscription() {
       });
       streamsRef.current.push(stream);
 
+      // apiKey field — the API returns { apiKey } not { token }
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
@@ -357,11 +414,16 @@ export function useTranscription() {
         const pcm = e.data as ArrayBuffer;
         chunkCount++;
         const wsState = wsRef.current?.readyState;
+
         if (chunkCount % 50 === 1) {
-          console.log(`[Worklet] chunk #${chunkCount} — ${pcm.byteLength}B — WS: ${wsState}`);
+          console.log(`[Worklet] chunk #${chunkCount} — ${pcm.byteLength}B — WS state: ${wsState}`);
         }
-        if (wsState === WebSocket.OPEN) wsRef.current!.send(pcm);
-        // VU meter
+
+        if (wsState === WebSocket.OPEN) {
+          wsRef.current!.send(pcm);
+        }
+
+        // VU meter — read from the transferred buffer (still valid after ws.send)
         const samples = new Int16Array(pcm);
         let sum = 0;
         for (let i = 0; i < samples.length; i++) {
@@ -381,32 +443,24 @@ export function useTranscription() {
     }
   }, [getTokenMut, startSessionMut, buildWs, stop]);
 
-  // ── clear ─────────────────────────────────────────────────────────────────
-  const clear = useCallback(() => {
-    setSegments([]);
-    setInterimText("");
-    setInterimSpeaker("");
-    buildingTextRef.current    = "";
-    buildingSpeakerRef.current = undefined;
-    finalCountRef.current      = 0;
-    resetSpeakerMap();
-  }, []);
-
-  // Scroll sentinel — workspace watches segments.length via this ref
-  const segmentsLengthRef = useRef(0);
-  useEffect(() => { segmentsLengthRef.current = segments.length; }, [segments.length]);
-
   return {
-    segments,
-    interimText,
-    interimSpeaker,
     isRecording,
     audioInfo,
     micLevel,
     error,
+    hasTranscript,
+    containerRef,
     start,
     stop,
-    clear,
+    clear: () => {
+      currentSpeakerRef.current = undefined;
+      activeBubbleRef.current   = null;
+      activeBubbleNFRef.current = null;
+      finalCountRef.current     = 0;
+      if (containerRef.current) containerRef.current.innerHTML = "";
+      setHasTranscript(false);
+      resetSpeakerMap();
+    },
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }

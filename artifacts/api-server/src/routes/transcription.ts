@@ -5,13 +5,10 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
 
-// Use OPENAI_API_KEY directly if set; otherwise fall back to the Replit AI integration proxy
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : new OpenAI({
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
-    });
+const openai = new OpenAI({
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
+});
 
 const router = Router();
 
@@ -112,31 +109,30 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 });
 
 // ── POST /translate ────────────────────────────────────────────────────────
-// Translates a finalized transcript segment using gpt-4o-mini.
-// Auto-detects language and translates: EN↔AR.
+// Translates a finalized transcript segment using GPT.
+// sourceLang: "en" | "ar" (or any BCP-47 code Soniox returns)
+// Automatically picks the opposite language as target.
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text } = req.body as { text?: string; sourceLang?: string };
+  const { text, sourceLang } = req.body as { text?: string; sourceLang?: string };
   if (!text || typeof text !== "string" || text.trim().length < 2) {
     res.status(400).json({ error: "text is required" });
     return;
   }
 
-  const prompt = `Translate the following speech segment.
-
-Detect the language automatically.
-If the text is English translate it into Arabic.
-If the text is Arabic translate it into English.
-
-Return ONLY the translation.
-Do not add explanations.
-
-Text:
-${text.trim()}`;
+  const src = (sourceLang ?? "en").toLowerCase();
+  const tgt = src === "ar" ? "English" : "Arabic";
+  const srcName = src === "ar" ? "Arabic" : "English";
 
   try {
     const resp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
+      model: "gpt-5-nano",
+      messages: [
+        {
+          role: "system",
+          content: `You are a professional interpreter. Translate the ${srcName} text to ${tgt}. Return ONLY the translation — no explanations, no quotes, no commentary.`,
+        },
+        { role: "user", content: text.trim() },
+      ],
       max_completion_tokens: 512,
     });
     const translation = resp.choices[0]?.message?.content?.trim() ?? "";

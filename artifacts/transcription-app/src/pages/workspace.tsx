@@ -5,11 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check, Loader2
+  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
-import { useTranscription, type TranscriptSegment } from "@/hooks/use-transcription";
+import { useTranscription } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { formatMinutes } from "@/lib/utils";
@@ -34,7 +34,7 @@ const LANG_OPTIONS = [
   { value: "uk",    label: "Ukrainian" },
 ];
 
-// ── Copy button — shown on row hover ──────────────────────────────────────────
+// ── Copy button — appears on hover ────────────────────────────────────────────
 function CopyBtn({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   const copy = () => {
@@ -45,54 +45,13 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       onClick={copy}
-      className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-black/8 text-muted-foreground/50 hover:text-foreground"
+      className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1.5 p-0.5 rounded hover:bg-black/8 text-muted-foreground/60 hover:text-foreground flex-shrink-0 align-middle"
       title="Copy to clipboard"
     >
       {done
         ? <Check className="w-3 h-3 text-green-500" />
         : <Copy className="w-3 h-3" />}
     </button>
-  );
-}
-
-// ── Segment row — one locked interpreter row ───────────────────────────────────
-function SegmentRow({ seg }: { seg: TranscriptSegment }) {
-  return (
-    <div className="group grid grid-cols-2 border-b border-border/30 last:border-b-0 hover:bg-muted/20 transition-colors">
-      {/* LEFT: Original */}
-      <div className="px-5 py-3.5 border-r border-border/30 flex flex-col gap-1 min-w-0">
-        {seg.speakerLabel && (
-          <span className="inline-flex w-fit items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide uppercase bg-blue-50 text-blue-500 border border-blue-100 mb-0.5">
-            {seg.speakerLabel}
-          </span>
-        )}
-        <div className="flex items-start gap-1.5 min-w-0">
-          <span className="text-[13.5px] leading-relaxed text-foreground font-medium flex-1 min-w-0 break-words">
-            {seg.originalText}
-          </span>
-          <CopyBtn text={seg.originalText} />
-        </div>
-      </div>
-
-      {/* RIGHT: Translation */}
-      <div className="px-5 py-3.5 flex items-start gap-1.5 min-w-0">
-        {seg.translatedText ? (
-          <>
-            <span
-              className="text-[13.5px] leading-relaxed text-foreground flex-1 min-w-0 break-words"
-              dir={/[\u0600-\u06FF]/.test(seg.translatedText) ? "rtl" : "ltr"}
-            >
-              {seg.translatedText}
-            </span>
-            <CopyBtn text={seg.translatedText} />
-          </>
-        ) : (
-          <span className="text-[11px] text-muted-foreground/40 italic animate-pulse mt-0.5">
-            Translating…
-          </span>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -113,15 +72,14 @@ export default function Workspace() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
-  const scrollEndRef   = useRef<HTMLDivElement>(null);
-  const hasContent     = transcription.segments.length > 0 || !!transcription.interimText;
+  const scrollEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when a new segment or interim text appears
+  // Scroll into view when transcription starts (container appears)
   useEffect(() => {
-    if (hasContent) {
-      scrollEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (transcription.isRecording) {
+      scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [transcription.segments.length, transcription.interimText, hasContent]);
+  }, [transcription.isRecording]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -221,7 +179,7 @@ export default function Workspace() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => transcription.clear()}
-              disabled={transcription.isRecording || !hasContent}
+              disabled={transcription.isRecording || !transcription.hasTranscript}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -263,73 +221,46 @@ export default function Workspace() {
         <div className="flex-1 p-4 min-h-0 overflow-hidden">
           <div className="h-full bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
-            {/* Column headers */}
-            <div className="shrink-0 grid grid-cols-2 border-b border-border bg-muted/20">
-              <div className="h-10 flex items-center gap-3 px-5 border-r border-border">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                  Original
+            {/* Transcript header */}
+            <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-3 px-4 shrink-0">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
+                Transcript
+              </span>
+              {transcription.audioInfo && (
+                <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
+                  {transcription.audioInfo}
                 </span>
-                {transcription.audioInfo && (
-                  <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
-                    {transcription.audioInfo}
-                  </span>
-                )}
-                {transcription.isRecording && (
-                  <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
-                    <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                    Listening
-                  </span>
-                )}
-              </div>
-              <div className="h-10 flex items-center px-5">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Translation
+              )}
+              {transcription.isRecording && (
+                <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
+                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                  Listening
                 </span>
-              </div>
+              )}
             </div>
 
-            {/* Scrollable rows */}
-            <div className="flex-1 overflow-y-auto relative">
-              {!hasContent ? (
+            {/* Scrollable transcript area
+                containerRef is always mounted so the hook can imperatively
+                append speaker bubbles the instant tokens arrive.
+                The empty-state overlay sits on top until the first bubble appears. */}
+            <div className="flex-1 overflow-y-auto p-5 relative">
+              {/* Direct-to-DOM transcript container — React never touches contents */}
+              <div ref={transcription.containerRef} />
+
+              {/* Empty state — absolute overlay, hidden once content exists */}
+              {!transcription.hasTranscript && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground pointer-events-none">
                   <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    English ↔ Arabic detected automatically
+                    English or Arabic — both detected automatically
                   </p>
                 </div>
-              ) : (
-                <div>
-                  {/* Locked final segments */}
-                  {transcription.segments.map(seg => (
-                    <SegmentRow key={seg.id} seg={seg} />
-                  ))}
-
-                  {/* Live streaming row — shows NF hypothesis while speaker is talking */}
-                  {transcription.interimText && (
-                    <div className="grid grid-cols-2 border-b border-border/20 bg-blue-50/30">
-                      <div className="px-5 py-3 border-r border-border/20 flex flex-col gap-1 min-w-0">
-                        {transcription.interimSpeaker && (
-                          <span className="inline-flex w-fit items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide uppercase bg-blue-50 text-blue-400 border border-blue-100 mb-0.5 opacity-70">
-                            {transcription.interimSpeaker}
-                          </span>
-                        )}
-                        <span className="text-[13.5px] leading-relaxed text-muted-foreground/60 italic break-words">
-                          {transcription.interimText}
-                        </span>
-                      </div>
-                      <div className="px-5 py-3 flex items-center gap-1.5">
-                        <Loader2 className="w-3 h-3 text-muted-foreground/30 animate-spin shrink-0" />
-                        <span className="text-[11px] text-muted-foreground/30 italic">listening…</span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div ref={scrollEndRef} />
-                </div>
               )}
+
+              <div ref={scrollEndRef} />
             </div>
           </div>
         </div>
@@ -357,7 +288,7 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* ROW 2: Language pair + record button */}
+          {/* ROW 2: Translation pair + record button */}
           <div className="flex items-center px-4 py-3 gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate</span>
@@ -413,7 +344,7 @@ export default function Workspace() {
               )}
             </div>
 
-            {/* Mirror spacer to keep record button centred */}
+            {/* Spacer to keep record button centred */}
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
               <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
               <div className="h-9 w-[130px]" />
