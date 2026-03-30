@@ -296,13 +296,10 @@ export function useTranscription() {
     activeSegSpeakerRef.current         = undefined;
     segStartMsRef.current               = 0;       // no segment open until next token
 
-    // Clear the live DOM spans immediately so the text doesn't linger in the
-    // active bubble while React schedules the finalized row render.
-    if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
-    if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
-    // Null out refs — any tokens arriving before React re-renders the new bubble
-    // will see null refs and skip DOM writes (safe no-op).  The new bubble's
-    // ref callbacks will reassign these when it mounts.
+    // Null refs so in-flight token writes skip the old span (no-op).
+    // Do NOT set textContent = "" — that clears the bubble synchronously and
+    // produces a visible blank frame before React can render the finalized row.
+    // React will unmount the old span atomically with mounting the finalized row.
     activeFinalSpanRef.current = null;
     activeNFSpanRef.current    = null;
 
@@ -358,8 +355,6 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
-    if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
     activeFinalSpanRef.current = null;
     activeNFSpanRef.current    = null;
     speakerHistoryRef.current           = [];
@@ -501,8 +496,6 @@ export function useTranscription() {
       // confirmed finals + current NF suffix written in one assignment.
       const liveText = finalBufRef.current + nfSuffix;
       if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = liveText;
-      // NF span cleared — we show everything in one span now.
-      if (activeNFSpanRef.current) activeNFSpanRef.current.textContent = "";
 
       // Structural React update — only when the bubble needs to open.
       if (liveText) {
@@ -575,8 +568,6 @@ export function useTranscription() {
       setError(null);
       setActivePreviewLine(null);
       setAudioInfo("");
-      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
-      if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
       activeFinalSpanRef.current = null;
       activeNFSpanRef.current    = null;
       finalBufRef.current         = "";
@@ -688,8 +679,6 @@ export function useTranscription() {
     start,
     stop,
     clear: () => {
-      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
-      if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
       activeFinalSpanRef.current = null;
       activeNFSpanRef.current    = null;
       setFinalizedSegments([]);
