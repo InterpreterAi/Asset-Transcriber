@@ -154,14 +154,19 @@ export function useTranscription() {
   // liveBufferRef: full text of the active segment (finals + current NF).
   // Updated on every Soniox message; read by the translation interval.
   const liveBufferRef          = useRef<string>("");
-  // lastTranslatedBuffer: text most recently sent to the translation API.
-  // The interval skips fetching when the buffer hasn't changed.
+  // lastTranslatedBuffer: text most recently SENT to the translation API.
+  // The interval skips fetching when the buffer hasn't changed since last dispatch.
   const lastTranslatedBuffer   = useRef<string>("");
-  // Version counter. Incremented on every dispatch; concurrent requests
-  // that complete out-of-order are discarded when their version is stale.
-  // Also incremented on bubble change / stop / clear to drop all in-flight
-  // requests that belong to a previous segment.
+  // Monotonic dispatch counter — incremented on every dispatch call and
+  // whenever we switch to a new bubble / stop / clear. Used to discard
+  // out-of-order responses (an older request arriving after a newer one
+  // has already been shown).
   const translationVersionRef  = useRef(0);
+  // Highest dispatch version whose result was actually written to the DOM.
+  // A response is accepted only when myVersion > lastShownVersionRef.current.
+  // This lets every in-flight request show its result as long as no newer
+  // result has already arrived — giving continuous updates during speech.
+  const lastShownVersionRef    = useRef(0);
   // setInterval handle for the streaming translation poll.
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Whether the current bubble's <p> has been upgraded to the finalized style.
@@ -182,11 +187,13 @@ export function useTranscription() {
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Fires a translation request for `text`. Requests run concurrently — the
-  // version counter ensures only the response that corresponds to the highest
-  // dispatch number (i.e. the latest text) is written to the DOM. Responses
-  // for older dispatches are silently discarded. This lets every 700 ms tick
-  // produce a visible update without one request blocking the next.
+  // Fires a translation request for `text`. Requests run concurrently.
+  // A monotonic gate (lastShownVersionRef) ensures:
+  //   • Any response newer than the last shown result is accepted immediately.
+  //   • Out-of-order responses (older arriving after newer) are discarded.
+  // This gives continuous visible updates during ongoing speech — each
+  // ~700 ms poll that returns while newer requests are still in-flight still
+  // gets written to the DOM, rather than waiting for a pause in speech.
   const dispatchTranslation = useCallback((text: string, lang: string) => {
     const transTextEl  = activeTransTextRef.current;
     const copyTransBtn = activeCopyTransRef.current;
@@ -199,8 +206,14 @@ export function useTranscription() {
     void (async () => {
       try {
         const translated = await fetchTranslation(text, lang);
-        // Discard if a newer dispatch has already won or the DOM is gone
-        if (translationVersionRef.current !== myVersion || !translated || !transTextEl.isConnected) return;
+
+        // Monotonic gate: accept this result only if it is newer than the
+        // last result already shown AND the DOM element is still mounted.
+        // This means any request that completes before a newer one has
+        // already been written will still show — giving continuous updates
+        // during ongoing speech rather than waiting for a pause.
+        if (myVersion <= lastShownVersionRef.current || !translated || !transTextEl.isConnected) return;
+        lastShownVersionRef.current = myVersion;
 
         const isArabic = /[\u0600-\u06FF]/.test(translated);
         transTextEl.dir             = isArabic ? "rtl" : "ltr";
@@ -303,8 +316,9 @@ export function useTranscription() {
     container.appendChild(row);
 
     // Update active refs for this bubble.
-    // Increment the version so any in-flight requests for the previous bubble
-    // are discarded when they eventually resolve.
+    // Advance translationVersionRef so in-flight requests from the previous
+    // bubble are discarded (their version will be ≤ lastShownVersionRef).
+    // Reset lastShownVersionRef so the new bubble accepts the first response.
     activeBubbleNFRef.current    = nfSpan;
     activeTransTextRef.current   = transTextP;
     activeCopyTransRef.current   = copyTransBtn;
@@ -313,6 +327,7 @@ export function useTranscription() {
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
     translationVersionRef.current += 1;
+    lastShownVersionRef.current   = translationVersionRef.current;
 
     scrollPanel(true);
     return finalSpan;
@@ -510,7 +525,8 @@ export function useTranscription() {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
-      translationVersionRef.current += 1;  // drop any in-flight requests from a previous session
+      translationVersionRef.current += 1;
+      lastShownVersionRef.current   = translationVersionRef.current;  // fresh gate for new session
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -600,7 +616,8 @@ export function useTranscription() {
     stop,
     clear: () => {
       stopTranslationInterval();
-      translationVersionRef.current += 1;  // drop all in-flight requests
+      translationVersionRef.current += 1;
+      lastShownVersionRef.current   = translationVersionRef.current;  // invalidate all in-flight
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
       activeBubbleNFRef.current    = null;
