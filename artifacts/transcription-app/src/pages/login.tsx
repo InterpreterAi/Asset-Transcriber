@@ -43,7 +43,7 @@ export default function Login() {
           <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-border">
             <Mic2 className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-display font-semibold text-foreground mb-2 tracking-tight">InterpretAI</h1>
+          <h1 className="text-3xl font-display font-semibold text-foreground mb-2 tracking-tight">InterpreterAI</h1>
           <p className="text-muted-foreground text-sm">Professional Transcription & Translation</p>
         </div>
 

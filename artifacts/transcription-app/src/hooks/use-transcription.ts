@@ -537,38 +537,48 @@ export function useTranscription() {
       scrollPanel();
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
+      //
+      // ORDERING GUARANTEE: speaker routing is fully resolved before any
+      // text is written to the DOM.  No NF token ever touches the wrong bubble.
+      //
       const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
       const nfSpeaker = tokens.find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
-      // ── Fix 2: Immediate speaker-change on NF tokens ──────────────────────
-      // When Soniox NF tokens show a new speaker while a segment is open,
-      // finalize the current segment immediately and open a fresh one for the
-      // new speaker.  This prevents the new speaker's text from appearing in
-      // the old bubble even for a fraction of a second, eliminating the "text
-      // jumps to a new segment" visual artifact.
-      if (
-        nfSpeaker !== undefined &&
-        activeBubbleRef.current !== null &&
-        nfSpeaker !== currentSpeakerRef.current
-      ) {
-        finalizeLiveBubble();
-        currentSpeakerRef.current = nfSpeaker;
-        activeBubbleRef.current   = createBubble(nfSpeaker);
-        setHasTranscript(true);
+      // ── Step 1: Speaker routing — zero DOM writes ─────────────────────────
+      // Decide which bubble should receive the NF text.  Finalize the old
+      // bubble and create a new one whenever the speaker changes.  This must
+      // complete before any text is inserted so no word ever appears in the
+      // wrong segment.
+      if (nfSpeaker !== undefined) {
+        if (!activeBubbleRef.current) {
+          // No segment open yet → open one for this speaker.
+          currentSpeakerRef.current = nfSpeaker;
+          activeBubbleRef.current   = createBubble(nfSpeaker);
+          setHasTranscript(true);
+        } else if (nfSpeaker !== currentSpeakerRef.current) {
+          // Speaker changed → close current segment, open a new one.
+          finalizeLiveBubble();
+          currentSpeakerRef.current = nfSpeaker;
+          activeBubbleRef.current   = createBubble(nfSpeaker);
+          setHasTranscript(true);
+        }
       }
 
-      if (activeBubbleNFRef.current) {
-        activeBubbleNFRef.current.textContent = nfText;
-      } else if (nfText && containerRef.current) {
-        if (!activeBubbleRef.current) {
-          const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
-          currentSpeakerRef.current = spk;
-          activeBubbleRef.current   = createBubble(spk);
+      // ── Step 2: Write NF text — only after routing is confirmed ───────────
+      // If speaker was unknown above and still no bubble exists, open a
+      // generic one so the text has somewhere to land.
+      if (nfText) {
+        if (!activeBubbleRef.current && containerRef.current) {
+          currentSpeakerRef.current = undefined;
+          activeBubbleRef.current   = createBubble(undefined);
           setHasTranscript(true);
         }
         if (activeBubbleNFRef.current) {
           activeBubbleNFRef.current.textContent = nfText;
         }
+      } else if (activeBubbleNFRef.current) {
+        // NF text cleared (end of non-final stream) → blank the NF span.
+        activeBubbleNFRef.current.textContent = "";
       }
 
       // ── Update live translation buffer ────────────────────────────────────

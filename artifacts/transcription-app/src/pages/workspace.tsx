@@ -178,7 +178,7 @@ export default function Workspace() {
         {/* HEADER */}
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-5 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
+            <span className="font-bold text-[15px] tracking-tight">InterpreterAI</span>
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
               {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
