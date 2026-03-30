@@ -602,6 +602,8 @@ export function useTranscription() {
     // Text appears on screen the instant Soniox delivers each token.
     //
     ws.onmessage = (e: MessageEvent) => {
+      // Diagnostic: log every raw message from Soniox so we can see the real data.
+      console.log("[WS] raw message:", typeof e.data === "string" ? e.data.slice(0, 300) : e.data);
       try {
         const msg = JSON.parse(e.data as string) as SonioxMessage;
 
@@ -620,6 +622,7 @@ export function useTranscription() {
         }
 
         const tokens = msg.tokens ?? [];
+        console.log("[WS] tokens in message:", tokens.length, tokens.map(t => `${t.is_final ? "F" : "nf"}:"${t.text}"(spk${t.speaker})`).join(" "));
         if (tokens.length === 0) return;
 
         // Process immediately — no buffer wait.
