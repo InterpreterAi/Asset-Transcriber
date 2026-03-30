@@ -227,20 +227,23 @@ export function useTranscription() {
   // 0 = no segment is open.
   const segStartMsRef = useRef<number>(0);
 
-  // ── Word-by-word animation ─────────────────────────────────────────────────
-  // Instead of showing all tokens in a batch at once, we drip-feed each new
-  // final word one per requestAnimationFrame (~16ms).  This gives the smooth
-  // word-by-word appearance even when Soniox delivers multiple tokens per message.
+  // ── Direct DOM refs for zero-latency text rendering ───────────────────────
+  // React's state updates are batched and scheduled — they can lag real-time
+  // token arrival by one or more frames.  For the live transcription text we
+  // write DIRECTLY to two <span> DOM elements without going through React:
   //
-  // pendingWordsRef:   queue of new final words waiting to be shown on screen.
-  // displayedFinalRef: the final text currently visible (lags finalBufRef by
-  //                    the queue depth, ≤ a few frames).
-  // currentNfRef:      the latest non-final suffix (updated instantly; no queue).
-  // rafIdRef:          handle for the in-flight rAF loop; null when idle.
-  const pendingWordsRef   = useRef<string[]>([]);
-  const displayedFinalRef = useRef<string>("");
-  const currentNfRef      = useRef<string>("");
-  const rafIdRef          = useRef<number | null>(null);
+  //   activeFinalSpanRef  — confirmed (final) text; normal weight, full opacity.
+  //   activeNFSpanRef     — live interim suffix (non-final); italic, 55% opacity.
+  //
+  // The spans are empty shell elements rendered by <ActiveBubble> in workspace.tsx.
+  // workspace.tsx connects them via ref callbacks when the bubble mounts and
+  // disconnects (sets null) when it unmounts.  All text writes check for null.
+  //
+  // React state (activePreviewLine) still controls STRUCTURE: whether a bubble
+  // is visible at all, which speaker label it shows, and the language direction.
+  // Text content is never stored in React state — only in these DOM refs.
+  const activeFinalSpanRef = useRef<HTMLSpanElement | null>(null);
+  const activeNFSpanRef    = useRef<HTMLSpanElement | null>(null);
 
   // ── Speaker tracking ───────────────────────────────────────────────────────
   // No stability window — speaker changes are instant.  When a final token
@@ -293,20 +296,16 @@ export function useTranscription() {
     activeSegSpeakerRef.current         = undefined;
     segStartMsRef.current               = 0;       // no segment open until next token
 
-    // Cancel any in-flight word-by-word animation and reset display buffers
-    // so the next segment starts with a clean slate.
-    if (rafIdRef.current != null) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-    pendingWordsRef.current   = [];
-    displayedFinalRef.current = "";
-    currentNfRef.current      = "";
+    // Clear the live DOM spans immediately so the text doesn't linger in the
+    // active bubble while React schedules the finalized row render.
+    if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
+    if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
+    // Null out refs — any tokens arriving before React re-renders the new bubble
+    // will see null refs and skip DOM writes (safe no-op).  The new bubble's
+    // ref callbacks will reassign these when it mounts.
+    activeFinalSpanRef.current = null;
+    activeNFSpanRef.current    = null;
 
-    // Clear the live preview immediately — setFinalizedSegments and
-    // setActivePreviewLine(null) are batched into a single React render, so the
-    // text moves from the italic preview row to the full-weight finalized row
-    // atomically.  No blank flash occurs.
     setActivePreviewLine(null);
 
     const speakerLabel = normalizeSpeaker(stableSpeaker);
@@ -359,8 +358,10 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
-    pendingWordsRef.current = []; displayedFinalRef.current = ""; currentNfRef.current = "";
+    if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
+    if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
+    activeFinalSpanRef.current = null;
+    activeNFSpanRef.current    = null;
     speakerHistoryRef.current           = [];
     activeSegSpeakerRef.current         = undefined;
     globalFinalCountRef.current         = 0;
@@ -558,51 +559,38 @@ export function useTranscription() {
         langRef.current = detectLang(newFinalToks, langRef.current);
       }
 
-      // ── Word-by-word animation ─────────────────────────────────────────────
-      // Non-final tokens: update the live suffix immediately (no queue).
-      // Final tokens: enqueue each new word and drip-feed them onto screen
-      //   one per requestAnimationFrame so words appear individually, never
-      //   as a sudden block, regardless of how many arrived in this batch.
+      // ── Direct DOM writes — zero-latency rendering ────────────────────────
+      // Instead of going through React state (which schedules a batched render),
+      // we write directly to the two DOM spans.  This fires the moment onmessage
+      // delivers the data — no scheduler, no diffing, no batching.
       //
-      // No setTimeout anywhere — rendering uses only rAF for timing.
+      // activeFinalSpanRef  → confirmed text accumulated so far (final tokens).
+      // activeNFSpanRef     → live Soniox hypothesis (non-final suffix).
+      //
+      // React state (activePreviewLine) is updated ONLY when the STRUCTURE of the
+      // bubble changes: first token opens the bubble, speaker/lang changes, flush
+      // closes it.  The text inside the spans is never in React state.
 
-      // Always update the NF suffix immediately so Soniox's live guess stays
-      // current.  This shows word-by-word as Soniox streams its hypothesis.
-      currentNfRef.current = nfText;
-
-      // Queue new final words for per-frame animation.
-      for (const tok of newFinalToks) {
-        pendingWordsRef.current.push(tok.text);
+      // Step A: Write final text to DOM.  Append each newly confirmed word.
+      if (newFinalToks.length > 0 && activeFinalSpanRef.current) {
+        activeFinalSpanRef.current.textContent = finalBufRef.current;
       }
 
-      // Kick off the animation loop if it's not already running.
-      const runAnimation = () => {
-        const word = pendingWordsRef.current.shift();
-        if (word !== undefined) {
-          displayedFinalRef.current += word;
-        }
-        const text = (displayedFinalRef.current + currentNfRef.current).trim();
-        if (text) {
-          setActivePreviewLine({
-            text,
-            language:     langRef.current,
-            speakerLabel: normalizeSpeaker(speakerRef.current),
-          });
-        } else {
-          setActivePreviewLine(null);
-        }
+      // Step B: Overwrite NF span with the latest live hypothesis.
+      if (activeNFSpanRef.current) {
+        activeNFSpanRef.current.textContent = nfText;
+      }
 
-        if (pendingWordsRef.current.length > 0) {
-          rafIdRef.current = requestAnimationFrame(runAnimation);
-        } else {
-          rafIdRef.current = null;
-        }
-      };
-
-      // Only start a new rAF chain if one isn't already running.
-      // The in-flight chain will drain the queue on its own.
-      if (rafIdRef.current == null && (pendingWordsRef.current.length > 0 || nfText)) {
-        rafIdRef.current = requestAnimationFrame(runAnimation);
+      // Step C: Open (or update) the React bubble structure when needed.
+      // This is only state-driven so it's deferred — the DOM already shows text.
+      const bubbleLabel    = normalizeSpeaker(speakerRef.current);
+      const bubbleLang     = langRef.current;
+      const hasVisibleText = finalBufRef.current.length > 0 || nfText.length > 0;
+      if (hasVisibleText) {
+        setActivePreviewLine(prev => {
+          if (prev?.speakerLabel === bubbleLabel && prev?.language === bubbleLang) return prev;
+          return { text: "", speakerLabel: bubbleLabel, language: bubbleLang };
+        });
       }
     };
 
@@ -666,8 +654,10 @@ export function useTranscription() {
       setError(null);
       setActivePreviewLine(null);
       setAudioInfo("");
-      if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
-      pendingWordsRef.current = []; displayedFinalRef.current = ""; currentNfRef.current = "";
+      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
+      if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
+      activeFinalSpanRef.current = null;
+      activeNFSpanRef.current    = null;
       finalBufRef.current         = "";
       globalFinalCountRef.current         = 0;
       activeSegSpeakerRef.current         = undefined;
@@ -772,11 +762,15 @@ export function useTranscription() {
     activePreviewLine,
     micLevel,
     error,
+    activeFinalSpanRef,
+    activeNFSpanRef,
     start,
     stop,
     clear: () => {
-      if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
-      pendingWordsRef.current = []; displayedFinalRef.current = ""; currentNfRef.current = "";
+      if (activeFinalSpanRef.current) activeFinalSpanRef.current.textContent = "";
+      if (activeNFSpanRef.current)    activeNFSpanRef.current.textContent    = "";
+      activeFinalSpanRef.current = null;
+      activeNFSpanRef.current    = null;
       setFinalizedSegments([]);
       setActivePreviewLine(null);
       finalBufRef.current         = "";
