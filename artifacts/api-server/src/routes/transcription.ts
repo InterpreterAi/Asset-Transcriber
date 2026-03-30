@@ -174,6 +174,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   try {
     const resp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
+      temperature: 0,
       messages: [
         {
           role: "system",
