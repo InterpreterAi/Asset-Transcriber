@@ -10,7 +10,7 @@ const TRANSLATION_POLL_MS = 700;
 const STABILIZE_RATIO     = 1.15;
 // After this many ms with no new tokens, the active segment is finalized and
 // the next speech will start in a fresh bubble.
-const SILENCE_MS          = 1200;
+const SILENCE_MS          = 900;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -398,10 +398,20 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
   // final translation. isFinal=true bypasses the stabilization check.
+  //
+  // IMPORTANT: If there is still NF (grey) text in the NF span when this fires
+  // (e.g. STOP pressed mid-speech), commit that text into the final span first
+  // so it is never lost. Only then clear the NF span.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
     if (activeBubbleNFRef.current) {
+      const nfContent = activeBubbleNFRef.current.textContent ?? "";
+      if (nfContent.trim()) {
+        // Preserve NF text by committing it to the finalized span.
+        activeBubbleRef.current.textContent =
+          (activeBubbleRef.current.textContent ?? "") + nfContent;
+      }
       activeBubbleNFRef.current.textContent = "";
     }
 
