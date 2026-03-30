@@ -5,9 +5,9 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const TRANSLATION_POLL_MS = 700;
-// A new translation is accepted during live speech only if it is at least
-// this much longer than the last shown translation (prevents constant rewrites).
-const STABILIZE_RATIO     = 1.15;
+// Minimum new characters in the source transcript before triggering a translation
+// during live speech (prevents API calls for tiny 1-2 char deltas).
+const MIN_NEW_CHARS       = 3;
 // How long a gap in incoming tokens (ms) triggers automatic segment finalization.
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
@@ -154,7 +154,8 @@ interface BubbleTransState {
   copyTransBtn: HTMLButtonElement;
   seq:          number;  // incremented on every dispatch FOR THIS bubble
   lastShownSeq: number;  // highest seq whose result was written to DOM
-  lastShownLen: number;  // char length of last shown translation (for stabilization)
+  lastOrigLen:  number;  // char length of original transcript already translated
+  transAccum:   string;  // accumulated translation text (append-only)
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -219,45 +220,55 @@ export function useTranscription() {
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Fires a translation request for the active bubble's text.
+  // APPEND-ONLY translation pipeline.
   //
-  // Isolation: captures `state` (per-bubble object) at call time — old requests
-  //   always write to the correct bubble's DOM element even after speaker switch.
+  // Each call receives the FULL current transcript text for the active bubble.
+  // Internally it extracts only the NEW suffix (characters not yet translated)
+  // and sends just that suffix to the API.  The returned translation is appended
+  // to the existing translation text — previously translated words are never
+  // modified or retranslated.
   //
-  // Monotonic gate (per-bubble): a result is accepted only if its seq number
-  //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
-  //   out-of-order arrivals while still showing every result in order.
+  // Isolation: `state` (per-bubble object) is captured at call time — old
+  //   in-flight requests always write to the correct bubble's DOM element.
   //
-  // Stabilization: during live speech (isFinal=false), skip a result if the
-  //   translation is not significantly longer than the previous one. This
-  //   prevents the translation column from constantly rewriting small changes.
-  //   When a segment finalizes (isFinal=true), always show the result.
+  // Monotonic gate: a result is accepted only if its seq is higher than the
+  //   last accepted seq for this bubble, handling out-of-order network responses.
   const dispatchTranslation = useCallback((text: string, lang: string, isFinal = false) => {
     const state = activeBubbleStateRef.current;
-    if (!state || text.length < 3) return;
+    if (!state) return;
+
+    // Extract only the untranslated suffix.
+    const newText = text.slice(state.lastOrigLen).trim();
+
+    // During live speech require a minimum new-text length to avoid firing the
+    // API on every tiny token.  For the final dispatch (segment complete) send
+    // whatever remains, even a single word.
+    if (!newText || (!isFinal && newText.length < MIN_NEW_CHARS)) return;
 
     lastTranslatedBuffer.current = text;
     state.seq += 1;
-    const mySeq       = state.seq;
-    const myTargetLang = targetLangRef.current;   // captured at dispatch time
+    const mySeq           = state.seq;
+    const myTargetLang    = targetLangRef.current;  // captured at dispatch time
+    const capturedOrigLen = text.length;            // full length at dispatch time
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, lang, myTargetLang);
+        const translated = await fetchTranslation(newText, lang, myTargetLang);
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
-        // DOM no longer connected (bubble was cleared).
+        // DOM no longer connected (bubble was cleared or session stopped).
         if (!translated || !transTextEl.isConnected) return;
 
-        // Stabilization: only update if final, first result, or meaningfully longer.
-        if (!isFinal && state.lastShownLen > 0 && translated.length < state.lastShownLen * STABILIZE_RATIO) return;
-
         state.lastShownSeq = mySeq;
-        state.lastShownLen = translated.length;
+        state.lastOrigLen  = capturedOrigLen;  // advance the translated-offset pointer
 
-        const isArabic = /[\u0600-\u06FF]/.test(translated);
+        // Append new translation — never overwrite previous words.
+        const sep = state.transAccum ? " " : "";
+        state.transAccum += sep + translated;
+
+        const isArabic = /[\u0600-\u06FF]/.test(state.transAccum);
         transTextEl.dir             = isArabic ? "rtl" : "ltr";
         transTextEl.style.textAlign = isArabic ? "right" : "";
         if (isArabic) {
@@ -267,7 +278,7 @@ export function useTranscription() {
           transTextEl.removeAttribute("lang");
           transTextEl.className = CLS.transText;
         }
-        transTextEl.textContent = translated;
+        transTextEl.textContent = state.transAccum;
 
         if (copyTransBtn.disabled) {
           enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
@@ -375,7 +386,8 @@ export function useTranscription() {
       copyTransBtn: copyTransBtn,
       seq:          0,
       lastShownSeq: 0,
-      lastShownLen: 0,
+      lastOrigLen:  0,
+      transAccum:   "",
     };
     styleUpgradedRef.current     = false;
     liveBufferRef.current        = "";
@@ -402,8 +414,10 @@ export function useTranscription() {
       if (p) p.className = CLS.textFin;
     }
 
+    // Always attempt a final dispatch so any remaining untranslated suffix
+    // gets flushed — dispatchTranslation will skip internally if nothing new.
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
-    if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+    if (finalText.length > 0) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
   }, [dispatchTranslation]);
