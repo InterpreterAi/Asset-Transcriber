@@ -252,12 +252,19 @@ export function useTranscription() {
     if (!state || text.length < 3) return;
 
     lastTranslatedBuffer.current = text;
+
+    // Guard: only translate if the detected language belongs to the selected pair.
+    // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
+    // skip translation entirely — the raw transcript is shown as-is.
+    const pair = langPairRef.current;
+    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) return;
+
     state.seq += 1;
     const mySeq        = state.seq;
     // Resolve target at dispatch time: opposite of the detected source language.
     // If Soniox detected "ar" and pair is {a:"en", b:"ar"} → target = "en".
     // If Soniox detected "en" → target = "ar".
-    const myTargetLang = resolveTarget(lang, langPairRef.current);
+    const myTargetLang = resolveTarget(lang, pair);
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
