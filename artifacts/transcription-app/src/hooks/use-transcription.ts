@@ -7,13 +7,15 @@ const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
 // ── DOM class names — defined here so Tailwind's scanner preserves them ───────
 const CLS = {
-  wrapper:    "mb-4",
-  speakerTag: "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
-  // Live segment: grey/dim while speech is still streaming
-  textLive:   "text-[13px] leading-relaxed text-muted-foreground/70",
-  // Finalized segment: solid black, slightly bolder once the speaker changes
-  textFin:    "text-[13px] leading-relaxed text-foreground font-semibold",
-  nf:         "text-muted-foreground/45 italic",
+  wrapper:     "mb-4",
+  speakerTag:  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
+  // Live segment: grey/italic while speech is still streaming
+  textLive:    "text-[13px] leading-relaxed text-muted-foreground/70 italic",
+  // Finalized segment: solid black, normal weight once the speaker changes
+  textFin:     "text-[13px] leading-relaxed text-foreground font-medium",
+  nf:          "text-muted-foreground/45 italic",
+  // Translation line: smaller muted text below the original
+  translation: "text-[11px] leading-relaxed text-muted-foreground/60 mt-0.5",
 } as const;
 
 // ── Soniox v4 types ────────────────────────────────────────────────────────────
@@ -99,9 +101,10 @@ export function useTranscription() {
   // This counter tracks how many we have already written so we only process
   // the new tail. Reset to 0 when speaker changes (new bubble = new baseline).
   const finalCountRef    = useRef(0);
-  // Date.now() of the last processed final token — used for the 4-second
-  // same-speaker merge window.  0 = no finals yet this session.
+  // Date.now() of the last processed final token
   const lastFinalTimeRef = useRef(0);
+  // Detected language of the current live segment ("en", "ar", etc.)
+  const detectedLangRef  = useRef<string>("en");
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -138,27 +141,62 @@ export function useTranscription() {
 
     activeBubbleNFRef.current = nfSpan;
 
-    // Scroll once when the new segment appears — not on every token.
-    wrapper.scrollIntoView({ block: "end", behavior: "smooth" });
+    // Scroll the transcript panel to the bottom — NOT scrollIntoView (which
+    // would scroll the whole page). Only the panel's scrollable container moves.
+    const scrollEl = container.parentElement;
+    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
 
     return finalSpan as HTMLParagraphElement;
   }, []);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   // Called when the active speaker changes or recording ends.
-  // Promotes the current live segment from grey → black/bold and clears any
-  // dangling NF preview text so only confirmed words remain.
+  // 1. Locks the segment style: grey/italic → black/normal
+  // 2. Fires an async translation request and appends the result below.
   const finalizeLiveBubble = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    // Clear NF preview — only confirmed text survives finalization
+    // Snapshot text + lang BEFORE clearing NF
+    const confirmedText = activeBubbleRef.current.textContent?.trim() ?? "";
+    const lang          = detectedLangRef.current;
+
+    // Clear NF preview — only confirmed words survive finalization
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
 
     // activeBubbleRef IS the finalSpan; its parent is <p>
-    const p = activeBubbleRef.current.parentElement;
+    const p       = activeBubbleRef.current.parentElement;
+    const wrapper = p?.parentElement;             // the .mb-4 wrapper div
     if (p) p.className = CLS.textFin;
+
+    // Reset lang for the next live segment
+    detectedLangRef.current = "en";
+
+    // Fire-and-forget translation — appends a second line below the original
+    if (confirmedText.length > 2 && wrapper) {
+      void (async () => {
+        try {
+          const r = await fetch("/api/transcription/translate", {
+            method:      "POST",
+            headers:     { "Content-Type": "application/json" },
+            credentials: "include",
+            body:        JSON.stringify({ text: confirmedText, sourceLang: lang }),
+          });
+          if (!r.ok) return;
+          const data = await r.json() as { translation?: string };
+          if (data.translation && wrapper.isConnected) {
+            const tp = document.createElement("p");
+            tp.className   = CLS.translation;
+            tp.textContent = data.translation;
+            wrapper.appendChild(tp);
+            // Keep transcript panel scrolled to bottom
+            const scrollEl = containerRef.current?.parentElement;
+            if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+          }
+        } catch { /* silent — translation is best-effort */ }
+      })();
+    }
   }, []);
 
   // ── stop ──────────────────────────────────────────────────────────────────
@@ -247,26 +285,33 @@ export function useTranscription() {
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
+      // Track detected language from final tokens — used for translation
+      const langToken = newFinals.find(t => t.language) ?? finals.find(t => t.language);
+      if (langToken?.language) detectedLangRef.current = langToken.language;
+
       for (const token of newFinals) {
         // Speaker changed (or first token ever) → finalize the current live
-        // segment, then open a new one. Text grows in place within a segment
-        // — no scroll on every token, only when the speaker boundary fires.
+        // segment, then open a new one. Text grows in place within a segment.
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
-          finalizeLiveBubble();                    // grey → black/bold, clears NF
+          finalizeLiveBubble();                    // grey/italic → black, clears NF
           currentSpeakerRef.current = token.speaker;
           finalCountRef.current     = finals.length - newFinals.length +
             newFinals.indexOf(token);
-          activeBubbleRef.current = createBubble(token.speaker); // scrolls once
+          activeBubbleRef.current = createBubble(token.speaker); // scrolls panel once
           setHasTranscript(true);
         }
 
-        // Append confirmed text to the live span — no scroll here
+        // Append confirmed text to the live span
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
       }
 
       // Update final count to include everything processed this message
       finalCountRef.current = finals.length;
+
+      // Scroll panel to bottom so growing live text stays visible
+      const scrollEl = containerRef.current?.parentElement;
+      if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
 
       // ── NF (non-final) tokens ─────────────────────────────────────────
       //
@@ -313,6 +358,7 @@ export function useTranscription() {
       activeBubbleNFRef.current = null;
       finalCountRef.current     = 0;
       lastFinalTimeRef.current  = 0;
+      detectedLangRef.current   = "en";
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});

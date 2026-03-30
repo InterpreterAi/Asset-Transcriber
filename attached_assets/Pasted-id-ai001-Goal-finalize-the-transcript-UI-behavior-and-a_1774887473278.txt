@@ -1,0 +1,119 @@
+id="ai001"}
+Goal: finalize the transcript UI behavior and add accurate translation without breaking existing functionality.
+
+Current system already works:
+- real-time streaming transcription
+- speaker diarization
+- transcript UI
+- start/stop recording
+
+Only implement the following fixes.
+
+-------------------------------------
+
+1. LIVE SEGMENT LOGIC
+
+Only ONE transcript segment should be live (grey).
+
+Rules:
+- The last segment in the transcript list is the live streaming segment.
+- All previous segments must stay finalized (black).
+- Previous segments must never turn grey again.
+
+Implementation:
+
+const isLive = index === transcript.length - 1
+
+Live segment style:
+- grey text
+- italic
+
+Finalized segments:
+- black text
+- normal font
+
+-------------------------------------
+
+2. FINALIZE SEGMENT ON SPEAKER CHANGE
+
+When diarization detects a speaker change:
+
+- finalize the current transcript segment
+- push it into transcript history
+- create a new segment for the new speaker
+
+Previous segment must remain black permanently.
+
+-------------------------------------
+
+3. STREAMING TEXT UPDATE
+
+While receiving streaming tokens from the speech API:
+
+- update the text of the LAST transcript segment
+- do NOT create a new segment
+
+Only create a new segment when:
+- speaker changes
+- stop button is pressed
+
+-------------------------------------
+
+4. FINALIZE LAST SEGMENT ON STOP
+
+When the Stop button is pressed:
+
+- finalize the current live segment
+- remove live styling
+- convert it to finalized transcript text
+
+-------------------------------------
+
+5. STICKY BOTTOM TRANSCRIPT SCROLL
+
+The transcript container should automatically scroll to the newest message.
+
+Implementation:
+
+transcriptContainer.scrollTop = transcriptContainer.scrollHeight
+
+This must only affect the transcript panel, not the whole page.
+
+-------------------------------------
+
+6. ADD TRANSLATION PANEL
+
+Add real-time translation for each finalized transcript segment.
+
+Requirements:
+
+- translation must reflect the EXACT meaning of the spoken segment
+- translation should only occur once the segment is finalized
+- translation should appear directly under the transcript line
+
+Example UI:
+
+Speaker 1  
+Original text
+
+Translated text (smaller grey text)
+
+-------------------------------------
+
+7. DO NOT MODIFY THESE SYSTEMS
+
+Do not break or rewrite:
+- microphone input
+- audio streaming
+- diarization logic
+- Soniox transcription integration
+
+Only adjust transcript rendering and translation.
+
+-------------------------------------
+
+After implementing the fixes:
+- test transcript streaming
+- test speaker switching
+- test translation display
+- verify only one live seg

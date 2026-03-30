@@ -1,8 +1,14 @@
 import { Router } from "express";
+import OpenAI from "openai";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
+
+const openai = new OpenAI({
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
+});
 
 const router = Router();
 
@@ -100,6 +106,41 @@ router.post("/session/stop", requireAuth, async (req, res) => {
     .where(eq(usersTable.id, user.id));
 
   res.json({ message: "Session stopped" });
+});
+
+// ── POST /translate ────────────────────────────────────────────────────────
+// Translates a finalized transcript segment using GPT.
+// sourceLang: "en" | "ar" (or any BCP-47 code Soniox returns)
+// Automatically picks the opposite language as target.
+router.post("/translate", requireAuth, async (req, res) => {
+  const { text, sourceLang } = req.body as { text?: string; sourceLang?: string };
+  if (!text || typeof text !== "string" || text.trim().length < 2) {
+    res.status(400).json({ error: "text is required" });
+    return;
+  }
+
+  const src = (sourceLang ?? "en").toLowerCase();
+  const tgt = src === "ar" ? "English" : "Arabic";
+  const srcName = src === "ar" ? "Arabic" : "English";
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: "gpt-5-nano",
+      messages: [
+        {
+          role: "system",
+          content: `You are a professional interpreter. Translate the ${srcName} text to ${tgt}. Return ONLY the translation — no explanations, no quotes, no commentary.`,
+        },
+        { role: "user", content: text.trim() },
+      ],
+      max_completion_tokens: 512,
+    });
+    const translation = resp.choices[0]?.message?.content?.trim() ?? "";
+    res.json({ translation });
+  } catch (err) {
+    console.error("[translate]", err);
+    res.status(500).json({ error: "Translation failed" });
+  }
 });
 
 export default router;
