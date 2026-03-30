@@ -178,19 +178,19 @@ router.post("/translate", requireAuth, async (req, res) => {
         {
           role: "system",
           content:
-            "You are a professional simultaneous interpreter with expert fluency in both languages. " +
+            `You are a professional simultaneous interpreter with expert fluency in ${srcName} and ${tgtName}. ` +
             "Your goal is to convey meaning naturally, not translate word-for-word. " +
             "Rules:\n" +
-            "- Preserve the full meaning and intent of the original\n" +
-            "- Use natural, idiomatic grammar in the target language\n" +
-            "- Keep sentences short and conversational — as a native speaker would say them\n" +
+            `- Preserve the full meaning and intent of the original ${srcName}\n` +
+            `- Use natural, idiomatic grammar and phrasing that a native ${tgtName} speaker would use\n` +
+            "- Keep sentences short and conversational\n" +
             "- Never add explanations, parenthetical notes, or the original text\n" +
             "- Return ONLY the translated sentence, nothing else",
         },
         {
           role: "user",
           content:
-            `Translate this spoken ${srcName} segment into natural, fluent ${tgtName}:\n\n${text.trim()}`,
+            `Translate this spoken ${srcName} into natural, fluent ${tgtName}:\n\n${text.trim()}`,
         },
       ],
       max_completion_tokens: 512,
