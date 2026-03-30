@@ -227,13 +227,20 @@ export function useTranscription() {
   // 0 = no segment is open.
   const segStartMsRef = useRef<number>(0);
 
-  // ── Pause-based segmentation ───────────────────────────────────────────────
-  // lastTokenTimeRef: Date.now() when the most recent FINAL token was confirmed.
-  // pauseTimerRef:    handle for the 700ms silence timer — cleared and rescheduled
-  //                   on every new final token; when it fires it checks conditions
-  //                   and calls flush() if the segment is ready to seal.
-  const lastTokenTimeRef = useRef<number>(0);
-  const pauseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Word-by-word animation ─────────────────────────────────────────────────
+  // Instead of showing all tokens in a batch at once, we drip-feed each new
+  // final word one per requestAnimationFrame (~16ms).  This gives the smooth
+  // word-by-word appearance even when Soniox delivers multiple tokens per message.
+  //
+  // pendingWordsRef:   queue of new final words waiting to be shown on screen.
+  // displayedFinalRef: the final text currently visible (lags finalBufRef by
+  //                    the queue depth, ≤ a few frames).
+  // currentNfRef:      the latest non-final suffix (updated instantly; no queue).
+  // rafIdRef:          handle for the in-flight rAF loop; null when idle.
+  const pendingWordsRef   = useRef<string[]>([]);
+  const displayedFinalRef = useRef<string>("");
+  const currentNfRef      = useRef<string>("");
+  const rafIdRef          = useRef<number | null>(null);
 
   // ── Speaker tracking ───────────────────────────────────────────────────────
   // No stability window — speaker changes are instant.  When a final token
@@ -285,6 +292,17 @@ export function useTranscription() {
     finalBufRef.current                 = "";
     activeSegSpeakerRef.current         = undefined;
     segStartMsRef.current               = 0;       // no segment open until next token
+
+    // Cancel any in-flight word-by-word animation and reset display buffers
+    // so the next segment starts with a clean slate.
+    if (rafIdRef.current != null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    pendingWordsRef.current   = [];
+    displayedFinalRef.current = "";
+    currentNfRef.current      = "";
+
     // Clear the live preview immediately — setFinalizedSegments and
     // setActivePreviewLine(null) are batched into a single React render, so the
     // text moves from the italic preview row to the full-weight finalized row
@@ -341,7 +359,8 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
+    if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
+    pendingWordsRef.current = []; displayedFinalRef.current = ""; currentNfRef.current = "";
     speakerHistoryRef.current           = [];
     activeSegSpeakerRef.current         = undefined;
     globalFinalCountRef.current         = 0;
@@ -525,26 +544,6 @@ export function useTranscription() {
         // now grow freely inside one bubble.
       }
 
-      // Step 2d: pause-based flush — 700ms of silence triggers a segment seal.
-      // Reset and reschedule on every message that contains new final tokens so
-      // the 700ms window always starts from the LAST confirmed token.
-      // The callback re-checks conditions at fire-time using current ref values.
-      if (newFinalToks.length > 0) {
-        lastTokenTimeRef.current = Date.now();
-        if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
-        pauseTimerRef.current = setTimeout(() => {
-          pauseTimerRef.current = null;
-          const buf = finalBufRef.current;
-          if (
-            Date.now() - lastTokenTimeRef.current > 700 &&
-            buf.trim().length >= 20 &&
-            /[\s.!?,;:]$/.test(buf)
-          ) {
-            flush();
-          }
-        }, 700);
-      }
-
       // Advance the watermark.
       globalFinalCountRef.current = finalSeenThisMsg;
 
@@ -559,22 +558,51 @@ export function useTranscription() {
         langRef.current = detectLang(newFinalToks, langRef.current);
       }
 
-      // activePreviewLine is updated unconditionally on every message.
-      // If there is content (final buffer + any non-final tail), show it.
-      // If the buffer is empty (just flushed, no new tokens yet), clear the
-      // preview so stale text never lingers after a segment commits.
-      // Because React batches flush()'s setActivePreviewLine(null) together
-      // with this call in the same synchronous handler, only the last value
-      // matters — so new content naturally overrides the null from flush().
-      const displayText = (finalBufRef.current + nfText).trim();
-      if (displayText) {
-        setActivePreviewLine({
-          text:         displayText,
-          language:     langRef.current,
-          speakerLabel: normalizeSpeaker(speakerRef.current),
-        });
-      } else {
-        setActivePreviewLine(null);
+      // ── Word-by-word animation ─────────────────────────────────────────────
+      // Non-final tokens: update the live suffix immediately (no queue).
+      // Final tokens: enqueue each new word and drip-feed them onto screen
+      //   one per requestAnimationFrame so words appear individually, never
+      //   as a sudden block, regardless of how many arrived in this batch.
+      //
+      // No setTimeout anywhere — rendering uses only rAF for timing.
+
+      // Always update the NF suffix immediately so Soniox's live guess stays
+      // current.  This shows word-by-word as Soniox streams its hypothesis.
+      currentNfRef.current = nfText;
+
+      // Queue new final words for per-frame animation.
+      for (const tok of newFinalToks) {
+        pendingWordsRef.current.push(tok.text);
+      }
+
+      // Kick off the animation loop if it's not already running.
+      const runAnimation = () => {
+        const word = pendingWordsRef.current.shift();
+        if (word !== undefined) {
+          displayedFinalRef.current += word;
+        }
+        const text = (displayedFinalRef.current + currentNfRef.current).trim();
+        if (text) {
+          setActivePreviewLine({
+            text,
+            language:     langRef.current,
+            speakerLabel: normalizeSpeaker(speakerRef.current),
+          });
+        } else {
+          setActivePreviewLine(null);
+        }
+
+        if (pendingWordsRef.current.length > 0) {
+          rafIdRef.current = requestAnimationFrame(runAnimation);
+        } else {
+          rafIdRef.current = null;
+        }
+      };
+
+      // Only start a new rAF chain if one isn't already running.
+      // The in-flight chain will drain the queue on its own.
+      if (rafIdRef.current == null && (pendingWordsRef.current.length > 0 || nfText)) {
+        rafIdRef.current = requestAnimationFrame(runAnimation);
       }
     };
 
@@ -585,33 +613,29 @@ export function useTranscription() {
     // Text appears on screen the instant Soniox delivers each token.
     //
     ws.onmessage = (e: MessageEvent) => {
-      // Diagnostic: log every raw message from Soniox so we can see the real data.
-      console.log("[WS] raw message:", typeof e.data === "string" ? e.data.slice(0, 300) : e.data);
       try {
         const msg = JSON.parse(e.data as string) as SonioxMessage;
 
         if (msg.error || (typeof msg.code === "number" && !msg.tokens)) {
           const errMsg = msg.error ?? msg.message ?? `code ${msg.code}`;
-          console.error("[WS] stt-rt-v4 ERROR:", errMsg, msg);
+          console.error("[WS] error:", errMsg);
           setError(`Transcription error: ${errMsg}`);
           apiErrorOccurred = true;
           return;
         }
 
         if (msg.finished) {
-          console.log("[WS] stt-rt-v4 finished — committing remaining content");
           flush(); // stream done — finalize whatever is in the buffer
           return;
         }
 
         const tokens = msg.tokens ?? [];
-        console.log("[WS] tokens in message:", tokens.length, tokens.map(t => `${t.is_final ? "F" : "nf"}:"${t.text}"(spk${t.speaker})`).join(" "));
         if (tokens.length === 0) return;
 
         // Process immediately — no buffer wait.
         processTokenBatch(tokens);
       } catch (err) {
-        console.error("[WS] stt-rt-v4 parse error", err);
+        console.error("[WS] parse error", err);
       }
     };
 
@@ -642,12 +666,12 @@ export function useTranscription() {
       setError(null);
       setActivePreviewLine(null);
       setAudioInfo("");
-      if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
+      if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
+      pendingWordsRef.current = []; displayedFinalRef.current = ""; currentNfRef.current = "";
       finalBufRef.current         = "";
       globalFinalCountRef.current         = 0;
       activeSegSpeakerRef.current         = undefined;
       segStartMsRef.current               = 0;
-      lastTokenTimeRef.current            = 0;
       speakerHistoryRef.current           = [];
       langRef.current                     = "en";
       speakerRef.current          = undefined; // reset — no speaker until API sends one
@@ -751,14 +775,14 @@ export function useTranscription() {
     start,
     stop,
     clear: () => {
-      if (pauseTimerRef.current) { clearTimeout(pauseTimerRef.current); pauseTimerRef.current = null; }
+      if (rafIdRef.current != null) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null; }
+      pendingWordsRef.current = []; displayedFinalRef.current = ""; currentNfRef.current = "";
       setFinalizedSegments([]);
       setActivePreviewLine(null);
       finalBufRef.current         = "";
       speakerRef.current          = undefined;
       activeSegSpeakerRef.current         = undefined;
       segStartMsRef.current               = 0;
-      lastTokenTimeRef.current            = 0;
       globalFinalCountRef.current         = 0;
       speakerHistoryRef.current           = [];
       resetSpeakerMap();
