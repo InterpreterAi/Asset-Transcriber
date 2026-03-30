@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, Trash2, Copy, Check, Type,
+  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check, Type,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -69,6 +69,7 @@ export default function Workspace() {
   const [showFeedback, setShowFeedback]         = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
 
+  const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
 
@@ -180,7 +181,7 @@ export default function Workspace() {
             <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
-              Auto-detect → {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
+              {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -298,7 +299,7 @@ export default function Workspace() {
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Language detected automatically · translated to {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
+                    {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
                   </p>
                 </div>
               )}
@@ -331,15 +332,29 @@ export default function Workspace() {
 
           {/* ROW 2: Translation pair + record button */}
           <div className="flex items-center px-4 py-3 gap-3">
-
-            {/* Language controls: source is always auto-detected; only target is user-selectable */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate to</span>
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate</span>
+              <Select
+                value={langA}
+                onChange={(e) => setLangA(e.target.value)}
+                disabled={transcription.isRecording}
+                className="h-9 text-sm w-[130px] bg-white border-border"
+              >
+                {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+              </Select>
+              <button
+                onClick={() => { setLangA(langB); setLangB(langA); }}
+                disabled={transcription.isRecording}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground transition-colors disabled:opacity-40"
+                title="Swap languages"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+              </button>
               <Select
                 value={langB}
                 onChange={(e) => setLangB(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-9 text-sm w-[160px] bg-white border-border"
+                className="h-9 text-sm w-[130px] bg-white border-border"
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
@@ -373,8 +388,10 @@ export default function Workspace() {
 
             {/* Spacer to keep record button centred */}
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
-              <span className="text-xs font-semibold whitespace-nowrap">Translate to</span>
-              <div className="h-9 w-[160px]" />
+              <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
+              <div className="h-9 w-[130px]" />
+              <div className="w-8 h-8" />
+              <div className="h-9 w-[130px]" />
             </div>
           </div>
 
