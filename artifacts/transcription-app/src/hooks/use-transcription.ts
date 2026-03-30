@@ -8,9 +8,9 @@ const TRANSLATION_POLL_MS = 700;
 // A new translation is accepted during live speech only if it is at least
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
-// After this many ms with no new tokens the active segment is finalized and
+// After this many ms with no new tokens, the active segment is finalized and
 // the next speech will start in a fresh bubble.
-const SILENCE_MS = 900;
+const SILENCE_MS          = 1200;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -398,21 +398,10 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
   // final translation. isFinal=true bypasses the stabilization check.
-  //
-  // Grey-transcript fix: if all accumulated text is still in the NF (grey) span
-  // and none has been committed to the final span yet (e.g. STOP pressed mid-word),
-  // we promote the NF text into the final span BEFORE clearing it. This prevents
-  // the segment from going blank when the user stops recording early.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
     if (activeBubbleNFRef.current) {
-      const nfContent = activeBubbleNFRef.current.textContent?.trim() ?? "";
-      const hasNoFinalText = !(activeBubbleRef.current.textContent?.trim());
-      if (nfContent && hasNoFinalText) {
-        // Promote NF text into the finalized span so it isn't erased.
-        activeBubbleRef.current.textContent = nfContent;
-      }
       activeBubbleNFRef.current.textContent = "";
     }
 
@@ -578,7 +567,7 @@ export function useTranscription({ targetLang }: { targetLang: string }) {
         }
       }
 
-      // ── Silence timer ─────────────────────────────────────────────────────
+      // ── Arm silence timer ─────────────────────────────────────────────────
       // Every batch of tokens resets the clock. If SILENCE_MS passes with no
       // further tokens, the segment is finalized and the next speech starts fresh.
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
