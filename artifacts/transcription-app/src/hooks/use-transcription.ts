@@ -436,12 +436,30 @@ export function useTranscription() {
     //
     //   (each WS msg) → Speaker Stabilizer → Segment Builder → UI update
     //
-    // ── Token processing rules ────────────────────────────────────────────
+    // ── How tokens work in Soniox stt-rt-v4 ─────────────────────────────
     //
-    // 1. Non-final tokens  → update activePreviewLine immediately (live preview).
-    //    They are a REPLACEMENT suffix each message — NEVER touch finalizedSegments.
-    // 2. Final tokens      → commit to finalBufRef, detect speaker changes.
-    // 3. A new finalized segment is created ONLY on token.speaker change.
+    // Each WebSocket message contains a MIX of final and non-final tokens:
+    //
+    //   Final tokens   (is_final: true)  — permanently confirmed words.
+    //                                       They accumulate in finalBufRef and
+    //                                       are NEVER modified or removed.
+    //
+    //   Non-final tokens (is_final: false) — the model's CURRENT hypothesis for
+    //                                        speech not yet confirmed.  Each
+    //                                        message REPLACES the previous NF
+    //                                        display (they are not additive).
+    //                                        Used for: live interim display and
+    //                                        instant speaker label updates.
+    //
+    // Display at all times: finalBufRef.current  +  nfSuffix (from latest msg).
+    //
+    // Speaker splits happen ONLY on final tokens — NF speaker assignments
+    // fluctuate during active speech and cause flickering if used for splits.
+    // NF speaker_id IS used to update the bubble label instantly (the label
+    // shows who is speaking right now without committing a new segment).
+    //
+    // Nothing ever clears the displayed text mid-stream.  React atomically
+    // swaps the active bubble for a finalized row only at flush() time.
     const processTokenBatch = (tokens: SonioxToken[]) => {
       if (tokens.length === 0) return;
 
@@ -453,27 +471,21 @@ export function useTranscription() {
         const spk = token.speaker;
 
         if (!token.is_final) {
-          // ── Non-final token ──────────────────────────────────────────────
+          // ── Non-final token ───────────────────────────────────────────────
+          // Each NF token is part of the FULL current hypothesis for this
+          // message.  Accumulate all of them into nfSuffix — this REPLACES
+          // the previous message's nfSuffix at the DOM write below.
+          //
+          // Do NOT flush here.  NF diarization fluctuates; flushing on NF
+          // speaker changes causes premature splits and the "deleting" effect.
+          // The speaker_id is only used to update the bubble label instantly.
           hasNonFinal = true;
           nfSuffix   += token.text;
-          if (spk != null) speakerRef.current = spk;
-
-          // INSTANT speaker split on NF token — don't wait for finals.
-          // This is the key change for responsive conversation: the moment
-          // Soniox assigns a different speaker_id to any token, we split.
-          if (spk !== undefined && activeSegSpeakerRef.current !== undefined && spk !== activeSegSpeakerRef.current) {
-            if (finalBufRef.current.trim().length > 0) flush();
-            activeSegSpeakerRef.current = spk;
-            segStartMsRef.current       = Date.now();
-            nfSuffix                    = token.text; // only THIS token's text for new speaker
-          } else if (activeSegSpeakerRef.current === undefined && spk !== undefined) {
-            activeSegSpeakerRef.current = spk;
-            segStartMsRef.current       = Date.now();
-          }
+          if (spk != null) speakerRef.current = spk; // label update only
           continue;
         }
 
-        // ── Final token ──────────────────────────────────────────────────
+        // ── Final token ───────────────────────────────────────────────────
         // Dedup — skip finals already committed in a previous message.
         finalSeenThisMsg++;
         if (finalSeenThisMsg <= globalFinalCountRef.current) continue;
@@ -484,32 +496,35 @@ export function useTranscription() {
           touchSpeaker(spk);
         }
 
+        // Open segment if none is active yet.
         if (activeSegSpeakerRef.current === undefined) {
           activeSegSpeakerRef.current = spk;
           segStartMsRef.current       = Date.now();
         }
 
-        // Speaker split on final token (catches cases NF detection missed).
+        // Instant speaker split on the first final token from a new speaker.
+        // finalBufRef must be non-empty to avoid creating ghost empty rows.
         if (spk !== undefined && spk !== activeSegSpeakerRef.current && finalBufRef.current.trim().length > 0) {
           flush();
           activeSegSpeakerRef.current = spk;
           segStartMsRef.current       = Date.now();
         }
 
+        // Commit confirmed word — this text is permanent and never removed.
         finalBufRef.current += token.text;
 
-        // Punctuation flush — seal at sentence boundaries.
+        // Punctuation flush — seal at natural sentence boundaries.
         if (finalBufRef.current.trim().length >= 60 && /[.!?]$/.test(finalBufRef.current.trimEnd())) {
           flush();
         }
 
-        // Time cap — 6 s max per segment.
+        // Time cap — 6 s max per segment to keep bubbles scannable.
         if (finalBufRef.current.trim().length >= 20 && segStartMsRef.current > 0 && Date.now() - segStartMsRef.current >= 6000) {
           flush();
         }
       }
 
-      // Watermark — advance after processing all tokens.
+      // Advance watermark after processing all tokens in this message.
       globalFinalCountRef.current = finalSeenThisMsg;
       if (!hasNonFinal && finalSeenThisMsg > 0) globalFinalCountRef.current = 0;
 
@@ -517,9 +532,9 @@ export function useTranscription() {
       if (finalSeenThisMsg > 0) langRef.current = detectLang(tokens.filter(t => t.is_final), langRef.current);
 
       // ── rAF-batched DOM write ─────────────────────────────────────────────
-      // Store the latest text.  If a frame isn't already scheduled, schedule
-      // one.  Multiple messages within the same 16 ms frame collapse into a
-      // single DOM write — no layout thrash, no perceptible delay.
+      // finalText (permanent) + interimText (latest NF hypothesis) in one write.
+      // Multiple messages arriving within the same 16 ms paint frame collapse
+      // into a single DOM mutation — no layout thrash, no perceptible delay.
       const liveText = finalBufRef.current + nfSuffix;
       pendingTextRef.current = liveText;
       if (rafPendingRef.current == null) {
@@ -531,7 +546,8 @@ export function useTranscription() {
         });
       }
 
-      // Structural React update — only when bubble label/language changes.
+      // Structural React update — fires only when bubble label or language
+      // actually changes (the equality guard prevents redundant renders).
       if (liveText) {
         const label = normalizeSpeaker(speakerRef.current);
         const lang  = langRef.current;
