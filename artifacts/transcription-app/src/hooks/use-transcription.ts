@@ -64,11 +64,14 @@ function normalizeSpeaker(rawId: number | undefined): string {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [micLevel,    setMicLevel]    = useState(0);
-  const [error,       setError]       = useState<string | null>(null);
-  const [audioInfo,   setAudioInfo]   = useState<string>("");
-  const [segments,    setSegments]    = useState<TranscriptSegment[]>([]);
+  const [isRecording,    setIsRecording]    = useState(false);
+  const [micLevel,       setMicLevel]       = useState(0);
+  const [error,          setError]          = useState<string | null>(null);
+  const [audioInfo,      setAudioInfo]      = useState<string>("");
+  const [segments,       setSegments]       = useState<TranscriptSegment[]>([]);
+  // Live streaming text — shown in the bottom row while the speaker is talking
+  const [interimText,    setInterimText]    = useState("");
+  const [interimSpeaker, setInterimSpeaker] = useState("");
 
   // Audio / WebSocket infrastructure refs
   const audioCtxRef  = useRef<AudioContext | null>(null);
@@ -79,35 +82,25 @@ export function useTranscription() {
   const sessionIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  // Final-token deduplication counter
-  // Soniox re-sends ALL prior finals each message. This tracks how many we've
-  // already processed so we only act on the new tail.
+  // Soniox re-sends ALL prior finals in every message.
+  // finalCountRef tracks how many we've already processed.
   const finalCountRef     = useRef(0);
 
-  // Buffer for accumulating final tokens before they become a locked segment
+  // Buffer for confirmed final tokens, not yet locked into a segment
   const buildingTextRef    = useRef("");
   const buildingSpeakerRef = useRef<number | undefined>(undefined);
-  // Detected language from Soniox token metadata
   const detectedLangRef    = useRef<string>("en");
-  // Silence-pause timer — resets on every new final token; fires flush at 800ms
-  const silenceTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
 
   // ── flushSegment ──────────────────────────────────────────────────────────
-  // Moves the accumulated buffer into the locked segment list, then fires
-  // an async translation call that updates the same row when it returns.
-  // Minimum 12 characters required; shorter buffers are silently discarded.
+  // Locks the current buffer into the segments list and fires translation.
+  // Discards buffers shorter than 8 chars (noise / single-word artifacts).
   const flushSegment = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
     const text = buildingTextRef.current.trim();
-    if (text.length < 12) {
-      // Too short to be meaningful — reset buffer without creating a segment
+    if (text.length < 8) {
       buildingTextRef.current    = "";
       buildingSpeakerRef.current = undefined;
       detectedLangRef.current    = "en";
@@ -130,12 +123,12 @@ export function useTranscription() {
 
     setSegments(prev => [...prev, seg]);
 
-    // Reset buffer immediately — must happen before the async translation
+    // Reset buffer before async work
     buildingTextRef.current    = "";
     buildingSpeakerRef.current = undefined;
     detectedLangRef.current    = "en";
 
-    // Fire-and-forget translation — updates the row once the API responds
+    // Fire-and-forget translation — patches translatedText on the same row by id
     void (async () => {
       try {
         const r = await fetch("/api/transcription/translate", {
@@ -164,8 +157,12 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    // Flush any remaining buffered text before tearing down
+    // Flush any remaining confirmed text
     flushSegment();
+
+    // Clear live streaming display
+    setInterimText("");
+    setInterimSpeaker("");
 
     finalCountRef.current      = 0;
     buildingTextRef.current    = "";
@@ -231,63 +228,58 @@ export function useTranscription() {
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      // ── FINAL tokens only ───────────────────────────────────────────────
-      //
-      // Soniox re-sends ALL prior finals as a prefix every message.
-      // Slice off what we've already processed — only the new tail matters.
-      // NF (non-final) tokens are intentionally ignored: no grey preview text.
-      //
-      const finals    = tokens.filter(t => t.is_final);
+      const finals    = tokens.filter(t =>  t.is_final);
+      const nfs       = tokens.filter(t => !t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
+      // ── Live streaming display (NF tokens) ───────────────────────────────
+      //
+      // Show confirmed buffer + current hypothesis so the user sees text
+      // instantly as they speak. Clears automatically when NF tokens stop.
+      //
+      const nfText = nfs.map(t => t.text).join("");
+      const liveText = (buildingTextRef.current + nfText).trim();
+      if (liveText) {
+        const liveSpeakerId = nfs[0]?.speaker ?? buildingSpeakerRef.current;
+        setInterimText(liveText);
+        setInterimSpeaker(normalizeSpeaker(liveSpeakerId));
+      } else {
+        setInterimText("");
+        setInterimSpeaker("");
+      }
+
+      // ── Final tokens — accumulate into buffer ─────────────────────────
       if (newFinals.length > 0) {
-        // Update detected language from first token that carries it
         const langToken = newFinals.find(t => t.language);
         if (langToken?.language) detectedLangRef.current = langToken.language;
 
         for (const token of newFinals) {
-          const accumulated = buildingTextRef.current.trim();
-
-          // Speaker changed — flush if buffer meets minimum length
+          // Speaker changed — flush current buffer as a locked segment
           if (
             buildingSpeakerRef.current !== undefined &&
-            token.speaker !== buildingSpeakerRef.current &&
-            accumulated.length >= 12
+            token.speaker !== buildingSpeakerRef.current
           ) {
             flushSegment();
           }
-
-          // Set speaker on first token or after a flush emptied the buffer
+          // Set speaker when buffer was just flushed (empty) or on first token
           if (buildingSpeakerRef.current === undefined) {
             buildingSpeakerRef.current = token.speaker;
           }
           buildingTextRef.current += token.text;
-
-          const buf = buildingTextRef.current.trim();
-
-          // Rule 1: Force-flush at 55 chars
-          if (buf.length >= 55) {
-            flushSegment();
-          }
-          // Rule 2: Flush on sentence-ending punctuation (min 12 chars)
-          else if (buf.length >= 12 && /[.!?]$/.test(buf)) {
-            flushSegment();
-          }
         }
-
-        // ── Silence / pause detection ─────────────────────────────────────
-        // Reset the 900ms silence timer every time new final tokens arrive.
-        // If no new finals come in for 900ms, the speaker has paused →
-        // flush whatever is in the buffer as a completed segment.
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          silenceTimerRef.current = null;
-          flushSegment();
-        }, 900);
 
         finalCountRef.current = finals.length;
       }
-      // NF tokens are completely ignored — no interim preview displayed
+
+      // ── Phrase-complete signal ────────────────────────────────────────
+      //
+      // When Soniox sends a message that has final tokens but NO NF tokens,
+      // the model has fully committed the current utterance — no more live
+      // hypothesis is outstanding. This is the natural flush boundary.
+      //
+      if (newFinals.length > 0 && nfs.length === 0) {
+        flushSegment();
+      }
     };
 
     ws.onerror = () => { setError("WebSocket error"); void stop(); };
@@ -307,6 +299,8 @@ export function useTranscription() {
     try {
       setError(null);
       setAudioInfo("");
+      setInterimText("");
+      setInterimSpeaker("");
       finalCountRef.current      = 0;
       buildingTextRef.current    = "";
       buildingSpeakerRef.current = undefined;
@@ -389,23 +383,23 @@ export function useTranscription() {
 
   // ── clear ─────────────────────────────────────────────────────────────────
   const clear = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
     setSegments([]);
+    setInterimText("");
+    setInterimSpeaker("");
     buildingTextRef.current    = "";
     buildingSpeakerRef.current = undefined;
     finalCountRef.current      = 0;
     resetSpeakerMap();
   }, []);
 
-  // Expose a stable ref so workspace can scroll to bottom on new segments
+  // Scroll sentinel — workspace watches segments.length via this ref
   const segmentsLengthRef = useRef(0);
   useEffect(() => { segmentsLengthRef.current = segments.length; }, [segments.length]);
 
   return {
     segments,
+    interimText,
+    interimSpeaker,
     isRecording,
     audioInfo,
     micLevel,

@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check
+  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check, Loader2
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -114,14 +114,14 @@ export default function Workspace() {
   const [langB, setLangB] = useState("ar");
 
   const scrollEndRef   = useRef<HTMLDivElement>(null);
-  const hasSegments    = transcription.segments.length > 0;
+  const hasContent     = transcription.segments.length > 0 || !!transcription.interimText;
 
-  // Auto-scroll to bottom when a new segment appears
+  // Auto-scroll to bottom when a new segment or interim text appears
   useEffect(() => {
-    if (hasSegments) {
+    if (hasContent) {
       scrollEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [transcription.segments.length, hasSegments]);
+  }, [transcription.segments.length, transcription.interimText, hasContent]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -221,7 +221,7 @@ export default function Workspace() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => transcription.clear()}
-              disabled={transcription.isRecording || !hasSegments}
+              disabled={transcription.isRecording || !hasContent}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -290,7 +290,7 @@ export default function Workspace() {
 
             {/* Scrollable rows */}
             <div className="flex-1 overflow-y-auto relative">
-              {!hasSegments ? (
+              {!hasContent ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground pointer-events-none">
                   <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
                     <Languages className="w-5 h-5 text-muted-foreground/50" />
@@ -302,9 +302,31 @@ export default function Workspace() {
                 </div>
               ) : (
                 <div>
+                  {/* Locked final segments */}
                   {transcription.segments.map(seg => (
                     <SegmentRow key={seg.id} seg={seg} />
                   ))}
+
+                  {/* Live streaming row — shows NF hypothesis while speaker is talking */}
+                  {transcription.interimText && (
+                    <div className="grid grid-cols-2 border-b border-border/20 bg-blue-50/30">
+                      <div className="px-5 py-3 border-r border-border/20 flex flex-col gap-1 min-w-0">
+                        {transcription.interimSpeaker && (
+                          <span className="inline-flex w-fit items-center px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide uppercase bg-blue-50 text-blue-400 border border-blue-100 mb-0.5 opacity-70">
+                            {transcription.interimSpeaker}
+                          </span>
+                        )}
+                        <span className="text-[13.5px] leading-relaxed text-muted-foreground/60 italic break-words">
+                          {transcription.interimText}
+                        </span>
+                      </div>
+                      <div className="px-5 py-3 flex items-center gap-1.5">
+                        <Loader2 className="w-3 h-3 text-muted-foreground/30 animate-spin shrink-0" />
+                        <span className="text-[11px] text-muted-foreground/30 italic">listening…</span>
+                      </div>
+                    </div>
+                  )}
+
                   <div ref={scrollEndRef} />
                 </div>
               )}
