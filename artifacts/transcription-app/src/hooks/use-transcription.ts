@@ -2,11 +2,11 @@ import { useRef, useState, useCallback } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const TARGET_RATE        = 16000;
-const SONIOX_WS_URL      = "wss://stt-rt.soniox.com/transcribe-websocket";
-// Local speech-end detector: fire translation 800 ms after the last new
-// committed word — much shorter than Soniox's own 7-second silence window.
-const SPEECH_END_MS      = 800;
+const TARGET_RATE          = 16000;
+const SONIOX_WS_URL        = "wss://stt-rt.soniox.com/transcribe-websocket";
+// Streaming translation poll interval — fires every N ms and translates the
+// live buffer if it has changed since the last request.
+const TRANSLATION_POLL_MS  = 800;
 
 // ── SVG icon strings ──────────────────────────────────────────────────────────
 const COPY_SVG =
@@ -26,13 +26,12 @@ const CLS = {
   colOrig:    "min-w-0",
   colTrans:   "min-w-0",
   textRow:    "flex items-start gap-1",
+  // Speaker tag — same style used in BOTH original and translation columns
   speakerTag: "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
-  // Invisible spacer — same size as speakerTag so translation column aligns
-  speakerSpacer: "invisible inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold mb-1",
   textLive:   "text-[13px] leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
   textFin:    "text-[13px] leading-relaxed text-foreground font-medium flex-1 min-w-0",
   nf:         "text-muted-foreground/45 italic",
-  // Translation text — same weight/darkness as finalized original
+  // Translation — same weight/darkness as finalized original
   transText:  "text-[13px] leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transPend:  "text-[11px] text-muted-foreground/30 italic flex-1 min-w-0",
   copyIcon:    "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 opacity-0 group-hover:opacity-100 transition-all cursor-pointer",
@@ -86,7 +85,7 @@ function normalizeSpeaker(rawId: number | undefined): string {
   return `Speaker ${lruSlot}`;
 }
 
-// ── Translation helper ─────────────────────────────────────────────────────────
+// ── Translation fetch ──────────────────────────────────────────────────────────
 async function fetchTranslation(text: string, lang: string, signal?: AbortSignal): Promise<string> {
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
@@ -100,7 +99,7 @@ async function fetchTranslation(text: string, lang: string, signal?: AbortSignal
   return d.translation?.trim() ?? "";
 }
 
-// ── enableCopyBtn ──────────────────────────────────────────────────────────────
+// ── DOM helpers ────────────────────────────────────────────────────────────────
 function enableCopyBtn(btn: HTMLButtonElement, getText: () => string) {
   btn.className = CLS.copyIcon;
   btn.disabled  = false;
@@ -144,30 +143,26 @@ export function useTranscription() {
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef       = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef  = useRef<number | undefined>(undefined);
-  const activeBubbleRef    = useRef<HTMLSpanElement | null>(null);
-  const activeBubbleNFRef  = useRef<HTMLSpanElement | null>(null);
+  const activeBubbleRef    = useRef<HTMLSpanElement | null>(null);   // final-text span
+  const activeBubbleNFRef  = useRef<HTMLSpanElement | null>(null);   // NF span
   const activeTransTextRef = useRef<HTMLParagraphElement | null>(null);
   const activeCopyTransRef = useRef<HTMLButtonElement | null>(null);
-
-  // Set true after first style-upgrade (grey→bold) for the active bubble.
-  // Prevents repeated DOM class changes, but translation may still re-fire
-  // if new text has arrived since the last translation.
-  const styleUpgradedRef   = useRef(false);
-
-  // Last text that was actually sent to the translation API for this bubble.
-  // Used to skip identical re-requests when the same text is committed multiple times.
-  const lastTranslatedText = useRef<string>("");
-
-  // AbortController for the in-flight translation request.
-  // Cancelled and replaced each time new text triggers a fresh translation.
-  const translationAbort   = useRef<AbortController | null>(null);
-
-  // Local speech-end timer (SPEECH_END_MS after the last committed word).
-  const speechEndTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const finalCountRef      = useRef(0);
-  const lastFinalTimeRef   = useRef(0);
   const detectedLangRef    = useRef<string>("en");
+
+  // ── Streaming translation refs ─────────────────────────────────────────────
+  // liveBufferRef: the full text of the active segment (finals + current NF).
+  // Updated on every Soniox message; read by the translation interval.
+  const liveBufferRef         = useRef<string>("");
+  // lastTranslatedBuffer: text that was most recently dispatched for translation.
+  // The interval skips fetching when the buffer hasn't changed.
+  const lastTranslatedBuffer  = useRef<string>("");
+  // AbortController for any in-flight translation request.
+  const translationAbortRef   = useRef<AbortController | null>(null);
+  // setInterval handle for the streaming translation poll.
+  const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Whether the current bubble's <p> has been upgraded to the finalized style.
+  const styleUpgradedRef      = useRef(false);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -183,15 +178,66 @@ export function useTranscription() {
     }
   }, []);
 
-  // ── clearSpeechEndTimer ───────────────────────────────────────────────────
-  const clearSpeechEndTimer = useCallback(() => {
-    if (speechEndTimer.current !== null) {
-      clearTimeout(speechEndTimer.current);
-      speechEndTimer.current = null;
+  // ── dispatchTranslation ────────────────────────────────────────────────────
+  // Immediately aborts any in-flight request and fires a new translation for
+  // the given text. Called both by the polling interval and by softFinalize.
+  const dispatchTranslation = useCallback((text: string, lang: string) => {
+    const transTextEl  = activeTransTextRef.current;
+    const copyTransBtn = activeCopyTransRef.current;
+    if (!transTextEl || text.length < 3) return;
+
+    lastTranslatedBuffer.current = text;
+
+    translationAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    translationAbortRef.current = ctrl;
+
+    void (async () => {
+      try {
+        const translated = await fetchTranslation(text, lang, ctrl.signal);
+        if (ctrl.signal.aborted || !translated || !transTextEl.isConnected) return;
+
+        const isArabic = /[\u0600-\u06FF]/.test(translated);
+        transTextEl.dir             = isArabic ? "rtl" : "ltr";
+        transTextEl.style.textAlign = isArabic ? "right" : "";
+        transTextEl.textContent     = translated;
+        transTextEl.className       = CLS.transText;
+
+        if (copyTransBtn && copyTransBtn.disabled) {
+          enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
+        }
+        scrollPanel();
+      } catch (e) {
+        if (e instanceof Error && e.name !== "AbortError") {
+          console.warn("[translate]", e.message);
+        }
+      }
+    })();
+  }, [scrollPanel]);
+
+  // ── startTranslationInterval ───────────────────────────────────────────────
+  // Starts the 800 ms polling loop. On each tick, if the live buffer has
+  // changed since the last dispatched translation, fires a new request.
+  const startTranslationInterval = useCallback(() => {
+    if (translationIntervalRef.current !== null) return;
+    translationIntervalRef.current = setInterval(() => {
+      const buffer = liveBufferRef.current;
+      if (!buffer || buffer === lastTranslatedBuffer.current) return;
+      dispatchTranslation(buffer, detectedLangRef.current);
+    }, TRANSLATION_POLL_MS);
+  }, [dispatchTranslation]);
+
+  // ── stopTranslationInterval ────────────────────────────────────────────────
+  const stopTranslationInterval = useCallback(() => {
+    if (translationIntervalRef.current !== null) {
+      clearInterval(translationIntervalRef.current);
+      translationIntervalRef.current = null;
     }
   }, []);
 
   // ── createBubble ──────────────────────────────────────────────────────────
+  // Builds a two-column segment row. Both columns carry an identical speaker
+  // tag so the layout stays symmetric.
   const createBubble = useCallback((rawSpeaker: number | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
     const label     = normalizeSpeaker(rawSpeaker);
@@ -208,18 +254,17 @@ export function useTranscription() {
     colTrans.className = CLS.colTrans;
 
     if (label) {
-      // Visible speaker tag in original column
-      const tag = document.createElement("span");
-      tag.className   = CLS.speakerTag;
-      tag.textContent = label;
-      colOrig.appendChild(tag);
+      // Original column: visible speaker tag
+      const tagOrig = document.createElement("span");
+      tagOrig.className   = CLS.speakerTag;
+      tagOrig.textContent = label;
+      colOrig.appendChild(tagOrig);
 
-      // Invisible spacer in translation column — same height so text rows align
-      const spacer = document.createElement("span");
-      spacer.className   = CLS.speakerSpacer;
-      spacer.textContent = label;        // same text keeps identical dimensions
-      spacer.setAttribute("aria-hidden", "true");
-      colTrans.appendChild(spacer);
+      // Translation column: identical visible speaker tag — keeps columns symmetric
+      const tagTrans = document.createElement("span");
+      tagTrans.className   = CLS.speakerTag;
+      tagTrans.textContent = label;
+      colTrans.appendChild(tagTrans);
     }
 
     const origRow = document.createElement("div");
@@ -254,89 +299,46 @@ export function useTranscription() {
     row.appendChild(colTrans);
     container.appendChild(row);
 
-    activeBubbleNFRef.current  = nfSpan;
-    activeTransTextRef.current = transTextP;
-    activeCopyTransRef.current = copyTransBtn;
-    styleUpgradedRef.current   = false;
-    lastTranslatedText.current = "";
-    detectedLangRef.current    = "en";
+    // Update active refs for this bubble
+    activeBubbleNFRef.current    = nfSpan;
+    activeTransTextRef.current   = transTextP;
+    activeCopyTransRef.current   = copyTransBtn;
+    styleUpgradedRef.current     = false;
+    liveBufferRef.current        = "";
+    lastTranslatedBuffer.current = "";
+    detectedLangRef.current      = "en";
 
     scrollPanel(true);
     return finalSpan;
   }, [scrollPanel]);
 
-  // ── triggerTranslation ────────────────────────────────────────────────────
-  // Fetches translation for the current finalized text.
-  // - Deduplicates: skips fetch if text hasn't changed since last request.
-  // - Aborts any in-flight request before starting a new one.
-  // - Does NOT touch the style (grey→bold); that is handled by softFinalize.
-  const triggerTranslation = useCallback(() => {
-    const confirmedText = activeBubbleRef.current?.textContent?.trim() ?? "";
-    if (confirmedText.length < 3) return;
-    if (confirmedText === lastTranslatedText.current) return; // nothing new
-
-    const lang        = detectedLangRef.current;
-    const transTextEl = activeTransTextRef.current;
-    const copyTransBtn = activeCopyTransRef.current;
-    if (!transTextEl) return;
-
-    lastTranslatedText.current = confirmedText;
-
-    // Abort any in-flight translation for stale text
-    translationAbort.current?.abort();
-    const ctrl = new AbortController();
-    translationAbort.current = ctrl;
-
-    void (async () => {
-      try {
-        const translated = await fetchTranslation(confirmedText, lang, ctrl.signal);
-        if (ctrl.signal.aborted || !translated || !transTextEl.isConnected) return;
-
-        const isArabic = /[\u0600-\u06FF]/.test(translated);
-        transTextEl.dir             = isArabic ? "rtl" : "ltr";
-        transTextEl.style.textAlign = isArabic ? "right" : "";
-        transTextEl.textContent     = translated;
-        transTextEl.className       = CLS.transText;
-
-        if (copyTransBtn) {
-          enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
-        }
-        scrollPanel();
-      } catch (e) {
-        // AbortError is expected when a newer request supersedes this one
-        if (e instanceof Error && e.name !== "AbortError") {
-          console.warn("[translate]", e.message);
-        }
-      }
-    })();
-  }, [scrollPanel]);
-
   // ── softFinalize ──────────────────────────────────────────────────────────
-  // Upgrades the active bubble style (grey→bold) on the FIRST call.
-  // Always calls triggerTranslation so the translation stays up-to-date
-  // if the speaker continued after the previous translation fired.
+  // Upgrades the active bubble style (grey → bold) and immediately dispatches
+  // a final translation for whatever text is in the live buffer.
+  // Called on speaker change or recording stop.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    clearSpeechEndTimer();
-
-    // Clear NF preview
+    // Clear NF span
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
 
-    // Upgrade style once (grey/italic → bold/solid)
+    // Upgrade style once (grey/italic → bold)
     if (!styleUpgradedRef.current) {
       styleUpgradedRef.current = true;
       const p = activeBubbleRef.current.parentElement;
       if (p) p.className = CLS.textFin;
     }
 
-    triggerTranslation();
-  }, [clearSpeechEndTimer, triggerTranslation]);
+    // Force one final translation with the committed final text
+    const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
+    if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+      dispatchTranslation(finalText, detectedLangRef.current);
+    }
+  }, [dispatchTranslation]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
-  // Called on speaker change or recording stop.
   const finalizeLiveBubble = useCallback(() => {
     if (!activeBubbleRef.current) return;
     softFinalize();
@@ -348,7 +350,7 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    clearSpeechEndTimer();
+    stopTranslationInterval();
     finalizeLiveBubble();
 
     currentSpeakerRef.current  = undefined;
@@ -357,7 +359,6 @@ export function useTranscription() {
     activeTransTextRef.current = null;
     activeCopyTransRef.current = null;
     finalCountRef.current      = 0;
-    lastFinalTimeRef.current   = 0;
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -386,10 +387,10 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble, clearSpeechEndTimer]);
+  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
-  // !! Soniox pipeline — do NOT modify streaming / segmentation logic !!
+  // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
   const buildWs = useCallback((apiKey: string): WebSocket => {
     const ws = new WebSocket(SONIOX_WS_URL);
 
@@ -443,20 +444,6 @@ export function useTranscription() {
       finalCountRef.current = finals.length;
       scrollPanel();
 
-      // ── Local speech-end detector ─────────────────────────────────────────
-      // Reset the timer each time new committed words arrive.
-      // When SPEECH_END_MS elapses with no new words, treat the segment as done
-      // and fire softFinalize immediately — without waiting for Soniox's own
-      // (much longer) silence detection to send NF=[].
-      if (newFinals.length > 0 && activeBubbleRef.current) {
-        clearSpeechEndTimer();
-        speechEndTimer.current = setTimeout(() => {
-          speechEndTimer.current = null;
-          const text = activeBubbleRef.current?.textContent?.trim() ?? "";
-          if (text.length > 2) softFinalize();
-        }, SPEECH_END_MS);
-      }
-
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
       if (activeBubbleNFRef.current) {
@@ -473,15 +460,20 @@ export function useTranscription() {
         }
       }
 
-      // When Soniox commits all pending speech (NF gone), finalize immediately.
-      // softFinalize is idempotent — safe to call even if the 800 ms timer
-      // already ran.
-      if (
-        nfText.length === 0 &&
-        activeBubbleRef.current &&
-        (activeBubbleRef.current.textContent?.trim().length ?? 0) > 2
-      ) {
-        softFinalize();
+      // ── Update live translation buffer ────────────────────────────────────
+      // Combine committed final text with the current NF hypothesis into the
+      // live buffer. The streaming translation interval reads this on every
+      // tick and fires a new request whenever it detects a change.
+      const finalText = activeBubbleRef.current?.textContent ?? "";
+      liveBufferRef.current = (finalText + nfText).trim();
+
+      // When Soniox commits all text (NF gone), immediately finalize style.
+      if (nfText.length === 0 && finalText.trim().length > 2) {
+        if (!styleUpgradedRef.current) {
+          styleUpgradedRef.current = true;
+          const p = activeBubbleRef.current?.parentElement;
+          if (p) p.className = CLS.textFin;
+        }
       }
     };
 
@@ -495,24 +487,25 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, softFinalize, clearSpeechEndTimer, scrollPanel]);
+  }, [stop, createBubble, finalizeLiveBubble, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
     try {
       setError(null);
       setAudioInfo("");
-      currentSpeakerRef.current  = undefined;
-      activeBubbleRef.current    = null;
-      activeBubbleNFRef.current  = null;
-      activeTransTextRef.current = null;
-      activeCopyTransRef.current = null;
-      styleUpgradedRef.current   = false;
-      lastTranslatedText.current = "";
-      finalCountRef.current      = 0;
-      lastFinalTimeRef.current   = 0;
-      detectedLangRef.current    = "en";
-      clearSpeechEndTimer();
+      currentSpeakerRef.current    = undefined;
+      activeBubbleRef.current      = null;
+      activeBubbleNFRef.current    = null;
+      activeTransTextRef.current   = null;
+      activeCopyTransRef.current   = null;
+      styleUpgradedRef.current     = false;
+      liveBufferRef.current        = "";
+      lastTranslatedBuffer.current = "";
+      finalCountRef.current        = 0;
+      detectedLangRef.current      = "en";
+      translationAbortRef.current?.abort();
+      translationAbortRef.current  = null;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -545,6 +538,9 @@ export function useTranscription() {
 
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
+
+      // Start the streaming translation poll AFTER the WebSocket is created
+      startTranslationInterval();
 
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
@@ -586,7 +582,7 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop, clearSpeechEndTimer]);
+  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
 
   return {
     isRecording,
@@ -598,17 +594,18 @@ export function useTranscription() {
     start,
     stop,
     clear: () => {
-      clearSpeechEndTimer();
-      translationAbort.current?.abort();
-      translationAbort.current = null;
-      currentSpeakerRef.current  = undefined;
-      activeBubbleRef.current    = null;
-      activeBubbleNFRef.current  = null;
-      activeTransTextRef.current = null;
-      activeCopyTransRef.current = null;
-      styleUpgradedRef.current   = false;
-      lastTranslatedText.current = "";
-      finalCountRef.current      = 0;
+      stopTranslationInterval();
+      translationAbortRef.current?.abort();
+      translationAbortRef.current  = null;
+      currentSpeakerRef.current    = undefined;
+      activeBubbleRef.current      = null;
+      activeBubbleNFRef.current    = null;
+      activeTransTextRef.current   = null;
+      activeCopyTransRef.current   = null;
+      styleUpgradedRef.current     = false;
+      liveBufferRef.current        = "";
+      lastTranslatedBuffer.current = "";
+      finalCountRef.current        = 0;
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();
