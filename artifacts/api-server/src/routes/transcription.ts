@@ -113,27 +113,54 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 });
 
 // ── POST /translate ────────────────────────────────────────────────────────
-// Translates a finalized transcript segment using GPT.
-// sourceLang: "en" | "ar" (or any BCP-47 code Soniox returns)
-// Automatically picks the opposite language as target.
+// Translates a segment using GPT-4o-mini.
+// sourceLang: BCP-47 code from Soniox (e.g. "en", "ar", "fr")
+// targetLang: BCP-47 code chosen by the user (e.g. "ar", "en", "es")
+//   Falls back to the opposite of sourceLang when omitted.
+const LANG_NAMES: Record<string, string> = {
+  en:    "English",
+  ar:    "Arabic",
+  es:    "Spanish",
+  fr:    "French",
+  de:    "German",
+  it:    "Italian",
+  pt:    "Portuguese",
+  ru:    "Russian",
+  "zh-CN": "Chinese (Simplified)",
+  ja:    "Japanese",
+  ko:    "Korean",
+  hi:    "Hindi",
+  tr:    "Turkish",
+  nl:    "Dutch",
+  pl:    "Polish",
+  he:    "Hebrew",
+  uk:    "Ukrainian",
+};
+
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, sourceLang } = req.body as { text?: string; sourceLang?: string };
+  const { text, sourceLang, targetLang } = req.body as {
+    text?: string; sourceLang?: string; targetLang?: string;
+  };
   if (!text || typeof text !== "string" || text.trim().length < 2) {
     res.status(400).json({ error: "text is required" });
     return;
   }
 
-  const src = (sourceLang ?? "en").toLowerCase();
-  const tgt = src === "ar" ? "English" : "Arabic";
-  const srcName = src === "ar" ? "Arabic" : "English";
+  const src    = (sourceLang ?? "en").toLowerCase();
+  const tgtKey = targetLang ?? (src === "ar" ? "en" : "ar");
+  const tgtName = LANG_NAMES[tgtKey] ?? tgtKey;
 
   try {
     const resp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
+          role: "system",
+          content: "You are a professional simultaneous interpreter. Translate the speech segment accurately and naturally. Return only the translation, with no preamble or explanation.",
+        },
+        {
           role: "user",
-          content: `Translate the following speech segment.\n\nIf the text is English translate it to Arabic.\nIf the text is Arabic translate it to English.\n\nReturn only the translation.\n\nText:\n${text.trim()}`,
+          content: `Translate the following text to ${tgtName}:\n\n${text.trim()}`,
         },
       ],
       max_completion_tokens: 512,

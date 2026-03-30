@@ -1,0 +1,60 @@
+2"}
+The core transcription and translation pipeline is now working correctly. Do NOT modify the transcription engine or real-time streaming behavior.
+
+Two final behavior fixes are required before launch.
+
+-------------------------------------
+
+1. Pause-based segment finalization
+
+Current issue:
+Segments continue expanding until the system detects a new speaker, which causes text to move between segments later.
+
+Required behavior:
+
+• If there is ~1 to 1.5 seconds of silence, finalize the current transcript segment.  
+• After a segment is finalized, start a new segment if speech continues.  
+• Do not modify or move finalized segments afterward.  
+• Translation must finalize together with the transcript segment.
+
+This prevents text from jumping between speakers and keeps segments stable for interpreters.
+
+-------------------------------------
+
+2. Immediate speaker-change segmentation
+
+Current issue:
+When Speaker 2 begins speaking quickly after Speaker 1, the system initially appends text to the previous speaker segment and later moves it.
+
+Required behavior:
+
+• When a new speaker is detected, immediately finalize the previous segment.  
+• Start a new segment for the new speaker instantly.  
+• Do not rewrite or move text from previous segments.
+
+Segments must remain stable once created.
+
+-------------------------------------
+
+3. Enable translation for ALL languages
+
+Current issue:
+Translation appears to be limited to English ↔ Arabic.
+
+Required behavior:
+
+• Translation must support all languages available from the transcription engine.  
+• Use detected source language dynamically.  
+• Translate from detected source language → selected target language.
+
+Example logic:
+
+source_language = detected_language  
+target_language = user_selected_language  
+
+Do not hardcode English or Arabic.
+
+-------------------------------------
+
+Important:
+Do not change the transcription streaming logic, diarization engine, or existing UI layout. Only improve segmentation behavior and enable dynamic translation language suppo

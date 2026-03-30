@@ -62,15 +62,14 @@ export default function Workspace() {
   const { data: user, isLoading: userLoading, error: userError } = useGetMe({ query: { retry: false } });
   const logoutMut         = useLogout();
 
-  const { devices }   = useAudioDevices();
-  const transcription = useTranscription();
-
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [showFeedback, setShowFeedback]         = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
+  const [langA, setLangA]                       = useState("en");
+  const [langB, setLangB]                       = useState("ar");
 
-  const [langA, setLangA] = useState("en");
-  const [langB, setLangB] = useState("ar");
+  const { devices }   = useAudioDevices();
+  const transcription = useTranscription({ targetLang: langB });
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
 
   // CSS variables applied to the transcript scroll container so ALL text
@@ -174,7 +173,7 @@ export default function Workspace() {
             <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
-              EN + AR Auto-detect
+              Auto-detect → {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
             </span>
           </div>
           <div className="flex items-center gap-2">
