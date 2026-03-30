@@ -100,12 +100,14 @@ function normalizeSpeaker(rawId: number | undefined): { label: string; slot: num
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
-async function fetchTranslation(text: string, lang: string): Promise<string> {
+// sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
+// targetLang: BCP-47 code chosen by the user in the UI (e.g. "ar", "es").
+async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "include",
-    body:        JSON.stringify({ text, sourceLang: lang }),
+    body:        JSON.stringify({ text, sourceLang, targetLang }),
   });
   if (!r.ok) return "";
   const d = await r.json() as { translation?: string };
@@ -178,6 +180,9 @@ export function useTranscription() {
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
+  // User-selected target language code (e.g. "ar", "es", "fr").
+  // Updated by workspace via setTargetLang without causing re-renders.
+  const targetLangRef     = useRef<string>("ar");
   const styleUpgradedRef  = useRef(false);
 
   // ── Per-bubble translation state ───────────────────────────────────────────
@@ -233,12 +238,13 @@ export function useTranscription() {
 
     lastTranslatedBuffer.current = text;
     state.seq += 1;
-    const mySeq   = state.seq;
+    const mySeq       = state.seq;
+    const myTargetLang = targetLangRef.current;   // captured at dispatch time
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, lang);
+        const translated = await fetchTranslation(text, lang, myTargetLang);
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
@@ -686,6 +692,14 @@ export function useTranscription() {
     }
   }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
 
+  // ── setTargetLang ──────────────────────────────────────────────────────────
+  // Called by workspace whenever the user changes the target language selector.
+  // Updating the ref is instantaneous and side-effect-free; the new value is
+  // captured at the next dispatchTranslation call.
+  const setTargetLang = useCallback((lang: string) => {
+    targetLangRef.current = lang;
+  }, []);
+
   return {
     isRecording,
     audioInfo,
@@ -695,6 +709,7 @@ export function useTranscription() {
     containerRef,
     start,
     stop,
+    setTargetLang,
     clear: () => {
       if (silenceTimerRef.current !== null) {
         clearTimeout(silenceTimerRef.current);

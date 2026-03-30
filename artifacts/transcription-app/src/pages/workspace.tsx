@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, ArrowLeftRight, Trash2, Copy, Check, Type,
+  Globe, Languages, Trash2, Copy, Check, Type,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -69,16 +69,15 @@ export default function Workspace() {
   const [showFeedback, setShowFeedback]         = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
 
-  const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
 
   // CSS variables applied to the transcript scroll container so ALL text
   // elements (including DOM-created bubbles) inherit the size instantly.
-  const TEXT_SIZE_VARS: Record<typeof textSize, React.CSSProperties> = {
-    sm: { "--ts-font-size": "12px", "--ts-line-height": "1.5" } as React.CSSProperties,
-    md: { "--ts-font-size": "14px", "--ts-line-height": "1.625" } as React.CSSProperties,
-    lg: { "--ts-font-size": "17px", "--ts-line-height": "1.7" } as React.CSSProperties,
+  const TEXT_SIZE_VARS: Record<typeof textSize, CSSProperties> = {
+    sm: { "--ts-font-size": "12px", "--ts-line-height": "1.5" } as CSSProperties,
+    md: { "--ts-font-size": "14px", "--ts-line-height": "1.625" } as CSSProperties,
+    lg: { "--ts-font-size": "17px", "--ts-line-height": "1.7" } as CSSProperties,
   };
 
 
@@ -87,6 +86,13 @@ export default function Workspace() {
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
   }, [devices, selectedDeviceId]);
+
+  // Keep the hook's target-language ref in sync with the user's selector choice.
+  // Using a ref inside the hook means this never triggers a re-render or
+  // restarts the audio pipeline — it's instantaneous.
+  useEffect(() => {
+    transcription.setTargetLang(langB);
+  }, [langB, transcription.setTargetLang]);
 
   useEffect(() => {
     if (!user?.trialExpired) return;
@@ -174,7 +180,7 @@ export default function Workspace() {
             <span className="font-bold text-[15px] tracking-tight">InterpretAI</span>
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
-              EN + AR Auto-detect
+              Auto-detect → {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -292,7 +298,7 @@ export default function Workspace() {
                   </div>
                   <p className="text-sm font-medium">Start recording to see transcript</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    English or Arabic — both detected automatically
+                    Language detected automatically · translated to {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
                   </p>
                 </div>
               )}
@@ -325,29 +331,15 @@ export default function Workspace() {
 
           {/* ROW 2: Translation pair + record button */}
           <div className="flex items-center px-4 py-3 gap-3">
+
+            {/* Language controls: source is always auto-detected; only target is user-selectable */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate</span>
-              <Select
-                value={langA}
-                onChange={(e) => setLangA(e.target.value)}
-                disabled={transcription.isRecording}
-                className="h-9 text-sm w-[130px] bg-white border-border"
-              >
-                {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </Select>
-              <button
-                onClick={() => { setLangA(langB); setLangB(langA); }}
-                disabled={transcription.isRecording}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground transition-colors disabled:opacity-40"
-                title="Swap languages"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-              </button>
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate to</span>
               <Select
                 value={langB}
                 onChange={(e) => setLangB(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-9 text-sm w-[130px] bg-white border-border"
+                className="h-9 text-sm w-[160px] bg-white border-border"
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
@@ -381,10 +373,8 @@ export default function Workspace() {
 
             {/* Spacer to keep record button centred */}
             <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
-              <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
-              <div className="h-9 w-[130px]" />
-              <div className="w-8 h-8" />
-              <div className="h-9 w-[130px]" />
+              <span className="text-xs font-semibold whitespace-nowrap">Translate to</span>
+              <div className="h-9 w-[160px]" />
             </div>
           </div>
 

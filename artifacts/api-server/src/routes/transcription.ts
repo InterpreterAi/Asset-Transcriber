@@ -112,28 +112,80 @@ router.post("/session/stop", requireAuth, async (req, res) => {
   res.json({ message: "Session stopped" });
 });
 
+// ── Language name lookup ───────────────────────────────────────────────────
+// Maps BCP-47 / Soniox language codes to human-readable names for the prompt.
+// Add entries here as new languages are needed — the pipeline is fully generic.
+const LANG_NAMES: Record<string, string> = {
+  en:    "English",
+  ar:    "Arabic",
+  es:    "Spanish",
+  fr:    "French",
+  de:    "German",
+  it:    "Italian",
+  pt:    "Portuguese",
+  ru:    "Russian",
+  "zh-cn": "Chinese (Simplified)",
+  zh:    "Chinese",
+  ja:    "Japanese",
+  ko:    "Korean",
+  hi:    "Hindi",
+  tr:    "Turkish",
+  nl:    "Dutch",
+  pl:    "Polish",
+  he:    "Hebrew",
+  uk:    "Ukrainian",
+  fa:    "Persian",
+  id:    "Indonesian",
+  ms:    "Malay",
+  th:    "Thai",
+  vi:    "Vietnamese",
+  sv:    "Swedish",
+  da:    "Danish",
+  fi:    "Finnish",
+  no:    "Norwegian",
+  cs:    "Czech",
+  ro:    "Romanian",
+};
+
+function langName(code: string | undefined, fallback: string): string {
+  if (!code) return fallback;
+  return LANG_NAMES[code.toLowerCase()] ?? LANG_NAMES[code.split("-")[0]?.toLowerCase() ?? ""] ?? code;
+}
+
 // ── POST /translate ────────────────────────────────────────────────────────
-// Translates a finalized transcript segment using GPT.
-// sourceLang: "en" | "ar" (or any BCP-47 code Soniox returns)
-// Automatically picks the opposite language as target.
+// Translates a finalized transcript segment using GPT-4o-mini.
+// sourceLang: BCP-47 code detected by Soniox (auto-detected at runtime).
+// targetLang: BCP-47 code selected by the user in the UI.
+// Both map through LANG_NAMES for a human-readable prompt.
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, sourceLang } = req.body as { text?: string; sourceLang?: string };
+  const { text, sourceLang, targetLang } = req.body as {
+    text?: string;
+    sourceLang?: string;
+    targetLang?: string;
+  };
   if (!text || typeof text !== "string" || text.trim().length < 2) {
     res.status(400).json({ error: "text is required" });
     return;
   }
 
-  const src = (sourceLang ?? "en").toLowerCase();
-  const tgt = src === "ar" ? "English" : "Arabic";
-  const srcName = src === "ar" ? "Arabic" : "English";
+  const srcName = langName(sourceLang, "the source language");
+  const tgtName = langName(targetLang, "English");
 
   try {
     const resp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
+          role: "system",
+          content:
+            "You are a professional interpreter. Translate speech segments accurately and naturally. " +
+            "Return ONLY the translation — no explanations, no notes, no original text.",
+        },
+        {
           role: "user",
-          content: `Translate the following speech segment.\n\nIf the text is English translate it to Arabic.\nIf the text is Arabic translate it to English.\n\nReturn only the translation.\n\nText:\n${text.trim()}`,
+          content:
+            `Translate the following ${srcName} speech segment into ${tgtName}.\n\n` +
+            `Text:\n${text.trim()}`,
         },
       ],
       max_completion_tokens: 512,
