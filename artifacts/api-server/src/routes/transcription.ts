@@ -5,9 +5,13 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
 
+// Prefer the user's own OPENAI_API_KEY; fall back to Replit AI integration
+const usingProxy = !process.env.OPENAI_API_KEY && !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
 const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
+  baseURL: usingProxy ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : undefined,
+  apiKey:  process.env.OPENAI_API_KEY
+        ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY
+        ?? "placeholder",
 });
 
 const router = Router();
@@ -125,13 +129,12 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   try {
     const resp = await openai.chat.completions.create({
-      model: "gpt-5-nano",
+      model: "gpt-4o-mini",
       messages: [
         {
-          role: "system",
-          content: `You are a professional interpreter. Translate the ${srcName} text to ${tgt}. Return ONLY the translation — no explanations, no quotes, no commentary.`,
+          role: "user",
+          content: `Translate the following speech segment.\n\nIf the text is English translate it to Arabic.\nIf the text is Arabic translate it to English.\n\nReturn only the translation.\n\nText:\n${text.trim()}`,
         },
-        { role: "user", content: text.trim() },
       ],
       max_completion_tokens: 512,
     });

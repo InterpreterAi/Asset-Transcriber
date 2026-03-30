@@ -72,14 +72,6 @@ export default function Workspace() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
-  const scrollEndRef = useRef<HTMLDivElement>(null);
-
-  // Scroll into view when transcription starts (container appears)
-  useEffect(() => {
-    if (transcription.isRecording) {
-      scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [transcription.isRecording]);
 
   useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
 
@@ -239,6 +231,18 @@ export default function Workspace() {
               )}
             </div>
 
+            {/* Two-column label row — visible only once transcript starts */}
+            {transcription.hasTranscript && (
+              <div className="flex gap-0 px-4 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
+                <div className="flex-1 pr-6 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                  Original
+                </div>
+                <div className="flex-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                  Translation
+                </div>
+              </div>
+            )}
+
             {/* Scrollable transcript area
                 containerRef is always mounted so the hook can imperatively
                 append speaker bubbles the instant tokens arrive.
@@ -259,8 +263,6 @@ export default function Workspace() {
                   </p>
                 </div>
               )}
-
-              <div ref={scrollEndRef} />
             </div>
           </div>
         </div>
