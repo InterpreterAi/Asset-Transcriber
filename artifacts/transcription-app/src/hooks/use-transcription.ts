@@ -85,10 +85,12 @@ export function useTranscription() {
   const finalCountRef     = useRef(0);
 
   // Buffer for accumulating final tokens before they become a locked segment
-  const buildingTextRef   = useRef("");
+  const buildingTextRef    = useRef("");
   const buildingSpeakerRef = useRef<number | undefined>(undefined);
   // Detected language from Soniox token metadata
-  const detectedLangRef   = useRef<string>("en");
+  const detectedLangRef    = useRef<string>("en");
+  // Silence-pause timer — resets on every new final token; fires flush at 800ms
+  const silenceTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -97,10 +99,14 @@ export function useTranscription() {
   // ── flushSegment ──────────────────────────────────────────────────────────
   // Moves the accumulated buffer into the locked segment list, then fires
   // an async translation call that updates the same row when it returns.
-  // Minimum 10 characters required; shorter buffers are silently discarded.
+  // Minimum 8 characters required; shorter buffers are silently discarded.
   const flushSegment = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     const text = buildingTextRef.current.trim();
-    if (text.length < 10) {
+    if (text.length < 8) {
       // Too short to be meaningful — reset buffer without creating a segment
       buildingTextRef.current    = "";
       buildingSpeakerRef.current = undefined;
@@ -242,12 +248,11 @@ export function useTranscription() {
         for (const token of newFinals) {
           const accumulated = buildingTextRef.current.trim();
 
-          // Speaker changed — only flush if the buffer is substantial (≥ 15 chars).
-          // Short fragments stay buffered to avoid single-word segments.
+          // Speaker changed — flush if buffer is long enough to be its own segment
           if (
             buildingSpeakerRef.current !== undefined &&
             token.speaker !== buildingSpeakerRef.current &&
-            accumulated.length >= 15
+            accumulated.length >= 8
           ) {
             flushSegment();
           }
@@ -260,15 +265,25 @@ export function useTranscription() {
 
           const buf = buildingTextRef.current.trim();
 
-          // Rule 1: Force-flush at 120 chars regardless of punctuation
-          if (buf.length >= 120) {
+          // Rule 1: Force-flush at 60 chars
+          if (buf.length >= 60) {
             flushSegment();
           }
-          // Rule 2: Flush on sentence-ending punctuation — only when ≥ 15 chars
-          else if (buf.length >= 15 && /[.!?]$/.test(buf)) {
+          // Rule 2: Flush on sentence-ending punctuation (min 8 chars)
+          else if (buf.length >= 8 && /[.!?]$/.test(buf)) {
             flushSegment();
           }
         }
+
+        // ── Silence / pause detection ─────────────────────────────────────
+        // Reset the 800ms silence timer every time new final tokens arrive.
+        // If no new finals come in for 800ms, the speaker has paused →
+        // flush whatever is in the buffer as a completed segment.
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          flushSegment();
+        }, 800);
 
         finalCountRef.current = finals.length;
       }
@@ -374,6 +389,10 @@ export function useTranscription() {
 
   // ── clear ─────────────────────────────────────────────────────────────────
   const clear = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     setSegments([]);
     buildingTextRef.current    = "";
     buildingSpeakerRef.current = undefined;
