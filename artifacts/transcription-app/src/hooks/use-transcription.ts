@@ -5,9 +5,6 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const TRANSLATION_POLL_MS = 700;
-// A new translation is accepted during live speech only if it is at least
-// this much longer than the last shown translation (prevents constant rewrites).
-const STABILIZE_RATIO     = 1.15;
 // How long a gap in incoming tokens (ms) triggers automatic segment finalization.
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
@@ -195,7 +192,12 @@ export function useTranscription() {
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
-  const detectedLangRef   = useRef<string>("en");
+  const detectedLangRef      = useRef<string>("en");
+  // Per-segment language lock: null until Soniox reports the first language tag
+  // for this segment. Translation is blocked (not fired) until this is set.
+  // Locked to the first detected language for the segment's lifetime so the
+  // translation direction never flips mid-segment.
+  const segmentDetectedLangRef = useRef<string | null>(null);
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
   const langPairRef       = useRef<{ a: string; b: string }>({ a: "en", b: "ar" });
@@ -258,11 +260,6 @@ export function useTranscription() {
   // Monotonic gate (per-bubble): a result is accepted only if its seq number
   //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
   //   out-of-order arrivals while still showing every result in order.
-  //
-  // Stabilization: during live speech (isFinal=false), skip a result if the
-  //   translation is not significantly longer than the previous one. This
-  //   prevents the translation column from constantly rewriting small changes.
-  //   When a segment finalizes (isFinal=true), always show the result.
   const dispatchTranslation = useCallback((text: string, lang: string, isFinal = false) => {
     const state = activeBubbleStateRef.current;
     if (!state || text.length < 3) return;
@@ -323,9 +320,6 @@ export function useTranscription() {
         // the final dispatch, so all earlier poll fetches are rejected here.
         if (!isFinal && state.finalizing) return;
 
-        // Stabilization: only update if final, first result, or meaningfully longer.
-        if (!isFinal && state.lastShownLen > 0 && translated.length < state.lastShownLen * STABILIZE_RATIO) return;
-
         state.lastShownSeq = mySeq;
         state.lastShownLen = translated.length;
 
@@ -359,9 +353,13 @@ export function useTranscription() {
   const startTranslationInterval = useCallback(() => {
     if (translationIntervalRef.current !== null) return;
     translationIntervalRef.current = setInterval(() => {
-      const buffer = liveBufferRef.current;
-      if (!buffer || buffer === lastTranslatedBuffer.current) return;
-      dispatchTranslation(buffer, detectedLangRef.current, false);
+      const buffer  = liveBufferRef.current;
+      // Block translation until Soniox has reported a language for this segment.
+      // segmentDetectedLangRef is null until the first language tag arrives, so
+      // the interval idles harmlessly until we know the real source language.
+      const segLang = segmentDetectedLangRef.current;
+      if (!buffer || buffer === lastTranslatedBuffer.current || segLang === null) return;
+      dispatchTranslation(buffer, segLang, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
 
@@ -455,10 +453,12 @@ export function useTranscription() {
       finalizing:        false,
       translationLocked: false,
     };
-    styleUpgradedRef.current     = false;
-    liveBufferRef.current        = "";
-    lastTranslatedBuffer.current = "";
-    detectedLangRef.current      = "en";
+    styleUpgradedRef.current       = false;
+    liveBufferRef.current          = "";
+    lastTranslatedBuffer.current   = "";
+    // Reset the per-segment language lock so translation waits for Soniox to
+    // report the actual language before firing — prevents first-chunk wrong-direction.
+    segmentDetectedLangRef.current = null;
 
     // Restart the polling interval for this new segment. softFinalize stops
     // the interval for the previous segment; we restart it here so live
@@ -497,7 +497,10 @@ export function useTranscription() {
 
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
-      dispatchTranslation(finalText, detectedLangRef.current, true);
+      // Use the per-segment locked language. Fall back to the global detected
+      // language only if Soniox never reported one for this segment at all.
+      const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+      dispatchTranslation(finalText, lang, true);
     }
   }, [dispatchTranslation, stopTranslationInterval]);
 
@@ -624,8 +627,20 @@ export function useTranscription() {
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
-      const langToken = newFinals.find(t => t.language) ?? finals.find(t => t.language);
-      if (langToken?.language) detectedLangRef.current = langToken.language;
+      // Detect language from ANY token in this message — final OR non-final.
+      // Checking NF tokens too is critical: Soniox often reports language on the
+      // first NF chunk, well before any final tokens arrive. Using only finals
+      // meant we started translation before the language was known.
+      const langToken = tokens.find(t => t.language);
+      if (langToken?.language) {
+        detectedLangRef.current = langToken.language;
+        // Lock the per-segment language to the FIRST detected value.
+        // This prevents the translation direction from flipping mid-segment
+        // if Soniox updates its language estimate as more audio arrives.
+        if (segmentDetectedLangRef.current === null) {
+          segmentDetectedLangRef.current = langToken.language;
+        }
+      }
 
       for (const token of newFinals) {
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
@@ -715,15 +730,16 @@ export function useTranscription() {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
       }
-      currentSpeakerRef.current    = undefined;
-      activeBubbleRef.current      = null;
-      activeBubbleNFRef.current    = null;
-      activeBubbleStateRef.current = null;
-      styleUpgradedRef.current     = false;
-      liveBufferRef.current        = "";
-      lastTranslatedBuffer.current = "";
-      finalCountRef.current        = 0;
-      detectedLangRef.current      = "en";
+      currentSpeakerRef.current      = undefined;
+      activeBubbleRef.current        = null;
+      activeBubbleNFRef.current      = null;
+      activeBubbleStateRef.current   = null;
+      styleUpgradedRef.current       = false;
+      liveBufferRef.current          = "";
+      lastTranslatedBuffer.current   = "";
+      finalCountRef.current          = 0;
+      detectedLangRef.current        = "en";
+      segmentDetectedLangRef.current = null;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -858,14 +874,15 @@ export function useTranscription() {
         silenceTimerRef.current = null;
       }
       stopTranslationInterval();
-      activeBubbleStateRef.current = null;  // drop all in-flight closures
-      currentSpeakerRef.current    = undefined;
-      activeBubbleRef.current      = null;
-      activeBubbleNFRef.current    = null;
-      styleUpgradedRef.current     = false;
-      liveBufferRef.current        = "";
-      lastTranslatedBuffer.current = "";
-      finalCountRef.current        = 0;
+      activeBubbleStateRef.current   = null;  // drop all in-flight closures
+      currentSpeakerRef.current      = undefined;
+      activeBubbleRef.current        = null;
+      activeBubbleNFRef.current      = null;
+      styleUpgradedRef.current       = false;
+      liveBufferRef.current          = "";
+      lastTranslatedBuffer.current   = "";
+      finalCountRef.current          = 0;
+      segmentDetectedLangRef.current = null;
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();
