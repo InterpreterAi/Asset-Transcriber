@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo } from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
+import { sendTelegramNotification } from "../lib/telegram.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -113,6 +114,10 @@ router.post("/signup", async (req, res) => {
 
   req.session.userId = user!.id;
   req.session.isAdmin = false;
+
+  void sendTelegramNotification(
+    `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration`
+  );
 
   res.status(201).json({ user: buildUserInfo(user!) });
 });
@@ -310,6 +315,7 @@ router.get("/google/callback", async (req, res) => {
       .where(or(eq(usersTable.googleAccountId, googleId), eq(usersTable.email, googleEmail)))
       .limit(1);
 
+    let isNewUser = false;
     if (user) {
       // Back-fill googleAccountId if the user previously signed up with email.
       if (!user.googleAccountId) {
@@ -320,6 +326,7 @@ router.get("/google/callback", async (req, res) => {
       }
     } else {
       // Create a new account — same 14-day trial as email signup.
+      isNewUser = true;
       const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
       const baseUsername = googleEmail.split("@")[0]!.replace(/[^a-z0-9._-]/gi, "_");
 
@@ -346,6 +353,12 @@ router.get("/google/callback", async (req, res) => {
         })
         .returning();
     }
+
+    void sendTelegramNotification(
+      isNewUser
+        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up`
+        : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`
+    );
 
     req.session.userId  = user!.id;
     req.session.isAdmin = user!.isAdmin;
