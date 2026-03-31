@@ -9,9 +9,9 @@ const TRANSLATION_POLL_MS = 700;
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
 // How long a gap in incoming tokens (ms) triggers automatic segment finalization.
-// 900 ms: long enough to avoid splitting mid-word pauses but short enough that
-// natural sentence-end pauses close the segment and open a fresh one.
-const SILENCE_TIMEOUT_MS  = 900;
+// Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
+// but short enough that natural sentence-end pauses close the segment cleanly.
+const SILENCE_TIMEOUT_MS  = 1200;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -332,8 +332,10 @@ export function useTranscription() {
     translationIntervalRef.current = setInterval(() => {
       const buffer = liveBufferRef.current;
       if (!buffer || buffer === lastTranslatedBuffer.current) return;
-      // Language is set by Soniox within ~200ms of first speech; the first
-      // interval tick is at 700ms, so detectedLangRef is already correct by then.
+      // Guard: only poll once Soniox has explicitly reported a language code.
+      // Before that point, detectedLangRef holds the "en" default which would
+      // cause the wrong translation direction and source-lang flicker.
+      if (!langDetectedRef.current) return;
       dispatchTranslation(buffer, detectedLangRef.current, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
@@ -431,9 +433,7 @@ export function useTranscription() {
     styleUpgradedRef.current     = false;
     liveBufferRef.current        = "";
     lastTranslatedBuffer.current = "";
-    // NOTE: detectedLangRef is intentionally NOT reset here — the detected
-    // language from the previous segment is the best starting guess for the next,
-    // and Soniox will update it mid-segment if the speaker switches language.
+    detectedLangRef.current      = "en";
 
     // Restart polling for the new segment (softFinalize stopped it for the previous one).
     startTranslationInterval();
@@ -456,10 +456,6 @@ export function useTranscription() {
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Clear the NF span. Do NOT merge its text into the final span:
-    // any NF words Soniox hasn't committed yet will arrive as final tokens in the
-    // next message, and if we pre-wrote them here they would appear twice
-    // (once in this bubble, once in the new bubble the finals loop creates).
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
@@ -494,28 +490,7 @@ export function useTranscription() {
       silenceTimerRef.current = null;
     }
     stopTranslationInterval();
-
-    // Finalize the active bubble on stop WITHOUT clearing NF text.
-    // Unlike the silence-timer path (which discards NF because those words will
-    // arrive as final tokens later), on stop no further tokens will arrive, so
-    // we KEEP the NF text visible by only removing its grey-italic class.
-    if (activeBubbleRef.current) {
-      if (activeBubbleStateRef.current) activeBubbleStateRef.current.finalizing = true;
-      if (activeBubbleNFRef.current) {
-        activeBubbleNFRef.current.className = "";  // promote: remove grey-italic style
-      }
-      if (!styleUpgradedRef.current) {
-        styleUpgradedRef.current = true;
-        const p = activeBubbleRef.current.parentElement;
-        if (p) p.className = CLS.textFin;
-      }
-      // Translate the full visible text (final span + any remaining NF words).
-      const nfExtra   = activeBubbleNFRef.current?.textContent ?? "";
-      const finalText = ((activeBubbleRef.current.textContent ?? "") + nfExtra).trim();
-      if (finalText.length > 2) {
-        dispatchTranslation(finalText, detectedLangRef.current, true);
-      }
-    }
+    finalizeLiveBubble();
 
     currentSpeakerRef.current     = undefined;
     activeBubbleRef.current       = null;
@@ -550,7 +525,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, dispatchTranslation]);
+  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
@@ -568,22 +543,6 @@ export function useTranscription() {
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         diarization:                    { enable: true },
-        // Vocabulary hints: boost recognition accuracy for domain-specific words
-        // that are commonly misheard by general-purpose speech models.
-        context_phrases: [
-          "guarantee", "quality", "confidential",
-          "interpret", "interpreter", "interpretation",
-          "translation", "translator",
-          "medical", "legal", "insurance",
-          "contract", "agreement", "consent",
-          "colonoscopy", "endoscopy", "biopsy",
-          "diagnosis", "treatment", "prescription",
-          "medication", "referral", "procedure",
-          "attorney", "plaintiff", "defendant",
-          "testimony", "deposition", "liability",
-          "coverage", "premium", "deductible",
-          "policy", "claim", "beneficiary",
-        ],
       }));
       console.log("[WS] stt-rt-v4 OPEN");
     };
@@ -723,7 +682,6 @@ export function useTranscription() {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
-      langDetectedRef.current      = false;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
