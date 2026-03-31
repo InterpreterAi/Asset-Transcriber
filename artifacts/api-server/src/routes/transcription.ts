@@ -239,30 +239,48 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const srcName = LANG_NAMES[srcLang] ?? srcLang;
   const tgtName = LANG_NAMES[tgtLang] ?? tgtLang;
+  const srcCode = srcLang.split("-")[0]!;
   const tgtCode = tgtLang.split("-")[0]!;
 
   const termHints = findTermHints(text, srcLang, tgtLang);
-  const arabicRule = tgtCode === "ar"
-    ? "- Use Modern Standard Arabic (فصحى) ONLY. Prohibited: dialect words (ليش, شو, مو, هيك, زي, كده, عشان, وين, فين, إزاي, ليه)\n"
+
+  // Arabic dialect understanding — source text may be any regional dialect
+  const arabicSourceRule = srcCode === "ar"
+    ? "- The source text may be in any Arabic dialect (Egyptian, Levantine, Gulf, Moroccan, Iraqi, etc.). " +
+      "Understand and translate dialect vocabulary faithfully — do not reject or misread colloquial words.\n"
     : "";
+
+  // Arabic output standard — professional interpretation output is MSA
+  const arabicTargetRule = tgtCode === "ar"
+    ? "- Write Modern Standard Arabic (فصحى) suitable for professional interpretation. " +
+      "Do NOT use dialect output words such as: ليش, شو, مو, هيك, زي, كده, عشان, وين, فين, إزاي, ليه\n"
+    : "";
+
   const termRule = termHints.length > 0
-    ? `- Use these exact glossary translations for domain terminology:\n` +
+    ? `- Use these exact glossary translations for the following terms:\n` +
       termHints.map(h => `  ${h}`).join("\n") + "\n"
     : "";
 
   const systemPrompt =
-    `You are a professional simultaneous interpreter certified in ${srcName} and ${tgtName}. ` +
-    "Your output must be complete, accurate, and natural — exactly as a trained human interpreter would produce.\n" +
-    "Rules:\n" +
-    `- Translate EVERY word in the source text — do not omit, skip, or drop any word\n` +
-    `- Do not summarize, compress, or shorten the meaning in any way\n` +
-    `- Preserve names, numbers, and technical terms exactly as spoken\n` +
-    `- Use natural, idiomatic grammar as a native ${tgtName} speaker would\n` +
-    "- Maintain consistent terminology throughout the session\n" +
-    arabicRule +
+    `You are a certified professional simultaneous interpreter working in a live call-center. ` +
+    `Calls may involve: interpreter-mediated calls, medical consultations, legal proceedings, insurance claims, accident reports, and general conversations. ` +
+    `Translate from ${srcName} into ${tgtName}.\n` +
+    `Rules:\n` +
+    `- Translate EVERY spoken word — do not omit, skip, summarize, or compress any part\n` +
+    `- The text may be an incomplete sentence still being spoken. Translate exactly what is there; never predict or complete the sentence\n` +
+    `- Preserve numbers, codes, and identifiers exactly as spoken — do not infer their type. ` +
+      `Example: "my number is 3602" → translate as "رقمي هو 3602", NOT as "رقم هاتفي هو 3602"\n` +
+    `- Names must appear exactly as spoken\n` +
+    `- Use the SAME translation for the same word every time — word choices must be consistent and never replaced with synonyms mid-sentence\n` +
+    `- Use natural, idiomatic grammar as a native ${tgtName} speaker would, while remaining as literal as possible\n` +
+    `- In accident or insurance contexts, use correct professional terminology (e.g. collision, liability, claim, deductible, at-fault)\n` +
+    `- In medical contexts, use correct clinical terminology\n` +
+    `- In legal contexts, use correct legal terminology\n` +
+    arabicSourceRule +
+    arabicTargetRule +
     termRule +
-    "- Never add explanations, notes, or the original text\n" +
-    "- Return ONLY the translated sentence, nothing else";
+    `- Never add explanations, notes, parenthetical comments, or the original text\n` +
+    `- Return ONLY the translated text, nothing else`;
 
   try {
     const resp = await openai.chat.completions.create({
