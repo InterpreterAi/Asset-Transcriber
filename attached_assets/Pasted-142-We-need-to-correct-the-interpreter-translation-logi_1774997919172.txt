@@ -1,0 +1,83 @@
+142"}
+We need to correct the interpreter translation logic while preserving the current real-time streaming behavior.
+
+Important: Do NOT modify the real-time transcription system, segmentation, diarization, streaming speed, or UI layout.
+
+1. LANGUAGE PAIR LOCK
+
+When the user selects two languages (Language A and Language B), the translator must only translate between those two languages.
+
+Logic:
+
+IF spoken language == Language A  
+→ translate to Language B
+
+ELSE IF spoken language == Language B  
+→ translate to Language A
+
+ELSE  
+→ do NOT translate  
+→ copy the transcript exactly into the translation column.
+
+This prevents cases where Arabic speech is rewritten into standard Arabic instead of being translated.
+
+2. NO SEMANTIC EXPANSION
+
+The translator must not add words that were not spoken.
+
+Example:
+
+Spoken:  
+"my number is 3602"
+
+Correct translation:  
+"رقمي هو 3602"
+
+Incorrect translation:  
+"رقم هاتفي هو 3602"
+
+The speaker did not say "phone number", so the translation must remain neutral.
+
+3. PRESERVE AMBIGUITY
+
+If a noun is ambiguous (number, case, file, account, etc.), the translation must keep the same ambiguity instead of guessing the meaning.
+
+Examples:
+
+"my number" → "رقمي"  
+not "رقم هاتفي"
+
+"my case" → "قضيتي"  
+not "حالتي القانونية"
+
+4. INTERPRETER INTRODUCTION CONTEXT
+
+Interpreter calls often include introductions such as:
+
+"my name is Mohammed and my number is 3602"
+
+In these situations the system must not assume the number is a phone number.
+
+Always translate literally unless the original speech explicitly says "phone number".
+
+5. REAL-TIME TRANSLATION BEHAVIOR
+
+Do not change the current streaming behavior.
+
+Translation must remain:
+
+- real-time
+- word-by-word
+- on the same line
+- appended progressively
+
+Previously translated words must not be rewritten or replaced.
+
+6. DIALECT AND CONTEXT UNDERSTANDING
+
+The translator should understand dialect meaning and conversational context to improve translation accuracy.
+
+However, if the system is not confident about the exact meaning, it must keep the literal translation instead of rewriting or expanding the sentence.
+
+Goal:
+Accurate interpreter-style translation that preserves spoken meaning without adding assumpt
