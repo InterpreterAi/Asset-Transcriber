@@ -80,7 +80,7 @@ async function initStripe() {
 async function ensureAdminUser() {
   try {
     const existing = await db
-      .select({ id: usersTable.id })
+      .select()
       .from(usersTable)
       .where(eq(usersTable.username, "admin"))
       .limit(1);
@@ -101,6 +101,22 @@ async function ensureAdminUser() {
         lastUsageResetAt: now,
       });
       logger.info("Admin user created (first boot)");
+    } else {
+      // Always ensure the admin account stays on the unlimited plan,
+      // regardless of what was stored in the database previously.
+      const admin = existing[0]!;
+      if (admin.planType !== "unlimited" || admin.dailyLimitMinutes < 9999) {
+        await db.update(usersTable)
+          .set({
+            planType: "unlimited",
+            dailyLimitMinutes: 9999,
+            trialEndsAt: new Date("2099-12-31"),
+            isAdmin: true,
+            isActive: true,
+          })
+          .where(eq(usersTable.username, "admin"));
+        logger.info("Admin user upgraded to unlimited plan");
+      }
     }
   } catch (err) {
     logger.error({ err }, "Failed to ensure admin user");

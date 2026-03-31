@@ -11,10 +11,10 @@ import {
   getAdminListUsersQueryKey,
   getAdminListFeedbackQueryKey
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { 
-  Users, Activity, Clock, Plus, RefreshCw, Trash2, Power, PowerOff, ArrowLeft, Star, LayoutDashboard
+  Users, Activity, Clock, Plus, Trash2, Power, PowerOff, ArrowLeft, Star, LayoutDashboard
 } from "lucide-react";
 import { Button, Card, Input, Select } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -26,6 +26,18 @@ export default function Admin() {
   
   const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { enabled: !!me?.isAdmin } });
   const { data: feedbackData } = useAdminListFeedback({ query: { enabled: !!me?.isAdmin } });
+
+  // Server-side stats: totalUsers, activeUsers (last 5 min), minutesToday (last 24h from sessions)
+  const { data: statsData } = useQuery({
+    queryKey: ["admin-stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/stats", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch stats");
+      return res.json() as Promise<{ activeUsers: number; totalUsers: number; minutesToday: number }>;
+    },
+    enabled: !!me?.isAdmin,
+    refetchInterval: 30_000,
+  });
   
   const createMut = useAdminCreateUser();
   const updateMut = useAdminUpdateUser();
@@ -51,12 +63,9 @@ export default function Admin() {
   const users = usersData?.users || [];
   const feedback = feedbackData?.feedback || [];
 
-  const totalMinutes = users.reduce((acc, u) => acc + u.totalMinutesUsed, 0);
-  const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-  const activeCount = users.filter(u => {
-    const a = (u as any).lastActivityAt;
-    return a && new Date(a).getTime() > fiveMinAgo;
-  }).length;
+  const totalUsers   = statsData?.totalUsers   ?? users.length;
+  const activeCount  = statsData?.activeUsers  ?? 0;
+  const minutesToday = statsData?.minutesToday ?? 0;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,7 +126,7 @@ export default function Admin() {
             </div>
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Users</p>
-              <p className="text-2xl font-bold mt-1 font-display">{users.length}</p>
+              <p className="text-2xl font-bold mt-1 font-display">{totalUsers}</p>
             </div>
           </Card>
           <Card className="p-6 flex items-center gap-4 border-none shadow-sm">
@@ -135,8 +144,9 @@ export default function Admin() {
               <Clock className="w-6 h-6 text-green-600" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Mins Transcribed</p>
-              <p className="text-2xl font-bold mt-1 font-display">{formatMinutes(totalMinutes)}</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Minutes Today</p>
+              <p className="text-2xl font-bold mt-1 font-display">{formatMinutes(minutesToday)}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">last 24 hours</p>
             </div>
           </Card>
         </div>

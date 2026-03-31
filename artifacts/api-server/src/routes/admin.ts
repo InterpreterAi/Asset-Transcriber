@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, feedbackTable } from "@workspace/db";
+import { db, usersTable, feedbackTable, sessionsTable } from "@workspace/db";
 import { eq, sql, gt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
@@ -29,11 +29,32 @@ router.get("/users", requireAdmin, async (_req, res) => {
 
 router.get("/stats", requireAdmin, async (_req, res) => {
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  const rows = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(usersTable)
-    .where(gt(usersTable.lastActivity, fiveMinutesAgo));
-  res.json({ activeUsers: Number(rows[0]?.count ?? 0) });
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [activeRow, totalRow, minutesTodayRow] = await Promise.all([
+    // Active users: last_activity within the past 5 minutes
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(gt(usersTable.lastActivity, fiveMinutesAgo)),
+
+    // Total registered users
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable),
+
+    // Minutes transcribed in the last 24 hours (from completed sessions)
+    db
+      .select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
+      .from(sessionsTable)
+      .where(gt(sessionsTable.startedAt, twentyFourHoursAgo)),
+  ]);
+
+  res.json({
+    activeUsers:  Number(activeRow[0]?.count ?? 0),
+    totalUsers:   Number(totalRow[0]?.count ?? 0),
+    minutesToday: Number(minutesTodayRow[0]?.total ?? 0),
+  });
 });
 
 router.post("/users", requireAdmin, async (req, res) => {
