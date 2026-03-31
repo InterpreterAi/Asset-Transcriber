@@ -6,6 +6,7 @@ import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
+  Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -74,6 +75,106 @@ export default function Workspace() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
+
+  // ── Upgrade / billing ────────────────────────────────────────────────────────
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  type StripePrice = { id: string; unit_amount: number; currency: string; recurring: { interval: string } | null };
+  type StripeProduct = { id: string; name: string; description: string; prices: StripePrice[] };
+  const [upgradePlans, setUpgradePlans] = useState<StripeProduct[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+
+  const fetchPlans = async () => {
+    setPlansLoading(true);
+    try {
+      const res = await fetch("/api/stripe/products-with-prices", { credentials: "include" });
+      const data = await res.json() as { data?: StripeProduct[]; error?: string };
+      if (res.ok && data.data) setUpgradePlans(data.data);
+    } catch { /* ignore */ } finally {
+      setPlansLoading(false);
+    }
+  };
+
+  const handleOpenUpgrade = () => {
+    setShowUpgrade(true);
+    setUpgradeError(null);
+    void fetchPlans();
+  };
+
+  const handleCheckout = async (priceId: string) => {
+    setUpgradeLoading(priceId);
+    setUpgradeError(null);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ priceId }),
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Checkout failed");
+      window.location.href = data.url;
+    } catch (err: unknown) {
+      setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setUpgradeLoading(null);
+    }
+  };
+
+  const handleManageBilling = async () => {
+    setUpgradeLoading("portal");
+    try {
+      const res = await fetch("/api/stripe/portal", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Portal unavailable");
+      window.location.href = data.url;
+    } catch (err: unknown) {
+      setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setUpgradeLoading(null);
+    }
+  };
+
+  // ── Change password form ────────────────────────────────────────────────────
+  const [pwForm, setPwForm]   = useState({ current: "", next: "", confirm: "" });
+  const [pwLoading, setPwLoading]   = useState(false);
+  const [showPwCurrent, setShowPwCurrent] = useState(false);
+  const [showPwNext, setShowPwNext]       = useState(false);
+  const [pwStatus, setPwStatus] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwStatus(null);
+    if (pwForm.next !== pwForm.confirm) {
+      setPwStatus({ type: "err", msg: "New passwords do not match." });
+      return;
+    }
+    if (pwForm.next.length < 8) {
+      setPwStatus({ type: "err", msg: "New password must be at least 8 characters." });
+      return;
+    }
+    setPwLoading(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.next }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setPwStatus({ type: "ok", msg: "Password changed successfully." });
+      setPwForm({ current: "", next: "", confirm: "" });
+    } catch (err: unknown) {
+      setPwStatus({ type: "err", msg: err instanceof Error ? err.message : "Something went wrong" });
+    } finally {
+      setPwLoading(false);
+    }
+  };
 
   // CSS variables applied to the transcript scroll container so ALL text
   // elements (including DOM-created bubbles) inherit the size instantly.
@@ -168,6 +269,121 @@ export default function Workspace() {
     <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
 
+      {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
+      {showUpgrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+              <div>
+                <h2 className="text-lg font-bold">Upgrade Your Plan</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Choose a plan that fits your workflow</p>
+              </div>
+              <button
+                onClick={() => setShowUpgrade(false)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Plans */}
+            <div className="p-6 space-y-4">
+              {upgradeError && (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-start gap-2 text-sm text-destructive">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{upgradeError}</span>
+                </div>
+              )}
+
+              {plansLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <span className="w-8 h-8 border-2 border-border border-t-primary rounded-full animate-spin" />
+                </div>
+              ) : upgradePlans.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-medium">Plans not available yet</p>
+                  <p className="text-xs mt-1">Please check back soon or contact support.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {upgradePlans.map((plan) => {
+                    const monthlyPrice = plan.prices.find(p => p.recurring?.interval === "month");
+                    const yearlyPrice  = plan.prices.find(p => p.recurring?.interval === "year");
+                    const isHighlighted = plan.name.toLowerCase().includes("professional");
+                    return (
+                      <div
+                        key={plan.id}
+                        className={`relative rounded-xl border p-5 flex flex-col gap-3 ${
+                          isHighlighted
+                            ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                            : "border-border bg-muted/20"
+                        }`}
+                      >
+                        {isHighlighted && (
+                          <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                            MOST POPULAR
+                          </span>
+                        )}
+                        <div>
+                          <p className="font-semibold text-sm">{plan.name.replace("InterpretAI ", "")}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{plan.description}</p>
+                        </div>
+                        {monthlyPrice && (
+                          <div>
+                            <p className="text-2xl font-bold">${(monthlyPrice.unit_amount / 100).toFixed(0)}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                            {yearlyPrice && (
+                              <p className="text-[11px] text-muted-foreground">${(yearlyPrice.unit_amount / 100).toFixed(0)}/yr — save {Math.round(100 - (yearlyPrice.unit_amount / (monthlyPrice.unit_amount * 12)) * 100)}%</p>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-2 mt-auto">
+                          {monthlyPrice && (
+                            <button
+                              onClick={() => void handleCheckout(monthlyPrice.id)}
+                              disabled={upgradeLoading === monthlyPrice.id}
+                              className={`w-full h-9 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+                                isHighlighted
+                                  ? "bg-primary text-white hover:bg-primary/90"
+                                  : "bg-foreground text-background hover:bg-foreground/90"
+                              } disabled:opacity-60`}
+                            >
+                              {upgradeLoading === monthlyPrice.id ? (
+                                <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                              ) : (
+                                <Zap className="w-3.5 h-3.5" />
+                              )}
+                              Monthly
+                            </button>
+                          )}
+                          {yearlyPrice && (
+                            <button
+                              onClick={() => void handleCheckout(yearlyPrice.id)}
+                              disabled={upgradeLoading === yearlyPrice.id}
+                              className="w-full h-9 rounded-lg text-xs font-semibold border border-border bg-white hover:bg-muted/60 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                            >
+                              {upgradeLoading === yearlyPrice.id ? (
+                                <span className="w-3.5 h-3.5 border-2 border-muted border-t-foreground rounded-full animate-spin" />
+                              ) : null}
+                              Yearly (best value)
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p className="text-center text-[11px] text-muted-foreground pt-2">
+                Secure payment by Stripe. Cancel anytime. All plans include real-time AI transcription & translation.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SIDEBAR */}
       <aside className="w-[64px] bg-sidebar border-r border-sidebar-border flex flex-col items-center py-3 flex-shrink-0 z-20">
         <div className="flex-1 flex flex-col gap-1.5">
@@ -207,6 +423,192 @@ export default function Workspace() {
           <LogOut className="w-5 h-5" />
         </button>
       </aside>
+
+      {/* PROFILE PANEL */}
+      {activeTab === "profile" && (
+        <div className="w-72 bg-white border-r border-border flex flex-col overflow-y-auto shrink-0 z-10">
+          {/* Panel header */}
+          <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
+            <span className="font-semibold text-sm">Account</span>
+            <button
+              onClick={() => setActiveTab("mic")}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* User identity */}
+          <div className="p-4 border-b border-border/60 space-y-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <User className="w-4.5 h-4.5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{user.email ?? user.username}</p>
+                <p className="text-[11px] text-muted-foreground truncate">@{user.username}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                user.planType === "trial"
+                  ? "bg-violet-50 text-violet-700 border-violet-200"
+                  : user.planType === "basic"
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : user.planType === "professional"
+                  ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
+              }`}>
+                {user.planType === "trial" ? "Free Trial"
+                  : user.planType === "basic" ? "Basic"
+                  : user.planType === "professional" ? "Professional"
+                  : "Unlimited"}
+              </span>
+              {user.planType === "trial" && (
+                <span className="text-[11px] text-muted-foreground">
+                  {user.trialExpired ? "Expired" : `${user.trialDaysRemaining}d left`}
+                </span>
+              )}
+            </div>
+
+            {/* Upgrade / Manage billing button */}
+            {user.planType === "trial" ? (
+              <button
+                onClick={handleOpenUpgrade}
+                className="w-full mt-2 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                Upgrade to Pro
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleManageBilling()}
+                disabled={upgradeLoading === "portal"}
+                className="w-full mt-2 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+              >
+                {upgradeLoading === "portal" ? (
+                  <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+                ) : (
+                  <ExternalLink className="w-3.5 h-3.5" />
+                )}
+                Manage Billing
+              </button>
+            )}
+          </div>
+
+          {/* Usage */}
+          <div className="p-4 border-b border-border/60">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5">Today's Usage</p>
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="font-medium">{Math.round(user.minutesUsedToday)} min used</span>
+              <span className="text-muted-foreground">/ {user.dailyLimitMinutes} min</span>
+            </div>
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  user.minutesUsedToday >= user.dailyLimitMinutes ? "bg-destructive" : "bg-primary"
+                }`}
+                style={{ width: `${Math.min(100, (user.minutesUsedToday / user.dailyLimitMinutes) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Change password */}
+          <div className="p-4 flex-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Change Password</p>
+
+            {pwStatus && (
+              <div className={`mb-3 flex items-start gap-2 text-xs p-2.5 rounded-lg border ${
+                pwStatus.type === "ok"
+                  ? "bg-green-50 text-green-700 border-green-200"
+                  : "bg-destructive/10 text-destructive border-destructive/20"
+              }`}>
+                {pwStatus.type === "ok"
+                  ? <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  : <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+                <span>{pwStatus.msg}</span>
+              </div>
+            )}
+
+            <form onSubmit={(e) => void handleChangePassword(e)} className="space-y-3">
+              {/* Current password */}
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Current</label>
+                <div className="relative">
+                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input
+                    type={showPwCurrent ? "text" : "password"}
+                    value={pwForm.current}
+                    onChange={(e) => setPwForm(f => ({ ...f, current: e.target.value }))}
+                    placeholder="Current password"
+                    className="w-full pl-8 pr-8 h-8 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwCurrent(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                  >
+                    {showPwCurrent ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* New password */}
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1">New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input
+                    type={showPwNext ? "text" : "password"}
+                    value={pwForm.next}
+                    onChange={(e) => setPwForm(f => ({ ...f, next: e.target.value }))}
+                    placeholder="At least 8 characters"
+                    className="w-full pl-8 pr-8 h-8 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
+                    required
+                    minLength={8}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwNext(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                  >
+                    {showPwNext ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm new password */}
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Confirm</label>
+                <input
+                  type="password"
+                  value={pwForm.confirm}
+                  onChange={(e) => setPwForm(f => ({ ...f, confirm: e.target.value }))}
+                  placeholder="Repeat new password"
+                  className="w-full pl-3 h-8 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={pwLoading}
+                className="w-full h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5"
+              >
+                {pwLoading ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Lock className="w-3 h-3" />
+                )}
+                {pwLoading ? "Updating…" : "Update Password"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
@@ -250,7 +652,14 @@ export default function Workspace() {
             {user.trialExpired ? (
               <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Your trial has expired. Please contact support to continue.
+                <span className="flex-1">Your 14-day trial has expired.</span>
+                <button
+                  onClick={handleOpenUpgrade}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white text-xs font-semibold hover:bg-destructive/90 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Zap className="w-3 h-3" />
+                  Upgrade
+                </button>
               </div>
             ) : (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center gap-2 text-sm text-orange-800">

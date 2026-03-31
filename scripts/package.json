@@ -6,10 +6,12 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "seed-admin": "tsx ./src/seed-admin.ts",
+    "seed-products": "tsx ./src/seed-products.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@workspace/db": "workspace:*"
+    "@workspace/db": "workspace:*",
+    "stripe": "*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

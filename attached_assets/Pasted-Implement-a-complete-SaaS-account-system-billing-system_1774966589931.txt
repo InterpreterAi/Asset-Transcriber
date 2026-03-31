@@ -1,0 +1,307 @@
+Implement a complete SaaS account system, billing system, and safety protections for this web application WITHOUT modifying any existing transcription, translation, diarization, segmentation, or audio capture logic.
+
+The real-time AI transcription and translation pipeline must remain exactly as it currently works.
+
+Only add user accounts, authentication, usage limits, subscription billing, security protections, and system safeguards.
+
+------------------------------------------------
+
+1. USER AUTHENTICATION
+
+Add a secure authentication system with:
+
+• Sign Up  
+• Login  
+• Logout  
+• Forgot Password  
+• Reset Password  
+• Change Password  
+• Google Sign-In (OAuth)
+
+Passwords must be stored using bcrypt hashing.
+
+Email verification is required for email-based accounts.
+
+Google login must allow users to sign in using their Google account without creating a password.
+
+When a user signs in with Google for the first time automatically create a user record and start the trial.
+
+Each user record must include:
+
+user_id  
+email  
+password_hash (if email signup)  
+google_account_id (if Google signup)  
+plan_type  
+trial_start_date  
+trial_end_date  
+minutes_used_today  
+minutes_used_this_month  
+last_daily_reset  
+last_monthly_reset  
+active_session  
+signup_ip  
+device_fingerprint
+
+------------------------------------------------
+
+2. FREE TRIAL SYSTEM
+
+Every new user receives a trial automatically.
+
+Trial duration:
+14 days
+
+Trial usage limit:
+5 hours per day (300 minutes)
+
+Logic:
+
+• Trial starts when account is created  
+• Trial expires after 14 days  
+• Usage resets every 24 hours
+
+If daily limit is reached display:
+
+"Daily trial limit reached. Please upgrade to continue."
+
+If trial expires display:
+
+"Trial expired. Please subscribe to continue using the service."
+
+------------------------------------------------
+
+3. SUBSCRIPTION PLANS
+
+Create three subscription plans.
+
+BASIC  
+Price: $40/month  
+Limit: 5 hours per day
+
+PROFESSIONAL  
+Price: $80/month  
+Limit: 7 hours per day
+
+UNLIMITED  
+Price: $120/month  
+Unlimited usage (internally capped at 11 hours/day for safety)
+
+Users must subscribe after trial ends.
+
+------------------------------------------------
+
+4. PAYMENT SYSTEM
+
+Integrate Stripe for subscription billing.
+
+Create Stripe products:
+
+Basic – $40/month  
+Professional – $80/month  
+Unlimited – $120/month
+
+Handle:
+
+• subscription creation  
+• subscription cancellation  
+• payment failures  
+• webhook updates
+
+User plan_type must update automatically after successful payment.
+
+------------------------------------------------
+
+5. USAGE TRACKING
+
+Track transcription time per user.
+
+When transcription starts:
+
+• start session timer
+
+When transcription stops:
+
+• add session duration to minutes_used_today
+
+Logic:
+
+If minutes_used_today exceeds the daily plan limit:
+
+block starting a new session.
+
+------------------------------------------------
+
+6. ONE ACTIVE SESSION LIMIT
+
+Allow only one transcription session per user.
+
+If a user opens another tab or browser while a session is active display:
+
+"Another active session is already running."
+
+------------------------------------------------
+
+7. MAXIMUM SESSION LENGTH
+
+To prevent runaway API usage implement a maximum session duration.
+
+Maximum session length:
+3 hours
+
+After 3 hours automatically stop transcription and show:
+
+"Session time limit reached. Please start a new session."
+
+------------------------------------------------
+
+8. AUTO STOP WHEN NO SPEECH
+
+If silence is detected for 5 minutes automatically stop the session.
+
+Display:
+
+"Session stopped due to inactivity."
+
+------------------------------------------------
+
+9. PREVENT TRIAL ABUSE
+
+Trial must be tied to the user account.
+
+Require email verification.
+
+Store:
+
+signup IP address  
+device fingerprint
+
+Do not allow multiple trials for the same verified email.
+
+------------------------------------------------
+
+10. DASHBOARD
+
+After login display a dashboard with:
+
+Plan type  
+Trial expiration date  
+Minutes used today  
+Daily limit  
+Subscription status
+
+Example display:
+
+"You have used 120 / 300 minutes today."
+
+Include buttons:
+
+Upgrade plan  
+Cancel subscription
+
+------------------------------------------------
+
+11. ADMIN PANEL
+
+Create a hidden admin dashboard allowing:
+
+View all users  
+View usage statistics  
+Disable accounts  
+Reset user limits  
+Change user plan  
+Grant free access  
+Pause all transcription sessions globally
+
+Admin access must be role-restricted.
+
+------------------------------------------------
+
+12. API KEY SECURITY
+
+All API keys must be stored in backend environment variables.
+
+Never expose them in frontend code.
+
+Example environment variables:
+
+SONIOX_API_KEY  
+OPENAI_API_KEY  
+STRIPE_SECRET_KEY
+
+Frontend must call backend endpoints instead of external APIs directly.
+
+------------------------------------------------
+
+13. RATE LIMITING
+
+Protect backend endpoints with rate limits.
+
+Limits:
+
+• one active session per user  
+• safe request limits per minute per user
+
+------------------------------------------------
+
+14. GLOBAL SYSTEM SAFETY LIMIT
+
+Implement a global usage cap to protect API costs.
+
+Example:
+
+Maximum total transcription per day:
+200 hours
+
+If exceeded display:
+
+"System temporarily unavailable. Please try again later."
+
+------------------------------------------------
+
+15. LEGAL PAGES
+
+Add pages:
+
+Terms of Service  
+Privacy Policy
+
+These must be accessible before signup.
+
+------------------------------------------------
+
+16. LANDING PAGE
+
+Before login show a simple landing page.
+
+Headline:
+
+"AI Assistant for Interpreters"
+
+Subtitle:
+
+"Real-time transcription and translation during live calls."
+
+Buttons:
+
+Start Free Trial  
+Login
+
+------------------------------------------------
+
+17. DO NOT MODIFY
+
+The following systems must remain unchanged:
+
+• transcription engine  
+• translation logic  
+• speaker diarization  
+• segment logic  
+• real-time streaming  
+• browser tab audio capture
+
+Only add the SaaS account system, billing system, and safety protections.
+
+------------------------------------------------
+
+Ensure the application continues to function properly as a browser web app after implementing these features.

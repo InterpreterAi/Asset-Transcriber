@@ -9,6 +9,9 @@
 export interface UserInfo {
   id: number;
   username: string;
+  email?: string;
+  planType: string;
+  emailVerified: boolean;
   isAdmin: boolean;
   isActive: boolean;
   trialStartedAt?: Date;

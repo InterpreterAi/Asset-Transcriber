@@ -1,6 +1,8 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import rateLimit from "express-rate-limit";
+import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { sessionMiddleware } from "./middlewares/session.js";
@@ -12,25 +14,77 @@ app.use(
     logger,
     serializers: {
       req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
 );
+
 app.use(cors({ origin: true, credentials: true }));
+
+// ── Stripe webhook — MUST be before express.json() ───────────────────────────
+// Stripe requires the raw Buffer body; express.json() would break it.
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const signature = req.headers["stripe-signature"];
+    if (!signature) {
+      return res.status(400).json({ error: "Missing stripe-signature header" });
+    }
+    const sig = Array.isArray(signature) ? signature[0] : signature;
+    try {
+      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+      res.status(200).json({ received: true });
+    } catch (err: any) {
+      logger.error({ err }, "Stripe webhook error");
+      res.status(400).json({ error: "Webhook processing failed" });
+    }
+  }
+);
+
+// ── Body parsing (after webhook route) ───────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please wait a moment." },
+  skip: (req) => req.method === "GET" && req.path.startsWith("/api/auth/me"),
+});
+
+const transcriptionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please wait a moment." },
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => {
+    const session = (req as any).session;
+    return session?.userId ? `user:${session.userId}` : (req.ip ?? "unknown");
+  },
+});
+
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please slow down." },
+});
+
+app.use("/api/auth", authLimiter);
+app.use("/api/transcription/token", transcriptionLimiter);
+app.use("/api", generalLimiter);
 app.use("/api", router);
 
 export default app;

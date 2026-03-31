@@ -26,6 +26,9 @@ export const LoginResponse = zod.object({
   user: zod.object({
     id: zod.number(),
     username: zod.string(),
+    email: zod.string().optional(),
+    planType: zod.string(),
+    emailVerified: zod.boolean(),
     isAdmin: zod.boolean(),
     isActive: zod.boolean(),
     trialStartedAt: zod.coerce.date().optional(),
@@ -53,6 +56,9 @@ export const LogoutResponse = zod.object({
 export const GetMeResponse = zod.object({
   id: zod.number(),
   username: zod.string(),
+  email: zod.string().optional(),
+  planType: zod.string(),
+  emailVerified: zod.boolean(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
   trialStartedAt: zod.coerce.date().optional(),

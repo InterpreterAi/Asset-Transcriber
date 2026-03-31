@@ -1,15 +1,12 @@
 import { Router } from "express";
 import OpenAI from "openai";
 import { db, usersTable, sessionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
 
 // ── Translation memory ─────────────────────────────────────────────────────
-// In-memory cache: `${srcLang}:${tgtLang}:${normalizedText}` → translation.
-// Persists for the lifetime of the server process. Capped at MAX_MEM entries;
-// oldest entries are evicted when the cap is reached.
 const TRANS_MEM = new Map<string, string>();
 const TRANS_MEM_CAP = 2000;
 
@@ -19,14 +16,31 @@ function memKey(srcLang: string, tgtLang: string, text: string): string {
 
 function memStore(key: string, value: string): void {
   if (TRANS_MEM.size >= TRANS_MEM_CAP) {
-    // Evict the oldest entry (Map preserves insertion order).
     const oldest = TRANS_MEM.keys().next().value;
     if (oldest !== undefined) TRANS_MEM.delete(oldest);
   }
   TRANS_MEM.set(key, value);
 }
 
-// Prefer the user's own OPENAI_API_KEY; fall back to Replit AI integration
+// ── Global system safety cap ───────────────────────────────────────────────
+// In-memory cache to avoid querying DB on every /token request.
+const GLOBAL_CAP_MINUTES = 200 * 60; // 200 hours/day = 12,000 minutes
+let globalCapCache = { date: "", minutes: 0, lastChecked: 0 };
+
+async function isGlobalCapReached(): Promise<boolean> {
+  const now = Date.now();
+  const today = new Date().toDateString();
+  // Refresh cache at most once per minute
+  if (today !== globalCapCache.date || now - globalCapCache.lastChecked > 60_000) {
+    const rows = await db
+      .select({ total: sql<number>`COALESCE(SUM(minutes_used_today), 0)` })
+      .from(usersTable);
+    globalCapCache = { date: today, minutes: Number(rows[0]?.total ?? 0), lastChecked: now };
+  }
+  return globalCapCache.minutes >= GLOBAL_CAP_MINUTES;
+}
+
+// ── OpenAI ─────────────────────────────────────────────────────────────────
 const usingProxy = !process.env.OPENAI_API_KEY && !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
 const openai = new OpenAI({
   baseURL: usingProxy ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : undefined,
@@ -37,56 +51,60 @@ const openai = new OpenAI({
 
 const router = Router();
 
+// ── /token ─────────────────────────────────────────────────────────────────
 router.post("/token", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
-  if (!user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
+  if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
+  if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
-  if (!user.isActive) {
-    res.status(403).json({ error: "Account is disabled" });
-    return;
-  }
-
-  if (isTrialExpired(user)) {
-    res.status(403).json({ error: "Your trial has expired" });
+  // Only block on trial expiry when the user is still on the trial plan
+  if (user.planType === "trial" && isTrialExpired(user)) {
+    res.status(403).json({ error: "Your trial has expired. Please subscribe to continue." });
     return;
   }
 
   if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-    res.status(403).json({ error: "Daily usage limit reached" });
+    res.status(403).json({ error: "Daily usage limit reached. Please upgrade to continue." });
+    return;
+  }
+
+  // Global safety cap
+  if (await isGlobalCapReached()) {
+    res.status(503).json({ error: "System temporarily unavailable. Please try again later." });
     return;
   }
 
   const apiKey = process.env.SONIOX_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: "Transcription service not configured" });
-    return;
-  }
+  if (!apiKey) { res.status(500).json({ error: "Transcription service not configured" }); return; }
 
   res.json({ apiKey, expiresIn: 3600 });
 });
 
+// ── /session/start ─────────────────────────────────────────────────────────
 router.post("/session/start", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
-  if (!user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
+  if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
+  if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
-  if (!user.isActive) {
-    res.status(403).json({ error: "Account is disabled" });
-    return;
-  }
-
-  if (isTrialExpired(user)) {
-    res.status(403).json({ error: "Your trial has expired" });
+  if (user.planType === "trial" && isTrialExpired(user)) {
+    res.status(403).json({ error: "Your trial has expired. Please subscribe to continue." });
     return;
   }
 
   if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-    res.status(403).json({ error: "Daily usage limit reached" });
+    res.status(403).json({ error: "Daily usage limit reached." });
+    return;
+  }
+
+  // One active session per user
+  const openSessions = await db
+    .select({ id: sessionsTable.id })
+    .from(sessionsTable)
+    .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)))
+    .limit(1);
+
+  if (openSessions.length > 0) {
+    res.status(409).json({ error: "Another active session is already running." });
     return;
   }
 
@@ -95,10 +113,10 @@ router.post("/session/start", requireAuth, async (req, res) => {
     startedAt: new Date(),
   }).returning();
 
-  const session = result[0];
-  res.json({ sessionId: session!.id, message: "Session started" });
+  res.json({ sessionId: result[0]!.id, message: "Session started" });
 });
 
+// ── /session/stop ──────────────────────────────────────────────────────────
 router.post("/session/stop", requireAuth, async (req, res) => {
   const { sessionId, durationSeconds } = req.body as { sessionId?: number; durationSeconds?: number };
   if (!sessionId || durationSeconds === undefined) {
@@ -113,111 +131,63 @@ router.post("/session/stop", requireAuth, async (req, res) => {
     .where(eq(sessionsTable.id, sessionId));
 
   const user = await getUserWithResetCheck(req.session.userId!);
-  if (!user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
-  const newMinutesToday = user.minutesUsedToday + minutesUsed;
-  const newTotalMinutes = user.totalMinutesUsed + minutesUsed;
-  const newTotalSessions = user.totalSessions + 1;
+  if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
 
   await db.update(usersTable)
     .set({
-      minutesUsedToday: newMinutesToday,
-      totalMinutesUsed: newTotalMinutes,
-      totalSessions: newTotalSessions,
+      minutesUsedToday: user.minutesUsedToday + minutesUsed,
+      totalMinutesUsed: user.totalMinutesUsed + minutesUsed,
+      totalSessions: user.totalSessions + 1,
     })
     .where(eq(usersTable.id, user.id));
 
-  res.json({ message: "Session stopped" });
+  // Invalidate global cap cache after a session stops
+  globalCapCache.lastChecked = 0;
+
+  res.json({ message: "Session stopped", minutesUsed });
 });
 
-// ── Language name lookup ───────────────────────────────────────────────────
-// Maps BCP-47 / Soniox language codes to human-readable names for the prompt.
-// Add entries here as new languages are needed — the pipeline is fully generic.
-const LANG_NAMES: Record<string, string> = {
-  en:    "English",
-  ar:    "Arabic",
-  es:    "Spanish",
-  fr:    "French",
-  de:    "German",
-  it:    "Italian",
-  pt:    "Portuguese",
-  ru:    "Russian",
-  "zh-cn": "Chinese (Simplified)",
-  zh:    "Chinese",
-  ja:    "Japanese",
-  ko:    "Korean",
-  hi:    "Hindi",
-  tr:    "Turkish",
-  nl:    "Dutch",
-  pl:    "Polish",
-  he:    "Hebrew",
-  uk:    "Ukrainian",
-  fa:    "Persian",
-  id:    "Indonesian",
-  ms:    "Malay",
-  th:    "Thai",
-  vi:    "Vietnamese",
-  sv:    "Swedish",
-  da:    "Danish",
-  fi:    "Finnish",
-  no:    "Norwegian",
-  cs:    "Czech",
-  ro:    "Romanian",
-};
-
-function langName(code: string | undefined, fallback: string): string {
-  if (!code) return fallback;
-  return LANG_NAMES[code.toLowerCase()] ?? LANG_NAMES[code.split("-")[0]?.toLowerCase() ?? ""] ?? code;
-}
-
-// ── POST /translate ────────────────────────────────────────────────────────
-// Translates a finalized transcript segment using GPT-4o-mini.
-// Pipeline:
-//   1. Check translation memory (exact match → return cached result instantly)
-//   2. Find domain-specific terminology hints from the glossary
-//   3. Call GPT-4o-mini with interpreter-style + MSA prompt + glossary hints
-//   4. Store result in translation memory for future reuse
+// ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, sourceLang, targetLang } = req.body as {
+  const { text, srcLang, tgtLang, isFinal } = req.body as {
     text?: string;
-    sourceLang?: string;
-    targetLang?: string;
+    srcLang?: string;
+    tgtLang?: string;
+    isFinal?: boolean;
   };
-  if (!text || typeof text !== "string" || text.trim().length < 2) {
-    res.status(400).json({ error: "text is required" });
+
+  if (!text?.trim() || !srcLang || !tgtLang) {
+    res.status(400).json({ error: "text, srcLang, and tgtLang are required" });
     return;
   }
 
-  const normalizedText = text.trim();
-  const srcCode = sourceLang ?? "en";
-  const tgtCode = targetLang ?? "en";
-  const srcName = langName(srcCode, "the source language");
-  const tgtName = langName(tgtCode, "English");
-
-  // ── Step 1: Translation memory ────────────────────────────────────────────
-  const cacheKey = memKey(srcCode, tgtCode, normalizedText);
-  const cached = TRANS_MEM.get(cacheKey);
-  if (cached) {
-    res.json({ translation: cached, fromMemory: true });
-    return;
+  const key = memKey(srcLang, tgtLang, text);
+  if (!isFinal) {
+    const cached = TRANS_MEM.get(key);
+    if (cached) { res.json({ translated: cached }); return; }
   }
 
-  // ── Step 2: Terminology hints ─────────────────────────────────────────────
-  const termHints = findTermHints(normalizedText, srcCode, tgtCode);
+  const LANG_NAMES: Record<string, string> = {
+    "en": "English", "ar": "Arabic", "es": "Spanish", "fr": "French",
+    "de": "German", "it": "Italian", "pt": "Portuguese", "ru": "Russian",
+    "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional)",
+    "ja": "Japanese", "ko": "Korean", "hi": "Hindi", "tr": "Turkish",
+    "nl": "Dutch", "pl": "Polish", "sv": "Swedish", "da": "Danish",
+    "fi": "Finnish", "nb": "Norwegian", "cs": "Czech", "sk": "Slovak",
+    "ro": "Romanian", "hu": "Hungarian", "bg": "Bulgarian", "hr": "Croatian",
+    "uk": "Ukrainian", "el": "Greek", "he": "Hebrew", "fa": "Persian",
+    "ur": "Urdu", "vi": "Vietnamese", "id": "Indonesian", "ms": "Malay",
+    "th": "Thai",
+  };
 
-  // ── Step 3: Build system prompt ───────────────────────────────────────────
-  const isArabicTarget = tgtCode.split("-")[0]?.toLowerCase() === "ar";
+  const srcName = LANG_NAMES[srcLang] ?? srcLang;
+  const tgtName = LANG_NAMES[tgtLang] ?? tgtLang;
+  const tgtCode = tgtLang.split("-")[0]!;
 
-  const arabicRule = isArabicTarget
-    ? "- Output MUST be in Modern Standard Arabic (العربية الفصحى / فصيح). " +
-      "Never use dialectal forms (Egyptian, Levantine, Gulf, Maghrebi). " +
-      "Forbidden dialect words: كويس، عايز، ليه، إزاي، ماقدرتش. " +
-      "Always use formal equivalents: جيد، أريد، لماذا، كيف، لم أستطع.\n"
+  const termHints = findTermHints(text, srcLang, tgtLang);
+  const arabicRule = tgtCode === "ar"
+    ? "- Use Modern Standard Arabic (فصحى) ONLY. Prohibited: dialect words (ليش, شو, مو, هيك, زي, كده, عشان, وين, فين, إزاي, ليه)\n"
     : "";
-
   const termRule = termHints.length > 0
     ? `- Use these exact glossary translations for domain terminology:\n` +
       termHints.map(h => `  ${h}`).join("\n") + "\n"
@@ -243,22 +213,15 @@ router.post("/translate", requireAuth, async (req, res) => {
       temperature: 0,
       messages: [
         { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Translate the following spoken ${srcName} into natural, fluent ${tgtName}:\n\n${normalizedText}`,
-        },
+        { role: "user", content: text },
       ],
-      max_completion_tokens: 512,
     });
 
-    const translation = resp.choices[0]?.message?.content?.trim() ?? "";
-
-    // ── Step 4: Store in translation memory ───────────────────────────────────
-    if (translation) memStore(cacheKey, translation);
-
-    res.json({ translation });
+    const translated = resp.choices[0]?.message?.content?.trim() ?? "";
+    if (translated) memStore(key, translated);
+    res.json({ translated });
   } catch (err) {
-    console.error("[translate]", err);
+    console.error("Translation error:", err);
     res.status(500).json({ error: "Translation failed" });
   }
 });

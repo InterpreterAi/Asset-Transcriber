@@ -18,6 +18,8 @@ export const usersTable = pgTable("users", {
   totalMinutesUsed: real("total_minutes_used").notNull().default(0),
   totalSessions: integer("total_sessions").notNull().default(0),
   lastUsageResetAt: timestamp("last_usage_reset_at").notNull().defaultNow(),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

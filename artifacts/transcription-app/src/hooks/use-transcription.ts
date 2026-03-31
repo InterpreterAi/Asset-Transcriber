@@ -221,6 +221,17 @@ export function useTranscription() {
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Session safety timers ──────────────────────────────────────────────────
+  // inactivityTimerRef: fires stop() after 5 min of no speech tokens.
+  // maxSessionTimerRef: fires stop() after 3 hours unconditionally.
+  // resetInactivityRef: shared function set by start(), called by buildWs onmessage.
+  const inactivityTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxSessionTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetInactivityRef  = useRef<(() => void) | null>(null);
+
+  const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;   // 5 minutes
+  const MAX_SESSION_MS        = 3 * 60 * 60 * 1000; // 3 hours
+
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
@@ -480,10 +491,18 @@ export function useTranscription() {
     isRecRef.current = false;
     setIsRecording(false);
 
-    // Cancel any pending silence timer before we finalize below.
+    // Cancel all pending timers before finalizing.
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+    if (inactivityTimerRef.current !== null) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    if (maxSessionTimerRef.current !== null) {
+      clearTimeout(maxSessionTimerRef.current);
+      maxSessionTimerRef.current = null;
     }
     stopTranslationInterval();
     finalizeLiveBubble();
@@ -559,6 +578,8 @@ export function useTranscription() {
       // Every message with tokens resets the silence timer.  After
       // SILENCE_TIMEOUT_MS of no tokens the current segment is finalized and
       // the active-bubble refs are cleared so the next token opens a new one.
+      // Also reset the 5-min inactivity auto-stop timer on every speech event.
+      resetInactivityRef.current?.();
       if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
@@ -746,6 +767,27 @@ export function useTranscription() {
 
       isRecRef.current = true;
       setIsRecording(true);
+
+      // ── 5-minute inactivity auto-stop ────────────────────────────────────
+      // Reset every time a speech token arrives (see buildWs onmessage handler).
+      const scheduleInactivity = () => {
+        if (inactivityTimerRef.current !== null) clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = setTimeout(() => {
+          inactivityTimerRef.current = null;
+          setError("Session stopped due to inactivity.");
+          void stop();
+        }, INACTIVITY_TIMEOUT_MS);
+      };
+      resetInactivityRef.current = scheduleInactivity;
+      scheduleInactivity();
+
+      // ── 3-hour max session auto-stop ─────────────────────────────────────
+      maxSessionTimerRef.current = setTimeout(() => {
+        maxSessionTimerRef.current = null;
+        setError("Session time limit reached (3 hours). Please start a new session.");
+        void stop();
+      }, MAX_SESSION_MS);
+
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to start transcription";
       console.error(err);
