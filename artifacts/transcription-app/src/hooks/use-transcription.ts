@@ -125,6 +125,21 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
+// ── Progressive NF stabilization helper ────────────────────────────────────────
+// Returns the character index at which `prev` and `next` first differ, trimmed
+// back to the nearest space boundary so we never mark a partial word as stable.
+// Example: prev="doing today si", next="doing today sirens" → returns len("doing today ")
+function commonPrefixLen(prev: string, next: string): number {
+  let i = 0;
+  const len = Math.min(prev.length, next.length);
+  while (i < len && prev[i] === next[i]) i++;
+  // If the full `next` string matches, the entire next text is stable.
+  if (i === next.length) return i;
+  // Otherwise walk back to the last space so we don't split a word mid-character.
+  while (i > 0 && next[i - 1] !== " ") i--;
+  return i;
+}
+
 // ── Segment-overlap detection helper ───────────────────────────────────────────
 // Returns true when newText overlaps with prevText, covering all the ways Soniox
 // can re-emit a corrected version of an already-finalized segment:
@@ -238,7 +253,14 @@ export function useTranscription() {
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<number | undefined>(undefined);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
-  const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
+  const activeBubbleNFRef       = useRef<HTMLSpanElement | null>(null);  // NF wrapper span
+  // Sub-spans inside the NF wrapper for progressive stabilization.
+  // nfStable  — words unchanged since last update (displayed bold via inline style).
+  // nfUnstable — trailing new words not yet confirmed stable (grey via CLS.nf).
+  const activeBubbleNFStableRef   = useRef<HTMLSpanElement | null>(null);
+  const activeBubbleNFUnstableRef = useRef<HTMLSpanElement | null>(null);
+  // The NF text from the previous onmessage call, used to compute stable prefix.
+  const prevNfTextRef             = useRef<string>("");
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
   // The user's selected language pair {a, b}. Per-segment target is computed
@@ -531,10 +553,16 @@ export function useTranscription() {
     p.className = CLS.textLive;
     applyTextStyle(p);
     const finalSpan = document.createElement("span");
-    const nfSpan    = document.createElement("span");
-    nfSpan.className = CLS.nf;
+    // NF wrapper: activeBubbleNFRef points here so softFinalize can read/clear
+    // combined NF text via .textContent (concatenates both child spans).
+    const nfWrapper    = document.createElement("span");
+    const nfStable     = document.createElement("span");   // bold override via inline style
+    const nfUnstable   = document.createElement("span");   // grey/italic via CLS.nf
+    nfUnstable.className = CLS.nf;
+    nfWrapper.appendChild(nfStable);
+    nfWrapper.appendChild(nfUnstable);
     p.appendChild(finalSpan);
-    p.appendChild(nfSpan);
+    p.appendChild(nfWrapper);
     origRow.appendChild(p);
 
     const copyOrigBtn = makeCopyButton(true, () => finalSpan.textContent?.trim() ?? "");
@@ -562,7 +590,10 @@ export function useTranscription() {
     // Old in-flight requests captured the OLD state object in their closure, so
     // they will always write to the old bubble's elements (or discard if already
     // shown a newer result).
-    activeBubbleNFRef.current      = nfSpan;
+    activeBubbleNFRef.current         = nfWrapper;
+    activeBubbleNFStableRef.current   = nfStable;
+    activeBubbleNFUnstableRef.current = nfUnstable;
+    prevNfTextRef.current             = "";          // reset stable-prefix anchor
     activeBubbleStateRef.current   = {
       transTextEl:  transTextP,
       copyTransBtn: copyTransBtn,
@@ -687,17 +718,20 @@ export function useTranscription() {
     cancelScheduledTranslation();
     finalizeLiveBubble();
 
-    currentSpeakerRef.current       = undefined;
-    activeBubbleRef.current         = null;
-    activeBubbleNFRef.current       = null;
-    activeBubbleStateRef.current    = null;  // drop all in-flight translation closures
-    activeBubbleOrigTagRef.current  = null;
-    activeBubbleTransTagRef.current = null;
-    lastFinalizedSegRef.current     = null;
-    finalCountRef.current           = 0;
-    recentSegmentsRef.current       = [];    // clear context window for next session
-    segmentLangLockedRef.current    = false; // reset lang lock for next session
-    lastSegmentTextRef.current      = "";    // reset dedup anchor for next session
+    currentSpeakerRef.current         = undefined;
+    activeBubbleRef.current           = null;
+    activeBubbleNFRef.current         = null;
+    activeBubbleNFStableRef.current   = null;
+    activeBubbleNFUnstableRef.current = null;
+    prevNfTextRef.current             = "";
+    activeBubbleStateRef.current      = null;  // drop all in-flight translation closures
+    activeBubbleOrigTagRef.current    = null;
+    activeBubbleTransTagRef.current   = null;
+    lastFinalizedSegRef.current       = null;
+    finalCountRef.current             = 0;
+    recentSegmentsRef.current         = [];    // clear context window for next session
+    segmentLangLockedRef.current      = false; // reset lang lock for next session
+    lastSegmentTextRef.current        = "";    // reset dedup anchor for next session
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -746,6 +780,49 @@ export function useTranscription() {
         diarization:                    { enable: true },
       }));
       console.log("[WS] stt-rt-v4 OPEN");
+    };
+
+    // ── Progressive NF writer ──────────────────────────────────────────────────
+    // Updates the three NF DOM elements (wrapper / stable sub-span / unstable
+    // sub-span) for every incoming NF token batch.  Defined once per WebSocket
+    // session (not inside onmessage) to avoid closure allocation on every message.
+    //
+    // The stable sub-span receives an inline bold override so it looks like
+    // finalized text even while p.className is still CLS.textLive (grey).
+    // The unstable sub-span stays grey via CLS.nf.
+    //
+    // activeBubbleNFRef (the wrapper) still exposes the full combined NF text via
+    // .textContent, so softFinalize() and the visual-promote timer need no changes.
+    const applyNfText = (text: string): void => {
+      const stableEl   = activeBubbleNFStableRef.current;
+      const unstableEl = activeBubbleNFUnstableRef.current;
+      const wrapper    = activeBubbleNFRef.current;
+      if (!wrapper) return;
+      if (!stableEl || !unstableEl) {
+        // Sub-span refs not wired yet (shouldn't happen after createBubble, but guard anyway).
+        wrapper.textContent = text;
+        return;
+      }
+      if (!text) {
+        // NF cleared (Soniox committed all pending words as finals).
+        stableEl.textContent   = "";
+        stableEl.style.cssText  = "";
+        unstableEl.textContent = "";
+        prevNfTextRef.current  = "";
+        return;
+      }
+      const prev      = prevNfTextRef.current;
+      const stableLen = commonPrefixLen(prev, text);
+      const stable    = text.slice(0, stableLen);
+      const unstable  = text.slice(stableLen);
+      stableEl.textContent   = stable;
+      // Apply bold override so the stable portion looks finalized even when the
+      // parent <p> still has CLS.textLive (grey/italic) styling.
+      stableEl.style.cssText  = stable
+        ? "font-weight:500;color:var(--foreground);font-style:normal;"
+        : "";
+      unstableEl.textContent = unstable;
+      prevNfTextRef.current  = text;
     };
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -858,16 +935,19 @@ export function useTranscription() {
 
           // ── Remove the duplicate new bubble ─────────────────────────────
           newBubbleRow.remove();
-          activeBubbleRef.current         = null;
-          activeBubbleNFRef.current       = null;
-          activeBubbleStateRef.current    = null;
-          activeBubbleOrigTagRef.current  = null;
-          activeBubbleTransTagRef.current = null;
-          currentSpeakerRef.current       = undefined;
-          styleUpgradedRef.current        = false;
-          liveBufferRef.current           = "";
-          lastTranslatedBuffer.current    = "";
-          segmentLangLockedRef.current    = false;
+          activeBubbleRef.current           = null;
+          activeBubbleNFRef.current         = null;
+          activeBubbleNFStableRef.current   = null;
+          activeBubbleNFUnstableRef.current = null;
+          prevNfTextRef.current             = "";
+          activeBubbleStateRef.current      = null;
+          activeBubbleOrigTagRef.current    = null;
+          activeBubbleTransTagRef.current   = null;
+          currentSpeakerRef.current         = undefined;
+          styleUpgradedRef.current          = false;
+          liveBufferRef.current             = "";
+          lastTranslatedBuffer.current      = "";
+          segmentLangLockedRef.current      = false;
         }
       }
 
@@ -896,7 +976,9 @@ export function useTranscription() {
       }
 
       if (activeBubbleNFRef.current) {
-        activeBubbleNFRef.current.textContent = nfText;
+        // Progressive stabilization: the stable (unchanged) prefix turns bold;
+        // only the new trailing portion stays grey.
+        applyNfText(nfText);
       } else if (nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
           const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
@@ -904,9 +986,8 @@ export function useTranscription() {
           activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
         }
-        if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = nfText;
-        }
+        // createBubble() wired the NF refs; apply progressive stabilization now.
+        applyNfText(nfText);
       }
 
       // ── Update live translation buffer ────────────────────────────────────
@@ -1086,12 +1167,15 @@ export function useTranscription() {
       cancelScheduledTranslation();
       activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
-      activeBubbleRef.current         = null;
-      activeBubbleNFRef.current       = null;
-      activeBubbleOrigTagRef.current  = null;
-      activeBubbleTransTagRef.current = null;
-      lastFinalizedSegRef.current     = null;
-      styleUpgradedRef.current        = false;
+      activeBubbleRef.current           = null;
+      activeBubbleNFRef.current         = null;
+      activeBubbleNFStableRef.current   = null;
+      activeBubbleNFUnstableRef.current = null;
+      prevNfTextRef.current             = "";
+      activeBubbleOrigTagRef.current    = null;
+      activeBubbleTransTagRef.current   = null;
+      lastFinalizedSegRef.current       = null;
+      styleUpgradedRef.current          = false;
       liveBufferRef.current           = "";
       lastTranslatedBuffer.current    = "";
       finalCountRef.current           = 0;
