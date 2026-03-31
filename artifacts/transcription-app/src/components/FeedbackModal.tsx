@@ -28,8 +28,8 @@ export function FeedbackModal({ isOpen, onClose }: Props) {
     try {
       await submitMut.mutateAsync({ data: { rating, comment } });
       onClose();
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Submission error silenced — no error details logged to browser console (HIPAA)
     }
   };
 

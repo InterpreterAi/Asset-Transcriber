@@ -350,8 +350,8 @@ export function useTranscription() {
           enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
         }
         scrollPanel();
-      } catch (e) {
-        console.warn("[translate]", e instanceof Error ? e.message : e);
+      } catch {
+        // Translation error silenced — error details never logged (HIPAA)
       }
     })();
   }, [scrollPanel]);
@@ -564,7 +564,7 @@ export function useTranscription() {
         await stopSessionMut.mutateAsync({
           data: { sessionId: sessionIdRef.current, durationSeconds: duration },
         });
-      } catch (err) { console.error("Failed to stop session", err); }
+      } catch { /* session stop error — silenced (HIPAA) */ }
       sessionIdRef.current = null;
     }
   }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
@@ -586,7 +586,7 @@ export function useTranscription() {
         enable_speaker_diarization:     true,
         diarization:                    { enable: true },
       }));
-      console.log("[WS] stt-rt-v4 OPEN");
+      // WebSocket open — no logging (HIPAA: no connection metadata in browser console)
     };
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -788,14 +788,10 @@ export function useTranscription() {
       analyser.connect(worklet);
       worklet.connect(ctx.destination);
 
-      let chunkCount = 0;
       worklet.port.onmessage = (e) => {
         const pcm = e.data as ArrayBuffer;
-        chunkCount++;
         const wsState = wsRef.current?.readyState;
-        if (chunkCount % 50 === 1) {
-          console.log(`[Worklet] chunk #${chunkCount} — ${pcm.byteLength}B — WS state: ${wsState}`);
-        }
+        // No chunk logging — audio metadata stays out of browser console (HIPAA)
         if (wsState === WebSocket.OPEN) {
           wsRef.current!.send(pcm);
         }
@@ -833,7 +829,7 @@ export function useTranscription() {
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to start transcription";
-      console.error(err);
+      // Error object intentionally not logged to console (HIPAA)
       setError(msg);
       void stop();
     }

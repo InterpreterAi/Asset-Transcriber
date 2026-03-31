@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Router } from "express";
 import OpenAI from "openai";
 import { db, usersTable, sessionsTable } from "@workspace/db";
@@ -8,28 +7,22 @@ import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usa
 import { findTermHints } from "../data/terminology.js";
 import { logger } from "../lib/logger.js";
 
-// ── Translation memory ─────────────────────────────────────────────────────
-// HIPAA / PHI: Source text is NEVER stored as a cache key.
-// Keys are SHA-256 hashes of the source text — one-way, irreversible.
-// No patient speech content is retained in server memory at any point.
-
-const TRANS_MEM = new Map<string, string>();
-const TRANS_MEM_CAP = 2000;
-
-function memKey(srcLang: string, tgtLang: string, text: string): string {
-  const hash = createHash("sha256")
-    .update(`${srcLang}:${tgtLang}:${text.trim()}`)
-    .digest("hex");
-  return hash;
-}
-
-function memStore(key: string, value: string): void {
-  if (TRANS_MEM.size >= TRANS_MEM_CAP) {
-    const oldest = TRANS_MEM.keys().next().value;
-    if (oldest !== undefined) TRANS_MEM.delete(oldest);
-  }
-  TRANS_MEM.set(key, value);
-}
+// ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
+//
+// This server acts ONLY as a real-time interpretation pipeline.
+// No patient speech content (transcripts, translations, or audio) is ever
+// stored anywhere — in the database, in memory, in logs, or on disk.
+//
+// Data flow:
+//   Audio  → browser mic → Soniox WebSocket (never touches this server)
+//   Text   → /api/transcription/translate → OpenAI → response → discarded
+//   DB     → sessions table stores metadata ONLY: id, userId, duration, timestamps
+//
+// Translation cache was INTENTIONALLY REMOVED.
+// A translation memory cache would retain patient speech content (PHI) in
+// server RAM between requests. All translations are one-shot: request arrives,
+// OpenAI processes it, result is returned to the browser, nothing is retained.
+//
 
 // ── Global system safety cap ───────────────────────────────────────────────
 // In-memory cache to avoid querying DB on every /token request.
@@ -214,11 +207,14 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 
 // ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, srcLang, tgtLang, isFinal } = req.body as {
+  // isFinal was previously used to bypass the translation cache.
+  // The cache has been removed entirely (HIPAA). isFinal is accepted
+  // for API compatibility but ignored — every request is processed ephemerally.
+  const { text, srcLang, tgtLang } = req.body as {
     text?: string;
     srcLang?: string;
     tgtLang?: string;
-    isFinal?: boolean;
+    isFinal?: boolean; // accepted but unused — kept for API compatibility
   };
 
   if (!text?.trim() || !srcLang || !tgtLang) {
@@ -226,12 +222,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  const key = memKey(srcLang, tgtLang, text);
-  if (!isFinal) {
-    const cached = TRANS_MEM.get(key);
-    if (cached) { res.json({ translated: cached }); return; }
-  }
-
+  // Every translation request is processed ephemerally — no cache.
+  // The translated result is returned to the browser and immediately discarded.
   const LANG_NAMES: Record<string, string> = {
     "en": "English", "ar": "Arabic", "es": "Spanish", "fr": "French",
     "de": "German", "it": "Italian", "pt": "Portuguese", "ru": "Russian",
@@ -283,8 +275,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     });
 
     const translated = resp.choices[0]?.message?.content?.trim() ?? "";
-    if (translated) memStore(key, translated);
-    res.json({ translated });
+    res.json({ translated }); // result returned to browser; nothing retained server-side
   } catch (err) {
     logger.error({ err }, "Translation failed");
     res.status(500).json({ error: "Translation failed" });

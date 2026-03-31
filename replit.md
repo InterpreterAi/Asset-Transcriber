@@ -266,26 +266,55 @@ All Stripe code is fully wired and ready. The integration was deferred by the us
 
 ## HIPAA — Ephemeral Processing Design
 
-The system is designed as a real-time interpreter pipeline with no PHI retention:
+The platform is designed as a **real-time interpretation pipeline only**. No PHI (Protected Health Information) is stored anywhere at any time.
+
+### Data flow
+
+```
+Interpreter speaks
+       │
+       ▼
+  Browser mic → AudioWorklet → Soniox WebSocket (wss://stt-rt.soniox.com)
+                                       │ (this server never sees audio)
+                                       ▼
+                              Transcript tokens → browser DOM
+                                       │
+                                       ▼
+                        /api/transcription/translate (if enabled)
+                                       │
+                              OpenAI gpt-4o-mini (ephemeral call)
+                                       │
+                                       ▼
+                             Translated text → browser DOM
+                                       │
+                              [session ends]
+                                       │
+                                       ▼
+                          transcription.clear() called immediately
+                          Browser DOM wiped, all refs zeroed, state reset
+```
 
 ### What is NEVER stored
-| Data type | Where it goes |
+| Data type | Guarantee |
 |---|---|
-| Transcribed speech | Browser memory only, cleared on session stop |
-| Translated text | Browser memory only, cleared on session stop |
-| Audio recordings | Never touches the server — browser streams directly to Soniox WebSocket |
-| Session content | Not stored anywhere |
+| Audio recordings | Never reaches this server — streamed directly browser → Soniox |
+| Transcribed speech | Exists only in browser DOM; cleared on session stop |
+| Translated text | Returned to browser in HTTP response; nothing retained server-side |
+| Translation cache | **Removed entirely** — would have stored translated PHI in RAM |
+| Server logs of content | Zero — pino-http serializers only log `{method, url, statusCode}` |
+| Browser console logs | Zero — all `console.*` calls removed from transcription/translation code |
 
 ### What IS stored (metadata only)
-- `sessions` table: `id`, `userId`, `startedAt`, `endedAt`, `durationSeconds` — no content
-- `users` table: `minutesUsedToday`, `totalMinutesUsed`, `totalSessions` — aggregate counters
+- `sessions` table: `id`, `userId`, `startedAt`, `endedAt`, `durationSeconds` — no speech content
+- `users` table: `minutesUsedToday`, `totalMinutesUsed`, `totalSessions` — anonymous aggregate counters
 
 ### Implementation details
-1. **Translation cache** (`TRANS_MEM` in `transcription.ts`): Cache keys are SHA-256 hashes of source text — the original text cannot be recovered. Only the translation result (the output, not the input) is cached in RAM.
-2. **Server logging** (`app.ts` pino-http): Serializers are locked to `{ method, url, statusCode }` — request bodies are never logged.
-3. **No `console.log` or `console.error` of content**: All error logging uses structured pino logger with no content fields.
-4. **Frontend auto-clear**: When recording stops, `transcription.clear()` is called immediately — all transcript segments and translation results are removed from browser memory.
-5. **UI confirmation**: After session end, the transcript panel shows a "Session cleared — No session data was stored" confirmation with a shield icon for 4 seconds.
+1. **Translation cache removed** (`transcription.ts`): The previous `TRANS_MEM` Map stored translated text as values. It has been completely eliminated. All translations are one-shot: request in → OpenAI → response out → nothing retained.
+2. **Server logging** (`app.ts` pino-http): Serializers locked to `{ id, method, url, statusCode }`. Request bodies, query strings, and headers are never logged.
+3. **No `console.*` calls**: All `console.log`, `console.warn`, `console.error` removed from `use-transcription.ts` and `FeedbackModal.tsx`. Errors are handled silently or surfaced only to the UI.
+4. **Frontend auto-clear**: `transcription.clear()` called immediately when recording stops — DOM wiped, all refs zeroed, speaker maps reset.
+5. **Session end UI**: Shield icon confirmation shows "Session cleared — No session data was stored" for 4 seconds.
+6. **No browser-side persistence**: Zero `localStorage`, `sessionStorage`, or `IndexedDB` usage anywhere.
 
 ## Email (Welcome Emails via Resend)
 
