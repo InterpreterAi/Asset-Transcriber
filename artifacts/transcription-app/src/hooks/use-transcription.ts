@@ -120,12 +120,19 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
 // ── Translation fetch ──────────────────────────────────────────────────────────
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
-async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
+async function fetchTranslation(
+  text: string,
+  sourceLang: string,
+  targetLang: string,
+  context?: readonly string[],
+): Promise<string> {
+  const body: Record<string, unknown> = { text, sourceLang, targetLang };
+  if (context && context.length > 0) body.context = context;
   const r = await fetch("/api/transcription/translate", {
     method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "include",
-    body:        JSON.stringify({ text, sourceLang, targetLang }),
+    body:        JSON.stringify(body),
   });
   if (!r.ok) return "";
   const d = await r.json() as { translation?: string };
@@ -218,6 +225,9 @@ export function useTranscription() {
   const lastTranslatedBuffer = useRef<string>("");
   // Pending debounce timer — reset on every token arrival, fires after silence.
   const translationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Rolling context window: source texts of the last 2 finalized segments.
+  // Sent with every translate request so the model maintains sentence flow.
+  const recentSegmentsRef = useRef<string[]>([]);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -278,7 +288,7 @@ export function useTranscription() {
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, lang, myTargetLang);
+        const translated = await fetchTranslation(text, lang, myTargetLang, recentSegmentsRef.current);
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
@@ -475,6 +485,13 @@ export function useTranscription() {
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
+
+    // Append this segment's source text to the rolling context window (max 2).
+    // The next segment's translate calls will see these as prior context so
+    // the model can maintain grammatical flow and consistent terminology.
+    if (finalText.length > 2) {
+      recentSegmentsRef.current = [...recentSegmentsRef.current, finalText].slice(-2);
+    }
   }, [dispatchTranslation, cancelScheduledTranslation]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
@@ -502,6 +519,7 @@ export function useTranscription() {
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
     finalCountRef.current         = 0;
+    recentSegmentsRef.current     = [];    // clear context window for next session
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -797,6 +815,7 @@ export function useTranscription() {
       liveBufferRef.current        = "";
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
+      recentSegmentsRef.current    = [];   // reset context window on clear
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();
