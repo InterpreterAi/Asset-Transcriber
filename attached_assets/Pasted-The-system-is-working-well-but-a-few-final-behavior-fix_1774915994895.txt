@@ -1,0 +1,105 @@
+The system is working well, but a few final behavior fixes are required.
+
+IMPORTANT:
+Do NOT modify these systems:
+
+• Soniox streaming transcription  
+• real-time transcription behavior  
+• speaker diarization  
+• segment creation / segmentation  
+• language pair selection UI  
+• translation locking logic  
+
+Only fix the following behaviors.
+
+------------------------------------------------
+
+1) TRANSLATE ONLY AFTER SEGMENT FINALIZATION
+
+Problem:
+Sometimes the last word of a sentence is missing in translation.
+
+Cause:
+Translation is triggered before the segment is finalized.
+
+Required behavior:
+
+Translation must run only when a segment is finalized.
+
+Pseudo logic:
+
+if (segment.isFinal && !segment.translationLocked) {
+    runTranslation(segment.text)
+}
+
+------------------------------------------------
+
+2) DO NOT SHOW SOURCE LANGUAGE IN THE TRANSLATION COLUMN
+
+Problem:
+When Arabic is spoken, Arabic briefly appears in the translation column before switching to English.
+
+Required behavior:
+
+The translation column must remain empty until translation is ready.
+
+Transcript column → original speech  
+Translation column → translated speech only
+
+Never render source text in the translation column.
+
+------------------------------------------------
+
+3) ENSURE LANGUAGE DETECTION HAPPENS BEFORE TRANSLATION
+
+Problem:
+Sometimes Arabic briefly translates to Arabic and then switches to English.
+
+Cause:
+Translation runs before language detection finishes.
+
+Correct pipeline order:
+
+speech  
+→ transcription  
+→ language detection  
+→ resolve translation direction  
+→ translation  
+
+Translation must wait for language detection.
+
+------------------------------------------------
+
+4) ONLY TRANSLATE LANGUAGES THAT BELONG TO THE SELECTED LANGUAGE PAIR
+
+Problem:
+If the selected pair is English ↔ French and the speaker speaks Arabic, the system still translates it.
+
+Required behavior:
+
+Translation must only occur when the detected language matches one of the two languages in the selected pair.
+
+Pseudo logic:
+
+pair = [langA, langB]
+
+detectedLang = detectLanguage(segment.text)
+
+if detectedLang == langA:
+    target = langB
+else if detectedLang == langB:
+    target = langA
+else:
+    skip translation
+
+If the spoken language is not part of the selected pair, do not translate the segment.
+
+------------------------------------------------
+
+Goal:
+
+• translation only between the two selected languages  
+• no incorrect language translation  
+• no missing last words  
+• no flickering translations  
+• stable real-time interpreter workflow

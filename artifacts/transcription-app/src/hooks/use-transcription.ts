@@ -427,26 +427,19 @@ export function useTranscription() {
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
 
-    // Restart the polling interval for this new segment. softFinalize stops
-    // the interval for the previous segment; we restart it here so live
-    // translation works during speech for each new segment.
-    startTranslationInterval();
-
     scrollPanel(true);
     return finalSpan;
-  }, [scrollPanel, startTranslationInterval]);
+  }, [scrollPanel]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
-  // final translation. isFinal=true bypasses the stabilization check.
-  // Stops the polling interval FIRST so no in-flight poll requests can race
-  // against the final fetch and overwrite the locked translation.
+  // ONE-TIME final translation for the completed segment.
+  // Translation only fires here — never during live speech — so language
+  // detection is complete and all final tokens are committed before we translate.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    // Stop polling AND mark as finalizing synchronously, before the async
-    // dispatch below. This ensures any poll fetch already in-flight will be
-    // rejected by the post-fetch `finalizing` guard when it returns.
+    // Defensive stop (polling is disabled but guard against future changes).
     stopTranslationInterval();
     if (activeBubbleStateRef.current) {
       activeBubbleStateRef.current.finalizing = true;
@@ -708,8 +701,6 @@ export function useTranscription() {
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      startTranslationInterval();
-
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
       analyser.fftSize  = 256;
@@ -750,7 +741,7 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
+  }, [getTokenMut, startSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
