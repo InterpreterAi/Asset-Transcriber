@@ -47,8 +47,11 @@ export function buildUserInfo(user: User) {
   return {
     id: user.id,
     username: user.username,
+    email: user.email ?? undefined,
     isAdmin: user.isAdmin,
     isActive: user.isActive,
+    planType: user.planType ?? "trial",
+    emailVerified: user.emailVerified ?? false,
     trialStartedAt: user.trialStartedAt,
     trialEndsAt: user.trialEndsAt,
     trialDaysRemaining,

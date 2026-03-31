@@ -1,0 +1,291 @@
+Implement a complete SaaS user system for this application WITHOUT modifying any existing transcription, translation, diarization, segmentation, or audio capture logic.
+
+The AI transcription and translation pipeline must remain exactly as it currently works.
+
+Only add authentication, usage limits, subscriptions, and security.
+
+------------------------------------------------
+
+1. USER AUTHENTICATION
+
+Add a secure authentication system with:
+
+• Sign Up  
+• Login  
+• Logout  
+• Forgot Password  
+• Reset Password  
+• Change Password  
+• Google Sign-In (OAuth)
+
+Passwords must be stored using bcrypt hashing.
+
+Email verification is required for new email-based accounts.
+
+Google login must allow users to sign in using their Google account without creating a password.
+
+When a user signs in with Google for the first time, automatically create a user record and start the free trial.
+
+Each user record must include:
+
+user_id  
+email  
+password_hash (if email signup)  
+google_account_id (if Google signup)  
+plan_type  
+trial_start_date  
+trial_end_date  
+minutes_used_today  
+minutes_used_this_month  
+last_daily_reset  
+last_monthly_reset  
+active_session  
+signup_ip  
+device_fingerprint
+
+------------------------------------------------
+
+2. FREE TRIAL SYSTEM
+
+Every new user automatically receives a trial:
+
+Trial duration: 14 days  
+Daily usage limit: 5 hours (300 minutes)
+
+Logic:
+
+• Trial starts when account is created
+• Trial expires after 14 days
+• Usage resets every 24 hours
+
+If daily limit is reached:
+
+Display message:
+
+"Daily trial limit reached. Please upgrade to continue."
+
+If trial expires:
+
+Display message:
+
+"Trial expired. Please subscribe to continue using the service."
+
+------------------------------------------------
+
+3. SUBSCRIPTION PLANS
+
+Create three subscription plans:
+
+BASIC  
+Price: $40/month  
+Limit: 5 hours per day
+
+PROFESSIONAL  
+Price: $80/month  
+Limit: 7 hours per day
+
+UNLIMITED  
+Price: $120/month  
+Unlimited usage (internally capped at 11 hours/day for system safety)
+
+Users must subscribe after trial ends.
+
+------------------------------------------------
+
+4. PAYMENT SYSTEM
+
+Integrate Stripe for subscription billing.
+
+Create Stripe products:
+
+Basic – $40/month  
+Professional – $80/month  
+Unlimited – $120/month
+
+Handle:
+
+• subscription creation
+• subscription cancellation
+• payment failures
+• webhook updates
+
+User plan_type must update automatically after successful payment.
+
+------------------------------------------------
+
+5. USAGE TRACKING
+
+Track transcription time per user.
+
+When transcription starts:
+
+• start session timer
+
+When transcription stops:
+
+• add session duration to minutes_used_today
+
+Logic:
+
+If minutes_used_today >= plan daily limit:
+
+block starting a new session.
+
+------------------------------------------------
+
+6. SESSION LIMIT
+
+Only allow ONE active transcription session per user.
+
+If a user opens another tab or browser:
+
+Display:
+
+"Another active session is already running."
+
+------------------------------------------------
+
+7. PREVENT TRIAL ABUSE
+
+Trial must be tied to user account.
+
+Require email verification for email signups.
+
+Store:
+
+user IP address  
+device fingerprint
+
+Prevent multiple trials for the same verified email.
+
+------------------------------------------------
+
+8. DASHBOARD
+
+After login show a user dashboard containing:
+
+Plan type  
+Trial expiration date  
+Minutes used today  
+Daily limit  
+Subscription status
+
+Example display:
+
+"You have used 120 / 300 minutes today."
+
+Include:
+
+Upgrade button  
+Cancel subscription button
+
+------------------------------------------------
+
+9. ADMIN PANEL
+
+Create a hidden admin dashboard allowing:
+
+View all users  
+View usage statistics  
+Disable accounts  
+Reset user limits  
+Manually change user plan  
+Grant free access
+
+Admin access must be restricted by role.
+
+------------------------------------------------
+
+10. GOOGLE SIGN-IN
+
+Add Google authentication using OAuth.
+
+Users must be able to sign up or log in using their Google account.
+
+When a user signs in with Google for the first time:
+
+• create a user record
+• automatically start the 14-day trial
+• apply the same usage limits as email users
+
+The login page should display:
+
+Continue with Google
+
+Then below it:
+
+Sign up with Email
+
+------------------------------------------------
+
+11. API KEY SECURITY
+
+All API keys must be moved to server environment variables.
+
+Never expose them in frontend code.
+
+Example environment variables:
+
+SONIOX_API_KEY  
+OPENAI_API_KEY  
+STRIPE_SECRET_KEY
+
+Frontend must call backend endpoints instead of external APIs directly.
+
+------------------------------------------------
+
+12. RATE LIMITING
+
+Protect the backend with rate limits.
+
+Maximum:
+
+• 1 active transcription session per user
+• safe request limits per minute
+
+------------------------------------------------
+
+13. LEGAL PAGES
+
+Add pages:
+
+Terms of Service  
+Privacy Policy
+
+These must be accessible before signup.
+
+------------------------------------------------
+
+14. LANDING PAGE
+
+Before login show a simple landing page:
+
+Headline:
+"AI Assistant for Interpreters"
+
+Subtitle:
+"Real-time transcription and translation during live calls."
+
+Buttons:
+
+Start Free Trial  
+Login
+
+------------------------------------------------
+
+15. DO NOT MODIFY
+
+The following systems must remain unchanged:
+
+• transcription engine
+• translation logic
+• speaker diarization
+• segment logic
+• real-time streaming
+• browser tab audio capture
+
+Only add the SaaS account system, subscriptions, and security.
+
+------------------------------------------------
+
+Ensure the application continues to function as a browser-based web app after implementing these features.
