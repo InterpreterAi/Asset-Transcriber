@@ -15,11 +15,6 @@ const STABILIZE_RATIO     = 1.15;
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
 const SILENCE_TIMEOUT_MS  = 1200;
-// How long the segment text must be stable (ms) before the bubble is visually
-// promoted from grey/italic → bold. This is UI-only: no state, refs, or
-// translation pipeline is touched. The true final signal from Soniox (or the
-// silence timer) handles everything else when it arrives later.
-const VISUAL_PROMOTE_MS   = 900;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -125,45 +120,19 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
-// ── Progressive NF stabilization helper ────────────────────────────────────────
-// Returns the character index at which `prev` and `next` first differ, trimmed
-// back to the nearest space boundary so we never mark a partial word as stable.
-// Example: prev="doing today si", next="doing today sirens" → returns len("doing today ")
-function commonPrefixLen(prev: string, next: string): number {
-  let i = 0;
-  const len = Math.min(prev.length, next.length);
-  while (i < len && prev[i] === next[i]) i++;
-  // If the full `next` string matches, the entire next text is stable.
-  if (i === next.length) return i;
-  // Otherwise walk back to the last space so we don't split a word mid-character.
-  while (i > 0 && next[i - 1] !== " ") i--;
-  return i;
-}
-
-// ── Segment-overlap detection helper ───────────────────────────────────────────
-// Returns true when newText overlaps with prevText, covering all the ways Soniox
-// can re-emit a corrected version of an already-finalized segment:
-//
-//   • Identical — same words, only speaker changed              (normPrev === normNew)
-//   • Extension — new has all old words + more appended         (normNew starts with normPrev)
-//   • Tail-dup  — new is a suffix of old (original isTextSuffix)(normPrev ends with normNew)
-//   • Truncated — new is a substantial prefix of old            (normPrev starts with normNew,
-//                 covering at least 60% of old text)
-//
-// Minimum 4 chars in both to avoid accidental single-word matches.
-function isSegmentOverlap(prevText: string, newText: string): boolean {
-  if (!prevText || !newText) return false;
+// ── Duplicate-segment detection helper ─────────────────────────────────────────
+// Returns true when `candidate` is a suffix of `text` (after normalizing
+// whitespace and stripping punctuation). Used to discard segments that Soniox
+// re-emits from the tail of the previous segment.
+function isTextSuffix(text: string, candidate: string): boolean {
+  if (!candidate || !text) return false;
   const normalize = (s: string) =>
     s.toLowerCase().replace(/[.,!?;:'"()\-]/g, "").replace(/\s+/g, " ").trim();
-  const normPrev = normalize(prevText);
-  const normNew  = normalize(newText);
-  if (normNew.length < 4 || normPrev.length < 4) return false;
-  if (normPrev === normNew)                    return true;   // identical
-  if (normNew.startsWith(normPrev))            return true;   // extension
-  if (normPrev.endsWith(normNew))              return true;   // tail duplicate
-  if (normPrev.startsWith(normNew) &&
-      normNew.length >= Math.floor(normPrev.length * 0.6)) return true; // truncated
-  return false;
+  const normText = normalize(text);
+  const normCand = normalize(candidate);
+  // Only suppress if the candidate is non-trivially long and fully contained
+  // as a trailing run in the previous segment.
+  return normCand.length >= 4 && normText.endsWith(normCand);
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
@@ -253,14 +222,7 @@ export function useTranscription() {
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<number | undefined>(undefined);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
-  const activeBubbleNFRef       = useRef<HTMLSpanElement | null>(null);  // NF wrapper span
-  // Sub-spans inside the NF wrapper for progressive stabilization.
-  // nfStable  — words unchanged since last update (displayed bold via inline style).
-  // nfUnstable — trailing new words not yet confirmed stable (grey via CLS.nf).
-  const activeBubbleNFStableRef   = useRef<HTMLSpanElement | null>(null);
-  const activeBubbleNFUnstableRef = useRef<HTMLSpanElement | null>(null);
-  // The NF text from the previous onmessage call, used to compute stable prefix.
-  const prevNfTextRef             = useRef<string>("");
+  const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
   // The user's selected language pair {a, b}. Per-segment target is computed
@@ -291,35 +253,10 @@ export function useTranscription() {
   // caused by Soniox re-emitting tail words of a segment as a new segment.
   const lastSegmentTextRef = useRef<string>("");
 
-  // ── Speaker-tag refs for the active bubble ────────────────────────────────
-  // Stored so that when a diarization correction arrives for an already-shown
-  // segment, we can update the speaker label in-place without rebuilding the row.
-  const activeBubbleOrigTagRef  = useRef<HTMLSpanElement | null>(null);
-  const activeBubbleTransTagRef = useRef<HTMLSpanElement | null>(null);
-
-  // ── Last-finalized segment info ────────────────────────────────────────────
-  // Holds the DOM elements of the most recently finalized segment so that
-  // late Soniox diarization corrections can update the existing row rather
-  // than appending a duplicate.
-  const lastFinalizedSegRef = useRef<{
-    row:       HTMLElement;
-    finalSpan: HTMLSpanElement;
-    origTag:   HTMLSpanElement | null;
-    transTag:  HTMLSpanElement | null;
-    text:      string;
-  } | null>(null);
-
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Visual-promote timer ────────────────────────────────────────────────────
-  // Reset every time any token updates the segment text. Fires after
-  // VISUAL_PROMOTE_MS of no updates and upgrades the bubble className from
-  // grey/italic (textLive) → bold (textFin). Visual only — does not touch
-  // translation state, refs, or segmentation.
-  const visualPromoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -527,23 +464,16 @@ export function useTranscription() {
     const colTrans = document.createElement("div");
     colTrans.className = CLS.colTrans;
 
-    // Reset speaker-tag refs for this new bubble. If there IS a speaker,
-    // they'll be set below and stored for potential in-place diarization updates.
-    activeBubbleOrigTagRef.current  = null;
-    activeBubbleTransTagRef.current = null;
-
     if (label && tagCls) {
       const tagOrig = document.createElement("span");
       tagOrig.className   = tagCls;
       tagOrig.textContent = label;
       colOrig.appendChild(tagOrig);
-      activeBubbleOrigTagRef.current = tagOrig;   // ← store for in-place updates
 
       const tagTrans = document.createElement("span");
       tagTrans.className   = tagCls;
       tagTrans.textContent = label;
       colTrans.appendChild(tagTrans);
-      activeBubbleTransTagRef.current = tagTrans; // ← store for in-place updates
     }
 
     const origRow = document.createElement("div");
@@ -553,16 +483,10 @@ export function useTranscription() {
     p.className = CLS.textLive;
     applyTextStyle(p);
     const finalSpan = document.createElement("span");
-    // NF wrapper: activeBubbleNFRef points here so softFinalize can read/clear
-    // combined NF text via .textContent (concatenates both child spans).
-    const nfWrapper    = document.createElement("span");
-    const nfStable     = document.createElement("span");   // bold override via inline style
-    const nfUnstable   = document.createElement("span");   // grey/italic via CLS.nf
-    nfUnstable.className = CLS.nf;
-    nfWrapper.appendChild(nfStable);
-    nfWrapper.appendChild(nfUnstable);
+    const nfSpan    = document.createElement("span");
+    nfSpan.className = CLS.nf;
     p.appendChild(finalSpan);
-    p.appendChild(nfWrapper);
+    p.appendChild(nfSpan);
     origRow.appendChild(p);
 
     const copyOrigBtn = makeCopyButton(true, () => finalSpan.textContent?.trim() ?? "");
@@ -590,10 +514,7 @@ export function useTranscription() {
     // Old in-flight requests captured the OLD state object in their closure, so
     // they will always write to the old bubble's elements (or discard if already
     // shown a newer result).
-    activeBubbleNFRef.current         = nfWrapper;
-    activeBubbleNFStableRef.current   = nfStable;
-    activeBubbleNFUnstableRef.current = nfUnstable;
-    prevNfTextRef.current             = "";          // reset stable-prefix anchor
+    activeBubbleNFRef.current      = nfSpan;
     activeBubbleStateRef.current   = {
       transTextEl:  transTextP,
       copyTransBtn: copyTransBtn,
@@ -620,13 +541,6 @@ export function useTranscription() {
   // against the final fetch and overwrite the locked translation.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
-
-    // Cancel the visual-promote timer: softFinalize does the full upgrade, so
-    // there's no need for the UI-only timer to also fire afterwards.
-    if (visualPromoteTimerRef.current !== null) {
-      clearTimeout(visualPromoteTimerRef.current);
-      visualPromoteTimerRef.current = null;
-    }
 
     // Cancel any pending debounced translation AND mark as finalizing
     // synchronously before the final dispatch below. This ensures any
@@ -663,23 +577,6 @@ export function useTranscription() {
     // as the start of the next segment (duplicate detection).
     if (finalText.length > 2) lastSegmentTextRef.current = finalText;
 
-    // Capture last-finalized segment info for potential in-place diarization
-    // corrections. This must be set AFTER finalText is computed so text is
-    // the true finalized content (including any promoted NF text from above).
-    if (finalText.length > 2) {
-      const row = activeBubbleRef.current
-        ?.parentElement?.parentElement?.parentElement?.parentElement;
-      if (row instanceof HTMLElement) {
-        lastFinalizedSegRef.current = {
-          row,
-          finalSpan: activeBubbleRef.current,
-          origTag:   activeBubbleOrigTagRef.current,
-          transTag:  activeBubbleTransTagRef.current,
-          text:      finalText,
-        };
-      }
-    }
-
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
@@ -709,29 +606,17 @@ export function useTranscription() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    // Cancel the visual-promote timer (softFinalize inside finalizeLiveBubble
-    // also cancels it, but clearing here first avoids a redundant DOM timer).
-    if (visualPromoteTimerRef.current !== null) {
-      clearTimeout(visualPromoteTimerRef.current);
-      visualPromoteTimerRef.current = null;
-    }
     cancelScheduledTranslation();
     finalizeLiveBubble();
 
-    currentSpeakerRef.current         = undefined;
-    activeBubbleRef.current           = null;
-    activeBubbleNFRef.current         = null;
-    activeBubbleNFStableRef.current   = null;
-    activeBubbleNFUnstableRef.current = null;
-    prevNfTextRef.current             = "";
-    activeBubbleStateRef.current      = null;  // drop all in-flight translation closures
-    activeBubbleOrigTagRef.current    = null;
-    activeBubbleTransTagRef.current   = null;
-    lastFinalizedSegRef.current       = null;
-    finalCountRef.current             = 0;
-    recentSegmentsRef.current         = [];    // clear context window for next session
-    segmentLangLockedRef.current      = false; // reset lang lock for next session
-    lastSegmentTextRef.current        = "";    // reset dedup anchor for next session
+    currentSpeakerRef.current      = undefined;
+    activeBubbleRef.current        = null;
+    activeBubbleNFRef.current      = null;
+    activeBubbleStateRef.current   = null;  // drop all in-flight translation closures
+    finalCountRef.current          = 0;
+    recentSegmentsRef.current      = [];    // clear context window for next session
+    segmentLangLockedRef.current   = false; // reset lang lock for next session
+    lastSegmentTextRef.current     = "";    // reset dedup anchor for next session
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -780,49 +665,6 @@ export function useTranscription() {
         diarization:                    { enable: true },
       }));
       console.log("[WS] stt-rt-v4 OPEN");
-    };
-
-    // ── Progressive NF writer ──────────────────────────────────────────────────
-    // Updates the three NF DOM elements (wrapper / stable sub-span / unstable
-    // sub-span) for every incoming NF token batch.  Defined once per WebSocket
-    // session (not inside onmessage) to avoid closure allocation on every message.
-    //
-    // The stable sub-span receives an inline bold override so it looks like
-    // finalized text even while p.className is still CLS.textLive (grey).
-    // The unstable sub-span stays grey via CLS.nf.
-    //
-    // activeBubbleNFRef (the wrapper) still exposes the full combined NF text via
-    // .textContent, so softFinalize() and the visual-promote timer need no changes.
-    const applyNfText = (text: string): void => {
-      const stableEl   = activeBubbleNFStableRef.current;
-      const unstableEl = activeBubbleNFUnstableRef.current;
-      const wrapper    = activeBubbleNFRef.current;
-      if (!wrapper) return;
-      if (!stableEl || !unstableEl) {
-        // Sub-span refs not wired yet (shouldn't happen after createBubble, but guard anyway).
-        wrapper.textContent = text;
-        return;
-      }
-      if (!text) {
-        // NF cleared (Soniox committed all pending words as finals).
-        stableEl.textContent   = "";
-        stableEl.style.cssText  = "";
-        unstableEl.textContent = "";
-        prevNfTextRef.current  = "";
-        return;
-      }
-      const prev      = prevNfTextRef.current;
-      const stableLen = commonPrefixLen(prev, text);
-      const stable    = text.slice(0, stableLen);
-      const unstable  = text.slice(stableLen);
-      stableEl.textContent   = stable;
-      // Apply bold override so the stable portion looks finalized even when the
-      // parent <p> still has CLS.textLive (grey/italic) styling.
-      stableEl.style.cssText  = stable
-        ? "font-weight:500;color:var(--foreground);font-style:normal;"
-        : "";
-      unstableEl.textContent = unstable;
-      prevNfTextRef.current  = text;
     };
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -891,63 +733,25 @@ export function useTranscription() {
           (activeBubbleRef.current.textContent ?? "") + token.text;
       }
 
-      // ── Duplicate / diarization-correction detection ───────────────────────
-      // Soniox can re-emit words from a recently finalized segment when:
-      //   (a) the speaker assignment is corrected after the fact, or
-      //   (b) the segment boundary shifts and tail words are re-sent.
-      // In both cases we update the existing row in-place rather than appending
-      // a new one — preserving the reading order and avoiding duplicate phrases.
-      if (newBubbleRow && activeBubbleRef.current && lastFinalizedSegRef.current) {
-        const seg        = lastFinalizedSegRef.current;
+      // ── Duplicate-segment detection ────────────────────────────────────────
+      // Soniox sometimes re-emits the tail words of the previous segment as a
+      // brand-new segment (e.g. prev = "…what happened last Saturday." and new
+      // = "what happened last Saturday."). Remove the new segment and restore
+      // state if its entire text is a suffix of the previous segment text.
+      if (newBubbleRow && activeBubbleRef.current && lastSegmentTextRef.current) {
         const newSegText = activeBubbleRef.current.textContent?.trim() ?? "";
-
-        if (isSegmentOverlap(seg.text, newSegText)) {
-
-          // ── Speaker label update ─────────────────────────────────────────
-          // Use the new segment's speaker to update the existing row's labels.
-          const { label: newLabel, slot: newSlot } =
-            normalizeSpeaker(currentSpeakerRef.current);
-          if (newLabel && newLabel !== seg.origTag?.textContent) {
-            const newTagCls =
-              SPEAKER_COLORS[Math.min(newSlot - 1, SPEAKER_COLORS.length - 1)];
-            if (seg.origTag) {
-              seg.origTag.textContent = newLabel;
-              seg.origTag.className   = newTagCls;
-            }
-            if (seg.transTag) {
-              seg.transTag.textContent = newLabel;
-              seg.transTag.className   = newTagCls;
-            }
-          }
-
-          // ── Text update (extension only) ─────────────────────────────────
-          // If the corrected segment contains more words than the original,
-          // update the finalSpan text and the dedup anchor. We do NOT
-          // re-dispatch translation here — the last isFinal=true call already
-          // locked the translation column and re-opening it could cause flicker.
-          const normalize = (s: string) =>
-            s.toLowerCase().replace(/[.,!?;:'"()\-]/g, "").replace(/\s+/g, " ").trim();
-          if (normalize(newSegText).length > normalize(seg.text).length) {
-            seg.finalSpan.textContent = newSegText;
-            seg.text                  = newSegText;
-            lastSegmentTextRef.current = newSegText;
-          }
-
-          // ── Remove the duplicate new bubble ─────────────────────────────
+        if (isTextSuffix(lastSegmentTextRef.current, newSegText)) {
           newBubbleRow.remove();
-          activeBubbleRef.current           = null;
-          activeBubbleNFRef.current         = null;
-          activeBubbleNFStableRef.current   = null;
-          activeBubbleNFUnstableRef.current = null;
-          prevNfTextRef.current             = "";
-          activeBubbleStateRef.current      = null;
-          activeBubbleOrigTagRef.current    = null;
-          activeBubbleTransTagRef.current   = null;
-          currentSpeakerRef.current         = undefined;
-          styleUpgradedRef.current          = false;
-          liveBufferRef.current             = "";
-          lastTranslatedBuffer.current      = "";
-          segmentLangLockedRef.current      = false;
+          // Restore refs to "no active segment" so the next real token
+          // opens a fresh bubble correctly.
+          activeBubbleRef.current      = null;
+          activeBubbleNFRef.current    = null;
+          activeBubbleStateRef.current = null;
+          currentSpeakerRef.current    = undefined;
+          styleUpgradedRef.current     = false;
+          liveBufferRef.current        = "";
+          lastTranslatedBuffer.current = "";
+          segmentLangLockedRef.current = false;
         }
       }
 
@@ -976,9 +780,7 @@ export function useTranscription() {
       }
 
       if (activeBubbleNFRef.current) {
-        // Progressive stabilization: the stable (unchanged) prefix turns bold;
-        // only the new trailing portion stays grey.
-        applyNfText(nfText);
+        activeBubbleNFRef.current.textContent = nfText;
       } else if (nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
           const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
@@ -986,8 +788,9 @@ export function useTranscription() {
           activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
         }
-        // createBubble() wired the NF refs; apply progressive stabilization now.
-        applyNfText(nfText);
+        if (activeBubbleNFRef.current) {
+          activeBubbleNFRef.current.textContent = nfText;
+        }
       }
 
       // ── Update live translation buffer ────────────────────────────────────
@@ -1000,33 +803,7 @@ export function useTranscription() {
       // sent rather than a mid-word snapshot.
       scheduleTranslation();
 
-      // ── Visual-promote timer ───────────────────────────────────────────────
-      // Reset on every token that updates segment text. After VISUAL_PROMOTE_MS
-      // of no updates (≈ a natural 1-second pause) promote the bubble from
-      // grey/italic → bold in the UI. This is purely visual: no translation is
-      // dispatched, no refs are cleared, no segmentation is affected.
-      // When the true final signal arrives later, softFinalize() skips the
-      // className change because styleUpgradedRef is already true.
-      if (visualPromoteTimerRef.current !== null) {
-        clearTimeout(visualPromoteTimerRef.current);
-        visualPromoteTimerRef.current = null;
-      }
-      if (activeBubbleRef.current && !styleUpgradedRef.current) {
-        visualPromoteTimerRef.current = setTimeout(() => {
-          visualPromoteTimerRef.current = null;
-          // Re-check refs inside callback: bubble may have been cleared by stop()
-          // or silence timer between now and when this fires.
-          if (activeBubbleRef.current && !styleUpgradedRef.current) {
-            styleUpgradedRef.current = true;
-            const p = activeBubbleRef.current.parentElement;
-            if (p) p.className = CLS.textFin;
-          }
-        }, VISUAL_PROMOTE_MS);
-      }
-
       // When Soniox commits all text (NF gone), immediately finalize style.
-      // This fires before the visual-promote timer would ever fire, so it
-      // takes precedence and the timer becomes a no-op (styleUpgradedRef=true).
       if (nfText.length === 0 && finalText.trim().length > 2) {
         if (!styleUpgradedRef.current) {
           styleUpgradedRef.current = true;
@@ -1167,21 +944,15 @@ export function useTranscription() {
       cancelScheduledTranslation();
       activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
-      activeBubbleRef.current           = null;
-      activeBubbleNFRef.current         = null;
-      activeBubbleNFStableRef.current   = null;
-      activeBubbleNFUnstableRef.current = null;
-      prevNfTextRef.current             = "";
-      activeBubbleOrigTagRef.current    = null;
-      activeBubbleTransTagRef.current   = null;
-      lastFinalizedSegRef.current       = null;
-      styleUpgradedRef.current          = false;
-      liveBufferRef.current           = "";
-      lastTranslatedBuffer.current    = "";
-      finalCountRef.current           = 0;
-      recentSegmentsRef.current       = [];   // reset context window on clear
-      segmentLangLockedRef.current    = false;
-      lastSegmentTextRef.current      = "";   // reset dedup anchor on clear
+      activeBubbleRef.current      = null;
+      activeBubbleNFRef.current    = null;
+      styleUpgradedRef.current     = false;
+      liveBufferRef.current        = "";
+      lastTranslatedBuffer.current = "";
+      finalCountRef.current        = 0;
+      recentSegmentsRef.current    = [];   // reset context window on clear
+      segmentLangLockedRef.current = false;
+      lastSegmentTextRef.current   = "";   // reset dedup anchor on clear
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();
