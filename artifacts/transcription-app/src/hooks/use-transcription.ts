@@ -210,6 +210,13 @@ export function useTranscription() {
   const chunkStoreRef  = useRef<Map<number, { text: string; translation: string | null }>>(new Map());
   const chunkIdCounter = useRef(0);
 
+  // ── Chunk debounce ─────────────────────────────────────────────────────────
+  // Accumulates new-final text across consecutive onmessage calls before
+  // dispatching a single translation request. This keeps API call frequency low
+  // (one request per 200ms window) while preserving real-time feel.
+  const pendingChunkRef       = useRef<{ text: string; state: BubbleTransState } | null>(null);
+  const chunkDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
@@ -299,6 +306,40 @@ export function useTranscription() {
       }
     })();
   }, [renderBubbleTranslation]);
+
+  // ── flushPendingChunk / accumulateChunk ────────────────────────────────────
+  // Debounced dispatch: instead of firing one translation request per onmessage,
+  // accumulate new-final text for up to 200 ms then send a single request.
+  // flushPendingChunk() fires immediately — called on speaker change so the
+  // accumulated text is translated against the correct bubble before it closes.
+  const flushPendingChunk = useCallback(() => {
+    if (chunkDebounceTimerRef.current !== null) {
+      clearTimeout(chunkDebounceTimerRef.current);
+      chunkDebounceTimerRef.current = null;
+    }
+    const pending = pendingChunkRef.current;
+    pendingChunkRef.current = null;
+    if (pending?.text.trim() && pending.state) {
+      addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
+    }
+  }, [addChunk]);
+
+  const accumulateChunk = useCallback((text: string, state: BubbleTransState) => {
+    if (!pendingChunkRef.current) {
+      pendingChunkRef.current = { text, state };
+    } else {
+      pendingChunkRef.current.text += text;
+    }
+    if (chunkDebounceTimerRef.current !== null) clearTimeout(chunkDebounceTimerRef.current);
+    chunkDebounceTimerRef.current = setTimeout(() => {
+      chunkDebounceTimerRef.current = null;
+      const pending = pendingChunkRef.current;
+      pendingChunkRef.current = null;
+      if (pending?.text.trim() && pending.state) {
+        addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
+      }
+    }, 200);
+  }, [addChunk]);
 
   // ── createBubble ──────────────────────────────────────────────────────────
   // Builds a two-column segment row with color-coded speaker tags.
@@ -434,6 +475,7 @@ export function useTranscription() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    flushPendingChunk();   // commit any debounced text before finalizing
     finalizeLiveBubble();
 
     currentSpeakerRef.current     = undefined;
@@ -469,7 +511,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble]);
+  }, [stopSessionMut, finalizeLiveBubble, flushPendingChunk]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
@@ -511,6 +553,7 @@ export function useTranscription() {
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
         if (!activeBubbleRef.current) return;  // nothing open — nothing to do
+        flushPendingChunk();   // commit any debounced text before finalizing
         softFinalize();
         // Drop active refs so the next speech token creates a fresh segment.
         currentSpeakerRef.current = undefined;
@@ -537,11 +580,21 @@ export function useTranscription() {
       let chunkText = "";
       for (const token of newFinals) {
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
-          // Dispatch accumulated text as a chunk for the OLD bubble.
-          if (chunkText.trim() && activeBubbleStateRef.current && langDetectedRef.current) {
-            addChunk(chunkText.trim(), detectedLangRef.current, activeBubbleStateRef.current);
+          // Speaker boundary: flush any pending debounced text for the OLD bubble
+          // BEFORE switching, so it is translated against the correct segment.
+          if (chunkText.trim()) {
+            // Append the in-loop text gathered so far to the pending buffer
+            // then flush immediately (bypasses the 200ms wait).
+            if (langDetectedRef.current && activeBubbleStateRef.current) {
+              if (pendingChunkRef.current) {
+                pendingChunkRef.current.text += chunkText;
+              } else {
+                pendingChunkRef.current = { text: chunkText, state: activeBubbleStateRef.current };
+              }
+            }
+            chunkText = "";
           }
-          chunkText = "";
+          flushPendingChunk();
 
           finalizeLiveBubble();
           currentSpeakerRef.current = token.speaker;
@@ -555,9 +608,9 @@ export function useTranscription() {
         chunkText += token.text;
       }
 
-      // Dispatch the last bubble's accumulated chunk text.
+      // Accumulate this message's final text into the debounce buffer.
       if (chunkText.trim() && activeBubbleStateRef.current && langDetectedRef.current) {
-        addChunk(chunkText.trim(), detectedLangRef.current, activeBubbleStateRef.current);
+        accumulateChunk(chunkText.trim(), activeBubbleStateRef.current);
       }
 
       finalCountRef.current = finals.length;
@@ -619,7 +672,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, addChunk, scrollPanel]);
+  }, [stop, createBubble, finalizeLiveBubble, flushPendingChunk, accumulateChunk, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
@@ -640,6 +693,11 @@ export function useTranscription() {
       langDetectedRef.current      = false;
       chunkStoreRef.current.clear();
       chunkIdCounter.current       = 0;
+      pendingChunkRef.current      = null;
+      if (chunkDebounceTimerRef.current !== null) {
+        clearTimeout(chunkDebounceTimerRef.current);
+        chunkDebounceTimerRef.current = null;
+      }
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -746,6 +804,11 @@ export function useTranscription() {
       finalCountRef.current        = 0;
       chunkStoreRef.current.clear();
       chunkIdCounter.current = 0;
+      pendingChunkRef.current = null;
+      if (chunkDebounceTimerRef.current !== null) {
+        clearTimeout(chunkDebounceTimerRef.current);
+        chunkDebounceTimerRef.current = null;
+      }
       langDetectedRef.current = false;
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
