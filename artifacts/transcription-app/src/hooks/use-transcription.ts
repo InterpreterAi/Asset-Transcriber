@@ -9,9 +9,9 @@ const TRANSLATION_POLL_MS = 700;
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
 // How long a gap in incoming tokens (ms) triggers automatic segment finalization.
-// Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
-// but short enough that natural sentence-end pauses close the segment cleanly.
-const SILENCE_TIMEOUT_MS  = 1200;
+// 900 ms: long enough to avoid splitting mid-word pauses but short enough that
+// natural sentence-end pauses close the segment and open a fresh one.
+const SILENCE_TIMEOUT_MS  = 900;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -456,7 +456,16 @@ export function useTranscription() {
       activeBubbleStateRef.current.finalizing = true;
     }
 
+    // Merge any pending NF text into the final span BEFORE clearing it.
+    // This ensures words that Soniox hadn't committed yet (e.g. when the user
+    // presses STOP mid-sentence) are preserved in the transcript rather than
+    // silently discarded. The NF span is then cleared to remove the grey ghost.
     if (activeBubbleNFRef.current) {
+      const nfPending = activeBubbleNFRef.current.textContent ?? "";
+      if (nfPending.trim() && activeBubbleRef.current) {
+        activeBubbleRef.current.textContent =
+          (activeBubbleRef.current.textContent ?? "") + nfPending;
+      }
       activeBubbleNFRef.current.textContent = "";
     }
 
@@ -543,6 +552,22 @@ export function useTranscription() {
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         diarization:                    { enable: true },
+        // Vocabulary hints: boost recognition accuracy for domain-specific words
+        // that are commonly misheard by general-purpose speech models.
+        context_phrases: [
+          "guarantee", "quality", "confidential",
+          "interpret", "interpreter", "interpretation",
+          "translation", "translator",
+          "medical", "legal", "insurance",
+          "contract", "agreement", "consent",
+          "colonoscopy", "endoscopy", "biopsy",
+          "diagnosis", "treatment", "prescription",
+          "medication", "referral", "procedure",
+          "attorney", "plaintiff", "defendant",
+          "testimony", "deposition", "liability",
+          "coverage", "premium", "deductible",
+          "policy", "claim", "beneficiary",
+        ],
       }));
       console.log("[WS] stt-rt-v4 OPEN");
     };
@@ -682,6 +707,7 @@ export function useTranscription() {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
+      langDetectedRef.current      = false;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
