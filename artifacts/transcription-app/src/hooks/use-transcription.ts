@@ -12,11 +12,6 @@ const STABILIZE_RATIO     = 1.15;
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
 const SILENCE_TIMEOUT_MS  = 1200;
-// How long NF (non-final) text is held in a pending buffer before being
-// written to the DOM.  During this window, if Soniox corrects the speaker
-// assignment, the text goes directly to the right segment without any visual
-// "text jumping" artifact.
-const NF_BUFFER_MS        = 800;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -224,10 +219,7 @@ export function useTranscription() {
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
-  const silenceTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Pending NF text that hasn't been committed to the DOM yet.
-  const nfPendingRef       = useRef<{ text: string; speaker: number | undefined } | null>(null);
-  const nfCommitTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -460,12 +452,6 @@ export function useTranscription() {
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Clear any buffered NF that hasn't been committed yet.
-    if (nfCommitTimerRef.current !== null) {
-      clearTimeout(nfCommitTimerRef.current);
-      nfCommitTimerRef.current = null;
-    }
-    nfPendingRef.current = null;
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
@@ -499,12 +485,6 @@ export function useTranscription() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    // Cancel any buffered NF commit.
-    if (nfCommitTimerRef.current !== null) {
-      clearTimeout(nfCommitTimerRef.current);
-      nfCommitTimerRef.current = null;
-    }
-    nfPendingRef.current = null;
     stopTranslationInterval();
     finalizeLiveBubble();
 
@@ -582,12 +562,6 @@ export function useTranscription() {
       if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
-        // Cancel any buffered NF that hasn't been committed yet.
-        if (nfCommitTimerRef.current !== null) {
-          clearTimeout(nfCommitTimerRef.current);
-          nfCommitTimerRef.current = null;
-        }
-        nfPendingRef.current = null;
         if (!activeBubbleRef.current) return;  // nothing open — nothing to do
         softFinalize();
         // Drop active refs so the next speech token creates a fresh segment.
@@ -622,82 +596,46 @@ export function useTranscription() {
       finalCountRef.current = finals.length;
       scrollPanel();
 
-      // When final tokens arrive, any buffered NF is now superseded — those
-      // words have been committed as finals above, so discard the pending NF.
-      if (nfCommitTimerRef.current !== null) {
-        clearTimeout(nfCommitTimerRef.current);
-        nfCommitTimerRef.current = null;
-      }
-      nfPendingRef.current = null;
-      if (activeBubbleNFRef.current) activeBubbleNFRef.current.textContent = "";
-
-      // ── NF (non-final) tokens: buffered for stable speaker assignment ──────
-      // Instead of writing NF text to the DOM immediately (which causes the
-      // "text jumps between segments" artifact when Soniox corrects the speaker),
-      // we hold the text in nfPendingRef for NF_BUFFER_MS.  Only after the buffer
-      // period expires without a new NF message do we commit the text and resolve
-      // any speaker change.  The DOM never shows text under the wrong speaker.
+      // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
       const nfSpeaker = tokens.find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
-      // Reset the commit timer on every NF update.
-      if (nfCommitTimerRef.current !== null) {
-        clearTimeout(nfCommitTimerRef.current);
-        nfCommitTimerRef.current = null;
+      // ── Fix 2: Immediate speaker-change on NF tokens ──────────────────────
+      // When Soniox NF tokens show a new speaker while a segment is open,
+      // finalize the current segment immediately and open a fresh one for the
+      // new speaker.  This prevents the new speaker's text from appearing in
+      // the old bubble even for a fraction of a second, eliminating the "text
+      // jumps to a new segment" visual artifact.
+      if (
+        nfSpeaker !== undefined &&
+        activeBubbleRef.current !== null &&
+        nfSpeaker !== currentSpeakerRef.current
+      ) {
+        finalizeLiveBubble();
+        currentSpeakerRef.current = nfSpeaker;
+        activeBubbleRef.current   = createBubble(nfSpeaker);
+        setHasTranscript(true);
       }
 
-      if (nfText) {
-        // Store latest NF state without touching the DOM.
-        nfPendingRef.current = { text: nfText, speaker: nfSpeaker };
-
-        nfCommitTimerRef.current = setTimeout(() => {
-          nfCommitTimerRef.current = null;
-          const pending = nfPendingRef.current;
-          if (!pending || !isRecRef.current) return;
-          nfPendingRef.current = null;
-
-          const { text, speaker } = pending;
-
-          // ── Key invariant: NF tokens NEVER create a new speaker bubble. ──
-          // Only FINAL tokens establish segments.  NF text is shown only as a
-          // live preview inside a segment that FINAL tokens have already opened
-          // for the same speaker.  If no bubble is open, or the NF speaker
-          // differs from the confirmed speaker, we suppress the NF text and
-          // wait for finals — this guarantees text never moves between segments.
-          if (
-            !activeBubbleRef.current ||
-            (speaker !== undefined && speaker !== currentSpeakerRef.current)
-          ) {
-            // Wrong or unknown speaker — discard pending NF, clear any stale display.
-            if (activeBubbleNFRef.current) {
-              activeBubbleNFRef.current.textContent = "";
-            }
-            return;
-          }
-
-          // Same speaker as the confirmed FINAL segment: safe to preview.
-          if (activeBubbleNFRef.current) {
-            activeBubbleNFRef.current.textContent = text;
-          }
-
-          // Update live buffer for translation polling after commit.
-          const ft = activeBubbleRef.current.textContent ?? "";
-          liveBufferRef.current = (ft + text).trim();
-          scrollPanel();
-        }, NF_BUFFER_MS);
-      } else {
-        // No NF text: clear pending buffer and any displayed NF span.
-        nfPendingRef.current = null;
+      if (activeBubbleNFRef.current) {
+        activeBubbleNFRef.current.textContent = nfText;
+      } else if (nfText && containerRef.current) {
+        if (!activeBubbleRef.current) {
+          const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
+          currentSpeakerRef.current = spk;
+          activeBubbleRef.current   = createBubble(spk);
+          setHasTranscript(true);
+        }
         if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = "";
+          activeBubbleNFRef.current.textContent = nfText;
         }
       }
 
-      // ── Update live translation buffer (finals only during NF buffer) ──────
+      // ── Update live translation buffer ────────────────────────────────────
       const finalText = activeBubbleRef.current?.textContent ?? "";
-      liveBufferRef.current = finalText.trim();
+      liveBufferRef.current = (finalText + nfText).trim();
 
-      // When Soniox commits all NF text (nfText === ""), finalize style.
+      // When Soniox commits all text (NF gone), immediately finalize style.
       if (nfText.length === 0 && finalText.trim().length > 2) {
         if (!styleUpgradedRef.current) {
           styleUpgradedRef.current = true;
