@@ -161,9 +161,10 @@ function applyTextStyle(el: HTMLElement) {
 // creation time, so in-flight requests from a previous segment can NEVER write
 // into a later segment's DOM element — isolation is structural, not flag-based.
 interface BubbleTransState {
-  transTextEl:  HTMLParagraphElement;
-  copyTransBtn: HTMLButtonElement;
-  chunkIds:     number[];  // ordered IDs of translation chunks belonging to this bubble
+  transTextEl:   HTMLParagraphElement;
+  copyTransBtn:  HTMLButtonElement;
+  chunkIds:      number[];  // ordered IDs of finalized translation chunks
+  nfTranslation: string | null;  // translation of current NF (grey) text — cleared when NF empties
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -209,6 +210,9 @@ export function useTranscription() {
   // for the session lifetime so translations are never lost when segments split.
   const chunkStoreRef  = useRef<Map<number, { text: string; translation: string | null }>>(new Map());
   const chunkIdCounter = useRef(0);
+  // Debounce timer for NF (partial) translation — fires ~350 ms after the last
+  // NF update so we don't spam the API on every keyframe.
+  const nfDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -230,15 +234,22 @@ export function useTranscription() {
   }, []);
 
   // ── renderBubbleTranslation ────────────────────────────────────────────────
-  // Re-renders the translation column for a bubble by concatenating the
-  // resolved translations of all its chunks. Pending chunks show "…".
-  // Called every time any chunk belonging to the bubble resolves.
+  // Renders the translation column for a bubble. Display = finalized chunk
+  // translations (joined) + current NF translation (if any).
+  // Called whenever a chunk resolves OR the NF translation updates.
   const renderBubbleTranslation = useCallback((state: BubbleTransState) => {
     const store = chunkStoreRef.current;
-    if (!state.transTextEl.isConnected || state.chunkIds.length === 0) return;
+    if (!state.transTextEl.isConnected) return;
 
-    const parts   = state.chunkIds.map(id => store.get(id)?.translation ?? null);
-    const display = parts.map(p => p ?? "…").join(" ").trim();
+    const finalParts = state.chunkIds.map(id => store.get(id)?.translation ?? null);
+    const hasFinal   = finalParts.some(p => p !== null);
+    const hasNF      = state.nfTranslation !== null && state.nfTranslation.length > 0;
+
+    if (!hasFinal && !hasNF) return;  // nothing to show yet
+
+    const finalStr = hasFinal ? finalParts.map(p => p ?? "…").join(" ") : "";
+    const nfStr    = state.nfTranslation ?? "";
+    const display  = [finalStr, nfStr].filter(Boolean).join(" ").trim();
     if (!display) return;
 
     const isArabic = /[\u0600-\u06FF]/.test(display);
@@ -253,8 +264,7 @@ export function useTranscription() {
     }
     state.transTextEl.textContent = display;
 
-    // Enable the copy button once at least one chunk has resolved.
-    if (state.copyTransBtn.disabled && parts.some(p => p !== null)) {
+    if (state.copyTransBtn.disabled && (hasFinal || hasNF)) {
       enableCopyBtn(state.copyTransBtn, () => state.transTextEl.textContent?.trim() ?? "");
     }
     scrollPanel();
@@ -296,6 +306,28 @@ export function useTranscription() {
         renderBubbleTranslation(state);
       } catch (e) {
         console.warn("[chunk-translate]", e instanceof Error ? e.message : e);
+      }
+    })();
+  }, [renderBubbleTranslation]);
+
+  // ── translateNF ────────────────────────────────────────────────────────────
+  // Translates the current NF (grey/partial) text and stores the result on the
+  // bubble's state as `nfTranslation`. The render call updates the column
+  // immediately when the result arrives. Called via a debounce timer in
+  // onmessage so we don't fire on every single token frame.
+  const translateNF = useCallback((text: string, lang: string, state: BubbleTransState) => {
+    if (text.length < 2) return;
+    const pair = langPairRef.current;
+    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) return;
+    const targetLang = resolveTarget(lang, pair);
+    void (async () => {
+      try {
+        const translated = await fetchTranslation(text, lang, targetLang);
+        if (!state.transTextEl.isConnected) return;
+        state.nfTranslation = translated || text;
+        renderBubbleTranslation(state);
+      } catch (e) {
+        console.warn("[nf-translate]", e instanceof Error ? e.message : e);
       }
     })();
   }, [renderBubbleTranslation]);
@@ -373,9 +405,10 @@ export function useTranscription() {
     // so they always write to the old bubble's elements — never to this one.
     activeBubbleNFRef.current    = nfSpan;
     activeBubbleStateRef.current = {
-      transTextEl:  transTextP,
-      copyTransBtn: copyTransBtn,
-      chunkIds:     [],
+      transTextEl:   transTextP,
+      copyTransBtn:  copyTransBtn,
+      chunkIds:      [],
+      nfTranslation: null,
     };
     styleUpgradedRef.current = false;
     detectedLangRef.current  = "en";
@@ -393,6 +426,14 @@ export function useTranscription() {
     if (!activeBubbleRef.current) return;
 
     const state = activeBubbleStateRef.current;
+
+    // Cancel any pending NF debounce and clear the NF translation.
+    // The NF text will be promoted to a final chunk below.
+    if (nfDebounceTimerRef.current !== null) {
+      clearTimeout(nfDebounceTimerRef.current);
+      nfDebounceTimerRef.current = null;
+    }
+    if (state) state.nfTranslation = null;
 
     // Promote any remaining NF (grey/partial) text into the final span so it
     // is never lost when the user presses STOP mid-sentence.
@@ -598,6 +639,32 @@ export function useTranscription() {
         }
       }
 
+      // ── NF real-time translation ───────────────────────────────────────────
+      // Debounce: translate the partial text 350 ms after the last token frame.
+      // When NF clears (all tokens finalized), cancel the timer and remove the
+      // NF translation so the final chunk translations take over cleanly.
+      if (nfDebounceTimerRef.current !== null) {
+        clearTimeout(nfDebounceTimerRef.current);
+        nfDebounceTimerRef.current = null;
+      }
+      const nfState = activeBubbleStateRef.current;
+      if (nfText && nfState && langDetectedRef.current) {
+        const capturedNFText  = nfText;
+        const capturedLang    = detectedLangRef.current;
+        const capturedState   = nfState;
+        nfDebounceTimerRef.current = setTimeout(() => {
+          nfDebounceTimerRef.current = null;
+          // Verify the bubble hasn't changed since the timer was set.
+          if (activeBubbleStateRef.current === capturedState) {
+            translateNF(capturedNFText, capturedLang, capturedState);
+          }
+        }, 350);
+      } else if (!nfText && nfState && nfState.nfTranslation !== null) {
+        // NF gone — clear the NF translation so the display is purely chunks.
+        nfState.nfTranslation = null;
+        renderBubbleTranslation(nfState);
+      }
+
       // When Soniox commits all text (NF gone), immediately finalize style.
       const finalText = activeBubbleRef.current?.textContent ?? "";
       if (nfText.length === 0 && finalText.trim().length > 2) {
@@ -619,7 +686,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, addChunk, scrollPanel]);
+  }, [stop, createBubble, finalizeLiveBubble, addChunk, translateNF, renderBubbleTranslation, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
