@@ -4,6 +4,27 @@ import { db, usersTable, sessionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
+import { findTermHints } from "../data/terminology.js";
+
+// ── Translation memory ─────────────────────────────────────────────────────
+// In-memory cache: `${srcLang}:${tgtLang}:${normalizedText}` → translation.
+// Persists for the lifetime of the server process. Capped at MAX_MEM entries;
+// oldest entries are evicted when the cap is reached.
+const TRANS_MEM = new Map<string, string>();
+const TRANS_MEM_CAP = 2000;
+
+function memKey(srcLang: string, tgtLang: string, text: string): string {
+  return `${srcLang.toLowerCase()}:${tgtLang.toLowerCase()}:${text.trim().toLowerCase()}`;
+}
+
+function memStore(key: string, value: string): void {
+  if (TRANS_MEM.size >= TRANS_MEM_CAP) {
+    // Evict the oldest entry (Map preserves insertion order).
+    const oldest = TRANS_MEM.keys().next().value;
+    if (oldest !== undefined) TRANS_MEM.delete(oldest);
+  }
+  TRANS_MEM.set(key, value);
+}
 
 // Prefer the user's own OPENAI_API_KEY; fall back to Replit AI integration
 const usingProxy = !process.env.OPENAI_API_KEY && !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
@@ -154,9 +175,11 @@ function langName(code: string | undefined, fallback: string): string {
 
 // ── POST /translate ────────────────────────────────────────────────────────
 // Translates a finalized transcript segment using GPT-4o-mini.
-// sourceLang: BCP-47 code detected by Soniox (auto-detected at runtime).
-// targetLang: BCP-47 code selected by the user in the UI.
-// Both map through LANG_NAMES for a human-readable prompt.
+// Pipeline:
+//   1. Check translation memory (exact match → return cached result instantly)
+//   2. Find domain-specific terminology hints from the glossary
+//   3. Call GPT-4o-mini with interpreter-style + MSA prompt + glossary hints
+//   4. Store result in translation memory for future reuse
 router.post("/translate", requireAuth, async (req, res) => {
   const { text, sourceLang, targetLang } = req.body as {
     text?: string;
@@ -168,35 +191,70 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  const srcName = langName(sourceLang, "the source language");
-  const tgtName = langName(targetLang, "English");
+  const normalizedText = text.trim();
+  const srcCode = sourceLang ?? "en";
+  const tgtCode = targetLang ?? "en";
+  const srcName = langName(srcCode, "the source language");
+  const tgtName = langName(tgtCode, "English");
+
+  // ── Step 1: Translation memory ────────────────────────────────────────────
+  const cacheKey = memKey(srcCode, tgtCode, normalizedText);
+  const cached = TRANS_MEM.get(cacheKey);
+  if (cached) {
+    res.json({ translation: cached, fromMemory: true });
+    return;
+  }
+
+  // ── Step 2: Terminology hints ─────────────────────────────────────────────
+  const termHints = findTermHints(normalizedText, srcCode, tgtCode);
+
+  // ── Step 3: Build system prompt ───────────────────────────────────────────
+  const isArabicTarget = tgtCode.split("-")[0]?.toLowerCase() === "ar";
+
+  const arabicRule = isArabicTarget
+    ? "- Output MUST be in Modern Standard Arabic (العربية الفصحى / فصيح). " +
+      "Never use dialectal forms (Egyptian, Levantine, Gulf, Maghrebi). " +
+      "Forbidden dialect words: كويس، عايز، ليه، إزاي، ماقدرتش. " +
+      "Always use formal equivalents: جيد، أريد، لماذا، كيف، لم أستطع.\n"
+    : "";
+
+  const termRule = termHints.length > 0
+    ? `- Use these exact glossary translations for domain terminology:\n` +
+      termHints.map(h => `  ${h}`).join("\n") + "\n"
+    : "";
+
+  const systemPrompt =
+    `You are a professional simultaneous interpreter certified in ${srcName} and ${tgtName}. ` +
+    "Your output must sound exactly like a trained human interpreter — accurate, natural, and concise.\n" +
+    "Rules:\n" +
+    `- Preserve the full meaning of the ${srcName} source\n` +
+    `- Use natural, idiomatic grammar as a native ${tgtName} speaker would\n` +
+    "- Keep sentences short and conversational — do not expand or paraphrase excessively\n" +
+    "- Maintain consistent terminology throughout the session\n" +
+    arabicRule +
+    termRule +
+    "- Never add explanations, notes, or the original text\n" +
+    "- Return ONLY the translated sentence, nothing else";
 
   try {
     const resp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0,
       messages: [
-        {
-          role: "system",
-          content:
-            `You are a professional simultaneous interpreter with expert fluency in ${srcName} and ${tgtName}. ` +
-            "Your goal is to convey meaning naturally, not translate word-for-word. " +
-            "Rules:\n" +
-            `- Preserve the full meaning and intent of the original ${srcName}\n` +
-            `- Use natural, idiomatic grammar and phrasing that a native ${tgtName} speaker would use\n` +
-            "- Keep sentences short and conversational\n" +
-            "- Never add explanations, parenthetical notes, or the original text\n" +
-            "- Return ONLY the translated sentence, nothing else",
-        },
+        { role: "system", content: systemPrompt },
         {
           role: "user",
-          content:
-            `Translate this spoken ${srcName} into natural, fluent ${tgtName}:\n\n${text.trim()}`,
+          content: `Translate the following spoken ${srcName} into natural, fluent ${tgtName}:\n\n${normalizedText}`,
         },
       ],
       max_completion_tokens: 512,
     });
+
     const translation = resp.choices[0]?.message?.content?.trim() ?? "";
+
+    // ── Step 4: Store in translation memory ───────────────────────────────────
+    if (translation) memStore(cacheKey, translation);
+
     res.json({ translation });
   } catch (err) {
     console.error("[translate]", err);

@@ -1,0 +1,158 @@
+7152"}
+We need to fix the translation system to ensure accuracy, consistency, and professional interpreter quality.
+
+IMPORTANT:
+Do NOT modify these systems:
+
+• real-time transcription
+• Soniox streaming
+• speaker diarization
+• segmentation logic
+• language pair routing
+• real-time pipeline
+
+Only modify translation behavior.
+
+------------------------------------------------
+
+1) LOCK TRANSLATION AFTER FIRST RESULT
+
+Problem:
+Translations are being recomputed after appearing, which causes words and phrasing to change.
+
+Required behavior:
+
+Each segment must be translated exactly once.
+
+Implementation:
+
+When a segment becomes finalized:
+
+segment.translation = result
+segment.translationLocked = true
+
+Add a guard condition:
+
+if (segment.translationLocked) return
+
+After translationLocked is true:
+
+• do not send the segment to translation again
+• do not overwrite the translation
+• do not recompute translation
+• do not re-render translation
+
+Translations must remain immutable after first render.
+
+------------------------------------------------
+
+2) FORCE MODERN STANDARD ARABIC (MSA)
+
+All Arabic output must be in:
+
+Modern Standard Arabic (العربية الفصحى)
+
+The system must never produce dialectal Arabic such as:
+
+Egyptian
+Levantine
+Gulf
+Maghrebi
+
+Examples of forbidden dialect phrases:
+
+كويس  
+عايز  
+ليه  
+إزاي  
+ماقدرتش  
+
+Correct standard forms must be used instead:
+
+جيد  
+أريد  
+لماذا  
+كيف  
+لم أستطع  
+
+Arabic output must always be professional, formal, and neutral.
+
+------------------------------------------------
+
+3) TERMINOLOGY MEMORY SYSTEM
+
+Add a terminology recognition layer before translation.
+
+Recognize terminology in these domains:
+
+• medical terminology
+• legal terminology
+• technical terminology
+• financial terminology
+• scientific terminology
+• government terminology
+• business terminology
+• pharmaceutical terminology
+• engineering terminology
+• anatomical terminology
+
+Implementation:
+
+Step 1 – terminology glossary
+
+Maintain a glossary database such as:
+
+terminology.json
+
+Example:
+
+{
+ "colonoscopy": { "ar": "تنظير القولون" },
+ "endoscopy": { "ar": "تنظير داخلي" },
+ "biopsy": { "ar": "خزعة" },
+ "contract": { "ar": "عقد قانوني" }
+}
+
+If a term appears, force the glossary translation.
+
+Step 2 – translation memory
+
+Store previously translated segments:
+
+source_text → translated_text
+
+If the same sentence appears again, reuse the stored translation.
+
+Step 3 – fallback translation
+
+If no glossary or memory match exists, send the text to the translation model.
+
+After translation, store the result in translation memory.
+
+------------------------------------------------
+
+4) INTERPRETER STYLE TRANSLATION
+
+Translations must behave like a professional interpreter.
+
+Rules:
+
+• preserve meaning exactly
+• avoid literal word-for-word translation
+• keep sentences concise
+• maintain formal tone
+• maintain terminology consistency
+• do not expand or rewrite sentences unnecessarily
+
+------------------------------------------------
+
+Goal:
+
+The translation must be:
+
+• accurate
+• stable
+• consistent
+• terminology-aware
+• professional
+• always in Modern Standard
