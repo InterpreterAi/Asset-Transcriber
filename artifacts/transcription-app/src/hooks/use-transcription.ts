@@ -658,7 +658,9 @@ export function useTranscription() {
   }, [stop, createBubble, finalizeLiveBubble, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
-  const start = useCallback(async (deviceId: string) => {
+  // Pass providedStream to skip getUserMedia (e.g. for tab audio captured via
+  // getDisplayMedia in the UI layer). All audio processing is identical.
+  const start = useCallback(async (deviceId: string, providedStream?: MediaStream) => {
     try {
       setError(null);
       setAudioInfo("");
@@ -694,7 +696,7 @@ export function useTranscription() {
 
       await ctx.audioWorklet.addModule("/pcm-processor.js");
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = providedStream ?? await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation:  false,

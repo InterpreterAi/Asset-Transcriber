@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, Trash2, Copy, Check, Type,
+  Globe, Languages, Trash2, Copy, Check, Type, Monitor,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -68,6 +68,8 @@ export default function Workspace() {
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [showFeedback, setShowFeedback]         = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
+  const [inputMode, setInputMode]               = useState<"mic" | "tab">("mic");
+  const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
 
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
@@ -110,9 +112,43 @@ export default function Workspace() {
   const handleToggleRecording = () => {
     if (transcription.isRecording) {
       transcription.stop();
+      // Stop tab stream tracks when we stop recording
+      if (tabStream) {
+        tabStream.getTracks().forEach(t => t.stop());
+        setTabStream(null);
+      }
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    } else if (inputMode === "tab") {
+      void handleStartTabAudio();
     } else {
       transcription.start(selectedDeviceId);
+    }
+  };
+
+  const handleStartTabAudio = async () => {
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+      // Drop video tracks — we only need audio for transcription
+      displayStream.getVideoTracks().forEach(t => t.stop());
+      const audioTracks = displayStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        transcription.stop();
+        return;
+      }
+      const audioStream = new MediaStream(audioTracks);
+      setTabStream(audioStream);
+      // The tab stream ends when the user clicks "Stop sharing"
+      audioTracks[0]!.addEventListener("ended", () => {
+        transcription.stop();
+        setTabStream(null);
+        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      });
+      transcription.start("", audioStream);
+    } catch {
+      // User cancelled the picker — nothing to do
     }
   };
 
@@ -310,22 +346,80 @@ export default function Workspace() {
         {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Audio device + VU meter */}
+          {/* ROW 1: Input source toggle + device/info + VU meter */}
           <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
-            <Mic2 className="w-4 h-4 text-muted-foreground shrink-0" />
-            <Select
-              value={selectedDeviceId}
-              onChange={(e) => setSelectedDeviceId(e.target.value)}
-              disabled={transcription.isRecording}
-              className="h-8 text-xs flex-1 min-w-0 max-w-xs bg-muted/30"
-            >
-              {devices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Device ${d.deviceId.slice(0, 8)}`}
-                </option>
-              ))}
-            </Select>
-            <div className="w-24 shrink-0">
+            {/* Mode toggle */}
+            <div className="flex items-center rounded-lg border border-border/60 overflow-hidden bg-muted/30 shrink-0">
+              <button
+                disabled={transcription.isRecording}
+                onClick={() => setInputMode("mic")}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  inputMode === "mic"
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Mic2 className="w-3.5 h-3.5" />
+                Microphone
+              </button>
+              <button
+                disabled={transcription.isRecording}
+                onClick={() => setInputMode("tab")}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  inputMode === "tab"
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Monitor className="w-3.5 h-3.5" />
+                Tab Audio
+              </button>
+            </div>
+
+            {/* Mic: device selector */}
+            {inputMode === "mic" && (
+              <Select
+                value={selectedDeviceId}
+                onChange={(e) => setSelectedDeviceId(e.target.value)}
+                disabled={transcription.isRecording}
+                className="h-8 text-xs flex-1 min-w-0 max-w-xs bg-muted/30"
+              >
+                {devices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Device ${d.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            {/* Tab Audio: how-to hint */}
+            {inputMode === "tab" && (
+              <div className="flex-1 min-w-0">
+                {!transcription.isRecording ? (
+                  <ol className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                    <li className="flex items-center gap-1">
+                      <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">1</span>
+                      Join your call in a browser tab
+                    </li>
+                    <li className="flex items-center gap-1">
+                      <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">2</span>
+                      Click Start below
+                    </li>
+                    <li className="flex items-center gap-1">
+                      <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">3</span>
+                      Pick the call tab &amp; enable "Share tab audio"
+                    </li>
+                  </ol>
+                ) : (
+                  <span className="text-xs text-green-600 font-medium flex items-center gap-1.5">
+                    <Monitor className="w-3.5 h-3.5" />
+                    Listening to tab audio
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="w-24 shrink-0 ml-auto">
               <AudioMeter level={transcription.micLevel} label="" />
             </div>
           </div>
