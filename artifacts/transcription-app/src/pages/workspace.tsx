@@ -501,16 +501,21 @@ export default function Workspace() {
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5">Today's Usage</p>
             <div className="flex items-center justify-between text-xs mb-1.5">
               <span className="font-medium">{Math.round(user.minutesUsedToday)} min used</span>
-              <span className="text-muted-foreground">/ {user.dailyLimitMinutes} min</span>
+              {user.planType === "unlimited"
+                ? <span className="text-emerald-600 font-semibold">Unlimited</span>
+                : <span className="text-muted-foreground">/ {user.dailyLimitMinutes} min</span>
+              }
             </div>
-            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  user.minutesUsedToday >= user.dailyLimitMinutes ? "bg-destructive" : "bg-primary"
-                }`}
-                style={{ width: `${Math.min(100, (user.minutesUsedToday / user.dailyLimitMinutes) * 100)}%` }}
-              />
-            </div>
+            {user.planType !== "unlimited" && (
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    user.minutesUsedToday >= user.dailyLimitMinutes ? "bg-destructive" : "bg-primary"
+                  }`}
+                  style={{ width: `${Math.min(100, (user.minutesUsedToday / user.dailyLimitMinutes) * 100)}%` }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Change password */}
@@ -633,16 +638,21 @@ export default function Workspace() {
             </button>
             <div className="bg-muted px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1.5 border border-border/50">
               <Clock className="w-3 h-3" />
-              <span>{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
+              {user.planType === "unlimited"
+                ? <span>{formatMinutes(user.minutesUsedToday)} today · Unlimited</span>
+                : <span>{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
+              }
             </div>
-            <div className={`px-2.5 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${
-              user.trialExpired
-                ? "bg-destructive/10 text-destructive border-destructive/20"
-                : "bg-muted text-muted-foreground border-border/50"
-            }`}>
-              <AlertTriangle className="w-3 h-3" />
-              <span>{user.trialExpired ? "Trial Expired" : `${user.trialDaysRemaining} days left`}</span>
-            </div>
+            {user.planType === "trial" && (
+              <div className={`px-2.5 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${
+                user.trialExpired
+                  ? "bg-destructive/10 text-destructive border-destructive/20"
+                  : "bg-muted text-muted-foreground border-border/50"
+              }`}>
+                <AlertTriangle className="w-3 h-3" />
+                <span>{user.trialExpired ? "Trial Expired" : `${user.trialDaysRemaining} days left`}</span>
+              </div>
+            )}
           </div>
         </header>
 
