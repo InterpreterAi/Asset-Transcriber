@@ -1,7 +1,8 @@
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./lib/stripeClient.js";
-import { db, sessionsTable } from "@workspace/db";
-import { isNull, sql } from "drizzle-orm";
+import { db, sessionsTable, usersTable } from "@workspace/db";
+import { isNull, sql, eq } from "drizzle-orm";
+import { hashPassword } from "./lib/password.js";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 
@@ -74,7 +75,41 @@ async function initStripe() {
   }
 }
 
+// ── Ensure admin user exists ──────────────────────────────────────────────────
+// Creates the default admin account if it doesn't exist (e.g. fresh production DB).
+async function ensureAdminUser() {
+  try {
+    const existing = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.username, "admin"))
+      .limit(1);
+
+    if (existing.length === 0) {
+      const passwordHash = await hashPassword("admin123");
+      const now = new Date();
+      const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+      await db.insert(usersTable).values({
+        username: "admin",
+        email: "admin@interpreterai.com",
+        passwordHash,
+        isAdmin: true,
+        isActive: true,
+        planType: "trial",
+        trialStartedAt: now,
+        trialEndsAt: trialEnds,
+        dailyLimitMinutes: 9999,
+        lastUsageResetAt: now,
+      });
+      logger.info("Admin user created (first boot)");
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to ensure admin user");
+  }
+}
+
 await clearStaleSessions();
+await ensureAdminUser();
 await initStripe();
 
 app.listen(port, (err) => {
