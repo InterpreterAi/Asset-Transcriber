@@ -332,10 +332,8 @@ export function useTranscription() {
     translationIntervalRef.current = setInterval(() => {
       const buffer = liveBufferRef.current;
       if (!buffer || buffer === lastTranslatedBuffer.current) return;
-      // Guard: only poll once Soniox has explicitly reported a language code.
-      // Before that point, detectedLangRef holds the "en" default which would
-      // cause the wrong translation direction and source-lang flicker.
-      if (!langDetectedRef.current) return;
+      // Language is set by Soniox within ~200ms of first speech; the first
+      // interval tick is at 700ms, so detectedLangRef is already correct by then.
       dispatchTranslation(buffer, detectedLangRef.current, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
@@ -433,7 +431,9 @@ export function useTranscription() {
     styleUpgradedRef.current     = false;
     liveBufferRef.current        = "";
     lastTranslatedBuffer.current = "";
-    detectedLangRef.current      = "en";
+    // NOTE: detectedLangRef is intentionally NOT reset here — the detected
+    // language from the previous segment is the best starting guess for the next,
+    // and Soniox will update it mid-segment if the speaker switches language.
 
     // Restart polling for the new segment (softFinalize stopped it for the previous one).
     startTranslationInterval();
@@ -456,16 +456,11 @@ export function useTranscription() {
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Merge any pending NF text into the final span BEFORE clearing it.
-    // This ensures words that Soniox hadn't committed yet (e.g. when the user
-    // presses STOP mid-sentence) are preserved in the transcript rather than
-    // silently discarded. The NF span is then cleared to remove the grey ghost.
+    // Clear the NF span. Do NOT merge its text into the final span:
+    // any NF words Soniox hasn't committed yet will arrive as final tokens in the
+    // next message, and if we pre-wrote them here they would appear twice
+    // (once in this bubble, once in the new bubble the finals loop creates).
     if (activeBubbleNFRef.current) {
-      const nfPending = activeBubbleNFRef.current.textContent ?? "";
-      if (nfPending.trim() && activeBubbleRef.current) {
-        activeBubbleRef.current.textContent =
-          (activeBubbleRef.current.textContent ?? "") + nfPending;
-      }
       activeBubbleNFRef.current.textContent = "";
     }
 
@@ -499,7 +494,28 @@ export function useTranscription() {
       silenceTimerRef.current = null;
     }
     stopTranslationInterval();
-    finalizeLiveBubble();
+
+    // Finalize the active bubble on stop WITHOUT clearing NF text.
+    // Unlike the silence-timer path (which discards NF because those words will
+    // arrive as final tokens later), on stop no further tokens will arrive, so
+    // we KEEP the NF text visible by only removing its grey-italic class.
+    if (activeBubbleRef.current) {
+      if (activeBubbleStateRef.current) activeBubbleStateRef.current.finalizing = true;
+      if (activeBubbleNFRef.current) {
+        activeBubbleNFRef.current.className = "";  // promote: remove grey-italic style
+      }
+      if (!styleUpgradedRef.current) {
+        styleUpgradedRef.current = true;
+        const p = activeBubbleRef.current.parentElement;
+        if (p) p.className = CLS.textFin;
+      }
+      // Translate the full visible text (final span + any remaining NF words).
+      const nfExtra   = activeBubbleNFRef.current?.textContent ?? "";
+      const finalText = ((activeBubbleRef.current.textContent ?? "") + nfExtra).trim();
+      if (finalText.length > 2) {
+        dispatchTranslation(finalText, detectedLangRef.current, true);
+      }
+    }
 
     currentSpeakerRef.current     = undefined;
     activeBubbleRef.current       = null;
@@ -534,7 +550,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
+  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, dispatchTranslation]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!

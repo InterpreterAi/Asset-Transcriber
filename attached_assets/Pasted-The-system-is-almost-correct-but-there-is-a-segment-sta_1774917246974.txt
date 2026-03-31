@@ -1,0 +1,89 @@
+The system is almost correct but there is a segment state bug causing duplicate transcripts and delayed translation.
+
+Do NOT modify the architecture or streaming pipeline.
+
+Do NOT change:
+
+• Soniox streaming connection  
+• diarization logic  
+• language pair routing  
+• translation locking  
+• segmentation rules  
+
+Only fix segment state handling.
+
+------------------------------------------------
+
+PROBLEM 1 — DUPLICATED SEGMENTS
+
+The speech API sends multiple updates for the same segment while the user is speaking.
+
+Example stream:
+
+segment_id: 21  
+text: please speak in short  
+
+segment_id: 21  
+text: please speak in short and clear  
+
+segment_id: 21  
+text: please speak in short and clear phrases  
+final: true  
+
+Currently the UI creates a new transcript entry for each update.
+
+Fix:
+
+Each segment must be tracked by segment_id.
+
+If a segment already exists:
+
+update the existing segment text instead of creating a new one.
+
+Pseudo logic:
+
+if (segments[segment_id]) {
+    segments[segment_id].text = newText
+} else {
+    createNewSegment(segment_id)
+}
+
+------------------------------------------------
+
+PROBLEM 2 — TRANSLATION ONLY AFTER FINAL
+
+Translation should appear in real time but finalize when the segment closes.
+
+Behavior:
+
+partial transcript → partial translation  
+final transcript → final translation (locked)
+
+Pseudo logic:
+
+if (!segment.final) {
+    updatePartialTranslation(segment.text)
+}
+
+if (segment.final && !segment.translationLocked) {
+    segment.translation = translate(segment.text)
+    segment.translationLocked = true
+}
+
+------------------------------------------------
+
+PROBLEM 3 — FIRST SEGMENTS NOT TRANSLATING
+
+Translation must trigger for every segment update, not only once per stream.
+
+Ensure translation runs whenever a segment receives new text.
+
+------------------------------------------------
+
+EXPECTED RESULT
+
+• each spoken phrase appears once  
+• text updates live while speaking  
+• translation appears live  
+• final translation locks when the segment closes  
+• no duplicated segments
