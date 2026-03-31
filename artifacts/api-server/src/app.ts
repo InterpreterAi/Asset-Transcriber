@@ -6,6 +6,11 @@ import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { sessionMiddleware } from "./middlewares/session.js";
+import { touchActivity } from "./lib/usage.js";
+
+// Per-user debounce: only write last_activity to DB once per 60 s per user.
+const activityDebounce = new Map<number, number>();
+const ACTIVITY_DEBOUNCE_MS = 60_000;
 
 const app: Express = express();
 
@@ -84,6 +89,21 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Please slow down." },
+});
+
+// ── Activity tracking — fires on every authenticated API request ──────────────
+// Debounced to one DB write per user per 60 s so the users table isn't
+// hammered by frequent polling (e.g. /me every few seconds).
+app.use("/api", (req, res, next) => {
+  const userId: number | undefined = (req as any).session?.userId;
+  if (userId) {
+    const last = activityDebounce.get(userId) ?? 0;
+    if (Date.now() - last > ACTIVITY_DEBOUNCE_MS) {
+      activityDebounce.set(userId, Date.now());
+      void touchActivity(userId);
+    }
+  }
+  next();
 });
 
 app.use("/api/auth", authLimiter);
