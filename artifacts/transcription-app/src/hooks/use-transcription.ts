@@ -276,9 +276,28 @@ export function useTranscription() {
 
     // Guard: only translate if the detected language belongs to the selected pair.
     // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
-    // skip translation entirely — the raw transcript is shown as-is.
+    // copy the original text verbatim into the translation column — no API call.
     const pair = langPairRef.current;
-    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) return;
+    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) {
+      state.seq += 1;
+      const mySeq = state.seq;
+      const { transTextEl, copyTransBtn } = state;
+      if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
+        state.lastShownSeq = mySeq;
+        state.lastShownLen = text.length;
+        transTextEl.dir             = "";
+        transTextEl.style.textAlign = "";
+        transTextEl.removeAttribute("lang");
+        transTextEl.className       = CLS.transText;
+        transTextEl.textContent     = text;
+        if (isFinal) state.translationLocked = true;
+        if (copyTransBtn.disabled) {
+          enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
+        }
+        scrollPanel();
+      }
+      return;
+    }
 
     state.seq += 1;
     const mySeq        = state.seq;

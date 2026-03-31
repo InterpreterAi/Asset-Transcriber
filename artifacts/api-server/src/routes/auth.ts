@@ -4,6 +4,7 @@ import { eq, or } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo } from "../lib/usage.js";
+import { logger } from "../lib/logger.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -213,6 +214,147 @@ router.post("/forgot-password", async (req, res) => {
     message: "If an account exists, a reset link has been sent",
     ...(isDev ? { devToken: token } : {}),
   });
+});
+
+// ── Google OAuth ───────────────────────────────────────────────────────────
+// Resolves the public-facing base URL from Replit proxy headers so the
+// redirect_uri always matches regardless of dev vs production environment.
+function getRedirectUri(req: import("express").Request): string {
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https";
+  const host  = (req.headers["x-forwarded-host"] as string | undefined) ?? req.headers.host ?? "";
+  return `${proto}://${host}/api/auth/google/callback`;
+}
+
+// Step 1 — redirect to Google's consent screen.
+router.get("/google", (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    res.status(503).send("Google login is not configured. Please add GOOGLE_CLIENT_ID.");
+    return;
+  }
+  const state = crypto.randomBytes(16).toString("hex");
+  req.session.oauthState = state;
+
+  const params = new URLSearchParams({
+    client_id:     clientId,
+    redirect_uri:  getRedirectUri(req),
+    response_type: "code",
+    scope:         "openid email profile",
+    state,
+    access_type:   "online",
+    prompt:        "select_account",
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+// Step 2 — Google redirects back here with ?code=...
+router.get("/google/callback", async (req, res) => {
+  const { code, state, error } = req.query as Record<string, string | undefined>;
+
+  if (error || !code) {
+    res.redirect("/login?error=google_cancelled");
+    return;
+  }
+  if (!state || state !== req.session.oauthState) {
+    res.redirect("/login?error=invalid_state");
+    return;
+  }
+  delete req.session.oauthState;
+
+  const clientId     = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    res.redirect("/login?error=not_configured");
+    return;
+  }
+
+  try {
+    // Exchange authorisation code for access token.
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method:  "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body:    new URLSearchParams({
+        code,
+        client_id:     clientId,
+        client_secret: clientSecret,
+        redirect_uri:  getRedirectUri(req),
+        grant_type:    "authorization_code",
+      }),
+    });
+    const tokens = await tokenRes.json() as { access_token?: string; error?: string };
+    if (!tokens.access_token) {
+      logger.error({ tokens }, "Google token exchange failed");
+      res.redirect("/login?error=token_failed");
+      return;
+    }
+
+    // Fetch the Google user profile.
+    const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const profile = await profileRes.json() as {
+      sub?: string; email?: string; name?: string; email_verified?: boolean;
+    };
+
+    const googleId    = profile.sub;
+    const googleEmail = profile.email?.toLowerCase();
+    if (!googleId || !googleEmail) {
+      res.redirect("/login?error=profile_failed");
+      return;
+    }
+
+    // Find an existing account by Google ID or email.
+    let [user] = await db
+      .select()
+      .from(usersTable)
+      .where(or(eq(usersTable.googleAccountId, googleId), eq(usersTable.email, googleEmail)))
+      .limit(1);
+
+    if (user) {
+      // Back-fill googleAccountId if the user previously signed up with email.
+      if (!user.googleAccountId) {
+        await db
+          .update(usersTable)
+          .set({ googleAccountId: googleId })
+          .where(eq(usersTable.id, user.id));
+      }
+    } else {
+      // Create a new account — same 14-day trial as email signup.
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const baseUsername = googleEmail.split("@")[0]!.replace(/[^a-z0-9._-]/gi, "_");
+
+      [user] = await db
+        .insert(usersTable)
+        .values({
+          username:         baseUsername,
+          email:            googleEmail,
+          // Placeholder hash — never matches bcrypt; password login is blocked
+          // for Google-only accounts.
+          passwordHash:     `$google$${googleId}`,
+          googleAccountId:  googleId,
+          isAdmin:          false,
+          isActive:         true,
+          emailVerified:    true,
+          planType:         "trial",
+          trialStartedAt:   new Date(),
+          trialEndsAt,
+          dailyLimitMinutes: 300,
+          minutesUsedToday:  0,
+          totalMinutesUsed:  0,
+          totalSessions:     0,
+          lastUsageResetAt:  new Date(),
+        })
+        .returning();
+    }
+
+    req.session.userId  = user!.id;
+    req.session.isAdmin = user!.isAdmin;
+
+    res.redirect("/workspace");
+  } catch (err) {
+    logger.error({ err }, "Google OAuth callback error");
+    res.redirect("/login?error=auth_failed");
+  }
 });
 
 // ── Reset Password ─────────────────────────────────────────────────────────

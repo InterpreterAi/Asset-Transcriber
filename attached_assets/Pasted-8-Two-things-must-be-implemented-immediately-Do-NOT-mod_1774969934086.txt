@@ -1,0 +1,146 @@
+8"}
+Two things must be implemented immediately.
+
+Do NOT modify any other system.
+
+Do NOT change:
+
+• transcription engine  
+• diarization  
+• speaker segmentation  
+• streaming pipeline  
+• session control  
+• UI layout  
+• partial transcript behavior  
+
+Only implement the fixes below.
+
+------------------------------------------------
+
+FIX 1 — STRICT LANGUAGE PAIR TRANSLATION
+
+The translation system must ONLY translate between the two selected languages.
+
+Example:
+
+Selected pair:
+English ↔ Hindi
+
+Allowed translations:
+English → Hindi  
+Hindi → English
+
+If any other language appears (Arabic, Korean, Spanish, etc.), DO NOT translate it.
+
+Instead:
+
+Copy the original transcript text exactly into the Translation column.
+
+Example:
+
+Original transcript:
+"مرحبا معكم المترجم العربي"
+
+Translation column must display exactly:
+"مرحبا معكم المترجم العربي"
+
+NOT Hindi translation.
+
+Implementation rule:
+
+Before translation runs, check the detected language.
+
+If detected_language is NOT one of the selected pair languages:
+
+translation_text = original_text
+
+Translation should only run when:
+
+detected_language == languageA OR detected_language == languageB
+
+This rule must apply to BOTH:
+
+• streaming partial transcripts  
+• finalized transcripts
+
+------------------------------------------------
+
+FIX 2 — GOOGLE LOGIN
+
+Add Google OAuth login without modifying any other logic.
+
+Login page must include a button:
+
+Continue with Google
+
+When clicked:
+
+1. Redirect user to Google OAuth authentication.
+2. After successful authentication receive:
+
+email  
+name  
+google_account_id
+
+3. Check if a user with that email already exists.
+
+If user exists:
+log them in.
+
+If user does not exist:
+create a new user automatically.
+
+------------------------------------------------
+
+NEW GOOGLE USER ACCOUNT
+
+Create a new account with:
+
+user_id  
+email  
+google_account_id  
+plan_type = trial  
+trial_start_date = current date  
+trial_end_date = current date + 14 days  
+minutes_used_today = 0  
+active_session = false
+
+Google users must receive the same 14-day trial with 5 hours per day usage.
+
+------------------------------------------------
+
+ENVIRONMENT VARIABLES
+
+Use environment variables:
+
+GOOGLE_CLIENT_ID  
+GOOGLE_CLIENT_SECRET
+
+These will be stored in Replit Secrets.
+
+Do not expose them in frontend code.
+
+------------------------------------------------
+
+REDIRECT
+
+Use OAuth callback route:
+
+/api/auth/google/callback
+
+After authentication redirect the user to the application dashboard.
+
+------------------------------------------------
+
+IMPORTANT
+
+Do NOT modify:
+
+• transcription timing  
+• translation engine itself  
+• diarization logic  
+• segment creation  
+• session protection  
+• streaming behavior
+
+Only add strict language-pair filtering and Google log

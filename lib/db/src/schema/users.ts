@@ -20,6 +20,7 @@ export const usersTable = pgTable("users", {
   lastUsageResetAt: timestamp("last_usage_reset_at").notNull().defaultNow(),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  googleAccountId: text("google_account_id").unique(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
