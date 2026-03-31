@@ -2,7 +2,7 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
   Mic2, ChevronRight, Check, Zap, Globe, Users, Monitor,
-  Shield, Clock, BookOpen, Gavel, Video, Building2
+  Shield, Clock, BookOpen, Gavel, Video, Building2, Quote
 } from "lucide-react";
 
 const fade = (delay = 0) => ({
@@ -46,25 +46,17 @@ export default function Landing() {
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold tracking-tight text-foreground mb-5 leading-[1.1]">
-            AI Co-Pilot for<br />
-            <span className="text-primary">Live Interpreters</span>
+            AI Assistant for<br />
+            <span className="text-primary">Professional Interpreters</span>
           </h1>
 
           <p className="text-lg sm:text-xl text-muted-foreground mb-4 max-w-2xl mx-auto leading-relaxed font-medium">
-            99% Accurate Real-Time Transcription & Translation So You Never Miss a Word During Live Interpretation.
+            Real-time transcription and translation during live calls.
           </p>
 
-          <p className="text-base text-muted-foreground mb-7 max-w-2xl mx-auto leading-relaxed">
-            InterpreterAI listens, transcribes, and translates conversations instantly — helping professional interpreters stay accurate, fast, and confident during live calls.
+          <p className="text-base text-muted-foreground mb-9 max-w-2xl mx-auto leading-relaxed">
+            InterpreterAI listens to the caller and instantly displays the transcript and translation so interpreters can focus on delivering clear, accurate interpretation without mental overload.
           </p>
-
-          <ul className="flex flex-col sm:flex-row flex-wrap justify-center gap-x-6 gap-y-2 mb-9 text-sm text-foreground font-medium">
-            {["Built for medical interpreters", "Built for court interpreters", "Built for business interpreters", "Works during live calls"].map(b => (
-              <li key={b} className="flex items-center gap-1.5">
-                <Check className="w-4 h-4 text-primary flex-shrink-0" />{b}
-              </li>
-            ))}
-          </ul>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
@@ -84,28 +76,26 @@ export default function Landing() {
         </motion.div>
       </section>
 
-      {/* ── SECTION 2 — INTERPRETER PROBLEM ──────────────────────────────── */}
+      {/* ── SECTION 2 — BENEFITS ──────────────────────────────────────────── */}
       <section className="bg-white border-y border-border py-20">
         <div className="max-w-4xl mx-auto px-5">
           <motion.div {...fade(0)} className="text-center mb-10">
             <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-4">
-              Interpreting Live Is Hard.<br className="hidden sm:block" /> Missing Words Is Not an Option.
+              Built for the Way You Work
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
-              Professional interpreters handle fast conversations, complex terminology, and high pressure situations.
-            </p>
-            <p className="text-muted-foreground text-base mt-2 max-w-xl mx-auto">
-              InterpreterAI helps interpreters stay precise during live calls.
+              Professional interpreters handle fast conversations, complex terminology, and high-pressure situations.
+              InterpreterAI helps you stay precise during every live call.
             </p>
           </motion.div>
 
           <motion.ul {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
             {[
-              "Never miss technical terminology",
-              "See what was just said instantly",
-              "Handle fast speakers confidently",
-              "Reduce interpreter fatigue",
-              "Focus on interpreting instead of remembering every word",
+              "Real-time transcription during live interpretation",
+              "Instant translation between language pairs",
+              "Speaker detection for clearer conversations",
+              "Reduce interpreter fatigue during long calls",
+              "Stay focused on the caller instead of memorizing long sentences",
             ].map(item => (
               <li key={item} className="flex items-start gap-3 bg-[#f5f5f7] rounded-xl px-4 py-3.5">
                 <div className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -163,7 +153,28 @@ export default function Landing() {
         </motion.div>
       </section>
 
-      {/* ── SECTION 4 — TRUST / ACCURACY ─────────────────────────────────── */}
+      {/* ── SECTION 4 — TESTIMONIAL ───────────────────────────────────────── */}
+      <section className="bg-white border-y border-border py-20">
+        <div className="max-w-3xl mx-auto px-5">
+          <motion.div {...fade(0)} className="text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-6">
+              <Quote className="w-5 h-5 text-primary" />
+            </div>
+            <blockquote className="text-xl sm:text-2xl font-display font-medium text-foreground leading-relaxed mb-6">
+              "After using InterpreterAI for a few months I noticed a huge difference in my work. I miss fewer words during fast conversations and I can focus more on interpreting instead of remembering long sentences."
+            </blockquote>
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">M</div>
+              <div className="text-left">
+                <p className="text-sm font-semibold">Professional Interpreter</p>
+                <p className="text-xs text-muted-foreground">Interpreter Call Center</p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── SECTION 5 — TRUST / ACCURACY ─────────────────────────────────── */}
       <section className="bg-primary py-20">
         <div className="max-w-4xl mx-auto px-5">
           <motion.div {...fade(0)} className="text-center mb-10">
@@ -179,7 +190,7 @@ export default function Landing() {
             {[
               "Up to 99% speech recognition accuracy",
               "Sub-second transcription speed",
-              "Supports 30+ languages",
+              "Supports 35+ languages",
               "Handles fast dialogue and overlapping speakers",
             ].map(item => (
               <div key={item} className="flex items-center gap-3 bg-white/10 backdrop-blur rounded-xl px-4 py-3.5">
@@ -193,7 +204,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── SECTION 5 — WHO USES INTERPRETERAI ───────────────────────────── */}
+      {/* ── SECTION 6 — WHO USES INTERPRETERAI ───────────────────────────── */}
       <section className="max-w-5xl mx-auto px-5 py-20">
         <motion.div {...fade(0)} className="text-center mb-12">
           <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight">
@@ -242,7 +253,7 @@ export default function Landing() {
         </motion.div>
       </section>
 
-      {/* ── SECTION 6 — PRICING ───────────────────────────────────────────── */}
+      {/* ── SECTION 7 — PRICING ───────────────────────────────────────────── */}
       <section className="bg-white border-y border-border py-20">
         <div className="max-w-5xl mx-auto px-5">
           <motion.div {...fade(0)} className="text-center mb-12">
@@ -332,7 +343,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── SECTION 7 — FINAL CTA ─────────────────────────────────────────── */}
+      {/* ── SECTION 8 — FINAL CTA ─────────────────────────────────────────── */}
       <section className="max-w-3xl mx-auto px-5 py-24 text-center">
         <motion.div {...fade(0)}>
           <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-4">
@@ -347,7 +358,7 @@ export default function Landing() {
           >
             Start Free Trial <ChevronRight className="w-4 h-4" />
           </button>
-          <p className="mt-4 text-sm text-muted-foreground">14-day free trial · No credit card required</p>
+          <p className="mt-4 text-sm text-muted-foreground">No credit card required</p>
         </motion.div>
       </section>
 

@@ -1,59 +1,125 @@
 import { Router } from "express";
 import { db, usersTable, feedbackTable, sessionsTable } from "@workspace/db";
-import { eq, sql, gt } from "drizzle-orm";
+import { eq, sql, gt, isNull, and } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import { getTrialDaysRemaining, isTrialExpired } from "../lib/usage.js";
 
 const router = Router();
 
+// ── Cost-rate constants (conservative estimates) ────────────────────────────
+const SONIOX_COST_PER_MIN     = 0.0025;  // $0.0025 / transcription-minute
+const TRANSLATE_COST_PER_MIN  = 0.0002;  // gpt-4o-mini @ ~2 calls/min
+
 router.get("/users", requireAdmin, async (_req, res) => {
   const users = await db.select().from(usersTable).orderBy(usersTable.createdAt);
   res.json({
     users: users.map((u) => ({
-      id: u.id,
-      username: u.username,
-      isAdmin: u.isAdmin,
-      isActive: u.isActive,
-      trialStartedAt: u.trialStartedAt,
-      trialEndsAt: u.trialEndsAt,
+      id:                u.id,
+      username:          u.username,
+      email:             u.email ?? null,
+      isAdmin:           u.isAdmin,
+      isActive:          u.isActive,
+      planType:          u.planType,
+      trialStartedAt:    u.trialStartedAt,
+      trialEndsAt:       u.trialEndsAt,
+      trialDaysRemaining: getTrialDaysRemaining(u),
       dailyLimitMinutes: u.dailyLimitMinutes,
-      minutesUsedToday: u.minutesUsedToday,
-      totalMinutesUsed: u.totalMinutesUsed,
-      totalSessions: u.totalSessions,
-      lastActivityAt: u.lastActivity ?? null,
-      createdAt: u.createdAt,
+      minutesUsedToday:  u.minutesUsedToday,
+      totalMinutesUsed:  u.totalMinutesUsed,
+      totalSessions:     u.totalSessions,
+      lastActivityAt:    u.lastActivity ?? null,
+      createdAt:         u.createdAt,
     })),
   });
 });
 
 router.get("/stats", requireAdmin, async (_req, res) => {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const now               = new Date();
+  const fiveMinutesAgo    = new Date(Date.now() - 5 * 60 * 1000);
+  const startOfToday      = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const twentyFourHrsAgo  = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const sevenDaysAgo      = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo     = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  const [activeRow, totalRow, minutesTodayRow] = await Promise.all([
+  const [
+    activeRow,
+    totalRow,
+    dauRow,
+    minutesTodayRow,
+    minutesWeekRow,
+    minutesMonthRow,
+    activeSessionRows,
+  ] = await Promise.all([
     // Active users: last_activity within the past 5 minutes
-    db
-      .select({ count: sql<number>`COUNT(*)` })
+    db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(gt(usersTable.lastActivity, fiveMinutesAgo)),
 
     // Total registered users
-    db
-      .select({ count: sql<number>`COUNT(*)` })
+    db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable),
 
-    // Minutes transcribed in the last 24 hours (from completed sessions)
-    db
-      .select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
+    // Daily active users: last_activity since midnight today
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(gt(usersTable.lastActivity, startOfToday)),
+
+    // Minutes used today (last 24 h from completed sessions)
+    db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
       .from(sessionsTable)
-      .where(gt(sessionsTable.startedAt, twentyFourHoursAgo)),
+      .where(gt(sessionsTable.startedAt, twentyFourHrsAgo)),
+
+    // Minutes used this week (last 7 days)
+    db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
+      .from(sessionsTable)
+      .where(gt(sessionsTable.startedAt, sevenDaysAgo)),
+
+    // Minutes used this month (last 30 days)
+    db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
+      .from(sessionsTable)
+      .where(gt(sessionsTable.startedAt, thirtyDaysAgo)),
+
+    // Active (open) sessions with user info
+    db.select({
+      sessionId:  sessionsTable.id,
+      userId:     sessionsTable.userId,
+      startedAt:  sessionsTable.startedAt,
+      username:   usersTable.username,
+      email:      usersTable.email,
+      planType:   usersTable.planType,
+    })
+      .from(sessionsTable)
+      .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
+      .where(isNull(sessionsTable.endedAt))
+      .orderBy(sessionsTable.startedAt),
   ]);
 
+  const minutesToday  = Number(minutesTodayRow[0]?.total  ?? 0);
+  const minutesWeek   = Number(minutesWeekRow[0]?.total   ?? 0);
+  const minutesMonth  = Number(minutesMonthRow[0]?.total  ?? 0);
+
   res.json({
-    activeUsers:  Number(activeRow[0]?.count ?? 0),
-    totalUsers:   Number(totalRow[0]?.count ?? 0),
-    minutesToday: Number(minutesTodayRow[0]?.total ?? 0),
+    activeUsers:       Number(activeRow[0]?.count ?? 0),
+    totalUsers:        Number(totalRow[0]?.count  ?? 0),
+    dailyActiveUsers:  Number(dauRow[0]?.count    ?? 0),
+    minutesToday,
+    minutesWeek,
+    minutesMonth,
+    // Cost estimates
+    sonioxCostToday:   +(minutesToday * SONIOX_COST_PER_MIN).toFixed(2),
+    translateCostToday: +(minutesToday * TRANSLATE_COST_PER_MIN).toFixed(2),
+    totalCostToday:    +(minutesToday * (SONIOX_COST_PER_MIN + TRANSLATE_COST_PER_MIN)).toFixed(2),
+    // Live sessions
+    activeSessions: activeSessionRows.map(s => ({
+      sessionId:      s.sessionId,
+      userId:         s.userId,
+      username:       s.username,
+      email:          s.email ?? null,
+      planType:       s.planType,
+      startedAt:      s.startedAt,
+      durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+    })),
   });
 });
 
@@ -86,7 +152,7 @@ router.post("/users", requireAdmin, async (req, res) => {
     isActive: true,
     trialStartedAt: new Date(),
     trialEndsAt,
-    dailyLimitMinutes: dailyLimitMinutes ?? 180,
+    dailyLimitMinutes: dailyLimitMinutes ?? 300,
     minutesUsedToday: 0,
     totalMinutesUsed: 0,
     totalSessions: 0,
@@ -95,17 +161,19 @@ router.post("/users", requireAdmin, async (req, res) => {
 
   const user = result[0]!;
   res.status(201).json({
-    id: user.id,
-    username: user.username,
-    isAdmin: user.isAdmin,
-    isActive: user.isActive,
-    trialStartedAt: user.trialStartedAt,
-    trialEndsAt: user.trialEndsAt,
+    id:                user.id,
+    username:          user.username,
+    email:             user.email ?? null,
+    isAdmin:           user.isAdmin,
+    isActive:          user.isActive,
+    planType:          user.planType,
+    trialStartedAt:    user.trialStartedAt,
+    trialEndsAt:       user.trialEndsAt,
     dailyLimitMinutes: user.dailyLimitMinutes,
-    minutesUsedToday: user.minutesUsedToday,
-    totalMinutesUsed: user.totalMinutesUsed,
-    totalSessions: user.totalSessions,
-    createdAt: user.createdAt,
+    minutesUsedToday:  user.minutesUsedToday,
+    totalMinutesUsed:  user.totalMinutesUsed,
+    totalSessions:     user.totalSessions,
+    createdAt:         user.createdAt,
   });
 });
 
@@ -124,10 +192,10 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   };
 
   const updates: Partial<typeof usersTable.$inferSelect> = {};
-  if (isActive !== undefined) updates.isActive = isActive;
-  if (isAdmin !== undefined) updates.isAdmin = isAdmin;
+  if (isActive !== undefined)          updates.isActive = isActive;
+  if (isAdmin !== undefined)           updates.isAdmin = isAdmin;
   if (dailyLimitMinutes !== undefined) updates.dailyLimitMinutes = dailyLimitMinutes;
-  if (password) updates.passwordHash = await hashPassword(password);
+  if (password)                        updates.passwordHash = await hashPassword(password);
 
   const result = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
   if (result.length === 0) {
@@ -137,17 +205,19 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
 
   const user = result[0]!;
   res.json({
-    id: user.id,
-    username: user.username,
-    isAdmin: user.isAdmin,
-    isActive: user.isActive,
-    trialStartedAt: user.trialStartedAt,
-    trialEndsAt: user.trialEndsAt,
+    id:                user.id,
+    username:          user.username,
+    email:             user.email ?? null,
+    isAdmin:           user.isAdmin,
+    isActive:          user.isActive,
+    planType:          user.planType,
+    trialStartedAt:    user.trialStartedAt,
+    trialEndsAt:       user.trialEndsAt,
     dailyLimitMinutes: user.dailyLimitMinutes,
-    minutesUsedToday: user.minutesUsedToday,
-    totalMinutesUsed: user.totalMinutesUsed,
-    totalSessions: user.totalSessions,
-    createdAt: user.createdAt,
+    minutesUsedToday:  user.minutesUsedToday,
+    totalMinutesUsed:  user.totalMinutesUsed,
+    totalSessions:     user.totalSessions,
+    createdAt:         user.createdAt,
   });
 });
 
@@ -184,11 +254,11 @@ router.post("/users/:userId/reset-usage", requireAdmin, async (req, res) => {
 router.get("/feedback", requireAdmin, async (_req, res) => {
   const rows = await db
     .select({
-      id: feedbackTable.id,
-      userId: feedbackTable.userId,
-      username: usersTable.username,
-      rating: feedbackTable.rating,
-      comment: feedbackTable.comment,
+      id:        feedbackTable.id,
+      userId:    feedbackTable.userId,
+      username:  usersTable.username,
+      rating:    feedbackTable.rating,
+      comment:   feedbackTable.comment,
       createdAt: feedbackTable.createdAt,
     })
     .from(feedbackTable)
@@ -197,11 +267,11 @@ router.get("/feedback", requireAdmin, async (_req, res) => {
 
   res.json({
     feedback: rows.map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      username: r.username,
-      rating: r.rating,
-      comment: r.comment ?? undefined,
+      id:        r.id,
+      userId:    r.userId,
+      username:  r.username,
+      rating:    r.rating,
+      comment:   r.comment ?? undefined,
       createdAt: r.createdAt,
     })),
   });

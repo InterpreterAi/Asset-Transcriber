@@ -1,0 +1,114 @@
+We need to upgrade the admin dashboard and monitoring system for InterpreterAI.
+
+Do NOT modify the core transcription, diarization, translation pipeline, or streaming logic.
+
+Only expand monitoring, analytics, and user management.
+
+ADMIN DASHBOARD IMPROVEMENTS:
+
+Add the following system metrics at the top:
+
+• Total Users
+• Active Users (last 5 minutes)
+• Daily Active Users
+• Minutes Used Today
+• Minutes Used This Week
+• Minutes Used This Month
+
+Add cost monitoring:
+
+• Soniox Minutes Used Today
+• Estimated Soniox Cost Today
+• Estimated Translation Cost Today
+• Total API Cost Today
+
+Add real-time session monitoring:
+
+Active Sessions Now
+Show:
+User email
+Language pair
+Session duration
+Minutes used
+
+USER MANAGEMENT TABLE:
+
+Each user row must include:
+
+Email
+Account Status
+Trial Days Remaining
+Minutes Used Today
+Minutes Used Total
+Total Sessions
+Last Active Time
+Last Login Date
+Days Since Last Use
+
+Add columns:
+
+Today Usage: example "22m / 5h"
+Trial Remaining: example "11 days"
+Last Seen: example "2 hours ago"
+Inactive Days: example "4 days"
+
+Add filtering options:
+
+• Trial users
+• Paying users
+• Inactive users
+• High usage users
+
+FREE TRIAL MONITORING:
+
+Create a trial tracking system:
+
+Trial Start Date
+Trial End Date
+Days Remaining
+
+Add warning indicator when trial < 3 days.
+
+SUPPORT SYSTEM:
+
+Add a support inbox in admin panel.
+
+Fields:
+User email
+Message
+Date
+Status (Open / Replied)
+
+Users can submit messages from the website support chat.
+
+Messages should be saved in database.
+
+Add optional email notification when new message arrives.
+
+LANGUAGE SETTINGS PAGE:
+
+When user clicks the globe icon, open language preferences:
+
+Default language pair
+Auto language detection ON/OFF
+Preferred UI language
+
+SETTINGS PAGE (ADMIN ONLY):
+
+Add system monitoring panel:
+
+Soniox minutes used today
+Translation API usage
+Total estimated cost today
+
+Add rate limit settings:
+
+Max session duration
+Daily free minutes limit
+Trial duration
+
+IMPORTANT:
+
+Do not change UI layout for transcription screen.
+Do not modify streaming pipeline.
+Only expand admin monitoring and user analytics.
