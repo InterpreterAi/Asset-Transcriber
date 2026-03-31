@@ -231,10 +231,41 @@ pnpm --filter @workspace/db run push
 
 ---
 
+## Stripe Integration (not yet connected)
+
+All Stripe code is fully wired and ready. The integration was deferred by the user.
+
+**To enable Stripe payments:**
+
+1. Open the **Integrations** tab in the Replit sidebar
+2. Find **Stripe** and complete the OAuth flow
+3. Once connected, `STRIPE_SECRET_KEY` will be automatically injected
+4. Restart the API server — it will auto-run migrations, set up webhooks, and sync data
+5. Run the seed script to create subscription products:
+   ```bash
+   pnpm --filter @workspace/scripts run seed-products
+   ```
+
+**What's already built:**
+- `artifacts/api-server/src/lib/stripeClient.ts` — authenticated Stripe client
+- `artifacts/api-server/src/lib/stripeService.ts` — checkout, portal, customer creation
+- `artifacts/api-server/src/lib/storage.ts` — queries `stripe.*` schema tables
+- `artifacts/api-server/src/lib/webhookHandlers.ts` — webhook processor
+- `artifacts/api-server/src/routes/stripe.ts` — `/api/stripe/*` routes (products, checkout, portal, subscription)
+- `artifacts/api-server/src/index.ts` — calls `runMigrations()` + `getStripeSync()` + `syncBackfill()` on startup
+- `artifacts/api-server/src/app.ts` — webhook route registered BEFORE `express.json()` (critical)
+- `scripts/src/seed-products.ts` — creates Basic ($19/mo), Professional ($49/mo), Unlimited ($99/mo) plans
+- Frontend upgrade modal in `workspace.tsx` — fetches plans, redirects to Stripe Checkout
+- DB schema has `stripe_customer_id` and `stripe_subscription_id` columns on `users`
+
+**Connector ID** (for future reference): `connector:ccfg_stripe_01K611P4YQR0SZM11XFRQJC44Y`
+
+---
+
 ## What Still Could Be Improved
 
 - Diarization mapping is heuristic (tag 1 → Interpreter). A smarter approach would track which device audio first activated which tag.
 - Translation could be batched or cached to avoid repeated MyMemory calls for the same text.
 - Admin panel could support bulk user import.
-- No email-based password reset yet.
 - Per-user custom domains not supported.
+- After a user pays via Stripe, their `planType` in the DB should be updated via webhook — this webhook handler extension is the one remaining piece once Stripe is connected.
