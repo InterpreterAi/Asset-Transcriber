@@ -178,7 +178,8 @@ interface BubbleTransState {
   seq:               number;   // incremented on every dispatch FOR THIS bubble
   lastShownSeq:      number;   // highest seq whose result was written to DOM
   lastShownLen:      number;   // char length of last shown translation (for stabilization)
-  translationLocked: boolean;  // set to true externally to stop further updates
+  finalizing:        boolean;  // true once softFinalize has been called — blocks in-flight polls
+  translationLocked: boolean;  // true after first finalized translation — no further updates
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -337,6 +338,10 @@ export function useTranscription() {
         // may have already written + locked this segment while we were waiting.
         // This is the critical guard that prevents the overwrite race.
         if (state.translationLocked) return;
+        // Block any poll (isFinal=false) request that was already in-flight when
+        // softFinalize was called. The finalizing flag is set synchronously before
+        // the final dispatch, so all earlier poll fetches are rejected here.
+        if (!isFinal && state.finalizing) return;
 
         // Stabilization: only update if final, first result, or meaningfully longer.
         if (!isFinal && state.lastShownLen > 0 && translated.length < state.lastShownLen * STABILIZE_RATIO) return;
@@ -464,9 +469,10 @@ export function useTranscription() {
     activeBubbleStateRef.current   = {
       transTextEl:  transTextP,
       copyTransBtn: copyTransBtn,
-      seq:               0,
+      seq:          0,
       lastShownSeq:      0,
       lastShownLen:      0,
+      finalizing:        false,
       translationLocked: false,
     };
     styleUpgradedRef.current     = false;
@@ -484,19 +490,20 @@ export function useTranscription() {
   }, [scrollPanel, startTranslationInterval]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
-  // Upgrades the active bubble style (grey/italic → bold) and stops the
-  // streaming translation interval for this segment.
-  //
-  // No final translation pass is dispatched here — translation runs purely
-  // via the 700ms streaming interval so updates appear in real-time alongside
-  // transcription. The last word of a segment may occasionally be missing
-  // from the translation; that trade-off is intentional.
+  // Upgrades the active bubble style (grey/italic → bold) and dispatches a
+  // final translation. isFinal=true bypasses the stabilization check.
+  // Stops the polling interval FIRST so no in-flight poll requests can race
+  // against the final fetch and overwrite the locked translation.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    // Stop the streaming interval for this segment. Any result already
-    // in-flight from the last poll will still write when it returns.
+    // Stop polling AND mark as finalizing synchronously, before the async
+    // dispatch below. This ensures any poll fetch already in-flight will be
+    // rejected by the post-fetch `finalizing` guard when it returns.
     stopTranslationInterval();
+    if (activeBubbleStateRef.current) {
+      activeBubbleStateRef.current.finalizing = true;
+    }
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -507,7 +514,12 @@ export function useTranscription() {
       const p = activeBubbleRef.current.parentElement;
       if (p) p.className = CLS.textFin;
     }
-  }, [stopTranslationInterval]);
+
+    const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
+    if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+      dispatchTranslation(finalText, detectedLangRef.current, true);
+    }
+  }, [dispatchTranslation, stopTranslationInterval]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   const finalizeLiveBubble = useCallback(() => {
