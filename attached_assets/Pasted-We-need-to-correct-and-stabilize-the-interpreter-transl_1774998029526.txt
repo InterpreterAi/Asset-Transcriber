@@ -1,0 +1,87 @@
+We need to correct and stabilize the interpreter translation logic while keeping the current real-time transcription and translation system unchanged.
+
+IMPORTANT:  
+Do NOT modify the real-time transcription pipeline, diarization, segmentation, streaming speed, or UI layout. The translation must continue appearing in real time word-by-word exactly as it does now.
+
+1. LANGUAGE PAIR LOCK
+
+When the user selects two languages (Language A and Language B), the system must strictly translate only between those two languages.
+
+Logic:
+
+IF spoken language == Language A  
+→ translate to Language B
+
+ELSE IF spoken language == Language B  
+→ translate to Language A
+
+ELSE  
+→ do NOT translate  
+→ copy the transcript exactly into the translation column.
+
+This prevents situations where Arabic speech is rewritten into standard Arabic when Arabic is already one of the selected languages.
+
+2. NO SEMANTIC EXPANSION OR GUESSING
+
+The translator must not add words that were not spoken.
+
+Example:
+
+Spoken sentence:  
+"my number is 3602"
+
+Correct translation:  
+"رقمي هو 3602"
+
+Incorrect translation:  
+"رقم هاتفي هو 3602"
+
+The system must not assume “phone number” unless the word “phone” was spoken.
+
+3. PRESERVE AMBIGUITY
+
+If a noun is ambiguous (number, case, file, account, etc.), keep the same ambiguity in translation.
+
+Examples:
+
+"my number" → "رقمي"  
+not "رقم هاتفي"
+
+"my case" → "قضيتي"  
+not "حالتي القانونية"
+
+If the system is uncertain about context, it must keep the literal meaning rather than rewriting it.
+
+4. INTERPRETER INTRODUCTION CONTEXT
+
+Interpreter calls often begin with introductions such as:
+
+"Thank you for calling.  
+My name is Mohammed and my number is 3602."
+
+In these situations the system must not assume the number is a phone number.  
+Translate literally unless the speaker explicitly says "phone number".
+
+5. REAL-TIME TRANSLATION BEHAVIOR
+
+Do not change the current streaming behavior.
+
+Translation must remain:
+
+- real-time
+- word-by-word
+- on the same line
+- appended progressively
+
+Previously translated words must not be rewritten or replaced.
+
+6. LANGUAGE SUPPORT
+
+The language selector currently shows only 17 languages.
+
+The system must instead load the full list of supported languages dynamically from the backend or API so that all available languages (30+ supported languages) are available for selection.
+
+The language-pair routing logic described above must work with any of the supported languages.
+
+Goal:
+A stable interpreter system that always translates strictly between the two selected languages, preserves literal meaning, avoids semantic guessing, and supports all available languages.
