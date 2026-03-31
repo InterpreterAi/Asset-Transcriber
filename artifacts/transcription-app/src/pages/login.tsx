@@ -4,7 +4,7 @@ import { useLogin } from "@workspace/api-client-react";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Mic2, Lock, User } from "lucide-react";
+import { Mic2, Lock, Mail } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
 
 export default function Login() {
@@ -22,7 +22,7 @@ export default function Login() {
     try {
       await loginMut.mutateAsync({ data: { username, password } });
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      setLocation("/");
+      setLocation("/workspace");
     } catch (err: any) {
       setError(err?.response?.data?.error || "Invalid credentials");
     }
@@ -56,13 +56,13 @@ export default function Login() {
             )}
             
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Username</label>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Email or Username</label>
               <div className="relative">
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
                 <Input 
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username" 
+                  placeholder="you@example.com" 
                   className="pl-10 h-12 bg-gray-50 border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary"
                   required
                 />
@@ -70,7 +70,12 @@ export default function Login() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Password</label>
+              <div className="flex items-center justify-between ml-1">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Password</label>
+                <button type="button" onClick={() => setLocation("/forgot-password")} className="text-xs text-primary hover:underline">
+                  Forgot password?
+                </button>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
                 <Input 
@@ -94,6 +99,13 @@ export default function Login() {
             </Button>
           </form>
         </Card>
+
+        <p className="text-center text-sm text-muted-foreground mt-5">
+          Don't have an account?{" "}
+          <button onClick={() => setLocation("/signup")} className="font-semibold text-primary hover:underline">
+            Start free trial
+          </button>
+        </p>
       </motion.div>
     </div>
   );
