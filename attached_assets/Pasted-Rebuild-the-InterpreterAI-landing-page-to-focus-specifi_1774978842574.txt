@@ -1,0 +1,168 @@
+Rebuild the InterpreterAI landing page to focus specifically on professional interpreters.
+
+The goal is to clearly communicate that this product is built for live interpreters who need high accuracy during real-time conversations.
+
+Do not change the backend functionality. Only redesign the landing page structure and marketing messaging.
+
+PAGE STRUCTURE:
+
+SECTION 1 — HERO
+
+Headline:
+AI Co-Pilot for Live Interpreters
+
+Subheadline:
+99% Accurate Real-Time Transcription & Translation So You Never Miss a Word During Live Interpretation.
+
+Description:
+InterpreterAI listens, transcribes, and translates conversations instantly — helping professional interpreters stay accurate, fast, and confident during live calls.
+
+Add bullets:
+• Built for medical interpreters  
+• Built for court interpreters  
+• Built for business interpreters  
+• Works during live calls
+
+Buttons:
+Start Free Trial
+Log In
+
+Show text under button:
+14-day free trial · No credit card required
+
+---
+
+SECTION 2 — INTERPRETER PROBLEM
+
+Title:
+Interpreting Live Is Hard. Missing Words Is Not an Option.
+
+Text:
+Professional interpreters handle fast conversations, complex terminology, and high pressure situations.
+
+InterpreterAI helps interpreters stay precise during live calls.
+
+Bullet points:
+• Never miss technical terminology
+• See what was just said instantly
+• Handle fast speakers confidently
+• Reduce interpreter fatigue
+• Focus on interpreting instead of remembering every word
+
+---
+
+SECTION 3 — CORE FEATURES
+
+Create 4 feature cards:
+
+Feature 1:
+Real-Time Speech Capture  
+Captures every spoken word instantly so you never miss critical information during live interpretation.
+
+Feature 2:
+Interpreter-Grade Translation  
+Bidirectional translation designed for professional interpreting workflows.
+
+Feature 3:
+Speaker Identification  
+Automatically separates speakers so interpreters always know who said what.
+
+Feature 4:
+Works With Live Calls  
+Designed to work alongside Zoom, Microsoft Teams, phone calls, and remote interpreting platforms.
+
+---
+
+SECTION 4 — TRUST / ACCURACY
+
+Title:
+Designed for Professional Interpreters
+
+Text:
+InterpreterAI uses advanced speech recognition optimized for fast live conversations.
+
+Bullet points:
+• Up to 99% speech recognition accuracy
+• Sub-second transcription speed
+• Supports 30+ languages
+• Handles fast dialogue and overlapping speakers
+
+---
+
+SECTION 5 — WHO USES INTERPRETERAI
+
+Title:
+Who Uses InterpreterAI?
+
+Create four blocks:
+
+Medical Interpreters  
+Follow fast doctor-patient conversations without missing medical terminology.
+
+Court Interpreters  
+Capture every statement precisely during legal proceedings.
+
+Remote Interpreters  
+Stay accurate during Zoom or phone interpretation sessions.
+
+Conference Interpreters  
+Keep up with rapid speakers during conferences and meetings.
+
+---
+
+SECTION 6 — PRICING
+
+Title:
+Simple, Transparent Pricing
+
+Basic — $40 / month  
+Perfect for part-time interpreters
+
+Includes:
+• Real-time transcription
+• Bidirectional translation
+• Speaker identification
+• Up to 5 hours interpreting per day
+
+Professional — $80 / month (highlight this plan)
+
+Includes everything in Basic plus:
+• Up to 7 hours interpreting per day
+• Translation memory
+• Domain glossaries
+• Priority processing
+
+Unlimited — $120 / month
+
+Includes:
+• Unlimited interpreting hours
+• Tab audio capture
+• API access
+• Dedicated support
+
+Buttons under each plan:
+Start Free Trial
+
+---
+
+SECTION 7 — FINAL CTA
+
+Headline:
+Professional interpreters don't guess. They rely on precision.
+
+Text:
+InterpreterAI makes sure you never miss a word.
+
+Button:
+Start Free Trial
+
+---
+
+GENERAL DESIGN REQUIREMENTS
+
+• Mobile responsive
+• No horizontal scrolling on phones
+• Start button always visible on mobile
+• Clean SaaS style layout
+• Keep existing branding and colors
+• Maintain login system and pricing functionality
