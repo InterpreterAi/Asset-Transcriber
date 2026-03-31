@@ -210,22 +210,6 @@ export function useTranscription() {
   const chunkStoreRef  = useRef<Map<number, { text: string; translation: string | null }>>(new Map());
   const chunkIdCounter = useRef(0);
 
-  // ── Chunk flush buffer ────────────────────────────────────────────────────
-  // New final tokens accumulate here between flush events.  Flushed immediately
-  // on punctuation / length cap; falls back to an 800ms silence window; always
-  // flushed synchronously on speaker change / stop so no text is lost.
-  const pendingChunkRef       = useRef<{ text: string; state: BubbleTransState } | null>(null);
-  const chunkDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Diarization stabilization buffer ─────────────────────────────────────
-  // When Soniox creates a new segment it may initially misattribute the speaker
-  // (back-to-back speech case).  We collect speaker-ID votes for 700ms after a
-  // new bubble opens, then inject the winning label.  Text and translation flow
-  // immediately; only the visible speaker tag is delayed.
-  const diarVotesRef = useRef<Map<number | undefined, number>>(new Map());
-  const diarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const diarColsRef  = useRef<{ orig: HTMLDivElement; trans: HTMLDivElement } | null>(null);
-
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
@@ -316,131 +300,16 @@ export function useTranscription() {
     })();
   }, [renderBubbleTranslation]);
 
-  // ── flushPendingChunk / accumulateChunk ────────────────────────────────────
-  // flushPendingChunk: immediate drain — used on speaker change / stop / silence.
-  //   Always translates pending text regardless of length so nothing is lost.
-  // accumulateChunk: smart trigger — fires immediately on punctuation or when the
-  //   buffer hits 60 chars; falls back to an 800ms silence timer otherwise.
-  const flushPendingChunk = useCallback(() => {
-    if (chunkDebounceTimerRef.current !== null) {
-      clearTimeout(chunkDebounceTimerRef.current);
-      chunkDebounceTimerRef.current = null;
-    }
-    const pending = pendingChunkRef.current;
-    pendingChunkRef.current = null;
-    if (pending?.text.trim() && pending.state) {
-      addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
-    }
-  }, [addChunk]);
-
-  // Smart flush: fires immediately on punctuation or length cap; waits up to
-  // CHUNK_SILENCE_MS for more text otherwise (gives a natural batching window).
-  // Translation is only triggered when accumulated text is >= CHUNK_TRANSLATE_MIN
-  // to avoid wasting API calls on single words.
-  const CHUNK_MAX_CHARS      = 60;   // flush when buffer gets this long
-  const CHUNK_MIN_CHARS      = 8;    // punctuation flush only above this size
-  const CHUNK_TRANSLATE_MIN  = 10;   // minimum chars to fire a translation
-  const CHUNK_SILENCE_MS     = 800;  // fallback silence window
-  const PUNCT_RE             = /[.?!]\s*$/;
-
-  const accumulateChunk = useCallback((text: string, state: BubbleTransState) => {
-    if (!pendingChunkRef.current) {
-      pendingChunkRef.current = { text, state };
-    } else {
-      pendingChunkRef.current.text += text;
-    }
-
-    const buf = pendingChunkRef.current.text;
-    const shouldFlushNow =
-      buf.length >= CHUNK_MAX_CHARS ||
-      (buf.length >= CHUNK_MIN_CHARS && PUNCT_RE.test(buf));
-
-    if (shouldFlushNow) {
-      if (chunkDebounceTimerRef.current !== null) {
-        clearTimeout(chunkDebounceTimerRef.current);
-        chunkDebounceTimerRef.current = null;
-      }
-      const pending = pendingChunkRef.current;
-      pendingChunkRef.current = null;
-      if (pending.text.trim().length >= CHUNK_TRANSLATE_MIN) {
-        addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
-      }
-      return;
-    }
-
-    // Reset the silence fallback timer.
-    if (chunkDebounceTimerRef.current !== null) clearTimeout(chunkDebounceTimerRef.current);
-    chunkDebounceTimerRef.current = setTimeout(() => {
-      chunkDebounceTimerRef.current = null;
-      const pending = pendingChunkRef.current;
-      pendingChunkRef.current = null;
-      if (pending?.text.trim() && pending.text.trim().length >= CHUNK_TRANSLATE_MIN) {
-        addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
-      }
-    }, CHUNK_SILENCE_MS);
-  }, [addChunk]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── applyDiarLabel / startDiarWindow ──────────────────────────────────────
-  // applyDiarLabel: prepends speaker tag elements to the current bubble's two
-  //   columns.  Safe to call multiple times — checks for existing tag first.
-  // startDiarWindow: begins a 700ms vote-collection window.  The winning speaker
-  //   ID (most tokens) is passed to applyDiarLabel when the timer fires.
-  //   Also cancels and settles any previous window so old bubbles always get a
-  //   label even when a second speaker appears before the first window expires.
-  const applyDiarLabel = useCallback((rawSpeaker: number | undefined) => {
-    if (!diarColsRef.current) return;
-    const { orig, trans } = diarColsRef.current;
-    const { label, slot } = normalizeSpeaker(rawSpeaker);
-    if (!label || !(slot > 0)) return;
-    const tagCls = SPEAKER_COLORS[Math.min(slot - 1, SPEAKER_COLORS.length - 1)];
-    [orig, trans].forEach(col => {
-      // Skip if a tag was already prepended (idempotent).
-      if (col.firstElementChild?.classList.contains(tagCls)) return;
-      const tag = document.createElement("span");
-      tag.className   = tagCls;
-      tag.textContent = label;
-      col.prepend(tag);
-    });
-  }, []);
-
-  // Settle the current window immediately (e.g. on speaker change) and call cb.
-  const settleDiarWindow = useCallback((cb?: () => void) => {
-    if (diarTimerRef.current !== null) {
-      clearTimeout(diarTimerRef.current);
-      diarTimerRef.current = null;
-      // Apply label for whichever speaker won the most votes so far.
-      let winner: number | undefined;
-      let maxV = -1;
-      for (const [spk, v] of diarVotesRef.current) {
-        if (v > maxV) { winner = spk; maxV = v; }
-      }
-      applyDiarLabel(winner);
-    }
-    cb?.();
-  }, [applyDiarLabel]);
-
-  const startDiarWindow = useCallback((rawSpeaker: number | undefined) => {
-    // Cancel any prior window and apply its label before starting a fresh one.
-    settleDiarWindow();
-    diarVotesRef.current = new Map([[rawSpeaker, 1]]);
-    diarTimerRef.current = setTimeout(() => {
-      diarTimerRef.current = null;
-      let winner: number | undefined;
-      let maxV = -1;
-      for (const [spk, v] of diarVotesRef.current) {
-        if (v > maxV) { winner = spk; maxV = v; }
-      }
-      applyDiarLabel(winner);
-    }, 700);
-  }, [applyDiarLabel, settleDiarWindow]);
-
   // ── createBubble ──────────────────────────────────────────────────────────
-  // Builds a two-column segment row.  Speaker tags are injected separately by
-  // the diarization stabilization layer (applyDiarLabel / startDiarWindow).
+  // Builds a two-column segment row with color-coded speaker tags.
   // Creates a fresh BubbleTransState for the new bubble so all translation
   // requests for previous bubbles are structurally isolated.
-  const createBubble = useCallback((): HTMLSpanElement => {
+  const createBubble = useCallback((rawSpeaker: number | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
+    const { label, slot } = normalizeSpeaker(rawSpeaker);
+    const tagCls = slot > 0
+      ? SPEAKER_COLORS[Math.min(slot - 1, SPEAKER_COLORS.length - 1)]
+      : undefined;
 
     const row = document.createElement("div");
     row.className = CLS.row;
@@ -453,11 +322,17 @@ export function useTranscription() {
     const colTrans = document.createElement("div");
     colTrans.className = CLS.colTrans;
 
-    // Speaker tags are NOT injected here. The diarization stabilization layer
-    // (applyDiarLabel / startDiarWindow) handles tag injection after the speaker
-    // ID has had time to settle, preventing label-flicker on back-to-back speech.
-    // Save column refs so applyDiarLabel can prepend tags after the delay.
-    diarColsRef.current = { orig: colOrig, trans: colTrans };
+    if (label && tagCls) {
+      const tagOrig = document.createElement("span");
+      tagOrig.className   = tagCls;
+      tagOrig.textContent = label;
+      colOrig.appendChild(tagOrig);
+
+      const tagTrans = document.createElement("span");
+      tagTrans.className   = tagCls;
+      tagTrans.textContent = label;
+      colTrans.appendChild(tagTrans);
+    }
 
     const origRow = document.createElement("div");
     origRow.className = CLS.textRow;
@@ -559,8 +434,6 @@ export function useTranscription() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    settleDiarWindow();    // apply any in-flight speaker label before closing
-    flushPendingChunk();   // commit any debounced text before finalizing
     finalizeLiveBubble();
 
     currentSpeakerRef.current     = undefined;
@@ -596,7 +469,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble, settleDiarWindow, flushPendingChunk]);
+  }, [stopSessionMut, finalizeLiveBubble]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
@@ -638,8 +511,6 @@ export function useTranscription() {
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
         if (!activeBubbleRef.current) return;  // nothing open — nothing to do
-        settleDiarWindow();    // apply any pending speaker label
-        flushPendingChunk();   // commit any debounced text before finalizing
         softFinalize();
         // Drop active refs so the next speech token creates a fresh segment.
         currentSpeakerRef.current = undefined;
@@ -666,44 +537,27 @@ export function useTranscription() {
       let chunkText = "";
       for (const token of newFinals) {
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
-          // Speaker boundary: flush any pending debounced text for the OLD bubble
-          // BEFORE switching, so it is translated against the correct segment.
-          if (chunkText.trim()) {
-            // Append the in-loop text gathered so far to the pending buffer
-            // then flush immediately (bypasses the 200ms wait).
-            if (langDetectedRef.current && activeBubbleStateRef.current) {
-              if (pendingChunkRef.current) {
-                pendingChunkRef.current.text += chunkText;
-              } else {
-                pendingChunkRef.current = { text: chunkText, state: activeBubbleStateRef.current };
-              }
-            }
-            chunkText = "";
+          // Dispatch accumulated text as a chunk for the OLD bubble.
+          if (chunkText.trim() && activeBubbleStateRef.current && langDetectedRef.current) {
+            addChunk(chunkText.trim(), detectedLangRef.current, activeBubbleStateRef.current);
           }
-          flushPendingChunk();
+          chunkText = "";
 
           finalizeLiveBubble();
           currentSpeakerRef.current = token.speaker;
           finalCountRef.current     = finals.length - newFinals.length +
             newFinals.indexOf(token);
-          // Create the bubble WITHOUT a speaker label. startDiarWindow will
-          // inject the final label after 700ms of vote-collection.
-          activeBubbleRef.current = createBubble();
-          startDiarWindow(token.speaker);
+          activeBubbleRef.current = createBubble(token.speaker);
           setHasTranscript(true);
-        } else if (diarTimerRef.current !== null) {
-          // Still inside the stabilization window — vote for this token's speaker.
-          const v = diarVotesRef.current.get(token.speaker) ?? 0;
-          diarVotesRef.current.set(token.speaker, v + 1);
         }
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
         chunkText += token.text;
       }
 
-      // Accumulate this message's final text into the debounce buffer.
+      // Dispatch the last bubble's accumulated chunk text.
       if (chunkText.trim() && activeBubbleStateRef.current && langDetectedRef.current) {
-        accumulateChunk(chunkText.trim(), activeBubbleStateRef.current);
+        addChunk(chunkText.trim(), detectedLangRef.current, activeBubbleStateRef.current);
       }
 
       finalCountRef.current = finals.length;
@@ -726,9 +580,7 @@ export function useTranscription() {
       ) {
         finalizeLiveBubble();
         currentSpeakerRef.current = nfSpeaker;
-        activeBubbleRef.current   = createBubble();
-        // NF speaker label applied immediately (NF segments are transient).
-        applyDiarLabel(nfSpeaker);
+        activeBubbleRef.current   = createBubble(nfSpeaker);
         setHasTranscript(true);
       }
 
@@ -738,9 +590,7 @@ export function useTranscription() {
         if (!activeBubbleRef.current) {
           const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
           currentSpeakerRef.current = spk;
-          activeBubbleRef.current   = createBubble();
-          // First NF bubble — apply speaker label immediately.
-          applyDiarLabel(spk);
+          activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
         }
         if (activeBubbleNFRef.current) {
@@ -769,8 +619,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, flushPendingChunk, accumulateChunk,
-      startDiarWindow, applyDiarLabel, settleDiarWindow, scrollPanel]);
+  }, [stop, createBubble, finalizeLiveBubble, addChunk, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
@@ -791,17 +640,6 @@ export function useTranscription() {
       langDetectedRef.current      = false;
       chunkStoreRef.current.clear();
       chunkIdCounter.current       = 0;
-      pendingChunkRef.current      = null;
-      if (chunkDebounceTimerRef.current !== null) {
-        clearTimeout(chunkDebounceTimerRef.current);
-        chunkDebounceTimerRef.current = null;
-      }
-      if (diarTimerRef.current !== null) {
-        clearTimeout(diarTimerRef.current);
-        diarTimerRef.current = null;
-      }
-      diarVotesRef.current = new Map();
-      diarColsRef.current  = null;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
@@ -908,17 +746,6 @@ export function useTranscription() {
       finalCountRef.current        = 0;
       chunkStoreRef.current.clear();
       chunkIdCounter.current = 0;
-      pendingChunkRef.current = null;
-      if (chunkDebounceTimerRef.current !== null) {
-        clearTimeout(chunkDebounceTimerRef.current);
-        chunkDebounceTimerRef.current = null;
-      }
-      if (diarTimerRef.current !== null) {
-        clearTimeout(diarTimerRef.current);
-        diarTimerRef.current = null;
-      }
-      diarVotesRef.current = new Map();
-      diarColsRef.current  = null;
       langDetectedRef.current = false;
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
