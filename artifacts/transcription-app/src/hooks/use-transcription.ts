@@ -125,19 +125,30 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
-// ── Duplicate-segment detection helper ─────────────────────────────────────────
-// Returns true when `candidate` is a suffix of `text` (after normalizing
-// whitespace and stripping punctuation). Used to discard segments that Soniox
-// re-emits from the tail of the previous segment.
-function isTextSuffix(text: string, candidate: string): boolean {
-  if (!candidate || !text) return false;
+// ── Segment-overlap detection helper ───────────────────────────────────────────
+// Returns true when newText overlaps with prevText, covering all the ways Soniox
+// can re-emit a corrected version of an already-finalized segment:
+//
+//   • Identical — same words, only speaker changed              (normPrev === normNew)
+//   • Extension — new has all old words + more appended         (normNew starts with normPrev)
+//   • Tail-dup  — new is a suffix of old (original isTextSuffix)(normPrev ends with normNew)
+//   • Truncated — new is a substantial prefix of old            (normPrev starts with normNew,
+//                 covering at least 60% of old text)
+//
+// Minimum 4 chars in both to avoid accidental single-word matches.
+function isSegmentOverlap(prevText: string, newText: string): boolean {
+  if (!prevText || !newText) return false;
   const normalize = (s: string) =>
     s.toLowerCase().replace(/[.,!?;:'"()\-]/g, "").replace(/\s+/g, " ").trim();
-  const normText = normalize(text);
-  const normCand = normalize(candidate);
-  // Only suppress if the candidate is non-trivially long and fully contained
-  // as a trailing run in the previous segment.
-  return normCand.length >= 4 && normText.endsWith(normCand);
+  const normPrev = normalize(prevText);
+  const normNew  = normalize(newText);
+  if (normNew.length < 4 || normPrev.length < 4) return false;
+  if (normPrev === normNew)                    return true;   // identical
+  if (normNew.startsWith(normPrev))            return true;   // extension
+  if (normPrev.endsWith(normNew))              return true;   // tail duplicate
+  if (normPrev.startsWith(normNew) &&
+      normNew.length >= Math.floor(normPrev.length * 0.6)) return true; // truncated
+  return false;
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
@@ -257,6 +268,24 @@ export function useTranscription() {
   // Full text of the last finalized segment. Used to detect duplicate segments
   // caused by Soniox re-emitting tail words of a segment as a new segment.
   const lastSegmentTextRef = useRef<string>("");
+
+  // ── Speaker-tag refs for the active bubble ────────────────────────────────
+  // Stored so that when a diarization correction arrives for an already-shown
+  // segment, we can update the speaker label in-place without rebuilding the row.
+  const activeBubbleOrigTagRef  = useRef<HTMLSpanElement | null>(null);
+  const activeBubbleTransTagRef = useRef<HTMLSpanElement | null>(null);
+
+  // ── Last-finalized segment info ────────────────────────────────────────────
+  // Holds the DOM elements of the most recently finalized segment so that
+  // late Soniox diarization corrections can update the existing row rather
+  // than appending a duplicate.
+  const lastFinalizedSegRef = useRef<{
+    row:       HTMLElement;
+    finalSpan: HTMLSpanElement;
+    origTag:   HTMLSpanElement | null;
+    transTag:  HTMLSpanElement | null;
+    text:      string;
+  } | null>(null);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -476,16 +505,23 @@ export function useTranscription() {
     const colTrans = document.createElement("div");
     colTrans.className = CLS.colTrans;
 
+    // Reset speaker-tag refs for this new bubble. If there IS a speaker,
+    // they'll be set below and stored for potential in-place diarization updates.
+    activeBubbleOrigTagRef.current  = null;
+    activeBubbleTransTagRef.current = null;
+
     if (label && tagCls) {
       const tagOrig = document.createElement("span");
       tagOrig.className   = tagCls;
       tagOrig.textContent = label;
       colOrig.appendChild(tagOrig);
+      activeBubbleOrigTagRef.current = tagOrig;   // ← store for in-place updates
 
       const tagTrans = document.createElement("span");
       tagTrans.className   = tagCls;
       tagTrans.textContent = label;
       colTrans.appendChild(tagTrans);
+      activeBubbleTransTagRef.current = tagTrans; // ← store for in-place updates
     }
 
     const origRow = document.createElement("div");
@@ -596,6 +632,23 @@ export function useTranscription() {
     // as the start of the next segment (duplicate detection).
     if (finalText.length > 2) lastSegmentTextRef.current = finalText;
 
+    // Capture last-finalized segment info for potential in-place diarization
+    // corrections. This must be set AFTER finalText is computed so text is
+    // the true finalized content (including any promoted NF text from above).
+    if (finalText.length > 2) {
+      const row = activeBubbleRef.current
+        ?.parentElement?.parentElement?.parentElement?.parentElement;
+      if (row instanceof HTMLElement) {
+        lastFinalizedSegRef.current = {
+          row,
+          finalSpan: activeBubbleRef.current,
+          origTag:   activeBubbleOrigTagRef.current,
+          transTag:  activeBubbleTransTagRef.current,
+          text:      finalText,
+        };
+      }
+    }
+
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
@@ -634,14 +687,17 @@ export function useTranscription() {
     cancelScheduledTranslation();
     finalizeLiveBubble();
 
-    currentSpeakerRef.current      = undefined;
-    activeBubbleRef.current        = null;
-    activeBubbleNFRef.current      = null;
-    activeBubbleStateRef.current   = null;  // drop all in-flight translation closures
-    finalCountRef.current          = 0;
-    recentSegmentsRef.current      = [];    // clear context window for next session
-    segmentLangLockedRef.current   = false; // reset lang lock for next session
-    lastSegmentTextRef.current     = "";    // reset dedup anchor for next session
+    currentSpeakerRef.current       = undefined;
+    activeBubbleRef.current         = null;
+    activeBubbleNFRef.current       = null;
+    activeBubbleStateRef.current    = null;  // drop all in-flight translation closures
+    activeBubbleOrigTagRef.current  = null;
+    activeBubbleTransTagRef.current = null;
+    lastFinalizedSegRef.current     = null;
+    finalCountRef.current           = 0;
+    recentSegmentsRef.current       = [];    // clear context window for next session
+    segmentLangLockedRef.current    = false; // reset lang lock for next session
+    lastSegmentTextRef.current      = "";    // reset dedup anchor for next session
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -758,25 +814,60 @@ export function useTranscription() {
           (activeBubbleRef.current.textContent ?? "") + token.text;
       }
 
-      // ── Duplicate-segment detection ────────────────────────────────────────
-      // Soniox sometimes re-emits the tail words of the previous segment as a
-      // brand-new segment (e.g. prev = "…what happened last Saturday." and new
-      // = "what happened last Saturday."). Remove the new segment and restore
-      // state if its entire text is a suffix of the previous segment text.
-      if (newBubbleRow && activeBubbleRef.current && lastSegmentTextRef.current) {
+      // ── Duplicate / diarization-correction detection ───────────────────────
+      // Soniox can re-emit words from a recently finalized segment when:
+      //   (a) the speaker assignment is corrected after the fact, or
+      //   (b) the segment boundary shifts and tail words are re-sent.
+      // In both cases we update the existing row in-place rather than appending
+      // a new one — preserving the reading order and avoiding duplicate phrases.
+      if (newBubbleRow && activeBubbleRef.current && lastFinalizedSegRef.current) {
+        const seg        = lastFinalizedSegRef.current;
         const newSegText = activeBubbleRef.current.textContent?.trim() ?? "";
-        if (isTextSuffix(lastSegmentTextRef.current, newSegText)) {
+
+        if (isSegmentOverlap(seg.text, newSegText)) {
+
+          // ── Speaker label update ─────────────────────────────────────────
+          // Use the new segment's speaker to update the existing row's labels.
+          const { label: newLabel, slot: newSlot } =
+            normalizeSpeaker(currentSpeakerRef.current);
+          if (newLabel && newLabel !== seg.origTag?.textContent) {
+            const newTagCls =
+              SPEAKER_COLORS[Math.min(newSlot - 1, SPEAKER_COLORS.length - 1)];
+            if (seg.origTag) {
+              seg.origTag.textContent = newLabel;
+              seg.origTag.className   = newTagCls;
+            }
+            if (seg.transTag) {
+              seg.transTag.textContent = newLabel;
+              seg.transTag.className   = newTagCls;
+            }
+          }
+
+          // ── Text update (extension only) ─────────────────────────────────
+          // If the corrected segment contains more words than the original,
+          // update the finalSpan text and the dedup anchor. We do NOT
+          // re-dispatch translation here — the last isFinal=true call already
+          // locked the translation column and re-opening it could cause flicker.
+          const normalize = (s: string) =>
+            s.toLowerCase().replace(/[.,!?;:'"()\-]/g, "").replace(/\s+/g, " ").trim();
+          if (normalize(newSegText).length > normalize(seg.text).length) {
+            seg.finalSpan.textContent = newSegText;
+            seg.text                  = newSegText;
+            lastSegmentTextRef.current = newSegText;
+          }
+
+          // ── Remove the duplicate new bubble ─────────────────────────────
           newBubbleRow.remove();
-          // Restore refs to "no active segment" so the next real token
-          // opens a fresh bubble correctly.
-          activeBubbleRef.current      = null;
-          activeBubbleNFRef.current    = null;
-          activeBubbleStateRef.current = null;
-          currentSpeakerRef.current    = undefined;
-          styleUpgradedRef.current     = false;
-          liveBufferRef.current        = "";
-          lastTranslatedBuffer.current = "";
-          segmentLangLockedRef.current = false;
+          activeBubbleRef.current         = null;
+          activeBubbleNFRef.current       = null;
+          activeBubbleStateRef.current    = null;
+          activeBubbleOrigTagRef.current  = null;
+          activeBubbleTransTagRef.current = null;
+          currentSpeakerRef.current       = undefined;
+          styleUpgradedRef.current        = false;
+          liveBufferRef.current           = "";
+          lastTranslatedBuffer.current    = "";
+          segmentLangLockedRef.current    = false;
         }
       }
 
@@ -995,15 +1086,18 @@ export function useTranscription() {
       cancelScheduledTranslation();
       activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
-      activeBubbleRef.current      = null;
-      activeBubbleNFRef.current    = null;
-      styleUpgradedRef.current     = false;
-      liveBufferRef.current        = "";
-      lastTranslatedBuffer.current = "";
-      finalCountRef.current        = 0;
-      recentSegmentsRef.current    = [];   // reset context window on clear
-      segmentLangLockedRef.current = false;
-      lastSegmentTextRef.current   = "";   // reset dedup anchor on clear
+      activeBubbleRef.current         = null;
+      activeBubbleNFRef.current       = null;
+      activeBubbleOrigTagRef.current  = null;
+      activeBubbleTransTagRef.current = null;
+      lastFinalizedSegRef.current     = null;
+      styleUpgradedRef.current        = false;
+      liveBufferRef.current           = "";
+      lastTranslatedBuffer.current    = "";
+      finalCountRef.current           = 0;
+      recentSegmentsRef.current       = [];   // reset context window on clear
+      segmentLangLockedRef.current    = false;
+      lastSegmentTextRef.current      = "";   // reset dedup anchor on clear
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();
