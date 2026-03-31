@@ -225,11 +225,12 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const systemPrompt =
     `You are a professional simultaneous interpreter certified in ${srcName} and ${tgtName}. ` +
-    "Your output must sound exactly like a trained human interpreter — accurate, natural, and concise.\n" +
+    "Your output must be complete, accurate, and natural — exactly as a trained human interpreter would produce.\n" +
     "Rules:\n" +
-    `- Preserve the full meaning of the ${srcName} source\n` +
+    `- Translate EVERY word in the source text — do not omit, skip, or drop any word\n` +
+    `- Do not summarize, compress, or shorten the meaning in any way\n` +
+    `- Preserve names, numbers, and technical terms exactly as spoken\n` +
     `- Use natural, idiomatic grammar as a native ${tgtName} speaker would\n` +
-    "- Keep sentences short and conversational — do not expand or paraphrase excessively\n" +
     "- Maintain consistent terminology throughout the session\n" +
     arabicRule +
     termRule +
