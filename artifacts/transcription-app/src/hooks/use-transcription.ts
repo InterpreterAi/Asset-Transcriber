@@ -11,10 +11,10 @@ const TRANSLATION_DEBOUNCE_MS = 275;
 // A new translation is accepted during live speech only if it is at least
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
-// How long after the last FINAL token (ms) before the segment is auto-finalized.
-// Clock resets only on new final tokens — NF (grey/speculative) messages do NOT
-// extend it, so a natural pause triggers finalization in ~900 ms.
-const SILENCE_TIMEOUT_MS  = 900;
+// How long a gap in incoming tokens (ms) triggers automatic segment finalization.
+// Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
+// but short enough that natural sentence-end pauses close the segment cleanly.
+const SILENCE_TIMEOUT_MS  = 1200;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -679,32 +679,27 @@ export function useTranscription() {
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
+      // ── Fix 1: Silence / pause-based segment finalization ─────────────────
+      // Every message with tokens resets the silence timer.  After
+      // SILENCE_TIMEOUT_MS of no tokens the current segment is finalized and
+      // the active-bubble refs are cleared so the next token opens a new one.
+      if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        silenceTimerRef.current = null;
+        if (!activeBubbleRef.current) return;  // nothing open — nothing to do
+        softFinalize();
+        // Drop active refs so the next speech token creates a fresh segment.
+        currentSpeakerRef.current = undefined;
+        activeBubbleRef.current   = null;
+        activeBubbleNFRef.current = null;
+        styleUpgradedRef.current  = false;
+        // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
+        // so slicing from the current count will correctly pick up only new finals.
+      }, SILENCE_TIMEOUT_MS);
+
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
-
-      // ── Silence / pause-based segment finalization ────────────────────────
-      // Reset the silence clock ONLY when new FINAL tokens arrive.
-      // NF (non-final / grey / speculative) messages are deliberately excluded:
-      // Soniox continues streaming NF updates for several seconds after the
-      // speaker pauses, which previously kept resetting the timer and caused
-      // the ~7 s delay. Now the clock only ticks forward on confirmed words,
-      // so a natural pause fires softFinalize() after SILENCE_TIMEOUT_MS.
-      if (newFinals.length > 0) {
-        if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          silenceTimerRef.current = null;
-          if (!activeBubbleRef.current) return;  // nothing open — nothing to do
-          softFinalize();
-          // Drop active refs so the next speech token creates a fresh segment.
-          currentSpeakerRef.current = undefined;
-          activeBubbleRef.current   = null;
-          activeBubbleNFRef.current = null;
-          styleUpgradedRef.current  = false;
-          // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
-          // so slicing from the current count will correctly pick up only new finals.
-        }, SILENCE_TIMEOUT_MS);
-      }
 
       // Language detection — only accept the FIRST detection per segment.
       // Soniox may revise its language guess as more audio arrives. Locking on
