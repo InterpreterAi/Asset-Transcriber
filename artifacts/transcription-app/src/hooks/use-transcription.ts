@@ -4,7 +4,10 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const TRANSLATION_POLL_MS = 700;
+// How long the transcript text must be stable (no new tokens) before a live
+// translation is dispatched. Keeps the translation column from updating on
+// every single token; retranslates the full segment after each pause.
+const TRANSLATION_DEBOUNCE_MS = 275;
 // A new translation is accepted during live speech only if it is at least
 // this much longer than the last shown translation (prevents constant rewrites).
 const STABILIZE_RATIO     = 1.15;
@@ -208,13 +211,13 @@ export function useTranscription() {
   // bound to their own element and can never bleed into a new bubble.
   const activeBubbleStateRef = useRef<BubbleTransState | null>(null);
 
-  // ── Translation polling refs ───────────────────────────────────────────────
+  // ── Translation debounce refs ──────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
-  // lastTranslatedBuffer: text last SENT to the API. Interval skips if unchanged.
+  // lastTranslatedBuffer: text last SENT to the API. Debounce skips if unchanged.
   const lastTranslatedBuffer = useRef<string>("");
-  // setInterval handle.
-  const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Pending debounce timer — reset on every token arrival, fires after silence.
+  const translationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -322,21 +325,31 @@ export function useTranscription() {
     })();
   }, [scrollPanel]);
 
-  // ── startTranslationInterval ───────────────────────────────────────────────
-  const startTranslationInterval = useCallback(() => {
-    if (translationIntervalRef.current !== null) return;
-    translationIntervalRef.current = setInterval(() => {
+  // ── scheduleTranslation ───────────────────────────────────────────────────
+  // Debounced translation trigger. Called every time liveBufferRef updates.
+  // Resets the timer on each call so translation only fires after the transcript
+  // has been stable for TRANSLATION_DEBOUNCE_MS — ensuring the full segment
+  // (including the last words) is sent rather than a mid-token snapshot.
+  const scheduleTranslation = useCallback(() => {
+    if (translationDebounceRef.current !== null) {
+      clearTimeout(translationDebounceRef.current);
+    }
+    translationDebounceRef.current = setTimeout(() => {
+      translationDebounceRef.current = null;
       const buffer = liveBufferRef.current;
-      if (!buffer || buffer === lastTranslatedBuffer.current) return;
-      dispatchTranslation(buffer, detectedLangRef.current, false);
-    }, TRANSLATION_POLL_MS);
+      if (buffer && buffer !== lastTranslatedBuffer.current) {
+        dispatchTranslation(buffer, detectedLangRef.current, false);
+      }
+    }, TRANSLATION_DEBOUNCE_MS);
   }, [dispatchTranslation]);
 
-  // ── stopTranslationInterval ────────────────────────────────────────────────
-  const stopTranslationInterval = useCallback(() => {
-    if (translationIntervalRef.current !== null) {
-      clearInterval(translationIntervalRef.current);
-      translationIntervalRef.current = null;
+  // ── cancelScheduledTranslation ─────────────────────────────────────────────
+  // Cancels any pending debounce. Called by softFinalize before the final
+  // dispatch so the debounced isFinal=false never races the final isFinal=true.
+  const cancelScheduledTranslation = useCallback(() => {
+    if (translationDebounceRef.current !== null) {
+      clearTimeout(translationDebounceRef.current);
+      translationDebounceRef.current = null;
     }
   }, []);
 
@@ -427,14 +440,9 @@ export function useTranscription() {
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
 
-    // Restart the polling interval for this new segment. softFinalize stops
-    // the interval for the previous segment; we restart it here so live
-    // translation works during speech for each new segment.
-    startTranslationInterval();
-
     scrollPanel(true);
     return finalSpan;
-  }, [scrollPanel, startTranslationInterval]);
+  }, [scrollPanel]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -444,10 +452,11 @@ export function useTranscription() {
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    // Stop polling AND mark as finalizing synchronously, before the async
-    // dispatch below. This ensures any poll fetch already in-flight will be
-    // rejected by the post-fetch `finalizing` guard when it returns.
-    stopTranslationInterval();
+    // Cancel any pending debounced translation AND mark as finalizing
+    // synchronously before the final dispatch below. This ensures any
+    // debounced isFinal=false fetch already in-flight is rejected by the
+    // post-fetch `finalizing` guard when it returns.
+    cancelScheduledTranslation();
     if (activeBubbleStateRef.current) {
       activeBubbleStateRef.current.finalizing = true;
     }
@@ -466,7 +475,7 @@ export function useTranscription() {
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
-  }, [dispatchTranslation, stopTranslationInterval]);
+  }, [dispatchTranslation, cancelScheduledTranslation]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   const finalizeLiveBubble = useCallback(() => {
@@ -485,7 +494,7 @@ export function useTranscription() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    stopTranslationInterval();
+    cancelScheduledTranslation();
     finalizeLiveBubble();
 
     currentSpeakerRef.current     = undefined;
@@ -521,7 +530,7 @@ export function useTranscription() {
       } catch (err) { console.error("Failed to stop session", err); }
       sessionIdRef.current = null;
     }
-  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
+  }, [stopSessionMut, finalizeLiveBubble, cancelScheduledTranslation]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
@@ -635,6 +644,12 @@ export function useTranscription() {
       const finalText = activeBubbleRef.current?.textContent ?? "";
       liveBufferRef.current = (finalText + nfText).trim();
 
+      // Kick off a debounced translation. Each token arrival resets the timer
+      // so translation only fires after the text has been stable for
+      // TRANSLATION_DEBOUNCE_MS — ensuring the full in-progress phrase is
+      // sent rather than a mid-word snapshot.
+      scheduleTranslation();
+
       // When Soniox commits all text (NF gone), immediately finalize style.
       if (nfText.length === 0 && finalText.trim().length > 2) {
         if (!styleUpgradedRef.current) {
@@ -655,7 +670,7 @@ export function useTranscription() {
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, scrollPanel]);
+  }, [stop, createBubble, finalizeLiveBubble, scrollPanel, scheduleTranslation]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   const start = useCallback(async (deviceId: string) => {
@@ -708,8 +723,6 @@ export function useTranscription() {
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      startTranslationInterval();
-
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
       analyser.fftSize  = 256;
@@ -750,7 +763,7 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
+  }, [getTokenMut, startSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
@@ -775,7 +788,7 @@ export function useTranscription() {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
       }
-      stopTranslationInterval();
+      cancelScheduledTranslation();
       activeBubbleStateRef.current = null;  // drop all in-flight closures
       currentSpeakerRef.current    = undefined;
       activeBubbleRef.current      = null;
