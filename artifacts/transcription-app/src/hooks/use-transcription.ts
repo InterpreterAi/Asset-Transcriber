@@ -15,6 +15,11 @@ const STABILIZE_RATIO     = 1.15;
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
 const SILENCE_TIMEOUT_MS  = 1200;
+// How long the segment text must be stable (ms) before the bubble is visually
+// promoted from grey/italic → bold. This is UI-only: no state, refs, or
+// translation pipeline is touched. The true final signal from Soniox (or the
+// silence timer) handles everything else when it arrives later.
+const VISUAL_PROMOTE_MS   = 900;
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -257,6 +262,13 @@ export function useTranscription() {
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Visual-promote timer ────────────────────────────────────────────────────
+  // Reset every time any token updates the segment text. Fires after
+  // VISUAL_PROMOTE_MS of no updates and upgrades the bubble className from
+  // grey/italic (textLive) → bold (textFin). Visual only — does not touch
+  // translation state, refs, or segmentation.
+  const visualPromoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
@@ -542,6 +554,13 @@ export function useTranscription() {
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
+    // Cancel the visual-promote timer: softFinalize does the full upgrade, so
+    // there's no need for the UI-only timer to also fire afterwards.
+    if (visualPromoteTimerRef.current !== null) {
+      clearTimeout(visualPromoteTimerRef.current);
+      visualPromoteTimerRef.current = null;
+    }
+
     // Cancel any pending debounced translation AND mark as finalizing
     // synchronously before the final dispatch below. This ensures any
     // debounced isFinal=false fetch already in-flight is rejected by the
@@ -605,6 +624,12 @@ export function useTranscription() {
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+    // Cancel the visual-promote timer (softFinalize inside finalizeLiveBubble
+    // also cancels it, but clearing here first avoids a redundant DOM timer).
+    if (visualPromoteTimerRef.current !== null) {
+      clearTimeout(visualPromoteTimerRef.current);
+      visualPromoteTimerRef.current = null;
     }
     cancelScheduledTranslation();
     finalizeLiveBubble();
@@ -803,7 +828,33 @@ export function useTranscription() {
       // sent rather than a mid-word snapshot.
       scheduleTranslation();
 
+      // ── Visual-promote timer ───────────────────────────────────────────────
+      // Reset on every token that updates segment text. After VISUAL_PROMOTE_MS
+      // of no updates (≈ a natural 1-second pause) promote the bubble from
+      // grey/italic → bold in the UI. This is purely visual: no translation is
+      // dispatched, no refs are cleared, no segmentation is affected.
+      // When the true final signal arrives later, softFinalize() skips the
+      // className change because styleUpgradedRef is already true.
+      if (visualPromoteTimerRef.current !== null) {
+        clearTimeout(visualPromoteTimerRef.current);
+        visualPromoteTimerRef.current = null;
+      }
+      if (activeBubbleRef.current && !styleUpgradedRef.current) {
+        visualPromoteTimerRef.current = setTimeout(() => {
+          visualPromoteTimerRef.current = null;
+          // Re-check refs inside callback: bubble may have been cleared by stop()
+          // or silence timer between now and when this fires.
+          if (activeBubbleRef.current && !styleUpgradedRef.current) {
+            styleUpgradedRef.current = true;
+            const p = activeBubbleRef.current.parentElement;
+            if (p) p.className = CLS.textFin;
+          }
+        }, VISUAL_PROMOTE_MS);
+      }
+
       // When Soniox commits all text (NF gone), immediately finalize style.
+      // This fires before the visual-promote timer would ever fire, so it
+      // takes precedence and the timer becomes a no-op (styleUpgradedRef=true).
       if (nfText.length === 0 && finalText.trim().length > 2) {
         if (!styleUpgradedRef.current) {
           styleUpgradedRef.current = true;
