@@ -225,9 +225,13 @@ export function useTranscription() {
   // inactivityTimerRef: fires stop() after 5 min of no speech tokens.
   // maxSessionTimerRef: fires stop() after 3 hours unconditionally.
   // resetInactivityRef: shared function set by start(), called by buildWs onmessage.
-  const inactivityTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const maxSessionTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resetInactivityRef  = useRef<(() => void) | null>(null);
+  // heartbeatIntervalRef: pings /session/heartbeat every 30 s to prevent the
+  //   server from treating the session as stale after a page navigation or
+  //   temporary disconnect.
+  const inactivityTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxSessionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetInactivityRef   = useRef<(() => void) | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;   // 5 minutes
   const MAX_SESSION_MS        = 3 * 60 * 60 * 1000; // 3 hours
@@ -504,6 +508,10 @@ export function useTranscription() {
       clearTimeout(maxSessionTimerRef.current);
       maxSessionTimerRef.current = null;
     }
+    if (heartbeatIntervalRef.current !== null) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
     stopTranslationInterval();
     finalizeLiveBubble();
 
@@ -704,6 +712,22 @@ export function useTranscription() {
       const sessionRes = await startSessionMut.mutateAsync({});
       sessionIdRef.current = sessionRes.sessionId;
       startTimeRef.current = Date.now();
+
+      // ── Session heartbeat ─────────────────────────────────────────────────
+      // Ping every 30 s so the server knows the session is still alive.
+      // Without this, a page refresh leaves the session open and the next
+      // Start press gets a false 409 until the 60 s stale window expires.
+      const sendHeartbeat = () => {
+        const sid = sessionIdRef.current;
+        if (!sid) return;
+        fetch("/api/transcription/session/heartbeat", {
+          method:      "POST",
+          headers:     { "Content-Type": "application/json" },
+          credentials: "include",
+          body:        JSON.stringify({ sessionId: sid }),
+        }).catch(() => { /* best-effort — ignore network errors */ });
+      };
+      heartbeatIntervalRef.current = setInterval(sendHeartbeat, 30_000);
 
       const AudioContextCtor =
         window.AudioContext ||

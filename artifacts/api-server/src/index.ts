@@ -1,5 +1,7 @@
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./lib/stripeClient.js";
+import { db, sessionsTable } from "@workspace/db";
+import { isNull, sql } from "drizzle-orm";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 
@@ -9,6 +11,33 @@ if (!rawPort) throw new Error("PORT environment variable is required");
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+// ── Stale session cleanup on startup ─────────────────────────────────────────
+// When the server restarts any previously open sessions are left with no
+// endedAt and no heartbeat, so they would block the user from starting a new
+// one for 60 s.  We proactively close them all so the first Start press works.
+async function clearStaleSessions() {
+  try {
+    const result = await db
+      .update(sessionsTable)
+      .set({ endedAt: new Date() })
+      .where(
+        // Open sessions whose last heartbeat (or startedAt) is ≥60 s ago.
+        // We use a raw SQL expression so COALESCE works across both old rows
+        // (no lastActivityAt) and new rows.
+        sql`${sessionsTable.endedAt} IS NULL
+            AND COALESCE(${sessionsTable.lastActivityAt}, ${sessionsTable.startedAt})
+                < NOW() - INTERVAL '60 seconds'`
+      )
+      .returning({ id: sessionsTable.id });
+
+    if (result.length > 0) {
+      logger.info({ count: result.length }, "Closed stale sessions on startup");
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to clear stale sessions on startup");
+  }
 }
 
 // ── Stripe initialization (graceful — server still starts if Stripe not connected) ──
@@ -45,6 +74,7 @@ async function initStripe() {
   }
 }
 
+await clearStaleSessions();
 await initStripe();
 
 app.listen(port, (err) => {

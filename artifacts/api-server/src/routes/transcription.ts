@@ -80,6 +80,10 @@ router.post("/token", requireAuth, async (req, res) => {
   res.json({ apiKey, expiresIn: 3600 });
 });
 
+// How old a session's last heartbeat must be before we consider it abandoned.
+// Set to 60 s — matches the requirement in the feature spec.
+const STALE_SESSION_MS = 60_000;
+
 // ── /session/start ─────────────────────────────────────────────────────────
 router.post("/session/start", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
@@ -96,24 +100,72 @@ router.post("/session/start", requireAuth, async (req, res) => {
     return;
   }
 
-  // One active session per user
+  // Check for an existing open session and decide whether it is still live
+  // or whether it is a ghost left behind by a page refresh / server restart.
   const openSessions = await db
-    .select({ id: sessionsTable.id })
+    .select()
     .from(sessionsTable)
     .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)))
     .limit(1);
 
   if (openSessions.length > 0) {
-    res.status(409).json({ error: "Another active session is already running." });
+    const ghost = openSessions[0]!;
+    // lastActivityAt is set by the heartbeat. Fall back to startedAt for
+    // sessions that pre-date this feature (no heartbeat column populated yet).
+    const lastSeen = ghost.lastActivityAt ?? ghost.startedAt;
+    const age      = Date.now() - lastSeen.getTime();
+
+    if (age < STALE_SESSION_MS) {
+      // Heartbeat is recent — this really is a concurrent session.
+      res.status(409).json({ error: "Another active session is already running." });
+      return;
+    }
+
+    // Session is stale (no heartbeat for ≥60 s) — auto-close it and proceed.
+    await db
+      .update(sessionsTable)
+      .set({ endedAt: new Date(), durationSeconds: Math.round(age / 1000) })
+      .where(eq(sessionsTable.id, ghost.id));
+  }
+
+  const result = await db
+    .insert(sessionsTable)
+    .values({ userId: user.id, startedAt: new Date(), lastActivityAt: new Date() })
+    .returning();
+
+  res.json({ sessionId: result[0]!.id, message: "Session started" });
+});
+
+// ── /session/heartbeat ──────────────────────────────────────────────────────
+// Frontend calls this every 30 s while recording to keep the session alive.
+// Without a heartbeat the session is considered stale after STALE_SESSION_MS.
+router.post("/session/heartbeat", requireAuth, async (req, res) => {
+  const { sessionId } = req.body as { sessionId?: number };
+  if (!sessionId) { res.status(400).json({ error: "sessionId required" }); return; }
+
+  const rows = await db
+    .select({ id: sessionsTable.id })
+    .from(sessionsTable)
+    .where(
+      and(
+        eq(sessionsTable.id, sessionId),
+        eq(sessionsTable.userId, req.session.userId!),
+        isNull(sessionsTable.endedAt),
+      )
+    )
+    .limit(1);
+
+  if (!rows.length) {
+    res.status(404).json({ error: "Session not found or already ended" });
     return;
   }
 
-  const result = await db.insert(sessionsTable).values({
-    userId: user.id,
-    startedAt: new Date(),
-  }).returning();
+  await db
+    .update(sessionsTable)
+    .set({ lastActivityAt: new Date() })
+    .where(eq(sessionsTable.id, sessionId));
 
-  res.json({ sessionId: result[0]!.id, message: "Session started" });
+  res.json({ ok: true });
 });
 
 // ── /session/stop ──────────────────────────────────────────────────────────
