@@ -117,6 +117,21 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
+// ── Duplicate-segment detection helper ─────────────────────────────────────────
+// Returns true when `candidate` is a suffix of `text` (after normalizing
+// whitespace and stripping punctuation). Used to discard segments that Soniox
+// re-emits from the tail of the previous segment.
+function isTextSuffix(text: string, candidate: string): boolean {
+  if (!candidate || !text) return false;
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[.,!?;:'"()\-]/g, "").replace(/\s+/g, " ").trim();
+  const normText = normalize(text);
+  const normCand = normalize(candidate);
+  // Only suppress if the candidate is non-trivially long and fully contained
+  // as a trailing run in the previous segment.
+  return normCand.length >= 4 && normText.endsWith(normCand);
+}
+
 // ── Translation fetch ──────────────────────────────────────────────────────────
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
@@ -231,6 +246,9 @@ export function useTranscription() {
   // Once the first language is detected for a segment, this flag locks it so
   // Soniox re-detections mid-segment cannot flip the translation decision.
   const segmentLangLockedRef = useRef<boolean>(false);
+  // Full text of the last finalized segment. Used to detect duplicate segments
+  // caused by Soniox re-emitting tail words of a segment as a new segment.
+  const lastSegmentTextRef = useRef<string>("");
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -522,6 +540,11 @@ export function useTranscription() {
     }
 
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
+
+    // Record the finalized text so onmessage can detect if Soniox re-emits it
+    // as the start of the next segment (duplicate detection).
+    if (finalText.length > 2) lastSegmentTextRef.current = finalText;
+
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
@@ -561,6 +584,7 @@ export function useTranscription() {
     finalCountRef.current          = 0;
     recentSegmentsRef.current      = [];    // clear context window for next session
     segmentLangLockedRef.current   = false; // reset lang lock for next session
+    lastSegmentTextRef.current     = "";    // reset dedup anchor for next session
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -655,6 +679,10 @@ export function useTranscription() {
         segmentLangLockedRef.current = true;
       }
 
+      // Track whether a brand-new bubble row was created in this batch so the
+      // duplicate-segment check below knows whether to inspect it.
+      let newBubbleRow: HTMLElement | null = null;
+
       for (const token of newFinals) {
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
           finalizeLiveBubble();
@@ -662,10 +690,37 @@ export function useTranscription() {
           finalCountRef.current     = finals.length - newFinals.length +
             newFinals.indexOf(token);
           activeBubbleRef.current = createBubble(token.speaker);
+          // Capture the row element (4 DOM levels above finalSpan) for removal
+          // if this new segment turns out to be a duplicate.
+          // finalSpan → p → origRow → colOrig → row
+          newBubbleRow = activeBubbleRef.current
+            ?.parentElement?.parentElement?.parentElement?.parentElement ?? null;
           setHasTranscript(true);
         }
         activeBubbleRef.current.textContent =
           (activeBubbleRef.current.textContent ?? "") + token.text;
+      }
+
+      // ── Duplicate-segment detection ────────────────────────────────────────
+      // Soniox sometimes re-emits the tail words of the previous segment as a
+      // brand-new segment (e.g. prev = "…what happened last Saturday." and new
+      // = "what happened last Saturday."). Remove the new segment and restore
+      // state if its entire text is a suffix of the previous segment text.
+      if (newBubbleRow && activeBubbleRef.current && lastSegmentTextRef.current) {
+        const newSegText = activeBubbleRef.current.textContent?.trim() ?? "";
+        if (isTextSuffix(lastSegmentTextRef.current, newSegText)) {
+          newBubbleRow.remove();
+          // Restore refs to "no active segment" so the next real token
+          // opens a fresh bubble correctly.
+          activeBubbleRef.current      = null;
+          activeBubbleNFRef.current    = null;
+          activeBubbleStateRef.current = null;
+          currentSpeakerRef.current    = undefined;
+          styleUpgradedRef.current     = false;
+          liveBufferRef.current        = "";
+          lastTranslatedBuffer.current = "";
+          segmentLangLockedRef.current = false;
+        }
       }
 
       finalCountRef.current = finals.length;
@@ -865,6 +920,7 @@ export function useTranscription() {
       finalCountRef.current        = 0;
       recentSegmentsRef.current    = [];   // reset context window on clear
       segmentLangLockedRef.current = false;
+      lastSegmentTextRef.current   = "";   // reset dedup anchor on clear
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();
