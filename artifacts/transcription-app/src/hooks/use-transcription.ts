@@ -435,12 +435,9 @@ export function useTranscription() {
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
 
-    // Restart polling for the new segment (softFinalize stopped it for the previous one).
-    startTranslationInterval();
-
     scrollPanel(true);
     return finalSpan;
-  }, [scrollPanel, startTranslationInterval]);
+  }, [scrollPanel]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -450,13 +447,20 @@ export function useTranscription() {
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
-    // Defensive stop (polling is disabled but guard against future changes).
     stopTranslationInterval();
     if (activeBubbleStateRef.current) {
       activeBubbleStateRef.current.finalizing = true;
     }
 
+    // Promote any remaining NF (grey/partial) text into the final span so it
+    // is never lost when the user presses STOP mid-sentence.  This also
+    // ensures the translation below reads the complete committed text.
     if (activeBubbleNFRef.current) {
+      const nfText = activeBubbleNFRef.current.textContent ?? "";
+      if (nfText.trim().length > 0) {
+        activeBubbleRef.current.textContent =
+          ((activeBubbleRef.current.textContent ?? "") + nfText).trimStart();
+      }
       activeBubbleNFRef.current.textContent = "";
     }
 
@@ -465,6 +469,11 @@ export function useTranscription() {
       const p = activeBubbleRef.current.parentElement;
       if (p) p.className = CLS.textFin;
     }
+
+    // Speaker guard: only translate once a speaker has been confirmed by
+    // diarization. Without a speaker the segment is still in a speculative
+    // state and should not receive a translation.
+    if (currentSpeakerRef.current === undefined) return;
 
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
@@ -715,8 +724,6 @@ export function useTranscription() {
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      startTranslationInterval();
-
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
       analyser.fftSize  = 256;
@@ -757,7 +764,7 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
+  }, [getTokenMut, startSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
