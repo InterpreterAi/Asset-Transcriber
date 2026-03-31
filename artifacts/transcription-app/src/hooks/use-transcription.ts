@@ -197,6 +197,10 @@ export function useTranscription() {
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
+  // True only after Soniox has explicitly reported a language code for this session.
+  // The interval guard uses this to prevent polling before language is known, which
+  // was the cause of source-language appearing in the translation column.
+  const langDetectedRef   = useRef<boolean>(false);
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
   const langPairRef       = useRef<{ a: string; b: string }>({ a: "en", b: "ar" });
@@ -328,6 +332,10 @@ export function useTranscription() {
     translationIntervalRef.current = setInterval(() => {
       const buffer = liveBufferRef.current;
       if (!buffer || buffer === lastTranslatedBuffer.current) return;
+      // Guard: only poll once Soniox has explicitly reported a language code.
+      // Before that point, detectedLangRef holds the "en" default which would
+      // cause the wrong translation direction and source-lang flicker.
+      if (!langDetectedRef.current) return;
       dispatchTranslation(buffer, detectedLangRef.current, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
@@ -427,9 +435,12 @@ export function useTranscription() {
     lastTranslatedBuffer.current = "";
     detectedLangRef.current      = "en";
 
+    // Restart polling for the new segment (softFinalize stopped it for the previous one).
+    startTranslationInterval();
+
     scrollPanel(true);
     return finalSpan;
-  }, [scrollPanel]);
+  }, [scrollPanel, startTranslationInterval]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -571,7 +582,10 @@ export function useTranscription() {
       const newFinals = finals.slice(finalCountRef.current);
 
       const langToken = newFinals.find(t => t.language) ?? finals.find(t => t.language);
-      if (langToken?.language) detectedLangRef.current = langToken.language;
+      if (langToken?.language) {
+        detectedLangRef.current = langToken.language;
+        langDetectedRef.current = true;  // Soniox confirmed the language — unlock interval
+      }
 
       for (const token of newFinals) {
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
@@ -701,6 +715,8 @@ export function useTranscription() {
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
+      startTranslationInterval();
+
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
       analyser.fftSize  = 256;
@@ -741,7 +757,7 @@ export function useTranscription() {
       setError(msg);
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop]);
+  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
