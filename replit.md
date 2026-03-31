@@ -1,4 +1,4 @@
-# InterpretAI — Project Handoff
+# InterpreterAI — Project Handoff
 
 ## What This Is
 
@@ -186,7 +186,7 @@ interface LiveTranscript {
 
 ### UI Layout
 - **Sidebar** (64px): User / Mic / Globe / Admin icons + logout at bottom
-- **Header** (52px): "InterpretAI" branding + trial badge + daily usage badge
+- **Header** (52px): "InterpreterAI" branding + trial badge + daily usage badge
 - **Split panels**: Left = original transcript (chat bubbles), Right = translations (mirrored bubbles)
 - **Bottom toolbar**: Row 1 = single device selector (all system inputs) + VU meter; Row 2 = Language A + swap + Language B + Record button (centred)
 - Per-bubble copy icon (appears on hover), no "Copy All"

@@ -13,7 +13,7 @@ export default function Landing() {
           <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-sm">
             <Mic2 className="w-4 h-4 text-white" />
           </div>
-          <span className="font-display font-bold text-[17px] tracking-tight">InterpretAI</span>
+          <span className="font-display font-bold text-[17px] tracking-tight">InterpreterAI</span>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -197,7 +197,7 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Mic2 className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">© 2026 InterpretAI</span>
+            <span className="text-sm text-muted-foreground">© 2026 InterpreterAI</span>
           </div>
           <div className="flex items-center gap-6">
             <button onClick={() => setLocation("/terms")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">

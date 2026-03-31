@@ -13,7 +13,7 @@ export default function Privacy() {
           <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center">
             <Mic2 className="w-4 h-4 text-white" />
           </div>
-          <span className="font-display font-bold text-lg">InterpretAI</span>
+          <span className="font-display font-bold text-lg">InterpreterAI</span>
         </div>
         <div className="bg-white rounded-2xl border border-border shadow-sm p-8 prose prose-sm max-w-none">
           <h1>Privacy Policy</h1>
@@ -66,7 +66,7 @@ export default function Privacy() {
           <p>We may update this policy. We will notify you of significant changes via email or in-app notification.</p>
 
           <h2>11. Contact</h2>
-          <p>For privacy inquiries: <a href="mailto:privacy@interpretai.com">privacy@interpretai.com</a></p>
+          <p>For privacy inquiries: <a href="mailto:privacy@interpreterai.com">privacy@interpreterai.com</a></p>
         </div>
       </div>
     </div>

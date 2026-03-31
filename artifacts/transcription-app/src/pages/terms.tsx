@@ -13,17 +13,17 @@ export default function Terms() {
           <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center">
             <Mic2 className="w-4 h-4 text-white" />
           </div>
-          <span className="font-display font-bold text-lg">InterpretAI</span>
+          <span className="font-display font-bold text-lg">InterpreterAI</span>
         </div>
         <div className="bg-white rounded-2xl border border-border shadow-sm p-8 prose prose-sm max-w-none">
           <h1>Terms of Service</h1>
           <p className="text-muted-foreground text-sm">Last updated: March 2026</p>
 
           <h2>1. Acceptance of Terms</h2>
-          <p>By accessing or using InterpretAI ("Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service.</p>
+          <p>By accessing or using InterpreterAI ("Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service.</p>
 
           <h2>2. Description of Service</h2>
-          <p>InterpretAI provides real-time AI-powered transcription and translation services for professional interpreters. The Service is provided on a subscription basis following a free trial period.</p>
+          <p>InterpreterAI provides real-time AI-powered transcription and translation services for professional interpreters. The Service is provided on a subscription basis following a free trial period.</p>
 
           <h2>3. Free Trial</h2>
           <p>New accounts receive a 14-day free trial with a daily usage limit of 5 hours (300 minutes). The trial begins on the date of account creation. No credit card is required during the trial.</p>
@@ -52,7 +52,7 @@ export default function Terms() {
           <p>We may update these terms at any time. Continued use of the Service after changes constitutes acceptance of the new terms.</p>
 
           <h2>10. Contact</h2>
-          <p>For questions about these Terms, contact us at <a href="mailto:legal@interpretai.com">legal@interpretai.com</a>.</p>
+          <p>For questions about these Terms, contact us at <a href="mailto:legal@interpreterai.com">legal@interpreterai.com</a>.</p>
         </div>
       </div>
     </div>

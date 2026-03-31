@@ -1,7 +1,7 @@
 import { getUncachableStripeClient } from "./stripeClient.js";
 
 /**
- * Seed InterpretAI subscription plans in Stripe.
+ * Seed InterpreterAI subscription plans in Stripe.
  *
  * Idempotent — checks if each product exists before creating it.
  *
@@ -14,14 +14,14 @@ async function createProducts() {
 
   // ── Basic Plan ($19/mo, $180/yr) — 500 min/day ───────────────────────────
   const existingBasic = await stripe.products.search({
-    query: "name:'InterpretAI Basic' AND active:'true'",
+    query: "name:'InterpreterAI Basic' AND active:'true'",
   });
 
   if (existingBasic.data.length > 0) {
     console.log("Basic plan already exists:", existingBasic.data[0].id);
   } else {
     const basic = await stripe.products.create({
-      name: "InterpretAI Basic",
+      name: "InterpreterAI Basic",
       description: "500 min/day transcription & translation. Perfect for part-time interpreters.",
       metadata: { planType: "basic", dailyLimitMinutes: "500" },
     });
@@ -48,14 +48,14 @@ async function createProducts() {
 
   // ── Professional Plan ($49/mo, $470/yr) — 1,500 min/day ─────────────────
   const existingPro = await stripe.products.search({
-    query: "name:'InterpretAI Professional' AND active:'true'",
+    query: "name:'InterpreterAI Professional' AND active:'true'",
   });
 
   if (existingPro.data.length > 0) {
     console.log("Professional plan already exists:", existingPro.data[0].id);
   } else {
     const pro = await stripe.products.create({
-      name: "InterpretAI Professional",
+      name: "InterpreterAI Professional",
       description: "1,500 min/day transcription & translation. Built for full-time interpreters.",
       metadata: { planType: "professional", dailyLimitMinutes: "1500" },
     });
@@ -82,14 +82,14 @@ async function createProducts() {
 
   // ── Unlimited Plan ($99/mo, $950/yr) — unlimited ─────────────────────────
   const existingUnlimited = await stripe.products.search({
-    query: "name:'InterpretAI Unlimited' AND active:'true'",
+    query: "name:'InterpreterAI Unlimited' AND active:'true'",
   });
 
   if (existingUnlimited.data.length > 0) {
     console.log("Unlimited plan already exists:", existingUnlimited.data[0].id);
   } else {
     const unlimited = await stripe.products.create({
-      name: "InterpretAI Unlimited",
+      name: "InterpreterAI Unlimited",
       description: "No daily limits. For interpretation agencies and heavy users.",
       metadata: { planType: "unlimited", dailyLimitMinutes: "99999" },
     });
