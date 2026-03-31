@@ -272,11 +272,38 @@ export function useTranscription() {
 
     lastTranslatedBuffer.current = text;
 
-    // Guard: only translate if the detected language belongs to the selected pair.
-    // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
-    // skip translation entirely — the raw transcript is shown as-is.
+    const { transTextEl, copyTransBtn } = state;
+
+    // ── Language-pair enforcement ─────────────────────────────────────────────
+    // Only call the translation API when the detected language is one of the two
+    // selected languages. If it's a third language (e.g. Spanish when the pair
+    // is English ↔ Arabic), copy the original transcript text verbatim into the
+    // translation column so the interpreter can still read what was said.
     const pair = langPairRef.current;
-    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) return;
+    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) {
+      // Passthrough: write source text directly — skip stabilization check on
+      // the first result, apply it on subsequent live updates to avoid flicker.
+      if (isFinal || state.lastShownLen === 0 || text.length >= state.lastShownLen * STABILIZE_RATIO) {
+        const isAr = /[\u0600-\u06FF]/.test(text);
+        transTextEl.dir             = isAr ? "rtl" : "ltr";
+        transTextEl.style.textAlign = isAr ? "right" : "";
+        if (isAr) {
+          transTextEl.lang      = "ar";
+          transTextEl.className = CLS.transText + " ts-arabic";
+        } else {
+          transTextEl.removeAttribute("lang");
+          transTextEl.className = CLS.transText;
+        }
+        transTextEl.textContent = text;
+        state.lastShownLen = text.length;
+        if (isFinal) state.translationLocked = true;
+        if (copyTransBtn.disabled) {
+          enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
+        }
+        scrollPanel();
+      }
+      return;
+    }
 
     state.seq += 1;
     const mySeq        = state.seq;
@@ -284,7 +311,6 @@ export function useTranscription() {
     // If Soniox detected "ar" and pair is {a:"en", b:"ar"} → target = "en".
     // If Soniox detected "en" → target = "ar".
     const myTargetLang = resolveTarget(lang, pair);
-    const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
