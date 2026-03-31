@@ -14,7 +14,7 @@ import {
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { 
-  Users, Activity, Clock, Plus, Trash2, Power, PowerOff, ArrowLeft, Star, LayoutDashboard
+  Users, Activity, Clock, Plus, Trash2, Trash, Power, PowerOff, ArrowLeft, Star, LayoutDashboard, RefreshCw
 } from "lucide-react";
 import { Button, Card, Input, Select } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
