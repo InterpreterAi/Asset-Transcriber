@@ -262,6 +262,18 @@ All Stripe code is fully wired and ready. The integration was deferred by the us
 
 ---
 
+## Email (Welcome Emails via Resend)
+
+Welcome emails are sent on signup (email and Google OAuth). The code is in `artifacts/api-server/src/lib/email.ts`.
+
+**To enable:** Add `RESEND_API_KEY` as an environment secret. The Replit Resend connector was dismissed by the user — use the secret directly.
+
+Without the key, emails are silently skipped (warning logged, no crash).
+
+Also requires a verified sender domain in the Resend dashboard. Update `FROM_ADDRESS` in `email.ts` to match your verified domain.
+
+---
+
 ## What Still Could Be Improved
 
 - Diarization mapping is heuristic (tag 1 → Interpreter). A smarter approach would track which device audio first activated which tag.
