@@ -491,9 +491,17 @@ export function useTranscription() {
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
-  // final translation. isFinal=true bypasses the stabilization check.
-  // Stops the polling interval FIRST so no in-flight poll requests can race
-  // against the final fetch and overwrite the locked translation.
+  // final translation using the complete finalized text for this segment.
+  //
+  // WHY we no longer guard with `finalText !== lastTranslatedBuffer`:
+  //   Race: the 700ms poll may fire with the full text just before finalize,
+  //   setting lastTranslatedBuffer to the complete string. softFinalize then
+  //   sees them equal and skips the dispatch. Simultaneously the in-flight poll
+  //   result is blocked by state.finalizing — so nothing is ever written.
+  //   Fix: ALWAYS dispatch the final translation here. The translationLocked
+  //   guard inside dispatchTranslation is the definitive duplicate-prevention
+  //   mechanism — if a result was already written, translationLocked=true and
+  //   dispatchTranslation returns immediately with no API call.
   const softFinalize = useCallback(() => {
     if (!activeBubbleRef.current) return;
 
@@ -515,8 +523,11 @@ export function useTranscription() {
       if (p) p.className = CLS.textFin;
     }
 
+    // Always dispatch with isFinal=true using the complete segment text.
+    // translationLocked inside dispatchTranslation prevents any overwrite if
+    // a result was already committed (e.g. a poll result arrived in time).
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
-    if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+    if (finalText.length > 2) {
       dispatchTranslation(finalText, detectedLangRef.current, true);
     }
   }, [dispatchTranslation, stopTranslationInterval]);
