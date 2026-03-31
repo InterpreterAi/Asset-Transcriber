@@ -723,7 +723,7 @@ export default function Workspace() {
             {/* Transcript header */}
             <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-3 px-4 shrink-0">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                Transcript
+                Practice Output
               </span>
               {transcription.audioInfo && (
                 <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
@@ -736,6 +736,9 @@ export default function Workspace() {
                   Listening
                 </span>
               )}
+              <span className="hidden sm:block text-[9px] text-muted-foreground/40 italic">
+                Audio is processed in real time and is not stored.
+              </span>
               {/* Text size selector */}
               <div className="flex items-center gap-0.5 border border-border/60 rounded-md overflow-hidden bg-muted/30 shrink-0">
                 <Type className="w-3 h-3 text-muted-foreground/50 ml-1.5" />

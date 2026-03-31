@@ -136,6 +136,10 @@ export default function Login() {
             Start free trial
           </button>
         </p>
+        <div className="flex items-center justify-center gap-5 mt-4">
+          <button onClick={() => setLocation("/terms")} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Terms of Use</button>
+          <button onClick={() => setLocation("/privacy")} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</button>
+        </div>
       </motion.div>
     </div>
   );

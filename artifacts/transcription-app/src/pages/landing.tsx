@@ -46,16 +46,16 @@ export default function Landing() {
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold tracking-tight text-foreground mb-5 leading-[1.1]">
-            AI Assistant for<br />
+            AI Language Support for<br />
             <span className="text-primary">Professional Interpreters</span>
           </h1>
 
           <p className="text-lg sm:text-xl text-muted-foreground mb-4 max-w-2xl mx-auto leading-relaxed font-medium">
-            Real-time transcription and translation during live calls.
+            A professional development workspace for language practice and terminology preparation.
           </p>
 
           <p className="text-base text-muted-foreground mb-9 max-w-2xl mx-auto leading-relaxed">
-            InterpreterAI listens to the caller and instantly displays the transcript and translation so interpreters can focus on delivering clear, accurate interpretation without mental overload.
+            InterpreterAI transcribes and translates speech in real time, giving interpreters a powerful training tool to review vocabulary, reinforce terminology, and build confidence in their language pairs.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -84,18 +84,18 @@ export default function Landing() {
               Built for the Way You Work
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
-              Professional interpreters handle fast conversations, complex terminology, and high-pressure situations.
-              InterpreterAI helps you stay precise during every live call.
+              Professional interpreters handle fast conversations, complex terminology, and high-pressure assignments.
+              InterpreterAI gives you a powerful language support workspace to sharpen your skills and prepare with confidence.
             </p>
           </motion.div>
 
           <motion.ul {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
             {[
-              "Real-time transcription during live interpretation",
+              "Real-time transcription for language practice and training",
               "Instant translation between language pairs",
-              "Speaker detection for clearer conversations",
-              "Reduce interpreter fatigue during long calls",
-              "Stay focused on the caller instead of memorizing long sentences",
+              "Speaker detection for clearer practice sessions",
+              "Build confidence and reduce mental fatigue during study",
+              "Review and reinforce terminology before professional assignments",
             ].map(item => (
               <li key={item} className="flex items-start gap-3 bg-[#f5f5f7] rounded-xl px-4 py-3.5">
                 <div className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -121,25 +121,25 @@ export default function Landing() {
               icon: <Zap className="w-5 h-5 text-violet-600" />,
               color: "bg-violet-100",
               title: "Real-Time Speech Capture",
-              desc: "Captures every spoken word instantly so you never miss critical information during live interpretation.",
+              desc: "Transcribes every spoken word instantly during language practice sessions — giving you a live written reference as you work.",
             },
             {
               icon: <Globe className="w-5 h-5 text-blue-600" />,
               color: "bg-blue-100",
               title: "Interpreter-Grade Translation",
-              desc: "Bidirectional translation designed for professional interpreting workflows.",
+              desc: "Bidirectional translation across 35+ languages, designed for professional terminology preparation.",
             },
             {
               icon: <Users className="w-5 h-5 text-emerald-600" />,
               color: "bg-emerald-100",
               title: "Speaker Identification",
-              desc: "Automatically separates speakers so interpreters always know who said what.",
+              desc: "Automatically separates speakers so you can follow multi-party practice dialogues with clarity.",
             },
             {
               icon: <Monitor className="w-5 h-5 text-orange-600" />,
               color: "bg-orange-100",
-              title: "Works With Live Calls",
-              desc: "Designed to work alongside Zoom, Microsoft Teams, phone calls, and remote interpreting platforms.",
+              title: "Flexible Language Support Workspace",
+              desc: "Use your microphone for live practice, or capture audio from any browser tab during training and study sessions.",
             },
           ].map(({ icon, color, title, desc }) => (
             <div key={title} className="bg-white rounded-2xl border border-border p-6 shadow-sm">
@@ -218,28 +218,28 @@ export default function Landing() {
               color: "bg-blue-50 border-blue-100",
               iconBg: "bg-blue-100",
               title: "Medical Interpreters",
-              desc: "Follow fast doctor-patient conversations without missing medical terminology.",
+              desc: "Practice medical terminology and review vocabulary across specialties before professional assignments.",
             },
             {
               icon: <Gavel className="w-5 h-5 text-violet-600" />,
               color: "bg-violet-50 border-violet-100",
               iconBg: "bg-violet-100",
               title: "Court Interpreters",
-              desc: "Capture every statement precisely during legal proceedings.",
+              desc: "Reinforce legal terminology and train with complex multi-speaker dialogues.",
             },
             {
               icon: <Video className="w-5 h-5 text-emerald-600" />,
               color: "bg-emerald-50 border-emerald-100",
               iconBg: "bg-emerald-100",
               title: "Remote Interpreters",
-              desc: "Stay accurate during Zoom or phone interpretation sessions.",
+              desc: "Use as a personal language support workspace during practice and self-study sessions.",
             },
             {
               icon: <Building2 className="w-5 h-5 text-orange-600" />,
               color: "bg-orange-50 border-orange-100",
               iconBg: "bg-orange-100",
               title: "Conference Interpreters",
-              desc: "Keep up with rapid speakers during conferences and meetings.",
+              desc: "Prepare for rapid-speech environments by training with real audio material.",
             },
           ].map(({ icon, color, iconBg, title, desc }) => (
             <div key={title} className={`rounded-2xl border p-5 ${color}`}>
@@ -343,22 +343,30 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── SECTION 8 — FINAL CTA ─────────────────────────────────────────── */}
-      <section className="max-w-3xl mx-auto px-5 py-24 text-center">
+      {/* ── SECTION 8 — DISCLAIMER ────────────────────────────────────────── */}
+      <section className="max-w-3xl mx-auto px-5 pb-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
+          <p className="text-sm text-amber-800 leading-relaxed">
+            <strong>Important:</strong> This tool is designed for language practice and professional development. Users are responsible for ensuring their usage complies with their employer policies, contractual obligations, and confidentiality requirements.
+          </p>
+        </div>
+      </section>
+
+      {/* ── SECTION 9 — FINAL CTA ─────────────────────────────────────────── */}
+      <section className="max-w-3xl mx-auto px-5 py-20 text-center">
         <motion.div {...fade(0)}>
           <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-4">
-            Professional interpreters don't guess.<br className="hidden sm:block" /> They rely on precision.
+            Sharpen your skills.<br className="hidden sm:block" /> Prepare with confidence.
           </h2>
           <p className="text-muted-foreground text-lg mb-8">
-            InterpreterAI makes sure you never miss a word.
+            InterpreterAI is your personal language support workspace for terminology preparation and professional development.
           </p>
           <button
             onClick={() => setLocation("/signup")}
             className="inline-flex items-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
           >
-            Start Free Trial <ChevronRight className="w-4 h-4" />
+            Start Free Trial · No credit card required <ChevronRight className="w-4 h-4" />
           </button>
-          <p className="mt-4 text-sm text-muted-foreground">No credit card required</p>
         </motion.div>
       </section>
 
@@ -370,7 +378,7 @@ export default function Landing() {
             <span className="text-sm text-muted-foreground">© 2026 InterpreterAI</span>
           </div>
           <div className="flex items-center gap-6">
-            <button onClick={() => setLocation("/terms")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms of Service</button>
+            <button onClick={() => setLocation("/terms")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms of Use</button>
             <button onClick={() => setLocation("/privacy")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</button>
           </div>
         </div>

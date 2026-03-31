@@ -145,7 +145,7 @@ export default function Signup() {
             <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
               By signing up you agree to our{" "}
               <button type="button" onClick={() => setLocation("/terms")} className="underline hover:text-foreground">
-                Terms of Service
+                Terms of Use
               </button>{" "}
               and{" "}
               <button type="button" onClick={() => setLocation("/privacy")} className="underline hover:text-foreground">
