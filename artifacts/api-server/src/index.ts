@@ -88,16 +88,15 @@ async function ensureAdminUser() {
     if (existing.length === 0) {
       const passwordHash = await hashPassword("admin123");
       const now = new Date();
-      const trialEnds = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
       await db.insert(usersTable).values({
         username: "admin",
         email: "admin@interpreterai.com",
         passwordHash,
         isAdmin: true,
         isActive: true,
-        planType: "trial",
+        planType: "unlimited",
         trialStartedAt: now,
-        trialEndsAt: trialEnds,
+        trialEndsAt: new Date("2099-12-31"),
         dailyLimitMinutes: 9999,
         lastUsageResetAt: now,
       });
