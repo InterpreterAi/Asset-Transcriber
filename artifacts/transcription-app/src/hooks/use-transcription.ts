@@ -210,10 +210,10 @@ export function useTranscription() {
   const chunkStoreRef  = useRef<Map<number, { text: string; translation: string | null }>>(new Map());
   const chunkIdCounter = useRef(0);
 
-  // ── Chunk debounce ─────────────────────────────────────────────────────────
-  // Accumulates new-final text across consecutive onmessage calls before
-  // dispatching a single translation request. This keeps API call frequency low
-  // (one request per 200ms window) while preserving real-time feel.
+  // ── Chunk flush buffer ────────────────────────────────────────────────────
+  // New final tokens accumulate here between flush events.  Flushed immediately
+  // on punctuation / length cap; falls back to an 800ms silence window; always
+  // flushed synchronously on speaker change / stop so no text is lost.
   const pendingChunkRef       = useRef<{ text: string; state: BubbleTransState } | null>(null);
   const chunkDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -308,10 +308,10 @@ export function useTranscription() {
   }, [renderBubbleTranslation]);
 
   // ── flushPendingChunk / accumulateChunk ────────────────────────────────────
-  // Debounced dispatch: instead of firing one translation request per onmessage,
-  // accumulate new-final text for up to 200 ms then send a single request.
-  // flushPendingChunk() fires immediately — called on speaker change so the
-  // accumulated text is translated against the correct bubble before it closes.
+  // flushPendingChunk: immediate drain — used on speaker change / stop / silence.
+  //   Always translates pending text regardless of length so nothing is lost.
+  // accumulateChunk: smart trigger — fires immediately on punctuation or when the
+  //   buffer hits 60 chars; falls back to an 800ms silence timer otherwise.
   const flushPendingChunk = useCallback(() => {
     if (chunkDebounceTimerRef.current !== null) {
       clearTimeout(chunkDebounceTimerRef.current);
@@ -324,22 +324,52 @@ export function useTranscription() {
     }
   }, [addChunk]);
 
+  // Smart flush: fires immediately on punctuation or length cap; waits up to
+  // CHUNK_SILENCE_MS for more text otherwise (gives a natural batching window).
+  // Translation is only triggered when accumulated text is >= CHUNK_TRANSLATE_MIN
+  // to avoid wasting API calls on single words.
+  const CHUNK_MAX_CHARS      = 60;   // flush when buffer gets this long
+  const CHUNK_MIN_CHARS      = 8;    // punctuation flush only above this size
+  const CHUNK_TRANSLATE_MIN  = 10;   // minimum chars to fire a translation
+  const CHUNK_SILENCE_MS     = 800;  // fallback silence window
+  const PUNCT_RE             = /[.?!]\s*$/;
+
   const accumulateChunk = useCallback((text: string, state: BubbleTransState) => {
     if (!pendingChunkRef.current) {
       pendingChunkRef.current = { text, state };
     } else {
       pendingChunkRef.current.text += text;
     }
+
+    const buf = pendingChunkRef.current.text;
+    const shouldFlushNow =
+      buf.length >= CHUNK_MAX_CHARS ||
+      (buf.length >= CHUNK_MIN_CHARS && PUNCT_RE.test(buf));
+
+    if (shouldFlushNow) {
+      if (chunkDebounceTimerRef.current !== null) {
+        clearTimeout(chunkDebounceTimerRef.current);
+        chunkDebounceTimerRef.current = null;
+      }
+      const pending = pendingChunkRef.current;
+      pendingChunkRef.current = null;
+      if (pending.text.trim().length >= CHUNK_TRANSLATE_MIN) {
+        addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
+      }
+      return;
+    }
+
+    // Reset the silence fallback timer.
     if (chunkDebounceTimerRef.current !== null) clearTimeout(chunkDebounceTimerRef.current);
     chunkDebounceTimerRef.current = setTimeout(() => {
       chunkDebounceTimerRef.current = null;
       const pending = pendingChunkRef.current;
       pendingChunkRef.current = null;
-      if (pending?.text.trim() && pending.state) {
+      if (pending?.text.trim() && pending.text.trim().length >= CHUNK_TRANSLATE_MIN) {
         addChunk(pending.text.trim(), detectedLangRef.current, pending.state);
       }
-    }, 200);
-  }, [addChunk]);
+    }, CHUNK_SILENCE_MS);
+  }, [addChunk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── createBubble ──────────────────────────────────────────────────────────
   // Builds a two-column segment row with color-coded speaker tags.
