@@ -275,7 +275,7 @@ export default function Workspace() {
   const isBlocked      = user.trialExpired || isLimitReached;
 
   return (
-    <div className="h-screen w-screen bg-background flex overflow-hidden text-foreground">
+    <div className="h-[100dvh] w-full max-w-[100vw] bg-background flex overflow-hidden text-foreground">
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
 
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
@@ -628,32 +628,41 @@ export default function Workspace() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
 
         {/* HEADER */}
-        <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-5 shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="font-bold text-[15px] tracking-tight">InterpreterAI</span>
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
-              <span className={`w-1.5 h-1.5 rounded-full ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
-              {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
+        <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-3 sm:px-5 shrink-0 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 mr-2">
+            <span className="font-bold text-[15px] tracking-tight whitespace-nowrap">InterpreterAI</span>
+            <span className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200 shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
+              <span className="truncate max-w-[160px]">{LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}</span>
             </span>
+            {transcription.isRecording && (
+              <span className="flex sm:hidden items-center gap-1 text-[10px] text-rose-500 font-semibold shrink-0">
+                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                Live
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={() => transcription.clear()}
               disabled={transcription.isRecording || !transcription.hasTranscript}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Clear
+              <span className="hidden sm:inline">Clear</span>
             </button>
-            <div className="bg-muted px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1.5 border border-border/50">
-              <Clock className="w-3 h-3" />
+            <div className="bg-muted px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1 sm:gap-1.5 border border-border/50">
+              <Clock className="w-3 h-3 shrink-0" />
               {user.planType === "unlimited"
-                ? <span>{formatMinutes(user.minutesUsedToday)} today · Unlimited</span>
-                : <span>{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
+                ? <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} today · Unlimited</span>
+                : <>
+                    <span className="sm:hidden">{formatMinutes(user.minutesRemainingToday)}</span>
+                    <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
+                  </>
               }
             </div>
             {user.planType === "trial" && (
-              <div className={`px-2.5 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${
+              <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
                 user.trialExpired
                   ? "bg-destructive/10 text-destructive border-destructive/20"
                   : "bg-muted text-muted-foreground border-border/50"
@@ -786,10 +795,12 @@ export default function Workspace() {
         {/* BOTTOM TOOLBAR */}
         <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Input source toggle + device/info + VU meter */}
-          <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40">
-            {/* Mode toggle */}
-            <div className="flex items-center rounded-lg border border-border/60 overflow-hidden bg-muted/30 shrink-0">
+          {/* ROW 1: Input source toggle + device/info + VU meter
+               Mobile: mode toggle + VU on line 1, selector on line 2
+               Desktop: all three on one line */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 pt-3 pb-2 border-b border-border/40">
+            {/* Mode toggle — order-1 always */}
+            <div className="flex items-center rounded-lg border border-border/60 overflow-hidden bg-muted/30 shrink-0 order-1">
               <button
                 disabled={transcription.isRecording}
                 onClick={() => setInputMode("mic")}
@@ -800,7 +811,7 @@ export default function Workspace() {
                 }`}
               >
                 <Mic2 className="w-3.5 h-3.5" />
-                Microphone
+                Mic
               </button>
               <button
                 disabled={transcription.isRecording}
@@ -812,17 +823,24 @@ export default function Workspace() {
                 }`}
               >
                 <Monitor className="w-3.5 h-3.5" />
-                Tab Audio
+                <span className="hidden sm:inline">Tab </span>Audio
               </button>
             </div>
 
-            {/* Mic: device selector */}
+            {/* VU meter — order-2 on mobile (sits right of toggle on line 1),
+                          order-3 on desktop (rightmost) */}
+            <div className="w-16 sm:w-24 shrink-0 ml-auto order-2 sm:order-3">
+              <AudioMeter level={transcription.micLevel} label="" />
+            </div>
+
+            {/* Mic: device selector — order-3 on mobile (wraps to full-width line 2),
+                                       order-2 on desktop (middle slot) */}
             {inputMode === "mic" && (
               <Select
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-8 text-xs flex-1 min-w-0 max-w-xs bg-muted/30"
+                className="h-8 text-xs w-full sm:flex-1 sm:min-w-0 sm:max-w-xs bg-muted/30 order-3 sm:order-2"
               >
                 {devices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
@@ -832,11 +850,11 @@ export default function Workspace() {
               </Select>
             )}
 
-            {/* Tab Audio: how-to hint */}
+            {/* Tab Audio: how-to hint — order-3 on mobile, order-2 on desktop */}
             {inputMode === "tab" && (
-              <div className="flex-1 min-w-0">
+              <div className="w-full sm:flex-1 sm:min-w-0 sm:w-auto order-3 sm:order-2">
                 {!transcription.isRecording ? (
-                  <ol className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                  <ol className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[10px] text-muted-foreground">
                     <li className="flex items-center gap-1">
                       <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">1</span>
                       Join your call in a browser tab
@@ -847,7 +865,7 @@ export default function Workspace() {
                     </li>
                     <li className="flex items-center gap-1">
                       <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">3</span>
-                      Pick the call tab &amp; enable "Share tab audio"
+                      Pick the tab &amp; enable "Share tab audio"
                     </li>
                   </ol>
                 ) : (
@@ -858,49 +876,50 @@ export default function Workspace() {
                 )}
               </div>
             )}
-
-            <div className="w-24 shrink-0 ml-auto">
-              <AudioMeter level={transcription.micLevel} label="" />
-            </div>
           </div>
 
-          {/* ROW 2: Translation pair + record button */}
-          <div className="flex items-center px-4 py-3 gap-3">
-            <div className="flex items-center gap-2">
+          {/* ROW 2: Translation pair + record button
+               Mobile:  language row on top, start button full-width below
+               Desktop: language selectors | centered start | invisible spacer mirror */}
+          <div className="flex flex-col sm:flex-row sm:items-center px-3 sm:px-4 py-3 gap-2 sm:gap-3">
+
+            {/* Language pair */}
+            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate</span>
               <Select
                 value={langA}
                 onChange={(e) => setLangA(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-9 text-sm w-[130px] bg-white border-border"
+                className="h-9 text-sm flex-1 sm:w-[130px] sm:flex-none bg-white border-border min-w-0"
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
-              <span className="text-xs font-semibold text-muted-foreground">↔</span>
+              <span className="text-xs font-semibold text-muted-foreground shrink-0">↔</span>
               <Select
                 value={langB}
                 onChange={(e) => setLangB(e.target.value)}
                 disabled={transcription.isRecording}
-                className="h-9 text-sm w-[130px] bg-white border-border"
+                className="h-9 text-sm flex-1 sm:w-[130px] sm:flex-none bg-white border-border min-w-0"
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
             </div>
 
-            <div className="flex-1 flex justify-center">
+            {/* Start / Stop button — full width on mobile, centered on desktop */}
+            <div className="w-full sm:flex-1 flex justify-center">
               {isBlocked ? (
-                <div className="h-11 px-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center font-medium text-sm border border-border">
+                <div className="w-full sm:w-auto h-11 sm:px-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center font-medium text-sm border border-border">
                   Limit Reached
                 </div>
               ) : (
-                <div className="relative">
+                <div className="relative w-full sm:w-auto">
                   {transcription.isRecording && (
                     <span className="absolute inset-0 rounded-full border-2 border-destructive animate-ping opacity-20 pointer-events-none" />
                   )}
                   <button
                     onClick={handleToggleRecording}
                     disabled={transcription.isStarting}
-                    className={`h-11 px-10 rounded-full flex items-center gap-2.5 font-semibold text-[15px] shadow-md transition-all active:scale-95 disabled:opacity-70 ${
+                    className={`w-full sm:w-auto h-11 sm:px-10 rounded-full flex items-center justify-center gap-2.5 font-semibold text-[15px] shadow-md transition-all active:scale-95 disabled:opacity-70 ${
                       transcription.isRecording
                         ? "bg-destructive text-white hover:bg-destructive/90"
                         : "bg-primary text-white hover:bg-primary/90"
@@ -913,8 +932,8 @@ export default function Workspace() {
               )}
             </div>
 
-            {/* Spacer to keep record button centred */}
-            <div className="flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
+            {/* Invisible spacer — desktop only, keeps Start button centred */}
+            <div className="hidden sm:flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
               <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
               <div className="h-9 w-[130px]" />
               <span className="text-xs font-semibold">↔</span>
