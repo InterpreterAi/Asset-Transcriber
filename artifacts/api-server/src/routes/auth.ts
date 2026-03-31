@@ -3,7 +3,7 @@ import { db, usersTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, or } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
-import { getUserWithResetCheck, buildUserInfo } from "../lib/usage.js";
+import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import crypto from "node:crypto";
@@ -49,6 +49,8 @@ router.post("/login", async (req, res) => {
 
   req.session.userId = user.id;
   req.session.isAdmin = user.isAdmin;
+
+  void touchActivity(user.id);
 
   const freshUser = await getUserWithResetCheck(user.id);
   if (!freshUser) {
@@ -359,6 +361,7 @@ router.get("/google/callback", async (req, res) => {
         ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`
     );
+    void touchActivity(user!.id);
 
     req.session.userId  = user!.id;
     req.session.isAdmin = user!.isAdmin;

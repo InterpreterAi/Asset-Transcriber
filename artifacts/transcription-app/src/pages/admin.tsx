@@ -52,7 +52,11 @@ export default function Admin() {
   const feedback = feedbackData?.feedback || [];
 
   const totalMinutes = users.reduce((acc, u) => acc + u.totalMinutesUsed, 0);
-  const activeCount = users.filter(u => u.isActive).length;
+  const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+  const activeCount = users.filter(u => {
+    const a = (u as any).lastActivityAt;
+    return a && new Date(a).getTime() > fiveMinAgo;
+  }).length;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +127,7 @@ export default function Admin() {
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Users</p>
               <p className="text-2xl font-bold mt-1 font-display">{activeCount}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">last 5 minutes</p>
             </div>
           </Card>
           <Card className="p-6 flex items-center gap-4 border-none shadow-sm">

@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
-import { getUserWithResetCheck, isTrialExpired } from "../lib/usage.js";
+import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
 
 // ── Translation memory ─────────────────────────────────────────────────────
@@ -133,6 +133,8 @@ router.post("/session/start", requireAuth, async (req, res) => {
     .values({ userId: user.id, startedAt: new Date(), lastActivityAt: new Date() })
     .returning();
 
+  void touchActivity(user.id);
+
   res.json({ sessionId: result[0]!.id, message: "Session started" });
 });
 
@@ -164,6 +166,8 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     .update(sessionsTable)
     .set({ lastActivityAt: new Date() })
     .where(eq(sessionsTable.id, sessionId));
+
+  void touchActivity(req.session.userId!);
 
   res.json({ ok: true });
 });

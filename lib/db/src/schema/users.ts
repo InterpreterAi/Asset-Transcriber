@@ -21,6 +21,7 @@ export const usersTable = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   googleAccountId: text("google_account_id").unique(),
+  lastActivity: timestamp("last_activity"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

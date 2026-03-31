@@ -547,6 +547,10 @@ components:
           type: number
         totalSessions:
           type: integer
+        lastActivityAt:
+          type: string
+          format: date-time
+          nullable: true
         createdAt:
           type: string
           format: date-time

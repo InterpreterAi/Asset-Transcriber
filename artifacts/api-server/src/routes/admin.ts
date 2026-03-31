@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, usersTable, feedbackTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, gt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import { getTrialDaysRemaining, isTrialExpired } from "../lib/usage.js";
@@ -21,9 +21,19 @@ router.get("/users", requireAdmin, async (_req, res) => {
       minutesUsedToday: u.minutesUsedToday,
       totalMinutesUsed: u.totalMinutesUsed,
       totalSessions: u.totalSessions,
+      lastActivityAt: u.lastActivity ?? null,
       createdAt: u.createdAt,
     })),
   });
+});
+
+router.get("/stats", requireAdmin, async (_req, res) => {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const rows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(usersTable)
+    .where(gt(usersTable.lastActivity, fiveMinutesAgo));
+  res.json({ activeUsers: Number(rows[0]?.count ?? 0) });
 });
 
 router.post("/users", requireAdmin, async (req, res) => {

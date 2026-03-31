@@ -1,6 +1,13 @@
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { User } from "@workspace/db";
+
+export async function touchActivity(userId: number): Promise<void> {
+  await db
+    .update(usersTable)
+    .set({ lastActivity: new Date() })
+    .where(eq(usersTable.id, userId));
+}
 
 export function resetDailyUsageIfNeeded(user: User): boolean {
   const now = new Date();
