@@ -658,29 +658,30 @@ export function useTranscription() {
 
           const { text, speaker } = pending;
 
-          // Resolve speaker change at commit time — text is written directly
-          // to the correct segment without ever appearing in the wrong one.
+          // ── Key invariant: NF tokens NEVER create a new speaker bubble. ──
+          // Only FINAL tokens establish segments.  NF text is shown only as a
+          // live preview inside a segment that FINAL tokens have already opened
+          // for the same speaker.  If no bubble is open, or the NF speaker
+          // differs from the confirmed speaker, we suppress the NF text and
+          // wait for finals — this guarantees text never moves between segments.
           if (
-            speaker !== undefined &&
-            activeBubbleRef.current !== null &&
-            speaker !== currentSpeakerRef.current
+            !activeBubbleRef.current ||
+            (speaker !== undefined && speaker !== currentSpeakerRef.current)
           ) {
-            finalizeLiveBubble();
-            currentSpeakerRef.current = speaker;
-            activeBubbleRef.current   = createBubble(speaker);
-            setHasTranscript(true);
-          } else if (!activeBubbleRef.current) {
-            currentSpeakerRef.current = speaker;
-            activeBubbleRef.current   = createBubble(speaker);
-            setHasTranscript(true);
+            // Wrong or unknown speaker — discard pending NF, clear any stale display.
+            if (activeBubbleNFRef.current) {
+              activeBubbleNFRef.current.textContent = "";
+            }
+            return;
           }
 
+          // Same speaker as the confirmed FINAL segment: safe to preview.
           if (activeBubbleNFRef.current) {
             activeBubbleNFRef.current.textContent = text;
           }
 
           // Update live buffer for translation polling after commit.
-          const ft = activeBubbleRef.current?.textContent ?? "";
+          const ft = activeBubbleRef.current.textContent ?? "";
           liveBufferRef.current = (ft + text).trim();
           scrollPanel();
         }, NF_BUFFER_MS);
