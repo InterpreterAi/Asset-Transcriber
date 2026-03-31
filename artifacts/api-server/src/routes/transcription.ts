@@ -181,20 +181,11 @@ function langName(code: string | undefined, fallback: string): string {
 //   3. Call GPT-4o-mini with interpreter-style + MSA prompt + glossary hints
 //   4. Store result in translation memory for future reuse
 router.post("/translate", requireAuth, async (req, res) => {
-  const { text, sourceLang, targetLang, context } = req.body as {
+  const { text, sourceLang, targetLang } = req.body as {
     text?: string;
     sourceLang?: string;
     targetLang?: string;
-    // Optional: last 1–2 finalized source-language segments for context.
-    // Model reads these for grammatical continuity but ONLY outputs the
-    // translation of `text` (the current segment).
-    context?: unknown;
   };
-  const priorSegments: string[] = Array.isArray(context)
-    ? (context as unknown[])
-        .filter((s): s is string => typeof s === "string" && s.trim().length > 1)
-        .slice(-2)
-    : [];
   if (!text || typeof text !== "string" || text.trim().length < 2) {
     res.status(400).json({ error: "text is required" });
     return;
@@ -236,27 +227,14 @@ router.post("/translate", requireAuth, async (req, res) => {
     `You are a professional simultaneous interpreter certified in ${srcName} and ${tgtName}. ` +
     "Your output must sound exactly like a trained human interpreter — accurate, natural, and concise.\n" +
     "Rules:\n" +
-    `- Preserve the full meaning of the ${srcName} source — do NOT omit, condense, or summarize any part\n` +
+    `- Preserve the full meaning of the ${srcName} source\n` +
     `- Use natural, idiomatic grammar as a native ${tgtName} speaker would\n` +
     "- Keep sentences short and conversational — do not expand or paraphrase excessively\n" +
     "- Maintain consistent terminology throughout the session\n" +
-    "- Reproduce ALL numbers, dates, quantities, and proper nouns exactly as spoken (do not round, spell out, or change them)\n" +
     arabicRule +
     termRule +
     "- Never add explanations, notes, or the original text\n" +
     "- Return ONLY the translated sentence, nothing else";
-
-  // Build the user message. When prior segments exist, prepend them so the
-  // model has conversational context for pronoun resolution, topic continuity,
-  // and grammatical flow — especially useful for Arabic verb agreement.
-  const contextBlock = priorSegments.length > 0
-    ? "Prior context (already translated — DO NOT repeat or re-translate these):\n" +
-      priorSegments.map((s, i) => `[${i + 1}] ${s}`).join("\n") +
-      "\n\n"
-    : "";
-
-  const userMessage =
-    `${contextBlock}Now translate ONLY the following spoken ${srcName} into natural, fluent ${tgtName}:\n\n${normalizedText}`;
 
   try {
     const resp = await openai.chat.completions.create({
@@ -264,7 +242,10 @@ router.post("/translate", requireAuth, async (req, res) => {
       temperature: 0,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
+        {
+          role: "user",
+          content: `Translate the following spoken ${srcName} into natural, fluent ${tgtName}:\n\n${normalizedText}`,
+        },
       ],
       max_completion_tokens: 512,
     });
