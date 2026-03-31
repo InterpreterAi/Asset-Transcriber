@@ -23,6 +23,7 @@
     "openai": "^6.33.0",
     "pino": "^9",
     "pino-http": "^10",
+    "resend": "^6.9.4",
     "scrypt-js": "^3.0.1"
   },
   "devDependencies": {

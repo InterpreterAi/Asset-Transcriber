@@ -6,6 +6,7 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
+import { sendWelcomeEmail } from "../lib/email.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -120,6 +121,7 @@ router.post("/signup", async (req, res) => {
   void sendTelegramNotification(
     `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration`
   );
+  void sendWelcomeEmail(email.toLowerCase());
 
   res.status(201).json({ user: buildUserInfo(user!) });
 });
@@ -361,6 +363,7 @@ router.get("/google/callback", async (req, res) => {
         ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`
     );
+    if (isNewUser) void sendWelcomeEmail(googleEmail);
     void touchActivity(user!.id);
 
     req.session.userId  = user!.id;
