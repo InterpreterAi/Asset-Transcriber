@@ -111,8 +111,11 @@ function matchesLang(detected: string, selected: string): boolean {
 }
 
 // Given a detected language code and the selected {a, b} pair, return the
-// target language code: if detected is B → translate to A, otherwise → B.
-// This makes the translation always go to the OPPOSITE of what was spoken.
+// target language code so translation always goes to the OPPOSITE language:
+//   detected = Language A  →  target = Language B
+//   detected = Language B  →  target = Language A
+//   detected = neither     →  target = Language B (third-language passthrough
+//                              handled upstream before this is ever called)
 function resolveTarget(detectedLang: string, pair: { a: string; b: string }): string {
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
@@ -327,11 +330,40 @@ export function useTranscription() {
     }
 
     state.seq += 1;
-    const mySeq        = state.seq;
-    // Resolve target at dispatch time: opposite of the detected source language.
-    // If Soniox detected "ar" and pair is {a:"en", b:"ar"} → target = "en".
-    // If Soniox detected "en" → target = "ar".
-    const myTargetLang = resolveTarget(lang, pair);
+    const mySeq = state.seq;
+
+    // Resolve target: always the opposite of the detected source language.
+    //   detected = pair.a → target = pair.b
+    //   detected = pair.b → target = pair.a
+    let myTargetLang = resolveTarget(lang, pair);
+
+    // Same-language guard: if the resolved target equals the detected source
+    // (can happen when the pair is identical on both sides, or from a BCP-47
+    // mismatch edge case), flip to the other pair language so we never call
+    // the translation API with source === target.
+    if (matchesLang(lang, myTargetLang)) {
+      myTargetLang = matchesLang(lang, pair.a) ? pair.b : pair.a;
+    }
+
+    // Additional safety: if source and target are STILL identical after the
+    // flip (only possible when pair.a === pair.b, which the UI should prevent),
+    // bail out and show the original text as a passthrough instead of wasting
+    // an API call on an identity translation.
+    if (matchesLang(lang, myTargetLang)) {
+      if (isFinal || state.lastShownLen === 0 || text.length >= state.lastShownLen * STABILIZE_RATIO) {
+        const isAr = /[\u0600-\u06FF]/.test(text);
+        transTextEl.dir             = isAr ? "rtl" : "ltr";
+        transTextEl.style.textAlign = isAr ? "right" : "";
+        if (isAr) { transTextEl.lang = "ar"; transTextEl.className = CLS.transText + " ts-arabic"; }
+        else { transTextEl.removeAttribute("lang"); transTextEl.className = CLS.transText; }
+        transTextEl.textContent = text;
+        state.lastShownLen = text.length;
+        if (isFinal) state.translationLocked = true;
+        if (copyTransBtn.disabled) enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
+        scrollPanel();
+      }
+      return;
+    }
 
     void (async () => {
       try {
