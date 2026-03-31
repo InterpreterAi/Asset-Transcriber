@@ -260,6 +260,8 @@ All Stripe code is fully wired and ready. The integration was deferred by the us
 
 **Connector ID** (for future reference): `connector:ccfg_stripe_01K611P4YQR0SZM11XFRQJC44Y`
 
+> ⚠️ **NOTE**: The Replit Stripe connector was dismissed by the user. Do NOT re-propose it automatically. To activate Stripe, ask the user to provide their `STRIPE_SECRET_KEY` manually and store it as an environment secret. The code is fully wired — once the secret is set, Stripe checkout, portal, and product sync will work without any code changes.
+
 ---
 
 ## HIPAA — Ephemeral Processing Design
