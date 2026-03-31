@@ -9,6 +9,10 @@ import { sessionMiddleware } from "./middlewares/session.js";
 
 const app: Express = express();
 
+// Trust the first proxy hop (Replit's edge) so express-rate-limit can read
+// the real client IP from X-Forwarded-For without throwing a ValidationError.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,

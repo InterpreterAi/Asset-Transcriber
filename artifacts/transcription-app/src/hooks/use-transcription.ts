@@ -122,11 +122,11 @@ async function fetchTranslation(text: string, sourceLang: string, targetLang: st
     method:      "POST",
     headers:     { "Content-Type": "application/json" },
     credentials: "include",
-    body:        JSON.stringify({ text, sourceLang, targetLang }),
+    body:        JSON.stringify({ text, srcLang: sourceLang, tgtLang: targetLang }),
   });
   if (!r.ok) return "";
-  const d = await r.json() as { translation?: string };
-  return d.translation?.trim() ?? "";
+  const d = await r.json() as { translated?: string };
+  return d.translated?.trim() ?? "";
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────────
