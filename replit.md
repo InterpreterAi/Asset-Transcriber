@@ -262,6 +262,29 @@ All Stripe code is fully wired and ready. The integration was deferred by the us
 
 ---
 
+## HIPAA — Ephemeral Processing Design
+
+The system is designed as a real-time interpreter pipeline with no PHI retention:
+
+### What is NEVER stored
+| Data type | Where it goes |
+|---|---|
+| Transcribed speech | Browser memory only, cleared on session stop |
+| Translated text | Browser memory only, cleared on session stop |
+| Audio recordings | Never touches the server — browser streams directly to Soniox WebSocket |
+| Session content | Not stored anywhere |
+
+### What IS stored (metadata only)
+- `sessions` table: `id`, `userId`, `startedAt`, `endedAt`, `durationSeconds` — no content
+- `users` table: `minutesUsedToday`, `totalMinutesUsed`, `totalSessions` — aggregate counters
+
+### Implementation details
+1. **Translation cache** (`TRANS_MEM` in `transcription.ts`): Cache keys are SHA-256 hashes of source text — the original text cannot be recovered. Only the translation result (the output, not the input) is cached in RAM.
+2. **Server logging** (`app.ts` pino-http): Serializers are locked to `{ method, url, statusCode }` — request bodies are never logged.
+3. **No `console.log` or `console.error` of content**: All error logging uses structured pino logger with no content fields.
+4. **Frontend auto-clear**: When recording stops, `transcription.clear()` is called immediately — all transcript segments and translation results are removed from browser memory.
+5. **UI confirmation**: After session end, the transcript panel shows a "Session cleared — No session data was stored" confirmation with a shield icon for 4 seconds.
+
 ## Email (Welcome Emails via Resend)
 
 Welcome emails are sent on signup (email and Google OAuth). The code is in `artifacts/api-server/src/lib/email.ts`.

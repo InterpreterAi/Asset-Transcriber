@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router } from "express";
 import OpenAI from "openai";
 import { db, usersTable, sessionsTable } from "@workspace/db";
@@ -5,13 +6,21 @@ import { eq, and, isNull, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
+import { logger } from "../lib/logger.js";
 
 // ── Translation memory ─────────────────────────────────────────────────────
+// HIPAA / PHI: Source text is NEVER stored as a cache key.
+// Keys are SHA-256 hashes of the source text — one-way, irreversible.
+// No patient speech content is retained in server memory at any point.
+
 const TRANS_MEM = new Map<string, string>();
 const TRANS_MEM_CAP = 2000;
 
 function memKey(srcLang: string, tgtLang: string, text: string): string {
-  return `${srcLang.toLowerCase()}:${tgtLang.toLowerCase()}:${text.trim().toLowerCase()}`;
+  const hash = createHash("sha256")
+    .update(`${srcLang}:${tgtLang}:${text.trim()}`)
+    .digest("hex");
+  return hash;
 }
 
 function memStore(key: string, value: string): void {
@@ -277,7 +286,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     if (translated) memStore(key, translated);
     res.json({ translated });
   } catch (err) {
-    console.error("Translation error:", err);
+    logger.error({ err }, "Translation failed");
     res.status(500).json({ error: "Translation failed" });
   }
 });

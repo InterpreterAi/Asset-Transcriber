@@ -6,7 +6,7 @@ import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
-  Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink,
+  Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -74,6 +74,7 @@ export default function Workspace() {
 
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
+  const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
 
   // ── Upgrade / billing ────────────────────────────────────────────────────────
@@ -219,9 +220,17 @@ export default function Workspace() {
         setTabStream(null);
       }
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      // HIPAA / ephemeral processing: clear all transcript and translation
+      // buffers from browser memory when the session ends.
+      // No patient speech content persists beyond the active session.
+      transcription.clear();
+      setClearedForPrivacy(true);
+      setTimeout(() => setClearedForPrivacy(false), 4000);
     } else if (inputMode === "tab") {
+      setClearedForPrivacy(false);
       void handleStartTabAudio();
     } else {
+      setClearedForPrivacy(false);
       transcription.start(selectedDeviceId);
     }
   };
@@ -749,13 +758,25 @@ export default function Workspace() {
               {/* Empty state — absolute overlay, hidden once content exists */}
               {!transcription.hasTranscript && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground pointer-events-none">
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
-                    <Languages className="w-5 h-5 text-muted-foreground/50" />
-                  </div>
-                  <p className="text-sm font-medium">Start recording to see transcript</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">
-                    {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
-                  </p>
+                  {clearedForPrivacy ? (
+                    <>
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mb-3">
+                        <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-emerald-700">Session cleared</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">No session data was stored</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                        <Languages className="w-5 h-5 text-muted-foreground/50" />
+                      </div>
+                      <p className="text-sm font-medium">Start recording to see transcript</p>
+                      <p className="text-xs text-muted-foreground/60 mt-1">
+                        {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </div>

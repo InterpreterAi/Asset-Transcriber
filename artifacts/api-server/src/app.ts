@@ -21,9 +21,19 @@ app.set("trust proxy", 1);
 app.use(
   pinoHttp({
     logger,
+    // HIPAA / PHI: serializers are locked to metadata only.
+    // Request bodies (which may contain transcribed speech or translations)
+    // are NEVER included in log output under any circumstance.
     serializers: {
       req(req) {
-        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
+        // Only log safe metadata — never url params that could contain PHI,
+        // never headers that could contain auth tokens beyond what pino redacts,
+        // and never the request body.
+        return {
+          id:     req.id,
+          method: req.method,
+          url:    req.url?.split("?")[0],  // strip query strings
+        };
       },
       res(res) {
         return { statusCode: res.statusCode };
