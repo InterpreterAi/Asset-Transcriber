@@ -12,6 +12,14 @@ const STABILIZE_RATIO     = 1.15;
 // Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
 // but short enough that natural sentence-end pauses close the segment cleanly.
 const SILENCE_TIMEOUT_MS  = 1200;
+// Language-confidence gate ─────────────────────────────────────────────────────
+// Soniox reports a language code on each final token. We maintain a sliding
+// window of the last LANG_WINDOW_SIZE codes and compute confidence as the
+// fraction belonging to the most-common code. Translation is suppressed until
+// confidence reaches LANG_CONFIDENCE_THRESHOLD. Once stable the gate stays open
+// for the rest of the session — no fixed delay is introduced anywhere.
+const LANG_WINDOW_SIZE          = 5;   // sliding window of final-token language codes
+const LANG_CONFIDENCE_THRESHOLD = 0.8; // 4 of 5 tokens must agree (or 3 of 3, etc.)
 
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -197,6 +205,11 @@ export function useTranscription() {
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef   = useRef<string>("en");
+  // Language-confidence gate refs. langWindowRef holds the last N final-token
+  // language codes. langStableRef flips to true once confidence crosses
+  // LANG_CONFIDENCE_THRESHOLD and then stays true for the rest of the session.
+  const langWindowRef     = useRef<string[]>([]);
+  const langStableRef     = useRef<boolean>(false);
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
   const langPairRef       = useRef<{ a: string; b: string }>({ a: "en", b: "ar" });
@@ -271,6 +284,12 @@ export function useTranscription() {
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
+
+    // Language-confidence gate — do NOT translate until the sliding window
+    // shows stable detection. Returning here WITHOUT updating lastTranslatedBuffer
+    // means the polling interval will keep retrying on every tick; the moment
+    // langStableRef flips true the accumulated buffer is sent immediately.
+    if (!langStableRef.current) return;
 
     lastTranslatedBuffer.current = text;
 
@@ -625,8 +644,29 @@ export function useTranscription() {
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
 
+      // Update detectedLang (original behaviour preserved) + feed confidence window.
+      // langToken uses the same fallback logic as before so detectedLang is always
+      // set to the most recent available code regardless of the window state.
       const langToken = newFinals.find(t => t.language) ?? finals.find(t => t.language);
       if (langToken?.language) detectedLangRef.current = langToken.language;
+
+      // Feed sliding window from new final tokens only (avoid re-counting old finals).
+      for (const t of newFinals) {
+        if (t.language) {
+          langWindowRef.current.push(t.language);
+          if (langWindowRef.current.length > LANG_WINDOW_SIZE) langWindowRef.current.shift();
+        }
+      }
+      // Flip the gate once ≥ 3 samples reach the confidence threshold.
+      // Once true it never resets — translation flows for the rest of the session.
+      if (!langStableRef.current && langWindowRef.current.length >= 3) {
+        const counts = new Map<string, number>();
+        for (const lang of langWindowRef.current) counts.set(lang, (counts.get(lang) ?? 0) + 1);
+        const maxCount = Math.max(...counts.values());
+        if (maxCount / langWindowRef.current.length >= LANG_CONFIDENCE_THRESHOLD) {
+          langStableRef.current = true;
+        }
+      }
 
       for (const token of newFinals) {
         if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
@@ -725,6 +765,8 @@ export function useTranscription() {
       lastTranslatedBuffer.current = "";
       finalCountRef.current        = 0;
       detectedLangRef.current      = "en";
+      langWindowRef.current        = [];
+      langStableRef.current        = false;
       resetSpeakerMap();
 
       const tokenRes   = await getTokenMut.mutateAsync({});
