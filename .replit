@@ -34,4 +34,3 @@ localPort = 3001
 [userenv]
 
 [userenv.shared]
-ADMIN_PASSWORD = "InterpreterAI2024"
