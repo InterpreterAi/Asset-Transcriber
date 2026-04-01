@@ -612,56 +612,86 @@ export default function Admin() {
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-[#f5f5f7] text-foreground">
-      <div className="max-w-7xl mx-auto p-4 lg:p-8 space-y-6">
+  const adminTabs = [
+    { id: "overview",  label: "Overview",  icon: <BarChart2 className="w-4 h-4" />,      badge: null },
+    { id: "monitor",   label: "Monitor",   icon: <Monitor className="w-4 h-4" />,         badge: sessions.length > 0 ? sessions.length : null },
+    { id: "users",     label: "Users",     icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
+    { id: "languages", label: "Languages", icon: <Languages className="w-4 h-4" />,       badge: null },
+    { id: "feedback",  label: "Feedback",  icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
+    { id: "support",   label: "Support",   icon: <LifeBuoy className="w-4 h-4" />,        badge: supportTickets.filter(t => t.status === "open").length > 0 ? supportTickets.filter(t => t.status === "open").length : null },
+    { id: "errors",    label: "Errors",    icon: <AlertTriangle className="w-4 h-4" />,   badge: null },
+  ];
 
-        {/* Header */}
-        <div className="flex flex-col gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setLocation("/")} className="w-fit text-muted-foreground hover:text-foreground -ml-2">
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Workspace
-          </Button>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-                <LayoutDashboard className="w-5 h-5" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-display font-semibold tracking-tight">Admin Dashboard</h1>
-                <p className="text-muted-foreground text-sm">Monitor usage, manage users, and track costs.</p>
-              </div>
+  return (
+    <div className="h-[100dvh] bg-[#f5f5f7] text-foreground flex overflow-hidden">
+
+      {/* ── ADMIN SIDEBAR ─────────────────────────────────────────────────── */}
+      <aside className="w-52 bg-white border-r border-border flex flex-col shrink-0 overflow-y-auto z-10">
+
+        {/* Logo / branding */}
+        <div className="px-4 py-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary shrink-0">
+              <LayoutDashboard className="w-4 h-4" />
             </div>
-            {sessions.length > 0 && (
-              <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 px-3 py-1.5 rounded-full border border-red-100">
-                <Radio className="w-3 h-3 animate-pulse" />
-                {sessions.length} Live Session{sessions.length > 1 ? "s" : ""}
-              </div>
-            )}
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tracking-tight truncate">Admin</p>
+              <p className="text-[10px] text-muted-foreground truncate">InterpreterAI</p>
+            </div>
           </div>
+          <button
+            onClick={() => setLocation("/")}
+            className="w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <ArrowLeft className="w-3 h-3 shrink-0" /> Back to Workspace
+          </button>
         </div>
 
-        {/* Main Tabs */}
-        <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl p-1 shadow-sm border border-border w-fit">
-          {[
-            { id: "overview",  label: "Overview",  icon: <BarChart2 className="w-3.5 h-3.5" /> },
-            { id: "monitor",   label: "Monitor",   icon: <Monitor className="w-3.5 h-3.5" /> },
-            { id: "users",     label: `Users (${allUsers.length})`, icon: <Users className="w-3.5 h-3.5" /> },
-            { id: "languages", label: "Languages", icon: <Languages className="w-3.5 h-3.5" /> },
-            { id: "feedback",  label: `Feedback (${feedback.length})`, icon: <MessageSquare className="w-3.5 h-3.5" /> },
-            { id: "support",   label: `Support${supportTickets.length > 0 ? ` (${supportTickets.filter(t=>t.status==="open").length} open)` : ""}`, icon: <LifeBuoy className="w-3.5 h-3.5" /> },
-            { id: "errors",    label: "Errors",    icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-          ].map(tab => (
+        {/* Live session badge */}
+        {sessions.length > 0 && (
+          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100 shrink-0">
+            <Radio className="w-3 h-3 animate-pulse shrink-0" />
+            {sessions.length} Live Session{sessions.length > 1 ? "s" : ""}
+          </div>
+        )}
+
+        {/* Nav items */}
+        <nav className="flex-1 px-2 py-3 space-y-0.5">
+          {adminTabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setMainTab(tab.id as typeof mainTab)}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${mainTab === tab.id
-                ? "bg-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
+                mainTab === tab.id
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              }`}
             >
-              {tab.icon}{tab.label}
+              <span className={`shrink-0 ${mainTab === tab.id ? "text-primary" : ""}`}>{tab.icon}</span>
+              <span className="flex-1 truncate">{tab.label}</span>
+              {tab.badge !== null && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                  mainTab === tab.id
+                    ? "bg-primary/20 text-primary"
+                    : "bg-muted text-muted-foreground"
+                }`}>
+                  {tab.badge}
+                </span>
+              )}
             </button>
           ))}
-        </div>
+        </nav>
+      </aside>
+
+      {/* ── MAIN CONTENT ──────────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-y-auto scroll-smooth">
+        <div className="max-w-6xl mx-auto p-4 lg:p-6 space-y-6">
+
+          {/* Page title */}
+          <div className="pt-1">
+            <h1 className="text-xl font-display font-semibold tracking-tight">{adminTabs.find(t => t.id === mainTab)?.label ?? "Admin"}</h1>
+            <p className="text-muted-foreground text-sm">Monitor usage, manage users, and track costs.</p>
+          </div>
 
         {/* ── OVERVIEW TAB ─────────────────────────────────────────────────── */}
         {mainTab === "overview" && (
@@ -1905,6 +1935,8 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      </main>
     </div>
   );
 }

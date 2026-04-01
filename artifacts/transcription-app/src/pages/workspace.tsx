@@ -1113,7 +1113,7 @@ export default function Workspace() {
             top-0 left-0 md:left-auto
             h-full md:h-auto
             z-30 md:z-auto
-            w-[260px] md:w-[220px]
+            w-[85vw] md:w-[38%] lg:w-[36%]
             shrink-0 flex flex-col gap-3 min-h-0
             transition-transform duration-200 ease-in-out
             pt-0 md:pt-0
@@ -1131,7 +1131,7 @@ export default function Workspace() {
             </div>
 
             {/* NOTES PANEL */}
-            <div className="h-[22%] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
+            <div className="h-[24%] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
               <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
                 <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
@@ -1139,17 +1139,19 @@ export default function Workspace() {
                   <span className="ml-auto text-[9px] text-muted-foreground/50 italic">cleared on end</span>
                 )}
               </div>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
-                className="flex-1 w-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
-                spellCheck={false}
-              />
+              <div className="flex-1 overflow-y-auto scroll-smooth min-h-0">
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
+                  className="w-full h-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
+                  spellCheck={false}
+                />
+              </div>
             </div>
 
             {/* TERMINOLOGY SEARCH PANEL */}
-            <div className="h-[40%] min-h-0 mx-3 md:mx-0">
+            <div className="h-[38%] min-h-0 mx-3 md:mx-0">
               <TerminologyPanel langA={langA} langB={langB} />
             </div>
 
