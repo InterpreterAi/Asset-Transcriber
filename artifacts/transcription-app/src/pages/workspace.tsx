@@ -751,9 +751,7 @@ export default function Workspace() {
                 <span className="text-[11px] text-muted-foreground">
                   {user.trialExpired
                     ? "Expired"
-                    : user.trialEndsAt
-                      ? `${Math.max(0, Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h left`
-                      : "Trial"}
+                    : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`}
                 </span>
               )}
             </div>
@@ -787,10 +785,20 @@ export default function Workspace() {
           <div className="p-4 border-b border-border/60">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2.5">Today's Usage</p>
             <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="font-medium">{Math.round(user.minutesUsedToday)} min used</span>
+              <span className="font-medium">
+                {(() => {
+                  const h = Math.floor(user.minutesUsedToday / 60);
+                  const m = Math.round(user.minutesUsedToday % 60);
+                  return h > 0 ? `${h}h ${m}m used` : `${m}m used`;
+                })()}
+              </span>
               {user.planType === "unlimited"
                 ? <span className="text-emerald-600 font-semibold">Unlimited</span>
-                : <span className="text-muted-foreground">/ {user.dailyLimitMinutes} min</span>
+                : <span className="text-muted-foreground">
+                    / {Math.floor(user.dailyLimitMinutes / 60) > 0
+                      ? `${Math.floor(user.dailyLimitMinutes / 60)}h`
+                      : `${user.dailyLimitMinutes}m`}
+                  </span>
               }
             </div>
             {user.planType !== "unlimited" && (
@@ -1139,9 +1147,7 @@ export default function Workspace() {
                 <AlertTriangle className="w-3 h-3" />
                 <span>{user.trialExpired
                   ? "Trial Expired"
-                  : user.trialEndsAt
-                    ? `${Math.max(0, Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h left`
-                    : "Trial"
+                  : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`
                 }</span>
               </div>
             )}
@@ -1154,7 +1160,7 @@ export default function Workspace() {
             {user.trialExpired ? (
               <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span className="flex-1">Your 12-hour trial has expired.</span>
+                <span className="flex-1">Your 14-day trial has expired.</span>
                 <button
                   onClick={handleOpenUpgrade}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white text-xs font-semibold hover:bg-destructive/90 transition-colors whitespace-nowrap shrink-0"

@@ -218,16 +218,16 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!trialEndsAt) return (
     <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
-  const hoursLeft = Math.max(0, (new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60));
-  if (hoursLeft <= 0) return (
+  const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+  if (daysLeft <= 0) return (
     <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
-  if (hoursLeft < 3) return (
+  if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{Math.ceil(hoursLeft)}h left
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left
     </span>
   );
-  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{Math.ceil(hoursLeft)}h left</span>;
+  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{daysLeft}d left</span>;
 }
 
 function sessionStatusBadge(userId: number, lastActivityAt: string | null | undefined, activeSessions: AdminStats["activeSessions"]) {

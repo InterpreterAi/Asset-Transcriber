@@ -278,7 +278,7 @@ router.post("/signup", async (req, res) => {
   }
 
   const passwordHash = await hashPassword(password);
-  const trialEndsAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
+  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
   const [user] = await db
     .insert(usersTable)
@@ -528,9 +528,9 @@ router.get("/google/callback", async (req, res) => {
           .where(eq(usersTable.id, user.id));
       }
     } else {
-      // Create a new account — same 12-hour trial as email signup.
+      // Create a new account — same 14-day trial as email signup.
       isNewUser = true;
-      const trialEndsAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
       const baseUsername = googleEmail.split("@")[0]!.replace(/[^a-z0-9._-]/gi, "_");
 
       [user] = await db

@@ -64,12 +64,12 @@ router.post("/token", requireAuth, async (req, res) => {
 
   // Only block on trial expiry when the user is still on the trial plan
   if (user.planType === "trial" && isTrialExpired(user)) {
-    res.status(403).json({ error: "Your trial has expired. Please subscribe to continue." });
+    res.status(403).json({ error: "Trial expired — please upgrade." });
     return;
   }
 
   if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-    res.status(403).json({ error: "Daily usage limit reached. Please upgrade to continue." });
+    res.status(403).json({ error: "Daily trial limit reached (5 hours). Try again tomorrow." });
     return;
   }
 
@@ -156,12 +156,12 @@ router.post("/session/start", requireAuth, async (req, res) => {
   if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
   if (user.planType === "trial" && isTrialExpired(user)) {
-    res.status(403).json({ error: "Your trial has expired. Please subscribe to continue." });
+    res.status(403).json({ error: "Trial expired — please upgrade." });
     return;
   }
 
   if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-    res.status(403).json({ error: "Daily usage limit reached." });
+    res.status(403).json({ error: "Daily trial limit reached (5 hours). Try again tomorrow." });
     return;
   }
 
