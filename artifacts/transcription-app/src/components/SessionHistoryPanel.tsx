@@ -176,7 +176,7 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
                           </span>
                           {src && tgt ? (
                             <span className="text-[9px] text-primary font-medium">
-                              {src.trim()} ↔ {tgt.trim()}
+                              {src.trim()} → {tgt.trim()}
                             </span>
                           ) : (
                             <span className="text-[9px] text-muted-foreground/50 italic">No translation</span>

@@ -87,6 +87,24 @@ router.post("/token", requireAuth, async (req, res) => {
 // Set to 60 s — matches the requirement in the feature spec.
 const STALE_SESSION_MS = 60_000;
 
+// ── Language code → display name lookup ────────────────────────────────────
+const LANG_NAMES: Record<string, string> = {
+  ar: "Arabic", bg: "Bulgarian", "zh-CN": "Chinese (Simplified)",
+  "zh-TW": "Chinese (Traditional)", hr: "Croatian", cs: "Czech",
+  da: "Danish", nl: "Dutch", en: "English", fa: "Persian (Farsi)",
+  fi: "Finnish", fr: "French", de: "German", el: "Greek",
+  he: "Hebrew", hi: "Hindi", hu: "Hungarian", id: "Indonesian",
+  it: "Italian", ja: "Japanese", ko: "Korean", ms: "Malay",
+  nb: "Norwegian", pl: "Polish", pt: "Portuguese", ro: "Romanian",
+  ru: "Russian", sk: "Slovak", es: "Spanish", sv: "Swedish",
+  th: "Thai", tr: "Turkish", uk: "Ukrainian", ur: "Urdu",
+  vi: "Vietnamese",
+};
+
+function langName(code: string): string {
+  return LANG_NAMES[code] ?? code;
+}
+
 // ── /session/start ─────────────────────────────────────────────────────────
 router.post("/session/start", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
@@ -102,6 +120,12 @@ router.post("/session/start", requireAuth, async (req, res) => {
     res.status(403).json({ error: "Daily usage limit reached." });
     return;
   }
+
+  // Language pair sent by the client (e.g. { srcLang: "en", tgtLang: "ar" })
+  const { srcLang, tgtLang } = req.body as { srcLang?: string; tgtLang?: string };
+  const langPair = (srcLang && tgtLang)
+    ? `${langName(srcLang)} → ${langName(tgtLang)}`
+    : null;
 
   // Check for an existing open session and decide whether it is still live
   // or whether it is a ghost left behind by a page refresh / server restart.
@@ -133,7 +157,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   const result = await db
     .insert(sessionsTable)
-    .values({ userId: user.id, startedAt: new Date(), lastActivityAt: new Date() })
+    .values({ userId: user.id, startedAt: new Date(), lastActivityAt: new Date(), langPair })
     .returning();
 
   void touchActivity(user.id);
@@ -244,7 +268,7 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     return;
   }
 
-  const pair = `${langA}↔${langB}`;
+  const pair = `${langName(langA)} → ${langName(langB)}`;
 
   // Write the lang pair to DB the first time we see it.
   if (!rows[0]!.langPair) {
@@ -361,23 +385,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  // Every translation request is processed ephemerally — no cache.
-  // The translated result is returned to the browser and immediately discarded.
-  const LANG_NAMES: Record<string, string> = {
-    "en": "English", "ar": "Arabic", "es": "Spanish", "fr": "French",
-    "de": "German", "it": "Italian", "pt": "Portuguese", "ru": "Russian",
-    "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional)",
-    "ja": "Japanese", "ko": "Korean", "hi": "Hindi", "tr": "Turkish",
-    "nl": "Dutch", "pl": "Polish", "sv": "Swedish", "da": "Danish",
-    "fi": "Finnish", "nb": "Norwegian", "cs": "Czech", "sk": "Slovak",
-    "ro": "Romanian", "hu": "Hungarian", "bg": "Bulgarian", "hr": "Croatian",
-    "uk": "Ukrainian", "el": "Greek", "he": "Hebrew", "fa": "Persian",
-    "ur": "Urdu", "vi": "Vietnamese", "id": "Indonesian", "ms": "Malay",
-    "th": "Thai",
-  };
-
-  const srcName = LANG_NAMES[srcLang] ?? srcLang;
-  const tgtName = LANG_NAMES[tgtLang] ?? tgtLang;
+  const srcName = langName(srcLang);
+  const tgtName = langName(tgtLang);
   const srcCode = srcLang.split("-")[0]!;
   const tgtCode = tgtLang.split("-")[0]!;
 
@@ -388,9 +397,10 @@ router.post("/translate", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
 
   // Capture lang pair on the user's open session (fire-and-forget, no await)
+  // Uses full language names so history shows "English → Arabic" not "en → ar".
   void db
     .update(sessionsTable)
-    .set({ langPair: `${srcLang} → ${tgtLang}` })
+    .set({ langPair: `${srcName} → ${tgtName}` })
     .where(and(
       eq(sessionsTable.userId, userId),
       isNull(sessionsTable.endedAt),
