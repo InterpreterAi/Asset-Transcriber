@@ -146,6 +146,28 @@ interface ErrorsSummary {
   byType1h:        { errorType: string; count: number }[];
 }
 
+interface LoginEventEntry {
+  id:            number;
+  userId:        number | null;
+  email:         string | null;
+  ipAddress:     string | null;
+  userAgent:     string | null;
+  success:       boolean;
+  failureReason: string | null;
+  is2fa:         boolean;
+  createdAt:     string;
+  username:      string | null;
+}
+
+interface LoginEventsSummary {
+  total24h:    number;
+  failures24h: number;
+  success24h:  number;
+  twoFa24h:    number;
+  lastHour:    number;
+  byReason:    { reason: string | null; count: number }[];
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(n: number) {
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
@@ -233,6 +255,8 @@ export default function Admin() {
   const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors">("overview");
 
   // ── Errors tab state ──────────────────────────────────────────────────────
+  const [errorsSubTab, setErrorsSubTab]       = useState<"api" | "login">("api");
+  const [loginEventFilter, setLoginEventFilter] = useState("all");
   const [errorTypeFilter, setErrorTypeFilter] = useState("all");
   const { data: errorsData, refetch: refetchErrors, isLoading: errorsLoading } = useQuery({
     queryKey: ["admin-errors", errorTypeFilter],
@@ -251,6 +275,27 @@ export default function Admin() {
       const res = await fetch("/api/admin/errors/summary", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch error summary");
       return res.json() as Promise<ErrorsSummary>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "errors",
+    refetchInterval: mainTab === "errors" ? 30_000 : false,
+  });
+  const { data: loginEventsData, refetch: refetchLoginEvents, isLoading: loginEventsLoading } = useQuery({
+    queryKey: ["admin-login-events", loginEventFilter],
+    queryFn: async () => {
+      const url = `/api/admin/login-events?limit=100${loginEventFilter !== "all" ? `&filter=${loginEventFilter}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch login events");
+      return res.json() as Promise<{ events: LoginEventEntry[] }>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "errors",
+    refetchInterval: mainTab === "errors" ? 30_000 : false,
+  });
+  const { data: loginEventsSummary, refetch: refetchLoginSummary } = useQuery({
+    queryKey: ["admin-login-events-summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/login-events/summary", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch login events summary");
+      return res.json() as Promise<LoginEventsSummary>;
     },
     enabled: !!me?.isAdmin && mainTab === "errors",
     refetchInterval: mainTab === "errors" ? 30_000 : false,
@@ -1127,6 +1172,147 @@ export default function Admin() {
         {/* ── ERRORS TAB ───────────────────────────────────────────────────── */}
         {mainTab === "errors" && (
           <div className="space-y-5">
+            {/* Sub-tab toggle */}
+            <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm w-fit">
+              {[
+                { id: "api" as const,   label: "API Errors" },
+                { id: "login" as const, label: "Login Events" },
+              ].map(t => (
+                <button key={t.id} onClick={() => setErrorsSubTab(t.id)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${errorsSubTab === t.id ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── LOGIN EVENTS sub-tab ── */}
+            {errorsSubTab === "login" && (
+              <div className="space-y-5">
+                {/* Login summary cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: "Total logins (24h)", value: loginEventsSummary?.total24h ?? "—",    color: "bg-blue-50 text-blue-700",   icon: <Activity className="w-4 h-4" /> },
+                    { label: "Successful",          value: loginEventsSummary?.success24h ?? "—",  color: "bg-green-50 text-green-700", icon: <CheckCircle className="w-4 h-4" /> },
+                    { label: "Failed",              value: loginEventsSummary?.failures24h ?? "—", color: "bg-red-50 text-red-700",     icon: <AlertTriangle className="w-4 h-4" /> },
+                    { label: "2FA verified",        value: loginEventsSummary?.twoFa24h ?? "—",    color: "bg-violet-50 text-violet-700", icon: <Lock className="w-4 h-4" /> },
+                  ].map(c => (
+                    <Card key={c.label} className="p-4 flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.color}`}>{c.icon}</div>
+                      <div>
+                        <p className="text-2xl font-bold leading-none">{c.value}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{c.label}</p>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* Login filter + refresh */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm">
+                    {["all", "success", "failure", "2fa"].map(f => (
+                      <button key={f} onClick={() => setLoginEventFilter(f)}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${loginEventFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}>
+                        {f === "all" ? "All" : f === "2fa" ? "2FA" : f.charAt(0).toUpperCase() + f.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => { void refetchLoginEvents(); void refetchLoginSummary(); }} className="gap-1.5 text-xs">
+                    <RefreshCw className="w-3 h-3" /> Refresh
+                  </Button>
+                </div>
+
+                {/* Login events table */}
+                <Card className="overflow-hidden">
+                  {loginEventsLoading ? (
+                    <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-6 w-6 border-t-2 border-primary" /></div>
+                  ) : !loginEventsData?.events?.length ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-400" />
+                      <p className="text-sm font-medium">No login events yet</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-gray-50">
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Result</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">User</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Reason</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">2FA</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Device</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">IP</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {loginEventsData.events.map(e => (
+                            <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
+                                {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.success ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                                  {e.success ? "Success" : "Failed"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 max-w-[120px] truncate">
+                                <span className="font-medium text-foreground">{e.username ? `@${e.username}` : (e.email ?? "—")}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-muted-foreground capitalize">
+                                {e.failureReason ? e.failureReason.replace(/_/g, " ") : "—"}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                {e.is2fa
+                                  ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700">2FA</span>
+                                  : <span className="text-muted-foreground">—</span>}
+                              </td>
+                              <td className="px-4 py-2.5 text-muted-foreground">
+                                {e.userAgent ? (/iPhone|Android.*Mobile|Windows Phone/i.test(e.userAgent) ? "📱 Mobile" : "💻 Desktop") : "—"}
+                              </td>
+                              <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">
+                                {e.ipAddress ?? "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {loginEventsData?.events?.length ? (
+                    <div className="px-4 py-2 border-t border-border bg-gray-50">
+                      <p className="text-[11px] text-muted-foreground">
+                        Showing {loginEventsData.events.length} most recent events · auto-refreshes every 30s
+                      </p>
+                    </div>
+                  ) : null}
+                </Card>
+
+                {/* Failure reasons breakdown */}
+                {loginEventsSummary?.byReason && loginEventsSummary.byReason.length > 0 && (
+                  <Card className="p-4">
+                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Failure Reasons (Last 24h)</h3>
+                    <div className="space-y-2">
+                      {loginEventsSummary.byReason.map(r => {
+                        const pct = loginEventsSummary.failures24h > 0 ? (r.count / loginEventsSummary.failures24h) * 100 : 0;
+                        return (
+                          <div key={r.reason ?? "unknown"} className="flex items-center gap-3">
+                            <span className="w-36 text-xs capitalize text-foreground">{(r.reason ?? "unknown").replace(/_/g, " ")}</span>
+                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs font-semibold text-foreground w-6 text-right">{r.count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* ── API ERRORS sub-tab ── */}
+            {errorsSubTab === "api" && (
+              <div className="space-y-5">
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
@@ -1263,6 +1449,8 @@ export default function Admin() {
                   })}
                 </div>
               </Card>
+            )}
+              </div>
             )}
           </div>
         )}

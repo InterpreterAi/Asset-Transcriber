@@ -7,9 +7,27 @@ import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usag
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import { sendWelcomeEmail } from "../lib/email.js";
+import { logLoginEvent } from "../lib/login-events.js";
+import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
 import crypto from "node:crypto";
 
 const router = Router();
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function getClientIp(req: import("express").Request): string {
+  return (
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim()
+    ?? req.ip
+    ?? "unknown"
+  );
+}
+
+function parseDevice(ua: string | undefined): string {
+  if (!ua) return "Unknown";
+  if (/iPhone|Android.*Mobile|Windows Phone/i.test(ua)) return "Mobile";
+  if (/iPad|Android(?!.*Mobile)/i.test(ua)) return "Tablet";
+  return "Desktop";
+}
 
 // ── Login ──────────────────────────────────────────────────────────────────
 router.post("/login", async (req, res) => {
@@ -19,7 +37,10 @@ router.post("/login", async (req, res) => {
     password?: string;
   };
 
+  const ip        = getClientIp(req);
+  const userAgent = req.headers["user-agent"] ?? null;
   const identifier = email || username;
+
   if (!identifier || !password) {
     res.status(400).json({ error: "Email and password are required" });
     return;
@@ -33,25 +54,48 @@ router.post("/login", async (req, res) => {
   const user = users[0];
 
   if (!user) {
+    void logLoginEvent({ userId: null, email: identifier, ipAddress: ip, userAgent, success: false, failureReason: "user_not_found" });
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }
 
   if (!user.isActive) {
+    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "account_disabled" });
     res.status(401).json({ error: "Account is disabled" });
     return;
   }
 
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
+    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "wrong_password" });
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }
 
-  req.session.userId = user.id;
+  // ── 2FA check ──────────────────────────────────────────────────────────────
+  if (user.twoFactorEnabled && user.twoFactorSecret) {
+    req.session.pending2faUserId = user.id;
+    delete req.session.userId;
+    res.json({ requires2fa: true });
+    return;
+  }
+
+  // ── Complete login ─────────────────────────────────────────────────────────
+  req.session.userId  = user.id;
   req.session.isAdmin = user.isAdmin;
+  delete req.session.pending2faUserId;
 
   void touchActivity(user.id);
+  void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true });
+
+  // Admin login Telegram alert
+  if (user.isAdmin) {
+    const device = parseDevice(userAgent ?? undefined);
+    const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
+    void sendTelegramNotification(
+      `🔐 Admin login\n👤 ${user.email}\n🌐 IP: ${ip}\n📱 ${device}\n🕐 ${time}`
+    );
+  }
 
   const freshUser = await getUserWithResetCheck(user.id);
   if (!freshUser) {
@@ -68,6 +112,139 @@ router.post("/login", async (req, res) => {
   const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
 
   res.json({ user: { ...buildUserInfo(freshUser), sessionsToday } });
+});
+
+// ── 2FA: Verify during login ───────────────────────────────────────────────
+router.post("/2fa/verify", async (req, res) => {
+  const pending2faUserId = req.session.pending2faUserId;
+  if (!pending2faUserId) {
+    res.status(400).json({ error: "No pending 2FA session" });
+    return;
+  }
+
+  const { token } = req.body as { token?: string };
+  if (!token) {
+    res.status(400).json({ error: "Verification code is required" });
+    return;
+  }
+
+  const ip        = getClientIp(req);
+  const userAgent = req.headers["user-agent"] ?? null;
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, pending2faUserId)).limit(1);
+  if (!user || !user.twoFactorSecret) {
+    res.status(400).json({ error: "Invalid session" });
+    return;
+  }
+
+  const valid = verifyTotp(user.twoFactorSecret, token);
+  if (!valid) {
+    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "invalid_2fa_token", is2fa: true });
+    res.status(401).json({ error: "Invalid or expired verification code" });
+    return;
+  }
+
+  req.session.userId  = user.id;
+  req.session.isAdmin = user.isAdmin;
+  delete req.session.pending2faUserId;
+
+  void touchActivity(user.id);
+  void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true, is2fa: true });
+
+  if (user.isAdmin) {
+    const device = parseDevice(userAgent ?? undefined);
+    const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
+    void sendTelegramNotification(
+      `🔐 Admin login (2FA)\n👤 ${user.email}\n🌐 IP: ${ip}\n📱 ${device}\n🕐 ${time}`
+    );
+  }
+
+  const freshUser = await getUserWithResetCheck(user.id);
+  if (!freshUser) { res.status(500).json({ error: "User not found" }); return; }
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const sessionsTodayRows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.userId, freshUser.id) && gte(sessionsTable.startedAt, todayStart));
+
+  res.json({ user: { ...buildUserInfo(freshUser), sessionsToday: sessionsTodayRows[0]?.count ?? 0 } });
+});
+
+// ── 2FA: Setup (generate secret + QR) ─────────────────────────────────────
+router.post("/2fa/setup", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (user.twoFactorEnabled) { res.status(400).json({ error: "2FA is already enabled" }); return; }
+
+  const email = user.email ?? user.username;
+  const { secret, otpauthUrl } = generateTotpSecret(email);
+  const qrDataUrl = await generateQrDataUrl(otpauthUrl);
+
+  await db.update(usersTable).set({ twoFactorSecret: secret }).where(eq(usersTable.id, userId));
+
+  res.json({ secret, qrDataUrl });
+});
+
+// ── 2FA: Enable (confirm setup with token) ─────────────────────────────────
+router.post("/2fa/enable", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const { token } = req.body as { token?: string };
+  if (!token) { res.status(400).json({ error: "Verification code is required" }); return; }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user?.twoFactorSecret) { res.status(400).json({ error: "Run /2fa/setup first" }); return; }
+  if (user.twoFactorEnabled) { res.status(400).json({ error: "2FA is already enabled" }); return; }
+
+  if (!verifyTotp(user.twoFactorSecret, token)) {
+    res.status(400).json({ error: "Invalid verification code — check your authenticator app" });
+    return;
+  }
+
+  await db.update(usersTable).set({ twoFactorEnabled: true }).where(eq(usersTable.id, userId));
+  res.json({ ok: true, message: "Two-factor authentication enabled" });
+});
+
+// ── 2FA: Disable ───────────────────────────────────────────────────────────
+router.post("/2fa/disable", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const { token, password } = req.body as { token?: string; password?: string };
+  if (!token && !password) {
+    res.status(400).json({ error: "Provide your TOTP code or password to disable 2FA" });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (!user.twoFactorEnabled) { res.status(400).json({ error: "2FA is not enabled" }); return; }
+
+  let authorized = false;
+  if (token && user.twoFactorSecret) {
+    authorized = verifyTotp(user.twoFactorSecret, token);
+  } else if (password) {
+    authorized = await verifyPassword(password, user.passwordHash);
+  }
+
+  if (!authorized) {
+    res.status(401).json({ error: "Invalid code or password" });
+    return;
+  }
+
+  await db.update(usersTable)
+    .set({ twoFactorEnabled: false, twoFactorSecret: null })
+    .where(eq(usersTable.id, userId));
+
+  res.json({ ok: true, message: "Two-factor authentication disabled" });
+});
+
+// ── 2FA: Status ────────────────────────────────────────────────────────────
+router.get("/2fa/status", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const [user] = await db.select({ twoFactorEnabled: usersTable.twoFactorEnabled })
+    .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  res.json({ enabled: user?.twoFactorEnabled ?? false });
 });
 
 // ── Sign Up ────────────────────────────────────────────────────────────────

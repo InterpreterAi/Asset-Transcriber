@@ -8,6 +8,7 @@ import { logger } from "./lib/logger.js";
 import { sessionMiddleware } from "./middlewares/session.js";
 import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
+import { adminIpGuard } from "./middlewares/adminIpGuard.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -73,14 +74,14 @@ app.use(sessionMiddleware);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
-// Brute-force protection: 5 login attempts per 15 minutes per IP
+// Brute-force protection: 5 failed login attempts per 10 minutes per IP
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 10 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  message: { error: "Too many login attempts. Please wait 15 minutes before trying again." },
+  message: { error: "Too many login attempts. Please wait 10 minutes before trying again." },
 });
 
 const authLimiter = rateLimit({
@@ -129,8 +130,10 @@ app.use("/api", (req, res, next) => {
 });
 
 app.use("/api/auth/login", loginLimiter);
+app.use("/api/auth/2fa/verify", loginLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api/transcription/token", transcriptionLimiter);
+app.use("/api/admin", adminIpGuard);
 app.use("/api", generalLimiter);
 app.use("/api", errorLoggerMiddleware);
 app.use("/api", router);

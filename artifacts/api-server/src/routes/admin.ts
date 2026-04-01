@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable, errorLogsTable } from "@workspace/db";
+import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable, errorLogsTable, loginEventsTable } from "@workspace/db";
 import { eq, sql, gt, isNull, and, desc, gte, lt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
@@ -736,6 +736,71 @@ router.get("/errors/summary", requireAdmin, async (_req, res) => {
     serverErrors24h,
     byType24h,
     byType1h,
+  });
+});
+
+// ── Login events ─────────────────────────────────────────────────────────────
+router.get("/login-events", requireAdmin, async (req, res) => {
+  const limit  = Math.min(Number(req.query["limit"]) || 100, 500);
+  const filter = (req.query["filter"] as string | undefined) ?? "all";
+  const since  = req.query["since"] ? new Date(req.query["since"] as string) : null;
+
+  const conditions = [];
+  if (filter === "success")   conditions.push(eq(loginEventsTable.success, true));
+  if (filter === "failure")   conditions.push(eq(loginEventsTable.success, false));
+  if (filter === "admin")     conditions.push(eq(loginEventsTable.is2fa, false));
+  if (filter === "2fa")       conditions.push(eq(loginEventsTable.is2fa, true));
+  if (since)                  conditions.push(gte(loginEventsTable.createdAt, since));
+
+  const rows = await db
+    .select({
+      id:            loginEventsTable.id,
+      userId:        loginEventsTable.userId,
+      email:         loginEventsTable.email,
+      ipAddress:     loginEventsTable.ipAddress,
+      userAgent:     loginEventsTable.userAgent,
+      success:       loginEventsTable.success,
+      failureReason: loginEventsTable.failureReason,
+      is2fa:         loginEventsTable.is2fa,
+      createdAt:     loginEventsTable.createdAt,
+      username:      usersTable.username,
+    })
+    .from(loginEventsTable)
+    .leftJoin(usersTable, eq(loginEventsTable.userId, usersTable.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(loginEventsTable.createdAt))
+    .limit(limit);
+
+  res.json({ events: rows });
+});
+
+router.get("/login-events/summary", requireAdmin, async (req, res) => {
+  const now  = new Date();
+  const h24  = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const h1   = new Date(now.getTime() - 60 * 60 * 1000);
+
+  const [total24h, failures24h, success24h, twoFa24h, lastHour] = await Promise.all([
+    db.select({ c: sql<number>`count(*)::int` }).from(loginEventsTable).where(gte(loginEventsTable.createdAt, h24)),
+    db.select({ c: sql<number>`count(*)::int` }).from(loginEventsTable).where(and(gte(loginEventsTable.createdAt, h24), eq(loginEventsTable.success, false))),
+    db.select({ c: sql<number>`count(*)::int` }).from(loginEventsTable).where(and(gte(loginEventsTable.createdAt, h24), eq(loginEventsTable.success, true))),
+    db.select({ c: sql<number>`count(*)::int` }).from(loginEventsTable).where(and(gte(loginEventsTable.createdAt, h24), eq(loginEventsTable.is2fa, true))),
+    db.select({ c: sql<number>`count(*)::int` }).from(loginEventsTable).where(gte(loginEventsTable.createdAt, h1)),
+  ]);
+
+  const byReason = await db
+    .select({ reason: loginEventsTable.failureReason, count: sql<number>`count(*)::int` })
+    .from(loginEventsTable)
+    .where(and(gte(loginEventsTable.createdAt, h24), eq(loginEventsTable.success, false)))
+    .groupBy(loginEventsTable.failureReason)
+    .orderBy(desc(sql`count(*)`));
+
+  res.json({
+    total24h:    total24h[0]?.c ?? 0,
+    failures24h: failures24h[0]?.c ?? 0,
+    success24h:  success24h[0]?.c ?? 0,
+    twoFa24h:    twoFa24h[0]?.c ?? 0,
+    lastHour:    lastHour[0]?.c ?? 0,
+    byReason,
   });
 });
 

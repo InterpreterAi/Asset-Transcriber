@@ -31,11 +31,13 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
 - `scripts/`: Utility scripts, e.g., for seeding admin users.
 
 **Database Schema:**
-- `users`: Stores user account details, including username, password hash, admin status, activity status, trial dates, daily limits, and usage statistics.
+- `users`: Stores user account details, including username, password hash, admin status, activity status, trial dates, daily limits, usage statistics, and 2FA fields (`two_factor_secret`, `two_factor_enabled`).
 - `sessions`: Records transcription session metadata (start/end time, duration, `langPair` for language pair used).
 - `feedback`: Stores star ratings and comments, displayed upon trial expiry.
 - `support_tickets`: Stores support requests (userId FK nullable, email, subject, message, status open/resolved, timestamps).
 - `support_replies`: Stores thread replies per ticket (ticketId FK, authorId FK nullable, isAdmin, message, createdAt).
+- `error_logs`: Records all 4xx/5xx API responses with userId, sessionId, endpoint, method, statusCode, errorType, errorMessage, userAgent, ipAddress, createdAt.
+- `login_events`: Records every login attempt with userId, email, ipAddress, userAgent, success (bool), failureReason, is2fa (bool), createdAt.
 - `user_sessions`: Used by `connect-pg-simple` for Express session storage. This table must be created manually if the DB is reset.
 
 **Frontend → Backend Connectivity:**
@@ -59,11 +61,13 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
 - **Translation Implementation:** Each phrase finalizes, then `POST /api/translate` is called, and the result is shown inline. Uses MyMemory free API.
 - **Authentication:** Cookie-based session with a 30-day expiry. Login initiates a session cookie for subsequent authenticated calls.
 - **HIPAA — Ephemeral Processing Design:** The platform is designed for real-time interpretation only; no PHI is stored. Audio is streamed directly from the browser to Soniox. Transcribed and translated texts exist only in the browser DOM and are cleared upon session stop. Server logs do not contain content; only metadata like `id`, `method`, `url`, `statusCode` are logged. Translation cache has been removed to prevent PHI retention. Frontend automatically clears all transcription data when recording stops. No browser-side persistence mechanisms are used.
-- **Admin Dashboard (4-tab):**
+- **Admin Dashboard (6-tab):**
   - *Overview*: System Metrics (6 cards), SaaS Metrics (MRR, conversion rate, avg session, sessions today, cost/session), API Cost Monitoring, Live Sessions panel with "View Session" button
   - *Users*: Table with session status (Online/Idle/Offline), account status, plan, usage; click any row → Session History drawer (last 100 sessions, CSV/TXT export, per-session cost estimate)
   - *Languages*: Enable/disable 35+ languages, set default A/B pair (in-memory config, resets on restart)
   - *Feedback*: Star ratings + comments from users
+  - *Support*: Ticket management with thread replies and status toggle
+  - *Errors*: Two sub-tabs: "API Errors" (error_logs table, type filter, summary cards, breakdown bar) and "Login Events" (login_events table, success/failure filter, 2FA badge, failure reason breakdown)
 - **View Session Modal:** Admin can view live transcript + translation snapshot for an active session (auto-refreshes every 5s). Snapshot includes lang pair, mic device label, and content. Admin can terminate the session. Snapshots are in-memory only — never persisted to DB.
 - **Snapshot Push:** While recording, workspace pushes transcript/translation/lang pair/mic label to `PUT /api/transcription/session/snapshot` every 5 s. Data lives in the server's `sessionStore` Map and is cleared when the session ends.
 - **Interpreter Productivity Tools:**

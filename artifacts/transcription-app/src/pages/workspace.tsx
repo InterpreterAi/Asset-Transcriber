@@ -218,6 +218,70 @@ export default function Workspace() {
   const [showPwNext, setShowPwNext]       = useState(false);
   const [pwStatus, setPwStatus] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
 
+  // ── 2FA state ───────────────────────────────────────────────────────────────
+  const [twoFaEnabled,  setTwoFaEnabled]  = useState<boolean | null>(null);
+  const [twoFaStep,     setTwoFaStep]     = useState<"idle" | "setup" | "disable">("idle");
+  const [twoFaQr,       setTwoFaQr]       = useState("");
+  const [twoFaSecret,   setTwoFaSecret]   = useState("");
+  const [twoFaToken,    setTwoFaToken]    = useState("");
+  const [twoFaLoading,  setTwoFaLoading]  = useState(false);
+  const [twoFaMsg,      setTwoFaMsg]      = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/2fa/status", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: { enabled: boolean }) => setTwoFaEnabled(d.enabled))
+      .catch(() => {});
+  }, []);
+
+  const handle2faSetup = async () => {
+    setTwoFaLoading(true); setTwoFaMsg(null);
+    try {
+      const res  = await fetch("/api/auth/2fa/setup", { method: "POST", credentials: "include" });
+      const data = await res.json() as { secret?: string; qrDataUrl?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Setup failed");
+      setTwoFaSecret(data.secret ?? "");
+      setTwoFaQr(data.qrDataUrl ?? "");
+      setTwoFaStep("setup");
+    } catch (err: unknown) {
+      setTwoFaMsg({ type: "err", text: err instanceof Error ? err.message : "Setup failed" });
+    } finally { setTwoFaLoading(false); }
+  };
+
+  const handle2faEnable = async () => {
+    setTwoFaLoading(true); setTwoFaMsg(null);
+    try {
+      const res  = await fetch("/api/auth/2fa/enable", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: twoFaToken.replace(/\s/g, "") }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Verification failed");
+      setTwoFaEnabled(true); setTwoFaStep("idle"); setTwoFaToken("");
+      setTwoFaMsg({ type: "ok", text: "Two-factor authentication is now active." });
+    } catch (err: unknown) {
+      setTwoFaMsg({ type: "err", text: err instanceof Error ? err.message : "Failed" });
+    } finally { setTwoFaLoading(false); }
+  };
+
+  const handle2faDisable = async () => {
+    setTwoFaLoading(true); setTwoFaMsg(null);
+    try {
+      const res  = await fetch("/api/auth/2fa/disable", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: twoFaToken.replace(/\s/g, "") }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to disable");
+      setTwoFaEnabled(false); setTwoFaStep("idle"); setTwoFaToken("");
+      setTwoFaMsg({ type: "ok", text: "Two-factor authentication disabled." });
+    } catch (err: unknown) {
+      setTwoFaMsg({ type: "err", text: err instanceof Error ? err.message : "Failed" });
+    } finally { setTwoFaLoading(false); }
+  };
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwStatus(null);
@@ -774,6 +838,137 @@ export default function Workspace() {
                 {pwLoading ? "Updating…" : "Update Password"}
               </button>
             </form>
+
+            {/* ── 2FA Section ─────────────────────────────────────── */}
+            <div className="mt-5 pt-4 border-t border-border/60">
+              <div className="flex items-center justify-between mb-2.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Two-Factor Auth</p>
+                {twoFaEnabled !== null && (
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${twoFaEnabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-muted-foreground"}`}>
+                    {twoFaEnabled ? "Active" : "Off"}
+                  </span>
+                )}
+              </div>
+
+              {twoFaMsg && (
+                <div className={`mb-2.5 text-xs p-2 rounded-lg border flex items-start gap-1.5 ${twoFaMsg.type === "ok" ? "bg-green-50 text-green-700 border-green-200" : "bg-destructive/10 text-destructive border-destructive/20"}`}>
+                  {twoFaMsg.type === "ok" ? <CheckCircle className="w-3 h-3 mt-0.5 shrink-0" /> : <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />}
+                  {twoFaMsg.text}
+                </div>
+              )}
+
+              {twoFaStep === "idle" && !twoFaEnabled && (
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-2.5 leading-relaxed">
+                    Add an extra layer of security. Use any TOTP app (Google Authenticator, Authy, 1Password).
+                  </p>
+                  <button
+                    onClick={() => void handle2faSetup()}
+                    disabled={twoFaLoading}
+                    className="w-full h-8 rounded-lg border border-primary/30 text-primary text-xs font-semibold hover:bg-primary/5 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5"
+                  >
+                    {twoFaLoading
+                      ? <span className="w-3 h-3 border-2 border-primary/40 border-t-primary rounded-full animate-spin" />
+                      : <ShieldCheck className="w-3 h-3" />}
+                    Enable Two-Factor Authentication
+                  </button>
+                </div>
+              )}
+
+              {twoFaStep === "setup" && (
+                <div className="space-y-2.5">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Scan this QR code with your authenticator app, then enter the 6-digit code to confirm.
+                  </p>
+                  {twoFaQr && (
+                    <div className="flex justify-center">
+                      <img src={twoFaQr} alt="2FA QR code" className="w-36 h-36 rounded-xl border border-border p-1" />
+                    </div>
+                  )}
+                  {twoFaSecret && (
+                    <div className="bg-gray-50 rounded-lg p-2 border border-border">
+                      <p className="text-[10px] text-muted-foreground mb-1">Manual key:</p>
+                      <p className="text-xs font-mono break-all text-foreground select-all">{twoFaSecret}</p>
+                    </div>
+                  )}
+                  <input
+                    value={twoFaToken}
+                    onChange={e => setTwoFaToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="000000"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="w-full h-8 text-center font-mono text-base tracking-[0.4em] rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setTwoFaStep("idle"); setTwoFaToken(""); setTwoFaMsg(null); }}
+                      className="flex-1 h-8 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void handle2faEnable()}
+                      disabled={twoFaLoading || twoFaToken.length < 6}
+                      className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
+                    >
+                      {twoFaLoading
+                        ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        : <ShieldCheck className="w-3 h-3" />}
+                      Activate
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {twoFaStep === "idle" && twoFaEnabled && (
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-2.5 leading-relaxed">
+                    Your account is protected with two-factor authentication.
+                  </p>
+                  <button
+                    onClick={() => { setTwoFaStep("disable"); setTwoFaMsg(null); }}
+                    className="w-full h-8 rounded-lg border border-destructive/30 text-destructive text-xs font-semibold hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Lock className="w-3 h-3" />
+                    Disable Two-Factor Authentication
+                  </button>
+                </div>
+              )}
+
+              {twoFaStep === "disable" && (
+                <div className="space-y-2.5">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Enter your 6-digit authenticator code to confirm disabling 2FA.
+                  </p>
+                  <input
+                    value={twoFaToken}
+                    onChange={e => setTwoFaToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="000000"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="w-full h-8 text-center font-mono text-base tracking-[0.4em] rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setTwoFaStep("idle"); setTwoFaToken(""); setTwoFaMsg(null); }}
+                      className="flex-1 h-8 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void handle2faDisable()}
+                      disabled={twoFaLoading || twoFaToken.length < 6}
+                      className="flex-1 h-8 rounded-lg bg-destructive text-white text-xs font-semibold hover:bg-destructive/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
+                    >
+                      {twoFaLoading
+                        ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        : null}
+                      Confirm Disable
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
