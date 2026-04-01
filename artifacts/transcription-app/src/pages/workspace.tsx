@@ -362,7 +362,9 @@ export default function Workspace() {
     const push = () => {
       const snap     = transcription.getSnapshot();
       const micDev   = devices.find(d => d.deviceId === selectedDeviceId);
-      const micLabel = micDev?.label ?? "Microphone";
+      const micLabel = inputMode === "tab"
+        ? "Browser Tab Audio"
+        : (micDev?.label ?? "Microphone");
       fetch("/api/transcription/session/snapshot", {
         method:      "PUT",
         headers:     { "Content-Type": "application/json" },

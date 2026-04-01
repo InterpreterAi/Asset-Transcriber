@@ -922,7 +922,9 @@ export default function Admin() {
                       )}
                       {s.micLabel && (
                         <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                          <Mic className="w-3 h-3 shrink-0" />
+                          {s.micLabel === "Browser Tab Audio"
+                            ? <Monitor className="w-3 h-3 shrink-0" />
+                            : <Mic className="w-3 h-3 shrink-0" />}
                           <span className="truncate">{s.micLabel}</span>
                         </p>
                       )}
@@ -1883,7 +1885,12 @@ export default function Admin() {
             {sessionDetail?.snapshot && (
               <div className="flex flex-wrap items-center gap-4 px-5 py-2.5 bg-gray-50 border-b border-border text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /> {sessionDetail.snapshot.langA} ↔ {sessionDetail.snapshot.langB}</span>
-                <span className="flex items-center gap-1"><Activity className="w-3.5 h-3.5" /> {sessionDetail.snapshot.micLabel}</span>
+                <span className="flex items-center gap-1">
+                  {sessionDetail.snapshot.micLabel === "Browser Tab Audio"
+                    ? <Monitor className="w-3.5 h-3.5" />
+                    : <Mic className="w-3.5 h-3.5" />}
+                  {sessionDetail.snapshot.micLabel}
+                </span>
                 <span className="flex items-center gap-1 ml-auto text-[10px]">
                   Updated {formatDistanceToNow(new Date(sessionDetail.snapshot.updatedAt), { addSuffix: true })}
                 </span>
