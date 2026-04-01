@@ -13,6 +13,11 @@ import Terms from "./pages/terms";
 import Privacy from "./pages/privacy";
 import InvitePage from "./pages/invite";
 
+// ─── Maintenance banner toggle ────────────────────────────────────────────────
+// Set to true  → banner is shown across every page.
+// Set to false → banner disappears with no other changes required.
+const MAINTENANCE_MODE = true;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -21,6 +26,24 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function MaintenanceBanner() {
+  if (!MAINTENANCE_MODE) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="w-full bg-amber-50 border-b border-amber-200 flex items-center justify-center px-4 py-2.5 shrink-0 z-50"
+      style={{ minHeight: "44px" }}
+    >
+      <p className="text-sm text-amber-900 text-center leading-snug">
+        <span className="font-semibold">⚠️ System Update In Progress</span>
+        {" — "}
+        We are currently improving the system. The app will continue working normally, but you may notice small adjustments during the next 1–2 hours. Thank you for your patience.
+      </p>
+    </div>
+  );
+}
 
 function RootRedirect() {
   const [, setLocation] = useLocation();
@@ -69,9 +92,14 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-        <Router />
-      </WouterRouter>
+      <div className="flex flex-col h-[100dvh] overflow-hidden isolate">
+        <MaintenanceBanner />
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+        </div>
+      </div>
     </QueryClientProvider>
   );
 }

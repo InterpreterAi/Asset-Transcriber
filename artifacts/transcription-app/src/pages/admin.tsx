@@ -727,7 +727,7 @@ export default function Admin() {
   ];
 
   return (
-    <div className="h-[100dvh] bg-[#f5f5f7] text-foreground flex overflow-hidden">
+    <div className="h-full bg-[#f5f5f7] text-foreground flex overflow-hidden">
 
       {/* ── MOBILE SIDEBAR BACKDROP ───────────────────────────────────────── */}
       {sidebarOpen && (

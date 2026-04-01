@@ -480,7 +480,7 @@ export default function Workspace() {
   const isBlocked      = user.trialExpired || isLimitReached;
 
   return (
-    <div className="h-[100dvh] w-full max-w-[100vw] bg-background flex overflow-hidden text-foreground">
+    <div className="h-full w-full max-w-[100vw] bg-background flex overflow-hidden text-foreground">
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
       <ReportIssueModal
         isOpen={showReportIssue}
