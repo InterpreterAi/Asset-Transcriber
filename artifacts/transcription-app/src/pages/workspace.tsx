@@ -7,7 +7,7 @@ import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
-  LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, History,
+  LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -18,6 +18,7 @@ import { SupportPanel } from "@/components/SupportPanel";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
+import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import { formatMinutes } from "@/lib/utils";
 
 const LANG_OPTIONS = [
@@ -103,30 +104,8 @@ export default function Workspace() {
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
 
-  // ── Session history ──────────────────────────────────────────────────────────
-  type SessionRow = {
-    id: number;
-    startedAt: string;
-    endedAt: string | null;
-    durationSeconds: number | null;
-    langPair: string | null;
-  };
-  const [sessionHistory, setSessionHistory] = useState<SessionRow[]>([]);
-  const [sessionHistoryTotals, setSessionHistoryTotals] = useState({ totalSessions: 0, totalMinutes: 0 });
-  const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
-
-  useEffect(() => {
-    if (activeTab !== "profile") return;
-    setSessionHistoryLoading(true);
-    fetch(`${import.meta.env.BASE_URL}api/transcription/sessions?limit=30`)
-      .then(r => r.json())
-      .then((data: { sessions: SessionRow[]; totalSessions: number; totalMinutes: number }) => {
-        setSessionHistory(data.sessions ?? []);
-        setSessionHistoryTotals({ totalSessions: data.totalSessions ?? 0, totalMinutes: data.totalMinutes ?? 0 });
-      })
-      .catch(() => {})
-      .finally(() => setSessionHistoryLoading(false));
-  }, [activeTab]);
+  // ── Session history refresh key — incremented when a session ends so the panel auto-refreshes
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   // ── Session timer ────────────────────────────────────────────────────────────
   const [sessionElapsed, setSessionElapsed] = useState(0);
@@ -152,6 +131,15 @@ export default function Workspace() {
     const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
+
+  // Refresh the SessionHistoryPanel after each session ends
+  const wasRecordingRef = useRef(false);
+  useEffect(() => {
+    if (wasRecordingRef.current && !transcription.isRecording) {
+      setTimeout(() => setHistoryRefreshKey(k => k + 1), 1500);
+    }
+    wasRecordingRef.current = transcription.isRecording;
+  }, [transcription.isRecording]);
 
   // ── Session notes (ephemeral — cleared when session ends) ─────────────────
   const [notes, setNotes] = useState("");
@@ -689,58 +677,6 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* Session History */}
-          <div className="p-4 border-b border-border/60">
-            <div className="flex items-center gap-1.5 mb-2.5">
-              <History className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Session History</p>
-            </div>
-            {/* Lifetime totals */}
-            <div className="flex items-center gap-2 mb-3">
-              <div className="flex-1 bg-muted/60 rounded-lg px-3 py-2 text-center">
-                <p className="text-base font-bold text-foreground">{sessionHistoryTotals.totalSessions}</p>
-                <p className="text-[10px] text-muted-foreground">Total Sessions</p>
-              </div>
-              <div className="flex-1 bg-muted/60 rounded-lg px-3 py-2 text-center">
-                <p className="text-base font-bold text-foreground">{sessionHistoryTotals.totalMinutes}</p>
-                <p className="text-[10px] text-muted-foreground">Total Minutes</p>
-              </div>
-            </div>
-            {/* Recent sessions list */}
-            {sessionHistoryLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <span className="w-4 h-4 border-2 border-border border-t-primary rounded-full animate-spin" />
-              </div>
-            ) : sessionHistory.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-2">No sessions yet</p>
-            ) : (
-              <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
-                {sessionHistory.map(s => {
-                  const date = new Date(s.startedAt);
-                  const dateStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-                  const timeStr = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-                  const dur = s.durationSeconds != null
-                    ? s.durationSeconds < 60
-                      ? `${s.durationSeconds}s`
-                      : `${Math.round(s.durationSeconds / 60)} min`
-                    : "—";
-                  const [src, tgt] = s.langPair ? s.langPair.split("→") : [];
-                  return (
-                    <div key={s.id} className="flex items-center justify-between text-[11px] py-1.5 px-2 rounded-lg hover:bg-muted/60 transition-colors">
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="font-medium text-foreground truncate">{dateStr} · {timeStr}</span>
-                        {src && tgt && (
-                          <span className="text-muted-foreground">{src.trim()} → {tgt.trim()}</span>
-                        )}
-                      </div>
-                      <span className="text-muted-foreground font-mono shrink-0 ml-2">{dur}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
           {/* Change password */}
           <div className="p-4 flex-1">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Change Password</p>
@@ -949,22 +885,35 @@ export default function Workspace() {
           </div>
         )}
 
-        {/* TRANSCRIPT + NOTES PANELS */}
+        {/* TRANSCRIPT + NOTES + HISTORY PANELS */}
         <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden">
 
-          {/* NOTES PANEL — small, ephemeral, beside transcript */}
-          <div className="w-[13%] min-w-[120px] max-w-[180px] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden shrink-0">
-            <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
-              <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+          {/* LEFT COLUMN — Notes (top) + Session History (bottom) */}
+          <div className="w-[220px] shrink-0 flex flex-col gap-3 min-h-0">
+
+            {/* NOTES PANEL */}
+            <div className="h-[42%] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
+              <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
+                <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+                {notes && (
+                  <span className="ml-auto text-[9px] text-muted-foreground/50 italic">cleared on end</span>
+                )}
+              </div>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
+                className="flex-1 w-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
+                spellCheck={false}
+              />
             </div>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate notes only — cleared when session ends"}
-              className="flex-1 w-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
-              spellCheck={false}
-            />
+
+            {/* SESSION HISTORY PANEL */}
+            <div className="flex-1 min-h-0">
+              <SessionHistoryPanel refreshKey={historyRefreshKey} />
+            </div>
+
           </div>
 
           {/* MAIN TRANSCRIPT PANEL */}

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import OpenAI from "openai";
 import { db, usersTable, sessionsTable, glossaryEntriesTable } from "@workspace/db";
-import { eq, and, isNull, sql, desc } from "drizzle-orm";
+import { eq, and, isNull, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
@@ -284,19 +284,38 @@ router.get("/sessions", requireAuth, async (req, res) => {
     .orderBy(desc(sessionsTable.startedAt))
     .limit(limit);
 
-  // Lifetime totals
-  const [totals] = await db
-    .select({
-      totalSessions: sql<number>`count(*)::int`,
-      totalSeconds:  sql<number>`coalesce(sum(duration_seconds),0)::int`,
-    })
-    .from(sessionsTable)
-    .where(eq(sessionsTable.userId, userId));
+  // Time windows
+  const now       = new Date();
+  const todayUTC  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekAgoUTC = new Date(todayUTC);
+  weekAgoUTC.setUTCDate(weekAgoUTC.getUTCDate() - 6);
+
+  const aggCols = {
+    count:        sql<number>`count(*)::int`,
+    totalSeconds: sql<number>`coalesce(sum(duration_seconds),0)::int`,
+  };
+
+  const [[lifetime], [today], [week]] = await Promise.all([
+    db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
+    db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayUTC))),
+    db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, weekAgoUTC))),
+  ]);
+
+  const todayCount = today?.count ?? 0;
+  const todaySeconds = today?.totalSeconds ?? 0;
 
   res.json({
     sessions,
-    totalSessions: totals?.totalSessions ?? 0,
-    totalMinutes:  Math.round((totals?.totalSeconds ?? 0) / 60),
+    // Lifetime
+    totalSessions:       lifetime?.count ?? 0,
+    totalMinutes:        Math.round((lifetime?.totalSeconds ?? 0) / 60),
+    // Today
+    todaySessions:       todayCount,
+    todayMinutes:        Math.round(todaySeconds / 60),
+    avgSessionMinutes:   todayCount > 0 ? Math.round(todaySeconds / todayCount / 60) : 0,
+    // This week (last 7 days)
+    weekSessions:        week?.count ?? 0,
+    weekMinutes:         Math.round((week?.totalSeconds ?? 0) / 60),
   });
 });
 
