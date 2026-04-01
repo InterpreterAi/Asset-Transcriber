@@ -1064,15 +1064,24 @@ export function useTranscription() {
 
       await ctx.audioWorklet.addModule("/pcm-processor.js");
 
-      const stream = providedStream ?? await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          echoCancellation:  false,
-          noiseSuppression:  false,
-          autoGainControl:   false,
-          channelCount:      1,
-        },
-      });
+      // ── Audio source isolation ────────────────────────────────────────────
+      // Tab Audio mode: providedStream is the tab-only MediaStream captured by
+      //   getDisplayMedia() in the workspace UI. getUserMedia (microphone) is
+      //   never called — the short-circuit `??` ensures that.
+      // Mic mode: providedStream is undefined, so getUserMedia is called with
+      //   the selected device ID and mic-optimised constraints.
+      // These two paths are mutually exclusive by design.
+      const stream = providedStream !== null && providedStream !== undefined
+        ? providedStream
+        : await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: deviceId ? { exact: deviceId } : undefined,
+              echoCancellation:  false,
+              noiseSuppression:  false,
+              autoGainControl:   false,
+              channelCount:      1,
+            },
+          });
       streamsRef.current.push(stream);
 
       const ws = buildWs(tokenRes.apiKey);

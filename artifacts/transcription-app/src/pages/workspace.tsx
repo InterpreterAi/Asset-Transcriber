@@ -416,25 +416,51 @@ export default function Workspace() {
 
   const handleStartTabAudio = async () => {
     try {
+      // Request display media capturing only the browser tab's audio.
+      // displaySurface: "browser" pre-selects the "Tab" option in the browser's
+      //   share picker so the user is less likely to accidentally share the whole
+      //   screen (which can include system/mic audio).
+      // suppressLocalAudioPlayback: true tells the browser not to mix the local
+      //   microphone or system loopback audio into the captured stream.
+      // Microphone access is never requested here — getUserMedia is only called
+      //   in mic mode (when no providedStream is given to transcription.start).
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
+        video: {
+          // @ts-ignore — displaySurface is a valid MediaTrackConstraint in modern browsers
+          displaySurface: "browser",
+        },
+        audio: {
+          // @ts-ignore — suppressLocalAudioPlayback is a Chrome-supported constraint
+          suppressLocalAudioPlayback: true,
+          echoCancellation:  false,
+          noiseSuppression:  false,
+          autoGainControl:   false,
+        },
       });
-      // Drop video tracks — we only need audio for transcription
+
+      // Drop video tracks immediately — we only use audio for transcription
       displayStream.getVideoTracks().forEach(t => t.stop());
+
       const audioTracks = displayStream.getAudioTracks();
       if (audioTracks.length === 0) {
+        // User shared a tab/window but didn't enable "Share tab audio"
         transcription.stop();
         return;
       }
+
+      // Build a clean stream containing only the remote tab's audio tracks
       const audioStream = new MediaStream(audioTracks);
       setTabStream(audioStream);
-      // The tab stream ends when the user clicks "Stop sharing"
+
+      // If the user clicks "Stop sharing" in the browser chrome, clean up
       audioTracks[0]!.addEventListener("ended", () => {
         transcription.stop();
         setTabStream(null);
         queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       });
+
+      // Pass the tab-only stream directly — use-transcription will NOT call
+      // getUserMedia, so the local microphone is never accessed or mixed in.
       transcription.start("", audioStream);
     } catch {
       // User cancelled the picker — nothing to do
@@ -1367,21 +1393,30 @@ export default function Workspace() {
               <AudioMeter level={transcription.micLevel} label="" />
             </div>
 
-            {/* Mic: device selector — order-3 on mobile (wraps to full-width line 2),
-                                       order-2 on desktop (middle slot) */}
+            {/* Mic: device selector (idle) → active source badge (recording)
+                order-3 on mobile (wraps to full-width line 2), order-2 on desktop */}
             {inputMode === "mic" && (
-              <Select
-                value={selectedDeviceId}
-                onChange={(e) => setSelectedDeviceId(e.target.value)}
-                disabled={transcription.isRecording}
-                className="h-8 text-xs w-full sm:flex-1 sm:min-w-0 sm:max-w-xs bg-muted/30 order-3 sm:order-2"
-              >
-                {devices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Device ${d.deviceId.slice(0, 8)}`}
-                  </option>
-                ))}
-              </Select>
+              <div className="w-full sm:flex-1 sm:min-w-0 sm:max-w-xs order-3 sm:order-2">
+                {transcription.isRecording ? (
+                  <span className="text-xs text-green-600 font-medium flex items-center gap-1.5">
+                    <Mic2 className="w-3.5 h-3.5 shrink-0" />
+                    Listening to Microphone (Interpreter)
+                  </span>
+                ) : (
+                  <Select
+                    value={selectedDeviceId}
+                    onChange={(e) => setSelectedDeviceId(e.target.value)}
+                    disabled={transcription.isRecording}
+                    className="h-8 text-xs w-full bg-muted/30"
+                  >
+                    {devices.map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Device ${d.deviceId.slice(0, 8)}`}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
             )}
 
             {/* Tab Audio: how-to hint — order-3 on mobile, order-2 on desktop */}
@@ -1399,13 +1434,13 @@ export default function Workspace() {
                     </li>
                     <li className="flex items-center gap-1">
                       <span className="w-4 h-4 rounded-full bg-muted-foreground/20 text-[9px] font-bold flex items-center justify-center shrink-0">3</span>
-                      Pick the tab &amp; enable "Share tab audio"
+                      Select the tab &amp; enable "Share tab audio" — your mic is excluded
                     </li>
                   </ol>
                 ) : (
                   <span className="text-xs text-green-600 font-medium flex items-center gap-1.5">
-                    <Monitor className="w-3.5 h-3.5" />
-                    Listening to tab audio
+                    <Monitor className="w-3.5 h-3.5 shrink-0" />
+                    Listening to Tab Audio (Caller)
                   </span>
                 )}
               </div>
