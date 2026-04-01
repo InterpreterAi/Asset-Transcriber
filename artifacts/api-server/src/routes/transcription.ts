@@ -480,21 +480,37 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Return ONLY the translated text.\n` +
     `- No explanations, notes, alternatives, or the original text.`;
 
+  // Hard 12-second timeout — if OpenAI hangs, return 503 so the client can
+  // retry instead of blocking indefinitely and stalling the translation stream.
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 12_000);
+
   try {
-    const resp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text },
-      ],
-    });
+    const resp = await openai.chat.completions.create(
+      {
+        model:       "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: text },
+        ],
+      },
+      { signal: controller.signal },
+    );
+    clearTimeout(timeoutId);
 
     const translated = resp.choices[0]?.message?.content?.trim() ?? "";
     res.json({ translated }); // result returned to browser; nothing retained server-side
-  } catch (err) {
-    logger.error({ err }, "Translation failed");
-    res.status(500).json({ error: "Translation failed" });
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    logger.error(
+      { err, srcLang, tgtLang, textLen: text.length, isTimeout },
+      isTimeout ? "Translation timed out (>12 s)" : "Translation failed",
+    );
+    res.status(isTimeout ? 503 : 500).json({
+      error: isTimeout ? "Translation timed out — please retry" : "Translation failed",
+    });
   }
 });
 

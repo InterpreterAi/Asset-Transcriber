@@ -347,16 +347,45 @@ function validateLangByScript(
 // ── Translation fetch ──────────────────────────────────────────────────────────
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
+//
+// Retry policy:
+//   • Network errors / timeouts  → retry up to MAX_ATTEMPTS with back-off
+//   • HTTP 5xx / 429             → retry up to MAX_ATTEMPTS with back-off
+//   • HTTP 401 / 403             → no retry (auth / quota — caller must handle)
+//   • Other 4xx                  → no retry (bad request)
+//   • Each attempt has a 9 s hard timeout via AbortController.
 async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
-  const r = await fetch("/api/transcription/translate", {
-    method:      "POST",
-    headers:     { "Content-Type": "application/json" },
-    credentials: "include",
-    body:        JSON.stringify({ text, srcLang: sourceLang, tgtLang: targetLang }),
-  });
-  if (!r.ok) return "";
-  const d = await r.json() as { translated?: string };
-  return d.translated?.trim() ?? "";
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 9_000);
+    try {
+      const r = await fetch("/api/transcription/translate", {
+        method:      "POST",
+        headers:     { "Content-Type": "application/json" },
+        credentials: "include",
+        signal:      controller.signal,
+        body:        JSON.stringify({ text, srcLang: sourceLang, tgtLang: targetLang }),
+      });
+      clearTimeout(timeoutId);
+      if (r.ok) {
+        const d = await r.json() as { translated?: string };
+        return d.translated?.trim() ?? "";
+      }
+      // Auth / quota — no point retrying
+      if (r.status === 401 || r.status === 403) return "";
+      // Hard client errors (4xx except rate-limit) — no retry
+      if (r.status >= 400 && r.status < 500 && r.status !== 429) return "";
+      // 5xx / 429 — fall through to back-off + retry
+    } catch {
+      clearTimeout(timeoutId);
+      // AbortError (timeout) or network failure — fall through to retry
+    }
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise<void>(res => setTimeout(res, 700 * attempt));
+    }
+  }
+  return "";
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────────
@@ -558,7 +587,13 @@ export function useTranscription() {
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
         // DOM no longer connected (bubble was cleared).
-        if (!translated || !transTextEl.isConnected) return;
+        if (!translated || !transTextEl.isConnected) {
+          // Empty result means all retries failed — clear lastTranslatedBuffer so
+          // the polling interval can dispatch a fresh attempt on the next tick
+          // instead of staying permanently stuck on this text.
+          if (!translated) lastTranslatedBuffer.current = "";
+          return;
+        }
         // Re-check lock after the async round-trip. Another in-flight request
         // may have already written + locked this segment while we were waiting.
         // This is the critical guard that prevents the overwrite race.
@@ -596,7 +631,9 @@ export function useTranscription() {
         }
         scrollPanel();
       } catch {
-        // Translation error silenced — error details never logged (HIPAA)
+        // Unexpected error — reset so the interval can retry on the next tick.
+        // No error detail is logged here (HIPAA — never log speech content context).
+        lastTranslatedBuffer.current = "";
       }
     })();
   }, [scrollPanel]);
