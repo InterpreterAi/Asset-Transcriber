@@ -22,16 +22,22 @@ const SPEAKER_COLORS = [
 ] as const;
 
 // ── SVG icon strings ──────────────────────────────────────────────────────────
-const COPY_SVG =
+function parseSvgNode(svgStr: string): Element {
+  return new DOMParser().parseFromString(svgStr, "image/svg+xml").documentElement;
+}
+
+const COPY_SVG_NODE = parseSvgNode(
   `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" ` +
   `fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">` +
   `<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>` +
-  `<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+  `<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
+);
 
-const CHECK_SVG =
+const CHECK_SVG_NODE = parseSvgNode(
   `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" ` +
   `fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">` +
-  `<polyline points="20 6 9 17 4 12"/></svg>`;
+  `<polyline points="20 6 9 17 4 12"/></svg>`
+);
 
 // ── DOM class names ────────────────────────────────────────────────────────────
 const CLS = {
@@ -131,16 +137,16 @@ function enableCopyBtn(btn: HTMLButtonElement, getText: () => string) {
   btn.disabled  = false;
   btn.onclick   = () => {
     void navigator.clipboard.writeText(getText());
-    btn.innerHTML       = CHECK_SVG;
+    btn.replaceChildren(CHECK_SVG_NODE.cloneNode(true));
     btn.style.color     = "var(--color-green-500, #22c55e)";
-    setTimeout(() => { btn.innerHTML = COPY_SVG; btn.style.color = ""; }, 1500);
+    setTimeout(() => { btn.replaceChildren(COPY_SVG_NODE.cloneNode(true)); btn.style.color = ""; }, 1500);
   };
 }
 
 function makeCopyButton(enabled: boolean, getTextFn: () => string): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.type      = "button";
-  btn.innerHTML = COPY_SVG;
+  btn.replaceChildren(COPY_SVG_NODE.cloneNode(true));
   if (enabled) {
     enableCopyBtn(btn, getTextFn);
   } else {
