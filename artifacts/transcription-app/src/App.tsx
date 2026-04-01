@@ -16,7 +16,7 @@ import InvitePage from "./pages/invite";
 // ─── System banner toggle ─────────────────────────────────────────────────────
 // Set to true  → banner is shown across every page.
 // Set to false → banner disappears with no other changes required.
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 
 const queryClient = new QueryClient({
   defaultOptions: {

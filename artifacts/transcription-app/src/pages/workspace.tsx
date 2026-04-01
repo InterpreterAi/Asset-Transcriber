@@ -1320,8 +1320,8 @@ export default function Workspace() {
               </button>
             </div>
 
-            {/* SESSION HISTORY PANEL — top */}
-            <div className="flex-1 flex flex-col min-h-0 mx-3 md:mx-0">
+            {/* SESSION HISTORY PANEL */}
+            <div className="h-48 shrink-0 mx-3 md:mx-0">
               <SessionHistoryPanel refreshKey={historyRefreshKey} />
             </div>
 
