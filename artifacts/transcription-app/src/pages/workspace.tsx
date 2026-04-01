@@ -508,7 +508,7 @@ export default function Workspace() {
               </div>
               <button
                 onClick={() => setShowUpgrade(false)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -631,7 +631,7 @@ export default function Workspace() {
           <span className="text-xs font-semibold text-sidebar-foreground/70 uppercase tracking-wider">Menu</span>
           <button
             onClick={() => setSettingsOpen(false)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1056,7 +1056,7 @@ export default function Workspace() {
             {/* Mobile: Settings sidebar toggle — hidden on md+ */}
             <button
               onClick={() => setSettingsOpen(s => !s)}
-              className="md:hidden w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+              className="md:hidden w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
               title="Settings & Navigation"
               aria-label="Open settings"
             >
@@ -1065,7 +1065,7 @@ export default function Workspace() {
             {/* Mobile: Notes/History drawer toggle — hidden on md+ */}
             <button
               onClick={() => setShowLeftPanel(v => !v)}
-              className={`md:hidden w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+              className={`md:hidden w-10 h-10 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
                 showLeftPanel ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}
               title="Notes & Session History"
@@ -1219,21 +1219,21 @@ export default function Workspace() {
 
             {/* Two-column label row — visible only once transcript starts */}
             {transcription.hasTranscript && (
-              <div className="grid grid-cols-2 gap-6 px-4 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
+              <div className="grid grid-cols-2 gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
                 <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                   Original
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                  <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
                     Translation
                   </span>
                   <button
                     onClick={() => setShowReportIssue(true)}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300 shrink-0"
                     title="Report a translation issue"
                   >
                     <AlertCircle className="w-2.5 h-2.5" />
-                    Report issue
+                    <span className="hidden sm:inline">Report issue</span>
                   </button>
                 </div>
               </div>

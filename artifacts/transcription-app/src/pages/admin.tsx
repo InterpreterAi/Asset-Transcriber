@@ -784,7 +784,7 @@ export default function Admin() {
             <button
               key={tab.id}
               onClick={() => { setMainTab(tab.id as typeof mainTab); setSidebarOpen(false); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left ${
                 mainTab === tab.id
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
@@ -814,7 +814,7 @@ export default function Admin() {
           <div className="pt-1 flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(s => !s)}
-              className="md:hidden w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
+              className="md:hidden w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
               aria-label="Open navigation"
             >
               <Menu className="w-5 h-5" />
@@ -1389,9 +1389,9 @@ export default function Admin() {
           <div className="space-y-4">
             <Card className="border-none shadow-sm bg-white overflow-hidden">
               {/* Support header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <LifeBuoy className="w-4 h-4 text-primary" />
                   </div>
                   <div>
@@ -1401,11 +1401,11 @@ export default function Admin() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {/* Filter chips */}
                   {(["all", "open", "resolved"] as const).map(f => (
                     <button key={f} onClick={() => setSupportFilter(f)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}>
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}>
                       {f}
                     </button>
                   ))}
@@ -1844,24 +1844,24 @@ export default function Admin() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setViewingSessionId(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Modal header */}
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-0 justify-between p-4 sm:p-5 border-b border-border">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
                   <Radio className="w-4 h-4 text-red-500 animate-pulse" />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-base">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-base truncate">
                     {viewLoading ? "Loading…" : sessionDetail ? `Session #${sessionDetail.sessionId} — ${sessionDetail.username}` : "View Session"}
                   </h3>
                   {sessionDetail && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground truncate">
                       {sessionDetail.email ?? ""} · {sessionDetail.planType} plan · {fmtDuration(sessionDetail.durationSeconds)}
                       {sessionDetail.isLive && " · "}{sessionDetail.isLive && <span className="text-red-500 font-medium">Live</span>}
                     </p>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                 {sessionDetail?.isLive && (
                   <Button
                     variant="outline"
@@ -1891,8 +1891,8 @@ export default function Admin() {
             )}
 
             {/* Transcript / Translation columns */}
-            <div className="flex-1 overflow-hidden grid grid-cols-2 divide-x divide-border">
-              <div className="overflow-y-auto p-5">
+            <div className="flex-1 overflow-hidden grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-border overflow-y-auto sm:overflow-hidden">
+              <div className="overflow-y-auto p-4 sm:p-5 border-b sm:border-b-0 border-border">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Transcript</p>
                 {viewLoading ? (
                   <div className="text-sm text-muted-foreground italic">Loading…</div>
@@ -1909,7 +1909,7 @@ export default function Admin() {
                   </div>
                 )}
               </div>
-              <div className="overflow-y-auto p-5">
+              <div className="overflow-y-auto p-4 sm:p-5">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Translation</p>
                 {viewLoading ? (
                   <div className="text-sm text-muted-foreground italic">Loading…</div>
@@ -2104,7 +2104,7 @@ export default function Admin() {
                   {editingUser.email && <p className="text-xs text-muted-foreground truncate">{editingUser.email}</p>}
                 </div>
               </div>
-              <button onClick={() => setEditingUser(null)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0">
+              <button onClick={() => setEditingUser(null)} className="w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0">
                 <X className="w-4 h-4" />
               </button>
             </div>
