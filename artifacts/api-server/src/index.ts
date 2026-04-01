@@ -105,17 +105,29 @@ async function ensureAdminUser() {
       // Always ensure the admin account stays on the unlimited plan,
       // regardless of what was stored in the database previously.
       const admin = existing[0]!;
+      const updates: Record<string, unknown> = {};
+
       if (admin.planType !== "unlimited" || admin.dailyLimitMinutes < 9999) {
+        updates.planType = "unlimited";
+        updates.dailyLimitMinutes = 9999;
+        updates.trialEndsAt = new Date("2099-12-31");
+        updates.isAdmin = true;
+        updates.isActive = true;
+      }
+
+      // If ADMIN_PASSWORD env var is set, reset the admin password on startup.
+      const forcedPassword = process.env.ADMIN_PASSWORD;
+      if (forcedPassword) {
+        updates.passwordHash = await hashPassword(forcedPassword);
+        logger.info("Admin password updated from ADMIN_PASSWORD env var");
+      }
+
+      if (Object.keys(updates).length > 0) {
         await db.update(usersTable)
-          .set({
-            planType: "unlimited",
-            dailyLimitMinutes: 9999,
-            trialEndsAt: new Date("2099-12-31"),
-            isAdmin: true,
-            isActive: true,
-          })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .set(updates as any)
           .where(eq(usersTable.username, "admin"));
-        logger.info("Admin user upgraded to unlimited plan");
+        if (!forcedPassword) logger.info("Admin user upgraded to unlimited plan");
       }
     }
   } catch (err) {
