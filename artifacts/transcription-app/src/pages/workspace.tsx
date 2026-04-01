@@ -749,7 +749,11 @@ export default function Workspace() {
               </span>
               {user.planType === "trial" && (
                 <span className="text-[11px] text-muted-foreground">
-                  {user.trialExpired ? "Expired" : `${user.trialDaysRemaining}d left`}
+                  {user.trialExpired
+                    ? "Expired"
+                    : user.trialEndsAt
+                      ? `${Math.max(0, Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h left`
+                      : "Trial"}
                 </span>
               )}
             </div>
@@ -1133,7 +1137,12 @@ export default function Workspace() {
                   : "bg-muted text-muted-foreground border-border/50"
               }`}>
                 <AlertTriangle className="w-3 h-3" />
-                <span>{user.trialExpired ? "Trial Expired" : `${user.trialDaysRemaining} days left`}</span>
+                <span>{user.trialExpired
+                  ? "Trial Expired"
+                  : user.trialEndsAt
+                    ? `${Math.max(0, Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h left`
+                    : "Trial"
+                }</span>
               </div>
             )}
           </div>
@@ -1145,7 +1154,7 @@ export default function Workspace() {
             {user.trialExpired ? (
               <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span className="flex-1">Your 14-day trial has expired.</span>
+                <span className="flex-1">Your 12-hour trial has expired.</span>
                 <button
                   onClick={handleOpenUpgrade}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-destructive text-white text-xs font-semibold hover:bg-destructive/90 transition-colors whitespace-nowrap shrink-0"
