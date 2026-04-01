@@ -94,7 +94,7 @@ function AppPreview() {
             {/* Lang pair badge */}
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              English ↔ Arabic
+              English ↔ Spanish
             </span>
             {/* Session timer */}
             <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono bg-rose-50 text-rose-600 border border-rose-200">
@@ -157,7 +157,7 @@ function AppPreview() {
             {/* Column labels — matches real two-column label row */}
             <div className="grid grid-cols-2 gap-4 px-3 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
               <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Original (English)</span>
-              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Arabic)</span>
+              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Spanish)</span>
             </div>
 
             {/* Transcript scroll area — static demo rows */}
@@ -166,22 +166,19 @@ function AppPreview() {
               <DemoRow
                 speaker={1}
                 orig="Hello, how can I help you today?"
-                trans="مرحبًا، كيف يمكنني مساعدتك اليوم؟"
-                dir="rtl"
+                trans="Hola, ¿en qué puedo ayudarle hoy?"
               />
 
               <DemoRow
                 speaker={2}
                 orig="I need help understanding my insurance documents."
-                trans="أحتاج إلى مساعدة في فهم وثائق التأمين الخاصة بي."
-                dir="rtl"
+                trans="Necesito ayuda para entender mis documentos de seguro."
               />
 
               <DemoRow
                 speaker={1}
                 orig="Of course. Can you tell me your policy number?"
-                trans="بالطبع. هل يمكنك إخباري برقم وثيقتك؟"
-                dir="rtl"
+                trans="Por supuesto. ¿Me puede dar su número de póliza?"
                 highlight
               />
 
