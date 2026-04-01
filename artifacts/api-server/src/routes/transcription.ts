@@ -392,6 +392,16 @@ router.post("/translate", requireAuth, async (req, res) => {
   const srcCode = srcLang.split("-")[0]!;
   const tgtCode = tgtLang.split("-")[0]!;
 
+  // ── Same-language guard (server-side failsafe) ─────────────────────────────
+  // If the resolved source and target share the same base language code, no
+  // translation is possible — return the original text immediately without
+  // calling OpenAI. This is the hard backstop for any client-side direction
+  // logic that slips through (e.g. wrong segment lock on a Latin-Latin pair).
+  if (srcCode === tgtCode) {
+    res.json({ translated: text });
+    return;
+  }
+
   const termHints = findTermHints(text, srcLang, tgtLang);
 
   // ── User personal glossary ─────────────────────────────────────────────────

@@ -552,6 +552,28 @@ export function useTranscription(isAdmin = false) {
     const myTargetLang  = resolveTarget(dispatchLang, pair);
     const { transTextEl } = state;
 
+    // ── Same-language guard (Rule 5/6) ────────────────────────────────────────
+    // If dispatchLang === myTargetLang the direction resolved to X→X — this
+    // happens for Latin-Latin pairs (e.g. es↔en) when the segment lock fired
+    // on the wrong language and the script validator could not override it
+    // (both languages share Latin script so no confident override is possible).
+    // Rather than sending a no-op translation to the API, show the original
+    // text in the translation column exactly like the third-language path.
+    if (matchesLang(dispatchLang, myTargetLang)) {
+      if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
+        state.lastShownSeq = mySeq;
+        state.lastShownLen = text.length;
+        transTextEl.dir             = "";
+        transTextEl.style.textAlign = "";
+        transTextEl.removeAttribute("lang");
+        transTextEl.className       = CLS.transText;
+        transTextEl.textContent     = text;
+        if (isFinal) state.translationLocked = true;
+        scrollPanel();
+      }
+      return;
+    }
+
     void (async () => {
       try {
         const translated = await fetchTranslation(text, dispatchLang, myTargetLang);
