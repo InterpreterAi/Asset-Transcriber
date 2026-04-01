@@ -211,19 +211,23 @@ function lastSeen(date: string | null | undefined) {
   return formatDistanceToNow(new Date(date), { addSuffix: true });
 }
 
-function trialBadge(days: number | null | undefined, plan: string) {
+function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (plan !== "trial") return (
     <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full capitalize">{plan}</span>
   );
-  if (days == null || days <= 0) return (
+  if (!trialEndsAt) return (
     <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
-  if (days <= 3) return (
+  const hoursLeft = Math.max(0, (new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60));
+  if (hoursLeft <= 0) return (
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
+  );
+  if (hoursLeft < 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{days}d left
+      <AlertTriangle className="w-3 h-3" />{Math.ceil(hoursLeft)}h left
     </span>
   );
-  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{days}d left</span>;
+  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{Math.ceil(hoursLeft)}h left</span>;
 }
 
 function sessionStatusBadge(userId: number, lastActivityAt: string | null | undefined, activeSessions: AdminStats["activeSessions"]) {
@@ -1200,7 +1204,6 @@ export default function Admin() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredUsers.map(u => {
-                    const trialDays = u.trialDaysRemaining as number | null | undefined;
                     const todayPct  = Math.min(100, (u.minutesUsedToday / u.dailyLimitMinutes) * 100);
                     return (
                       <tr
@@ -1210,12 +1213,15 @@ export default function Admin() {
                       >
                         {/* User */}
                         <td className="px-4 py-3">
-                          <div className="font-medium text-foreground flex items-center gap-1.5">
+                          <div className="font-medium text-foreground flex items-center gap-1.5 flex-wrap">
                             {u.username}
                             {u.isAdmin && <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full uppercase font-bold">Admin</span>}
+                            {!u.isAdmin && (Date.now() - new Date(u.createdAt).getTime()) < 24 * 60 * 60 * 1000 && (
+                              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                            )}
                           </div>
                           {u.email && <div className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[180px]">{u.email}</div>}
-                          <div className="text-[10px] text-muted-foreground">Joined {format(new Date(u.createdAt), "MMM d, yyyy")}</div>
+                          <div className="text-[10px] text-muted-foreground">Joined {format(new Date(u.createdAt), "MMM d, yyyy · HH:mm")}</div>
                         </td>
 
                         {/* Session Status — uses fast-polling live data when available */}
@@ -1232,7 +1238,7 @@ export default function Admin() {
                         </td>
 
                         {/* Plan */}
-                        <td className="px-4 py-3">{trialBadge(trialDays, u.planType ?? "trial")}</td>
+                        <td className="px-4 py-3">{trialBadge(u.trialEndsAt, u.planType ?? "trial")}</td>
 
                         {/* Today */}
                         <td className="px-4 py-3">

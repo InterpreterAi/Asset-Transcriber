@@ -89,8 +89,9 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Minutes used today — non-admin users only (since midnight UTC, not rolling 24h)
-    db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
+    // Minutes used today — non-admin users only (since midnight UTC).
+    // Includes live sessions by using elapsed time when duration_seconds is not yet set.
+    db.select({ total: sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
@@ -436,7 +437,7 @@ router.post("/users", requireAdmin, async (req, res) => {
   }
 
   const passwordHash = await hashPassword(password);
-  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const trialEndsAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
 
   const result = await db.insert(usersTable).values({
     username,
