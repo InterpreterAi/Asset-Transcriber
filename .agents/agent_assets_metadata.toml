@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "oyXn7iY-3yqS93JaWr25H"
+uri = "file://INTERPRETERAI_DOCUMENTATION.md"
+type = "text"
+title = "InterpreterAI — Complete Operator Documentation"
