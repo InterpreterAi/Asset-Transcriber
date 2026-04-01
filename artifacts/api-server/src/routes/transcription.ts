@@ -1,7 +1,7 @@
 import { Router } from "express";
 import OpenAI from "openai";
 import { db, usersTable, sessionsTable, glossaryEntriesTable } from "@workspace/db";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, sql, desc } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
@@ -266,6 +266,40 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── /sessions — user session history ──────────────────────────────────────
+router.get("/sessions", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+  const sessions = await db
+    .select({
+      id:              sessionsTable.id,
+      startedAt:       sessionsTable.startedAt,
+      endedAt:         sessionsTable.endedAt,
+      durationSeconds: sessionsTable.durationSeconds,
+      langPair:        sessionsTable.langPair,
+    })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.userId, userId))
+    .orderBy(desc(sessionsTable.startedAt))
+    .limit(limit);
+
+  // Lifetime totals
+  const [totals] = await db
+    .select({
+      totalSessions: sql<number>`count(*)::int`,
+      totalSeconds:  sql<number>`coalesce(sum(duration_seconds),0)::int`,
+    })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.userId, userId));
+
+  res.json({
+    sessions,
+    totalSessions: totals?.totalSessions ?? 0,
+    totalMinutes:  Math.round((totals?.totalSeconds ?? 0) / 60),
+  });
+});
+
 // ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
   // isFinal was previously used to bypass the translation cache.
@@ -308,6 +342,17 @@ router.post("/translate", requireAuth, async (req, res) => {
   // ── User personal glossary ─────────────────────────────────────────────────
   // Load the user's saved glossary entries and add any that match the current text
   const userId = req.session.userId!;
+
+  // Capture lang pair on the user's open session (fire-and-forget, no await)
+  void db
+    .update(sessionsTable)
+    .set({ langPair: `${srcLang} → ${tgtLang}` })
+    .where(and(
+      eq(sessionsTable.userId, userId),
+      isNull(sessionsTable.endedAt),
+      isNull(sessionsTable.langPair),
+    ));
+
   const userGlossary = await db
     .select()
     .from(glossaryEntriesTable)
