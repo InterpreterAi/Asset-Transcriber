@@ -18,7 +18,8 @@ import {
   ArrowLeft, Star, LayoutDashboard, RefreshCw, DollarSign,
   Radio, AlertTriangle, TrendingUp, Calendar, Eye, X,
   Globe, Download, ChevronRight, Wifi, WifiOff, BarChart2,
-  Languages, MessageSquare, StopCircle, Check,
+  Languages, MessageSquare, StopCircle, Check, History,
+  Timer, Banknote,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -207,28 +208,33 @@ export default function Admin() {
 
   const exportHistory = () => {
     if (!historyUser) return;
-    const lines = [
-      `Session History — ${historyUser.username}`,
-      `Exported: ${new Date().toLocaleString()}`,
-      "",
-      "No,Date,Start,End,Duration,Language Pair,Minutes",
-      ...userSessions.map((s, i) =>
-        [
-          i + 1,
-          format(new Date(s.startedAt), "yyyy-MM-dd"),
-          format(new Date(s.startedAt), "HH:mm:ss"),
-          s.endedAt ? format(new Date(s.endedAt), "HH:mm:ss") : "—",
-          fmtDuration(s.durationSeconds),
-          s.langPair ?? "—",
-          s.minutesUsed?.toFixed(2) ?? "—",
-        ].join(",")
-      ),
+    const totalMin  = userSessions.reduce((s, x) => s + (x.minutesUsed ?? 0), 0);
+    const totalCost = totalMin * 0.0027;
+    const rows = [
+      ["#", "Date", "Start Time", "End Time", "Duration (min)", "Language Pair", "Transcription Min", "Est. Cost ($)"],
+      ...userSessions.map((s, i) => [
+        i + 1,
+        format(new Date(s.startedAt), "yyyy-MM-dd"),
+        format(new Date(s.startedAt), "HH:mm:ss"),
+        s.endedAt ? format(new Date(s.endedAt), "HH:mm:ss") : "ongoing",
+        s.minutesUsed != null ? s.minutesUsed.toFixed(2) : s.durationSeconds != null ? (s.durationSeconds / 60).toFixed(2) : "",
+        s.langPair ?? "",
+        s.minutesUsed != null ? s.minutesUsed.toFixed(2) : "",
+        s.minutesUsed != null ? (s.minutesUsed * 0.0027).toFixed(4) : "",
+      ]),
+      [],
+      ["TOTALS", "", "", "", "", `${userSessions.length} sessions`, totalMin.toFixed(2), totalCost.toFixed(4)],
+    ];
+    const csv = [
+      `# Session History: ${historyUser.username}`,
+      `# Exported: ${new Date().toLocaleString()}`,
+      ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")),
     ].join("\n");
-    const blob = new Blob([lines], { type: "text/plain" });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `sessions-${historyUser.username}-${format(new Date(), "yyyyMMdd")}.txt`;
+    a.download = `sessions-${historyUser.username}-${format(new Date(), "yyyyMMdd")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -661,6 +667,9 @@ export default function Admin() {
 
                         {/* Actions */}
                         <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                          <Button variant="outline" size="sm" onClick={() => openHistory(u.id, u.username)} title="Session History" className="h-7 w-7 p-0 text-primary/70 hover:text-primary hover:border-primary/40">
+                            <History className="w-3 h-3" />
+                          </Button>
                           <Button variant="outline" size="sm" onClick={() => resetUsage(u.id)} title="Reset Usage" className="h-7 w-7 p-0">
                             <RefreshCw className="w-3 h-3 text-muted-foreground" />
                           </Button>
@@ -900,19 +909,22 @@ export default function Admin() {
           {/* Backdrop */}
           <div className="flex-1 bg-black/20 backdrop-blur-sm" />
           {/* Panel */}
-          <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-[520px] bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Drawer header */}
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <div>
-                <h3 className="font-semibold text-base flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary" /> Session History
-                </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{historyUser.username} · {userSessions.length} session{userSessions.length !== 1 ? "s" : ""}</p>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <History className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-base leading-tight">Session History</h3>
+                  <p className="text-xs text-muted-foreground">{historyUser.username}</p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {userSessions.length > 0 && (
-                  <Button variant="outline" size="sm" onClick={exportHistory} className="h-8 text-xs">
-                    <Download className="w-3.5 h-3.5 mr-1.5" /> Export
+                  <Button variant="outline" size="sm" onClick={exportHistory} className="h-8 text-xs gap-1.5">
+                    <Download className="w-3.5 h-3.5" /> Export CSV
                   </Button>
                 )}
                 <Button variant="ghost" size="sm" onClick={() => setHistoryUser(null)} className="h-8 w-8 p-0">
@@ -920,6 +932,42 @@ export default function Admin() {
                 </Button>
               </div>
             </div>
+
+            {/* Summary stats banner */}
+            {!historyLoading && userSessions.length > 0 && (() => {
+              const totalMin  = userSessions.reduce((s, x) => s + (x.minutesUsed ?? 0), 0);
+              const totalCost = totalMin * 0.0027;
+              const langPairs = [...new Set(userSessions.map(s => s.langPair).filter(Boolean))];
+              return (
+                <div className="px-5 py-3 bg-gray-50 border-b border-border grid grid-cols-3 gap-3">
+                  <div className="text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Sessions</p>
+                    <p className="text-xl font-bold text-foreground mt-0.5">{userSessions.length}</p>
+                  </div>
+                  <div className="text-center border-x border-border">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold flex items-center justify-center gap-1">
+                      <Timer className="w-2.5 h-2.5" />Transcription
+                    </p>
+                    <p className="text-xl font-bold text-foreground mt-0.5">{totalMin.toFixed(1)}<span className="text-xs font-normal text-muted-foreground ml-1">min</span></p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold flex items-center justify-center gap-1">
+                      <Banknote className="w-2.5 h-2.5" />Est. Cost
+                    </p>
+                    <p className="text-xl font-bold text-foreground mt-0.5">${totalCost.toFixed(3)}</p>
+                  </div>
+                  {langPairs.length > 0 && (
+                    <div className="col-span-3 flex flex-wrap gap-1 pt-1">
+                      {langPairs.map(lp => (
+                        <span key={lp} className="inline-flex items-center gap-1 text-[10px] bg-primary/5 text-primary border border-primary/15 px-2 py-0.5 rounded-full font-medium">
+                          <Globe className="w-2.5 h-2.5" />{lp}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Sessions list */}
             <div className="flex-1 overflow-y-auto">
@@ -931,41 +979,75 @@ export default function Admin() {
                 <div className="py-16 text-center text-muted-foreground text-sm">No sessions found for this user.</div>
               ) : (
                 <div className="divide-y divide-border">
-                  {userSessions.map(s => (
-                    <div key={s.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium">
-                          {format(new Date(s.startedAt), "MMM d, yyyy")}
-                          {s.isLive && <span className="ml-2 text-[10px] text-red-600 font-semibold bg-red-50 px-1.5 py-0.5 rounded-full">Live</span>}
-                        </span>
-                        <span className="text-xs text-muted-foreground">#{s.id}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span>{format(new Date(s.startedAt), "HH:mm")} → {s.endedAt ? format(new Date(s.endedAt), "HH:mm") : "ongoing"}</span>
-                        <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span>
-                        {s.langPair && (
-                          <span className="flex items-center gap-0.5">
-                            <Globe className="w-3 h-3" /> {s.langPair}
-                          </span>
-                        )}
-                      </div>
-                      {s.minutesUsed != null && (
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          {s.minutesUsed.toFixed(1)} minutes used · ~${(s.minutesUsed * 0.0027).toFixed(4)} cost
+                  {userSessions.map((s, idx) => {
+                    const minUsed = s.minutesUsed ?? (s.durationSeconds != null ? s.durationSeconds / 60 : null);
+                    return (
+                      <div key={s.id} className="px-5 py-4 hover:bg-gray-50/70 transition-colors">
+                        {/* Row header */}
+                        <div className="flex items-center justify-between mb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 px-1.5 py-0.5 rounded">#{userSessions.length - idx}</span>
+                            <span className="text-sm font-semibold text-foreground">
+                              {format(new Date(s.startedAt), "EEE, MMM d yyyy")}
+                            </span>
+                            {s.isLive && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-red-600 font-semibold bg-red-50 px-1.5 py-0.5 rounded-full border border-red-100">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Live
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {/* Fields grid */}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                            <span className="text-muted-foreground font-medium">Start</span>
+                            <span className="font-mono text-foreground">{format(new Date(s.startedAt), "HH:mm:ss")}</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                            <span className="text-muted-foreground font-medium">End</span>
+                            <span className="font-mono text-foreground">
+                              {s.endedAt ? format(new Date(s.endedAt), "HH:mm:ss") : <span className="text-red-500">ongoing</span>}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                            <span className="text-muted-foreground font-medium">Duration</span>
+                            <span className="font-semibold text-foreground">{fmtDuration(s.durationSeconds)}</span>
+                          </div>
+                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                            <span className="text-muted-foreground font-medium">Language Pair</span>
+                            <span className="text-foreground flex items-center gap-1">
+                              {s.langPair ? <><Globe className="w-3 h-3 text-primary" />{s.langPair}</> : <span className="text-muted-foreground">—</span>}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between bg-blue-50 rounded px-2.5 py-1.5 col-span-2">
+                            <span className="text-blue-700 font-medium flex items-center gap-1.5">
+                              <Timer className="w-3 h-3" />Transcription Minutes
+                            </span>
+                            <span className="font-bold text-blue-800">
+                              {minUsed != null ? `${minUsed.toFixed(2)} min` : "—"}
+                              {minUsed != null && (
+                                <span className="font-normal text-blue-500 ml-2">≈ ${(minUsed * 0.0027).toFixed(4)}</span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             {/* Drawer footer */}
-            <div className="p-4 border-t border-border bg-gray-50">
+            <div className="px-5 py-3 border-t border-border bg-gray-50 flex items-center justify-between">
               <p className="text-[11px] text-muted-foreground">
-                Showing last 100 sessions.
-                {userSessions.length > 0 && ` Total: ${userSessions.filter(s => s.minutesUsed).reduce((sum, s) => sum + (s.minutesUsed ?? 0), 0).toFixed(1)} min`}
+                Showing last 100 sessions · Cost rate: $0.0027/min
               </p>
+              {userSessions.length > 0 && (
+                <Button variant="outline" size="sm" onClick={exportHistory} className="h-7 text-xs gap-1">
+                  <Download className="w-3 h-3" /> CSV
+                </Button>
+              )}
             </div>
           </div>
         </div>
