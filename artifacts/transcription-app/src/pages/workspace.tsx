@@ -7,12 +7,14 @@ import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
+  LifeBuoy,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { SupportPanel } from "@/components/SupportPanel";
 import { formatMinutes } from "@/lib/utils";
 
 const LANG_OPTIONS = [
@@ -444,9 +446,10 @@ export default function Workspace() {
       <aside className="w-[64px] bg-sidebar border-r border-sidebar-border flex flex-col items-center py-3 flex-shrink-0 z-20">
         <div className="flex-1 flex flex-col gap-1.5">
           {[
-            { id: "profile", icon: <User className="w-5 h-5" />,  title: "Profile" },
-            { id: "mic",     icon: <Mic2 className="w-5 h-5" />,  title: "Audio" },
-            { id: "lang",    icon: <Globe className="w-5 h-5" />, title: "Languages" },
+            { id: "profile", icon: <User className="w-5 h-5" />,     title: "Profile" },
+            { id: "mic",     icon: <Mic2 className="w-5 h-5" />,     title: "Audio" },
+            { id: "lang",    icon: <Globe className="w-5 h-5" />,    title: "Languages" },
+            { id: "support", icon: <LifeBuoy className="w-5 h-5" />, title: "Support" },
           ].map(({ id, icon, title }) => (
             <button
               key={id}
@@ -669,6 +672,14 @@ export default function Workspace() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* SUPPORT PANEL */}
+      {activeTab === "support" && (
+        <SupportPanel
+          userEmail={user.email ?? null}
+          onClose={() => setActiveTab("mic")}
+        />
       )}
 
       {/* MAIN CONTENT */}

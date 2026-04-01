@@ -34,6 +34,8 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
 - `users`: Stores user account details, including username, password hash, admin status, activity status, trial dates, daily limits, and usage statistics.
 - `sessions`: Records transcription session metadata (start/end time, duration, `langPair` for language pair used).
 - `feedback`: Stores star ratings and comments, displayed upon trial expiry.
+- `support_tickets`: Stores support requests (userId FK nullable, email, subject, message, status open/resolved, timestamps).
+- `support_replies`: Stores thread replies per ticket (ticketId FK, authorId FK nullable, isAdmin, message, createdAt).
 - `user_sessions`: Used by `connect-pg-simple` for Express session storage. This table must be created manually if the DB is reset.
 
 **Frontend → Backend Connectivity:**
@@ -64,6 +66,11 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
   - *Feedback*: Star ratings + comments from users
 - **View Session Modal:** Admin can view live transcript + translation snapshot for an active session (auto-refreshes every 5s). Snapshot includes lang pair, mic device label, and content. Admin can terminate the session. Snapshots are in-memory only — never persisted to DB.
 - **Snapshot Push:** While recording, workspace pushes transcript/translation/lang pair/mic label to `PUT /api/transcription/session/snapshot` every 5 s. Data lives in the server's `sessionStore` Map and is cleared when the session ends.
+- **Support Ticket System:** Full SaaS support flow:
+  - Users: LifeBuoy icon in workspace sidebar opens a slide-in Support panel with "New Request" (email/subject/message form) and "My Requests" (thread view with admin replies)
+  - Submission triggers: DB save, Telegram notification to admin, confirmation email to user (via Resend)
+  - Admin dashboard: 5th tab "Support (N open)" shows all tickets with filter chips (All/Open/Resolved), clickable rows expand thread, reply form sends email notification, status toggle (Open ↔ Resolved)
+  - Admin reply triggers an email to the user via Resend
 
 ## External Dependencies
 - **Soniox WebSocket API:** Used for real-time speech-to-text (`wss://stt-rt.soniox.com/transcribe-websocket`).

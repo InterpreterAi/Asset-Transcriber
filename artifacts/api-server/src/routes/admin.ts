@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { db, usersTable, feedbackTable, sessionsTable } from "@workspace/db";
+import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable } from "@workspace/db";
 import { eq, sql, gt, isNull, and, desc } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import { getTrialDaysRemaining } from "../lib/usage.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
+import { sendAdminReplyEmail } from "../lib/email.js";
 
 const router = Router();
 
@@ -495,6 +496,130 @@ router.get("/feedback", requireAdmin, async (_req, res) => {
       createdAt: r.createdAt,
     })),
   });
+});
+
+// ── Support ticket management ─────────────────────────────────────────────────
+
+// List all tickets
+router.get("/support", requireAdmin, async (_req, res) => {
+  const tickets = await db
+    .select({
+      id:        supportTicketsTable.id,
+      userId:    supportTicketsTable.userId,
+      email:     supportTicketsTable.email,
+      subject:   supportTicketsTable.subject,
+      message:   supportTicketsTable.message,
+      status:    supportTicketsTable.status,
+      createdAt: supportTicketsTable.createdAt,
+      updatedAt: supportTicketsTable.updatedAt,
+      username:  usersTable.username,
+    })
+    .from(supportTicketsTable)
+    .leftJoin(usersTable, eq(supportTicketsTable.userId, usersTable.id))
+    .orderBy(desc(supportTicketsTable.createdAt));
+
+  // Fetch reply counts
+  const replyCountRows = await db
+    .select({
+      ticketId: supportRepliesTable.ticketId,
+      cnt:      sql<number>`COUNT(*)`,
+    })
+    .from(supportRepliesTable)
+    .groupBy(supportRepliesTable.ticketId);
+
+  const replyCounts = Object.fromEntries(replyCountRows.map(r => [r.ticketId, Number(r.cnt)]));
+
+  res.json({
+    tickets: tickets.map(t => ({
+      ...t,
+      replyCount: replyCounts[t.id] ?? 0,
+    })),
+  });
+});
+
+// Get a single ticket with all replies
+router.get("/support/:id", requireAdmin, async (req, res) => {
+  const ticketId = parseInt(req.params.id, 10);
+  if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [ticket] = await db
+    .select({
+      id:        supportTicketsTable.id,
+      userId:    supportTicketsTable.userId,
+      email:     supportTicketsTable.email,
+      subject:   supportTicketsTable.subject,
+      message:   supportTicketsTable.message,
+      status:    supportTicketsTable.status,
+      createdAt: supportTicketsTable.createdAt,
+      username:  usersTable.username,
+    })
+    .from(supportTicketsTable)
+    .leftJoin(usersTable, eq(supportTicketsTable.userId, usersTable.id))
+    .where(eq(supportTicketsTable.id, ticketId));
+
+  if (!ticket) { res.status(404).json({ error: "Ticket not found." }); return; }
+
+  const replies = await db
+    .select({
+      id:        supportRepliesTable.id,
+      isAdmin:   supportRepliesTable.isAdmin,
+      message:   supportRepliesTable.message,
+      createdAt: supportRepliesTable.createdAt,
+      username:  usersTable.username,
+    })
+    .from(supportRepliesTable)
+    .leftJoin(usersTable, eq(supportRepliesTable.authorId, usersTable.id))
+    .where(eq(supportRepliesTable.ticketId, ticketId))
+    .orderBy(supportRepliesTable.createdAt);
+
+  res.json({ ticket, replies });
+});
+
+// Admin reply
+router.post("/support/:id/reply", requireAdmin, async (req, res) => {
+  const ticketId = parseInt(req.params.id, 10);
+  const { message } = req.body as { message?: string };
+  if (isNaN(ticketId) || !message?.trim()) {
+    res.status(400).json({ error: "Message is required." }); return;
+  }
+
+  const [ticket] = await db.select().from(supportTicketsTable).where(eq(supportTicketsTable.id, ticketId));
+  if (!ticket) { res.status(404).json({ error: "Ticket not found." }); return; }
+
+  const [reply] = await db.insert(supportRepliesTable).values({
+    ticketId,
+    authorId: req.session.userId ?? null,
+    isAdmin:  true,
+    message:  message.trim(),
+  }).returning();
+
+  // Re-open if resolved when admin replies
+  await db.update(supportTicketsTable)
+    .set({ updatedAt: new Date() })
+    .where(eq(supportTicketsTable.id, ticketId));
+
+  // Email user
+  void sendAdminReplyEmail(ticket.email, ticket.id, ticket.subject, message.trim());
+
+  res.status(201).json({ reply });
+});
+
+// Update ticket status
+router.put("/support/:id/status", requireAdmin, async (req, res) => {
+  const ticketId = parseInt(req.params.id, 10);
+  const { status } = req.body as { status?: string };
+  if (isNaN(ticketId) || !["open", "resolved"].includes(status ?? "")) {
+    res.status(400).json({ error: "Status must be 'open' or 'resolved'." }); return;
+  }
+
+  const [updated] = await db
+    .update(supportTicketsTable)
+    .set({ status: status!, updatedAt: new Date() })
+    .where(eq(supportTicketsTable.id, ticketId))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "Ticket not found." }); return; }
+  res.json({ ticket: updated });
 });
 
 export default router;

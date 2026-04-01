@@ -7,6 +7,7 @@ import feedbackRouter from "./feedback.js";
 import adminRouter from "./admin.js";
 import translateRouter from "./translate.js";
 import stripeRouter from "./stripe.js";
+import supportRouter from "./support.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/feedback", feedbackRouter);
 router.use("/admin", adminRouter);
 router.use("/translate", translateRouter);
 router.use("/stripe", stripeRouter);
+router.use("/support", supportRouter);
 
 export default router;

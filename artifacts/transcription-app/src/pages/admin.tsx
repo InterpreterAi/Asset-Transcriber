@@ -19,7 +19,7 @@ import {
   Radio, AlertTriangle, TrendingUp, Calendar, Eye, X,
   Globe, Download, ChevronRight, Wifi, WifiOff, BarChart2,
   Languages, MessageSquare, StopCircle, Check, History,
-  Timer, Banknote,
+  Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -94,6 +94,31 @@ interface LangConfigResp {
   enabledLanguages: string[];
   defaultLangA:     string;
   defaultLangB:     string;
+}
+
+interface SupportTicket {
+  id:         number;
+  userId:     number | null;
+  username:   string | null;
+  email:      string;
+  subject:    string;
+  message:    string;
+  status:     string;
+  replyCount: number;
+  createdAt:  string;
+  updatedAt:  string;
+}
+
+interface SupportReply {
+  id:        number;
+  isAdmin:   boolean;
+  message:   string;
+  createdAt: string;
+  username:  string | null;
+}
+
+interface SupportTicketDetail extends SupportTicket {
+  replies: SupportReply[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -180,7 +205,75 @@ export default function Admin() {
   const resetMut  = useAdminResetUsage();
 
   // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback">("overview");
+  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support">("overview");
+
+  // ── Support tab state ─────────────────────────────────────────────────────
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportFilter,  setSupportFilter]  = useState<"all" | "open" | "resolved">("all");
+  const [expandedTicket, setExpandedTicket] = useState<number | null>(null);
+  const [ticketDetail,   setTicketDetail]   = useState<SupportTicketDetail | null>(null);
+  const [detailLoading,  setDetailLoading]  = useState(false);
+  const [replyText,      setReplyText]      = useState("");
+  const [replyLoading,   setReplyLoading]   = useState(false);
+  const [statusLoading,  setStatusLoading]  = useState<number | null>(null);
+
+  const fetchSupportTickets = useCallback(async () => {
+    setSupportLoading(true);
+    try {
+      const res  = await fetch("/api/admin/support", { credentials: "include" });
+      const data = await res.json() as { tickets: SupportTicket[] };
+      setSupportTickets(data.tickets ?? []);
+    } catch { setSupportTickets([]); }
+    setSupportLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (mainTab === "support" && me?.isAdmin) void fetchSupportTickets();
+  }, [mainTab, me?.isAdmin, fetchSupportTickets]);
+
+  const toggleTicketExpand = async (id: number) => {
+    if (expandedTicket === id) { setExpandedTicket(null); setTicketDetail(null); return; }
+    setExpandedTicket(id);
+    setDetailLoading(true);
+    try {
+      const res  = await fetch(`/api/admin/support/${id}`, { credentials: "include" });
+      const data = await res.json() as { ticket: SupportTicket; replies: SupportReply[] };
+      setTicketDetail({ ...data.ticket, replies: data.replies });
+    } catch { setTicketDetail(null); }
+    setDetailLoading(false);
+  };
+
+  const submitAdminReply = async (ticketId: number) => {
+    if (!replyText.trim()) return;
+    setReplyLoading(true);
+    try {
+      await fetch(`/api/admin/support/${ticketId}/reply`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ message: replyText.trim() }),
+      });
+      setReplyText("");
+      void toggleTicketExpand(ticketId);
+      void fetchSupportTickets();
+    } catch { /* ignore */ }
+    setReplyLoading(false);
+  };
+
+  const toggleTicketStatus = async (ticketId: number, current: string) => {
+    const next = current === "open" ? "resolved" : "open";
+    setStatusLoading(ticketId);
+    try {
+      await fetch(`/api/admin/support/${ticketId}/status`, {
+        method: "PUT", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ status: next }),
+      });
+      setSupportTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: next } : t));
+      if (ticketDetail?.id === ticketId) setTicketDetail(d => d ? { ...d, status: next } : d);
+    } catch { /* ignore */ }
+    setStatusLoading(null);
+  };
 
   // ── Users tab state ───────────────────────────────────────────────────────
   const [userFilter,  setUserFilter]  = useState<"all" | "trial" | "paying" | "inactive" | "high">("all");
@@ -409,16 +502,17 @@ export default function Admin() {
         </div>
 
         {/* Main Tabs */}
-        <div className="flex items-center gap-1 bg-white rounded-xl p-1 shadow-sm border border-border w-fit">
-          {([
+        <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl p-1 shadow-sm border border-border w-fit">
+          {[
             { id: "overview",  label: "Overview",  icon: <BarChart2 className="w-3.5 h-3.5" /> },
             { id: "users",     label: `Users (${allUsers.length})`, icon: <Users className="w-3.5 h-3.5" /> },
             { id: "languages", label: "Languages", icon: <Languages className="w-3.5 h-3.5" /> },
             { id: "feedback",  label: `Feedback (${feedback.length})`, icon: <MessageSquare className="w-3.5 h-3.5" /> },
-          ] as const).map(tab => (
+            { id: "support",   label: `Support${supportTickets.length > 0 ? ` (${supportTickets.filter(t=>t.status==="open").length} open)` : ""}`, icon: <LifeBuoy className="w-3.5 h-3.5" /> },
+          ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setMainTab(tab.id)}
+              onClick={() => setMainTab(tab.id as typeof mainTab)}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${mainTab === tab.id
                 ? "bg-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}
@@ -810,6 +904,165 @@ export default function Admin() {
                 No feedback received yet.
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── SUPPORT TAB ──────────────────────────────────────────────────── */}
+        {mainTab === "support" && (
+          <div className="space-y-4">
+            <Card className="border-none shadow-sm bg-white overflow-hidden">
+              {/* Support header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <LifeBuoy className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-base">Support Messages</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {supportTickets.filter(t => t.status === "open").length} open · {supportTickets.filter(t => t.status === "resolved").length} resolved
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Filter chips */}
+                  {(["all", "open", "resolved"] as const).map(f => (
+                    <button key={f} onClick={() => setSupportFilter(f)}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}>
+                      {f}
+                    </button>
+                  ))}
+                  <Button variant="outline" size="sm" onClick={fetchSupportTickets} className="h-8 w-8 p-0 ml-1">
+                    <RefreshCw className={`w-3.5 h-3.5 ${supportLoading ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Ticket list */}
+              {supportLoading && supportTickets.length === 0 ? (
+                <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-6 w-6 border-t-2 border-primary" /></div>
+              ) : (() => {
+                const filtered = supportTickets.filter(t => supportFilter === "all" || t.status === supportFilter);
+                if (filtered.length === 0) return (
+                  <div className="py-16 text-center text-muted-foreground">
+                    <LifeBuoy className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                    <p className="text-sm">No {supportFilter !== "all" ? supportFilter : ""} tickets yet.</p>
+                  </div>
+                );
+                return (
+                  <div className="divide-y divide-border">
+                    {filtered.map(ticket => (
+                      <div key={ticket.id}>
+                        {/* Ticket row */}
+                        <button
+                          className="w-full px-6 py-4 text-left hover:bg-gray-50 transition-colors flex items-start gap-3"
+                          onClick={() => { setReplyText(""); void toggleTicketExpand(ticket.id); }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 px-1.5 py-0.5 rounded">#{ticket.id}</span>
+                              {ticket.status === "resolved" ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 px-2 py-0.5 rounded-full">
+                                  <CheckCircle className="w-2.5 h-2.5" /> Resolved
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full">
+                                  <Clock className="w-2.5 h-2.5" /> Open
+                                </span>
+                              )}
+                              {ticket.replyCount > 0 && (
+                                <span className="text-[10px] text-muted-foreground">{ticket.replyCount} repl{ticket.replyCount === 1 ? "y" : "ies"}</span>
+                              )}
+                            </div>
+                            <p className="text-sm font-semibold text-foreground truncate">{ticket.subject}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[11px] text-muted-foreground">
+                                {ticket.username ? `@${ticket.username}` : ticket.email}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground/50">·</span>
+                              <span className="text-[11px] text-muted-foreground">{format(new Date(ticket.createdAt), "MMM d, yyyy HH:mm")}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 mt-1">
+                            <Button
+                              variant="outline" size="sm"
+                              onClick={e => { e.stopPropagation(); void toggleTicketStatus(ticket.id, ticket.status); }}
+                              isLoading={statusLoading === ticket.id}
+                              className={`h-7 text-xs px-2.5 ${ticket.status === "open" ? "text-green-700 border-green-200 hover:bg-green-50" : "text-amber-700 border-amber-200 hover:bg-amber-50"}`}
+                            >
+                              {ticket.status === "open" ? <><CheckCircle className="w-3 h-3 mr-1" />Resolve</> : <><Clock className="w-3 h-3 mr-1" />Reopen</>}
+                            </Button>
+                            {expandedTicket === ticket.id
+                              ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                              : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                          </div>
+                        </button>
+
+                        {/* Expanded thread */}
+                        {expandedTicket === ticket.id && (
+                          <div className="bg-gray-50 border-t border-border px-6 py-4 space-y-4">
+                            {detailLoading ? (
+                              <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" /></div>
+                            ) : ticketDetail && (
+                              <>
+                                {/* Original message */}
+                                <div className="bg-white rounded-xl border border-border p-4">
+                                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
+                                    <span>{ticket.username ? `@${ticket.username}` : ticket.email}</span>
+                                    <span className="normal-case font-normal">{format(new Date(ticket.createdAt), "MMM d, yyyy HH:mm")}</span>
+                                  </p>
+                                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{ticketDetail.message}</p>
+                                  <p className="text-[11px] text-muted-foreground mt-2">Reply to: {ticket.email}</p>
+                                </div>
+
+                                {/* Thread replies */}
+                                {ticketDetail.replies.map(reply => (
+                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 ml-6" : "bg-white border-border"}`}>
+                                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
+                                      {reply.isAdmin ? (
+                                        <><span className="w-2 h-2 rounded-full bg-primary inline-block" /><span className="text-primary">Support Team</span></>
+                                      ) : (
+                                        <span>{reply.username ?? ticket.email}</span>
+                                      )}
+                                      <span className="ml-auto normal-case font-normal">{format(new Date(reply.createdAt), "MMM d, yyyy HH:mm")}</span>
+                                    </p>
+                                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{reply.message}</p>
+                                  </div>
+                                ))}
+
+                                {/* Reply form */}
+                                <div className="space-y-2">
+                                  <p className="text-xs font-semibold text-muted-foreground">Reply as Support Team</p>
+                                  <textarea
+                                    value={replyText}
+                                    onChange={e => setReplyText(e.target.value)}
+                                    rows={3}
+                                    placeholder="Type your reply..."
+                                    className="w-full text-sm rounded-xl border border-border bg-white px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      isLoading={replyLoading}
+                                      disabled={!replyText.trim()}
+                                      onClick={() => void submitAdminReply(ticket.id)}
+                                      className="text-xs h-8"
+                                    >
+                                      <Send className="w-3.5 h-3.5 mr-1.5" /> Send Reply
+                                    </Button>
+                                    <p className="text-[11px] text-muted-foreground">User will receive a reply notification email.</p>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </Card>
           </div>
         )}
 

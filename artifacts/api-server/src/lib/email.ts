@@ -99,3 +99,123 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
     logger.error({ err, email: toEmail }, "Failed to send welcome email");
   }
 }
+
+export async function sendSupportConfirmationEmail(
+  toEmail: string,
+  ticketId: number,
+  subject: string,
+): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+
+  try {
+    await client.emails.send({
+      from: FROM_ADDRESS,
+      to:   toEmail,
+      subject: `[Ticket #${ticketId}] We received your support request`,
+      text: [
+        `Hi,`,
+        ``,
+        `We received your support request regarding: "${subject}"`,
+        ``,
+        `Our team will get back to you as soon as possible.`,
+        `You can view your ticket status at: ${APP_URL}`,
+        ``,
+        `Ticket ID: #${ticketId}`,
+        ``,
+        `Best,`,
+        `InterpreterAI Support`,
+      ].join("\n"),
+      html: `
+<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="540" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+        <tr><td style="background:#1d6ae5;padding:24px 36px;">
+          <p style="margin:0;font-size:18px;font-weight:700;color:#fff;">InterpreterAI Support</p>
+        </td></tr>
+        <tr><td style="padding:32px 36px 24px;">
+          <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#1a1a1a;">We got your message</p>
+          <p style="margin:0 0 16px;font-size:14px;color:#666;line-height:1.6;">Your support request has been received. We'll respond as soon as possible.</p>
+          <div style="background:#f5f5f7;border-radius:10px;padding:16px 20px;margin-bottom:20px;">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:0.05em;">Subject</p>
+            <p style="margin:0;font-size:14px;color:#333;">${subject}</p>
+            <p style="margin:12px 0 0;font-size:11px;color:#aaa;">Ticket #${ticketId}</p>
+          </div>
+          <table cellpadding="0" cellspacing="0"><tr><td style="background:#1d6ae5;border-radius:10px;">
+            <a href="${APP_URL}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View My Tickets</a>
+          </td></tr></table>
+        </td></tr>
+        <tr><td style="padding:16px 36px;border-top:1px solid #f0f0f0;">
+          <p style="margin:0;font-size:11px;color:#aaa;">© 2026 InterpreterAI · All rights reserved</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+    });
+    logger.info({ email: toEmail, ticketId }, "Support confirmation email sent");
+  } catch (err) {
+    logger.error({ err }, "Failed to send support confirmation email");
+  }
+}
+
+export async function sendAdminReplyEmail(
+  toEmail: string,
+  ticketId: number,
+  subject: string,
+  replyMessage: string,
+): Promise<void> {
+  const client = getClient();
+  if (!client) return;
+
+  try {
+    await client.emails.send({
+      from: FROM_ADDRESS,
+      to:   toEmail,
+      subject: `[Ticket #${ticketId}] Re: ${subject}`,
+      text: [
+        `Hi,`,
+        ``,
+        `You have a new reply on your support request: "${subject}"`,
+        ``,
+        replyMessage,
+        ``,
+        `View your ticket at: ${APP_URL}`,
+        ``,
+        `Best,`,
+        `InterpreterAI Support`,
+      ].join("\n"),
+      html: `
+<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="540" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+        <tr><td style="background:#1d6ae5;padding:24px 36px;">
+          <p style="margin:0;font-size:18px;font-weight:700;color:#fff;">InterpreterAI Support</p>
+        </td></tr>
+        <tr><td style="padding:32px 36px 24px;">
+          <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#1a1a1a;">New reply on your ticket</p>
+          <p style="margin:0 0 4px;font-size:12px;color:#999;">Subject: ${subject} · Ticket #${ticketId}</p>
+          <div style="background:#f0f7ff;border-left:3px solid #1d6ae5;border-radius:6px;padding:16px 20px;margin:20px 0;">
+            <p style="margin:0;font-size:14px;color:#333;line-height:1.65;white-space:pre-wrap;">${replyMessage}</p>
+          </div>
+          <table cellpadding="0" cellspacing="0"><tr><td style="background:#1d6ae5;border-radius:10px;">
+            <a href="${APP_URL}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View Full Thread</a>
+          </td></tr></table>
+        </td></tr>
+        <tr><td style="padding:16px 36px;border-top:1px solid #f0f0f0;">
+          <p style="margin:0;font-size:11px;color:#aaa;">© 2026 InterpreterAI · All rights reserved</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+    });
+    logger.info({ email: toEmail, ticketId }, "Admin reply email sent");
+  } catch (err) {
+    logger.error({ err }, "Failed to send admin reply email");
+  }
+}
