@@ -1147,7 +1147,7 @@ export default function Workspace() {
         {/* TRANSCRIPT + NOTES + HISTORY PANELS */}
         <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden relative">
 
-          {/* MOBILE BACKDROP — tap to close left panel */}
+          {/* MOBILE BACKDROP — tap to close right panel */}
           {showLeftPanel && (
             <div
               className="fixed inset-0 z-20 bg-black/30 md:hidden"
@@ -1155,63 +1155,7 @@ export default function Workspace() {
             />
           )}
 
-          {/* LEFT COLUMN — drawer on mobile, always-visible on md+ */}
-          <div className={`
-            ${showLeftPanel ? "translate-x-0" : "-translate-x-full"}
-            md:translate-x-0
-            fixed md:relative
-            top-0 left-0 md:left-auto
-            h-full
-            z-30 md:z-auto
-            w-[85vw] md:w-[38%] lg:w-[36%]
-            shrink-0 flex flex-col gap-2 min-h-0
-            transition-transform duration-200 ease-in-out
-          `}>
-
-            {/* Mobile close button (only visible inside drawer on mobile) */}
-            <div className="md:hidden h-14 bg-muted/80 border-b border-border flex items-center justify-between px-4 shrink-0">
-              <span className="text-sm font-semibold">Notes & History</span>
-              <button
-                onClick={() => setShowLeftPanel(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* NOTES PANEL */}
-            <div className="h-28 shrink-0 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
-              <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
-                <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
-                {notes && (
-                  <span className="ml-auto text-[9px] text-muted-foreground/50 italic">cleared on end</span>
-                )}
-              </div>
-              <div className="flex-1 overflow-y-auto scroll-smooth min-h-0">
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
-                  className="w-full h-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-
-            {/* TERMINOLOGY SEARCH PANEL */}
-            <div className="h-52 shrink-0 min-h-0 mx-3 md:mx-0">
-              <TerminologyPanel langA={langA} langB={langB} />
-            </div>
-
-            {/* SESSION HISTORY PANEL */}
-            <div className="flex-1 flex flex-col min-h-0 mx-3 md:mx-0 pb-2 md:pb-0">
-              <SessionHistoryPanel refreshKey={historyRefreshKey} />
-            </div>
-
-          </div>
-
-          {/* MAIN TRANSCRIPT PANEL */}
+          {/* MAIN TRANSCRIPT PANEL — left side */}
           <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
             {/* Transcript header */}
@@ -1329,6 +1273,63 @@ export default function Workspace() {
               )}
             </div>
           </div>
+
+          {/* RIGHT COLUMN — drawer on mobile, always-visible on md+ */}
+          <div className={`
+            ${showLeftPanel ? "translate-x-0" : "translate-x-full"}
+            md:translate-x-0
+            fixed md:relative
+            top-0 right-0 md:right-auto
+            h-full
+            z-30 md:z-auto
+            w-[85vw] md:w-[42%] lg:w-[40%]
+            shrink-0 flex flex-col gap-2 min-h-0
+            transition-transform duration-200 ease-in-out
+          `}>
+
+            {/* Mobile close button */}
+            <div className="md:hidden h-14 bg-muted/80 border-b border-border flex items-center justify-between px-4 shrink-0">
+              <span className="text-sm font-semibold">Notes & History</span>
+              <button
+                onClick={() => setShowLeftPanel(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* SESSION HISTORY PANEL — top */}
+            <div className="flex-1 flex flex-col min-h-0 mx-3 md:mx-0">
+              <SessionHistoryPanel refreshKey={historyRefreshKey} />
+            </div>
+
+            {/* NOTES PANEL — middle */}
+            <div className="h-32 shrink-0 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
+              <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
+                <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+                {notes && (
+                  <span className="ml-auto text-[9px] text-muted-foreground/50 italic">cleared on end</span>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto scroll-smooth min-h-0">
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
+                  className="w-full h-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
+                  spellCheck={false}
+                />
+              </div>
+            </div>
+
+            {/* TERMINOLOGY SEARCH PANEL — bottom, slightly smaller */}
+            <div className="h-40 shrink-0 min-h-0 mx-3 md:mx-0 pb-2 md:pb-0">
+              <TerminologyPanel langA={langA} langB={langB} />
+            </div>
+
+          </div>
+
         </div>
 
         {/* BOTTOM TOOLBAR */}

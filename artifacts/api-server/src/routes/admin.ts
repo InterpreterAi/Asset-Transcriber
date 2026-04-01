@@ -233,6 +233,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       startedAt:       s.startedAt,
       durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
       hasSnapshot:     sessionStore.has(s.sessionId),
+      micLabel:        sessionStore.get(s.sessionId)?.micLabel ?? null,
     })),
   });
 });

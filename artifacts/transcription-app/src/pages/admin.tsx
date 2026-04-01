@@ -54,6 +54,7 @@ interface AdminStats {
     startedAt:       string;
     durationSeconds: number;
     hasSnapshot:     boolean;
+    micLabel:        string | null;
   }[];
 }
 
@@ -917,6 +918,12 @@ export default function Admin() {
                       {s.langPair && (
                         <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
                           <Globe className="w-3 h-3" /> {s.langPair}
+                        </p>
+                      )}
+                      {s.micLabel && (
+                        <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                          <Mic className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{s.micLabel}</span>
                         </p>
                       )}
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
