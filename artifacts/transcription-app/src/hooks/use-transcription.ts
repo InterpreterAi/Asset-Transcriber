@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -21,24 +21,6 @@ const SPEAKER_COLORS = [
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-100 mb-1",
 ] as const;
 
-// ── SVG icon strings ──────────────────────────────────────────────────────────
-function parseSvgNode(svgStr: string): Element {
-  return new DOMParser().parseFromString(svgStr, "image/svg+xml").documentElement;
-}
-
-const COPY_SVG_NODE = parseSvgNode(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" ` +
-  `fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">` +
-  `<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>` +
-  `<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`
-);
-
-const CHECK_SVG_NODE = parseSvgNode(
-  `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" ` +
-  `fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">` +
-  `<polyline points="20 6 9 17 4 12"/></svg>`
-);
-
 // ── DOM class names ────────────────────────────────────────────────────────────
 const CLS = {
   row:         "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors",
@@ -51,8 +33,6 @@ const CLS = {
   nf:          "text-muted-foreground/45 italic",
   transText:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transPend:   "ts-text text-muted-foreground/30 italic flex-1 min-w-0",
-  copyIcon:    "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 opacity-0 group-hover:opacity-100 transition-all cursor-pointer",
-  copyIconDis: "shrink-0 mt-0.5 p-0.5 rounded text-muted-foreground/20 opacity-0 group-hover:opacity-30 cursor-not-allowed transition-opacity",
 } as const;
 
 // ── Soniox v4 types ────────────────────────────────────────────────────────────
@@ -388,29 +368,22 @@ async function fetchTranslation(text: string, sourceLang: string, targetLang: st
   return "";
 }
 
-// ── DOM helpers ────────────────────────────────────────────────────────────────
-function enableCopyBtn(btn: HTMLButtonElement, getText: () => string) {
-  btn.className = CLS.copyIcon;
-  btn.disabled  = false;
-  btn.onclick   = () => {
-    void navigator.clipboard.writeText(getText());
-    btn.replaceChildren(CHECK_SVG_NODE.cloneNode(true));
-    btn.style.color     = "var(--color-green-500, #22c55e)";
-    setTimeout(() => { btn.replaceChildren(COPY_SVG_NODE.cloneNode(true)); btn.style.color = ""; }, 1500);
-  };
-}
-
-function makeCopyButton(enabled: boolean, getTextFn: () => string): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.type      = "button";
-  btn.replaceChildren(COPY_SVG_NODE.cloneNode(true));
-  if (enabled) {
-    enableCopyBtn(btn, getTextFn);
-  } else {
-    btn.className = CLS.copyIconDis;
-    btn.disabled  = true;
-  }
-  return btn;
+// ── Admin click-to-copy ────────────────────────────────────────────────────────
+// For admin users only: clicking any transcription/translation text paragraph
+// copies its content to the clipboard and flashes a brief green highlight.
+function wireClickToCopy(el: HTMLElement): void {
+  el.style.cursor = "pointer";
+  el.title        = "Click to copy";
+  el.addEventListener("click", () => {
+    const text = el.textContent?.trim() ?? "";
+    if (!text || text === "…") return;
+    void navigator.clipboard.writeText(text).then(() => {
+      const prev = el.style.backgroundColor;
+      el.style.transition      = "background-color 0.15s";
+      el.style.backgroundColor = "rgba(34,197,94,0.15)";
+      setTimeout(() => { el.style.backgroundColor = prev; }, 700);
+    });
+  });
 }
 
 // Apply inline font-size/line-height that inherit the CSS variables set by workspace.
@@ -425,7 +398,6 @@ function applyTextStyle(el: HTMLElement) {
 // a previous segment can NEVER write into a later segment's DOM element.
 interface BubbleTransState {
   transTextEl:       HTMLParagraphElement;
-  copyTransBtn:      HTMLButtonElement;
   seq:               number;   // incremented on every dispatch FOR THIS bubble
   lastShownSeq:      number;   // highest seq whose result was written to DOM
   lastShownLen:      number;   // char length of last shown translation (for stabilization)
@@ -434,7 +406,10 @@ interface BubbleTransState {
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
-export function useTranscription() {
+export function useTranscription(isAdmin = false) {
+  const isAdminRef = useRef(isAdmin);
+  useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
+
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
   const [error,         setError]         = useState<string | null>(null);
@@ -547,7 +522,7 @@ export function useTranscription() {
     if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) {
       state.seq += 1;
       const mySeq = state.seq;
-      const { transTextEl, copyTransBtn } = state;
+      const { transTextEl } = state;
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
@@ -557,9 +532,6 @@ export function useTranscription() {
         transTextEl.className       = CLS.transText;
         transTextEl.textContent     = text;
         if (isFinal) state.translationLocked = true;
-        if (copyTransBtn.disabled) {
-          enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
-        }
         scrollPanel();
       }
       return;
@@ -578,7 +550,7 @@ export function useTranscription() {
     // If validated lang is "ar" and pair is {a:"en", b:"ar"} → target = "en".
     // If validated lang is "en" → target = "ar".
     const myTargetLang  = resolveTarget(dispatchLang, pair);
-    const { transTextEl, copyTransBtn } = state;
+    const { transTextEl } = state;
 
     void (async () => {
       try {
@@ -626,9 +598,6 @@ export function useTranscription() {
           if (translated) translationBufRef.current.push(translated);
         }
 
-        if (copyTransBtn.disabled) {
-          enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
-        }
         scrollPanel();
       } catch {
         // Unexpected error — reset so the interval can retry on the next tick.
@@ -707,8 +676,7 @@ export function useTranscription() {
     p.appendChild(nfSpan);
     origRow.appendChild(p);
 
-    const copyOrigBtn = makeCopyButton(true, () => finalSpan.textContent?.trim() ?? "");
-    origRow.appendChild(copyOrigBtn);
+    if (isAdminRef.current) wireClickToCopy(p);
     colOrig.appendChild(origRow);
 
     const transRow = document.createElement("div");
@@ -718,10 +686,9 @@ export function useTranscription() {
     transTextP.className   = CLS.transPend;
     transTextP.textContent = "…";
     applyTextStyle(transTextP);
+    if (isAdminRef.current) wireClickToCopy(transTextP);
     transRow.appendChild(transTextP);
 
-    const copyTransBtn = makeCopyButton(false, () => transTextP.textContent?.trim() ?? "");
-    transRow.appendChild(copyTransBtn);
     colTrans.appendChild(transRow);
 
     row.appendChild(colOrig);
@@ -735,7 +702,6 @@ export function useTranscription() {
     activeBubbleNFRef.current      = nfSpan;
     activeBubbleStateRef.current   = {
       transTextEl:  transTextP,
-      copyTransBtn: copyTransBtn,
       seq:          0,
       lastShownSeq:      0,
       lastShownLen:      0,

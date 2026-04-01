@@ -90,7 +90,7 @@ export default function Workspace() {
   const logoutMut         = useLogout();
 
   const { devices }   = useAudioDevices();
-  const transcription = useTranscription();
+  const transcription = useTranscription(user?.isAdmin ?? false);
   useSessionHeartbeat(!!user);
 
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
