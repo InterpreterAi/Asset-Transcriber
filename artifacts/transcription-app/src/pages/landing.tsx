@@ -102,11 +102,6 @@ function AppPreview() {
               02:14
             </span>
           </div>
-          {/* Live indicator */}
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-500">
-            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-            Listening
-          </span>
         </div>
 
         {/* ── Main layout: sidebar + notes + transcript ─────────────────────── */}
