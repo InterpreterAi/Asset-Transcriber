@@ -129,32 +129,22 @@ router.post("/session/start", requireAuth, async (req, res) => {
     ? `${langName(srcLang)} → ${langName(tgtLang)}`
     : null;
 
-  // Check for an existing open session and decide whether it is still live
-  // or whether it is a ghost left behind by a page refresh / server restart.
+  // Close any open sessions left behind by a page refresh, tab close,
+  // network drop, or a start() that failed after the DB row was created.
+  // We never 409: there is no valid reason for a user to have two open
+  // sessions, and the old "recent heartbeat = 409" logic caused false
+  // positives whenever stop() failed silently before a new attempt.
   const openSessions = await db
     .select()
     .from(sessionsTable)
-    .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)))
-    .limit(1);
+    .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)));
 
   if (openSessions.length > 0) {
-    const ghost = openSessions[0]!;
-    // lastActivityAt is set by the heartbeat. Fall back to startedAt for
-    // sessions that pre-date this feature (no heartbeat column populated yet).
-    const lastSeen = ghost.lastActivityAt ?? ghost.startedAt;
-    const age      = Date.now() - lastSeen.getTime();
-
-    if (age < STALE_SESSION_MS) {
-      // Heartbeat is recent — this really is a concurrent session.
-      res.status(409).json({ error: "Another active session is already running." });
-      return;
-    }
-
-    // Session is stale (no heartbeat for ≥60 s) — auto-close it and proceed.
+    const now = new Date();
     await db
       .update(sessionsTable)
-      .set({ endedAt: new Date(), durationSeconds: Math.round(age / 1000) })
-      .where(eq(sessionsTable.id, ghost.id));
+      .set({ endedAt: now })
+      .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)));
   }
 
   const result = await db

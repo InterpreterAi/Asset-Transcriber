@@ -1144,9 +1144,23 @@ export function useTranscription() {
       const msg = err instanceof Error ? err.message : "Failed to start transcription";
       // Error object intentionally not logged to console (HIPAA)
       setError(msg);
+      // If the session was created in the DB before the failure, close it
+      // explicitly. stop() returns early when isRecRef is false, so this
+      // ghost-session cleanup must happen here to prevent the next start()
+      // from getting a stale open session.
+      if (sessionIdRef.current) {
+        const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        try {
+          await stopSessionMut.mutateAsync({
+            data: { sessionId: sessionIdRef.current, durationSeconds: duration },
+          });
+        } catch { /* ignore — server will auto-close on next start */ }
+        sessionIdRef.current = null;
+        setSessionId(null);
+      }
       void stop();
     }
-  }, [getTokenMut, startSessionMut, buildWs, stop, startTranslationInterval]);
+  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, startTranslationInterval]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.

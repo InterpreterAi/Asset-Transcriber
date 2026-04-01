@@ -420,8 +420,6 @@ export default function Workspace() {
       // displaySurface: "browser" pre-selects the "Tab" option in the browser's
       //   share picker so the user is less likely to accidentally share the whole
       //   screen (which can include system/mic audio).
-      // suppressLocalAudioPlayback: true tells the browser not to mix the local
-      //   microphone or system loopback audio into the captured stream.
       // Microphone access is never requested here — getUserMedia is only called
       //   in mic mode (when no providedStream is given to transcription.start).
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
@@ -430,8 +428,12 @@ export default function Workspace() {
           displaySurface: "browser",
         },
         audio: {
+          // suppressLocalAudioPlayback: false — keep the captured tab's audio playing
+          // normally in the browser while it is also being sent to Soniox for
+          // transcription. Setting this to true would MUTE the captured tab, which
+          // is the opposite of what interpreters need (they must hear the caller).
           // @ts-ignore — suppressLocalAudioPlayback is a Chrome-supported constraint
-          suppressLocalAudioPlayback: true,
+          suppressLocalAudioPlayback: false,
           echoCancellation:  false,
           noiseSuppression:  false,
           autoGainControl:   false,
