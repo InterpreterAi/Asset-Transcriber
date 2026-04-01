@@ -1,0 +1,179 @@
+We are improving the admin dashboard and monitoring tools.
+
+Important rule:
+Do NOT modify the transcription or translation engine. 
+The real-time interpreter logic must remain unchanged.
+
+Only implement the following dashboard and monitoring improvements.
+
+-------------------------------------
+
+1. Separate Account Status vs Session Status
+
+Currently the “Status” column shows Active/Trial etc. 
+That refers to the account only.
+
+Add a new column called:
+
+Session Status
+
+Possible values:
+• Online (user currently running a live transcription session)
+• Idle (logged in but not transcribing)
+• Offline (not connected)
+
+Example table:
+
+User | Account Status | Session Status
+mmorsyy1 | Active | Offline
+victor.pinchulaf | Trial | Online
+ashrafsaid8 | Active | Idle
+
+Session Status should update in real time.
+
+-------------------------------------
+
+2. Live Session Monitoring
+
+In the “Live Sessions” section, add a button:
+
+View Session
+
+When clicked, the admin can see a read-only view of the user session including:
+
+• Current transcript
+• Current translation
+• Selected language pair
+• Session duration
+• Microphone source
+• User email
+
+Admin must not interfere with the user session unless pressing:
+
+Terminate Session
+
+-------------------------------------
+
+3. User Session History
+
+When clicking on a user in the Users table, open a panel showing:
+
+Session History
+
+Each session should include:
+
+• Start time
+• End time
+• Duration
+• Language pair used
+• Total transcription minutes
+
+Example:
+
+Session History
+
+Today
+Session 1 – 8 minutes
+Session 2 – 3 minutes
+
+Yesterday
+Session – 14 minutes
+
+Admin should also be able to export this history.
+
+-------------------------------------
+
+4. Improve Left Sidebar Buttons
+
+The globe icon currently does nothing.
+
+Convert the globe button into:
+
+Language Management
+
+Inside this section the admin can:
+
+• Enable / disable languages
+• Set default language pairs
+• Control which languages appear in the interface
+
+Example:
+
+Enabled Languages
+
+✓ English
+✓ Arabic
+✓ Spanish
+✓ French
+✓ Mandarin
+
+-------------------------------------
+
+5. Add More SaaS Metrics to Dashboard
+
+Expand the dashboard metrics to include:
+
+• Monthly Recurring Revenue (MRR)
+• Trial Conversion Rate
+• Average Session Duration
+• Cost per User
+• Cost per Session
+
+Example:
+
+Revenue
+$30 MRR
+
+API Cost
+$0.88 today
+
+Average Session
+11 minutes
+
+-------------------------------------
+
+6. Improve Cost Tracking
+
+Extend the existing API cost tracking.
+
+For each user session show:
+
+User: victor.pinchulaf
+Session Duration: 11 minutes
+API Cost: $0.03
+
+-------------------------------------
+
+7. Transcript Export Feature
+
+Inside the session view, add:
+
+Download Transcript
+
+Formats supported:
+
+• TXT
+• DOCX
+• PDF
+• SRT
+
+This helps interpreters save transcripts.
+
+-------------------------------------
+
+8. Navigation Improvements
+
+Improve the left sidebar navigation so users can easily access:
+
+• Profile
+• Recording Workspace
+• Language Settings
+• Account Settings
+
+Ensure the UI is clear and professional.
+
+-------------------------------------
+
+Reminder:
+Do not modify the real-time transcription or translation pipeline.
+These changes should only affect the admin dashboard and monitoring tools.
