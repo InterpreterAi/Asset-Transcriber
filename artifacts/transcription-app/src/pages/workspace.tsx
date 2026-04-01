@@ -7,7 +7,7 @@ import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
-  LifeBuoy, BookOpen, StickyNote, Flag,
+  LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -16,6 +16,8 @@ import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
+import { ReportIssueModal } from "@/components/ReportIssueModal";
+import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { formatMinutes } from "@/lib/utils";
 
 const LANG_OPTIONS = [
@@ -89,6 +91,9 @@ export default function Workspace() {
 
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [showFeedback, setShowFeedback]         = useState(false);
+  const [showReportIssue, setShowReportIssue]   = useState(false);
+  const [showUserFeedback, setShowUserFeedback] = useState(false);
+  const [inviteCopied, setInviteCopied]         = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
   const [inputMode, setInputMode]               = useState<"mic" | "tab">("mic");
   const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
@@ -356,6 +361,16 @@ export default function Workspace() {
   return (
     <div className="h-[100dvh] w-full max-w-[100vw] bg-background flex overflow-hidden text-foreground">
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
+      <ReportIssueModal
+        isOpen={showReportIssue}
+        onClose={() => setShowReportIssue(false)}
+        defaultEmail={user.email ?? ""}
+      />
+      <UserFeedbackModal
+        isOpen={showUserFeedback}
+        onClose={() => setShowUserFeedback(false)}
+        defaultEmail={user.email ?? ""}
+      />
 
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
@@ -505,8 +520,45 @@ export default function Workspace() {
             </button>
           )}
         </div>
+
+        {/* ── Growth / utility buttons ─────────────────────────────── */}
+        <div className="flex flex-col gap-1.5 mb-2">
+          <div className="w-8 h-px bg-sidebar-border mx-auto mb-0.5" />
+
+          {/* Invite another interpreter */}
+          <button
+            onClick={() => {
+              void navigator.clipboard.writeText(
+                "I'm using this real-time AI interpreter tool for transcription and translation during calls.\n" +
+                "You can try it here:\nhttps://asset-transcriber.replit.app\nFree trial available."
+              );
+              setInviteCopied(true);
+              setTimeout(() => setInviteCopied(false), 2500);
+            }}
+            className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
+              inviteCopied
+                ? "bg-green-100 text-green-600"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            }`}
+            title={inviteCopied ? "Link copied!" : "Invite another interpreter"}
+          >
+            {inviteCopied
+              ? <Check className="w-4.5 h-4.5" />
+              : <Share2 className="w-4.5 h-4.5" />}
+          </button>
+
+          {/* Send feedback */}
+          <button
+            onClick={() => setShowUserFeedback(true)}
+            className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
+            title="Send feedback"
+          >
+            <MessageCircle className="w-4.5 h-4.5" />
+          </button>
+        </div>
+
         <button
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive transition-colors mt-auto"
+          className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive transition-colors"
           onClick={handleLogout}
           title="Log Out"
         >
@@ -886,8 +938,18 @@ export default function Workspace() {
                 <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                   Original
                 </div>
-                <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
-                  Translation
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                    Translation
+                  </span>
+                  <button
+                    onClick={() => setShowReportIssue(true)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300"
+                    title="Report a translation issue"
+                  >
+                    <AlertCircle className="w-2.5 h-2.5" />
+                    Report issue
+                  </button>
                 </div>
               </div>
             )}

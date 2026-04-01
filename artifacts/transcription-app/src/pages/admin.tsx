@@ -974,7 +974,15 @@ export default function Admin() {
                                 <span className="text-[10px] text-muted-foreground">{ticket.replyCount} repl{ticket.replyCount === 1 ? "y" : "ies"}</span>
                               )}
                             </div>
-                            <p className="text-sm font-semibold text-foreground truncate">{ticket.subject}</p>
+                            <p className="text-sm font-semibold text-foreground truncate flex items-center gap-1.5">
+                              {ticket.subject.startsWith("[Translation Issue") && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded shrink-0">⚠ Translation</span>
+                              )}
+                              {ticket.subject.startsWith("[User Feedback]") && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-violet-100 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded shrink-0">💬 Feedback</span>
+                              )}
+                              <span className="truncate">{ticket.subject.replace(/^\[(Translation Issue Report|User Feedback)\]\s*/, "").trim() || ticket.subject}</span>
+                            </p>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[11px] text-muted-foreground">
                                 {ticket.username ? `@${ticket.username}` : ticket.email}
