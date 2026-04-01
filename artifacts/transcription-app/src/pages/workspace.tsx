@@ -86,7 +86,7 @@ function CopyBtn({ text }: { text: string }) {
 export default function Workspace() {
   const [, setLocation]   = useLocation();
   const queryClient       = useQueryClient();
-  const { data: user, isLoading: userLoading, error: userError } = useGetMe({ query: { retry: false } });
+  const { data: user, isLoading: userLoading, error: userError } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
   const logoutMut         = useLogout();
 
   const { devices }   = useAudioDevices();

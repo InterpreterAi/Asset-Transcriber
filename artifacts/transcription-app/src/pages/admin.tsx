@@ -8,6 +8,7 @@ import {
   useAdminDeleteUser,
   useAdminResetUsage,
   useAdminListFeedback,
+  getGetMeQueryKey,
   getAdminListUsersQueryKey,
   getAdminListFeedbackQueryKey,
 } from "@workspace/api-client-react";
@@ -254,10 +255,10 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
 export default function Admin() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: me, isLoading: meLoading } = useGetMe({ query: { retry: false } });
+  const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
-  const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { enabled: !!me?.isAdmin } });
-  const { data: feedbackData } = useAdminListFeedback({ query: { enabled: !!me?.isAdmin } });
+  const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { queryKey: getAdminListUsersQueryKey(), enabled: !!me?.isAdmin } });
+  const { data: feedbackData } = useAdminListFeedback({ query: { queryKey: getAdminListFeedbackQueryKey(), enabled: !!me?.isAdmin } });
 
   const { data: statsData, refetch: refetchStats } = useQuery({
     queryKey: ["admin-stats"],

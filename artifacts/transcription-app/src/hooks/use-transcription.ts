@@ -1048,8 +1048,9 @@ export function useTranscription(isAdmin = false) {
           activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
         }
-        if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = nfText;
+        const nfEl = activeBubbleNFRef.current as HTMLSpanElement | null;
+        if (nfEl) {
+          nfEl.textContent = nfText;
         }
       }
 
