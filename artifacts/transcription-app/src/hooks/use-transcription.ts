@@ -177,6 +177,7 @@ export function useTranscription() {
   const [error,         setError]         = useState<string | null>(null);
   const [audioInfo,     setAudioInfo]     = useState<string>("");
   const [hasTranscript, setHasTranscript] = useState(false);
+  const [sessionId,     setSessionId]     = useState<number | null>(null);
 
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
@@ -221,6 +222,12 @@ export function useTranscription() {
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Snapshot accumulators for admin "View Session" ────────────────────────
+  // Finalized transcript/translation lines are appended here on each segment.
+  // getSnapshot() returns them joined. Cleared when recording stops.
+  const transcriptBufRef  = useRef<string[]>([]);
+  const translationBufRef = useRef<string[]>([]);
 
   // ── Session safety timers ──────────────────────────────────────────────────
   // inactivityTimerRef: fires stop() after 5 min of no speech tokens.
@@ -337,7 +344,11 @@ export function useTranscription() {
 
         // Lock: after a finalized translation is written, no further update
         // may overwrite it. The next speech creates a brand-new segment.
-        if (isFinal) state.translationLocked = true;
+        if (isFinal) {
+          state.translationLocked = true;
+          // Accumulate for admin snapshot.
+          if (translated) translationBufRef.current.push(translated);
+        }
 
         if (copyTransBtn.disabled) {
           enableCopyBtn(copyTransBtn, () => transTextEl.textContent?.trim() ?? "");
@@ -497,6 +508,8 @@ export function useTranscription() {
 
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+      // Accumulate for admin snapshot.
+      transcriptBufRef.current.push(finalText);
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.
       const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
@@ -568,7 +581,11 @@ export function useTranscription() {
         });
       } catch { /* session stop error — silenced (HIPAA) */ }
       sessionIdRef.current = null;
+      setSessionId(null);
     }
+    // Clear snapshot accumulators — session is over.
+    transcriptBufRef.current  = [];
+    translationBufRef.current = [];
   }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
@@ -745,6 +762,9 @@ export function useTranscription() {
       const tokenRes   = await getTokenMut.mutateAsync({});
       const sessionRes = await startSessionMut.mutateAsync({});
       sessionIdRef.current = sessionRes.sessionId;
+      setSessionId(sessionRes.sessionId);
+      transcriptBufRef.current  = [];
+      translationBufRef.current = [];
       startTimeRef.current = Date.now();
 
       // ── Session heartbeat ─────────────────────────────────────────────────
@@ -858,16 +878,26 @@ export function useTranscription() {
     langPairRef.current = { a, b };
   }, []);
 
+  // ── getSnapshot ────────────────────────────────────────────────────────────
+  // Returns accumulated finalized transcript and translation text for this
+  // session. Used by workspace to push snapshots to the server every 5 s.
+  const getSnapshot = useCallback((): { transcript: string; translation: string } => ({
+    transcript:  transcriptBufRef.current.join("\n"),
+    translation: translationBufRef.current.join("\n"),
+  }), []);
+
   return {
     isRecording,
     audioInfo,
     micLevel,
     error,
     hasTranscript,
+    sessionId,
     containerRef,
     start,
     stop,
     setLangPair,
+    getSnapshot,
     clear: () => {
       if (silenceTimerRef.current !== null) {
         clearTimeout(silenceTimerRef.current);
@@ -883,6 +913,8 @@ export function useTranscription() {
       lastTranslatedBuffer.current   = "";
       finalCountRef.current          = 0;
       segmentDetectedLangRef.current = null;
+      transcriptBufRef.current       = [];
+      translationBufRef.current      = [];
       if (containerRef.current) containerRef.current.innerHTML = "";
       setHasTranscript(false);
       resetSpeakerMap();

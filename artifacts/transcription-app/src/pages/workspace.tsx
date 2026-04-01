@@ -223,6 +223,35 @@ export default function Workspace() {
     return () => clearTimeout(t);
   }, [user?.trialExpired]);
 
+  // ── Snapshot push for admin "View Session" ──────────────────────────────
+  // Every 5 s while recording, push the accumulated transcript/translation,
+  // lang pair, and mic label to the server so an admin can view it live.
+  // Data is in-memory only — not stored persistently.
+  useEffect(() => {
+    if (!transcription.isRecording || !transcription.sessionId) return;
+    const push = () => {
+      const snap     = transcription.getSnapshot();
+      const micDev   = devices.find(d => d.deviceId === selectedDeviceId);
+      const micLabel = micDev?.label ?? "Microphone";
+      fetch("/api/transcription/session/snapshot", {
+        method:      "PUT",
+        headers:     { "Content-Type": "application/json" },
+        credentials: "include",
+        body:        JSON.stringify({
+          sessionId:   transcription.sessionId,
+          langA,
+          langB,
+          micLabel,
+          transcript:  snap.transcript,
+          translation: snap.translation,
+        }),
+      }).catch(() => { /* best-effort */ });
+    };
+    push();
+    const interval = setInterval(push, 5_000);
+    return () => clearInterval(interval);
+  }, [transcription.isRecording, transcription.sessionId]);
+
   const handleLogout = async () => {
     await logoutMut.mutateAsync();
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });

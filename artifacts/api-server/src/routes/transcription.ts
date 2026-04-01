@@ -6,6 +6,7 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
 import { logger } from "../lib/logger.js";
+import { sessionStore } from "../lib/session-store.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -188,6 +189,9 @@ router.post("/session/stop", requireAuth, async (req, res) => {
     .set({ endedAt: new Date(), durationSeconds })
     .where(eq(sessionsTable.id, sessionId));
 
+  // Remove in-memory snapshot — session is over.
+  sessionStore.delete(sessionId);
+
   const user = await getUserWithResetCheck(req.session.userId!);
   if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
 
@@ -203,6 +207,63 @@ router.post("/session/stop", requireAuth, async (req, res) => {
   globalCapCache.lastChecked = 0;
 
   res.json({ message: "Session stopped", minutesUsed });
+});
+
+// ── /session/snapshot ──────────────────────────────────────────────────────
+// Client pushes a live snapshot every 5 s so admin can view the session.
+// The snapshot is held in-memory only (sessionStore) — never persisted to DB.
+// langPair is recorded to the sessions table for historical reporting.
+router.put("/session/snapshot", requireAuth, async (req, res) => {
+  const { sessionId, langA, langB, micLabel, transcript, translation } = req.body as {
+    sessionId?:   number;
+    langA?:       string;
+    langB?:       string;
+    micLabel?:    string;
+    transcript?:  string;
+    translation?: string;
+  };
+
+  if (!sessionId || !langA || !langB) {
+    res.status(400).json({ error: "sessionId, langA, and langB are required" });
+    return;
+  }
+
+  // Verify this session belongs to the requesting user and is still open.
+  const rows = await db
+    .select({ id: sessionsTable.id, langPair: sessionsTable.langPair })
+    .from(sessionsTable)
+    .where(and(
+      eq(sessionsTable.id, sessionId),
+      eq(sessionsTable.userId, req.session.userId!),
+      isNull(sessionsTable.endedAt),
+    ))
+    .limit(1);
+
+  if (!rows.length) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const pair = `${langA}↔${langB}`;
+
+  // Write the lang pair to DB the first time we see it.
+  if (!rows[0]!.langPair) {
+    await db.update(sessionsTable)
+      .set({ langPair: pair })
+      .where(eq(sessionsTable.id, sessionId));
+  }
+
+  // Update in-memory snapshot (admin-visible only, never persisted).
+  sessionStore.set(sessionId, {
+    langA,
+    langB,
+    micLabel:    micLabel    ?? "Microphone",
+    transcript:  transcript  ?? "",
+    translation: translation ?? "",
+    updatedAt:   Date.now(),
+  });
+
+  res.json({ ok: true });
 });
 
 // ── /translate ─────────────────────────────────────────────────────────────
