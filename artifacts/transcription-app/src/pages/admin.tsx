@@ -22,7 +22,7 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle,
-  Pencil, Gift, Share2, UserPlus,
+  Pencil, Gift, Share2, UserPlus, AlertCircle,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -909,10 +909,15 @@ export default function Admin() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {sessions.map(s => (
-                    <Card key={s.sessionId} className="p-4 border-none shadow-sm bg-white">
+                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-white" : "bg-amber-50/60"}`}>
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                        {s.hasSnapshot
+                          ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                          : <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
                         <span className="font-semibold text-sm truncate">{s.username}</span>
+                        {!s.hasSnapshot && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">stale</span>
+                        )}
                         <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${s.planType === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
                       </div>
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
@@ -928,6 +933,9 @@ export default function Admin() {
                             : <Mic className="w-3 h-3 shrink-0" />}
                           <span className="truncate">{s.micLabel}</span>
                         </p>
+                      )}
+                      {!s.hasSnapshot && !s.micLabel && (
+                        <p className="text-xs text-amber-600 mb-1">No active connection — may be a ghost session</p>
                       )}
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
                         <span>Duration: <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span></span>
@@ -1883,7 +1891,7 @@ export default function Admin() {
             </div>
 
             {/* Session metadata strip */}
-            {sessionDetail?.snapshot && (
+            {sessionDetail?.snapshot ? (
               <div className="flex flex-wrap items-center gap-4 px-5 py-2.5 bg-gray-50 border-b border-border text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /> {sessionDetail.snapshot.langA} ↔ {sessionDetail.snapshot.langB}</span>
                 <span className="flex items-center gap-1">
@@ -1896,7 +1904,12 @@ export default function Admin() {
                   Updated {formatDistanceToNow(new Date(sessionDetail.snapshot.updatedAt), { addSuffix: true })}
                 </span>
               </div>
-            )}
+            ) : sessionDetail?.isLive && sessionDetail.langPair ? (
+              <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>No live data received — session may be inactive. <span className="font-medium">{sessionDetail.langPair}</span></span>
+              </div>
+            ) : null}
 
             {/* Transcript / Translation columns — single shared scroll container */}
             <div className="flex-1 overflow-y-auto">
@@ -1907,7 +1920,7 @@ export default function Admin() {
                     <div className="text-sm text-muted-foreground italic">Loading…</div>
                   ) : sessionDetail?.snapshot?.transcript ? (
                     <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sessionDetail.snapshot.transcript}</p>
-                  ) : (
+                  ) : sessionDetail?.snapshot ? (
                     <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
                       <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
                         <Mic className="w-4 h-4 text-primary" />
@@ -1915,6 +1928,12 @@ export default function Admin() {
                       </div>
                       <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
                       <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                      <AlertCircle className="w-8 h-8 text-amber-400" />
+                      <p className="text-sm text-muted-foreground">No live data available</p>
+                      <p className="text-xs text-muted-foreground/60">The user may have closed the app or lost connection. This session will be auto-closed shortly.</p>
                     </div>
                   )}
                 </div>

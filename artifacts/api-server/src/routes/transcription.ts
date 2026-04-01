@@ -1,7 +1,7 @@
 import { Router } from "express";
 import OpenAI from "openai";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
-import { eq, and, isNull, sql, desc, gte } from "drizzle-orm";
+import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
@@ -88,6 +88,39 @@ router.post("/token", requireAuth, async (req, res) => {
 // How old a session's last heartbeat must be before we consider it abandoned.
 // Set to 60 s — matches the requirement in the feature spec.
 const STALE_SESSION_MS = 60_000;
+
+// ── Stale session cleanup ───────────────────────────────────────────────────
+// Runs every 60 s and auto-closes any sessions whose lastActivityAt is older
+// than STALE_SESSION_MS. This handles tab closes, page refreshes, and network
+// drops where the client never sent an explicit /session/stop.
+async function sweepStaleSessions(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - STALE_SESSION_MS);
+    const stale = await db
+      .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt })
+      .from(sessionsTable)
+      .where(and(
+        isNull(sessionsTable.endedAt),
+        or(isNull(sessionsTable.lastActivityAt), lt(sessionsTable.lastActivityAt, cutoff)),
+      ));
+
+    if (stale.length === 0) return;
+
+    const now = new Date();
+    for (const s of stale) {
+      const durationSeconds = Math.round((now.getTime() - s.startedAt.getTime()) / 1000);
+      await db
+        .update(sessionsTable)
+        .set({ endedAt: now, durationSeconds })
+        .where(eq(sessionsTable.id, s.id));
+      sessionStore.delete(s.id);
+    }
+    logger.info(`Swept ${stale.length} stale session(s)`);
+  } catch (err) {
+    logger.error({ err }, "Stale session sweep failed");
+  }
+}
+setInterval(sweepStaleSessions, 60_000);
 
 // ── Language code → display name lookup ────────────────────────────────────
 const LANG_NAMES: Record<string, string> = {
