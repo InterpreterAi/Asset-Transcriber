@@ -120,7 +120,7 @@ async function sweepStaleSessions(): Promise<void> {
     logger.error({ err }, "Stale session sweep failed");
   }
 }
-setInterval(sweepStaleSessions, 60_000);
+setInterval(sweepStaleSessions, 5 * 60_000); // every 5 minutes
 
 // ── Language code → display name lookup ────────────────────────────────────
 const LANG_NAMES: Record<string, string> = {
