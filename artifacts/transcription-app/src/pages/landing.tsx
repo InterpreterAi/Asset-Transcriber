@@ -94,7 +94,7 @@ function AppPreview() {
             {/* Lang pair badge */}
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              English ↔ Spanish
+              English ↔ Arabic
             </span>
             {/* Session timer */}
             <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono bg-rose-50 text-rose-600 border border-rose-200">
@@ -125,20 +125,6 @@ function AppPreview() {
             ))}
           </div>
 
-          {/* Notes panel — matches real min-w-[120px] panel */}
-          <div className="w-[110px] border-r border-border bg-white flex flex-col shrink-0">
-            <div className="h-9 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
-              <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
-            </div>
-            <div className="p-2 text-[10px] text-muted-foreground/55 leading-relaxed">
-              Client: Maria G.<br />
-              Appt: 2:00 PM<br />
-              <br />
-              Insurance<br />
-              claim review
-            </div>
-          </div>
-
           {/* ── Main transcript panel ─────────────────────────────────────── */}
           <div className="flex-1 flex flex-col overflow-hidden">
 
@@ -157,7 +143,7 @@ function AppPreview() {
             {/* Column labels — matches real two-column label row */}
             <div className="grid grid-cols-2 gap-4 px-3 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
               <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Original (English)</span>
-              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Spanish)</span>
+              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Arabic)</span>
             </div>
 
             {/* Transcript scroll area — static demo rows */}
@@ -166,26 +152,29 @@ function AppPreview() {
               <DemoRow
                 speaker={1}
                 orig="Hello, how can I help you today?"
-                trans="Hola, ¿en qué puedo ayudarle hoy?"
+                trans="مرحبًا، كيف يمكنني مساعدتك اليوم؟"
+                dir="rtl"
               />
 
               <DemoRow
                 speaker={2}
-                orig="I need help understanding my insurance documents."
-                trans="Necesito ayuda para entender mis documentos de seguro."
+                orig="I have a doctor's appointment at 3 PM."
+                trans="لدي موعد مع الطبيب في الساعة الثالثة."
+                dir="rtl"
               />
 
               <DemoRow
                 speaker={1}
-                orig="Of course. Can you tell me your policy number?"
-                trans="Por supuesto. ¿Me puede dar su número de póliza?"
+                orig="Let me confirm that for you right away."
+                trans="دعني أؤكد ذلك لك على الفور."
+                dir="rtl"
                 highlight
               />
 
               {/* Live typing line */}
               <DemoRow
                 speaker={2}
-                orig="Yes, it is"
+                orig="Thank you so much"
                 live
               />
             </div>
