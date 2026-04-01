@@ -4,6 +4,7 @@ import {
   Mic2, ChevronRight, Check, Zap, Globe, Users, Monitor,
   Shield, Clock, BookOpen, Gavel, Video, Building2, Quote,
   ArrowRight, Headphones, FileText, Languages,
+  StickyNote, BookMarked, Search, Stethoscope, History,
 } from "lucide-react";
 
 const fade = (delay = 0) => ({
@@ -74,29 +75,25 @@ function DemoRow({
 // ── App demo preview ───────────────────────────────────────────────────────────
 function AppPreview() {
   return (
-    <div className="relative w-full max-w-4xl mx-auto select-none">
+    <div className="relative w-full max-w-5xl mx-auto select-none">
       {/* Ambient glow */}
       <div className="absolute inset-0 -z-10 rounded-3xl bg-primary/10 blur-3xl scale-90 translate-y-6 opacity-70" />
 
       <div className="bg-white rounded-2xl border border-border shadow-2xl overflow-hidden">
 
-        {/* ── Window chrome (top bar) ───────────────────────────────────────── */}
+        {/* ── Window chrome ─────────────────────────────────────────────────── */}
         <div className="h-[46px] bg-white border-b border-border flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-3">
-            {/* macOS traffic lights */}
             <div className="flex gap-1.5">
               <div className="w-3 h-3 rounded-full bg-[#FF5F57]" />
               <div className="w-3 h-3 rounded-full bg-[#FFBC2E]" />
               <div className="w-3 h-3 rounded-full bg-[#28C840]" />
             </div>
-            {/* Brand */}
             <span className="font-bold text-[13px] tracking-tight text-foreground">InterpreterAI</span>
-            {/* Lang pair badge */}
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
               English ↔ Arabic
             </span>
-            {/* Session timer */}
             <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono bg-rose-50 text-rose-600 border border-rose-200">
               <Clock className="w-2.5 h-2.5" />
               02:14
@@ -104,31 +101,116 @@ function AppPreview() {
           </div>
         </div>
 
-        {/* ── Main layout: sidebar + notes + transcript ─────────────────────── */}
-        <div className="flex" style={{ height: "390px" }}>
+        {/* ── Main layout: sidebar + left col + transcript ───────────────────── */}
+        <div className="flex" style={{ height: "420px" }}>
 
-          {/* Sidebar — matches real 64px sidebar */}
-          <div className="w-[52px] bg-[#f8f8fa] border-r border-border flex flex-col items-center pt-3 pb-2 gap-1.5 shrink-0">
+          {/* Sidebar */}
+          <div className="w-[48px] bg-[#f8f8fa] border-r border-border flex flex-col items-center pt-3 pb-2 gap-1.5 shrink-0">
             {[
               { Icon: Mic2, active: true },
               { Icon: Globe, active: false },
               { Icon: BookOpen, active: false },
             ].map(({ Icon, active }, i) => (
-              <div
-                key={i}
-                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
-                  active ? "bg-white shadow-sm text-primary" : "text-muted-foreground/30"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
+              <div key={i} className={`w-8 h-8 rounded-xl flex items-center justify-center ${active ? "bg-white shadow-sm text-primary" : "text-muted-foreground/25"}`}>
+                <Icon className="w-3.5 h-3.5" />
               </div>
             ))}
           </div>
 
-          {/* ── Main transcript panel ─────────────────────────────────────── */}
-          <div className="flex-1 flex flex-col overflow-hidden">
+          {/* ── LEFT COLUMN: Notes + Terminology + Session History ────────────── */}
+          <div className="w-[175px] shrink-0 flex flex-col gap-2 p-2 bg-[#f5f5f7] border-r border-border overflow-hidden">
 
-            {/* Panel header — matches real "Practice Output" header */}
+            {/* NOTES panel */}
+            <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "22%" }}>
+              <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
+                <StickyNote className="w-3 h-3 text-amber-500 shrink-0" />
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+              </div>
+              <div className="flex-1 px-2.5 py-1.5 overflow-hidden">
+                <p className="text-[10px] text-foreground/70 leading-relaxed">Claim #: 8847<br />Dr. Martinez<br /><span className="text-muted-foreground/40 italic text-[9px]">cleared on end</span></p>
+              </div>
+            </div>
+
+            {/* TERMINOLOGY panel */}
+            <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "42%" }}>
+              <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
+                <BookMarked className="w-3 h-3 text-violet-500 shrink-0" />
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">Terminology</span>
+                <span className="text-[8px] text-muted-foreground/40 font-mono">EN→AR</span>
+              </div>
+              {/* Search field */}
+              <div className="px-2 py-1.5 border-b border-border/40 shrink-0">
+                <div className="relative flex items-center h-6 rounded-md border border-input bg-muted/30 px-2 gap-1">
+                  <Search className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
+                  <span className="text-[10px] text-foreground/80">rotator cuff</span>
+                </div>
+              </div>
+              {/* Result card */}
+              <div className="flex-1 p-1.5 overflow-hidden">
+                <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10px] font-semibold text-foreground">rotator cuff</span>
+                    <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
+                    <span className="text-[10px] font-semibold text-primary" dir="rtl">الكفة المدوّرة</span>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border bg-blue-50 text-blue-600 border-blue-200">
+                      <Stethoscope className="w-2 h-2" />
+                      Medical
+                    </span>
+                    <span className="text-[8px] text-muted-foreground/50">Shoulder tendon group</span>
+                  </div>
+                  {/* Second result */}
+                  <div className="mt-1.5 pt-1.5 border-t border-border/30">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-[10px] font-semibold text-foreground">plaintiff</span>
+                      <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
+                      <span className="text-[10px] font-semibold text-primary" dir="rtl">المدّعي</span>
+                    </div>
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border bg-amber-50 text-amber-700 border-amber-200 mt-1">
+                      <svg className="w-2 h-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6l9-4 9 4v12l-9 4-9-4V6z"/></svg>
+                      Legal
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[7.5px] text-muted-foreground/30 text-center mt-1">Reference only · Not stored</p>
+              </div>
+            </div>
+
+            {/* SESSION HISTORY panel */}
+            <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden min-h-0">
+              <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
+                <History className="w-3 h-3 text-emerald-500 shrink-0" />
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Sessions</span>
+              </div>
+              <div className="px-2 py-1.5 space-y-1 overflow-hidden">
+                {/* Today stats row */}
+                <div className="flex gap-1.5">
+                  {[{ n: "3", l: "Today" }, { n: "24m", l: "Total" }, { n: "8m", l: "Avg" }].map(({ n, l }) => (
+                    <div key={l} className="flex-1 rounded-md bg-muted/30 border border-border/40 px-1.5 py-1 text-center">
+                      <p className="text-[11px] font-bold text-foreground leading-none">{n}</p>
+                      <p className="text-[8px] text-muted-foreground/60 mt-0.5">{l}</p>
+                    </div>
+                  ))}
+                </div>
+                {/* Recent session rows */}
+                {[
+                  { time: "10:42 AM", dur: "8 min", pair: "EN↔AR" },
+                  { time: "9:15 AM",  dur: "5 min", pair: "EN↔ES" },
+                ].map(({ time, dur, pair }) => (
+                  <div key={time} className="flex items-center justify-between rounded-md bg-muted/20 border border-border/30 px-2 py-1">
+                    <span className="text-[9px] text-muted-foreground">{time}</span>
+                    <span className="text-[9px] font-semibold text-foreground">{dur}</span>
+                    <span className="text-[8px] text-muted-foreground/60 font-mono">{pair}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+
+          {/* ── MAIN TRANSCRIPT PANEL ─────────────────────────────────────────── */}
+          <div className="flex-1 flex flex-col overflow-hidden">
             <div className="h-9 border-b border-border bg-muted/20 flex items-center justify-between px-4 shrink-0">
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Practice Output</span>
               <div className="flex items-center gap-3">
@@ -139,64 +221,31 @@ function AppPreview() {
                 </span>
               </div>
             </div>
-
-            {/* Column labels — matches real two-column label row */}
             <div className="grid grid-cols-2 gap-4 px-3 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
               <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Original (English)</span>
               <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Arabic)</span>
             </div>
-
-            {/* Transcript scroll area — static demo rows */}
             <div className="flex-1 overflow-hidden py-2 px-1 space-y-1">
-
-              <DemoRow
-                speaker={1}
-                orig="Hello, how can I help you today?"
-                trans="مرحبًا، كيف يمكنني مساعدتك اليوم؟"
-                dir="rtl"
-              />
-
-              <DemoRow
-                speaker={2}
-                orig="I have a doctor's appointment at 3 PM."
-                trans="لدي موعد مع الطبيب في الساعة الثالثة."
-                dir="rtl"
-              />
-
-              <DemoRow
-                speaker={1}
-                orig="Let me confirm that for you right away."
-                trans="دعني أؤكد ذلك لك على الفور."
-                dir="rtl"
-                highlight
-              />
-
-              {/* Live typing line */}
-              <DemoRow
-                speaker={2}
-                orig="Thank you so much"
-                live
-              />
+              <DemoRow speaker={1} orig="Hello, how can I help you today?" trans="مرحبًا، كيف يمكنني مساعدتك اليوم؟" dir="rtl" />
+              <DemoRow speaker={2} orig="I have a doctor's appointment at 3 PM." trans="لدي موعد مع الطبيب في الساعة الثالثة." dir="rtl" />
+              <DemoRow speaker={1} orig="Let me confirm that for you right away." trans="دعني أؤكد ذلك لك على الفور." dir="rtl" highlight />
+              <DemoRow speaker={2} orig="Thank you so much" live />
             </div>
           </div>
         </div>
 
-        {/* ── Bottom toolbar — matches real toolbar ─────────────────────────── */}
+        {/* ── Bottom toolbar ─────────────────────────────────────────────────── */}
         <div className="h-[46px] border-t border-border bg-white flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-2">
-            {/* Stop button — matches the real rose stop button */}
             <div className="h-8 px-3 rounded-full bg-rose-500 text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-sm cursor-default">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               Stop
             </div>
-            {/* Mic selector — matches real input source display */}
             <div className="h-8 px-2.5 rounded-lg border border-border text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/20">
               <Mic2 className="w-3 h-3" />
               <span className="hidden sm:inline">Default Microphone</span>
-              <span className="sm:hidden">Mic</span>
             </div>
           </div>
-          {/* Right side — usage counter */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-muted-foreground hidden sm:block">English ↔ Arabic</span>
             <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-full text-[10px] text-muted-foreground font-medium border border-border/50">
