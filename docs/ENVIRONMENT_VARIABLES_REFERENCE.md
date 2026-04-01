@@ -60,6 +60,14 @@
 
 ---
 
+### `ADMIN_EMAIL`
+**Purpose:** Email address assigned to the admin account when it is first created. Fully configurable — set to any address you control.  
+**Format:** `your@email.com`  
+**Default:** `admin@interpreterai.com` (used only if `ADMIN_EMAIL` is not set)  
+**Used in:** `artifacts/api-server/src/index.ts` — First-boot admin account creation
+
+---
+
 ### `ADMIN_USERNAME`
 **Purpose:** Username of the admin account to create/update on startup.  
 **Used in:**
@@ -188,7 +196,8 @@ These are injected at build time via Vite and are embedded into the frontend bun
 |----------|----------|---------|
 | `DATABASE_URL` | ✅ Yes | — |
 | `SESSION_SECRET` | ✅ Yes | — |
-| `ADMIN_PASSWORD` | ✅ Recommended | — |
+| `ADMIN_PASSWORD` | ✅ Yes (required for admin) | — |
+| `ADMIN_EMAIL` | Optional | `admin@interpreterai.com` |
 | `SONIOX_API_KEY` | ✅ Yes | — |
 | `OPENAI_API_KEY` | ✅ Yes | — |
 | `STRIPE_SECRET_KEY` | ✅ Yes | — |

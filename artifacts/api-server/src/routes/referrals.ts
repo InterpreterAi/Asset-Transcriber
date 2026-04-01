@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { db } from "../lib/db.js";
-import { referralsTable, usersTable } from "@workspace/db";
+import { db, referralsTable, usersTable } from "@workspace/db";
 import { eq, isNotNull, count, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth.js";
 

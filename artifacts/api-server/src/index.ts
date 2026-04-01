@@ -184,11 +184,20 @@ async function ensureAdminUser() {
       .limit(1);
 
     if (existing.length === 0) {
-      const passwordHash = await hashPassword("admin123");
+      const initialPassword = process.env.ADMIN_PASSWORD;
+      if (!initialPassword) {
+        logger.warn(
+          "ADMIN_PASSWORD env var is not set. Admin account will NOT be created on first boot. " +
+          "Set ADMIN_PASSWORD to create the admin account automatically."
+        );
+        return;
+      }
+      const adminEmail = process.env.ADMIN_EMAIL || "admin@interpreterai.com";
+      const passwordHash = await hashPassword(initialPassword);
       const now = new Date();
       await db.insert(usersTable).values({
         username: "admin",
-        email: "admin@interpreterai.com",
+        email: adminEmail,
         passwordHash,
         isAdmin: true,
         isActive: true,
@@ -198,7 +207,7 @@ async function ensureAdminUser() {
         dailyLimitMinutes: 9999,
         lastUsageResetAt: now,
       });
-      logger.info("Admin user created (first boot)");
+      logger.info({ email: adminEmail }, "Admin user created (first boot)");
     } else {
       // Always ensure the admin account stays on the unlimited plan,
       // regardless of what was stored in the database previously.

@@ -62,7 +62,7 @@ export default function ForgotPassword() {
               </p>
               <p className="text-xs text-muted-foreground mt-3">
                 No email? Contact{" "}
-                <a href="mailto:support@interpretai.com" className="underline">support@interpretai.com</a>
+                <a href="mailto:support@interpreterai.com" className="underline">support@interpreterai.com</a>
               </p>
             </div>
           ) : (
