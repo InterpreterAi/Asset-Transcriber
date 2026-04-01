@@ -104,6 +104,20 @@ async function migrateSchema() {
       )
     `);
 
+    // Session store table — connect-pg-simple requires this to exist.
+    // createTableIfMissing is false in the middleware, so we guarantee it here.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        sid    VARCHAR NOT NULL COLLATE "default",
+        sess   JSON    NOT NULL,
+        expire TIMESTAMP(6) NOT NULL,
+        CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_session_expire ON user_sessions (expire)
+    `);
+
     logger.info("Startup schema migration complete");
   } catch (err) {
     logger.error({ err }, "Startup schema migration failed — continuing anyway");
