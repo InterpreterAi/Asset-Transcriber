@@ -86,7 +86,7 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
   const sessions = stats?.sessions ?? [];
 
   return (
-    <div className="flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm">
 
       {/* Header */}
       <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">

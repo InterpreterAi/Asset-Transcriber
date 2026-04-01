@@ -1161,12 +1161,11 @@ export default function Workspace() {
             md:translate-x-0
             fixed md:relative
             top-0 left-0 md:left-auto
-            h-full md:h-auto
+            h-full
             z-30 md:z-auto
             w-[85vw] md:w-[38%] lg:w-[36%]
-            shrink-0 flex flex-col gap-3 min-h-0
+            shrink-0 flex flex-col gap-2 min-h-0
             transition-transform duration-200 ease-in-out
-            pt-0 md:pt-0
           `}>
 
             {/* Mobile close button (only visible inside drawer on mobile) */}
@@ -1181,7 +1180,7 @@ export default function Workspace() {
             </div>
 
             {/* NOTES PANEL */}
-            <div className="h-[24%] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
+            <div className="h-28 shrink-0 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
               <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
                 <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
@@ -1201,12 +1200,12 @@ export default function Workspace() {
             </div>
 
             {/* TERMINOLOGY SEARCH PANEL */}
-            <div className="h-[38%] min-h-0 mx-3 md:mx-0">
+            <div className="h-52 shrink-0 min-h-0 mx-3 md:mx-0">
               <TerminologyPanel langA={langA} langB={langB} />
             </div>
 
             {/* SESSION HISTORY PANEL */}
-            <div className="flex-1 min-h-0 mx-3 md:mx-0">
+            <div className="flex-1 flex flex-col min-h-0 mx-3 md:mx-0 pb-2 md:pb-0">
               <SessionHistoryPanel refreshKey={historyRefreshKey} />
             </div>
 

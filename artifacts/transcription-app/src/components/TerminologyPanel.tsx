@@ -113,7 +113,7 @@ export function TerminologyPanel({ langA, langB }: Props) {
   }, [query, langA, langB]);
 
   return (
-    <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
+    <div className="h-full bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
       {/* Header */}
       <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
