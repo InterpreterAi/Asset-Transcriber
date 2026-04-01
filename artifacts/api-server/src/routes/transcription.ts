@@ -97,7 +97,7 @@ async function sweepStaleSessions(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - STALE_SESSION_MS);
     const stale = await db
-      .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt })
+      .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt, userId: sessionsTable.userId })
       .from(sessionsTable)
       .where(and(
         isNull(sessionsTable.endedAt),
@@ -109,11 +109,20 @@ async function sweepStaleSessions(): Promise<void> {
     const now = new Date();
     for (const s of stale) {
       const durationSeconds = Math.round((now.getTime() - s.startedAt.getTime()) / 1000);
+      const minutesUsed = durationSeconds / 60;
       await db
         .update(sessionsTable)
         .set({ endedAt: now, durationSeconds })
         .where(eq(sessionsTable.id, s.id));
       sessionStore.delete(s.id);
+      // Credit the minutes to the user so "min today" stays accurate
+      await db
+        .update(usersTable)
+        .set({
+          minutesUsedToday: sql`minutes_used_today + ${minutesUsed}`,
+          totalMinutesUsed: sql`total_minutes_used + ${minutesUsed}`,
+        })
+        .where(eq(usersTable.id, s.userId));
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -174,10 +183,23 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   if (openSessions.length > 0) {
     const now = new Date();
-    await db
-      .update(sessionsTable)
-      .set({ endedAt: now })
-      .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)));
+    // Close orphaned sessions and credit their duration so "min today" stays accurate
+    for (const orphan of openSessions) {
+      const durationSeconds = Math.round((now.getTime() - orphan.startedAt.getTime()) / 1000);
+      const minutesUsed = durationSeconds / 60;
+      await db
+        .update(sessionsTable)
+        .set({ endedAt: now, durationSeconds })
+        .where(eq(sessionsTable.id, orphan.id));
+      sessionStore.delete(orphan.id);
+      await db
+        .update(usersTable)
+        .set({
+          minutesUsedToday: sql`minutes_used_today + ${minutesUsed}`,
+          totalMinutesUsed: sql`total_minutes_used + ${minutesUsed}`,
+        })
+        .where(eq(usersTable.id, user.id));
+    }
   }
 
   const result = await db
