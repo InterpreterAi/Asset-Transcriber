@@ -271,8 +271,17 @@ export default function Admin() {
     refetchInterval: 15_000,
   });
 
+  const createMut = useAdminCreateUser();
+  const updateMut = useAdminUpdateUser();
+  const deleteMut = useAdminDeleteUser();
+  const resetMut  = useAdminResetUsage();
+
+  // ── Main tabs ─────────────────────────────────────────────────────────────
+  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   // Fast-poll active sessions — only when Users tab is open, every 3 s.
-  // Uses a lightweight dedicated endpoint so it doesn't re-run the full stats query.
+  // Must come AFTER mainTab useState to avoid temporal dead zone crash.
   const { data: liveSessionsData } = useQuery({
     queryKey: ["admin-active-sessions"],
     queryFn: async () => {
@@ -283,15 +292,6 @@ export default function Admin() {
     enabled: !!me?.isAdmin && mainTab === "users",
     refetchInterval: mainTab === "users" ? 3_000 : false,
   });
-
-  const createMut = useAdminCreateUser();
-  const updateMut = useAdminUpdateUser();
-  const deleteMut = useAdminDeleteUser();
-  const resetMut  = useAdminResetUsage();
-
-  // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ── Edit user drawer ───────────────────────────────────────────────────────
   const [editingUser, setEditingUser] = useState<{
