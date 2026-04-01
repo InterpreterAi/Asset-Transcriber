@@ -21,7 +21,6 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { TerminologyPanel } from "@/components/TerminologyPanel";
 import { formatMinutes } from "@/lib/utils";
 
 const LANG_OPTIONS = [
@@ -1325,8 +1324,8 @@ export default function Workspace() {
               <SessionHistoryPanel refreshKey={historyRefreshKey} />
             </div>
 
-            {/* NOTES PANEL — middle */}
-            <div className="h-32 shrink-0 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
+            {/* NOTES PANEL */}
+            <div className="flex-1 min-h-0 bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden mx-3 md:mx-0 pb-2 md:pb-0">
               <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
                 <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
@@ -1343,11 +1342,6 @@ export default function Workspace() {
                   spellCheck={false}
                 />
               </div>
-            </div>
-
-            {/* TERMINOLOGY SEARCH PANEL — bottom, slightly smaller */}
-            <div className="h-40 shrink-0 min-h-0 mx-3 md:mx-0 pb-2 md:pb-0">
-              <TerminologyPanel langA={langA} langB={langB} />
             </div>
 
           </div>
