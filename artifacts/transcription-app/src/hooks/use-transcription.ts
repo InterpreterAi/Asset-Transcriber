@@ -606,11 +606,11 @@ export function useTranscription() {
     if (translationIntervalRef.current !== null) return;
     translationIntervalRef.current = setInterval(() => {
       const buffer  = liveBufferRef.current;
-      // Block translation until Soniox has reported a language for this segment.
-      // segmentDetectedLangRef is null until the first language tag arrives, so
-      // the interval idles harmlessly until we know the real source language.
-      const segLang = segmentDetectedLangRef.current;
-      if (!buffer || buffer === lastTranslatedBuffer.current || segLang === null) return;
+      // Use the per-segment locked language once Soniox has reported it;
+      // fall back to the global detected language immediately so translation
+      // starts streaming in real-time rather than waiting for a language tag.
+      const segLang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+      if (!buffer || buffer === lastTranslatedBuffer.current) return;
       dispatchTranslation(buffer, segLang, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
