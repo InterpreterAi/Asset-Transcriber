@@ -6,3 +6,33 @@ id = "oyXn7iY-3yqS93JaWr25H"
 uri = "file://INTERPRETERAI_DOCUMENTATION.md"
 type = "text"
 title = "InterpreterAI — Complete Operator Documentation"
+
+[[outputs]]
+id = "7OH1Coe56Xp8PGySoNcQJ"
+uri = "file://docs/INTERPRETERAI_COMPLETE_DOCUMENTATION.md"
+type = "text"
+title = "Complete Documentation"
+
+[[outputs]]
+id = "13ZiIRBP6WIEI-8atzQ5a"
+uri = "file://docs/ENVIRONMENT_VARIABLES_REFERENCE.md"
+type = "text"
+title = "Environment Variables Reference"
+
+[[outputs]]
+id = "dADUOIQzPG3ec7B2yFb6B"
+uri = "file://docs/DATABASE_SCHEMA_REFERENCE.md"
+type = "text"
+title = "Database Schema Reference"
+
+[[outputs]]
+id = "cUqr6mxUwL_PbdFqPMEEp"
+uri = "file://docs/INTERPRETERAI_OPERATOR_MANUAL.md"
+type = "text"
+title = "Operator Manual"
+
+[[outputs]]
+id = "ykE0yKaohKe1AW2pEgiTG"
+uri = "file://docs/INTERPRETERAI_FULL_BACKUP.tar.gz"
+type = "unspecified"
+title = "Full Backup Archive (docs + source code)"
