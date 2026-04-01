@@ -116,52 +116,231 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
-// ── Script-based language validation ──────────────────────────────────────────
-// Soniox occasionally misidentifies the spoken language — most commonly tagging
-// English segments as Arabic ("ar") when a speaker has an accent or the segment
-// is short. We cross-validate the Soniox language tag against the Unicode script
-// of the actual transcribed text:
-//   Arabic characters: U+0600–U+06FF  → language must be Arabic
-//   Latin  characters: A-Z, À-ÿ      → language must be a Latin-script language
+// ── Multi-script Unicode validation ───────────────────────────────────────────
+// Soniox occasionally misidentifies spoken language — especially for short or
+// accented segments. We cross-validate its language tag against the dominant
+// Unicode script of the actual transcribed text, then override only when the
+// evidence is strong (≥ 60 % of meaningful script characters) and the correct
+// language is present in the user's selected pair.
 //
-// The override only fires when the evidence is strong (≥70 % Arabic chars, or
-// ≤15 % Arabic chars in a mixed count) and only within the user-selected pair
-// so we never fabricate a third language.
+// Works for every language pair, not just Arabic ↔ English.
 //
 // Applied at TWO points in the pipeline:
 //   1. When Soniox reports a language tag on any token  (detection-time fix)
 //   2. Inside dispatchTranslation before the API call   (dispatch-time guard)
+
+// Each entry groups one or more Unicode ranges under a canonical script name
+// and lists the BCP-47 base codes that primarily use that script.
+const UNICODE_SCRIPTS: {
+  name:   string;
+  ranges: [number, number][];
+  langs:  string[];
+}[] = [
+  // Latin — basic block + full extended Latin block
+  {
+    name:   "Latin",
+    ranges: [[0x0041, 0x007A], [0x00C0, 0x024F]],
+    langs:  ["en","fr","de","es","pt","it","nl","pl","cs","ro","tr",
+             "vi","id","ms","hu","sv","da","nb","fi","hr","sk","sl",
+             "et","lv","lt","ga","cy","eu","ca","gl","af","sw","tl"],
+  },
+  // Arabic / Persian / Urdu — all use the Arabic script block
+  {
+    name:   "Arabic",
+    ranges: [[0x0600, 0x06FF]],
+    langs:  ["ar","fa","ur"],
+  },
+  // Hebrew
+  {
+    name:   "Hebrew",
+    ranges: [[0x0590, 0x05FF]],
+    langs:  ["he"],
+  },
+  // Greek
+  {
+    name:   "Greek",
+    ranges: [[0x0370, 0x03FF]],
+    langs:  ["el"],
+  },
+  // Cyrillic — Russian, Ukrainian, Bulgarian, Serbian, Macedonian
+  {
+    name:   "Cyrillic",
+    ranges: [[0x0400, 0x04FF]],
+    langs:  ["ru","uk","bg","sr","mk","be","kk","ky","mn"],
+  },
+  // Devanagari — Hindi, Marathi, Nepali
+  {
+    name:   "Devanagari",
+    ranges: [[0x0900, 0x097F]],
+    langs:  ["hi","mr","ne"],
+  },
+  // Thai
+  {
+    name:   "Thai",
+    ranges: [[0x0E00, 0x0E7F]],
+    langs:  ["th"],
+  },
+  // Georgian
+  {
+    name:   "Georgian",
+    ranges: [[0x10A0, 0x10FF]],
+    langs:  ["ka"],
+  },
+  // Armenian
+  {
+    name:   "Armenian",
+    ranges: [[0x0530, 0x058F]],
+    langs:  ["hy"],
+  },
+  // Hangul (Korean syllables + jamo)
+  {
+    name:   "Hangul",
+    ranges: [[0x1100, 0x11FF], [0xAC00, 0xD7AF]],
+    langs:  ["ko"],
+  },
+  // CJK Unified Ideographs — shared by Chinese and Japanese
+  {
+    name:   "CJK",
+    ranges: [[0x4E00, 0x9FFF], [0x3400, 0x4DBF], [0xF900, 0xFAFF]],
+    langs:  ["zh","ja"],
+  },
+  // Hiragana — uniquely Japanese
+  {
+    name:   "Hiragana",
+    ranges: [[0x3040, 0x309F]],
+    langs:  ["ja"],
+  },
+  // Katakana — uniquely Japanese
+  {
+    name:   "Katakana",
+    ranges: [[0x30A0, 0x30FF]],
+    langs:  ["ja"],
+  },
+  // Gujarati
+  {
+    name:   "Gujarati",
+    ranges: [[0x0A80, 0x0AFF]],
+    langs:  ["gu"],
+  },
+  // Bengali
+  {
+    name:   "Bengali",
+    ranges: [[0x0980, 0x09FF]],
+    langs:  ["bn"],
+  },
+  // Tamil
+  {
+    name:   "Tamil",
+    ranges: [[0x0B80, 0x0BFF]],
+    langs:  ["ta"],
+  },
+  // Telugu
+  {
+    name:   "Telugu",
+    ranges: [[0x0C00, 0x0C7F]],
+    langs:  ["te"],
+  },
+  // Kannada
+  {
+    name:   "Kannada",
+    ranges: [[0x0C80, 0x0CFF]],
+    langs:  ["kn"],
+  },
+  // Malayalam
+  {
+    name:   "Malayalam",
+    ranges: [[0x0D00, 0x0D7F]],
+    langs:  ["ml"],
+  },
+];
+
+// Returns true when `lang` (BCP-47, e.g. "zh-CN") is listed in `langs`.
+// Matching is base-code prefix: "zh-CN" matches "zh".
+function scriptSupportsLang(langs: string[], lang: string): boolean {
+  const base = lang.split("-")[0]!.toLowerCase();
+  return langs.some(l => l === base || base.startsWith(l) || l.startsWith(base));
+}
+
+// Detects the dominant Unicode script in `text`.
+// Returns { name, langs } for the script if it is dominant (≥ 60 % of all
+// meaningful script characters), or null if the text is too short / too mixed
+// to draw a confident conclusion.
+function detectDominantScript(
+  text: string,
+): { name: string; langs: string[] } | null {
+  // Strip whitespace, digits, and common punctuation — count only script chars.
+  const stripped = text.replace(/[\s\d!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~\u200B-\u200F\u2000-\u206F]/g, "");
+  if (stripped.length < 4) return null;
+
+  // Accumulate character counts per script (by name, merging multi-range scripts).
+  const counts = new Map<string, { count: number; langs: string[] }>();
+  for (let i = 0; i < stripped.length; ) {
+    const cp = stripped.codePointAt(i)!;
+    // Advance past surrogate pairs for supplementary chars.
+    i += cp > 0xFFFF ? 2 : 1;
+
+    for (const script of UNICODE_SCRIPTS) {
+      let matched = false;
+      for (const [lo, hi] of script.ranges) {
+        if (cp >= lo && cp <= hi) { matched = true; break; }
+      }
+      if (matched) {
+        const cur = counts.get(script.name);
+        if (cur) {
+          cur.count += 1;
+        } else {
+          counts.set(script.name, { count: 1, langs: script.langs });
+        }
+        break; // each code point belongs to at most one script
+      }
+    }
+  }
+
+  if (counts.size === 0) return null;
+
+  // Find the script with the highest count and compute total.
+  let dominant: { name: string; count: number; langs: string[] } | null = null;
+  let total = 0;
+  for (const [name, { count, langs }] of counts) {
+    total += count;
+    if (!dominant || count > dominant.count) {
+      dominant = { name, count, langs };
+    }
+  }
+
+  // Require ≥ 60 % dominance — below that the text is too mixed to be certain.
+  if (!dominant || dominant.count / total < 0.60) return null;
+
+  return { name: dominant.name, langs: dominant.langs };
+}
+
+// Cross-validates Soniox's language tag against the dominant Unicode script of
+// the token text.  Only overrides when:
+//   1. The dominant script is detected with ≥ 60 % confidence.
+//   2. Soniox's tag does NOT use that script.
+//   3. Exactly one side of the user's selected pair uses that script.
+// Returns the corrected BCP-47 code, or sonioxLang unchanged if no override.
 function validateLangByScript(
   sonioxLang: string,
   tokenText:  string,
   pair:       { a: string; b: string },
 ): string {
-  // Strip digits, punctuation, whitespace — only count script characters.
-  const stripped = tokenText.replace(/[\s\d!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~\u200B-\u200F]/g, "");
-  if (stripped.length < 4) return sonioxLang; // too few chars to judge
+  const dominant = detectDominantScript(tokenText);
+  if (!dominant) return sonioxLang; // too short / too mixed — trust Soniox
 
-  const arabicCount = (stripped.match(/[\u0600-\u06FF]/g) ?? []).length;
-  const latinCount  = (stripped.match(/[A-Za-z\u00C0-\u024F]/g) ?? []).length;
-  const total = arabicCount + latinCount;
-  if (total < 3) return sonioxLang; // not enough script chars
+  // If Soniox already agrees with the dominant script, nothing to fix.
+  if (scriptSupportsLang(dominant.langs, sonioxLang)) return sonioxLang;
 
-  const arabicRatio = arabicCount / total;
+  // Soniox disagrees with the dominant script.
+  // Find which side of the pair uses the detected script.
+  const aFits = scriptSupportsLang(dominant.langs, pair.a);
+  const bFits = scriptSupportsLang(dominant.langs, pair.b);
 
-  const pairHasArabic = matchesLang("ar", pair.a) || matchesLang("ar", pair.b);
+  // Override only when exactly one side of the pair matches — unambiguous.
+  if (aFits && !bFits) return pair.a;
+  if (bFits && !aFits) return pair.b;
 
-  // Strongly Arabic text (≥70 % Arabic chars) → source must be Arabic.
-  // Override if Soniox said something non-Arabic.
-  if (arabicRatio >= 0.70 && pairHasArabic && !matchesLang(sonioxLang, "ar")) {
-    return matchesLang(pair.a, "ar") ? pair.a : pair.b;
-  }
-
-  // Strongly Latin text (≤15 % Arabic chars) → source must be a Latin-script
-  // language. Override if Soniox said Arabic ("ar").
-  if (arabicRatio <= 0.15 && matchesLang(sonioxLang, "ar")) {
-    // Return whichever side of the pair is NOT Arabic.
-    return matchesLang(pair.a, "ar") ? pair.b : pair.a;
-  }
-
+  // Both or neither pair language uses this script — cannot safely override.
   return sonioxLang;
 }
 
