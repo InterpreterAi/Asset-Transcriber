@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { History, Clock, BarChart2, Calendar, ChevronDown } from "lucide-react";
+import { History, Clock, BarChart2, Calendar } from "lucide-react";
 
 type SessionRow = {
   id: number;
@@ -86,33 +86,35 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
   const sessions = stats?.sessions ?? [];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm" style={{ minWidth: "160px" }}>
 
-      {/* Header */}
-      <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
-        <History className="w-3.5 h-3.5 text-primary shrink-0" />
-        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-          Session History
-        </span>
-        {/* Period label */}
-        <span className="text-[9px] text-muted-foreground/50 hidden sm:block">{PERIOD_LABEL[period]}</span>
-      </div>
+      {/* Header — two-row layout */}
+      <div className="border-b border-border bg-muted/20 shrink-0">
 
-      {/* Date filter tabs */}
-      <div className="flex border-b border-border shrink-0">
-        {PERIODS.map(({ value, label }) => (
-          <button
-            key={value}
-            onClick={() => setPeriod(value)}
-            className={`flex-1 py-1.5 text-[9.5px] font-semibold transition-colors ${
-              period === value
-                ? "text-primary border-b-2 border-primary bg-primary/5"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+        {/* Row 1: Title */}
+        <div className="flex items-center gap-2 px-3 py-2">
+          <History className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Session History
+          </span>
+        </div>
+
+        {/* Row 2: Period filter tabs */}
+        <div className="flex border-t border-border/40">
+          {PERIODS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setPeriod(value)}
+              className={`flex-1 py-2 px-1 text-[10px] font-semibold transition-colors whitespace-nowrap ${
+                period === value
+                  ? "text-primary border-b-2 border-primary bg-primary/5"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
