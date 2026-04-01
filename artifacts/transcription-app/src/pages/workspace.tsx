@@ -1,4 +1,4 @@
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import {
   Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
-  LifeBuoy,
+  LifeBuoy, BookOpen, StickyNote, Flag,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -15,6 +15,7 @@ import { useTranscription } from "@/hooks/use-transcription";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
+import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { formatMinutes } from "@/lib/utils";
 
 const LANG_OPTIONS = [
@@ -96,6 +97,34 @@ export default function Workspace() {
   const [langB, setLangB] = useState("ar");
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
+
+  // ── Session timer ────────────────────────────────────────────────────────────
+  const [sessionElapsed, setSessionElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (transcription.isRecording) {
+      setSessionElapsed(0);
+      timerRef.current = setInterval(() => setSessionElapsed(s => s + 1), 1000);
+    } else {
+      if (timerRef.current !== null) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current !== null) clearInterval(timerRef.current);
+    };
+  }, [transcription.isRecording]);
+
+  const formatElapsed = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  // ── Session notes (ephemeral — cleared when session ends) ─────────────────
+  const [notes, setNotes] = useState("");
 
   // ── Upgrade / billing ────────────────────────────────────────────────────────
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -273,6 +302,7 @@ export default function Workspace() {
       // buffers from browser memory when the session ends.
       // No patient speech content persists beyond the active session.
       transcription.clear();
+      setNotes("");
       setClearedForPrivacy(true);
       setTimeout(() => setClearedForPrivacy(false), 4000);
     } else if (inputMode === "tab") {
@@ -446,10 +476,11 @@ export default function Workspace() {
       <aside className="w-[64px] bg-sidebar border-r border-sidebar-border flex flex-col items-center py-3 flex-shrink-0 z-20">
         <div className="flex-1 flex flex-col gap-1.5">
           {[
-            { id: "profile", icon: <User className="w-5 h-5" />,     title: "Profile" },
-            { id: "mic",     icon: <Mic2 className="w-5 h-5" />,     title: "Audio" },
-            { id: "lang",    icon: <Globe className="w-5 h-5" />,    title: "Languages" },
-            { id: "support", icon: <LifeBuoy className="w-5 h-5" />, title: "Support" },
+            { id: "profile",  icon: <User className="w-5 h-5" />,      title: "Profile" },
+            { id: "mic",      icon: <Mic2 className="w-5 h-5" />,      title: "Audio" },
+            { id: "lang",     icon: <Globe className="w-5 h-5" />,     title: "Languages" },
+            { id: "glossary", icon: <BookOpen className="w-5 h-5" />,  title: "Glossary" },
+            { id: "support",  icon: <LifeBuoy className="w-5 h-5" />,  title: "Support" },
           ].map(({ id, icon, title }) => (
             <button
               key={id}
@@ -566,7 +597,7 @@ export default function Workspace() {
               }
             </div>
             {user.planType !== "unlimited" && (
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-2">
                 <div
                   className={`h-full rounded-full transition-all ${
                     user.minutesUsedToday >= user.dailyLimitMinutes ? "bg-destructive" : "bg-primary"
@@ -575,6 +606,10 @@ export default function Workspace() {
                 />
               </div>
             )}
+            <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+              <span>Sessions today</span>
+              <span className="font-semibold text-foreground">{(user as unknown as { sessionsToday?: number }).sessionsToday ?? 0}</span>
+            </div>
           </div>
 
           {/* Change password */}
@@ -682,6 +717,11 @@ export default function Workspace() {
         />
       )}
 
+      {/* GLOSSARY PANEL */}
+      {activeTab === "glossary" && (
+        <GlossaryPanel onClose={() => setActiveTab("mic")} />
+      )}
+
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
 
@@ -694,13 +734,37 @@ export default function Workspace() {
               <span className="truncate max-w-[160px]">{LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}</span>
             </span>
             {transcription.isRecording && (
-              <span className="flex sm:hidden items-center gap-1 text-[10px] text-rose-500 font-semibold shrink-0">
-                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-                Live
-              </span>
+              <>
+                <span className="flex sm:hidden items-center gap-1 text-[10px] text-rose-500 font-semibold shrink-0">
+                  <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+                  Live
+                </span>
+                <span className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 shrink-0 font-mono">
+                  <Clock className="w-3 h-3" />
+                  {formatElapsed(sessionElapsed)}
+                </span>
+              </>
             )}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Mark Important Line — highlights the last transcript row */}
+            <button
+              onClick={() => {
+                if (!transcription.containerRef.current) return;
+                const rows = transcription.containerRef.current.querySelectorAll(".group");
+                const last = rows[rows.length - 1] as HTMLElement | undefined;
+                if (!last) return;
+                last.style.background = "rgba(245,158,11,0.12)";
+                last.style.borderLeft = "3px solid rgb(245,158,11)";
+                last.style.borderRadius = "6px";
+              }}
+              disabled={!transcription.hasTranscript}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              title="Mark last line as important"
+            >
+              <Flag className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Mark</span>
+            </button>
             <button
               onClick={() => transcription.clear()}
               disabled={transcription.isRecording || !transcription.hasTranscript}
@@ -756,9 +820,26 @@ export default function Workspace() {
           </div>
         )}
 
-        {/* TRANSCRIPT PANEL */}
-        <div className="flex-1 p-4 min-h-0 overflow-hidden">
-          <div className="h-full bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
+        {/* TRANSCRIPT + NOTES PANELS */}
+        <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden">
+
+          {/* NOTES PANEL — small, ephemeral, beside transcript */}
+          <div className="w-[13%] min-w-[120px] max-w-[180px] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden shrink-0">
+            <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
+              <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+            </div>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate notes only — cleared when session ends"}
+              className="flex-1 w-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
+              spellCheck={false}
+            />
+          </div>
+
+          {/* MAIN TRANSCRIPT PANEL */}
+          <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
             {/* Transcript header */}
             <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-3 px-4 shrink-0">

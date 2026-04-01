@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, usersTable, passwordResetTokensTable } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
+import { db, usersTable, passwordResetTokensTable, sessionsTable } from "@workspace/db";
+import { eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
@@ -59,7 +59,15 @@ router.post("/login", async (req, res) => {
     return;
   }
 
-  res.json({ user: buildUserInfo(freshUser) });
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const sessionsTodayRows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.userId, freshUser.id) && gte(sessionsTable.startedAt, todayStart));
+  const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
+
+  res.json({ user: { ...buildUserInfo(freshUser), sessionsToday } });
 });
 
 // ── Sign Up ────────────────────────────────────────────────────────────────
@@ -140,7 +148,14 @@ router.get("/me", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  res.json(buildUserInfo(user));
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const sessionsTodayRows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.userId, user.id) && gte(sessionsTable.startedAt, todayStart));
+  const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
+  res.json({ ...buildUserInfo(user), sessionsToday });
 });
 
 // ── Change Password ────────────────────────────────────────────────────────

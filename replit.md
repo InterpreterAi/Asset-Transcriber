@@ -66,6 +66,12 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
   - *Feedback*: Star ratings + comments from users
 - **View Session Modal:** Admin can view live transcript + translation snapshot for an active session (auto-refreshes every 5s). Snapshot includes lang pair, mic device label, and content. Admin can terminate the session. Snapshots are in-memory only — never persisted to DB.
 - **Snapshot Push:** While recording, workspace pushes transcript/translation/lang pair/mic label to `PUT /api/transcription/session/snapshot` every 5 s. Data lives in the server's `sessionStore` Map and is cleared when the session ends.
+- **Interpreter Productivity Tools:**
+  - **Session Timer**: Live `MM:SS` elapsed-time badge (red, clock icon) appears in the header while recording. Uses a `useEffect` / `setInterval` that resets on each new session.
+  - **Session Notes panel**: Small panel (`w-[13%]`, 120–180px) to the LEFT of the main transcript panel. In-memory only — cleared automatically when the session stops (HIPAA safe). Amber sticky-note icon and "NOTES" label; multiline textarea with placeholder examples.
+  - **Mark Important Line**: Flag button in the header toolbar. Highlights the most recent transcript row with amber background and left border (`rgba(245,158,11,0.12)`). Does not modify the transcription hook.
+  - **Sessions Today**: Shown in the Account (Profile) panel under "Today's Usage". Computed by a `COUNT(*)` query on the `sessions` table filtered to `started_at >= CURRENT_DATE`, returned from `GET /api/auth/me`.
+  - **Glossary System**: New `glossary_entries` table (userId FK, term, translation, UNIQUE per user+term). Sidebar BookOpen icon → `GlossaryPanel.tsx` with list, add form, and delete. API: `GET/POST /api/glossary`, `DELETE /api/glossary/:id`. Translation endpoint (`/api/transcription/translate`) loads the user's glossary at request time and injects matching entries as extra `termHints` into the GPT-4o-mini system prompt — no changes to the Soniox WebSocket pipeline.
 - **Support Ticket System:** Full SaaS support flow:
   - Users: LifeBuoy icon in workspace sidebar opens a slide-in Support panel with "New Request" (email/subject/message form) and "My Requests" (thread view with admin replies)
   - Submission triggers: DB save, Telegram notification to admin, confirmation email to user (via Resend)

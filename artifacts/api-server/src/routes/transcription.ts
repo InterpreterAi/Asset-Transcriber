@@ -1,6 +1,6 @@
 import { Router } from "express";
 import OpenAI from "openai";
-import { db, usersTable, sessionsTable } from "@workspace/db";
+import { db, usersTable, sessionsTable, glossaryEntriesTable } from "@workspace/db";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
@@ -304,6 +304,20 @@ router.post("/translate", requireAuth, async (req, res) => {
   const tgtCode = tgtLang.split("-")[0]!;
 
   const termHints = findTermHints(text, srcLang, tgtLang);
+
+  // ── User personal glossary ─────────────────────────────────────────────────
+  // Load the user's saved glossary entries and add any that match the current text
+  const userId = req.session.userId!;
+  const userGlossary = await db
+    .select()
+    .from(glossaryEntriesTable)
+    .where(eq(glossaryEntriesTable.userId, userId));
+  const lowerText = text.toLowerCase();
+  for (const entry of userGlossary) {
+    if (lowerText.includes(entry.term.toLowerCase())) {
+      termHints.push(`"${entry.term}" → "${entry.translation}"`);
+    }
+  }
 
   // Arabic dialect understanding — source text may be any regional dialect
   const arabicSourceRule = srcCode === "ar"
