@@ -92,11 +92,11 @@ function AppPreview() {
             <span className="font-bold text-[13px] tracking-tight text-foreground">InterpreterAI</span>
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              English ↔ Arabic
+              English ↔ Spanish
             </span>
             <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono bg-rose-50 text-rose-600 border border-rose-200">
               <Clock className="w-2.5 h-2.5" />
-              02:14
+              03:47
             </span>
           </div>
         </div>
@@ -121,87 +121,105 @@ function AppPreview() {
           <div className="w-[175px] shrink-0 flex flex-col gap-2 p-2 bg-[#f5f5f7] border-r border-border overflow-hidden">
 
             {/* NOTES panel */}
-            <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "22%" }}>
+            <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "20%" }}>
               <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
                 <StickyNote className="w-3 h-3 text-amber-500 shrink-0" />
                 <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
               </div>
               <div className="flex-1 px-2.5 py-1.5 overflow-hidden">
-                <p className="text-[10px] text-foreground/70 leading-relaxed">Claim #: 8847<br />Dr. Martinez<br /><span className="text-muted-foreground/40 italic text-[9px]">cleared on end</span></p>
+                <p className="text-[10px] text-foreground/70 leading-relaxed">Caso #: 4421<br />Paciente: López<br /><span className="text-muted-foreground/40 italic text-[9px]">cleared on end</span></p>
               </div>
             </div>
 
             {/* TERMINOLOGY panel */}
-            <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "42%" }}>
+            <div className="bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "44%" }}>
               <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
                 <BookMarked className="w-3 h-3 text-violet-500 shrink-0" />
                 <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">Terminology</span>
-                <span className="text-[8px] text-muted-foreground/40 font-mono">EN→AR</span>
+                <span className="text-[8px] text-muted-foreground/40 font-mono">EN→ES</span>
               </div>
               {/* Search field */}
               <div className="px-2 py-1.5 border-b border-border/40 shrink-0">
-                <div className="relative flex items-center h-6 rounded-md border border-input bg-muted/30 px-2 gap-1">
+                <div className="flex items-center h-6 rounded-md border border-primary/40 bg-white px-2 gap-1 ring-1 ring-primary/20">
                   <Search className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
-                  <span className="text-[10px] text-foreground/80">rotator cuff</span>
+                  <span className="text-[10px] text-foreground/80">manguito rotador</span>
                 </div>
               </div>
-              {/* Result card */}
-              <div className="flex-1 p-1.5 overflow-hidden">
+              {/* Results */}
+              <div className="flex-1 p-1.5 space-y-1 overflow-hidden">
+                {/* Result 1 */}
                 <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
                   <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-[10px] font-semibold text-foreground">rotator cuff</span>
+                    <span className="text-[10px] font-semibold text-foreground">manguito rotador</span>
                     <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
-                    <span className="text-[10px] font-semibold text-primary" dir="rtl">الكفة المدوّرة</span>
+                    <span className="text-[10px] font-semibold text-primary">rotator cuff</span>
                   </div>
                   <div className="flex items-center gap-1 mt-1">
                     <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border bg-blue-50 text-blue-600 border-blue-200">
                       <Stethoscope className="w-2 h-2" />
                       Medical
                     </span>
-                    <span className="text-[8px] text-muted-foreground/50">Shoulder tendon group</span>
+                    <span className="text-[8px] text-muted-foreground/50">Shoulder tendons</span>
                   </div>
-                  {/* Second result */}
-                  <div className="mt-1.5 pt-1.5 border-t border-border/30">
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <span className="text-[10px] font-semibold text-foreground">plaintiff</span>
-                      <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
-                      <span className="text-[10px] font-semibold text-primary" dir="rtl">المدّعي</span>
-                    </div>
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border bg-amber-50 text-amber-700 border-amber-200 mt-1">
+                </div>
+                {/* Result 2 */}
+                <div className="rounded-lg border border-border/60 bg-muted/10 px-2 py-1.5">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10px] font-semibold text-foreground">demandante</span>
+                    <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/40 shrink-0" />
+                    <span className="text-[10px] font-semibold text-primary">plaintiff</span>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border bg-amber-50 text-amber-700 border-amber-200">
                       <svg className="w-2 h-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6l9-4 9 4v12l-9 4-9-4V6z"/></svg>
                       Legal
                     </span>
                   </div>
                 </div>
-                <p className="text-[7.5px] text-muted-foreground/30 text-center mt-1">Reference only · Not stored</p>
+                <p className="text-[7.5px] text-muted-foreground/30 text-center">Reference only · Not stored</p>
               </div>
             </div>
 
-            {/* SESSION HISTORY panel */}
+            {/* SESSION HISTORY panel with date filter */}
             <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden min-h-0">
               <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
                 <History className="w-3 h-3 text-emerald-500 shrink-0" />
-                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Sessions</span>
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">Sessions</span>
               </div>
-              <div className="px-2 py-1.5 space-y-1 overflow-hidden">
-                {/* Today stats row */}
-                <div className="flex gap-1.5">
-                  {[{ n: "3", l: "Today" }, { n: "24m", l: "Total" }, { n: "8m", l: "Avg" }].map(({ n, l }) => (
-                    <div key={l} className="flex-1 rounded-md bg-muted/30 border border-border/40 px-1.5 py-1 text-center">
-                      <p className="text-[11px] font-bold text-foreground leading-none">{n}</p>
-                      <p className="text-[8px] text-muted-foreground/60 mt-0.5">{l}</p>
-                    </div>
-                  ))}
+              {/* Date filter tabs */}
+              <div className="flex border-b border-border shrink-0">
+                {["Today", "Week", "Month", "All"].map((tab, i) => (
+                  <div key={tab} className={`flex-1 py-1 text-center text-[8.5px] font-semibold ${i === 0 ? "text-primary border-b-2 border-primary bg-primary/5" : "text-muted-foreground/50"}`}>
+                    {tab}
+                  </div>
+                ))}
+              </div>
+              <div className="px-2 py-1.5 space-y-1.5 overflow-hidden">
+                {/* Stats cards */}
+                <div className="flex gap-1">
+                  <div className="flex-1 bg-blue-50 rounded-md py-1 text-center">
+                    <p className="text-[11px] font-bold text-blue-700 leading-none">5</p>
+                    <p className="text-[7.5px] text-blue-500 mt-0.5">Sessions</p>
+                  </div>
+                  <div className="flex-1 bg-violet-50 rounded-md py-1 text-center">
+                    <p className="text-[11px] font-bold text-violet-700 leading-none">47m</p>
+                    <p className="text-[7.5px] text-violet-500 mt-0.5">Total</p>
+                  </div>
+                  <div className="flex-1 bg-emerald-50 rounded-md py-1 text-center">
+                    <p className="text-[11px] font-bold text-emerald-700 leading-none">9m</p>
+                    <p className="text-[7.5px] text-emerald-500 mt-0.5">Avg</p>
+                  </div>
                 </div>
-                {/* Recent session rows */}
+                {/* Session rows */}
                 {[
-                  { time: "10:42 AM", dur: "8 min", pair: "EN↔AR" },
-                  { time: "9:15 AM",  dur: "5 min", pair: "EN↔ES" },
+                  { time: "2:18 PM",  dur: "12m", pair: "EN↔ES" },
+                  { time: "11:05 AM", dur: "9m",  pair: "EN↔ES" },
+                  { time: "9:30 AM",  dur: "8m",  pair: "FR↔ES" },
                 ].map(({ time, dur, pair }) => (
                   <div key={time} className="flex items-center justify-between rounded-md bg-muted/20 border border-border/30 px-2 py-1">
                     <span className="text-[9px] text-muted-foreground">{time}</span>
                     <span className="text-[9px] font-semibold text-foreground">{dur}</span>
-                    <span className="text-[8px] text-muted-foreground/60 font-mono">{pair}</span>
+                    <span className="text-[8px] text-primary/70 font-mono">{pair}</span>
                   </div>
                 ))}
               </div>
@@ -223,13 +241,13 @@ function AppPreview() {
             </div>
             <div className="grid grid-cols-2 gap-4 px-3 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
               <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Original (English)</span>
-              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Arabic)</span>
+              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Spanish)</span>
             </div>
             <div className="flex-1 overflow-hidden py-2 px-1 space-y-1">
-              <DemoRow speaker={1} orig="Hello, how can I help you today?" trans="مرحبًا، كيف يمكنني مساعدتك اليوم؟" dir="rtl" />
-              <DemoRow speaker={2} orig="I have a doctor's appointment at 3 PM." trans="لدي موعد مع الطبيب في الساعة الثالثة." dir="rtl" />
-              <DemoRow speaker={1} orig="Let me confirm that for you right away." trans="دعني أؤكد ذلك لك على الفور." dir="rtl" highlight />
-              <DemoRow speaker={2} orig="Thank you so much" live />
+              <DemoRow speaker={1} orig="Good morning, how can I help you today?" trans="Buenos días, ¿cómo puedo ayudarle hoy?" />
+              <DemoRow speaker={2} orig="I need to schedule a follow-up appointment." trans="Necesito programar una cita de seguimiento." />
+              <DemoRow speaker={1} orig="The rotator cuff requires physical therapy." trans="El manguito rotador requiere fisioterapia." highlight />
+              <DemoRow speaker={2} orig="Can I see a specialist this week" live />
             </div>
           </div>
         </div>
@@ -247,10 +265,10 @@ function AppPreview() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground hidden sm:block">English ↔ Arabic</span>
+            <span className="text-[10px] text-muted-foreground hidden sm:block">English ↔ Spanish</span>
             <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-full text-[10px] text-muted-foreground font-medium border border-border/50">
               <Clock className="w-3 h-3" />
-              2.2 min used
+              3.8 min used
             </div>
           </div>
         </div>

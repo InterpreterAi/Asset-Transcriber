@@ -269,7 +269,26 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
 // ── /sessions — user session history ──────────────────────────────────────
 router.get("/sessions", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit  = Math.min(Number(req.query.limit) || 50, 200);
+
+  // ── period filter: today | week | month | all (default)
+  const period = String(req.query.period ?? "all");
+  const now    = new Date();
+
+  function periodStart(p: string): Date | null {
+    const utcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    if (p === "today") return utcToday;
+    if (p === "week")  { const d = new Date(utcToday); d.setUTCDate(d.getUTCDate() - 6); return d; }
+    if (p === "month") return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    return null; // "all"
+  }
+
+  const fromDate = periodStart(period);
+
+  // Sessions list filtered by period
+  const baseWhere = fromDate
+    ? and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate))
+    : eq(sessionsTable.userId, userId);
 
   const sessions = await db
     .select({
@@ -280,40 +299,46 @@ router.get("/sessions", requireAuth, async (req, res) => {
       langPair:        sessionsTable.langPair,
     })
     .from(sessionsTable)
-    .where(eq(sessionsTable.userId, userId))
+    .where(baseWhere)
     .orderBy(desc(sessionsTable.startedAt))
     .limit(limit);
 
-  // Time windows
-  const now       = new Date();
-  const todayUTC  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const weekAgoUTC = new Date(todayUTC);
-  weekAgoUTC.setUTCDate(weekAgoUTC.getUTCDate() - 6);
+  // Aggregate stats for the selected period (+ always compute today & week for sidebar widgets)
+  const todayUTC   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekAgoUTC = new Date(todayUTC); weekAgoUTC.setUTCDate(weekAgoUTC.getUTCDate() - 6);
 
   const aggCols = {
     count:        sql<number>`count(*)::int`,
     totalSeconds: sql<number>`coalesce(sum(duration_seconds),0)::int`,
   };
 
-  const [[lifetime], [today], [week]] = await Promise.all([
+  const [[periodAgg], [lifetime], [today], [week]] = await Promise.all([
+    fromDate
+      ? db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate)))
+      : db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
     db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
     db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayUTC))),
     db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, weekAgoUTC))),
   ]);
 
-  const todayCount = today?.count ?? 0;
-  const todaySeconds = today?.totalSeconds ?? 0;
+  const periodCount   = periodAgg?.count       ?? 0;
+  const periodSeconds = periodAgg?.totalSeconds ?? 0;
+  const todayCount    = today?.count            ?? 0;
+  const todaySeconds  = today?.totalSeconds     ?? 0;
 
   res.json({
     sessions,
-    // Lifetime
+    period,
+    // Period-filtered stats (used by the filter tabs)
+    periodSessions:      periodCount,
+    periodMinutes:       Math.round(periodSeconds / 60),
+    periodAvgMinutes:    periodCount > 0 ? Math.round(periodSeconds / periodCount / 60) : 0,
+    // Always-present for sidebar widgets
     totalSessions:       lifetime?.count ?? 0,
     totalMinutes:        Math.round((lifetime?.totalSeconds ?? 0) / 60),
-    // Today
     todaySessions:       todayCount,
     todayMinutes:        Math.round(todaySeconds / 60),
     avgSessionMinutes:   todayCount > 0 ? Math.round(todaySeconds / todayCount / 60) : 0,
-    // This week (last 7 days)
     weekSessions:        week?.count ?? 0,
     weekMinutes:         Math.round((week?.totalSeconds ?? 0) / 60),
   });
