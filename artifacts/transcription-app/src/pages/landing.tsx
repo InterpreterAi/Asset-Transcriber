@@ -12,124 +12,215 @@ const fade = (delay = 0) => ({
   transition: { duration: 0.55, ease: "easeOut", delay },
 });
 
-// ── Animated app preview mockup ───────────────────────────────────────────────
-function AppPreview() {
-  const lines = [
-    { orig: "Good morning. My name is Sarah and my interpreter number is 4402.", trans: "صباح الخير. اسمي سارة ورقمي التعريفي هو 4402." },
-    { orig: "I need to speak with a doctor about my claim number.", trans: "أحتاج إلى التحدث مع طبيب بشأن رقم مطالبتي." },
-    { orig: "The patient is reporting pain in the lower back and left shoulder.", trans: "يُفيد المريض بألم في أسفل الظهر والكتف الأيسر." },
-    { orig: "Can you confirm the appointment date for next Thursday?", trans: "هل يمكنك تأكيد موعد الاجتماع يوم الخميس القادم؟" },
-  ];
+// ── Speaker badge ──────────────────────────────────────────────────────────────
+function SpeakerBadge({ n, color }: { n: number; color: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border mb-1 ${color}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${n === 1 ? "bg-violet-500" : "bg-blue-500"}`} />
+      Speaker {n}
+    </span>
+  );
+}
+
+// ── Demo transcript row ────────────────────────────────────────────────────────
+function DemoRow({
+  speaker,
+  orig,
+  trans,
+  dir: textDir = "ltr",
+  highlight = false,
+  live = false,
+}: {
+  speaker: number;
+  orig: string;
+  trans?: string;
+  dir?: "ltr" | "rtl";
+  highlight?: boolean;
+  live?: boolean;
+}) {
+  const spColor = speaker === 1
+    ? "bg-violet-50 text-violet-700 border-violet-200"
+    : "bg-blue-50 text-blue-700 border-blue-200";
 
   return (
-    <div className="relative w-full max-w-4xl mx-auto">
-      {/* Glow effect behind the card */}
-      <div className="absolute inset-0 -z-10 rounded-3xl bg-primary/10 blur-3xl scale-95 translate-y-4" />
+    <div className={`grid grid-cols-2 gap-4 px-3 py-2 rounded-lg ${highlight ? "bg-amber-50/60 border-l-2 border-amber-400" : ""}`}>
+      {/* Original column */}
+      <div className="flex flex-col">
+        <SpeakerBadge n={speaker} color={spColor} />
+        <p className="text-[12px] leading-snug text-foreground font-medium">
+          {orig}
+          {live && <span className="inline-block w-[2px] h-[13px] bg-primary ml-1 animate-pulse align-middle rounded-sm" />}
+        </p>
+      </div>
+      {/* Translation column */}
+      <div className="flex flex-col">
+        <span className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border mb-1 bg-emerald-50 text-emerald-700 border-emerald-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1" />
+          AI Translation
+        </span>
+        {trans ? (
+          <p className="text-[12px] leading-snug text-foreground/90 font-medium" dir={textDir}>{trans}</p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground/50 italic flex items-center gap-1">
+            <span className="w-1 h-1 rounded-full bg-primary/40 animate-pulse" />
+            Translating…
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── App demo preview ───────────────────────────────────────────────────────────
+function AppPreview() {
+  return (
+    <div className="relative w-full max-w-4xl mx-auto select-none">
+      {/* Ambient glow */}
+      <div className="absolute inset-0 -z-10 rounded-3xl bg-primary/10 blur-3xl scale-90 translate-y-6 opacity-70" />
 
       <div className="bg-white rounded-2xl border border-border shadow-2xl overflow-hidden">
-        {/* App top bar */}
-        <div className="h-11 bg-white border-b border-border flex items-center justify-between px-4">
-          <div className="flex items-center gap-2.5">
+
+        {/* ── Window chrome (top bar) ───────────────────────────────────────── */}
+        <div className="h-[46px] bg-white border-b border-border flex items-center justify-between px-4 shrink-0">
+          <div className="flex items-center gap-3">
+            {/* macOS traffic lights */}
             <div className="flex gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-red-400" />
-              <div className="w-3 h-3 rounded-full bg-yellow-400" />
-              <div className="w-3 h-3 rounded-full bg-green-400" />
+              <div className="w-3 h-3 rounded-full bg-[#FF5F57]" />
+              <div className="w-3 h-3 rounded-full bg-[#FFBC2E]" />
+              <div className="w-3 h-3 rounded-full bg-[#28C840]" />
             </div>
-            <span className="text-xs font-semibold text-foreground ml-1">InterpreterAI</span>
+            {/* Brand */}
+            <span className="font-bold text-[13px] tracking-tight text-foreground">InterpreterAI</span>
+            {/* Lang pair badge */}
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
-              <span className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
               English ↔ Arabic
             </span>
-            {/* Live timer badge */}
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 font-mono">
+            {/* Session timer */}
+            <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono bg-rose-50 text-rose-600 border border-rose-200">
               <Clock className="w-2.5 h-2.5" />
-              03:47
+              02:14
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
-              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
-              Listening
-            </span>
-          </div>
+          {/* Live indicator */}
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-rose-500">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            Listening
+          </span>
         </div>
 
-        {/* Content area — sidebar + panels */}
-        <div className="flex h-[340px] sm:h-[400px]">
-          {/* Sidebar */}
-          <div className="w-12 bg-[#f8f8fa] border-r border-border flex flex-col items-center py-3 gap-2">
-            {[Mic2, Globe, BookOpen].map((Icon, i) => (
-              <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 0 ? "bg-primary/10 text-primary" : "text-muted-foreground/40"}`}>
+        {/* ── Main layout: sidebar + notes + transcript ─────────────────────── */}
+        <div className="flex" style={{ height: "390px" }}>
+
+          {/* Sidebar — matches real 64px sidebar */}
+          <div className="w-[52px] bg-[#f8f8fa] border-r border-border flex flex-col items-center pt-3 pb-2 gap-1.5 shrink-0">
+            {[
+              { Icon: Mic2, active: true },
+              { Icon: Globe, active: false },
+              { Icon: BookOpen, active: false },
+            ].map(({ Icon, active }, i) => (
+              <div
+                key={i}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
+                  active ? "bg-white shadow-sm text-primary" : "text-muted-foreground/30"
+                }`}
+              >
                 <Icon className="w-4 h-4" />
               </div>
             ))}
           </div>
 
-          {/* Notes + Transcript panels */}
-          <div className="flex-1 flex gap-0 overflow-hidden">
-            {/* Small notes panel */}
-            <div className="w-28 border-r border-border bg-white flex flex-col">
-              <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2">
-                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
-              </div>
-              <div className="p-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Claim #4417<br />
-                DOB: 03/15/1982<br />
-                <br />
-                Follow up on<br />
-                shoulder MRI
+          {/* Notes panel — matches real min-w-[120px] panel */}
+          <div className="w-[110px] border-r border-border bg-white flex flex-col shrink-0">
+            <div className="h-9 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2.5 shrink-0">
+              <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+            </div>
+            <div className="p-2 text-[10px] text-muted-foreground/55 leading-relaxed">
+              Client: Maria G.<br />
+              Appt: 2:00 PM<br />
+              <br />
+              Insurance<br />
+              claim review
+            </div>
+          </div>
+
+          {/* ── Main transcript panel ─────────────────────────────────────── */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+
+            {/* Panel header — matches real "Practice Output" header */}
+            <div className="h-9 border-b border-border bg-muted/20 flex items-center justify-between px-4 shrink-0">
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Practice Output</span>
+              <div className="flex items-center gap-3">
+                <span className="hidden sm:block text-[9px] text-muted-foreground/40 italic">Audio processed in real time · not stored</span>
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-rose-500">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                  Listening
+                </span>
               </div>
             </div>
 
-            {/* Main transcript panel */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Panel header */}
-              <div className="h-8 border-b border-border bg-muted/20 flex items-center px-3 gap-8 shrink-0">
-                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Original</span>
-                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider ml-auto mr-4">Translation</span>
-              </div>
+            {/* Column labels — matches real two-column label row */}
+            <div className="grid grid-cols-2 gap-4 px-3 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
+              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Original (English)</span>
+              <span className="text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Translation (Arabic)</span>
+            </div>
 
-              {/* Transcript lines */}
-              <div className="flex-1 overflow-hidden p-3 space-y-3">
-                {lines.map((line, i) => (
-                  <div
-                    key={i}
-                    className={`grid grid-cols-2 gap-3 rounded-lg px-2 py-1.5 ${i === lines.length - 1 ? "bg-amber-50 border-l-2 border-amber-400" : ""}`}
-                  >
-                    <p className="text-[11px] leading-relaxed text-foreground font-medium">{line.orig}</p>
-                    <p className="text-[11px] leading-relaxed text-foreground/80 font-medium" dir="rtl">{line.trans}</p>
-                  </div>
-                ))}
-                {/* Live cursor line */}
-                <div className="grid grid-cols-2 gap-3 px-2 py-1">
-                  <p className="text-[11px] text-muted-foreground/60 italic">
-                    The next follow-up visit is scheduled for
-                    <span className="inline-block w-0.5 h-3 bg-primary ml-1 animate-pulse align-middle" />
-                  </p>
-                  <p className="text-[11px] text-muted-foreground/30 italic">Translating…</p>
-                </div>
-              </div>
+            {/* Transcript scroll area — static demo rows */}
+            <div className="flex-1 overflow-hidden py-2 px-1 space-y-1">
+
+              <DemoRow
+                speaker={1}
+                orig="Hello, how can I help you today?"
+                trans="مرحبًا، كيف يمكنني مساعدتك اليوم؟"
+                dir="rtl"
+              />
+
+              <DemoRow
+                speaker={2}
+                orig="I need help understanding my insurance documents."
+                trans="أحتاج إلى مساعدة في فهم وثائق التأمين الخاصة بي."
+                dir="rtl"
+              />
+
+              <DemoRow
+                speaker={1}
+                orig="Of course. Can you tell me your policy number?"
+                trans="بالطبع. هل يمكنك إخباري برقم وثيقتك؟"
+                dir="rtl"
+                highlight
+              />
+
+              {/* Live typing line */}
+              <DemoRow
+                speaker={2}
+                orig="Yes, it is"
+                live
+              />
             </div>
           </div>
         </div>
 
-        {/* Bottom toolbar strip */}
-        <div className="h-12 border-t border-border bg-white flex items-center justify-between px-4">
+        {/* ── Bottom toolbar — matches real toolbar ─────────────────────────── */}
+        <div className="h-[46px] border-t border-border bg-white flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-2">
-            <div className="h-8 px-3 rounded-full bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+            {/* Stop button — matches the real rose stop button */}
+            <div className="h-8 px-3 rounded-full bg-rose-500 text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-sm cursor-default">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               Stop
             </div>
-            <div className="h-8 px-2 rounded-lg border border-border text-xs text-muted-foreground flex items-center gap-1">
+            {/* Mic selector — matches real input source display */}
+            <div className="h-8 px-2.5 rounded-lg border border-border text-[11px] text-muted-foreground flex items-center gap-1.5 bg-muted/20">
               <Mic2 className="w-3 h-3" />
-              Default Mic
+              <span className="hidden sm:inline">Default Microphone</span>
+              <span className="sm:hidden">Mic</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-muted-foreground">English ↔ Arabic</span>
-            <div className="bg-muted px-2 py-1 rounded-full text-[10px] text-muted-foreground font-medium border border-border/50 flex items-center gap-1">
+          {/* Right side — usage counter */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground hidden sm:block">English ↔ Arabic</span>
+            <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-full text-[10px] text-muted-foreground font-medium border border-border/50">
               <Clock className="w-3 h-3" />
-              3.8 min used
+              2.2 min used
             </div>
           </div>
         </div>
