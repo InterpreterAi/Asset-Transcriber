@@ -44,12 +44,14 @@ async function isGlobalCapReached(): Promise<boolean> {
 }
 
 // ── OpenAI ─────────────────────────────────────────────────────────────────
-const usingProxy = !process.env.OPENAI_API_KEY && !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+// Always prefer the Replit AI integration proxy when configured.
+// OPENAI_API_KEY may exist but be stale — the proxy is the authoritative route.
+const hasIntegrationProxy = !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
 const openai = new OpenAI({
-  baseURL: usingProxy ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : undefined,
-  apiKey:  process.env.OPENAI_API_KEY
-        ?? process.env.AI_INTEGRATIONS_OPENAI_API_KEY
-        ?? "placeholder",
+  baseURL: hasIntegrationProxy ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : undefined,
+  apiKey:  hasIntegrationProxy
+        ? (process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder")
+        : (process.env.OPENAI_API_KEY ?? "placeholder"),
 });
 
 const router = Router();
