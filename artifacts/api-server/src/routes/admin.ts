@@ -238,6 +238,44 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   });
 });
 
+// ── Lightweight active-sessions poll (for fast user-list status badges) ─────
+// Returns only the fields needed to render Online/Offline badges.
+// Much cheaper than /stats — single query + in-memory store lookup.
+router.get("/active-sessions", requireAdmin, async (req, res) => {
+  const rows = await db
+    .select({
+      sessionId:  sessionsTable.id,
+      userId:     sessionsTable.userId,
+      startedAt:  sessionsTable.startedAt,
+      langPair:   sessionsTable.langPair,
+      username:   usersTable.username,
+      email:      usersTable.email,
+      planType:   usersTable.planType,
+    })
+    .from(sessionsTable)
+    .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
+    .where(and(
+      isNull(sessionsTable.endedAt),
+      sql`${usersTable.isAdmin} = false`,
+    ))
+    .orderBy(sessionsTable.startedAt);
+
+  res.json({
+    activeSessions: rows.map(s => ({
+      sessionId:       s.sessionId,
+      userId:          s.userId,
+      username:        s.username,
+      email:           s.email ?? null,
+      planType:        s.planType,
+      langPair:        s.langPair ?? null,
+      startedAt:       s.startedAt,
+      durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+      hasSnapshot:     sessionStore.has(s.sessionId),
+      micLabel:        sessionStore.get(s.sessionId)?.micLabel ?? null,
+    })),
+  });
+});
+
 // ── View live session snapshot ───────────────────────────────────────────────
 router.get("/session/:sessionId", requireAdmin, async (req, res) => {
   const sessionId = parseInt(String(req.params.sessionId));

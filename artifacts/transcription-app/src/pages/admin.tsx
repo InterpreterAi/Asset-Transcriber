@@ -271,6 +271,19 @@ export default function Admin() {
     refetchInterval: 15_000,
   });
 
+  // Fast-poll active sessions — only when Users tab is open, every 3 s.
+  // Uses a lightweight dedicated endpoint so it doesn't re-run the full stats query.
+  const { data: liveSessionsData } = useQuery({
+    queryKey: ["admin-active-sessions"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/active-sessions", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch active sessions");
+      return res.json() as Promise<{ activeSessions: AdminStats["activeSessions"] }>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "users",
+    refetchInterval: mainTab === "users" ? 3_000 : false,
+  });
+
   const createMut = useAdminCreateUser();
   const updateMut = useAdminUpdateUser();
   const deleteMut = useAdminDeleteUser();
@@ -1205,9 +1218,9 @@ export default function Admin() {
                           <div className="text-[10px] text-muted-foreground">Joined {format(new Date(u.createdAt), "MMM d, yyyy")}</div>
                         </td>
 
-                        {/* Session Status */}
+                        {/* Session Status — uses fast-polling live data when available */}
                         <td className="px-4 py-3">
-                          {sessionStatusBadge(u.id, u.lastActivityAt, sessions)}
+                          {sessionStatusBadge(u.id, u.lastActivityAt, liveSessionsData?.activeSessions ?? sessions)}
                         </td>
 
                         {/* Account Status */}
