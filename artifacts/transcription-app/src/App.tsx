@@ -27,17 +27,19 @@ const queryClient = new QueryClient({
   },
 });
 
+const BANNER_HEIGHT = 34;
+
 function MaintenanceBanner() {
   if (!MAINTENANCE_MODE) return null;
   return (
     <div
       role="status"
       aria-live="polite"
-      className="w-full bg-green-50 border-b border-green-200 shrink-0 z-50 flex items-center px-4"
-      style={{ height: "34px", minHeight: "34px", maxHeight: "34px" }}
+      style={{ position: "fixed", top: 0, left: 0, right: 0, height: BANNER_HEIGHT, zIndex: 9999 }}
+      className="bg-green-50 border-b border-green-200 flex items-center px-4"
     >
       <p className="text-xs text-green-900 whitespace-nowrap overflow-hidden text-ellipsis w-full text-center leading-none">
-        ✓ System Updated — InterpreterAI is working normally.&nbsp;&nbsp;Tip: Use <strong>Tab Audio</strong> to capture browser call audio.
+        ✓ InterpreterAI is working normally again.&nbsp;&nbsp;Tip: If your call runs in a browser, use <strong>Tab Audio</strong> to capture the caller's voice.
       </p>
     </div>
   );
@@ -88,10 +90,16 @@ function Router() {
 }
 
 function App() {
+  const bannerOffset = MAINTENANCE_MODE ? BANNER_HEIGHT : 0;
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="flex flex-col h-[100dvh] overflow-hidden isolate">
-        <MaintenanceBanner />
+      {/* Fixed banner sits above everything — does not affect document flow */}
+      <MaintenanceBanner />
+      {/* Main shell — padded down by banner height so nothing is hidden underneath */}
+      <div
+        className="flex flex-col overflow-hidden isolate"
+        style={{ height: `calc(100dvh - ${bannerOffset}px)`, marginTop: bannerOffset }}
+      >
         <div className="flex-1 min-h-0 overflow-y-auto">
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <Router />
