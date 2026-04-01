@@ -97,11 +97,13 @@ export default function Login() {
         className="w-full max-w-[400px] px-4 relative z-10"
       >
         <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-border">
-            {step === "2fa"
-              ? <ShieldCheck className="w-8 h-8 text-primary" />
-              : <Mic2 className="w-8 h-8 text-primary" />}
-          </div>
+          <button onClick={() => setLocation("/")} className="inline-block" aria-label="Go to homepage">
+            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-border hover:shadow-md transition-shadow">
+              {step === "2fa"
+                ? <ShieldCheck className="w-8 h-8 text-primary" />
+                : <Mic2 className="w-8 h-8 text-primary" />}
+            </div>
+          </button>
           <h1 className="text-3xl font-display font-semibold text-foreground mb-2 tracking-tight">InterpreterAI</h1>
           <p className="text-muted-foreground text-sm">
             {step === "2fa" ? "Two-factor authentication" : "Professional Transcription & Translation"}

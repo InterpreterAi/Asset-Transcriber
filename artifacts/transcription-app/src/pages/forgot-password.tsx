@@ -41,9 +41,11 @@ export default function ForgotPassword() {
         className="w-full max-w-[380px]"
       >
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-sm border border-border">
-            <Mic2 className="w-7 h-7 text-primary" />
-          </div>
+          <button onClick={() => setLocation("/")} className="inline-block" aria-label="Go to homepage">
+            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-sm border border-border hover:shadow-md transition-shadow">
+              <Mic2 className="w-7 h-7 text-primary" />
+            </div>
+          </button>
           <h1 className="text-2xl font-display font-semibold tracking-tight mb-1">Reset your password</h1>
           <p className="text-sm text-muted-foreground">Enter your email to receive reset instructions</p>
         </div>
