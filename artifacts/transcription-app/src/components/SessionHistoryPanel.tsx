@@ -86,70 +86,72 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
   const sessions = stats?.sessions ?? [];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm">
+    <div
+      className="flex-1 flex flex-col bg-white rounded-xl border border-border shadow-sm overflow-hidden"
+      style={{ minHeight: 130 }}
+    >
 
-      {/* ── Header ── */}
-      <div className="border-b border-border bg-muted/20 shrink-0">
-
-        {/* Row 1 — Title */}
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <History className="w-4 h-4 text-primary shrink-0" />
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-            Session History
-          </span>
-          <span className="text-[10px] text-muted-foreground/50">{PERIOD_LABEL[period]}</span>
-        </div>
-
-        {/* Row 2 — Period tabs */}
-        <div className="flex border-t border-border/40">
-          {PERIODS.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setPeriod(value)}
-              className={`flex-1 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
-                period === value
-                  ? "text-primary border-b-2 border-primary bg-primary/5"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      {/* ── Row 1: Title ── */}
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-muted/20 border-b border-border/40 shrink-0">
+        <History className="w-4 h-4 text-primary shrink-0" />
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex-1">
+          Session History
+        </span>
+        <span className="text-[10px] text-muted-foreground/50">{PERIOD_LABEL[period]}</span>
       </div>
 
-      {/* ── Scrollable body ── */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      {/* ── Row 2: Period tabs ── */}
+      <div className="flex border-b border-border shrink-0">
+        {PERIODS.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => setPeriod(value)}
+            className={`flex-1 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
+              period === value
+                ? "text-primary border-b-2 border-primary bg-primary/5"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Row 3: Stats (always visible, never scrolled away) ── */}
+      <div className="grid grid-cols-3 gap-2 px-3 py-3 bg-white shrink-0">
         {loading ? (
-          <div className="flex items-center justify-center py-10">
+          <div className="col-span-3 flex items-center justify-center py-3">
             <span className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="p-3 space-y-3">
-
-            {/* Stats cards */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-blue-50 rounded-lg p-2.5 text-center">
-                <p className="text-xl font-bold text-blue-700 leading-none">
-                  {stats?.periodSessions ?? 0}
-                </p>
-                <p className="text-xs text-blue-500 font-medium mt-1">Sessions</p>
-              </div>
-              <div className="bg-violet-50 rounded-lg p-2.5 text-center">
-                <p className="text-xl font-bold text-violet-700 leading-none">
-                  {fmt(stats?.periodMinutes ?? 0)}
-                </p>
-                <p className="text-xs text-violet-500 font-medium mt-1">Total</p>
-              </div>
-              <div className="bg-emerald-50 rounded-lg p-2.5 text-center">
-                <p className="text-xl font-bold text-emerald-700 leading-none">
-                  {fmt(stats?.periodAvgMinutes ?? 0)}
-                </p>
-                <p className="text-xs text-emerald-500 font-medium mt-1">Avg</p>
-              </div>
+          <>
+            <div className="bg-blue-50 rounded-lg px-2 py-3 flex flex-col items-center justify-center gap-1">
+              <p className="text-xl font-bold text-blue-700 leading-none">
+                {stats?.periodSessions ?? 0}
+              </p>
+              <p className="text-xs text-blue-500 font-medium">Sessions</p>
             </div>
+            <div className="bg-violet-50 rounded-lg px-2 py-3 flex flex-col items-center justify-center gap-1">
+              <p className="text-xl font-bold text-violet-700 leading-none">
+                {fmt(stats?.periodMinutes ?? 0)}
+              </p>
+              <p className="text-xs text-violet-500 font-medium">Total</p>
+            </div>
+            <div className="bg-emerald-50 rounded-lg px-2 py-3 flex flex-col items-center justify-center gap-1">
+              <p className="text-xl font-bold text-emerald-700 leading-none">
+                {fmt(stats?.periodAvgMinutes ?? 0)}
+              </p>
+              <p className="text-xs text-emerald-500 font-medium">Avg</p>
+            </div>
+          </>
+        )}
+      </div>
 
-            {/* Session list */}
+      {/* ── Row 4: Session list (scrollable) ── */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {!loading && (
+          <div className="px-3 pb-3 space-y-3">
+
             {sessions.length > 0 ? (
               <div>
                 <div className="flex items-center gap-1.5 mb-2">
@@ -192,7 +194,7 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8">
+              <div className="text-center py-6">
                 <Clock className="w-8 h-8 mx-auto mb-2 text-muted-foreground/20" />
                 <p className="text-sm text-muted-foreground/60">
                   No sessions {period === "all" ? "yet" : `this ${PERIOD_LABEL[period].toLowerCase().replace("this ", "")}`}
@@ -225,6 +227,7 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
           </div>
         )}
       </div>
+
     </div>
   );
 }
