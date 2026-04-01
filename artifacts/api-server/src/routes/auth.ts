@@ -443,4 +443,10 @@ router.post("/reset-password", async (req, res) => {
   res.json({ message: "Password reset successfully" });
 });
 
+// ── Session heartbeat — keeps session alive during active use ─────────────────
+router.post("/heartbeat", requireAuth, (req, res) => {
+  req.session.touch();
+  res.json({ ok: true, expiresAt: req.session.cookie.expires });
+});
+
 export default router;

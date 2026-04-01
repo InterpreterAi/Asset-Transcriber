@@ -319,6 +319,19 @@ async function parseSuccessBody(
   }
 }
 
+// Statuses that are safe to retry (transient proxy / server issues).
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 500;
+
+function isRetryableStatus(status: number): boolean {
+  return RETRYABLE_STATUS.has(status);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function customFetch<T = unknown>(
   input: RequestInfo | URL,
   options: CustomFetchOptions = {},
@@ -346,8 +359,6 @@ export async function customFetch<T = unknown>(
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
 
-  // Attach bearer token when an auth getter is configured and no
-  // Authorization header has been explicitly provided.
   if (_authTokenGetter && !headers.has("authorization")) {
     const token = await _authTokenGetter();
     if (token) {
@@ -357,12 +368,34 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers, credentials: "include" });
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await sleep(RETRY_BASE_MS * Math.pow(2, attempt - 1));
+    }
 
-  if (!response.ok) {
-    const errorData = await parseErrorBody(response, method);
-    throw new ApiError(response, errorData, requestInfo);
+    let response: Response;
+    try {
+      response = await fetch(input, { ...init, method, headers, credentials: "include" });
+    } catch (networkErr) {
+      lastError = networkErr;
+      if (attempt < MAX_RETRIES) continue;
+      throw networkErr;
+    }
+
+    // Retry transient proxy/server errors, but not on the last attempt.
+    if (isRetryableStatus(response.status) && attempt < MAX_RETRIES) {
+      lastError = new ApiError(response, null, requestInfo);
+      continue;
+    }
+
+    if (!response.ok) {
+      const errorData = await parseErrorBody(response, method);
+      throw new ApiError(response, errorData, requestInfo);
+    }
+
+    return (await parseSuccessBody(response, responseType, requestInfo)) as T;
   }
 
-  return (await parseSuccessBody(response, responseType, requestInfo)) as T;
+  throw lastError;
 }

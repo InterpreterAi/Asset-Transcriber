@@ -12,6 +12,7 @@ import {
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
+import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
@@ -90,6 +91,7 @@ export default function Workspace() {
 
   const { devices }   = useAudioDevices();
   const transcription = useTranscription();
+  useSessionHeartbeat(!!user);
 
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [showFeedback, setShowFeedback]         = useState(false);

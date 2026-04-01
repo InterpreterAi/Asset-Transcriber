@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable } from "@workspace/db";
-import { eq, sql, gt, isNull, and, desc } from "drizzle-orm";
+import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable, errorLogsTable } from "@workspace/db";
+import { eq, sql, gt, isNull, and, desc, gte, lt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import { getTrialDaysRemaining } from "../lib/usage.js";
@@ -658,6 +658,85 @@ router.put("/support/:id/status", requireAdmin, async (req, res) => {
 
   if (!updated) { res.status(404).json({ error: "Ticket not found." }); return; }
   res.json({ ticket: updated });
+});
+
+// ── Error logs ────────────────────────────────────────────────────────────────
+
+router.get("/errors", requireAdmin, async (req, res) => {
+  const limit    = Math.min(Number(req.query.limit ?? 100), 500);
+  const type     = req.query.type as string | undefined;
+  const since    = req.query.since ? new Date(req.query.since as string) : undefined;
+
+  const conditions: ReturnType<typeof and>[] = [];
+  if (type && type !== "all") conditions.push(eq(errorLogsTable.errorType, type));
+  if (since) conditions.push(gte(errorLogsTable.createdAt, since));
+
+  const rows = await db
+    .select({
+      id:           errorLogsTable.id,
+      userId:       errorLogsTable.userId,
+      username:     usersTable.username,
+      email:        usersTable.email,
+      sessionId:    errorLogsTable.sessionId,
+      endpoint:     errorLogsTable.endpoint,
+      method:       errorLogsTable.method,
+      statusCode:   errorLogsTable.statusCode,
+      errorType:    errorLogsTable.errorType,
+      errorMessage: errorLogsTable.errorMessage,
+      userAgent:    errorLogsTable.userAgent,
+      ipAddress:    errorLogsTable.ipAddress,
+      createdAt:    errorLogsTable.createdAt,
+    })
+    .from(errorLogsTable)
+    .leftJoin(usersTable, eq(errorLogsTable.userId, usersTable.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(errorLogsTable.createdAt))
+    .limit(limit);
+
+  res.json({ errors: rows });
+});
+
+router.get("/errors/summary", requireAdmin, async (_req, res) => {
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since1h  = new Date(Date.now() - 60 * 60 * 1000);
+
+  const [byType24h, byType1h, totalRow] = await Promise.all([
+    db.select({
+      errorType: errorLogsTable.errorType,
+      count:     sql<number>`COUNT(*)::int`,
+    })
+      .from(errorLogsTable)
+      .where(gte(errorLogsTable.createdAt, since24h))
+      .groupBy(errorLogsTable.errorType)
+      .orderBy(desc(sql`COUNT(*)`)),
+
+    db.select({
+      errorType: errorLogsTable.errorType,
+      count:     sql<number>`COUNT(*)::int`,
+    })
+      .from(errorLogsTable)
+      .where(gte(errorLogsTable.createdAt, since1h))
+      .groupBy(errorLogsTable.errorType)
+      .orderBy(desc(sql`COUNT(*)`)),
+
+    db.select({ count: sql<number>`COUNT(*)::int` })
+      .from(errorLogsTable)
+      .where(gte(errorLogsTable.createdAt, since24h)),
+  ]);
+
+  const loginFailures24h = byType24h.find(r => r.errorType === "login_failure")?.count ?? 0;
+  const rateLimited24h   = byType24h.find(r => r.errorType === "rate_limited")?.count ?? 0;
+  const serverErrors24h  = byType24h.filter(r => r.errorType === "server_error" || r.errorType === "proxy_error")
+    .reduce((s, r) => s + r.count, 0);
+
+  res.json({
+    total24h:        totalRow[0]?.count ?? 0,
+    loginFailures24h,
+    rateLimited24h,
+    serverErrors24h,
+    byType24h,
+    byType1h,
+  });
 });
 
 export default router;

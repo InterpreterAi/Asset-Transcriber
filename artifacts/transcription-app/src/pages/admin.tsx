@@ -19,7 +19,7 @@ import {
   Radio, AlertTriangle, TrendingUp, Calendar, Eye, X,
   Globe, Download, ChevronRight, Wifi, WifiOff, BarChart2,
   Languages, MessageSquare, StopCircle, Check, History,
-  Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown,
+  Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -121,6 +121,31 @@ interface SupportTicketDetail extends SupportTicket {
   replies: SupportReply[];
 }
 
+interface ErrorLogEntry {
+  id:           number;
+  userId:       number | null;
+  username:     string | null;
+  email:        string | null;
+  sessionId:    string | null;
+  endpoint:     string;
+  method:       string;
+  statusCode:   number;
+  errorType:    string;
+  errorMessage: string | null;
+  userAgent:    string | null;
+  ipAddress:    string | null;
+  createdAt:    string;
+}
+
+interface ErrorsSummary {
+  total24h:        number;
+  loginFailures24h: number;
+  rateLimited24h:  number;
+  serverErrors24h: number;
+  byType24h:       { errorType: string; count: number }[];
+  byType1h:        { errorType: string; count: number }[];
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(n: number) {
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
@@ -205,7 +230,31 @@ export default function Admin() {
   const resetMut  = useAdminResetUsage();
 
   // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support">("overview");
+  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors">("overview");
+
+  // ── Errors tab state ──────────────────────────────────────────────────────
+  const [errorTypeFilter, setErrorTypeFilter] = useState("all");
+  const { data: errorsData, refetch: refetchErrors, isLoading: errorsLoading } = useQuery({
+    queryKey: ["admin-errors", errorTypeFilter],
+    queryFn: async () => {
+      const url = `/api/admin/errors?limit=100${errorTypeFilter !== "all" ? `&type=${errorTypeFilter}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch errors");
+      return res.json() as Promise<{ errors: ErrorLogEntry[] }>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "errors",
+    refetchInterval: mainTab === "errors" ? 30_000 : false,
+  });
+  const { data: errorsSummary, refetch: refetchErrorsSummary } = useQuery({
+    queryKey: ["admin-errors-summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/errors/summary", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch error summary");
+      return res.json() as Promise<ErrorsSummary>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "errors",
+    refetchInterval: mainTab === "errors" ? 30_000 : false,
+  });
 
   // ── Support tab state ─────────────────────────────────────────────────────
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
@@ -509,6 +558,7 @@ export default function Admin() {
             { id: "languages", label: "Languages", icon: <Languages className="w-3.5 h-3.5" /> },
             { id: "feedback",  label: `Feedback (${feedback.length})`, icon: <MessageSquare className="w-3.5 h-3.5" /> },
             { id: "support",   label: `Support${supportTickets.length > 0 ? ` (${supportTickets.filter(t=>t.status==="open").length} open)` : ""}`, icon: <LifeBuoy className="w-3.5 h-3.5" /> },
+            { id: "errors",    label: "Errors",    icon: <AlertTriangle className="w-3.5 h-3.5" /> },
           ].map(tab => (
             <button
               key={tab.id}
@@ -1071,6 +1121,149 @@ export default function Admin() {
                 );
               })()}
             </Card>
+          </div>
+        )}
+
+        {/* ── ERRORS TAB ───────────────────────────────────────────────────── */}
+        {mainTab === "errors" && (
+          <div className="space-y-5">
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: "Total (24h)",      value: errorsSummary?.total24h ?? "—",        color: "bg-red-50 text-red-700",    icon: <AlertTriangle className="w-4 h-4" /> },
+                { label: "Login Failures",   value: errorsSummary?.loginFailures24h ?? "—", color: "bg-amber-50 text-amber-700", icon: <Lock className="w-4 h-4" /> },
+                { label: "Rate Limited",     value: errorsSummary?.rateLimited24h ?? "—",   color: "bg-violet-50 text-violet-700", icon: <StopCircle className="w-4 h-4" /> },
+                { label: "Server Errors",    value: errorsSummary?.serverErrors24h ?? "—",  color: "bg-orange-50 text-orange-700", icon: <Activity className="w-4 h-4" /> },
+              ].map(c => (
+                <Card key={c.label} className="p-4 flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.color}`}>{c.icon}</div>
+                  <div>
+                    <p className="text-2xl font-bold leading-none">{c.value}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{c.label}</p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Filter + refresh */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm">
+                {["all", "login_failure", "session_expired", "rate_limited", "server_error", "proxy_error", "auth_error"].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setErrorTypeFilter(t)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${errorTypeFilter === t ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}
+                  >
+                    {t === "all" ? "All" : t.replace(/_/g, " ")}
+                  </button>
+                ))}
+              </div>
+              <Button variant="outline" size="sm" onClick={() => { void refetchErrors(); void refetchErrorsSummary(); }} className="gap-1.5 text-xs">
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </Button>
+            </div>
+
+            {/* Error log table */}
+            <Card className="overflow-hidden">
+              {errorsLoading ? (
+                <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-6 w-6 border-t-2 border-primary" /></div>
+              ) : !errorsData?.errors?.length ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-400" />
+                  <p className="text-sm font-medium">No errors found</p>
+                  <p className="text-xs mt-1">Great — everything is running clean.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-gray-50">
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Type</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Endpoint</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Status</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">User</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Device</th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">IP</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {errorsData.errors.map(e => (
+                        <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
+                            {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold capitalize
+                              ${e.errorType === "login_failure"  ? "bg-amber-100 text-amber-700"  :
+                                e.errorType === "rate_limited"   ? "bg-violet-100 text-violet-700" :
+                                e.errorType === "server_error"   ? "bg-red-100 text-red-700"      :
+                                e.errorType === "session_expired"? "bg-blue-100 text-blue-700"    :
+                                e.errorType === "proxy_error"    ? "bg-orange-100 text-orange-700":
+                                                                    "bg-gray-100 text-gray-600"}`}>
+                              {e.errorType.replace(/_/g, " ")}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-[10px] text-foreground max-w-[160px] truncate" title={e.endpoint}>
+                            <span className="text-muted-foreground">{e.method} </span>{e.endpoint}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`font-semibold ${e.statusCode >= 500 ? "text-red-600" : e.statusCode >= 400 ? "text-amber-600" : "text-foreground"}`}>
+                              {e.statusCode}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 max-w-[120px] truncate">
+                            {e.username ? (
+                              <span className="text-foreground">@{e.username}</span>
+                            ) : (
+                              <span className="text-muted-foreground italic">anonymous</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 max-w-[120px] truncate text-muted-foreground" title={e.userAgent ?? ""}>
+                            {e.userAgent
+                              ? e.userAgent.includes("Mobile") || e.userAgent.includes("iPhone") || e.userAgent.includes("Android")
+                                ? "📱 Mobile"
+                                : "💻 Desktop"
+                              : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">
+                            {e.ipAddress ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {errorsData?.errors?.length ? (
+                <div className="px-4 py-2 border-t border-border bg-gray-50 flex items-center justify-between">
+                  <p className="text-[11px] text-muted-foreground">
+                    Showing {errorsData.errors.length} most recent errors · auto-refreshes every 30s
+                  </p>
+                </div>
+              ) : null}
+            </Card>
+
+            {/* Breakdown by type */}
+            {errorsSummary?.byType24h && errorsSummary.byType24h.length > 0 && (
+              <Card className="p-4">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">By Error Type (Last 24h)</h3>
+                <div className="space-y-2">
+                  {errorsSummary.byType24h.map(r => {
+                    const pct = errorsSummary.total24h > 0 ? (r.count / errorsSummary.total24h) * 100 : 0;
+                    return (
+                      <div key={r.errorType} className="flex items-center gap-3">
+                        <span className="w-32 text-xs capitalize text-foreground">{r.errorType.replace(/_/g, " ")}</span>
+                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs font-semibold text-foreground w-8 text-right">{r.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
