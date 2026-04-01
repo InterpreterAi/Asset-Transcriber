@@ -116,6 +116,55 @@ function resolveTarget(detectedLang: string, pair: { a: string; b: string }): st
   return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
+// ── Script-based language validation ──────────────────────────────────────────
+// Soniox occasionally misidentifies the spoken language — most commonly tagging
+// English segments as Arabic ("ar") when a speaker has an accent or the segment
+// is short. We cross-validate the Soniox language tag against the Unicode script
+// of the actual transcribed text:
+//   Arabic characters: U+0600–U+06FF  → language must be Arabic
+//   Latin  characters: A-Z, À-ÿ      → language must be a Latin-script language
+//
+// The override only fires when the evidence is strong (≥70 % Arabic chars, or
+// ≤15 % Arabic chars in a mixed count) and only within the user-selected pair
+// so we never fabricate a third language.
+//
+// Applied at TWO points in the pipeline:
+//   1. When Soniox reports a language tag on any token  (detection-time fix)
+//   2. Inside dispatchTranslation before the API call   (dispatch-time guard)
+function validateLangByScript(
+  sonioxLang: string,
+  tokenText:  string,
+  pair:       { a: string; b: string },
+): string {
+  // Strip digits, punctuation, whitespace — only count script characters.
+  const stripped = tokenText.replace(/[\s\d!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~\u200B-\u200F]/g, "");
+  if (stripped.length < 4) return sonioxLang; // too few chars to judge
+
+  const arabicCount = (stripped.match(/[\u0600-\u06FF]/g) ?? []).length;
+  const latinCount  = (stripped.match(/[A-Za-z\u00C0-\u024F]/g) ?? []).length;
+  const total = arabicCount + latinCount;
+  if (total < 3) return sonioxLang; // not enough script chars
+
+  const arabicRatio = arabicCount / total;
+
+  const pairHasArabic = matchesLang("ar", pair.a) || matchesLang("ar", pair.b);
+
+  // Strongly Arabic text (≥70 % Arabic chars) → source must be Arabic.
+  // Override if Soniox said something non-Arabic.
+  if (arabicRatio >= 0.70 && pairHasArabic && !matchesLang(sonioxLang, "ar")) {
+    return matchesLang(pair.a, "ar") ? pair.a : pair.b;
+  }
+
+  // Strongly Latin text (≤15 % Arabic chars) → source must be a Latin-script
+  // language. Override if Soniox said Arabic ("ar").
+  if (arabicRatio <= 0.15 && matchesLang(sonioxLang, "ar")) {
+    // Return whichever side of the pair is NOT Arabic.
+    return matchesLang(pair.a, "ar") ? pair.b : pair.a;
+  }
+
+  return sonioxLang;
+}
+
 // ── Translation fetch ──────────────────────────────────────────────────────────
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
@@ -309,16 +358,23 @@ export function useTranscription() {
     }
 
     state.seq += 1;
-    const mySeq        = state.seq;
-    // Resolve target at dispatch time: opposite of the detected source language.
-    // If Soniox detected "ar" and pair is {a:"en", b:"ar"} → target = "en".
-    // If Soniox detected "en" → target = "ar".
-    const myTargetLang = resolveTarget(lang, pair);
+    const mySeq = state.seq;
+
+    // ── Dispatch-time script validation (second safety layer) ─────────────────
+    // Re-validate the source language against the final segment text. This catches
+    // any remaining misidentifications that slipped through the detection-time
+    // check (e.g. the very first short token locked the wrong direction before
+    // enough text was available to evaluate the script confidently).
+    const dispatchLang  = validateLangByScript(lang, text, pair);
+    // Resolve target at dispatch time: opposite of the validated source language.
+    // If validated lang is "ar" and pair is {a:"en", b:"ar"} → target = "en".
+    // If validated lang is "en" → target = "ar".
+    const myTargetLang  = resolveTarget(dispatchLang, pair);
     const { transTextEl, copyTransBtn } = state;
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, lang, myTargetLang);
+        const translated = await fetchTranslation(text, dispatchLang, myTargetLang);
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
@@ -656,12 +712,37 @@ export function useTranscription() {
       // meant we started translation before the language was known.
       const langToken = tokens.find(t => t.language);
       if (langToken?.language) {
-        detectedLangRef.current = langToken.language;
-        // Lock the per-segment language to the FIRST detected value.
-        // This prevents the translation direction from flipping mid-segment
-        // if Soniox updates its language estimate as more audio arrives.
+        // ── Script-validation layer (Fix: English detected as Arabic) ──────────
+        // Cross-validate Soniox's language tag against the Unicode script of the
+        // actual token text. If the text is clearly Latin but Soniox says "ar"
+        // (or clearly Arabic but Soniox says "en"), override with the correct
+        // language from the user's selected pair. Only overrides when evidence
+        // is strong (≥70 % Arabic or ≤15 % Arabic in the script character count).
+        const allTokenText  = tokens.map(t => t.text).join("");
+        const validatedLang = validateLangByScript(
+          langToken.language,
+          allTokenText,
+          langPairRef.current,
+        );
+
+        detectedLangRef.current = validatedLang;
+
         if (segmentDetectedLangRef.current === null) {
-          segmentDetectedLangRef.current = langToken.language;
+          // Lock the per-segment language to the first (validated) detected value.
+          // Prevents translation direction from flipping mid-segment.
+          segmentDetectedLangRef.current = validatedLang;
+        } else {
+          // Re-evaluate the locked language when incoming text strongly contradicts
+          // it. This corrects cases where the very first token was tagged wrongly
+          // and locked in the wrong direction before enough text was available.
+          const revalidated = validateLangByScript(
+            segmentDetectedLangRef.current,
+            allTokenText,
+            langPairRef.current,
+          );
+          if (revalidated !== segmentDetectedLangRef.current) {
+            segmentDetectedLangRef.current = revalidated;
+          }
         }
       }
 
