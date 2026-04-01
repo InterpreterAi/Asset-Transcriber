@@ -20,6 +20,7 @@ import {
   Globe, Download, ChevronRight, Wifi, WifiOff, BarChart2,
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
+  Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -168,6 +169,27 @@ interface LoginEventsSummary {
   byReason:    { reason: string | null; count: number }[];
 }
 
+interface SystemMonitorData {
+  activeUsers:             number;
+  activeSessions:          number;
+  failedLoginsToday:       number;
+  successfulLoginsToday:   number;
+  apiErrorsToday:          number;
+  proxyFailuresToday:      number;
+  sessionExpirationsToday: number;
+  sessionsStartedToday:    number;
+  sessionsEndedToday:      number;
+}
+
+interface SystemEvent {
+  id:          string;
+  type:        "login_success" | "login_failure" | "session_start" | "session_end" | "api_error" | "proxy_failure";
+  title:       string;
+  description: string;
+  timestamp:   string;
+  meta:        Record<string, unknown>;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(n: number) {
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
@@ -252,7 +274,7 @@ export default function Admin() {
   const resetMut  = useAdminResetUsage();
 
   // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors">("overview");
+  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
 
   // ── Errors tab state ──────────────────────────────────────────────────────
   const [errorsSubTab, setErrorsSubTab]       = useState<"api" | "login">("api");
@@ -300,6 +322,29 @@ export default function Admin() {
     enabled: !!me?.isAdmin && mainTab === "errors",
     refetchInterval: mainTab === "errors" ? 30_000 : false,
   });
+
+  // ── Monitor tab state ─────────────────────────────────────────────────────
+  const { data: monitorData, refetch: refetchMonitor } = useQuery({
+    queryKey: ["admin-system-monitor"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/system-monitor", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch system monitor");
+      return res.json() as Promise<SystemMonitorData>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "monitor",
+    refetchInterval: mainTab === "monitor" ? 15_000 : false,
+  });
+  const { data: systemEventsData, refetch: refetchSystemEvents } = useQuery({
+    queryKey: ["admin-system-events"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/system-events?limit=60", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch system events");
+      return res.json() as Promise<{ events: SystemEvent[] }>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "monitor",
+    refetchInterval: mainTab === "monitor" ? 15_000 : false,
+  });
+  const [eventTypeFilter, setEventTypeFilter] = useState("all");
 
   // ── Support tab state ─────────────────────────────────────────────────────
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
@@ -599,6 +644,7 @@ export default function Admin() {
         <div className="flex flex-wrap items-center gap-1 bg-white rounded-xl p-1 shadow-sm border border-border w-fit">
           {[
             { id: "overview",  label: "Overview",  icon: <BarChart2 className="w-3.5 h-3.5" /> },
+            { id: "monitor",   label: "Monitor",   icon: <Monitor className="w-3.5 h-3.5" /> },
             { id: "users",     label: `Users (${allUsers.length})`, icon: <Users className="w-3.5 h-3.5" /> },
             { id: "languages", label: "Languages", icon: <Languages className="w-3.5 h-3.5" /> },
             { id: "feedback",  label: `Feedback (${feedback.length})`, icon: <MessageSquare className="w-3.5 h-3.5" /> },
@@ -731,6 +777,171 @@ export default function Admin() {
             </section>
           </div>
         )}
+
+        {/* ── MONITOR TAB ──────────────────────────────────────────────────── */}
+        {mainTab === "monitor" && (() => {
+          const m = monitorData;
+          const events = systemEventsData?.events ?? [];
+          const filtered = eventTypeFilter === "all" ? events : events.filter(e => e.type === eventTypeFilter);
+
+          const metricCards = [
+            { label: "Active Users",           value: m?.activeUsers ?? 0,             sub: "last 5 min",   icon: <Activity className="w-4 h-4" />,    color: "text-blue-600 bg-blue-50",      alert: false },
+            { label: "Active Sessions",        value: m?.activeSessions ?? 0,          sub: "live now",     icon: <Radio className="w-4 h-4" />,       color: "text-red-600 bg-red-50",        alert: (m?.activeSessions ?? 0) > 0 },
+            { label: "Failed Logins Today",    value: m?.failedLoginsToday ?? 0,       sub: "since midnight", icon: <XCircle className="w-4 h-4" />,   color: "text-red-600 bg-red-50",        alert: (m?.failedLoginsToday ?? 0) >= 5 },
+            { label: "Successful Logins",      value: m?.successfulLoginsToday ?? 0,   sub: "since midnight", icon: <LogIn className="w-4 h-4" />,     color: "text-emerald-600 bg-emerald-50", alert: false },
+            { label: "API Errors Today",       value: m?.apiErrorsToday ?? 0,          sub: "since midnight", icon: <Server className="w-4 h-4" />,    color: "text-amber-600 bg-amber-50",    alert: (m?.apiErrorsToday ?? 0) >= 10 },
+            { label: "Proxy Failures",         value: m?.proxyFailuresToday ?? 0,      sub: "since midnight", icon: <Zap className="w-4 h-4" />,       color: "text-orange-600 bg-orange-50",  alert: (m?.proxyFailuresToday ?? 0) > 0 },
+            { label: "Session Expirations",    value: m?.sessionExpirationsToday ?? 0, sub: "401 errors today", icon: <ShieldAlert className="w-4 h-4" />, color: "text-violet-600 bg-violet-50", alert: (m?.sessionExpirationsToday ?? 0) >= 20 },
+            { label: "Sessions Started",       value: m?.sessionsStartedToday ?? 0,    sub: "since midnight", icon: <Play className="w-4 h-4" />,      color: "text-teal-600 bg-teal-50",      alert: false },
+            { label: "Sessions Ended",         value: m?.sessionsEndedToday ?? 0,      sub: "since midnight", icon: <LogOut className="w-4 h-4" />,    color: "text-gray-600 bg-gray-100",     alert: false },
+          ];
+
+          function eventIcon(type: SystemEvent["type"]) {
+            switch (type) {
+              case "login_success":  return <LogIn    className="w-3.5 h-3.5 text-emerald-600" />;
+              case "login_failure":  return <XCircle  className="w-3.5 h-3.5 text-red-500" />;
+              case "session_start":  return <Play     className="w-3.5 h-3.5 text-blue-500" />;
+              case "session_end":    return <LogOut   className="w-3.5 h-3.5 text-gray-500" />;
+              case "api_error":      return <Server   className="w-3.5 h-3.5 text-amber-500" />;
+              case "proxy_failure":  return <Zap      className="w-3.5 h-3.5 text-orange-500" />;
+            }
+          }
+
+          function eventDot(type: SystemEvent["type"]) {
+            switch (type) {
+              case "login_success":  return "bg-emerald-400";
+              case "login_failure":  return "bg-red-500";
+              case "session_start":  return "bg-blue-400";
+              case "session_end":    return "bg-gray-400";
+              case "api_error":      return "bg-amber-400";
+              case "proxy_failure":  return "bg-orange-400";
+            }
+          }
+
+          const filterOptions = [
+            { value: "all",           label: "All Events" },
+            { value: "login_success", label: "Logins" },
+            { value: "login_failure", label: "Failures" },
+            { value: "session_start", label: "Session Start" },
+            { value: "session_end",   label: "Session End" },
+            { value: "api_error",     label: "API Errors" },
+            { value: "proxy_failure", label: "Proxy" },
+          ];
+
+          return (
+            <div className="space-y-6">
+
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+                    <Monitor className="w-4 h-4 text-primary" /> System Monitor
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Real-time platform health · refreshes every 15 seconds</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => { void refetchMonitor(); void refetchSystemEvents(); }} className="h-8 text-xs gap-1.5">
+                  <RefreshCw className="w-3 h-3" /> Refresh
+                </Button>
+              </div>
+
+              {/* Metric Cards */}
+              <section>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Platform Health</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {metricCards.slice(0, 5).map(({ label, value, sub, icon, color, alert }) => (
+                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-red-50 ring-1 ring-red-100" : "bg-white"}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
+                      <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-red-600" : ""}`}>{value}</p>
+                      <p className="text-[10px] text-muted-foreground">{sub}</p>
+                    </Card>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+                  {metricCards.slice(5).map(({ label, value, sub, icon, color, alert }) => (
+                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-orange-50 ring-1 ring-orange-100" : "bg-white"}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
+                      <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-orange-600" : ""}`}>{value}</p>
+                      <p className="text-[10px] text-muted-foreground">{sub}</p>
+                    </Card>
+                  ))}
+                </div>
+              </section>
+
+              {/* Recent System Events */}
+              <section>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Recent System Events <span className="text-primary font-bold">({filtered.length})</span>
+                  </h3>
+                  <div className="flex flex-wrap gap-1">
+                    {filterOptions.map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setEventTypeFilter(opt.value)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${eventTypeFilter === opt.value ? "bg-primary text-white" : "bg-white border border-border text-muted-foreground hover:bg-gray-50"}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <Card className="border-none shadow-sm bg-white overflow-hidden">
+                  {filtered.length === 0 ? (
+                    <div className="py-14 text-center text-muted-foreground text-sm">
+                      <Monitor className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      No events in the last 24 hours.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
+                      {filtered.map(ev => (
+                        <div key={ev.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50/60 transition-colors">
+                          {/* Timeline dot */}
+                          <div className="flex flex-col items-center flex-shrink-0 pt-0.5">
+                            <div className={`w-2 h-2 rounded-full mt-0.5 ${eventDot(ev.type)}`} />
+                          </div>
+                          {/* Icon */}
+                          <div className="flex-shrink-0 mt-0.5">
+                            {eventIcon(ev.type)}
+                          </div>
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-semibold text-foreground">{ev.title}</span>
+                              {ev.type === "login_failure" && (
+                                <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium">failure</span>
+                              )}
+                              {ev.type === "proxy_failure" && (
+                                <span className="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded-full font-medium">proxy</span>
+                              )}
+                              {ev.type === "api_error" && (
+                                <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-mono">{String(ev.meta.statusCode ?? "")}</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{ev.description}</p>
+                          </div>
+                          {/* Timestamp */}
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0 mt-0.5">
+                            {formatDistanceToNow(new Date(ev.timestamp), { addSuffix: true })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {filtered.length > 0 && (
+                    <div className="px-4 py-2 border-t border-border bg-gray-50 text-[11px] text-muted-foreground flex items-center justify-between">
+                      <span>Showing {filtered.length} event{filtered.length !== 1 ? "s" : ""} from the last 24 hours</span>
+                      <span className="text-primary font-medium">Auto-refreshes every 15 s</span>
+                    </div>
+                  )}
+                </Card>
+              </section>
+
+            </div>
+          );
+        })()}
 
         {/* ── USERS TAB ────────────────────────────────────────────────────── */}
         {mainTab === "users" && (

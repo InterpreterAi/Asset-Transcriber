@@ -774,6 +774,178 @@ router.get("/login-events", requireAdmin, async (req, res) => {
   res.json({ events: rows });
 });
 
+// ── System Monitor — health stats ────────────────────────────────────────────
+router.get("/system-monitor", requireAdmin, async (_req, res) => {
+  const now          = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const since5min    = new Date(Date.now() - 5 * 60 * 1000);
+
+  const [
+    activeUsersRow,
+    activeSessionsRow,
+    failedLoginsRow,
+    successLoginsRow,
+    apiErrorsRow,
+    proxyFailuresRow,
+    sessionExpirationsRow,
+    sessionsStartedRow,
+    sessionsEndedRow,
+  ] = await Promise.all([
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(usersTable)
+      .where(and(gt(usersTable.lastActivity, since5min), sql`${usersTable.isAdmin} = false`)),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(sessionsTable)
+      .where(isNull(sessionsTable.endedAt)),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(loginEventsTable)
+      .where(and(gte(loginEventsTable.createdAt, startOfToday), eq(loginEventsTable.success, false))),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(loginEventsTable)
+      .where(and(gte(loginEventsTable.createdAt, startOfToday), eq(loginEventsTable.success, true))),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(errorLogsTable)
+      .where(gte(errorLogsTable.createdAt, startOfToday)),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(errorLogsTable)
+      .where(and(gte(errorLogsTable.createdAt, startOfToday), eq(errorLogsTable.errorType, "proxy_error"))),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(errorLogsTable)
+      .where(and(gte(errorLogsTable.createdAt, startOfToday), eq(errorLogsTable.statusCode, 401))),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(sessionsTable)
+      .where(gte(sessionsTable.startedAt, startOfToday)),
+
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(sessionsTable)
+      .where(and(gte(sessionsTable.endedAt!, startOfToday), sql`ended_at IS NOT NULL`)),
+  ]);
+
+  res.json({
+    activeUsers:            activeUsersRow[0]?.count           ?? 0,
+    activeSessions:         Math.max(activeSessionsRow[0]?.count ?? 0, sessionStore.size),
+    failedLoginsToday:      failedLoginsRow[0]?.count          ?? 0,
+    successfulLoginsToday:  successLoginsRow[0]?.count         ?? 0,
+    apiErrorsToday:         apiErrorsRow[0]?.count             ?? 0,
+    proxyFailuresToday:     proxyFailuresRow[0]?.count         ?? 0,
+    sessionExpirationsToday: sessionExpirationsRow[0]?.count   ?? 0,
+    sessionsStartedToday:   sessionsStartedRow[0]?.count       ?? 0,
+    sessionsEndedToday:     sessionsEndedRow[0]?.count         ?? 0,
+  });
+});
+
+// ── System Monitor — unified event feed ──────────────────────────────────────
+router.get("/system-events", requireAdmin, async (req, res) => {
+  const limit   = Math.min(Number(req.query["limit"]) || 60, 200);
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [loginRows, sessionRows, errorRows] = await Promise.all([
+    db.select({
+      id:            loginEventsTable.id,
+      email:         loginEventsTable.email,
+      success:       loginEventsTable.success,
+      failureReason: loginEventsTable.failureReason,
+      is2fa:         loginEventsTable.is2fa,
+      ipAddress:     loginEventsTable.ipAddress,
+      createdAt:     loginEventsTable.createdAt,
+      username:      usersTable.username,
+    })
+      .from(loginEventsTable)
+      .leftJoin(usersTable, eq(loginEventsTable.userId, usersTable.id))
+      .where(gte(loginEventsTable.createdAt, since24h))
+      .orderBy(desc(loginEventsTable.createdAt))
+      .limit(limit),
+
+    db.select({
+      id:              sessionsTable.id,
+      startedAt:       sessionsTable.startedAt,
+      endedAt:         sessionsTable.endedAt,
+      durationSeconds: sessionsTable.durationSeconds,
+      langPair:        sessionsTable.langPair,
+      username:        usersTable.username,
+    })
+      .from(sessionsTable)
+      .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
+      .where(gte(sessionsTable.startedAt, since24h))
+      .orderBy(desc(sessionsTable.startedAt))
+      .limit(limit),
+
+    db.select({
+      id:           errorLogsTable.id,
+      endpoint:     errorLogsTable.endpoint,
+      method:       errorLogsTable.method,
+      statusCode:   errorLogsTable.statusCode,
+      errorType:    errorLogsTable.errorType,
+      errorMessage: errorLogsTable.errorMessage,
+      ipAddress:    errorLogsTable.ipAddress,
+      createdAt:    errorLogsTable.createdAt,
+      username:     usersTable.username,
+    })
+      .from(errorLogsTable)
+      .leftJoin(usersTable, eq(errorLogsTable.userId, usersTable.id))
+      .where(gte(errorLogsTable.createdAt, since24h))
+      .orderBy(desc(errorLogsTable.createdAt))
+      .limit(limit),
+  ]);
+
+  type SystemEvent = {
+    id: string; type: string; title: string;
+    description: string; timestamp: string;
+    meta: Record<string, unknown>;
+  };
+
+  const events: SystemEvent[] = [];
+
+  for (const e of loginRows) {
+    const actor = e.username ?? e.email ?? "unknown";
+    events.push({
+      id:          `login-${e.id}`,
+      type:        e.success ? "login_success" : "login_failure",
+      title:       e.success ? "Login successful" : "Login failed",
+      description: e.success
+        ? `${actor} signed in${e.is2fa ? " with 2FA" : ""}${e.ipAddress ? ` from ${e.ipAddress}` : ""}`
+        : `Failed login for ${actor}${e.failureReason ? ` (${e.failureReason.replace(/_/g, " ")})` : ""}${e.ipAddress ? ` from ${e.ipAddress}` : ""}`,
+      timestamp: e.createdAt.toISOString(),
+      meta: { username: e.username, email: e.email, ipAddress: e.ipAddress, is2fa: e.is2fa, failureReason: e.failureReason },
+    });
+  }
+
+  for (const s of sessionRows) {
+    events.push({
+      id:          `session-start-${s.id}`,
+      type:        "session_start",
+      title:       "Session started",
+      description: `${s.username} started a session${s.langPair ? ` (${s.langPair})` : ""}`,
+      timestamp:   s.startedAt.toISOString(),
+      meta: { username: s.username, langPair: s.langPair },
+    });
+    if (s.endedAt) {
+      const mins = s.durationSeconds ? Math.round(s.durationSeconds / 60) : null;
+      events.push({
+        id:          `session-end-${s.id}`,
+        type:        "session_end",
+        title:       "Session ended",
+        description: `${s.username} ended a session${mins != null ? ` after ${mins}m` : ""}`,
+        timestamp:   s.endedAt.toISOString(),
+        meta: { username: s.username, durationSeconds: s.durationSeconds },
+      });
+    }
+  }
+
+  for (const e of errorRows) {
+    const isProxy = e.errorType === "proxy_error";
+    events.push({
+      id:          `error-${e.id}`,
+      type:        isProxy ? "proxy_failure" : "api_error",
+      title:       isProxy ? "Proxy failure" : `API error ${e.statusCode}`,
+      description: `${e.method} ${e.endpoint} → ${e.statusCode}${e.errorMessage ? `: ${e.errorMessage.slice(0, 80)}` : ""}`,
+      timestamp:   e.createdAt.toISOString(),
+      meta: { endpoint: e.endpoint, method: e.method, statusCode: e.statusCode, errorType: e.errorType, username: e.username },
+    });
+  }
+
+  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  res.json({ events: events.slice(0, limit) });
+});
+
 router.get("/login-events/summary", requireAdmin, async (req, res) => {
   const now  = new Date();
   const h24  = new Date(now.getTime() - 24 * 60 * 60 * 1000);

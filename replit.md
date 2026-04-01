@@ -61,8 +61,9 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
 - **Translation Implementation:** Each phrase finalizes, then `POST /api/translate` is called, and the result is shown inline. Uses MyMemory free API.
 - **Authentication:** Cookie-based session with a 30-day expiry. Login initiates a session cookie for subsequent authenticated calls.
 - **HIPAA — Ephemeral Processing Design:** The platform is designed for real-time interpretation only; no PHI is stored. Audio is streamed directly from the browser to Soniox. Transcribed and translated texts exist only in the browser DOM and are cleared upon session stop. Server logs do not contain content; only metadata like `id`, `method`, `url`, `statusCode` are logged. Translation cache has been removed to prevent PHI retention. Frontend automatically clears all transcription data when recording stops. No browser-side persistence mechanisms are used.
-- **Admin Dashboard (6-tab):**
+- **Admin Dashboard (7-tab):**
   - *Overview*: System Metrics (6 cards), SaaS Metrics (MRR, conversion rate, avg session, sessions today, cost/session), API Cost Monitoring, Live Sessions panel with "View Session" button
+  - *Monitor*: Real-time operational and security health panel. 9 metric cards (Active Users, Active Sessions, Failed/Successful Logins Today, API Errors, Proxy Failures, Session Expirations, Sessions Started/Ended). Below: unified "Recent System Events" feed combining login events, session starts/ends, and API errors from the last 24h, with type-filter chips. Cards turn amber/red when alert thresholds are hit. Refreshes every 15 seconds. API: `GET /api/admin/system-monitor` and `GET /api/admin/system-events`.
   - *Users*: Table with session status (Online/Idle/Offline), account status, plan, usage; click any row → Session History drawer (last 100 sessions, CSV/TXT export, per-session cost estimate)
   - *Languages*: Enable/disable 35+ languages, set default A/B pair (in-memory config, resets on restart)
   - *Feedback*: Star ratings + comments from users
