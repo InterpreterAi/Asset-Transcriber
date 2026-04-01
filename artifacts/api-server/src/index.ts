@@ -5,6 +5,7 @@ import { isNull, sql, eq } from "drizzle-orm";
 import { hashPassword } from "./lib/password.js";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
+import { pool } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required");
@@ -12,6 +13,91 @@ if (!rawPort) throw new Error("PORT environment variable is required");
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+// ── Schema migration on startup ───────────────────────────────────────────────
+// Idempotent: adds any columns/tables that exist in the Drizzle schema but may
+// be missing from an older production database.  Safe to run on every restart.
+async function migrateSchema() {
+  const client = await pool.connect();
+  try {
+    logger.info("Running startup schema migration…");
+
+    // users table – columns added after initial release
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
+
+    // sessions table – columns added after initial release
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
+
+    // Tables that may not exist in older databases
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glossary_entries (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        term        TEXT NOT NULL,
+        translation TEXT NOT NULL,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS support_tickets (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        email      TEXT NOT NULL,
+        subject    TEXT NOT NULL,
+        message    TEXT NOT NULL,
+        status     TEXT NOT NULL DEFAULT 'open',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS support_replies (
+        id         SERIAL PRIMARY KEY,
+        ticket_id  INTEGER NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+        author_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        is_admin   BOOLEAN NOT NULL DEFAULT FALSE,
+        message    TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS error_logs (
+        id            SERIAL PRIMARY KEY,
+        user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        session_id    TEXT,
+        endpoint      TEXT NOT NULL,
+        method        TEXT NOT NULL DEFAULT 'GET',
+        status_code   INTEGER NOT NULL,
+        error_type    TEXT NOT NULL,
+        error_message TEXT,
+        user_agent    TEXT,
+        ip_address    TEXT,
+        created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS login_events (
+        id             SERIAL PRIMARY KEY,
+        user_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        email          TEXT,
+        ip_address     TEXT,
+        user_agent     TEXT,
+        success        BOOLEAN NOT NULL,
+        failure_reason TEXT,
+        is_2fa         BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at     TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    logger.info("Startup schema migration complete");
+  } catch (err) {
+    logger.error({ err }, "Startup schema migration failed — continuing anyway");
+  } finally {
+    client.release();
+  }
 }
 
 // ── Stale session cleanup on startup ─────────────────────────────────────────
@@ -135,6 +221,7 @@ async function ensureAdminUser() {
   }
 }
 
+await migrateSchema();
 await clearStaleSessions();
 await ensureAdminUser();
 await initStripe();
