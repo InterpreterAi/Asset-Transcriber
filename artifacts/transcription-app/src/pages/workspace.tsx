@@ -103,6 +103,7 @@ export default function Workspace() {
   const [langB, setLangB] = useState("ar");
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
+  const [showLeftPanel, setShowLeftPanel] = useState(false);
 
   // ── Session history refresh key — incremented when a session ends so the panel auto-refreshes
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -793,6 +794,16 @@ export default function Workspace() {
         {/* HEADER */}
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-3 sm:px-5 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 mr-2">
+            {/* Mobile: Notes/History drawer toggle — hidden on md+ */}
+            <button
+              onClick={() => setShowLeftPanel(v => !v)}
+              className={`md:hidden w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                showLeftPanel ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+              title="Notes & Session History"
+            >
+              <StickyNote className="w-4 h-4" />
+            </button>
             <span className="font-bold text-[15px] tracking-tight whitespace-nowrap">InterpreterAI</span>
             <span className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200 shrink-0">
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
@@ -886,13 +897,43 @@ export default function Workspace() {
         )}
 
         {/* TRANSCRIPT + NOTES + HISTORY PANELS */}
-        <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden">
+        <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden relative">
 
-          {/* LEFT COLUMN — Notes (top) + Session History (bottom) */}
-          <div className="w-[220px] shrink-0 flex flex-col gap-3 min-h-0">
+          {/* MOBILE BACKDROP — tap to close left panel */}
+          {showLeftPanel && (
+            <div
+              className="fixed inset-0 z-20 bg-black/30 md:hidden"
+              onClick={() => setShowLeftPanel(false)}
+            />
+          )}
+
+          {/* LEFT COLUMN — drawer on mobile, always-visible on md+ */}
+          <div className={`
+            ${showLeftPanel ? "translate-x-0" : "-translate-x-full"}
+            md:translate-x-0
+            fixed md:relative
+            top-0 left-0 md:left-auto
+            h-full md:h-auto
+            z-30 md:z-auto
+            w-[260px] md:w-[220px]
+            shrink-0 flex flex-col gap-3 min-h-0
+            transition-transform duration-200 ease-in-out
+            pt-0 md:pt-0
+          `}>
+
+            {/* Mobile close button (only visible inside drawer on mobile) */}
+            <div className="md:hidden h-14 bg-muted/80 border-b border-border flex items-center justify-between px-4 shrink-0">
+              <span className="text-sm font-semibold">Notes & History</span>
+              <button
+                onClick={() => setShowLeftPanel(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
             {/* NOTES PANEL */}
-            <div className="h-[42%] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
+            <div className="h-[42%] bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden mx-3 md:mx-0">
               <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
                 <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
@@ -910,7 +951,7 @@ export default function Workspace() {
             </div>
 
             {/* SESSION HISTORY PANEL */}
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 mx-3 md:mx-0">
               <SessionHistoryPanel refreshKey={historyRefreshKey} />
             </div>
 

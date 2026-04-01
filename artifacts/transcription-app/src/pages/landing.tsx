@@ -253,23 +253,38 @@ export default function Landing() {
             Listen, transcribe, and translate conversations instantly during live calls, meetings, and interpretation sessions.
           </p>
 
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-3">
             <button
               onClick={() => setLocation("/signup")}
-              className="flex items-center justify-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[16px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
+              className="flex items-center justify-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[17px] shadow-xl hover:bg-primary/90 active:scale-95 transition-all w-full sm:w-auto max-w-xs sm:max-w-none"
             >
               Start Free Trial <ChevronRight className="w-4 h-4" />
             </button>
-            <p className="text-sm text-muted-foreground">Free trial — no credit card required.</p>
+            <p className="text-sm text-muted-foreground">No credit card required · Start in 30 seconds</p>
+            {/* Trust pills */}
+            <div className="flex flex-wrap justify-center gap-2 mt-1">
+              {[
+                { icon: <Globe className="w-3 h-3" />, label: "35+ Languages" },
+                { icon: <Monitor className="w-3 h-3" />, label: "Works on any device" },
+                { icon: <Shield className="w-3 h-3" />, label: "HIPAA-safe design" },
+              ].map(({ icon, label }) => (
+                <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-white border border-border text-muted-foreground shadow-sm">
+                  {icon}
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
         </motion.div>
       </section>
 
       {/* ── SECTION 2 — APP PREVIEW ───────────────────────────────────────── */}
-      <section className="max-w-5xl mx-auto px-5 pb-8">
+      <section className="max-w-5xl mx-auto px-3 sm:px-5 pb-8">
         <motion.div {...fade(0.1)}>
           <AppPreview />
         </motion.div>
+        {/* Mobile scroll hint */}
+        <p className="text-center text-[11px] text-muted-foreground/60 mt-2 sm:hidden">↑ Live demo — this is what you'll see during a call</p>
       </section>
 
       {/* ── SECTION 3 — FEATURE BULLETS ───────────────────────────────────── */}
@@ -629,14 +644,14 @@ export default function Landing() {
           <p className="text-muted-foreground text-lg mb-8 max-w-xl mx-auto leading-relaxed">
             Start your free trial and experience real-time translation built for professional interpreters.
           </p>
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-3">
             <button
               onClick={() => setLocation("/signup")}
-              className="inline-flex items-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[16px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
+              className="inline-flex items-center justify-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[17px] shadow-xl hover:bg-primary/90 active:scale-95 transition-all w-full sm:w-auto max-w-xs sm:max-w-none"
             >
               Start Free Trial <ChevronRight className="w-4 h-4" />
             </button>
-            <p className="text-sm text-muted-foreground">Free trial — no credit card required.</p>
+            <p className="text-sm text-muted-foreground">No credit card required · Cancel anytime</p>
           </div>
         </motion.div>
       </section>
