@@ -1891,33 +1891,36 @@ export default function Admin() {
             )}
 
             {/* Transcript / Translation columns */}
-            <div className="flex-1 overflow-hidden grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-border overflow-y-auto sm:overflow-hidden">
-              <div className="overflow-y-auto p-4 sm:p-5 border-b sm:border-b-0 border-border">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Transcript</p>
-                {viewLoading ? (
-                  <div className="text-sm text-muted-foreground italic">Loading…</div>
-                ) : sessionDetail?.snapshot?.transcript ? (
-                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sessionDetail.snapshot.transcript}</p>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
-                    <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Mic className="w-4 h-4 text-primary" />
-                      <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
+            {/* Single shared scroll container — both columns scroll together */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-border min-h-full">
+                <div className="p-4 sm:p-5 border-b sm:border-b-0 border-border">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Transcript</p>
+                  {viewLoading ? (
+                    <div className="text-sm text-muted-foreground italic">Loading…</div>
+                  ) : sessionDetail?.snapshot?.transcript ? (
+                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sessionDetail.snapshot.transcript}</p>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                      <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Mic className="w-4 h-4 text-primary" />
+                        <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
+                      <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
                     </div>
-                    <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
-                    <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
-                  </div>
-                )}
-              </div>
-              <div className="overflow-y-auto p-4 sm:p-5">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Translation</p>
-                {viewLoading ? (
-                  <div className="text-sm text-muted-foreground italic">Loading…</div>
-                ) : sessionDetail?.snapshot?.translation ? (
-                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" dir="auto">{sessionDetail.snapshot.translation}</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">Translation will appear here as segments are finalized.</p>
-                )}
+                  )}
+                </div>
+                <div className="p-4 sm:p-5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Translation</p>
+                  {viewLoading ? (
+                    <div className="text-sm text-muted-foreground italic">Loading…</div>
+                  ) : sessionDetail?.snapshot?.translation ? (
+                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" dir="auto">{sessionDetail.snapshot.translation}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Translation will appear here as segments are finalized.</p>
+                  )}
+                </div>
               </div>
             </div>
 
