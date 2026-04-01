@@ -33,34 +33,12 @@ function MaintenanceBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="w-full bg-green-50 border-b border-green-200 px-4 py-2 shrink-0 z-50"
+      className="w-full bg-green-50 border-b border-green-200 shrink-0 z-50 flex items-center px-4"
+      style={{ height: "34px", minHeight: "34px", maxHeight: "34px" }}
     >
-      <div className="max-w-5xl mx-auto">
-        {/* Mobile: single compact inline paragraph */}
-        <p className="text-xs text-green-900 leading-snug sm:hidden">
-          <span className="font-semibold">✅ System Update Completed</span>
-          {" — "}InterpreterAI is now working normally again.{" "}
-          <span className="text-green-800">
-            Quick tip: Select <span className="font-semibold">Tab Audio</span> to capture
-            browser call audio — your microphone is not included.
-          </span>
-        </p>
-        {/* sm+: two-column row with full tip */}
-        <div className="hidden sm:flex sm:flex-row sm:items-start gap-4">
-          <p className="text-sm text-green-900 leading-snug shrink-0">
-            <span className="font-semibold">✅ System Update Completed</span>
-            {" — "}
-            InterpreterAI is now working normally again.
-          </p>
-          <p className="text-xs text-green-800 leading-snug">
-            <span className="font-medium">Quick tip for call audio:</span>{" "}
-            If your call is running in a browser (Chrome, Edge, etc.), select{" "}
-            <span className="font-medium">Tab Audio</span> and choose the tab where the call is active.
-            This allows the app to capture the caller's voice while you can still hear the conversation normally.
-            Your microphone will not be included in this mode.
-          </p>
-        </div>
-      </div>
+      <p className="text-xs text-green-900 whitespace-nowrap overflow-hidden text-ellipsis w-full text-center leading-none">
+        ✓ System Updated — InterpreterAI is working normally.&nbsp;&nbsp;Tip: Use <strong>Tab Audio</strong> to capture browser call audio.
+      </p>
     </div>
   );
 }
