@@ -72,6 +72,14 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
   - **Mark Important Line**: Flag button in the header toolbar. Highlights the most recent transcript row with amber background and left border (`rgba(245,158,11,0.12)`). Does not modify the transcription hook.
   - **Sessions Today**: Shown in the Account (Profile) panel under "Today's Usage". Computed by a `COUNT(*)` query on the `sessions` table filtered to `started_at >= CURRENT_DATE`, returned from `GET /api/auth/me`.
   - **Glossary System**: New `glossary_entries` table (userId FK, term, translation, UNIQUE per user+term). Sidebar BookOpen icon → `GlossaryPanel.tsx` with list, add form, and delete. API: `GET/POST /api/glossary`, `DELETE /api/glossary/:id`. Translation endpoint (`/api/transcription/translate`) loads the user's glossary at request time and injects matching entries as extra `termHints` into the GPT-4o-mini system prompt — no changes to the Soniox WebSocket pipeline.
+- **Terminology Search Panel:** New panel in the left column, positioned between Notes and Session History. Allows interpreters to quickly look up medical and legal terminology during live calls.
+  - Search field with 500ms debounce — searches fire automatically as the user types
+  - Results powered by GPT-4o-mini with a medical/legal interpreter system prompt — no data stored (HIPAA-safe)
+  - Results show: source term → translated term (in the selected language pair), domain badge (Medical/Legal/General with icon), optional contextual note
+  - Example term pills ("rotator cuff", "plaintiff", "hypertension", etc.) shown when search is empty for quick discovery
+  - Language pair synced live with the workspace `langA`/`langB` selectors — same pair the transcription uses
+  - "Reference only · Not stored · Verify with authoritative sources" disclaimer shown on results
+  - API: `POST /api/terminology/search` with `{ term, sourceLang, targetLang }` — auth required, nothing persisted
 - **Support Ticket System:** Full SaaS support flow:
   - Users: LifeBuoy icon in workspace sidebar opens a slide-in Support panel with "New Request" (email/subject/message form) and "My Requests" (thread view with admin replies)
   - Submission triggers: DB save, Telegram notification to admin, confirmation email to user (via Resend)

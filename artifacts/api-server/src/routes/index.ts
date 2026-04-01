@@ -9,6 +9,7 @@ import translateRouter from "./translate.js";
 import stripeRouter from "./stripe.js";
 import supportRouter from "./support.js";
 import glossaryRouter from "./glossary.js";
+import terminologyRouter from "./terminology.js";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use("/translate", translateRouter);
 router.use("/stripe", stripeRouter);
 router.use("/support", supportRouter);
 router.use("/glossary", glossaryRouter);
+router.use("/terminology", terminologyRouter);
 
 export default router;
