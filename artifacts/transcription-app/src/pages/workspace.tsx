@@ -397,10 +397,6 @@ export default function Workspace() {
         setTabStream(null);
       }
       queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      // HIPAA / ephemeral processing: clear all transcript and translation
-      // buffers from browser memory when the session ends.
-      // No patient speech content persists beyond the active session.
-      transcription.clear();
       setNotes("");
       setClearedForPrivacy(true);
       setTimeout(() => setClearedForPrivacy(false), 4000);

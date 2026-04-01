@@ -816,7 +816,32 @@ export function useTranscription(isAdmin = false) {
     softFinalize();
   }, [softFinalize]);
 
-  // ── stop ──────────────────────────────────────────────────────────────────
+  // ── doClear ────────────────────────────────────────────────────────────────
+  // Wipes all transcript/translation DOM content and resets every per-bubble
+  // ref. Used by the exported `clear` (manual Clear button) and by the
+  // inactivity / max-session auto-stop for non-admin users.
+  const doClear = useCallback(() => {
+    if (silenceTimerRef.current !== null) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    stopTranslationInterval();
+    activeBubbleStateRef.current   = null;
+    currentSpeakerRef.current      = undefined;
+    activeBubbleRef.current        = null;
+    activeBubbleNFRef.current      = null;
+    styleUpgradedRef.current       = false;
+    liveBufferRef.current          = "";
+    lastTranslatedBuffer.current   = "";
+    finalCountRef.current          = 0;
+    segmentDetectedLangRef.current = null;
+    transcriptBufRef.current       = [];
+    translationBufRef.current      = [];
+    if (containerRef.current) containerRef.current.innerHTML = "";
+    setHasTranscript(false);
+    resetSpeakerMap();
+  }, [stopTranslationInterval]);
+
   const stop = useCallback(async () => {
     if (!isRecRef.current) return;
     isRecRef.current = false;
@@ -1180,6 +1205,9 @@ export function useTranscription(isAdmin = false) {
           inactivityTimerRef.current = null;
           setError("Session stopped due to inactivity.");
           void stop();
+          // Clear columns for regular users only on inactivity auto-stop.
+          // Admin keeps their transcript until they manually press Clear.
+          if (!isAdminRef.current) doClear();
         }, INACTIVITY_TIMEOUT_MS);
       };
       resetInactivityRef.current = scheduleInactivity;
@@ -1190,6 +1218,7 @@ export function useTranscription(isAdmin = false) {
         maxSessionTimerRef.current = null;
         setError("Session time limit reached (3 hours). Please start a new session.");
         void stop();
+        if (!isAdminRef.current) doClear();
       }, MAX_SESSION_MS);
 
     } catch (err: unknown) {
@@ -1242,27 +1271,7 @@ export function useTranscription(isAdmin = false) {
     stop,
     setLangPair,
     getSnapshot,
-    clear: () => {
-      if (silenceTimerRef.current !== null) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
-      stopTranslationInterval();
-      activeBubbleStateRef.current   = null;  // drop all in-flight closures
-      currentSpeakerRef.current      = undefined;
-      activeBubbleRef.current        = null;
-      activeBubbleNFRef.current      = null;
-      styleUpgradedRef.current       = false;
-      liveBufferRef.current          = "";
-      lastTranslatedBuffer.current   = "";
-      finalCountRef.current          = 0;
-      segmentDetectedLangRef.current = null;
-      transcriptBufRef.current       = [];
-      translationBufRef.current      = [];
-      if (containerRef.current) containerRef.current.innerHTML = "";
-      setHasTranscript(false);
-      resetSpeakerMap();
-    },
+    clear: doClear,
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };
 }
