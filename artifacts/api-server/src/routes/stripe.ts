@@ -43,7 +43,7 @@ router.get("/products-with-prices", async (_req, res) => {
 
     res.json({ data: Array.from(productsMap.values()) });
   } catch (err: any) {
-    res.status(503).json({ error: "Stripe products not available", detail: err.message });
+    return res.status(503).json({ error: "Stripe products not available", detail: err.message });
   }
 });
 
@@ -52,7 +52,7 @@ router.get("/products", async (_req, res) => {
     const products = await storage.listProducts();
     res.json({ data: products });
   } catch (err: any) {
-    res.status(503).json({ error: "Stripe products not available", detail: err.message });
+    return res.status(503).json({ error: "Stripe products not available", detail: err.message });
   }
 });
 
@@ -64,7 +64,7 @@ router.get("/products/:productId/prices", async (req, res) => {
     const prices = await storage.getPricesForProduct(productId);
     res.json({ data: prices });
   } catch (err: any) {
-    res.status(503).json({ error: "Stripe not available", detail: err.message });
+    return res.status(503).json({ error: "Stripe not available", detail: err.message });
   }
 });
 
@@ -79,7 +79,7 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
     const subscription = await storage.getSubscription(user.stripeSubscriptionId);
     res.json({ subscription });
   } catch (err: any) {
-    res.status(503).json({ error: "Stripe not available", detail: err.message });
+    return res.status(503).json({ error: "Stripe not available", detail: err.message });
   }
 });
 

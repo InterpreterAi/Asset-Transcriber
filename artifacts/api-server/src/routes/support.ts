@@ -62,7 +62,7 @@ router.get("/", requireAuth, async (req, res) => {
 
 // ── Get a single ticket with replies (user can only access own) ──────────────
 router.get("/:id", requireAuth, async (req, res) => {
-  const ticketId = parseInt(req.params.id, 10);
+  const ticketId = parseInt(String(req.params.id), 10);
   if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const [ticket] = await db

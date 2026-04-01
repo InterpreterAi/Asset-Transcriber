@@ -239,7 +239,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
 // ── View live session snapshot ───────────────────────────────────────────────
 router.get("/session/:sessionId", requireAdmin, async (req, res) => {
-  const sessionId = parseInt(req.params.sessionId!);
+  const sessionId = parseInt(String(req.params.sessionId));
   if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
 
   const rows = await db
@@ -285,7 +285,7 @@ router.get("/session/:sessionId", requireAdmin, async (req, res) => {
 
 // ── Terminate a live session ─────────────────────────────────────────────────
 router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
-  const sessionId = parseInt(req.params.sessionId!);
+  const sessionId = parseInt(String(req.params.sessionId));
   if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
 
   const rows = await db
@@ -310,7 +310,7 @@ router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
 
 // ── Session history for a user ───────────────────────────────────────────────
 router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId!);
+  const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
 
   const rows = await db
@@ -432,7 +432,7 @@ router.post("/users", requireAdmin, async (req, res) => {
 
 // ── Update user ──────────────────────────────────────────────────────────────
 router.patch("/users/:userId", requireAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId!);
+  const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) {
     res.status(400).json({ error: "Invalid user ID" });
     return;
@@ -479,7 +479,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
 
 // ── Delete user ──────────────────────────────────────────────────────────────
 router.delete("/users/:userId", requireAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId!);
+  const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) {
     res.status(400).json({ error: "Invalid user ID" });
     return;
@@ -496,7 +496,7 @@ router.delete("/users/:userId", requireAdmin, async (req, res) => {
 
 // ── Reset daily usage ────────────────────────────────────────────────────────
 router.post("/users/:userId/reset-usage", requireAdmin, async (req, res) => {
-  const userId = parseInt(req.params.userId!);
+  const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) {
     res.status(400).json({ error: "Invalid user ID" });
     return;
@@ -577,7 +577,7 @@ router.get("/support", requireAdmin, async (_req, res) => {
 
 // Get a single ticket with all replies
 router.get("/support/:id", requireAdmin, async (req, res) => {
-  const ticketId = parseInt(req.params.id, 10);
+  const ticketId = parseInt(String(req.params.id), 10);
   if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const [ticket] = await db
@@ -615,7 +615,7 @@ router.get("/support/:id", requireAdmin, async (req, res) => {
 
 // Admin reply
 router.post("/support/:id/reply", requireAdmin, async (req, res) => {
-  const ticketId = parseInt(req.params.id, 10);
+  const ticketId = parseInt(String(req.params.id), 10);
   const { message } = req.body as { message?: string };
   if (isNaN(ticketId) || !message?.trim()) {
     res.status(400).json({ error: "Message is required." }); return;
@@ -644,7 +644,7 @@ router.post("/support/:id/reply", requireAdmin, async (req, res) => {
 
 // Update ticket status
 router.put("/support/:id/status", requireAdmin, async (req, res) => {
-  const ticketId = parseInt(req.params.id, 10);
+  const ticketId = parseInt(String(req.params.id), 10);
   const { status } = req.body as { status?: string };
   if (isNaN(ticketId) || !["open", "resolved"].includes(status ?? "")) {
     res.status(400).json({ error: "Status must be 'open' or 'resolved'." }); return;

@@ -59,10 +59,10 @@ app.post(
     const sig = Array.isArray(signature) ? signature[0] : signature;
     try {
       await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-      res.status(200).json({ received: true });
+      return res.status(200).json({ received: true });
     } catch (err: any) {
       logger.error({ err }, "Stripe webhook error");
-      res.status(400).json({ error: "Webhook processing failed" });
+      return res.status(400).json({ error: "Webhook processing failed" });
     }
   }
 );

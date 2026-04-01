@@ -36,7 +36,7 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.delete("/:id", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
-  const id = parseInt(req.params.id ?? "0", 10);
+  const id = parseInt(String(req.params.id ?? "0"), 10);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
   await db
     .delete(glossaryEntriesTable)

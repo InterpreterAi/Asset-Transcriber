@@ -765,8 +765,8 @@ export function useTranscription() {
       segmentDetectedLangRef.current = null;
       resetSpeakerMap();
 
-      const tokenRes   = await getTokenMut.mutateAsync({});
-      const sessionRes = await startSessionMut.mutateAsync({});
+      const tokenRes   = await getTokenMut.mutateAsync(undefined as any);
+      const sessionRes = await startSessionMut.mutateAsync(undefined as any);
       sessionIdRef.current = sessionRes.sessionId;
       setSessionId(sessionRes.sessionId);
       transcriptBufRef.current  = [];
