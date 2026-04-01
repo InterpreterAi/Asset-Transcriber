@@ -13,7 +13,7 @@ import Terms from "./pages/terms";
 import Privacy from "./pages/privacy";
 import InvitePage from "./pages/invite";
 
-// ─── Maintenance banner toggle ────────────────────────────────────────────────
+// ─── System banner toggle ─────────────────────────────────────────────────────
 // Set to true  → banner is shown across every page.
 // Set to false → banner disappears with no other changes required.
 const MAINTENANCE_MODE = true;
@@ -33,14 +33,22 @@ function MaintenanceBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="w-full bg-amber-50 border-b border-amber-200 flex items-center justify-center px-4 py-2.5 shrink-0 z-50"
-      style={{ minHeight: "44px" }}
+      className="w-full bg-green-50 border-b border-green-200 px-4 py-2 shrink-0 z-50"
     >
-      <p className="text-sm text-amber-900 text-center leading-snug">
-        <span className="font-semibold">⚠️ System Update In Progress</span>
-        {" — "}
-        We are currently improving the system. The app will continue working normally, but you may notice small adjustments during the next 1–2 hours. Thank you for your patience.
-      </p>
+      <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4">
+        <p className="text-sm text-green-900 leading-snug shrink-0">
+          <span className="font-semibold">✅ System Update Completed</span>
+          {" — "}
+          InterpreterAI is now working normally again.
+        </p>
+        <p className="text-xs text-green-800 leading-snug">
+          <span className="font-medium">Quick tip for call audio:</span>{" "}
+          If your call is running in a browser (Chrome, Edge, etc.), select{" "}
+          <span className="font-medium">Tab Audio</span> and choose the tab where the call is active.
+          This allows the app to capture the caller's voice while you can still hear the conversation normally.
+          Your microphone will not be included in this mode.
+        </p>
+      </div>
     </div>
   );
 }
