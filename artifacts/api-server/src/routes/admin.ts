@@ -60,8 +60,6 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     minutesWeekRow,
     minutesMonthRow,
     costMinutesTodayRow,
-    costMinutesWeekRow,
-    costMinutesMonthRow,
     activeSessionRows,
     allUsersForMrr,
     avgSessionRow,
@@ -69,21 +67,28 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     payingUsersRow,
     trialUsersRow,
   ] = await Promise.all([
-    // Active users: last_activity within the past 5 minutes
+    // Active non-admin users: last_activity within the past 5 minutes
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
-      .where(gt(usersTable.lastActivity, fiveMinutesAgo)),
+      .where(and(
+        gt(usersTable.lastActivity, fiveMinutesAgo),
+        sql`${usersTable.isAdmin} = false`,
+      )),
 
-    // Total registered users
-    db.select({ count: sql<number>`COUNT(*)` })
-      .from(usersTable),
-
-    // Daily active users: last_activity since midnight today
+    // Total registered non-admin users
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
-      .where(gt(usersTable.lastActivity, startOfToday)),
+      .where(sql`${usersTable.isAdmin} = false`),
 
-    // Minutes used today — non-admin users only (for display)
+    // Daily active non-admin users: last_activity since midnight today
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(and(
+        gt(usersTable.lastActivity, startOfToday),
+        sql`${usersTable.isAdmin} = false`,
+      )),
+
+    // Minutes used today — non-admin users only
     db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -92,7 +97,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Minutes used this week — non-admin users only (for display)
+    // Minutes used this week — non-admin users only
     db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -101,7 +106,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Minutes used this month — non-admin users only (for display)
+    // Minutes used this month — non-admin users only
     db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -110,22 +115,12 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Cost-minutes today — ALL users including admin (for $ calculations)
+    // Cost-minutes today — ALL users including admin ($ stays accurate)
     db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
       .from(sessionsTable)
       .where(gt(sessionsTable.startedAt, twentyFourHrsAgo)),
 
-    // Cost-minutes this week — ALL users (for $ calculations)
-    db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
-      .from(sessionsTable)
-      .where(gt(sessionsTable.startedAt, sevenDaysAgo)),
-
-    // Cost-minutes this month — ALL users (for $ calculations)
-    db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
-      .from(sessionsTable)
-      .where(gt(sessionsTable.startedAt, thirtyDaysAgo)),
-
-    // Open (live) sessions with user info
+    // Open (live) sessions — non-admin users only
     db.select({
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
@@ -137,7 +132,10 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(isNull(sessionsTable.endedAt))
+      .where(and(
+        isNull(sessionsTable.endedAt),
+        sql`${usersTable.isAdmin} = false`,
+      ))
       .orderBy(sessionsTable.startedAt),
 
     // All non-admin users for MRR calculation
@@ -145,21 +143,27 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       .from(usersTable)
       .where(sql`${usersTable.isAdmin} = false`),
 
-    // Average completed session duration in last 30 days
-    db.select({ avg: sql<number>`COALESCE(AVG(duration_seconds), 0)` })
-      .from(sessionsTable)
+    // Average completed session duration (non-admin, last 30 days)
+    db.select({ avg: sql<number>`COALESCE(AVG(s.duration_seconds), 0)` })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        gt(sessionsTable.startedAt, thirtyDaysAgo),
-        sql`${sessionsTable.endedAt} IS NOT NULL`,
-        sql`${sessionsTable.durationSeconds} > 0`,
+        sql`s.started_at > ${thirtyDaysAgo}`,
+        sql`s.ended_at IS NOT NULL`,
+        sql`s.duration_seconds > 0`,
+        sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Session count today
+    // Session count today — non-admin users only
     db.select({ count: sql<number>`COUNT(*)` })
-      .from(sessionsTable)
-      .where(gt(sessionsTable.startedAt, twentyFourHrsAgo)),
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at > ${twentyFourHrsAgo}`,
+        sql`${usersTable.isAdmin} = false`,
+      )),
 
-    // Paying (non-trial) users
+    // Paying (non-trial, non-admin) users
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(and(
@@ -167,7 +171,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Trial users
+    // Trial users (non-admin)
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(and(
@@ -177,9 +181,9 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   ]);
 
   // Display minutes: non-admin users only
-  const minutesToday  = Number(minutesTodayRow[0]?.total  ?? 0);
-  const minutesWeek   = Number(minutesWeekRow[0]?.total   ?? 0);
-  const minutesMonth  = Number(minutesMonthRow[0]?.total  ?? 0);
+  const minutesToday = Number(minutesTodayRow[0]?.total ?? 0);
+  const minutesWeek  = Number(minutesWeekRow[0]?.total  ?? 0);
+  const minutesMonth = Number(minutesMonthRow[0]?.total ?? 0);
 
   // Cost minutes: all users including admin ($ stays accurate)
   const costMinutesToday = Number(costMinutesTodayRow[0]?.total ?? 0);
@@ -190,14 +194,14 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     return sum + (PLAN_PRICES[u.planType] ?? 0);
   }, 0);
 
-  const payingCount   = Number(payingUsersRow[0]?.count  ?? 0);
-  const trialCount    = Number(trialUsersRow[0]?.count   ?? 0);
-  const totalNonAdmin = payingCount + trialCount;
+  const payingCount    = Number(payingUsersRow[0]?.count ?? 0);
+  const trialCount     = Number(trialUsersRow[0]?.count  ?? 0);
+  const totalNonAdmin  = payingCount + trialCount;
   const conversionRate = totalNonAdmin > 0 ? +((payingCount / totalNonAdmin) * 100).toFixed(1) : 0;
 
-  const avgSessionMin   = +(Number(avgSessionRow[0]?.avg ?? 0) / 60).toFixed(1);
-  const sessionsToday   = Number(sessionsTodayRow[0]?.count ?? 0);
-  const costPerSession  = sessionsToday > 0 ? +(totalCostToday / sessionsToday).toFixed(4) : 0;
+  const avgSessionMin  = +(Number(avgSessionRow[0]?.avg ?? 0) / 60).toFixed(1);
+  const sessionsToday  = Number(sessionsTodayRow[0]?.count ?? 0);
+  const costPerSession = sessionsToday > 0 ? +(totalCostToday / sessionsToday).toFixed(4) : 0;
 
   res.json({
     activeUsers:       Number(activeRow[0]?.count  ?? 0),
