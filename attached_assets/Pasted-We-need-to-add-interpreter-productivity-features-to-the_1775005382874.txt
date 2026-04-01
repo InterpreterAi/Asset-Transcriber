@@ -1,0 +1,123 @@
+We need to add interpreter productivity features to the platform.
+
+Important requirement:
+The system must remain HIPAA-safe. Do NOT store or save transcripts or translations in the database. All transcription and translation must remain real-time only and disappear when the session ends.
+
+-------------------------------------
+
+1. Session Notes (Private)
+
+Add a small "Notes" panel beside the transcription and translation panels.
+
+This notes panel is only for the interpreter to write short notes during a session.
+
+Examples:
+- claim number
+- patient allergy
+- appointment time
+
+Layout requirement:
+
+The Notes panel must be significantly smaller than the transcription and translation panels.
+
+The screen layout should be:
+
+Transcription | Translation | Notes
+
+Transcription and Translation must each take roughly half of the main space.
+
+The Notes panel should take less than one third of the width of a single main panel, so it remains small and does not reduce readability of the transcript.
+
+The goal is to keep transcription and translation clearly visible while allowing interpreters to write quick notes.
+
+Rules:
+• Notes are optional
+• Notes are private to the user
+• Notes are deleted automatically when the session ends
+• Notes must not be stored permanently
+
+-------------------------------------
+
+2. Interpreter Tools Panel
+
+Add small tools that help interpreters manage a live session.
+
+Buttons:
+
+• Start Listening
+• Pause Listening
+• Clear Screen
+• Mark Important Line
+
+The "Mark" button should highlight the current line so interpreters can quickly identify key information during a call.
+
+-------------------------------------
+
+3. Session Timer
+
+Add a visible timer showing how long the current session has been running.
+
+Example:
+
+Session Time: 12:43
+
+This helps interpreters track call duration.
+
+-------------------------------------
+
+4. Transcript Export Disabled
+
+Do NOT allow transcript download or storage.
+
+Because the platform may be used for medical and legal interpretation, transcripts must not be saved or exported to avoid HIPAA risks.
+
+-------------------------------------
+
+5. User Session History (Usage Only)
+
+Users should be able to see basic usage history such as:
+
+• total minutes used today
+• number of sessions today
+• time remaining in trial or subscription
+
+Do NOT store transcript or translation content.
+
+-------------------------------------
+
+6. Glossary System
+
+Add a glossary feature that allows interpreters to define preferred translations.
+
+Example glossary entries:
+
+"My number" → "رقمي التعريفي"
+"Claim number" → "رقم المطالبة"
+
+Rules:
+• glossary only affects translation suggestions
+• glossary must not store call content
+• glossary entries are created manually by the user
+
+-------------------------------------
+
+7. Support / Help Center
+
+Add a Support section where users can send questions.
+
+Fields:
+• email
+• subject
+• message
+
+Messages should appear in the admin dashboard so the admin can respond.
+
+Users should also be able to see their previous support requests.
+
+-------------------------------------
+
+Important:
+Do not modify the real-time transcription or translation pipeline.
+Do not store transcripts.
+Do not store translations.
+Only add the interface tools described above.
