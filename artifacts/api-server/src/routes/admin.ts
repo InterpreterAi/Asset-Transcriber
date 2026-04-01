@@ -45,12 +45,13 @@ router.get("/users", requireAdmin, async (_req, res) => {
 
 // ── Enhanced stats ───────────────────────────────────────────────────────────
 router.get("/stats", requireAdmin, async (_req, res) => {
-  const now              = new Date();
-  const fiveMinutesAgo   = new Date(Date.now() - 5 * 60 * 1000);
-  const startOfToday     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const twentyFourHrsAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const sevenDaysAgo     = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
-  const thirtyDaysAgo    = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const now            = new Date();
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  // Use UTC midnight so "today" always means calendar-day today, never a rolling window.
+  // A rolling 24-hour window causes the number to DECREASE as yesterday's sessions age out.
+  const startOfToday   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const sevenDaysAgo   = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo  = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
   const [
     activeRow,
@@ -88,12 +89,12 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Minutes used today — non-admin users only
+    // Minutes used today — non-admin users only (since midnight UTC, not rolling 24h)
     db.select({ total: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        sql`s.started_at > ${twentyFourHrsAgo}`,
+        sql`s.started_at >= ${startOfToday}`,
         sql`${usersTable.isAdmin} = false`,
       )),
 
@@ -115,10 +116,10 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Cost-minutes today — ALL users including admin ($ stays accurate)
+    // Cost-minutes today — ALL users including admin (since midnight UTC)
     db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
       .from(sessionsTable)
-      .where(gt(sessionsTable.startedAt, twentyFourHrsAgo)),
+      .where(gte(sessionsTable.startedAt, startOfToday)),
 
     // Open (live) sessions — non-admin users only
     db.select({
@@ -154,12 +155,12 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Session count today — non-admin users only
+    // Session count today — non-admin users only (since midnight UTC)
     db.select({ count: sql<number>`COUNT(*)` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        sql`s.started_at > ${twentyFourHrsAgo}`,
+        sql`s.started_at >= ${startOfToday}`,
         sql`${usersTable.isAdmin} = false`,
       )),
 
