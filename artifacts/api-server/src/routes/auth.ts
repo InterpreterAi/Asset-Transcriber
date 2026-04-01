@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, passwordResetTokensTable, sessionsTable } from "@workspace/db";
+import { db, usersTable, passwordResetTokensTable, sessionsTable, referralsTable } from "@workspace/db";
 import { eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -249,7 +249,7 @@ router.get("/2fa/status", requireAuth, async (req, res) => {
 
 // ── Sign Up ────────────────────────────────────────────────────────────────
 router.post("/signup", async (req, res) => {
-  const { email, password } = req.body as { email?: string; password?: string };
+  const { email, password, referralId } = req.body as { email?: string; password?: string; referralId?: number };
 
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
@@ -302,6 +302,13 @@ router.post("/signup", async (req, res) => {
 
   req.session.userId = user!.id;
   req.session.isAdmin = false;
+
+  if (referralId) {
+    void db
+      .update(referralsTable)
+      .set({ registeredUserId: user!.id, registeredAt: new Date() })
+      .where(eq(referralsTable.id, referralId));
+  }
 
   void sendTelegramNotification(
     `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration`

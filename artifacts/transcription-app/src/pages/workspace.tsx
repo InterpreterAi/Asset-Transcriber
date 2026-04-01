@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
+import { InviteModal } from "@/components/InviteModal";
 import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
@@ -98,6 +99,7 @@ export default function Workspace() {
   const [showReportIssue, setShowReportIssue]   = useState(false);
   const [showUserFeedback, setShowUserFeedback] = useState(false);
   const [inviteCopied, setInviteCopied]         = useState(false);
+  const [showInviteModal, setShowInviteModal]   = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
   const [inputMode, setInputMode]               = useState<"mic" | "tab">("mic");
   const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
@@ -464,6 +466,9 @@ export default function Workspace() {
         onClose={() => setShowUserFeedback(false)}
         defaultEmail={user.email ?? ""}
       />
+      {showInviteModal && (
+        <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
+      )}
 
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
@@ -646,23 +651,12 @@ export default function Workspace() {
 
           {/* Invite another interpreter */}
           <button
-            onClick={() => {
-              void navigator.clipboard.writeText(
-                "I'm using this real-time AI interpreter tool for transcription and translation during calls.\n" +
-                "You can try it here:\nhttps://asset-transcriber.replit.app\nFree trial available."
-              );
-              setInviteCopied(true);
-              setTimeout(() => setInviteCopied(false), 2500);
-            }}
-            className={`flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all ${
-              inviteCopied
-                ? "bg-green-100 text-green-600"
-                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            }`}
-            title={inviteCopied ? "Link copied!" : "Invite another interpreter"}
+            onClick={() => { setShowInviteModal(true); setSettingsOpen(false); }}
+            className="flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
+            title="Invite another interpreter"
           >
-            <span className="shrink-0">{inviteCopied ? <Check className="w-4.5 h-4.5" /> : <Share2 className="w-4.5 h-4.5" />}</span>
-            <span className="text-sm font-medium md:hidden">{inviteCopied ? "Copied!" : "Invite colleague"}</span>
+            <Share2 className="w-4.5 h-4.5 shrink-0" />
+            <span className="text-sm font-medium md:hidden">Invite colleague</span>
           </button>
 
           {/* Send feedback */}

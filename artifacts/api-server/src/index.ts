@@ -92,6 +92,18 @@ async function migrateSchema() {
       )
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id                  SERIAL PRIMARY KEY,
+        referrer_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        clicked_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+        registered_user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        registered_at       TIMESTAMP,
+        has_started_session BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
     logger.info("Startup schema migration complete");
   } catch (err) {
     logger.error({ err }, "Startup schema migration failed — continuing anyway");

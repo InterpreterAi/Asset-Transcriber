@@ -11,6 +11,7 @@ import Workspace from "./pages/workspace";
 import Admin from "./pages/admin";
 import Terms from "./pages/terms";
 import Privacy from "./pages/privacy";
+import InvitePage from "./pages/invite";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,7 @@ function Router() {
       <Route path="/admin" component={Admin} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={Privacy} />
+      <Route path="/invite" component={InvitePage} />
       <Route component={NotFound} />
     </Switch>
   );

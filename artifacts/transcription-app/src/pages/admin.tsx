@@ -21,7 +21,7 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle,
-  Pencil, Gift,
+  Pencil, Gift, Share2, UserPlus,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";

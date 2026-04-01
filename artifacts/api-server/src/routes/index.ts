@@ -10,6 +10,7 @@ import stripeRouter from "./stripe.js";
 import supportRouter from "./support.js";
 import glossaryRouter from "./glossary.js";
 import terminologyRouter from "./terminology.js";
+import referralsRouter from "./referrals.js";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use("/stripe", stripeRouter);
 router.use("/support", supportRouter);
 router.use("/glossary", glossaryRouter);
 router.use("/terminology", terminologyRouter);
+router.use("/referrals", referralsRouter);
 
 export default router;

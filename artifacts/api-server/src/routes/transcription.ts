@@ -1,6 +1,6 @@
 import { Router } from "express";
 import OpenAI from "openai";
-import { db, usersTable, sessionsTable, glossaryEntriesTable } from "@workspace/db";
+import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
@@ -161,6 +161,16 @@ router.post("/session/start", requireAuth, async (req, res) => {
     .returning();
 
   void touchActivity(user.id);
+
+  void db
+    .update(referralsTable)
+    .set({ hasStartedSession: true })
+    .where(
+      and(
+        eq(referralsTable.registeredUserId, user.id),
+        eq(referralsTable.hasStartedSession, false),
+      )
+    );
 
   res.json({ sessionId: result[0]!.id, message: "Session started" });
 });

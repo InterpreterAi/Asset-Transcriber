@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Mic2, Mail, Lock, Eye, EyeOff } from "lucide-react";
@@ -6,12 +6,18 @@ import { Button, Input, Card } from "@/components/ui-components";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [confirm, setConfirm]   = useState("");
+  const [showPw, setShowPw]     = useState(false);
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [referralId, setReferralId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const rid = sessionStorage.getItem("referralId");
+    if (rid && /^\d+$/.test(rid)) setReferralId(parseInt(rid));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,14 +34,21 @@ export default function Signup() {
 
     setLoading(true);
     try {
+      const body: Record<string, unknown> = { email, password };
+      if (referralId) body.referralId = referralId;
+
       const res = await fetch("/api/auth/signup", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Signup failed");
+
+      sessionStorage.removeItem("referralCode");
+      sessionStorage.removeItem("referralId");
+
       setLocation("/workspace");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");
@@ -62,6 +75,11 @@ export default function Signup() {
           </button>
           <h1 className="text-2xl font-display font-semibold tracking-tight mb-1">Create your account</h1>
           <p className="text-sm text-muted-foreground">14-day free trial · No credit card required</p>
+          {referralId && (
+            <p className="text-xs font-medium text-primary mt-1.5 bg-primary/8 px-3 py-1 rounded-full inline-block border border-primary/20">
+              You were invited by a colleague
+            </p>
+          )}
         </div>
 
         <Card className="p-7 bg-white border border-border shadow-md rounded-2xl">
