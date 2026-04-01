@@ -2,7 +2,8 @@ import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
   Mic2, ChevronRight, Check, Zap, Globe, Users, Monitor,
-  Shield, Clock, BookOpen, Gavel, Video, Building2, Quote
+  Shield, Clock, BookOpen, Gavel, Video, Building2, Quote,
+  ArrowRight, Headphones, FileText, Languages,
 } from "lucide-react";
 
 const fade = (delay = 0) => ({
@@ -10,6 +11,132 @@ const fade = (delay = 0) => ({
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.55, ease: "easeOut", delay },
 });
+
+// ── Animated app preview mockup ───────────────────────────────────────────────
+function AppPreview() {
+  const lines = [
+    { orig: "Good morning. My name is Sarah and my interpreter number is 4402.", trans: "صباح الخير. اسمي سارة ورقمي التعريفي هو 4402." },
+    { orig: "I need to speak with a doctor about my claim number.", trans: "أحتاج إلى التحدث مع طبيب بشأن رقم مطالبتي." },
+    { orig: "The patient is reporting pain in the lower back and left shoulder.", trans: "يُفيد المريض بألم في أسفل الظهر والكتف الأيسر." },
+    { orig: "Can you confirm the appointment date for next Thursday?", trans: "هل يمكنك تأكيد موعد الاجتماع يوم الخميس القادم؟" },
+  ];
+
+  return (
+    <div className="relative w-full max-w-4xl mx-auto">
+      {/* Glow effect behind the card */}
+      <div className="absolute inset-0 -z-10 rounded-3xl bg-primary/10 blur-3xl scale-95 translate-y-4" />
+
+      <div className="bg-white rounded-2xl border border-border shadow-2xl overflow-hidden">
+        {/* App top bar */}
+        <div className="h-11 bg-white border-b border-border flex items-center justify-between px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-red-400" />
+              <div className="w-3 h-3 rounded-full bg-yellow-400" />
+              <div className="w-3 h-3 rounded-full bg-green-400" />
+            </div>
+            <span className="text-xs font-semibold text-foreground ml-1">InterpreterAI</span>
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
+              <span className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-pulse" />
+              English ↔ Arabic
+            </span>
+            {/* Live timer badge */}
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-600 border border-rose-200 font-mono">
+              <Clock className="w-2.5 h-2.5" />
+              03:47
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
+              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
+              Listening
+            </span>
+          </div>
+        </div>
+
+        {/* Content area — sidebar + panels */}
+        <div className="flex h-[340px] sm:h-[400px]">
+          {/* Sidebar */}
+          <div className="w-12 bg-[#f8f8fa] border-r border-border flex flex-col items-center py-3 gap-2">
+            {[Mic2, Globe, BookOpen].map((Icon, i) => (
+              <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 0 ? "bg-primary/10 text-primary" : "text-muted-foreground/40"}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+            ))}
+          </div>
+
+          {/* Notes + Transcript panels */}
+          <div className="flex-1 flex gap-0 overflow-hidden">
+            {/* Small notes panel */}
+            <div className="w-28 border-r border-border bg-white flex flex-col">
+              <div className="h-8 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2">
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
+              </div>
+              <div className="p-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+                Claim #4417<br />
+                DOB: 03/15/1982<br />
+                <br />
+                Follow up on<br />
+                shoulder MRI
+              </div>
+            </div>
+
+            {/* Main transcript panel */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Panel header */}
+              <div className="h-8 border-b border-border bg-muted/20 flex items-center px-3 gap-8 shrink-0">
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Original</span>
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider ml-auto mr-4">Translation</span>
+              </div>
+
+              {/* Transcript lines */}
+              <div className="flex-1 overflow-hidden p-3 space-y-3">
+                {lines.map((line, i) => (
+                  <div
+                    key={i}
+                    className={`grid grid-cols-2 gap-3 rounded-lg px-2 py-1.5 ${i === lines.length - 1 ? "bg-amber-50 border-l-2 border-amber-400" : ""}`}
+                  >
+                    <p className="text-[11px] leading-relaxed text-foreground font-medium">{line.orig}</p>
+                    <p className="text-[11px] leading-relaxed text-foreground/80 font-medium" dir="rtl">{line.trans}</p>
+                  </div>
+                ))}
+                {/* Live cursor line */}
+                <div className="grid grid-cols-2 gap-3 px-2 py-1">
+                  <p className="text-[11px] text-muted-foreground/60 italic">
+                    The next follow-up visit is scheduled for
+                    <span className="inline-block w-0.5 h-3 bg-primary ml-1 animate-pulse align-middle" />
+                  </p>
+                  <p className="text-[11px] text-muted-foreground/30 italic">Translating…</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom toolbar strip */}
+        <div className="h-12 border-t border-border bg-white flex items-center justify-between px-4">
+          <div className="flex items-center gap-2">
+            <div className="h-8 px-3 rounded-full bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              Stop
+            </div>
+            <div className="h-8 px-2 rounded-lg border border-border text-xs text-muted-foreground flex items-center gap-1">
+              <Mic2 className="w-3 h-3" />
+              Default Mic
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-muted-foreground">English ↔ Arabic</span>
+            <div className="bg-muted px-2 py-1 rounded-full text-[10px] text-muted-foreground font-medium border border-border/50 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              3.8 min used
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Landing() {
   const [, setLocation] = useLocation();
@@ -38,143 +165,262 @@ export default function Landing() {
       </nav>
 
       {/* ── SECTION 1 — HERO ─────────────────────────────────────────────── */}
-      <section className="max-w-4xl mx-auto px-5 pt-16 pb-20 text-center">
+      <section className="max-w-4xl mx-auto px-5 pt-14 pb-10 text-center">
         <motion.div {...fade(0)}>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold border border-violet-200 mb-7">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold border border-violet-200 mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
             Real-Time AI for Professional Interpreters
           </div>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold tracking-tight text-foreground mb-5 leading-[1.1]">
-            AI Language Support for<br />
-            <span className="text-primary">Professional Interpreters</span>
+          <h1 className="text-4xl sm:text-5xl lg:text-[56px] font-display font-bold tracking-tight text-foreground mb-5 leading-[1.1]">
+            Real-Time AI Transcription &amp;<br className="hidden sm:block" />
+            <span className="text-primary"> Translation for Professional Interpreters</span>
           </h1>
 
-          <p className="text-lg sm:text-xl text-muted-foreground mb-4 max-w-2xl mx-auto leading-relaxed font-medium">
-            A professional development workspace for language practice and terminology preparation.
+          <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto leading-relaxed">
+            Listen, transcribe, and translate conversations instantly during live calls, meetings, and interpretation sessions.
           </p>
 
-          <p className="text-base text-muted-foreground mb-9 max-w-2xl mx-auto leading-relaxed">
-            InterpreterAI transcribes and translates speech in real time, giving interpreters a powerful training tool to review vocabulary, reinforce terminology, and build confidence in their language pairs.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <div className="flex flex-col items-center gap-2">
             <button
               onClick={() => setLocation("/signup")}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
+              className="flex items-center justify-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[16px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
             >
               Start Free Trial <ChevronRight className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => setLocation("/login")}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-white text-foreground rounded-full font-semibold text-[15px] border border-border shadow-sm hover:bg-muted/40 active:scale-95 transition-all"
-            >
-              Log In
-            </button>
+            <p className="text-sm text-muted-foreground">Free trial — no credit card required.</p>
           </div>
-          <p className="mt-4 text-sm text-muted-foreground">14-day free trial · No credit card required</p>
         </motion.div>
       </section>
 
-      {/* ── SECTION 2 — BENEFITS ──────────────────────────────────────────── */}
-      <section className="bg-white border-y border-border py-20">
-        <div className="max-w-4xl mx-auto px-5">
-          <motion.div {...fade(0)} className="text-center mb-10">
-            <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-4">
-              Built for the Way You Work
-            </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
-              Professional interpreters handle fast conversations, complex terminology, and high-pressure assignments.
-              InterpreterAI gives you a powerful language support workspace to sharpen your skills and prepare with confidence.
-            </p>
-          </motion.div>
-
-          <motion.ul {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
-            {[
-              "Real-time transcription for language practice and training",
-              "Instant translation between language pairs",
-              "Speaker detection for clearer practice sessions",
-              "Build confidence and reduce mental fatigue during study",
-              "Review and reinforce terminology before professional assignments",
-            ].map(item => (
-              <li key={item} className="flex items-start gap-3 bg-[#f5f5f7] rounded-xl px-4 py-3.5">
-                <div className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Check className="w-3 h-3 text-primary" />
-                </div>
-                <span className="text-sm font-medium">{item}</span>
-              </li>
-            ))}
-          </motion.ul>
-        </div>
+      {/* ── SECTION 2 — APP PREVIEW ───────────────────────────────────────── */}
+      <section className="max-w-5xl mx-auto px-5 pb-8">
+        <motion.div {...fade(0.1)}>
+          <AppPreview />
+        </motion.div>
       </section>
 
-      {/* ── SECTION 3 — CORE FEATURES ────────────────────────────────────── */}
-      <section className="max-w-5xl mx-auto px-5 py-20">
-        <motion.div {...fade(0)} className="text-center mb-12">
-          <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight">
-            Built Around the Way You Work
-          </h2>
-        </motion.div>
-        <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      {/* ── SECTION 3 — FEATURE BULLETS ───────────────────────────────────── */}
+      <section className="max-w-3xl mx-auto px-5 py-10">
+        <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             {
-              icon: <Zap className="w-5 h-5 text-violet-600" />,
-              color: "bg-violet-100",
-              title: "Real-Time Speech Capture",
-              desc: "Transcribes every spoken word instantly during language practice sessions — giving you a live written reference as you work.",
+              icon: <Mic2 className="w-5 h-5 text-violet-600" />,
+              bg: "bg-violet-50 border-violet-100",
+              iconBg: "bg-violet-100",
+              text: "Real-time speech transcription",
             },
             {
-              icon: <Globe className="w-5 h-5 text-blue-600" />,
-              color: "bg-blue-100",
-              title: "Interpreter-Grade Translation",
-              desc: "Bidirectional translation across 35+ languages, designed for professional terminology preparation.",
+              icon: <Languages className="w-5 h-5 text-blue-600" />,
+              bg: "bg-blue-50 border-blue-100",
+              iconBg: "bg-blue-100",
+              text: "Instant translation between 30+ languages",
             },
             {
-              icon: <Users className="w-5 h-5 text-emerald-600" />,
-              color: "bg-emerald-100",
-              title: "Speaker Identification",
-              desc: "Automatically separates speakers so you can follow multi-party practice dialogues with clarity.",
+              icon: <Headphones className="w-5 h-5 text-emerald-600" />,
+              bg: "bg-emerald-50 border-emerald-100",
+              iconBg: "bg-emerald-100",
+              text: "Built specifically for professional interpreters during live calls",
             },
-            {
-              icon: <Monitor className="w-5 h-5 text-orange-600" />,
-              color: "bg-orange-100",
-              title: "Flexible Language Support Workspace",
-              desc: "Use your microphone for live practice, or capture audio from any browser tab during training and study sessions.",
-            },
-          ].map(({ icon, color, title, desc }) => (
-            <div key={title} className="bg-white rounded-2xl border border-border p-6 shadow-sm">
-              <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center mb-4`}>
+          ].map(({ icon, bg, iconBg, text }) => (
+            <div key={text} className={`flex items-start gap-3 rounded-2xl border p-4 ${bg}`}>
+              <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
                 {icon}
               </div>
-              <h3 className="font-semibold text-[15px] mb-2">{title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+              <p className="text-sm font-medium text-foreground leading-relaxed pt-1.5">{text}</p>
             </div>
           ))}
         </motion.div>
       </section>
 
-      {/* ── SECTION 4 — TESTIMONIAL ───────────────────────────────────────── */}
+      {/* ── SECTION 4 — HOW IT WORKS ──────────────────────────────────────── */}
       <section className="bg-white border-y border-border py-20">
-        <div className="max-w-3xl mx-auto px-5">
-          <motion.div {...fade(0)} className="text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-6">
-              <Quote className="w-5 h-5 text-primary" />
-            </div>
-            <blockquote className="text-xl sm:text-2xl font-display font-medium text-foreground leading-relaxed mb-6">
-              "After using InterpreterAI for a few months I noticed a huge difference in my work. I miss fewer words during fast conversations and I can focus more on interpreting instead of remembering long sentences."
-            </blockquote>
-            <div className="flex items-center justify-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">M</div>
-              <div className="text-left">
-                <p className="text-sm font-semibold">Professional Interpreter</p>
-                <p className="text-xs text-muted-foreground">Interpreter Call Center</p>
+        <div className="max-w-4xl mx-auto px-5">
+          <motion.div {...fade(0)} className="text-center mb-12">
+            <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-3">
+              How It Works
+            </h2>
+            <p className="text-muted-foreground text-lg">Three simple steps — from first word to translated text.</p>
+          </motion.div>
+
+          <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-3 gap-8 relative">
+            {/* Connector lines on desktop */}
+            <div className="hidden sm:block absolute top-8 left-[calc(16.67%+1rem)] right-[calc(16.67%+1rem)] h-px bg-border" />
+
+            {[
+              {
+                step: "1",
+                icon: <Headphones className="w-6 h-6 text-violet-600" />,
+                iconBg: "bg-violet-100",
+                title: "Start Listening",
+                desc: "Connect your microphone or meeting audio.",
+              },
+              {
+                step: "2",
+                icon: <FileText className="w-6 h-6 text-blue-600" />,
+                iconBg: "bg-blue-100",
+                title: "AI Transcribes Speech",
+                desc: "Speech is converted into real-time text.",
+              },
+              {
+                step: "3",
+                icon: <Languages className="w-6 h-6 text-emerald-600" />,
+                iconBg: "bg-emerald-100",
+                title: "AI Translates Instantly",
+                desc: "The opposite language appears immediately.",
+              },
+            ].map(({ step, icon, iconBg, title, desc }) => (
+              <div key={step} className="flex flex-col items-center text-center relative">
+                <div className={`w-16 h-16 rounded-2xl ${iconBg} flex items-center justify-center mb-4 shadow-sm border border-white relative z-10`}>
+                  {icon}
+                </div>
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Step {step}</div>
+                <h3 className="font-semibold text-[15px] mb-2">{title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
               </div>
-            </div>
+            ))}
           </motion.div>
         </div>
       </section>
 
-      {/* ── SECTION 5 — TRUST / ACCURACY ─────────────────────────────────── */}
+      {/* ── SECTION 5 — BUILT FOR ─────────────────────────────────────────── */}
+      <section className="max-w-4xl mx-auto px-5 py-20">
+        <motion.div {...fade(0)} className="text-center mb-10">
+          <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-3">
+            Built For
+          </h2>
+          <p className="text-muted-foreground text-lg">Trusted by interpreters across every professional setting.</p>
+        </motion.div>
+
+        <motion.div {...fade(0.1)} className="flex flex-wrap justify-center gap-3">
+          {[
+            { icon: <Shield className="w-4 h-4" />, label: "Medical interpreters", color: "bg-blue-50 border-blue-200 text-blue-700" },
+            { icon: <Gavel className="w-4 h-4" />, label: "Legal interpreters", color: "bg-violet-50 border-violet-200 text-violet-700" },
+            { icon: <Headphones className="w-4 h-4" />, label: "Call center interpreters", color: "bg-rose-50 border-rose-200 text-rose-700" },
+            { icon: <Globe className="w-4 h-4" />, label: "Freelance interpreters", color: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+            { icon: <Building2 className="w-4 h-4" />, label: "Language service providers", color: "bg-orange-50 border-orange-200 text-orange-700" },
+          ].map(({ icon, label, color }) => (
+            <div
+              key={label}
+              className={`flex items-center gap-2 px-5 py-3 rounded-full border text-sm font-semibold ${color}`}
+            >
+              {icon}
+              {label}
+            </div>
+          ))}
+        </motion.div>
+
+        {/* Supporting cards */}
+        <motion.div {...fade(0.15)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
+          {[
+            {
+              icon: <Shield className="w-5 h-5 text-blue-600" />,
+              color: "bg-blue-50 border-blue-100",
+              iconBg: "bg-blue-100",
+              title: "Medical Interpreters",
+              desc: "Follow fast clinical conversations with real-time transcription and accurate medical terminology.",
+            },
+            {
+              icon: <Gavel className="w-5 h-5 text-violet-600" />,
+              color: "bg-violet-50 border-violet-100",
+              iconBg: "bg-violet-100",
+              title: "Legal Interpreters",
+              desc: "Keep up with complex legal dialogue and preserve precise terminology throughout proceedings.",
+            },
+            {
+              icon: <Headphones className="w-5 h-5 text-rose-600" />,
+              color: "bg-rose-50 border-rose-100",
+              iconBg: "bg-rose-100",
+              title: "Call Center Interpreters",
+              desc: "Handle fast back-and-forth phone conversations with real-time AI support as you interpret.",
+            },
+            {
+              icon: <Building2 className="w-5 h-5 text-orange-600" />,
+              color: "bg-orange-50 border-orange-100",
+              iconBg: "bg-orange-100",
+              title: "Language Service Providers",
+              desc: "Equip your interpreters with an AI-powered tool that improves accuracy and reduces fatigue.",
+            },
+          ].map(({ icon, color, iconBg, title, desc }) => (
+            <div key={title} className={`rounded-2xl border p-5 ${color}`}>
+              <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center mb-3`}>
+                {icon}
+              </div>
+              <h3 className="font-semibold text-[14px] mb-1.5">{title}</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </motion.div>
+      </section>
+
+      {/* ── SECTION 6 — CORE FEATURES ────────────────────────────────────── */}
+      <section className="bg-white border-y border-border py-20">
+        <div className="max-w-5xl mx-auto px-5">
+          <motion.div {...fade(0)} className="text-center mb-12">
+            <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-3">
+              Everything You Need During a Live Call
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">Built for the speed and precision professional interpreters demand.</p>
+          </motion.div>
+          <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {[
+              {
+                icon: <Zap className="w-5 h-5 text-violet-600" />,
+                color: "bg-violet-100",
+                title: "Real-Time Speech Capture",
+                desc: "Transcribes every spoken word instantly — giving you a live written reference as conversations unfold.",
+              },
+              {
+                icon: <Globe className="w-5 h-5 text-blue-600" />,
+                color: "bg-blue-100",
+                title: "Interpreter-Grade Translation",
+                desc: "Bidirectional translation across 35+ languages, fine-tuned for professional interpretation terminology.",
+              },
+              {
+                icon: <Users className="w-5 h-5 text-emerald-600" />,
+                color: "bg-emerald-100",
+                title: "Speaker Identification",
+                desc: "Automatically separates speakers so you can follow multi-party calls with complete clarity.",
+              },
+              {
+                icon: <Monitor className="w-5 h-5 text-orange-600" />,
+                color: "bg-orange-100",
+                title: "Mic or Tab Audio",
+                desc: "Use your microphone directly, or capture audio from any browser tab during video or phone calls.",
+              },
+            ].map(({ icon, color, title, desc }) => (
+              <div key={title} className="bg-[#f5f5f7] rounded-2xl border border-border p-6">
+                <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center mb-4`}>
+                  {icon}
+                </div>
+                <h3 className="font-semibold text-[15px] mb-2">{title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── SECTION 7 — TESTIMONIAL ───────────────────────────────────────── */}
+      <section className="max-w-3xl mx-auto px-5 py-20 text-center">
+        <motion.div {...fade(0)}>
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-6">
+            <Quote className="w-5 h-5 text-primary" />
+          </div>
+          <blockquote className="text-xl sm:text-2xl font-display font-medium text-foreground leading-relaxed mb-6">
+            "After using InterpreterAI for a few months I noticed a huge difference in my work. I miss fewer words during fast conversations and I can focus more on interpreting instead of remembering long sentences."
+          </blockquote>
+          <div className="flex items-center justify-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">M</div>
+            <div className="text-left">
+              <p className="text-sm font-semibold">Professional Interpreter</p>
+              <p className="text-xs text-muted-foreground">Interpreter Call Center</p>
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* ── SECTION 8 — TRUST / ACCURACY ─────────────────────────────────── */}
       <section className="bg-primary py-20">
         <div className="max-w-4xl mx-auto px-5">
           <motion.div {...fade(0)} className="text-center mb-10">
@@ -185,7 +431,6 @@ export default function Landing() {
               InterpreterAI uses advanced speech recognition optimized for fast live conversations.
             </p>
           </motion.div>
-
           <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
             {[
               "Up to 99% speech recognition accuracy",
@@ -204,57 +449,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── SECTION 6 — WHO USES INTERPRETERAI ───────────────────────────── */}
-      <section className="max-w-5xl mx-auto px-5 py-20">
-        <motion.div {...fade(0)} className="text-center mb-12">
-          <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight">
-            Who Uses InterpreterAI?
-          </h2>
-        </motion.div>
-        <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {[
-            {
-              icon: <Shield className="w-5 h-5 text-blue-600" />,
-              color: "bg-blue-50 border-blue-100",
-              iconBg: "bg-blue-100",
-              title: "Medical Interpreters",
-              desc: "Practice medical terminology and review vocabulary across specialties before professional assignments.",
-            },
-            {
-              icon: <Gavel className="w-5 h-5 text-violet-600" />,
-              color: "bg-violet-50 border-violet-100",
-              iconBg: "bg-violet-100",
-              title: "Court Interpreters",
-              desc: "Reinforce legal terminology and train with complex multi-speaker dialogues.",
-            },
-            {
-              icon: <Video className="w-5 h-5 text-emerald-600" />,
-              color: "bg-emerald-50 border-emerald-100",
-              iconBg: "bg-emerald-100",
-              title: "Remote Interpreters",
-              desc: "Use as a personal language support workspace during practice and self-study sessions.",
-            },
-            {
-              icon: <Building2 className="w-5 h-5 text-orange-600" />,
-              color: "bg-orange-50 border-orange-100",
-              iconBg: "bg-orange-100",
-              title: "Conference Interpreters",
-              desc: "Prepare for rapid-speech environments by training with real audio material.",
-            },
-          ].map(({ icon, color, iconBg, title, desc }) => (
-            <div key={title} className={`rounded-2xl border p-5 ${color}`}>
-              <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center mb-3`}>
-                {icon}
-              </div>
-              <h3 className="font-semibold text-[14px] mb-1.5">{title}</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
-            </div>
-          ))}
-        </motion.div>
-      </section>
-
-      {/* ── SECTION 7 — PRICING ───────────────────────────────────────────── */}
-      <section className="bg-white border-y border-border py-20">
+      {/* ── SECTION 9 — PRICING ───────────────────────────────────────────── */}
+      <section className="bg-white border-b border-border py-20">
         <div className="max-w-5xl mx-auto px-5">
           <motion.div {...fade(0)} className="text-center mb-12">
             <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight">
@@ -282,8 +478,8 @@ export default function Landing() {
                 features: [
                   "Everything in Basic",
                   "Up to 7 hours interpreting per day",
-                  "Translation memory",
-                  "Domain glossaries",
+                  "Personal glossary system",
+                  "Domain terminology hints",
                   "Priority processing",
                 ],
                 highlight: true,
@@ -343,8 +539,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── SECTION 8 — DISCLAIMER ────────────────────────────────────────── */}
-      <section className="max-w-3xl mx-auto px-5 pb-4">
+      {/* ── SECTION 10 — DISCLAIMER ───────────────────────────────────────── */}
+      <section className="max-w-3xl mx-auto px-5 py-8">
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
           <p className="text-sm text-amber-800 leading-relaxed">
             <strong>Important:</strong> This tool is designed for language practice and professional development. Users are responsible for ensuring their usage complies with their employer policies, contractual obligations, and confidentiality requirements.
@@ -352,21 +548,24 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── SECTION 9 — FINAL CTA ─────────────────────────────────────────── */}
+      {/* ── SECTION 11 — FINAL CTA ────────────────────────────────────────── */}
       <section className="max-w-3xl mx-auto px-5 py-20 text-center">
         <motion.div {...fade(0)}>
           <h2 className="text-3xl sm:text-4xl font-display font-bold tracking-tight mb-4">
-            Sharpen your skills.<br className="hidden sm:block" /> Prepare with confidence.
+            Ready to try InterpreterAI?
           </h2>
-          <p className="text-muted-foreground text-lg mb-8">
-            InterpreterAI is your personal language support workspace for terminology preparation and professional development.
+          <p className="text-muted-foreground text-lg mb-8 max-w-xl mx-auto leading-relaxed">
+            Start your free trial and experience real-time translation built for professional interpreters.
           </p>
-          <button
-            onClick={() => setLocation("/signup")}
-            className="inline-flex items-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
-          >
-            Start Free Trial · No credit card required <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onClick={() => setLocation("/signup")}
+              className="inline-flex items-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[16px] shadow-lg hover:bg-primary/90 active:scale-95 transition-all"
+            >
+              Start Free Trial <ChevronRight className="w-4 h-4" />
+            </button>
+            <p className="text-sm text-muted-foreground">Free trial — no credit card required.</p>
+          </div>
         </motion.div>
       </section>
 
