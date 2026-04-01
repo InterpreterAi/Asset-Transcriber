@@ -16,7 +16,7 @@ import { formatDistanceToNow, format, differenceInDays } from "date-fns";
 import {
   Users, Activity, Clock, Plus, Trash2, Power, PowerOff,
   ArrowLeft, Star, LayoutDashboard, RefreshCw, DollarSign,
-  Radio, AlertTriangle, TrendingUp, Calendar, Eye, X,
+  Mic, Radio, AlertTriangle, TrendingUp, Calendar, Eye, X,
   Globe, Download, ChevronRight, Wifi, WifiOff, BarChart2,
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
@@ -1758,7 +1758,14 @@ export default function Admin() {
                 ) : sessionDetail?.snapshot?.transcript ? (
                   <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sessionDetail.snapshot.transcript}</p>
                 ) : (
-                  <p className="text-sm text-muted-foreground italic">No transcript yet. Snap is pushed every 5 s once speech is detected.</p>
+                  <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                    <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Mic className="w-4 h-4 text-primary" />
+                      <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
+                    <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
+                  </div>
                 )}
               </div>
               <div className="overflow-y-auto p-5">

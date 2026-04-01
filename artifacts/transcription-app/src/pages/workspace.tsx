@@ -4,7 +4,7 @@ import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
-  Mic2, LogOut, Settings, AlertTriangle, Clock, User,
+  Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle,
@@ -107,6 +107,17 @@ export default function Workspace() {
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
   const [showLeftPanel, setShowLeftPanel] = useState(false);
+  const [showMicHint, setShowMicHint] = useState(false);
+
+  // Show a subtle microphone hint after 10 s of recording with no speech yet.
+  useEffect(() => {
+    if (!transcription.isRecording || transcription.hasTranscript) {
+      setShowMicHint(false);
+      return;
+    }
+    const t = setTimeout(() => setShowMicHint(true), 10_000);
+    return () => clearTimeout(t);
+  }, [transcription.isRecording, transcription.hasTranscript]);
 
   // ── Session history refresh key — incremented when a session ends so the panel auto-refreshes
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -1250,6 +1261,20 @@ export default function Workspace() {
                       </div>
                       <p className="text-sm font-semibold text-emerald-700">Session cleared</p>
                       <p className="text-xs text-muted-foreground/70 mt-1">No session data was stored</p>
+                    </>
+                  ) : transcription.isRecording ? (
+                    <>
+                      <div className="relative w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                        <Mic className="w-5 h-5 text-primary" />
+                        <span className="absolute inset-0 rounded-full border-2 border-primary/40 animate-ping" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground">Waiting for speech input…</p>
+                      <p className="text-xs text-muted-foreground/60 mt-1">Start speaking and the transcript will appear automatically.</p>
+                      {showMicHint && (
+                        <p className="text-xs text-amber-600/80 mt-3 px-8 text-center leading-relaxed">
+                          Make sure your microphone or tab audio is active.
+                        </p>
+                      )}
                     </>
                   ) : (
                     <>
