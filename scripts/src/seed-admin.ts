@@ -38,7 +38,7 @@ async function seedAdmin() {
     lastUsageResetAt: new Date(),
   });
 
-  console.log(`Admin user '${username}' created with password '${password}'.`);
+  console.log("Admin user created successfully.");
   console.log("IMPORTANT: Change the admin password immediately after first login!");
   process.exit(0);
 }
