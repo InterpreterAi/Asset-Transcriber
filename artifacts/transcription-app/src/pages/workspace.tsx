@@ -4,7 +4,7 @@ import { useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import {
-  Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
+  Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle,
@@ -107,6 +107,7 @@ export default function Workspace() {
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
   const [showLeftPanel, setShowLeftPanel] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [showMicHint, setShowMicHint] = useState(false);
 
   // Show a subtle microphone hint after 10 s of recording with no speech yet.
@@ -579,9 +580,33 @@ export default function Workspace() {
         </div>
       )}
 
+      {/* MOBILE SETTINGS SIDEBAR BACKDROP */}
+      {settingsOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm md:hidden"
+          onClick={() => setSettingsOpen(false)}
+        />
+      )}
+
       {/* SIDEBAR */}
-      <aside className="w-[64px] bg-sidebar border-r border-sidebar-border flex flex-col items-center py-3 flex-shrink-0 z-20">
-        <div className="flex-1 flex flex-col gap-1.5">
+      <aside className={`
+        fixed inset-y-0 left-0 z-30 w-48 bg-sidebar border-r border-sidebar-border flex flex-col py-3
+        transform transition-transform duration-300 ease-in-out
+        ${settingsOpen ? "translate-x-0" : "-translate-x-full"}
+        md:relative md:inset-auto md:translate-x-0 md:w-[64px] md:items-center md:z-20 md:flex-shrink-0
+      `}>
+        {/* Mobile close button */}
+        <div className="flex items-center justify-between px-3 mb-2 md:hidden">
+          <span className="text-xs font-semibold text-sidebar-foreground/70 uppercase tracking-wider">Menu</span>
+          <button
+            onClick={() => setSettingsOpen(false)}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 flex flex-col gap-1 md:gap-1.5 px-2 md:px-0 md:items-center">
           {[
             { id: "profile",  icon: <User className="w-5 h-5" />,      title: "Profile" },
             { id: "mic",      icon: <Mic2 className="w-5 h-5" />,      title: "Audio" },
@@ -591,31 +616,33 @@ export default function Workspace() {
           ].map(({ id, icon, title }) => (
             <button
               key={id}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
+              className={`flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all ${
                 activeTab === id
                   ? "bg-white shadow-sm text-primary"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               }`}
-              onClick={() => setActiveTab(id)}
+              onClick={() => { setActiveTab(id); setSettingsOpen(false); }}
               title={title}
             >
-              {icon}
+              <span className="shrink-0">{icon}</span>
+              <span className="text-sm font-medium md:hidden">{title}</span>
             </button>
           ))}
           {user.isAdmin && (
             <button
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
-              onClick={() => setLocation("/admin")}
+              className="flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
+              onClick={() => { setSettingsOpen(false); setLocation("/admin"); }}
               title="Admin"
             >
-              <Settings className="w-5 h-5" />
+              <Settings className="w-5 h-5 shrink-0" />
+              <span className="text-sm font-medium md:hidden">Admin</span>
             </button>
           )}
         </div>
 
         {/* ── Growth / utility buttons ─────────────────────────────── */}
-        <div className="flex flex-col gap-1.5 mb-2">
-          <div className="w-8 h-px bg-sidebar-border mx-auto mb-0.5" />
+        <div className="flex flex-col gap-1 md:gap-1.5 px-2 md:px-0 md:items-center mb-2">
+          <div className="w-full md:w-8 h-px bg-sidebar-border mx-auto mb-0.5" />
 
           {/* Invite another interpreter */}
           <button
@@ -627,40 +654,43 @@ export default function Workspace() {
               setInviteCopied(true);
               setTimeout(() => setInviteCopied(false), 2500);
             }}
-            className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
+            className={`flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all ${
               inviteCopied
                 ? "bg-green-100 text-green-600"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             }`}
             title={inviteCopied ? "Link copied!" : "Invite another interpreter"}
           >
-            {inviteCopied
-              ? <Check className="w-4.5 h-4.5" />
-              : <Share2 className="w-4.5 h-4.5" />}
+            <span className="shrink-0">{inviteCopied ? <Check className="w-4.5 h-4.5" /> : <Share2 className="w-4.5 h-4.5" />}</span>
+            <span className="text-sm font-medium md:hidden">{inviteCopied ? "Copied!" : "Invite colleague"}</span>
           </button>
 
           {/* Send feedback */}
           <button
-            onClick={() => setShowUserFeedback(true)}
-            className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
+            onClick={() => { setShowUserFeedback(true); setSettingsOpen(false); }}
+            className="flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
             title="Send feedback"
           >
-            <MessageCircle className="w-4.5 h-4.5" />
+            <MessageCircle className="w-4.5 h-4.5 shrink-0" />
+            <span className="text-sm font-medium md:hidden">Send Feedback</span>
           </button>
         </div>
 
-        <button
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive transition-colors"
-          onClick={handleLogout}
-          title="Log Out"
-        >
-          <LogOut className="w-5 h-5" />
-        </button>
+        <div className="px-2 md:px-0 md:flex md:justify-center">
+          <button
+            className="flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive transition-colors"
+            onClick={handleLogout}
+            title="Log Out"
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            <span className="text-sm font-medium md:hidden">Log Out</span>
+          </button>
+        </div>
       </aside>
 
       {/* PROFILE PANEL */}
       {activeTab === "profile" && (
-        <div className="w-72 bg-white border-r border-border flex flex-col overflow-y-auto shrink-0 z-10">
+        <div className="w-full md:w-72 bg-white border-r border-border flex flex-col overflow-y-auto shrink-0 z-10">
           {/* Panel header */}
           <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
             <span className="font-semibold text-sm">Account</span>
@@ -1003,6 +1033,15 @@ export default function Workspace() {
         {/* HEADER */}
         <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-3 sm:px-5 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 mr-2">
+            {/* Mobile: Settings sidebar toggle — hidden on md+ */}
+            <button
+              onClick={() => setSettingsOpen(s => !s)}
+              className="md:hidden w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+              title="Settings & Navigation"
+              aria-label="Open settings"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
             {/* Mobile: Notes/History drawer toggle — hidden on md+ */}
             <button
               onClick={() => setShowLeftPanel(v => !v)}

@@ -119,7 +119,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
   const openCount = tickets.filter(t => t.status === "open").length;
 
   return (
-    <div className="w-80 bg-white border-r border-border flex flex-col overflow-hidden shrink-0 z-10">
+    <div className="w-full md:w-80 bg-white border-r border-border flex flex-col overflow-hidden shrink-0 z-10">
       {/* Header */}
       <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">

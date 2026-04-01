@@ -76,7 +76,7 @@ export function GlossaryPanel({ onClose }: Props) {
   };
 
   return (
-    <div className="w-72 bg-white border-r border-border flex flex-col overflow-hidden shrink-0 z-10">
+    <div className="w-full md:w-72 bg-white border-r border-border flex flex-col overflow-hidden shrink-0 z-10">
       <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2">
           <BookOpen className="w-4 h-4 text-primary" />
