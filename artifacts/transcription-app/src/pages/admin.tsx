@@ -21,6 +21,7 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle,
+  Pencil, Gift,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import { formatMinutes } from "@/lib/utils";
@@ -276,6 +277,23 @@ export default function Admin() {
   // ── Main tabs ─────────────────────────────────────────────────────────────
   const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // ── Edit user drawer ───────────────────────────────────────────────────────
+  const [editingUser, setEditingUser] = useState<{
+    id: number; username: string; email: string | null; isAdmin: boolean;
+    planType: string; trialEndsAt: string | null; trialDaysRemaining: number | null;
+    dailyLimitMinutes: number; minutesUsedToday: number;
+    totalMinutesUsed: number; totalSessions: number; createdAt: string;
+  } | null>(null);
+  const [editForm, setEditForm] = useState({
+    isActive:          true,
+    planType:          "trial",
+    trialEndsAt:       "",
+    dailyLimitMinutes: 300,
+    minutesUsedToday:  0,
+  });
+  const [editSaving, setEditSaving]  = useState(false);
+  const [editError,  setEditError]   = useState<string | null>(null);
 
   // ── Errors tab state ──────────────────────────────────────────────────────
   const [errorsSubTab, setErrorsSubTab]       = useState<"api" | "login">("api");
@@ -595,6 +613,90 @@ export default function Admin() {
       queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
     }
   };
+
+  // ── Edit user drawer helpers ───────────────────────────────────────────────
+  function openEditUser(u: typeof allUsers[0]) {
+    setEditingUser({
+      id:                u.id,
+      username:          u.username,
+      email:             u.email ?? null,
+      isAdmin:           u.isAdmin,
+      planType:          u.planType ?? "trial",
+      trialEndsAt:       u.trialEndsAt ?? null,
+      trialDaysRemaining: (u.trialDaysRemaining as number | null | undefined) ?? null,
+      dailyLimitMinutes: u.dailyLimitMinutes,
+      minutesUsedToday:  u.minutesUsedToday,
+      totalMinutesUsed:  u.totalMinutesUsed,
+      totalSessions:     u.totalSessions,
+      createdAt:         u.createdAt ?? new Date().toISOString(),
+    });
+    setEditForm({
+      isActive:          u.isActive,
+      planType:          u.planType ?? "trial",
+      trialEndsAt:       u.trialEndsAt ? new Date(u.trialEndsAt).toISOString().slice(0, 10) : "",
+      dailyLimitMinutes: u.dailyLimitMinutes,
+      minutesUsedToday:  Math.round(u.minutesUsedToday),
+    });
+    setEditError(null);
+  }
+
+  function extendTrial(days: number) {
+    const base = editForm.trialEndsAt ? new Date(editForm.trialEndsAt) : new Date();
+    if (base < new Date()) base.setTime(Date.now());
+    base.setDate(base.getDate() + days);
+    setEditForm(f => ({ ...f, trialEndsAt: base.toISOString().slice(0, 10) }));
+  }
+
+  async function saveEditUser() {
+    if (!editingUser) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const body: Record<string, unknown> = {
+        isActive:          editForm.isActive,
+        planType:          editForm.planType,
+        dailyLimitMinutes: editForm.dailyLimitMinutes,
+        minutesUsedToday:  editForm.minutesUsedToday,
+      };
+      if (editForm.planType === "trial" && editForm.trialEndsAt) {
+        body.trialEndsAt = new Date(editForm.trialEndsAt).toISOString();
+      }
+      const res = await fetch(`/api/admin/users/${editingUser.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        setEditError(err.error ?? "Failed to save");
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
+      setEditingUser(null);
+    } catch {
+      setEditError("Network error — please try again");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function resetUsageForEdit() {
+    if (!editingUser) return;
+    if (!confirm("Reset today's usage for this user?")) return;
+    await resetMut.mutateAsync({ userId: editingUser.id });
+    await queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
+    setEditingUser(u => u ? { ...u, minutesUsedToday: 0 } : null);
+    setEditForm(f => ({ ...f, minutesUsedToday: 0 }));
+  }
+
+  async function deleteUserFromEdit() {
+    if (!editingUser) return;
+    if (!confirm(`Permanently delete "${editingUser.username}"? This cannot be undone.`)) return;
+    await deleteMut.mutateAsync({ userId: editingUser.id });
+    await queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
+    setEditingUser(null);
+  }
 
   const filteredUsers = allUsers.filter(u => {
     if (userFilter === "trial")    return u.planType === "trial";
@@ -1099,7 +1201,7 @@ export default function Admin() {
                         </td>
 
                         {/* Plan */}
-                        <td className="px-4 py-3">{trialBadge(trialDays, u.planType)}</td>
+                        <td className="px-4 py-3">{trialBadge(trialDays, u.planType ?? "trial")}</td>
 
                         {/* Today */}
                         <td className="px-4 py-3">
@@ -1128,6 +1230,9 @@ export default function Admin() {
                         <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                           <Button variant="outline" size="sm" onClick={() => openHistory(u.id, u.username)} title="Session History" className="h-7 w-7 p-0 text-primary/70 hover:text-primary hover:border-primary/40">
                             <History className="w-3 h-3" />
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openEditUser(u)} title="Manage User" className="h-7 w-7 p-0 text-violet-600/70 hover:text-violet-700 hover:border-violet-300 hover:bg-violet-50">
+                            <Pencil className="w-3 h-3" />
                           </Button>
                           <Button variant="outline" size="sm" onClick={() => resetUsage(u.id)} title="Reset Usage" className="h-7 w-7 p-0">
                             <RefreshCw className="w-3 h-3 text-muted-foreground" />
@@ -1968,6 +2073,241 @@ export default function Admin() {
                 </Button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT USER DRAWER ─────────────────────────────────────────────── */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingUser(null)} />
+
+          {/* Panel */}
+          <div className="relative z-10 w-full sm:w-[440px] bg-white border-l border-border shadow-2xl flex flex-col overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-white shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+                  <Pencil className="w-4 h-4 text-violet-600" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-foreground truncate">Manage: {editingUser.username}</h2>
+                  {editingUser.email && <p className="text-xs text-muted-foreground truncate">{editingUser.email}</p>}
+                </div>
+              </div>
+              <button onClick={() => setEditingUser(null)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto">
+
+              {/* ── Account Status ── */}
+              <section className="px-5 py-4 border-b border-border/60">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Power className="w-3 h-3" /> Account Status
+                </h3>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{editForm.isActive ? "Active" : "Disabled"}</p>
+                    <p className="text-xs text-muted-foreground">User can {editForm.isActive ? "" : "not "}log in and use the service</p>
+                  </div>
+                  <button
+                    onClick={() => setEditForm(f => ({ ...f, isActive: !f.isActive }))}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${editForm.isActive ? "bg-green-500" : "bg-gray-300"}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${editForm.isActive ? "left-5.5 translate-x-0" : "left-0.5"}`} style={{ left: editForm.isActive ? "calc(100% - 22px)" : "2px" }} />
+                  </button>
+                </div>
+              </section>
+
+              {/* ── Plan & Trial ── */}
+              <section className="px-5 py-4 border-b border-border/60 space-y-4">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Star className="w-3 h-3" /> Plan & Trial
+                </h3>
+
+                {/* Plan type */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Plan Type</label>
+                  <select
+                    value={editForm.planType}
+                    onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    <option value="trial">Trial</option>
+                    <option value="basic">Basic</option>
+                    <option value="professional">Professional</option>
+                    <option value="unlimited">Unlimited</option>
+                  </select>
+                </div>
+
+                {/* Trial expiry — only when trial */}
+                {editForm.planType === "trial" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Trial Ends On</label>
+                    <input
+                      type="date"
+                      value={editForm.trialEndsAt}
+                      onChange={e => setEditForm(f => ({ ...f, trialEndsAt: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    <div className="flex gap-2">
+                      {[7, 14, 30].map(d => (
+                        <button
+                          key={d}
+                          onClick={() => extendTrial(d)}
+                          className="flex-1 h-7 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 transition-colors flex items-center justify-center gap-1"
+                        >
+                          <Gift className="w-3 h-3" /> +{d}d
+                        </button>
+                      ))}
+                    </div>
+                    {editForm.trialEndsAt && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {new Date(editForm.trialEndsAt) > new Date()
+                          ? `Expires in ${Math.ceil((new Date(editForm.trialEndsAt).getTime() - Date.now()) / 86_400_000)} day(s)`
+                          : "Trial has already expired"}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              {/* ── Daily Usage Limit ── */}
+              <section className="px-5 py-4 border-b border-border/60 space-y-3">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-3 h-3" /> Daily Usage Limit (Credits)
+                </h3>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Minutes per day</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={9999}
+                      value={editForm.dailyLimitMinutes}
+                      onChange={e => setEditForm(f => ({ ...f, dailyLimitMinutes: Math.max(1, Number(e.target.value)) }))}
+                      className="h-9 text-sm"
+                    />
+                    <div className="flex gap-1">
+                      {[60, 120, 300, 600].map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setEditForm(f => ({ ...f, dailyLimitMinutes: m }))}
+                          className={`h-9 px-2.5 rounded-lg border text-xs font-medium transition-colors ${editForm.dailyLimitMinutes === m ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {m >= 60 ? `${m / 60}h` : `${m}m`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Today's usage override */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Today's Usage Override (minutes)</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={editForm.minutesUsedToday}
+                      onChange={e => setEditForm(f => ({ ...f, minutesUsedToday: Math.max(0, Number(e.target.value)) }))}
+                      className="h-9 text-sm"
+                    />
+                    <button
+                      onClick={resetUsageForEdit}
+                      className="h-9 px-3 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Reset to 0
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${Math.min(100, (editForm.minutesUsedToday / editForm.dailyLimitMinutes) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {editForm.minutesUsedToday} / {editForm.dailyLimitMinutes} min
+                    </span>
+                  </div>
+                </div>
+              </section>
+
+              {/* ── Usage & Estimated API Cost ── */}
+              <section className="px-5 py-4 border-b border-border/60 space-y-3">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <DollarSign className="w-3 h-3" /> Usage & Estimated API Cost
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+                    <p className="text-base font-bold text-blue-700 leading-none">{formatMinutes(editingUser.totalMinutesUsed)}</p>
+                    <p className="text-[10px] text-blue-500 font-medium mt-0.5">Total Transcription</p>
+                  </div>
+                  <div className="bg-violet-50 rounded-xl p-3 border border-violet-100">
+                    <p className="text-base font-bold text-violet-700 leading-none">{editingUser.totalSessions}</p>
+                    <p className="text-[10px] text-violet-500 font-medium mt-0.5">Total Sessions</p>
+                  </div>
+                  <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                    <p className="text-base font-bold text-emerald-700 leading-none">
+                      ${(editingUser.totalMinutesUsed * 0.0027).toFixed(3)}
+                    </p>
+                    <p className="text-[10px] text-emerald-500 font-medium mt-0.5">Est. Total API Cost</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                    <p className="text-base font-bold text-amber-700 leading-none">
+                      ${(editingUser.minutesUsedToday * 0.0027).toFixed(4)}
+                    </p>
+                    <p className="text-[10px] text-amber-500 font-medium mt-0.5">Est. Cost Today</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground/60">Estimates: $0.0025/min Soniox + $0.0002/min GPT-4o-mini</p>
+              </section>
+
+              {/* ── Account Info ── */}
+              <section className="px-5 py-4 space-y-1.5">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Account Info</h3>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">User ID</span>
+                  <span className="font-mono text-foreground">#{editingUser.id}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Admin</span>
+                  <span className={editingUser.isAdmin ? "text-primary font-medium" : "text-muted-foreground"}>
+                    {editingUser.isAdmin ? "Yes" : "No"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Member since</span>
+                  <span className="text-foreground">{format(new Date(editingUser.createdAt), "MMM d, yyyy")}</span>
+                </div>
+              </section>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-border px-5 py-4 bg-white shrink-0 space-y-2">
+              {editError && (
+                <p className="text-xs text-destructive bg-destructive/5 px-3 py-2 rounded-lg">{editError}</p>
+              )}
+              <div className="flex gap-2">
+                <Button onClick={saveEditUser} isLoading={editSaving} className="flex-1 h-9 text-sm">
+                  <Check className="w-3.5 h-3.5 mr-1.5" /> Save Changes
+                </Button>
+                <button
+                  onClick={deleteUserFromEdit}
+                  disabled={editSaving}
+                  className="h-9 px-4 rounded-lg border border-destructive/30 text-destructive text-xs font-medium hover:bg-destructive hover:text-white transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5 inline mr-1" /> Delete
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

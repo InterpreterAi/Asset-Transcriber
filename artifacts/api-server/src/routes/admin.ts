@@ -438,20 +438,24 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  const { isActive, isAdmin, dailyLimitMinutes, password, planType } = req.body as {
+  const { isActive, isAdmin, dailyLimitMinutes, password, planType, trialEndsAt, minutesUsedToday } = req.body as {
     isActive?: boolean;
     isAdmin?: boolean;
     dailyLimitMinutes?: number;
     password?: string;
     planType?: string;
+    trialEndsAt?: string | null;
+    minutesUsedToday?: number;
   };
 
   const updates: Partial<typeof usersTable.$inferSelect> = {};
-  if (isActive !== undefined)          updates.isActive = isActive;
-  if (isAdmin !== undefined)           updates.isAdmin = isAdmin;
-  if (dailyLimitMinutes !== undefined) updates.dailyLimitMinutes = dailyLimitMinutes;
-  if (planType)                        updates.planType = planType;
-  if (password)                        updates.passwordHash = await hashPassword(password);
+  if (isActive !== undefined)             updates.isActive = isActive;
+  if (isAdmin !== undefined)              updates.isAdmin = isAdmin;
+  if (dailyLimitMinutes !== undefined)    updates.dailyLimitMinutes = dailyLimitMinutes;
+  if (planType)                           updates.planType = planType;
+  if (password)                           updates.passwordHash = await hashPassword(password);
+  if (trialEndsAt !== undefined)          updates.trialEndsAt = trialEndsAt ? new Date(trialEndsAt) : null;
+  if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;
 
   const result = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
   if (result.length === 0) {
