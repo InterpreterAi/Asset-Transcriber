@@ -1094,11 +1094,54 @@ export function useTranscription() {
       analyser.fftSize  = 256;
       audioSource.connect(analyser);
 
+      // ── Tab Audio monitor ─────────────────────────────────────────────────
+      // When capturing a browser tab (providedStream is set), the caller's
+      // audio MUST be routed back to the user's headphones so they continue
+      // hearing the call while transcription runs.
+      //
+      // Architecture (Tab Audio mode):
+      //   MediaStream (tab capture)
+      //        │
+      //        ├─→ analyser → worklet → PCM chunks → Soniox  (transcription)
+      //        │
+      //        └─→ monitorGain (1.0) → ctx.destination         (local playback)
+      //
+      // The pcm-processor worklet is a pure sink — it reads from inputs but
+      // never writes to outputs — so worklet.connect(ctx.destination) is silent.
+      // The monitorGain node is the only real audio-output path.
+      //
+      // suppressLocalAudioPlayback: true (set by the UI layer) mutes the
+      // browser's own tab-playback to prevent double-audio in same-browser
+      // scenarios (e.g. caller tab in Chrome, InterpreterAI in Chrome).
+      // Our explicit monitor node replaces that playback path with full-quality,
+      // zero-degradation audio routed through the AudioContext to the user's
+      // selected output device (headphones / speakers).
+      //
+      // Cross-browser scenario (e.g. caller in Edge, InterpreterAI in Chrome):
+      //   suppressLocalAudioPlayback has no effect on Edge, so Edge continues
+      //   playing the call naturally; the monitor in Chrome adds a parallel
+      //   path but both go to the same system output (headphones). To avoid
+      //   echo, users in cross-browser setups can mute the Monitor in the
+      //   browser or use the same-browser setup.
+      //
+      // Mic mode: providedStream is undefined → no monitor added, preventing
+      //   any microphone → speaker feedback loop.
+      if (providedStream !== undefined) {
+        const monitorGain       = ctx.createGain();
+        monitorGain.gain.value  = 1.0;
+        audioSource.connect(monitorGain);
+        monitorGain.connect(ctx.destination);
+      }
+
       const worklet = new AudioWorkletNode(ctx, "pcm-processor", {
         processorOptions: { targetRate: TARGET_RATE },
       });
       workletRef.current = worklet;
       analyser.connect(worklet);
+      // Connect to destination to keep the Web Audio graph active.
+      // The pcm-processor produces no audio output (it's a pure sink),
+      // so this connection is silent — it only prevents the browser from
+      // garbage-collecting the node before the session ends.
       worklet.connect(ctx.destination);
 
       worklet.port.onmessage = (e) => {

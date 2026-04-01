@@ -417,13 +417,27 @@ export default function Workspace() {
   const handleStartTabAudio = async () => {
     try {
       // Request display media capturing only the browser tab's audio.
-      // displaySurface: "browser" pre-selects the "Tab" option in the browser's
-      //   share picker so the user is less likely to accidentally share the whole
-      //   screen (which can include system/mic audio).
-      // suppressLocalAudioPlayback: true tells the browser not to mix the local
-      //   microphone or system loopback audio into the captured stream.
-      // Microphone access is never requested here — getUserMedia is only called
-      //   in mic mode (when no providedStream is given to transcription.start).
+      //
+      // displaySurface: "browser"
+      //   Pre-selects the "Tab" option in Chrome's share picker so the user is
+      //   less likely to accidentally share the whole screen or another window.
+      //
+      // suppressLocalAudioPlayback: true  (Chrome-only constraint)
+      //   Tells Chrome to mute the captured tab's own audio output.
+      //   Without this flag, Chrome plays the tab audio twice in same-browser
+      //   scenarios (caller tab in Chrome + InterpreterAI tab in Chrome):
+      //   once from the tab itself, and once from our AudioContext monitor.
+      //   This flag prevents that double-audio by delegating playback entirely
+      //   to our explicit AudioContext monitor node inside use-transcription.ts.
+      //
+      //   Cross-browser setups (caller in Edge, InterpreterAI in Chrome):
+      //   Chrome cannot suppress Edge's audio output; Edge continues playing
+      //   naturally. The Chrome AudioContext monitor adds a parallel path —
+      //   users in cross-browser setups may hear a slight echo and can resolve
+      //   it by muting Chrome's audio output or adjusting their headset routing.
+      //
+      // Microphone access is NEVER requested here — getUserMedia is only called
+      //   in Mic mode (when no providedStream is given to transcription.start).
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           // @ts-ignore — displaySurface is a valid MediaTrackConstraint in modern browsers
