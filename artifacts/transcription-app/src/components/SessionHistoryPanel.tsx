@@ -69,9 +69,9 @@ const PERIOD_LABEL: Record<Period, string> = {
 };
 
 export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
-  const [stats, setStats]   = useState<Stats | null>(null);
+  const [stats, setStats]     = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>("today");
+  const [period, setPeriod]   = useState<Period>("today");
 
   useEffect(() => {
     setLoading(true);
@@ -86,26 +86,27 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
   const sessions = stats?.sessions ?? [];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm" style={{ minWidth: "160px" }}>
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white rounded-xl border border-border shadow-sm">
 
-      {/* Header — two-row layout */}
+      {/* ── Header ── */}
       <div className="border-b border-border bg-muted/20 shrink-0">
 
-        {/* Row 1: Title */}
-        <div className="flex items-center gap-2 px-3 py-2">
-          <History className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        {/* Row 1 — Title */}
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <History className="w-4 h-4 text-primary shrink-0" />
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex-1">
             Session History
           </span>
+          <span className="text-[10px] text-muted-foreground/50">{PERIOD_LABEL[period]}</span>
         </div>
 
-        {/* Row 2: Period filter tabs */}
+        {/* Row 2 — Period tabs */}
         <div className="flex border-t border-border/40">
           {PERIODS.map(({ value, label }) => (
             <button
               key={value}
               onClick={() => setPeriod(value)}
-              className={`flex-1 py-2 px-1 text-[10px] font-semibold transition-colors whitespace-nowrap ${
+              className={`flex-1 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
                 period === value
                   ? "text-primary border-b-2 border-primary bg-primary/5"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
@@ -117,71 +118,72 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
         </div>
       </div>
 
+      {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
-          <div className="flex items-center justify-center py-6">
-            <span className="w-4 h-4 border-2 border-border border-t-primary rounded-full animate-spin" />
+          <div className="flex items-center justify-center py-10">
+            <span className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="p-2.5 space-y-3">
+          <div className="p-3 space-y-3">
 
-            {/* Stats cards for selected period */}
-            <div className="grid grid-cols-3 gap-1">
-              <div className="bg-blue-50 rounded-lg p-1.5 text-center">
-                <p className="text-sm font-bold text-blue-700 leading-none">
+            {/* Stats cards */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-blue-50 rounded-lg p-2.5 text-center">
+                <p className="text-xl font-bold text-blue-700 leading-none">
                   {stats?.periodSessions ?? 0}
                 </p>
-                <p className="text-[8px] text-blue-500 font-medium leading-tight mt-0.5">Sessions</p>
+                <p className="text-xs text-blue-500 font-medium mt-1">Sessions</p>
               </div>
-              <div className="bg-violet-50 rounded-lg p-1.5 text-center">
-                <p className="text-sm font-bold text-violet-700 leading-none">
+              <div className="bg-violet-50 rounded-lg p-2.5 text-center">
+                <p className="text-xl font-bold text-violet-700 leading-none">
                   {fmt(stats?.periodMinutes ?? 0)}
                 </p>
-                <p className="text-[8px] text-violet-500 font-medium leading-tight mt-0.5">Total</p>
+                <p className="text-xs text-violet-500 font-medium mt-1">Total</p>
               </div>
-              <div className="bg-emerald-50 rounded-lg p-1.5 text-center">
-                <p className="text-sm font-bold text-emerald-700 leading-none">
+              <div className="bg-emerald-50 rounded-lg p-2.5 text-center">
+                <p className="text-xl font-bold text-emerald-700 leading-none">
                   {fmt(stats?.periodAvgMinutes ?? 0)}
                 </p>
-                <p className="text-[8px] text-emerald-500 font-medium leading-tight mt-0.5">Avg</p>
+                <p className="text-xs text-emerald-500 font-medium mt-1">Avg</p>
               </div>
             </div>
 
-            {/* Sessions list */}
+            {/* Session list */}
             {sessions.length > 0 ? (
               <div>
-                <div className="flex items-center gap-1 mb-1.5">
-                  <Calendar className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Calendar className="w-3.5 h-3.5 text-muted-foreground/50" />
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                     {PERIOD_LABEL[period]}
                   </span>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {sessions.map(s => {
                     const [src, tgt] = s.langPair ? s.langPair.split("→") : [null, null];
                     return (
                       <div
                         key={s.id}
-                        className="border border-border/50 rounded-lg px-2 py-1.5 bg-muted/20 hover:bg-muted/40 transition-colors"
+                        className="border border-border/50 rounded-lg px-3 py-2 bg-muted/10 hover:bg-muted/30 transition-colors"
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-semibold text-foreground">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-foreground">
                             {fmtDate(s.startedAt)}
                           </span>
-                          <span className="text-[10px] font-mono text-muted-foreground">
+                          <span className="text-sm font-mono font-semibold text-foreground">
                             {fmtDur(s.durationSeconds)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <span className="text-[9px] text-muted-foreground">
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <span className="text-xs text-muted-foreground">
                             {fmtTime(s.startedAt)}
                           </span>
                           {src && tgt ? (
-                            <span className="text-[9px] text-primary font-medium">
+                            <span className="text-xs text-primary font-medium">
                               {src.trim()} → {tgt.trim()}
                             </span>
                           ) : (
-                            <span className="text-[9px] text-muted-foreground/50 italic">No translation</span>
+                            <span className="text-xs text-muted-foreground/50 italic">No translation</span>
                           )}
                         </div>
                       </div>
@@ -190,9 +192,9 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-4">
-                <Clock className="w-6 h-6 mx-auto mb-1.5 text-muted-foreground/20" />
-                <p className="text-[10px] text-muted-foreground/60">
+              <div className="text-center py-8">
+                <Clock className="w-8 h-8 mx-auto mb-2 text-muted-foreground/20" />
+                <p className="text-sm text-muted-foreground/60">
                   No sessions {period === "all" ? "yet" : `this ${PERIOD_LABEL[period].toLowerCase().replace("this ", "")}`}
                 </p>
               </div>
@@ -200,19 +202,21 @@ export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
 
             {/* All-time footer totals */}
             {period !== "all" && (stats?.totalSessions ?? 0) > 0 && (
-              <div className="border-t border-border/40 pt-2">
-                <div className="flex items-center gap-1 mb-1">
-                  <BarChart2 className="w-3 h-3 text-muted-foreground/50" />
-                  <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wider font-semibold">All time</span>
+              <div className="border-t border-border/40 pt-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <BarChart2 className="w-3.5 h-3.5 text-muted-foreground/40" />
+                  <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wider font-semibold">
+                    All time
+                  </span>
                 </div>
-                <div className="flex gap-1.5 text-center">
-                  <div className="flex-1 rounded-md bg-muted/20 border border-border/30 py-1">
-                    <p className="text-[11px] font-bold text-foreground">{stats?.totalSessions ?? 0}</p>
-                    <p className="text-[8px] text-muted-foreground/60">Sessions</p>
+                <div className="flex gap-2">
+                  <div className="flex-1 rounded-md bg-muted/20 border border-border/30 py-2 text-center">
+                    <p className="text-sm font-bold text-foreground">{stats?.totalSessions ?? 0}</p>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">Sessions</p>
                   </div>
-                  <div className="flex-1 rounded-md bg-muted/20 border border-border/30 py-1">
-                    <p className="text-[11px] font-bold text-foreground">{fmt(stats?.totalMinutes ?? 0)}</p>
-                    <p className="text-[8px] text-muted-foreground/60">Total</p>
+                  <div className="flex-1 rounded-md bg-muted/20 border border-border/30 py-2 text-center">
+                    <p className="text-sm font-bold text-foreground">{fmt(stats?.totalMinutes ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">Total time</p>
                   </div>
                 </div>
               </div>
