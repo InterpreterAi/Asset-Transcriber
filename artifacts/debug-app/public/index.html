@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Debug — Real-Time STT + Translation</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+  /* ── Header ── */
+  #header { background: #1a1d2e; border-bottom: 1px solid #2d3148;
+             padding: 12px 20px; display: flex; align-items: center; gap: 16px;
+             flex-wrap: wrap; }
+  #header h1 { font-size: 14px; font-weight: 700; color: #a78bfa; letter-spacing: .04em;
+               text-transform: uppercase; white-space: nowrap; }
+  .ctrl-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  label { font-size: 11px; color: #64748b; text-transform: uppercase;
+          letter-spacing: .05em; white-space: nowrap; }
+  select, input[type=text] {
+    background: #0f1117; border: 1px solid #2d3148; color: #e2e8f0;
+    border-radius: 6px; padding: 5px 10px; font-size: 12px; outline: none; }
+  select:focus, input[type=text]:focus { border-color: #7c3aed; }
+  #btn { padding: 7px 18px; border: none; border-radius: 6px; font-size: 13px;
+         font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; }
+  #btn.idle { background: #7c3aed; color: #fff; }
+  #btn.idle:hover { background: #6d28d9; }
+  #btn.rec { background: #dc2626; color: #fff; }
+  #btn.rec:hover { background: #b91c1c; }
+  #btn:disabled { opacity: .4; cursor: not-allowed; }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: #374151;
+                transition: background .3s; flex-shrink: 0; }
+  #status-dot.live { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  #status-dot.live { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{ opacity:1; } 50%{ opacity:.4; } }
+  #status-text { font-size: 11px; color: #64748b; }
+  #err-msg { color: #f87171; font-size: 11px; }
+
+  /* ── Stats bar ── */
+  #stats-bar { background: #13162a; border-bottom: 1px solid #2d3148;
+               padding: 8px 20px; display: flex; gap: 24px; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat-label { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: .05em; }
+  .stat-value { font-size: 13px; font-weight: 600; color: #a78bfa; font-variant-numeric: tabular-nums; }
+
+  /* ── Columns ── */
+  #cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1;
+          min-height: 0; overflow: hidden; }
+  .col-header { padding: 10px 16px; background: #13162a; border-bottom: 1px solid #2d3148;
+                font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase;
+                letter-spacing: .08em; display: flex; align-items: center; gap: 8px; }
+  .col-header span.badge { background: #1e2140; border: 1px solid #2d3148; border-radius: 4px;
+                           padding: 1px 6px; font-size: 9px; color: #64748b; }
+  #col-orig { border-right: 1px solid #2d3148; }
+  .col-scroll { height: calc(100vh - 200px); overflow-y: auto; padding: 12px; }
+
+  /* ── Segment rows ── */
+  .seg { display: grid; grid-template-columns: 1fr; gap: 4px;
+         padding: 10px 12px; border-radius: 8px; margin-bottom: 8px;
+         background: #1a1d2e; border: 1px solid #2d3148;
+         transition: border-color .2s; }
+  .seg.live { border-color: #7c3aed44; background: #1e1730; }
+  .seg-text { font-size: 13px; line-height: 1.55; color: #e2e8f0; }
+  .seg-text.pending { color: #475569; font-style: italic; }
+  .seg-text.live-nf { color: #94a3b8; }
+  .seg-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .chip { font-size: 10px; padding: 1px 6px; border-radius: 4px;
+          font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chip.lang  { background: #1e2140; color: #818cf8; border: 1px solid #2d3148; }
+  .chip.spk   { background: #1a2e1a; color: #4ade80; border: 1px solid #14532d; }
+  .chip.stt   { background: #1c1f0e; color: #a3e635; border: 1px solid #3f6212; }
+  .chip.oai   { background: #0e1c1c; color: #22d3ee; border: 1px solid #155e75; }
+  .chip.total { background: #1c0e0e; color: #fb923c; border: 1px solid #7c2d12; }
+  .chip.skip  { background: #1a1d2e; color: #64748b; border: 1px solid #2d3148; }
+  .chip.err   { background: #1c0a0a; color: #f87171; border: 1px solid #7f1d1d; }
+
+  /* empty state */
+  #empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+           height: 200px; gap: 8px; color: #374151; }
+  #empty svg { opacity: .3; }
+  #empty p { font-size: 12px; }
+
+  /* scrollbar */
+  .col-scroll::-webkit-scrollbar { width: 4px; }
+  .col-scroll::-webkit-scrollbar-track { background: transparent; }
+  .col-scroll::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ── Header / Controls ─────────────────────────────────────────────────── -->
+<div id="header">
+  <h1>STT + Translation Debug</h1>
+
+  <div class="ctrl-group">
+    <label>Mic</label>
+    <select id="sel-mic"><option value="">— loading —</option></select>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Lang A</label>
+    <select id="sel-a"></select>
+  </div>
+
+  <div class="ctrl-group">
+    <label>Lang B</label>
+    <select id="sel-b"></select>
+  </div>
+
+  <button id="btn" class="idle" onclick="toggle()">Start</button>
+
+  <div class="ctrl-group">
+    <div id="status-dot"></div>
+    <span id="status-text">idle</span>
+  </div>
+
+  <span id="err-msg"></span>
+</div>
+
+<!-- ── Stats bar ─────────────────────────────────────────────────────────── -->
+<div id="stats-bar">
+  <div class="stat">
+    <span class="stat-label">Segments</span>
+    <span class="stat-value" id="st-segs">0</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Avg STT finalize</span>
+    <span class="stat-value" id="st-stt">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Avg OpenAI</span>
+    <span class="stat-value" id="st-oai">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Avg end-to-end</span>
+    <span class="stat-value" id="st-e2e">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Min / Max e2e</span>
+    <span class="stat-value" id="st-minmax">—</span>
+  </div>
+</div>
+
+<!-- ── Two-column layout ──────────────────────────────────────────────────── -->
+<div id="cols">
+  <div id="col-orig">
+    <div class="col-header">
+      Transcript <span class="badge" id="badge-a">—</span>
+    </div>
+    <div class="col-scroll" id="scroll-orig">
+      <div id="empty-orig">
+        <div id="empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          <p>Press Start and begin speaking</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="col-trans">
+    <div class="col-header">
+      Translation <span class="badge" id="badge-b">—</span>
+    </div>
+    <div class="col-scroll" id="scroll-trans"></div>
+  </div>
+</div>
+
+<script>
+// ── Language list ─────────────────────────────────────────────────────────
+const LANGS = [
+  ["ar","Arabic"],["bg","Bulgarian"],["zh-CN","Chinese (Simplified)"],
+  ["zh-TW","Chinese (Traditional)"],["hr","Croatian"],["cs","Czech"],
+  ["da","Danish"],["nl","Dutch"],["en","English"],["fa","Persian (Farsi)"],
+  ["fi","Finnish"],["fr","French"],["de","German"],["el","Greek"],
+  ["he","Hebrew"],["hi","Hindi"],["hu","Hungarian"],["id","Indonesian"],
+  ["it","Italian"],["ja","Japanese"],["ko","Korean"],["ms","Malay"],
+  ["nb","Norwegian"],["pl","Polish"],["pt","Portuguese"],["ro","Romanian"],
+  ["ru","Russian"],["sk","Slovak"],["es","Spanish"],["sv","Swedish"],
+  ["th","Thai"],["tr","Turkish"],["uk","Ukrainian"],["ur","Urdu"],["vi","Vietnamese"],
+];
+
+// Populate language dropdowns
+const selA = document.getElementById("sel-a");
+const selB = document.getElementById("sel-b");
+LANGS.forEach(([code, name]) => {
+  selA.insertAdjacentHTML("beforeend", `<option value="${code}">${name}</option>`);
+  selB.insertAdjacentHTML("beforeend", `<option value="${code}">${name}</option>`);
+});
+selA.value = "es";
+selB.value = "en";
+
+// ── Constants ─────────────────────────────────────────────────────────────
+const SONIOX_WS      = "wss://stt-rt.soniox.com/transcribe-websocket";
+const TARGET_RATE    = 16000;
+const SILENCE_MS     = 1200;
+
+// ── State ─────────────────────────────────────────────────────────────────
+let recording  = false;
+let apiKey     = null;
+let ws         = null;
+let audioCtx   = null;
+let worklet    = null;
+let micStream  = null;
+
+// Per-segment state
+let activeSeg  = null;    // { origEl, transEl, t0, finalText, lang, spk }
+let finalCount = 0;
+let silTimer   = null;
+let detLang    = null;
+
+// Stats accumulators
+let stats = { segs:0, sttSum:0, oaiSum:0, e2eSum:0, e2eMin:Infinity, e2eMax:-Infinity };
+
+// ── Populate mic list ─────────────────────────────────────────────────────
+const selMic = document.getElementById("sel-mic");
+navigator.mediaDevices.getUserMedia({ audio: true })
+  .then(() => navigator.mediaDevices.enumerateDevices())
+  .then(devs => {
+    selMic.innerHTML = "";
+    devs.filter(d => d.kind === "audioinput").forEach(d => {
+      const opt = document.createElement("option");
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Mic ${d.deviceId.slice(0,6)}`;
+      selMic.appendChild(opt);
+    });
+  })
+  .catch(() => { selMic.innerHTML = '<option value="">Permission denied</option>'; });
+
+// ── UI helpers ────────────────────────────────────────────────────────────
+function setStatus(text, live) {
+  document.getElementById("status-text").textContent = text;
+  document.getElementById("status-dot").className = live ? "live" : "";
+}
+function setErr(msg) { document.getElementById("err-msg").textContent = msg || ""; }
+function setBtn(rec) {
+  const b = document.getElementById("btn");
+  b.textContent = rec ? "Stop" : "Start";
+  b.className   = rec ? "rec" : "idle";
+}
+function scrollToBottom(id) {
+  const el = document.getElementById(id);
+  el.scrollTop = el.scrollHeight;
+}
+function fmtMs(ms) { return ms == null ? "—" : ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`; }
+
+function updateStats() {
+  const { segs, sttSum, oaiSum, e2eSum, e2eMin, e2eMax } = stats;
+  document.getElementById("st-segs").textContent = segs;
+  document.getElementById("st-stt").textContent  = segs ? fmtMs(Math.round(sttSum/segs)) : "—";
+  document.getElementById("st-oai").textContent  = segs ? fmtMs(Math.round(oaiSum/segs)) : "—";
+  document.getElementById("st-e2e").textContent  = segs ? fmtMs(Math.round(e2eSum/segs)) : "—";
+  document.getElementById("st-minmax").textContent = segs
+    ? `${fmtMs(e2eMin)} / ${fmtMs(e2eMax)}` : "—";
+}
+
+// ── Segment DOM ───────────────────────────────────────────────────────────
+function makeSeg() {
+  const origEl  = document.createElement("div");
+  origEl.className = "seg live";
+  origEl.innerHTML = `<div class="seg-text live-nf">…</div><div class="seg-meta"></div>`;
+
+  const transEl = document.createElement("div");
+  transEl.className = "seg live";
+  transEl.innerHTML = `<div class="seg-text pending">…</div><div class="seg-meta"></div>`;
+
+  const emptyOrig = document.getElementById("empty-orig");
+  if (emptyOrig) emptyOrig.remove();
+
+  document.getElementById("scroll-orig").appendChild(origEl);
+  document.getElementById("scroll-trans").appendChild(transEl);
+  scrollToBottom("scroll-orig");
+  scrollToBottom("scroll-trans");
+  return { origEl, transEl };
+}
+
+function setOrigText(seg, text, live) {
+  seg.origEl.querySelector(".seg-text").textContent = text;
+  seg.origEl.querySelector(".seg-text").className   = `seg-text ${live ? "live-nf" : ""}`;
+}
+
+function finalizeSegDom(seg, langChip, spkChip, sttMs) {
+  seg.origEl.classList.remove("live");
+  seg.transEl.classList.remove("live");
+  const meta = seg.origEl.querySelector(".seg-meta");
+  if (langChip) meta.insertAdjacentHTML("beforeend", `<span class="chip lang">${langChip}</span>`);
+  if (spkChip)  meta.insertAdjacentHTML("beforeend", `<span class="chip spk">${spkChip}</span>`);
+  if (sttMs != null) meta.insertAdjacentHTML("beforeend", `<span class="chip stt">STT ${fmtMs(sttMs)}</span>`);
+}
+
+function setTransResult(seg, text, oaiMs, totalMs, skipped, errMsg) {
+  const textEl = seg.transEl.querySelector(".seg-text");
+  const meta   = seg.transEl.querySelector(".seg-meta");
+  if (errMsg) {
+    textEl.textContent = errMsg;
+    textEl.className = "seg-text pending";
+    meta.insertAdjacentHTML("beforeend", `<span class="chip err">⚠ error</span>`);
+    return;
+  }
+  if (skipped) {
+    textEl.textContent = text;
+    textEl.className   = "seg-text";
+    meta.insertAdjacentHTML("beforeend", `<span class="chip skip">same-lang skip</span>`);
+    return;
+  }
+  textEl.textContent = text;
+  textEl.className   = "seg-text";
+  if (oaiMs != null)   meta.insertAdjacentHTML("beforeend", `<span class="chip oai">OpenAI ${fmtMs(oaiMs)}</span>`);
+  if (totalMs != null) meta.insertAdjacentHTML("beforeend", `<span class="chip total">Total ${fmtMs(totalMs)}</span>`);
+  scrollToBottom("scroll-trans");
+}
+
+// ── Language-pair helpers ─────────────────────────────────────────────────
+function matchesLang(a, b) {
+  return a.toLowerCase().split("-")[0] === b.toLowerCase().split("-")[0];
+}
+function resolveTarget(detected, pairA, pairB) {
+  return matchesLang(detected, pairB) ? pairA : pairB;
+}
+
+// ── Finalize segment ──────────────────────────────────────────────────────
+async function finalizeActive() {
+  if (!activeSeg) return;
+  const seg = activeSeg;
+  activeSeg = null;
+
+  if (!seg.finalText || seg.finalText.trim().length < 2) {
+    seg.origEl.remove();
+    seg.transEl.remove();
+    return;
+  }
+
+  const tFinalize = Date.now();
+  const sttMs     = seg.t0 ? tFinalize - seg.t0 : null;
+
+  const pairA = selA.value;
+  const pairB = selB.value;
+
+  let langChip = seg.lang ? seg.lang : null;
+  let spkChip  = seg.spk  ? seg.spk  : null;
+  finalizeSegDom(seg, langChip, spkChip, sttMs);
+
+  // Resolve translation direction
+  const detected = seg.lang || pairA;
+  if (!matchesLang(detected, pairA) && !matchesLang(detected, pairB)) {
+    setTransResult(seg, seg.finalText, null, null, false, null);
+    setOrigText(seg, seg.finalText, false);
+    return;
+  }
+
+  const srcLang = detected;
+  const tgtLang = resolveTarget(detected, pairA, pairB);
+  if (matchesLang(srcLang, tgtLang)) {
+    setTransResult(seg, seg.finalText, null, null, true, null);
+    setOrigText(seg, seg.finalText, false);
+    return;
+  }
+
+  setOrigText(seg, seg.finalText, false);
+  const tBeforeOAI = Date.now();
+
+  try {
+    const r = await fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: seg.finalText, srcLang, tgtLang }),
+    });
+    const data = await r.json();
+    const oaiMs   = Date.now() - tBeforeOAI;
+    const totalMs = seg.t0 ? Date.now() - seg.t0 : null;
+
+    if (r.ok && data.translated) {
+      setTransResult(seg, data.translated, oaiMs, totalMs, false, null);
+      // Update stats
+      stats.segs++;
+      if (sttMs)   stats.sttSum += sttMs;
+      if (oaiMs)   stats.oaiSum += oaiMs;
+      if (totalMs) {
+        stats.e2eSum += totalMs;
+        if (totalMs < stats.e2eMin) stats.e2eMin = totalMs;
+        if (totalMs > stats.e2eMax) stats.e2eMax = totalMs;
+      }
+      updateStats();
+    } else {
+      setTransResult(seg, null, null, null, false, data.error || "Translation failed");
+    }
+  } catch (e) {
+    setTransResult(seg, null, null, null, false, e.message);
+  }
+}
+
+// ── Soniox WebSocket message handler ─────────────────────────────────────
+function handleMsg(evt) {
+  let msg;
+  try { msg = JSON.parse(evt.data); } catch { return; }
+
+  if (msg.error) { setErr(msg.error); void stop(); return; }
+  if (msg.finished) { void stop(); return; }
+
+  const tokens = msg.tokens || [];
+  if (!tokens.length) return;
+
+  // Reset silence timer
+  if (silTimer) clearTimeout(silTimer);
+  silTimer = setTimeout(() => {
+    silTimer = null;
+    if (activeSeg) void finalizeActive();
+    finalCount = 0;
+    detLang    = null;
+  }, SILENCE_MS);
+
+  // Detect language from any token
+  const langToken = tokens.find(t => t.language);
+  if (langToken) detLang = langToken.language;
+
+  // Finals
+  const finals    = tokens.filter(t => t.is_final);
+  const newFinals = finals.slice(finalCount);
+  const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+
+  const newFinalText = newFinals.map(t => t.text).join("");
+
+  if (!activeSeg && (newFinals.length || nfText)) {
+    activeSeg = { origEl: null, transEl: null, t0: Date.now(),
+                  finalText: "", lang: detLang, spk: null };
+    const { origEl, transEl } = makeSeg();
+    activeSeg.origEl  = origEl;
+    activeSeg.transEl = transEl;
+  }
+
+  if (!activeSeg) return;
+
+  if (newFinals.length) {
+    finalCount += newFinals.length;
+    activeSeg.finalText += newFinalText;
+    if (detLang) activeSeg.lang = detLang;
+    // Speaker
+    const spkToken = newFinals.find(t => t.speaker != null);
+    if (spkToken) activeSeg.spk = `Spk ${spkToken.speaker}`;
+  }
+
+  const displayText = activeSeg.finalText + nfText;
+  setOrigText(activeSeg, displayText || "…", true);
+  scrollToBottom("scroll-orig");
+}
+
+// ── Start / Stop ──────────────────────────────────────────────────────────
+async function toggle() {
+  if (recording) { await stop(); } else { await start(); }
+}
+
+async function start() {
+  setErr("");
+  document.getElementById("btn").disabled = true;
+  setStatus("connecting…", false);
+
+  try {
+    // Fetch Soniox API key
+    if (!apiKey) {
+      const r = await fetch("/api/soniox-key");
+      const d = await r.json();
+      apiKey = d.apiKey;
+      if (!apiKey || apiKey === "YOUR_SONIOX_API_KEY") {
+        throw new Error("SONIOX_API_KEY is not configured on the server");
+      }
+    }
+
+    // Get microphone
+    const deviceId = selMic.value;
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+    });
+
+    // AudioContext + worklet
+    audioCtx = new AudioContext();
+    await audioCtx.audioWorklet.addModule("/pcm-processor.js");
+    worklet = new AudioWorkletNode(audioCtx, "pcm-processor", {
+      processorOptions: { targetRate: TARGET_RATE },
+    });
+    const source = audioCtx.createMediaStreamSource(micStream);
+    source.connect(worklet);
+    worklet.connect(audioCtx.destination);
+
+    // Soniox WebSocket
+    const langA = selA.value;
+    const langB = selB.value;
+    ws = new WebSocket(SONIOX_WS);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        api_key:                        apiKey,
+        model:                          "stt-rt-v4",
+        audio_format:                   "pcm_s16le",
+        sample_rate:                    TARGET_RATE,
+        num_channels:                   1,
+        language_hints:                 [langA.split("-")[0], langB.split("-")[0]],
+        enable_language_identification: true,
+        enable_speaker_diarization:     true,
+        diarization:                    { enable: true },
+      }));
+      recording = true;
+      setBtn(true);
+      setStatus("live", true);
+      document.getElementById("btn").disabled = false;
+      document.getElementById("badge-a").textContent = langA;
+      document.getElementById("badge-b").textContent = langB;
+    };
+
+    ws.onmessage = handleMsg;
+    ws.onerror   = () => { setErr("WebSocket error"); void stop(); };
+    ws.onclose   = () => { if (recording) void stop(); };
+
+    // Forward PCM chunks to Soniox
+    worklet.port.onmessage = (e) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+    };
+
+  } catch (e) {
+    setErr(e.message);
+    setStatus("error", false);
+    document.getElementById("btn").disabled = false;
+    recording = false;
+  }
+}
+
+async function stop() {
+  recording = false;
+  if (silTimer) { clearTimeout(silTimer); silTimer = null; }
+  if (activeSeg) { await finalizeActive(); }
+  finalCount = 0; detLang = null;
+
+  if (worklet)   { worklet.disconnect(); worklet = null; }
+  if (audioCtx)  { await audioCtx.close(); audioCtx = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (ws)        { try { ws.send(new ArrayBuffer(0)); } catch {} ws.close(); ws = null; }
+
+  setBtn(false);
+  setStatus("stopped", false);
+  document.getElementById("btn").disabled = false;
+}
+</script>
+</body>
+</html>

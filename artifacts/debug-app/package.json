@@ -1,0 +1,13 @@
+{
+  "name": "@workspace/debug-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.0.0",
+    "openai": "^4.96.0"
+  }
+}
