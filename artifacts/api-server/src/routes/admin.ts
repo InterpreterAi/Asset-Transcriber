@@ -6,7 +6,7 @@ import { hashPassword } from "../lib/password.js";
 import { getTrialDaysRemaining } from "../lib/usage.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
-import { sendAdminReplyEmail } from "../lib/email.js";
+import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 
 const router = Router();
 
@@ -889,13 +889,20 @@ router.put("/support/:id/status", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "Status must be 'open' or 'resolved'." }); return;
   }
 
+  const [before] = await db.select().from(supportTicketsTable).where(eq(supportTicketsTable.id, ticketId));
+  if (!before) { res.status(404).json({ error: "Ticket not found." }); return; }
+
   const [updated] = await db
     .update(supportTicketsTable)
     .set({ status: status!, updatedAt: new Date() })
     .where(eq(supportTicketsTable.id, ticketId))
     .returning();
 
-  if (!updated) { res.status(404).json({ error: "Ticket not found." }); return; }
+  // Email user when ticket is resolved
+  if (status === "resolved" && before.status !== "resolved") {
+    void sendTicketResolvedEmail(updated.email, updated.id, updated.subject);
+  }
+
   res.json({ ticket: updated });
 });
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { X, LifeBuoy, Send, Clock, CheckCircle, ChevronRight, ChevronDown, RefreshCw, MessageCircle } from "lucide-react";
+import { X, LifeBuoy, Send, Clock, CheckCircle, ChevronRight, ChevronDown, RefreshCw, MessageCircle, CornerDownRight } from "lucide-react";
 import { Button, Input } from "@/components/ui-components";
 import { format } from "date-fns";
 
@@ -89,6 +89,9 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
   const [expandedId, setExpandedId]     = useState<number | null>(null);
   const [ticketDetail, setTicketDetail] = useState<TicketDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [replyText, setReplyText]       = useState("");
+  const [replying, setReplying]         = useState(false);
+  const [replyError, setReplyError]     = useState<string | null>(null);
 
   const fetchMyTickets = useCallback(async () => {
     setTicketsLoading(true);
@@ -105,15 +108,44 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
   }, [tab, fetchMyTickets]);
 
   const toggleTicket = async (id: number) => {
-    if (expandedId === id) { setExpandedId(null); setTicketDetail(null); return; }
+    if (expandedId === id) { setExpandedId(null); setTicketDetail(null); setReplyText(""); setReplyError(null); return; }
     setExpandedId(id);
     setDetailLoading(true);
+    setReplyText(""); setReplyError(null);
     try {
       const res  = await fetch(`/api/support/${id}`, { credentials: "include" });
       const data = await res.json() as { ticket: SupportTicket; replies: SupportReply[] };
       setTicketDetail({ ...data.ticket, replies: data.replies });
     } catch { setTicketDetail(null); }
     setDetailLoading(false);
+  };
+
+  const submitUserReply = async (ticketId: number) => {
+    if (!replyText.trim() || replying) return;
+    setReplying(true); setReplyError(null);
+    try {
+      const res  = await fetch(`/api/support/${ticketId}/reply`, {
+        method:      "POST",
+        headers:     { "Content-Type": "application/json" },
+        credentials: "include",
+        body:        JSON.stringify({ message: replyText.trim() }),
+      });
+      const data = await res.json() as { reply?: SupportReply; reopened?: boolean; error?: string };
+      if (!res.ok) { setReplyError(data.error ?? "Failed to send reply."); return; }
+      // Append the new reply locally
+      if (data.reply) {
+        setTicketDetail(d => d ? { ...d, replies: [...d.replies, data.reply!], status: "open" } : d);
+      }
+      // Update ticket status in list if it was reopened
+      if (data.reopened) {
+        setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: "open" } : t));
+      }
+      setReplyText("");
+    } catch {
+      setReplyError("Network error. Please try again.");
+    } finally {
+      setReplying(false);
+    }
   };
 
   const openCount = tickets.filter(t => t.status === "open").length;
@@ -299,6 +331,34 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                             ) : (
                               <p className="text-xs text-muted-foreground text-center py-2">No replies yet. We'll be in touch soon.</p>
                             )}
+
+                            {/* User reply box */}
+                            <div className="border-t border-border/50 pt-3 mt-1">
+                              {ticketDetail.status === "resolved" && (
+                                <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mb-2 flex items-center gap-1">
+                                  <span className="font-semibold">Resolved</span> — replying will reopen this ticket
+                                </p>
+                              )}
+                              {replyError && (
+                                <p className="text-[10px] text-red-600 bg-red-50 border border-red-100 rounded-lg px-2.5 py-1.5 mb-2">{replyError}</p>
+                              )}
+                              <textarea
+                                value={replyText}
+                                onChange={e => setReplyText(e.target.value)}
+                                placeholder="Write a follow-up message..."
+                                rows={3}
+                                className="w-full text-xs rounded-xl border border-border bg-white px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
+                              />
+                              <Button
+                                size="sm"
+                                className="w-full mt-2 text-xs h-8"
+                                isLoading={replying}
+                                disabled={!replyText.trim()}
+                                onClick={() => submitUserReply(ticket.id)}
+                              >
+                                <CornerDownRight className="w-3 h-3 mr-1.5" /> Send Reply
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>

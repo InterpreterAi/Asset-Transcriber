@@ -84,4 +84,57 @@ router.get("/:id", requireAuth, async (req, res) => {
   res.json({ ticket, replies });
 });
 
+// ── User reply on their own ticket ───────────────────────────────────────────
+router.post("/:id/reply", requireAuth, async (req, res) => {
+  const ticketId = parseInt(String(req.params.id), 10);
+  const { message } = req.body as { message?: string };
+  if (isNaN(ticketId) || !message?.trim()) {
+    res.status(400).json({ error: "Message is required." }); return;
+  }
+  if (message.trim().length < 5) {
+    res.status(400).json({ error: "Message too short." }); return;
+  }
+
+  // Ensure user owns this ticket
+  const [ticket] = await db
+    .select()
+    .from(supportTicketsTable)
+    .where(and(
+      eq(supportTicketsTable.id, ticketId),
+      eq(supportTicketsTable.userId, req.session.userId!),
+    ));
+
+  if (!ticket) { res.status(404).json({ error: "Ticket not found." }); return; }
+
+  const [user] = await db
+    .select({ username: usersTable.username })
+    .from(usersTable)
+    .where(eq(usersTable.id, req.session.userId!));
+
+  const [reply] = await db.insert(supportRepliesTable).values({
+    ticketId,
+    authorId: req.session.userId!,
+    isAdmin:  false,
+    message:  message.trim(),
+  }).returning();
+
+  // Auto-reopen if ticket was resolved
+  const wasResolved = ticket.status === "resolved";
+  await db.update(supportTicketsTable)
+    .set({ status: "open", updatedAt: new Date() })
+    .where(eq(supportTicketsTable.id, ticketId));
+
+  // Telegram ping to admin
+  void sendTelegramNotification(
+    `💬 User Reply on Ticket #${ticketId}\n` +
+    `From: ${user?.username ?? "unknown"} <${ticket.email}>\n` +
+    `Subject: ${ticket.subject}\n` +
+    (wasResolved ? `⚠️ Ticket was resolved — now reopened\n` : "") +
+    `Message: ${message.trim().substring(0, 300)}${message.trim().length > 300 ? "..." : ""}`,
+  );
+
+  logger.info({ ticketId, userId: req.session.userId }, "User reply added to ticket");
+  res.status(201).json({ reply, reopened: wasResolved });
+});
+
 export default router;
