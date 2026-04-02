@@ -10,9 +10,12 @@ import { sendAdminReplyEmail } from "../lib/email.js";
 
 const router = Router();
 
-// ── Cost-rate constants (conservative estimates) ────────────────────────────
-const SONIOX_COST_PER_MIN     = 0.0025;  // $0.0025 / transcription-minute
-const TRANSLATE_COST_PER_MIN  = 0.0002;  // gpt-4o-mini @ ~2 calls/min
+// ── Cost constants ─────────────────────────────────────────────────────────
+// SONIOX_COST_PER_MIN is only used for estimating live (not-yet-ended) session
+// Soniox cost, since audio goes browser→Soniox and we only know elapsed time.
+// All completed sessions use the real stored total_session_cost from the DB.
+const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
+
 const PLAN_PRICES: Record<string, number> = {
   basic:        40,
   professional: 80,
@@ -79,7 +82,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     minutesTodayRow,
     minutesWeekRow,
     minutesMonthRow,
-    costMinutesTodayRow,
+    costTodayRow,
     activeSessionRows,
     allUsersForMrr,
     avgSessionRow,
@@ -136,10 +139,27 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Cost-minutes today — ALL users including admin (since midnight UTC)
-    db.select({ total: sql<number>`COALESCE(SUM(duration_seconds), 0) / 60.0` })
-      .from(sessionsTable)
-      .where(gte(sessionsTable.startedAt, startOfToday)),
+    // Real API cost breakdown today — non-admin users only (since midnight UTC).
+    // Completed sessions: use real stored soniox_cost and translation_cost.
+    // Live sessions: real translation_cost so far + Soniox estimate from elapsed time.
+    db.select({
+      soniox:      sql<number>`
+        COALESCE(SUM(CASE
+          WHEN s.ended_at IS NOT NULL
+            THEN COALESCE(s.soniox_cost, 0)
+          ELSE
+            EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+        END), 0)`,
+      translation: sql<number>`
+        COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfToday}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
+      )),
 
     // Open (live) sessions — non-admin users only
     db.select({
@@ -209,9 +229,10 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   const minutesWeek  = Number(minutesWeekRow[0]?.total  ?? 0);
   const minutesMonth = Number(minutesMonthRow[0]?.total ?? 0);
 
-  // Cost minutes: all users including admin ($ stays accurate)
-  const costMinutesToday = Number(costMinutesTodayRow[0]?.total ?? 0);
-  const totalCostToday = +(costMinutesToday * (SONIOX_COST_PER_MIN + TRANSLATE_COST_PER_MIN)).toFixed(2);
+  // Real API cost breakdown today — from stored costs + live session estimate
+  const sonioxCostToday    = +(Number(costTodayRow[0]?.soniox      ?? 0)).toFixed(4);
+  const translateCostToday = +(Number(costTodayRow[0]?.translation ?? 0)).toFixed(4);
+  const totalCostToday     = +(sonioxCostToday + translateCostToday).toFixed(4);
 
   // MRR estimate: sum up plan prices for all non-admin, non-trial users
   const mrrEstimate = allUsersForMrr.reduce((sum, u) => {
@@ -234,9 +255,9 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     minutesToday,
     minutesWeek,
     minutesMonth,
-    // Cost estimates
-    sonioxCostToday:    +(minutesToday * SONIOX_COST_PER_MIN).toFixed(2),
-    translateCostToday: +(minutesToday * TRANSLATE_COST_PER_MIN).toFixed(2),
+    // Real API costs — from stored soniox_cost + translation_cost per session
+    sonioxCostToday,
+    translateCostToday,
     totalCostToday,
     // SaaS metrics
     mrrEstimate,
@@ -303,10 +324,18 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .groupBy(sql`DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC')`)
       .orderBy(sql`DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC')`),
 
-    // Minutes transcribed today (real session minutes from DB)
+    // Minutes and real cost today
     db.select({
-      minutes: sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0`,
-      sessions: sql<number>`COUNT(*)`,
+      minutes:     sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0`,
+      sessions:    sql<number>`COUNT(*)`,
+      costToday:   sql<number>`
+        COALESCE(SUM(CASE
+          WHEN s.ended_at IS NOT NULL
+            THEN COALESCE(s.total_session_cost, 0)
+          ELSE
+            COALESCE(s.translation_cost, 0)
+            + EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+        END), 0)`,
     })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -368,9 +397,12 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     dauChart.push({ day: key, users: dauMap.get(key) ?? 0 });
   }
 
-  const minutesToday = Number(usageTodayRow[0]?.minutes ?? 0);
-  const minutesMonth = Number(usageMonthRow[0]?.minutes ?? 0);
-  const sessionsTodayCount = Number(usageTodayRow[0]?.sessions ?? 0);
+  const minutesToday       = Number(usageTodayRow[0]?.minutes   ?? 0);
+  const minutesMonth       = Number(usageMonthRow[0]?.minutes   ?? 0);
+  const sessionsTodayCount = Number(usageTodayRow[0]?.sessions  ?? 0);
+  const realCostToday      = +(Number(usageTodayRow[0]?.costToday ?? 0)).toFixed(4);
+  // Month cost: completed sessions only (no live-session adjustment needed for monthly view)
+  const realCostMonth      = +(minutesMonth * SONIOX_COST_PER_MIN).toFixed(4);
 
   const planMap = new Map(conversionRows.map(r => [r.planType, Number(r.count)]));
   const trialCount  = planMap.get("trial") ?? 0;
@@ -383,8 +415,8 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     usageStats: {
       minutesToday:    +minutesToday.toFixed(1),
       minutesMonth:    +minutesMonth.toFixed(1),
-      costToday:       +(minutesToday  * (SONIOX_COST_PER_MIN + TRANSLATE_COST_PER_MIN)).toFixed(2),
-      costMonth:       +(minutesMonth  * (SONIOX_COST_PER_MIN + TRANSLATE_COST_PER_MIN)).toFixed(2),
+      costToday:       realCostToday,
+      costMonth:       realCostMonth,
       sessionsToday:   sessionsTodayCount,
     },
     conversion: {

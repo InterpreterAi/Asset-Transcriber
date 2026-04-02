@@ -324,9 +324,17 @@ router.post("/session/stop", requireAuth, async (req, res) => {
   }
 
   const minutesUsed = durationSeconds / 60;
+  const sonioxCost  = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
 
   await db.update(sessionsTable)
-    .set({ endedAt: new Date(), durationSeconds })
+    .set({
+      endedAt:               new Date(),
+      durationSeconds,
+      audioSecondsProcessed: durationSeconds,
+      sonioxCost:            String(sonioxCost),
+      // totalSessionCost = soniox + whatever translation cost was accumulated during the session
+      totalSessionCost: sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+    })
     .where(eq(sessionsTable.id, sessionId));
 
   // Remove in-memory snapshot — session is over.
@@ -638,13 +646,14 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- No explanations, notes, alternatives, or the original text.`;
 
   // ── OpenAI call with output-language validation + single retry ────────────
+  // Returns the translated text and the real token counts for cost tracking.
   // Hard 12-second timeout per attempt — if OpenAI hangs, return 503.
   // Validation: after receiving the translation we check that the output
-  // script matches the expected target language.  If it doesn't (e.g. Arabic
-  // characters appear when the target is Hindi), we immediately retry with a
-  // maximally-explicit override prompt that strips all domain rules and puts
-  // the language-lock at the very top.  The retry is attempted only once.
-  async function callOpenAI(prompt: string): Promise<string> {
+  // script matches the expected target language.  If it doesn't, we retry
+  // once with a maximally-explicit override prompt.
+  interface CallResult { text: string; promptTokens: number; completionTokens: number }
+
+  async function callOpenAI(prompt: string): Promise<CallResult> {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 12_000);
     try {
@@ -660,43 +669,68 @@ router.post("/translate", requireAuth, async (req, res) => {
         { signal: controller.signal },
       );
       clearTimeout(timeoutId);
-      return resp.choices[0]?.message?.content?.trim() ?? "";
+      return {
+        text:             resp.choices[0]?.message?.content?.trim() ?? "",
+        promptTokens:     resp.usage?.prompt_tokens     ?? 0,
+        completionTokens: resp.usage?.completion_tokens ?? 0,
+      };
     } catch (err) {
       clearTimeout(timeoutId);
       throw err;
     }
   }
 
+  // Fire-and-forget: accumulate real translation cost onto the user's open session.
+  // We look up the open session by userId so the client never needs to pass sessionId.
+  // Runs async — does not block the translate response.
+  function accumulateCost(promptTokens: number, completionTokens: number): void {
+    const callCost = +(
+      promptTokens     * OPENAI_INPUT_COST_PER_TOKEN +
+      completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
+    ).toFixed(8);
+    void db
+      .update(sessionsTable)
+      .set({
+        translationTokens: sql`COALESCE(translation_tokens, 0) + ${promptTokens + completionTokens}`,
+        translationCost:   sql`COALESCE(translation_cost,   0) + ${callCost}`,
+      })
+      .where(and(
+        eq(sessionsTable.userId, userId),
+        isNull(sessionsTable.endedAt),
+      ));
+  }
+
   try {
-    let translated = await callOpenAI(systemPrompt);
+    let result = await callOpenAI(systemPrompt);
 
     // ── Output language validation ───────────────────────────────────────────
     // If the response is not in the expected script (e.g. Arabic returned when
     // target is Hindi), discard the bad output and retry once with the minimal
     // force-override prompt that has the language lock at the very top.
-    if (translated && !matchesTargetScript(translated, tgtCode)) {
+    if (result.text && !matchesTargetScript(result.text, tgtCode)) {
       logger.warn(
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",
       );
-      const override = await callOpenAI(buildSystemPrompt(true));
-      if (override && matchesTargetScript(override, tgtCode)) {
-        translated = override;
-      } else if (override) {
-        // Even the retry gave a bad script — use the retry output anyway (it's
-        // still the model's best attempt) so the user sees something rather than
-        // nothing.  Log so we can track frequency.
+      const retry = await callOpenAI(buildSystemPrompt(true));
+      // Accumulate cost for the retry attempt regardless of its output quality.
+      accumulateCost(retry.promptTokens, retry.completionTokens);
+
+      if (retry.text && matchesTargetScript(retry.text, tgtCode)) {
+        result = retry;
+      } else if (retry.text) {
         logger.warn(
           { srcLang, tgtLang, tgtCode, textLen: text.length },
           "Force-override retry also failed script validation — using retry output",
         );
-        translated = override;
+        result = retry;
       }
-      // If override is empty the original translated value (even wrong-script)
-      // is returned below so the client is never left with an empty column.
     }
 
-    res.json({ translated }); // result returned to browser; nothing retained server-side
+    // Accumulate cost for the primary call (after validation so we always count it).
+    accumulateCost(result.promptTokens, result.completionTokens);
+
+    res.json({ translated: result.text }); // result returned to browser; nothing retained server-side
   } catch (err: unknown) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
     logger.error(
