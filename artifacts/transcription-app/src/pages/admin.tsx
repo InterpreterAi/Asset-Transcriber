@@ -244,12 +244,25 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
 }
 
 function sessionStatusBadge(userId: number, lastActivityAt: string | null | undefined, activeSessions: AdminStats["activeSessions"]) {
-  const isOnline = activeSessions.some(s => s.userId === userId);
-  if (isOnline) return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
-      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Online
-    </span>
-  );
+  const activeSession = activeSessions.find(s => s.userId === userId);
+  if (activeSession) {
+    const isTab = activeSession.micLabel === "Browser Tab Audio";
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording
+        </span>
+        {activeSession.micLabel ? (
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground max-w-[130px]" title={activeSession.micLabel}>
+            {isTab
+              ? <Monitor className="w-3 h-3 shrink-0 text-blue-500" />
+              : <Mic className="w-3 h-3 shrink-0 text-green-600" />}
+            <span className="truncate">{isTab ? "Tab Audio" : activeSession.micLabel}</span>
+          </span>
+        ) : null}
+      </div>
+    );
+  }
   if (!lastActivityAt) return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-400">
       <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Offline

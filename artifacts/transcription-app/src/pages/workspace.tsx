@@ -105,6 +105,19 @@ export default function Workspace() {
 
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
+
+  // Always-current ref so the snapshot interval never reads stale closure values
+  const micLabelRef = useRef("Microphone");
+  const langARef    = useRef(langA);
+  const langBRef    = useRef(langB);
+  useEffect(() => { langARef.current = langA; }, [langA]);
+  useEffect(() => { langBRef.current = langB; }, [langB]);
+  useEffect(() => {
+    const micDev = devices.find(d => d.deviceId === selectedDeviceId);
+    micLabelRef.current = inputMode === "tab"
+      ? "Browser Tab Audio"
+      : (micDev?.label || "Microphone");
+  }, [inputMode, devices, selectedDeviceId]);
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -359,21 +372,18 @@ export default function Workspace() {
   // Data is in-memory only — not stored persistently.
   useEffect(() => {
     if (!transcription.isRecording || !transcription.sessionId) return;
+    const sid = transcription.sessionId;
     const push = () => {
-      const snap     = transcription.getSnapshot();
-      const micDev   = devices.find(d => d.deviceId === selectedDeviceId);
-      const micLabel = inputMode === "tab"
-        ? "Browser Tab Audio"
-        : (micDev?.label ?? "Microphone");
+      const snap = transcription.getSnapshot();
       fetch("/api/transcription/session/snapshot", {
         method:      "PUT",
         headers:     { "Content-Type": "application/json" },
         credentials: "include",
         body:        JSON.stringify({
-          sessionId:   transcription.sessionId,
-          langA,
-          langB,
-          micLabel,
+          sessionId:   sid,
+          langA:       langARef.current,
+          langB:       langBRef.current,
+          micLabel:    micLabelRef.current,
           transcript:  snap.transcript,
           translation: snap.translation,
         }),
