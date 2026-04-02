@@ -499,7 +499,6 @@ export default function Workspace() {
       <UserFeedbackModal
         isOpen={showUserFeedback}
         onClose={() => setShowUserFeedback(false)}
-        defaultEmail={user.email ?? ""}
       />
       {showInviteModal && (
         <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
