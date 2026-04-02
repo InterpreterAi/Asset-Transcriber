@@ -1353,15 +1353,33 @@ export default function Workspace() {
                 <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
                 {notes && (
-                  <span className="ml-auto text-[9px] text-muted-foreground/50 italic">cleared on end</span>
+                  <span className="text-[9px] text-muted-foreground/50 italic">cleared on end</span>
                 )}
+                <div className="ml-auto flex items-center gap-0.5 border border-border/60 rounded-md overflow-hidden bg-muted/30 shrink-0">
+                  <Type className="w-3 h-3 text-muted-foreground/50 ml-1.5" />
+                  {(["sm", "md", "lg"] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      onClick={() => setTextSize(sz)}
+                      className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                        textSize === sz
+                          ? "bg-primary text-white"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                      }`}
+                      title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
+                    >
+                      {sz === "sm" ? "S" : sz === "md" ? "M" : "L"}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto scroll-smooth min-h-0">
                 <textarea
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                   placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
-                  className="w-full h-full resize-none text-[11px] leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
+                  className="w-full h-full resize-none leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
+                  style={TEXT_SIZE_VARS[textSize]}
                   spellCheck={false}
                 />
               </div>
