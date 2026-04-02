@@ -262,6 +262,146 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   });
 });
 
+// ── Analytics endpoint ────────────────────────────────────────────────────────
+router.get("/analytics", requireAdmin, async (_req, res) => {
+  const now         = new Date();
+  const todayUTC    = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const thirtyAgo   = new Date(todayUTC.getTime() - 29 * 24 * 60 * 60 * 1000);
+  const fourteenAgo = new Date(todayUTC.getTime() - 13 * 24 * 60 * 60 * 1000);
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  const [
+    growthRows,
+    dauRows,
+    usageTodayRow,
+    usageMonthRow,
+    conversionRows,
+    topUsersRows,
+  ] = await Promise.all([
+    // New signups per day — last 30 days
+    db.select({
+      day:   sql<string>`TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
+      count: sql<number>`COUNT(*)`,
+    })
+      .from(usersTable)
+      .where(and(gte(usersTable.createdAt, thirtyAgo), sql`${usersTable.isAdmin} = false`))
+      .groupBy(sql`DATE_TRUNC('day', created_at AT TIME ZONE 'UTC')`)
+      .orderBy(sql`DATE_TRUNC('day', created_at AT TIME ZONE 'UTC')`),
+
+    // Daily active users — unique users with a real session each day, last 14 days
+    db.select({
+      day:   sql<string>`TO_CHAR(DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
+      count: sql<number>`COUNT(DISTINCT s.user_id)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${fourteenAgo}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
+      ))
+      .groupBy(sql`DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC')`)
+      .orderBy(sql`DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC')`),
+
+    // Minutes transcribed today (real session minutes from DB)
+    db.select({
+      minutes: sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0`,
+      sessions: sql<number>`COUNT(*)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${todayUTC}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
+      )),
+
+    // Minutes transcribed this month
+    db.select({
+      minutes: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonth}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`s.duration_seconds >= 30`,
+      )),
+
+    // Conversion metrics
+    db.select({
+      planType: usersTable.planType,
+      count:    sql<number>`COUNT(*)`,
+    })
+      .from(usersTable)
+      .where(sql`${usersTable.isAdmin} = false`)
+      .groupBy(usersTable.planType),
+
+    // Top 10 users by minutesUsedToday
+    db.select({
+      username:       usersTable.username,
+      minutesToday:   usersTable.minutesUsedToday,
+      totalMinutes:   usersTable.totalMinutesUsed,
+      planType:       usersTable.planType,
+    })
+      .from(usersTable)
+      .where(and(sql`${usersTable.isAdmin} = false`, gt(usersTable.minutesUsedToday, 0)))
+      .orderBy(desc(usersTable.minutesUsedToday))
+      .limit(10),
+  ]);
+
+  // Fill missing days with 0 for growth chart (last 30 days)
+  const growthMap = new Map(growthRows.map(r => [r.day, Number(r.count)]));
+  const growthChart: { day: string; users: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(todayUTC.getTime() - i * 24 * 60 * 60 * 1000);
+    const key = d.toISOString().slice(0, 10);
+    growthChart.push({ day: key, users: growthMap.get(key) ?? 0 });
+  }
+
+  // Fill missing days with 0 for DAU chart (last 14 days)
+  const dauMap = new Map(dauRows.map(r => [r.day, Number(r.count)]));
+  const dauChart: { day: string; users: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(todayUTC.getTime() - i * 24 * 60 * 60 * 1000);
+    const key = d.toISOString().slice(0, 10);
+    dauChart.push({ day: key, users: dauMap.get(key) ?? 0 });
+  }
+
+  const minutesToday = Number(usageTodayRow[0]?.minutes ?? 0);
+  const minutesMonth = Number(usageMonthRow[0]?.minutes ?? 0);
+  const sessionsTodayCount = Number(usageTodayRow[0]?.sessions ?? 0);
+
+  const planMap = new Map(conversionRows.map(r => [r.planType, Number(r.count)]));
+  const trialCount  = planMap.get("trial") ?? 0;
+  const payingCount = [...planMap.entries()].filter(([k]) => k !== "trial").reduce((s, [, v]) => s + v, 0);
+  const totalCount  = trialCount + payingCount;
+
+  res.json({
+    userGrowth:  growthChart,
+    dau:         dauChart,
+    usageStats: {
+      minutesToday:    +minutesToday.toFixed(1),
+      minutesMonth:    +minutesMonth.toFixed(1),
+      costToday:       +(minutesToday  * (SONIOX_COST_PER_MIN + TRANSLATE_COST_PER_MIN)).toFixed(2),
+      costMonth:       +(minutesMonth  * (SONIOX_COST_PER_MIN + TRANSLATE_COST_PER_MIN)).toFixed(2),
+      sessionsToday:   sessionsTodayCount,
+    },
+    conversion: {
+      totalUsers:     totalCount,
+      trialUsers:     trialCount,
+      paidUsers:      payingCount,
+      conversionRate: totalCount > 0 ? +((payingCount / totalCount) * 100).toFixed(1) : 0,
+    },
+    topUsers: topUsersRows.map(u => ({
+      username:     u.username,
+      minutesToday: +Number(u.minutesToday).toFixed(1),
+      totalMinutes: +Number(u.totalMinutes).toFixed(1),
+      planType:     u.planType,
+    })),
+  });
+});
+
 // ── Lightweight active-sessions poll (for fast user-list status badges) ─────
 // Returns only the fields needed to render Online/Offline badges.
 // Much cheaper than /stats — single query + in-memory store lookup.

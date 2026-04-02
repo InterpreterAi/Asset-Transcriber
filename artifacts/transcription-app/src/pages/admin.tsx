@@ -25,6 +25,7 @@ import {
   Pencil, Gift, Share2, UserPlus, AlertCircle,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
+import AdminAnalytics from "@/components/AdminAnalytics";
 import { formatMinutes } from "@/lib/utils";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -307,7 +308,7 @@ export default function Admin() {
   const resetMut  = useAdminResetUsage();
 
   // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
+  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Fast-poll active sessions — only when Users tab is open, every 3 s.
@@ -804,13 +805,14 @@ export default function Admin() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const adminTabs = [
-    { id: "overview",  label: "Overview",  icon: <BarChart2 className="w-4 h-4" />,      badge: null },
-    { id: "monitor",   label: "Monitor",   icon: <Monitor className="w-4 h-4" />,         badge: sessions.length > 0 ? sessions.length : null },
-    { id: "users",     label: "Users",     icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
-    { id: "languages", label: "Languages", icon: <Languages className="w-4 h-4" />,       badge: null },
-    { id: "feedback",  label: "Feedback",  icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
-    { id: "support",   label: "Support",   icon: <LifeBuoy className="w-4 h-4" />,        badge: supportTickets.filter(t => t.status === "open").length > 0 ? supportTickets.filter(t => t.status === "open").length : null },
-    { id: "errors",    label: "Errors",    icon: <AlertTriangle className="w-4 h-4" />,   badge: null },
+    { id: "overview",   label: "Overview",   icon: <BarChart2 className="w-4 h-4" />,      badge: null },
+    { id: "analytics",  label: "Analytics",  icon: <TrendingUp className="w-4 h-4" />,     badge: null },
+    { id: "monitor",    label: "Monitor",    icon: <Monitor className="w-4 h-4" />,         badge: sessions.length > 0 ? sessions.length : null },
+    { id: "users",      label: "Users",      icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
+    { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
+    { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
+    { id: "support",    label: "Support",    icon: <LifeBuoy className="w-4 h-4" />,        badge: supportTickets.filter(t => t.status === "open").length > 0 ? supportTickets.filter(t => t.status === "open").length : null },
+    { id: "errors",     label: "Errors",     icon: <AlertTriangle className="w-4 h-4" />,   badge: null },
   ];
 
   return (
@@ -911,6 +913,9 @@ export default function Admin() {
               <p className="text-muted-foreground text-sm">Monitor usage, manage users, and track costs.</p>
             </div>
           </div>
+
+        {/* ── ANALYTICS TAB ────────────────────────────────────────────────── */}
+        {mainTab === "analytics" && <AdminAnalytics />}
 
         {/* ── OVERVIEW TAB ─────────────────────────────────────────────────── */}
         {mainTab === "overview" && (
