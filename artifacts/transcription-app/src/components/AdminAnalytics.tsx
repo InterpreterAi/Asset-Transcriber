@@ -1,14 +1,19 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { format, parseISO } from "date-fns";
-import { Activity, TrendingUp, Clock, DollarSign, Users, Zap, RefreshCw } from "lucide-react";
+import {
+  Activity, TrendingUp, Clock, DollarSign, Users, Zap, RefreshCw,
+  Mic, Monitor, ChevronDown, Calendar,
+} from "lucide-react";
 import { Card } from "@/components/ui-components";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface AnalyticsData {
   userGrowth: { day: string; users: number }[];
   dau: { day: string; users: number }[];
@@ -33,16 +38,53 @@ interface AnalyticsData {
   }[];
 }
 
+interface ExtendedData {
+  range: { label: string; start: string };
+  costBreakdown: {
+    sonioxCost: number;
+    translateCost: number;
+    totalCost: number;
+    sessions: number;
+    uniqueUsers: number;
+  };
+  efficiency: {
+    costPerSession: number;
+    costPerUser: number;
+  };
+  activeSessions: {
+    count: number;
+    minutesLive: number;
+  };
+  topTrialUsers: {
+    username: string;
+    minutesToday: number;
+    dailyLimit: number;
+    pctUsed: number;
+  }[];
+}
+
+type RangeKey = "24h" | "7d" | "30d" | "custom";
+
+// ── Fetchers ──────────────────────────────────────────────────────────────────
 async function fetchAnalytics(): Promise<AnalyticsData> {
   const res = await fetch(`${BASE}/api/admin/analytics`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to load analytics");
   return res.json();
 }
 
+async function fetchExtended(range: RangeKey, from: string, to: string): Promise<ExtendedData> {
+  const params = new URLSearchParams({ range });
+  if (range === "custom") { params.set("from", from); params.set("to", to); }
+  const res = await fetch(`${BASE}/api/admin/analytics/extended?${params}`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to load extended analytics");
+  return res.json();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtMin(m: number) {
   if (m < 1) return `${Math.round(m * 60)}s`;
   if (m < 60) return `${m.toFixed(1)}m`;
-  const h = Math.floor(m / 60);
+  const h   = Math.floor(m / 60);
   const min = Math.round(m % 60);
   return min > 0 ? `${h}h ${min}m` : `${h}h`;
 }
@@ -51,22 +93,34 @@ function fmtDay(iso: string) {
   try { return format(parseISO(iso), "MMM d"); } catch { return iso; }
 }
 
-const CHART_COLORS = {
-  primary:  "#6366f1",
-  green:    "#22c55e",
-  amber:    "#f59e0b",
-  blue:     "#3b82f6",
-  red:      "#ef4444",
-  violet:   "#8b5cf6",
-};
+function fmtUsd(n: number) {
+  if (n === 0) return "$0.00";
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(2)}`;
+}
 
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const CHART_COLORS = {
+  primary: "#6366f1",
+  green:   "#22c55e",
+  amber:   "#f59e0b",
+  blue:    "#3b82f6",
+  red:     "#ef4444",
+  violet:  "#8b5cf6",
+};
 const PIE_COLORS = [CHART_COLORS.primary, CHART_COLORS.green];
 
+const tooltipStyle = {
+  contentStyle: { border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" },
+  labelStyle:   { fontWeight: 600, marginBottom: 4 },
+};
+
+// ── Shared sub-components ─────────────────────────────────────────────────────
 function StatCard({ icon, label, value, sub, color }: {
   icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string;
 }) {
   return (
-    <div className={`flex items-start gap-3 p-4 rounded-xl border border-border bg-white`}>
+    <div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-white">
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
         {icon}
       </div>
@@ -87,17 +141,106 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-const tooltipStyle = {
-  contentStyle: { border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" },
-  labelStyle:   { fontWeight: 600, marginBottom: 4 },
-};
+// ── Time-range filter UI ──────────────────────────────────────────────────────
+const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: "24h",    label: "Last 24 hours" },
+  { key: "7d",     label: "Last 7 days"   },
+  { key: "30d",    label: "Last 30 days"  },
+  { key: "custom", label: "Custom range"  },
+];
 
+interface RangeState { key: RangeKey; from: string; to: string }
+
+function RangeFilter({ value, onChange }: { value: RangeState; onChange: (r: RangeState) => void }) {
+  const today = format(new Date(), "yyyy-MM-dd");
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Calendar className="w-4 h-4 text-muted-foreground" />
+      <div className="flex rounded-lg border border-border overflow-hidden">
+        {RANGE_OPTIONS.map(opt => (
+          <button
+            key={opt.key}
+            onClick={() => onChange({ ...value, key: opt.key })}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors
+              ${value.key === opt.key
+                ? "bg-primary text-white"
+                : "bg-white text-muted-foreground hover:bg-muted"}`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {value.key === "custom" && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="date"
+            max={today}
+            value={value.from}
+            onChange={e => onChange({ ...value, from: e.target.value })}
+            className="border border-border rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <span>→</span>
+          <input
+            type="date"
+            max={today}
+            value={value.to}
+            onChange={e => onChange({ ...value, to: e.target.value })}
+            className="border border-border rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Skeleton loader ───────────────────────────────────────────────────────────
+function PanelSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="animate-pulse space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="h-10 bg-gray-100 rounded-xl" />
+      ))}
+    </div>
+  );
+}
+
+// ── Usage-bar for trial panel ─────────────────────────────────────────────────
+function UsageBar({ pct }: { pct: number }) {
+  const clamped = Math.min(pct, 100);
+  const color = clamped >= 90 ? "bg-red-500" : clamped >= 70 ? "bg-amber-400" : "bg-indigo-500";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${clamped}%` }} />
+      </div>
+      <span className={`text-[10px] font-semibold tabular-nums w-8 text-right
+        ${clamped >= 90 ? "text-red-600" : clamped >= 70 ? "text-amber-600" : "text-muted-foreground"}`}>
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function AdminAnalytics() {
+  const today = format(new Date(), "yyyy-MM-dd");
+  const [range, setRange] = useState<RangeState>({ key: "30d", from: today, to: today });
+
+  // Existing analytics data (unchanged)
   const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery<AnalyticsData>({
-    queryKey:      ["admin-analytics"],
-    queryFn:       fetchAnalytics,
-    refetchInterval: 5 * 60 * 1000, // 5-min auto-refresh
-    staleTime:     60_000,
+    queryKey:        ["admin-analytics"],
+    queryFn:         fetchAnalytics,
+    refetchInterval: 5 * 60 * 1000,
+    staleTime:       60_000,
+  });
+
+  // New extended analytics (time-filtered)
+  const { data: ext, isLoading: extLoading } = useQuery<ExtendedData>({
+    queryKey:        ["admin-analytics-extended", range.key, range.from, range.to],
+    queryFn:         () => fetchExtended(range.key, range.from, range.to),
+    refetchInterval: 60_000,
+    staleTime:       30_000,
+    enabled:         range.key !== "custom" || (!!range.from && !!range.to && range.from <= range.to),
   });
 
   const lastUpdate = dataUpdatedAt ? format(new Date(dataUpdatedAt), "HH:mm:ss") : null;
@@ -120,17 +263,18 @@ export default function AdminAnalytics() {
     { name: "Trial", value: conversion.trialUsers },
   ];
 
-  // Shorten day labels on X axes
   const growthWithLabel = userGrowth.map(d => ({ ...d, label: fmtDay(d.day) }));
   const dauWithLabel    = dau.map(d => ({ ...d, label: fmtDay(d.day) }));
+
+  const rangeLabel = RANGE_OPTIONS.find(o => o.key === range.key)?.label ?? "Last 30 days";
 
   return (
     <div className="space-y-8">
 
       {/* Header + refresh */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground">
             Auto-refreshes every 5 minutes{lastUpdate && ` · Last updated ${lastUpdate}`}
           </p>
         </div>
@@ -143,6 +287,161 @@ export default function AdminAnalytics() {
           Refresh now
         </button>
       </div>
+
+      {/* ── Global time filter ───────────────────────────────────────────── */}
+      <section>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <SectionTitle><Calendar className="w-4 h-4 text-slate-400" />Time Range for Extended Metrics</SectionTitle>
+        </div>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Applies to: AI cost breakdown, cost efficiency, and top trial usage panels.
+        </p>
+        <RangeFilter value={range} onChange={setRange} />
+      </section>
+
+      {/* ── AI Cost Breakdown ────────────────────────────────────────────── */}
+      <section>
+        <SectionTitle><DollarSign className="w-4 h-4 text-amber-500" />AI Cost Breakdown — {rangeLabel}</SectionTitle>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-3">
+          {extLoading ? <PanelSkeleton rows={1} /> : ext ? (
+            <>
+              <StatCard
+                icon={<Mic className="w-4.5 h-4.5" />}
+                label="Soniox Transcription"
+                value={fmtUsd(ext.costBreakdown.sonioxCost)}
+                sub="speech-to-text"
+                color="bg-violet-50 text-violet-600"
+              />
+              <StatCard
+                icon={<Zap className="w-4.5 h-4.5" />}
+                label="OpenAI Translation"
+                value={fmtUsd(ext.costBreakdown.translateCost)}
+                sub="gpt-4o-mini"
+                color="bg-blue-50 text-blue-600"
+              />
+              <StatCard
+                icon={<DollarSign className="w-4.5 h-4.5" />}
+                label="Total AI Cost"
+                value={fmtUsd(ext.costBreakdown.totalCost)}
+                sub="Soniox + GPT"
+                color="bg-amber-50 text-amber-600"
+              />
+              <StatCard
+                icon={<Activity className="w-4.5 h-4.5" />}
+                label="Sessions"
+                value={ext.costBreakdown.sessions}
+                sub="≥30s"
+                color="bg-green-50 text-green-600"
+              />
+              <StatCard
+                icon={<Users className="w-4.5 h-4.5" />}
+                label="Unique Users"
+                value={ext.costBreakdown.uniqueUsers}
+                sub="with sessions"
+                color="bg-slate-100 text-slate-600"
+              />
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      {/* ── Cost Efficiency & Active Sessions (side-by-side) ─────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Cost Efficiency */}
+        <section>
+          <SectionTitle><TrendingUp className="w-4 h-4 text-blue-500" />Cost Efficiency — {rangeLabel}</SectionTitle>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            {extLoading ? <PanelSkeleton rows={1} /> : ext ? (
+              <>
+                <StatCard
+                  icon={<DollarSign className="w-4.5 h-4.5" />}
+                  label="Avg Cost / Session"
+                  value={fmtUsd(ext.efficiency.costPerSession)}
+                  sub="AI cost per session"
+                  color="bg-indigo-50 text-indigo-600"
+                />
+                <StatCard
+                  icon={<DollarSign className="w-4.5 h-4.5" />}
+                  label="Avg Cost / User"
+                  value={fmtUsd(ext.efficiency.costPerUser)}
+                  sub="AI cost per active user"
+                  color="bg-pink-50 text-pink-600"
+                />
+              </>
+            ) : null}
+          </div>
+        </section>
+
+        {/* Active Sessions Monitor */}
+        <section>
+          <SectionTitle><Activity className="w-4 h-4 text-red-500" />Active Sessions — Live</SectionTitle>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            {extLoading ? <PanelSkeleton rows={1} /> : ext ? (
+              <>
+                <StatCard
+                  icon={<Monitor className="w-4.5 h-4.5" />}
+                  label="Sessions Now"
+                  value={ext.activeSessions.count}
+                  sub={ext.activeSessions.count === 1 ? "user recording" : "users recording"}
+                  color={ext.activeSessions.count > 0 ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-400"}
+                />
+                <StatCard
+                  icon={<Clock className="w-4.5 h-4.5" />}
+                  label="Audio Processing"
+                  value={fmtMin(ext.activeSessions.minutesLive)}
+                  sub="total minutes live"
+                  color={ext.activeSessions.minutesLive > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-100 text-gray-400"}
+                />
+              </>
+            ) : null}
+          </div>
+          {ext && ext.activeSessions.count === 0 && (
+            <p className="text-[11px] text-muted-foreground mt-2">No sessions currently recording.</p>
+          )}
+        </section>
+      </div>
+
+      {/* ── Top Trial Usage Today ─────────────────────────────────────────── */}
+      <section>
+        <SectionTitle><Zap className="w-4 h-4 text-violet-500" />Top Trial Users by Usage Today</SectionTitle>
+        <Card className="border-border mt-3 overflow-hidden">
+          {extLoading ? (
+            <div className="p-4"><PanelSkeleton rows={4} /></div>
+          ) : !ext || ext.topTrialUsers.length === 0 ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
+              No trial usage recorded today
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <tr>
+                  <th className="px-4 py-2 font-semibold text-left">#</th>
+                  <th className="px-4 py-2 font-semibold text-left">User</th>
+                  <th className="px-4 py-2 font-semibold text-right">Used Today</th>
+                  <th className="px-4 py-2 font-semibold text-right">Limit</th>
+                  <th className="px-4 py-2 font-semibold text-left w-40">Usage</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {ext.topTrialUsers.map((u, i) => (
+                  <tr key={u.username} className="hover:bg-muted/30">
+                    <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
+                    <td className="px-4 py-2.5 font-medium text-sm">{u.username}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary">{fmtMin(u.minutesToday)}</td>
+                    <td className="px-4 py-2.5 text-right text-xs text-muted-foreground">{fmtMin(u.dailyLimit)}</td>
+                    <td className="px-4 py-2.5 w-40"><UsageBar pct={u.pctUsed} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* EXISTING PANELS — unmodified below this line                      */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
 
       {/* ── AI Usage Stats ─────────────────────────────────────────────── */}
       <section>
@@ -189,7 +488,6 @@ export default function AdminAnalytics() {
       <section>
         <SectionTitle><TrendingUp className="w-4 h-4 text-green-500" />Conversion Metrics</SectionTitle>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
-          {/* Stat cards */}
           <div className="grid grid-cols-2 gap-3 content-start">
             <StatCard
               icon={<Users className="w-4.5 h-4.5" />}
@@ -217,8 +515,6 @@ export default function AdminAnalytics() {
               color="bg-blue-50 text-blue-600"
             />
           </div>
-
-          {/* Pie chart */}
           <Card className="p-4 border-border">
             <p className="text-xs font-semibold text-muted-foreground mb-3">Plan Distribution</p>
             {conversion.totalUsers === 0 ? (
@@ -304,7 +600,6 @@ export default function AdminAnalytics() {
             <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">No usage recorded today</div>
           ) : (
             <>
-              {/* Inline bar chart */}
               <div className="p-4 border-b border-border">
                 <ResponsiveContainer width="100%" height={Math.max(160, topUsers.length * 36)}>
                   <BarChart
@@ -323,8 +618,6 @@ export default function AdminAnalytics() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-
-              {/* Detail table */}
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                   <tr>

@@ -434,6 +434,122 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
   });
 });
 
+// ── Extended analytics endpoint (new panels, time-filtered) ─────────────────
+// Provides: cost breakdown, efficiency metrics, active session load, top trial users.
+// Does NOT change the existing /analytics endpoint at all.
+router.get("/analytics/extended", requireAdmin, async (req, res) => {
+  const now = new Date();
+
+  // ── Resolve time range ────────────────────────────────────────────────────
+  let rangeStart: Date;
+  const range = (req.query.range as string) ?? "30d";
+  const fromQ  = req.query.from as string | undefined;
+  const toQ    = req.query.to   as string | undefined;
+
+  if (range === "custom" && fromQ && toQ) {
+    rangeStart = new Date(fromQ + "T00:00:00Z");
+  } else if (range === "24h") {
+    rangeStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  } else if (range === "7d") {
+    rangeStart = new Date(now.getTime() - 7  * 24 * 60 * 60 * 1000);
+  } else {
+    rangeStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+
+  const [costRows, activeRows, trialRows] = await Promise.all([
+
+    // ── Cost breakdown for the period ────────────────────────────────────────
+    db.select({
+      sonioxCost:      sql<number>`
+        COALESCE(SUM(CASE
+          WHEN s.ended_at IS NOT NULL
+            THEN COALESCE(s.soniox_cost, 0)
+          ELSE
+            EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+        END), 0)`,
+      translationCost: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
+      totalCost:       sql<number>`
+        COALESCE(SUM(CASE
+          WHEN s.ended_at IS NOT NULL
+            THEN COALESCE(s.total_session_cost, 0)
+          ELSE
+            COALESCE(s.translation_cost, 0)
+            + EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+        END), 0)`,
+      sessions:        sql<number>`COUNT(*)`,
+      uniqueUsers:     sql<number>`COUNT(DISTINCT s.user_id)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${rangeStart}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
+      )),
+
+    // ── Live sessions load (always real-time — ignores range) ────────────────
+    db.select({
+      count:           sql<number>`COUNT(*)`,
+      minutesLive:     sql<number>`COALESCE(SUM(EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0), 0)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.ended_at IS NULL`,
+        sql`${usersTable.isAdmin} = false`,
+      )),
+
+    // ── Top trial users by usage today ───────────────────────────────────────
+    db.select({
+      username:         usersTable.username,
+      minutesToday:     usersTable.minutesUsedToday,
+      dailyLimit:       usersTable.dailyLimitMinutes,
+    })
+      .from(usersTable)
+      .where(and(
+        sql`${usersTable.isAdmin} = false`,
+        sql`${usersTable.planType} = 'trial'`,
+        gt(usersTable.minutesUsedToday, 0),
+      ))
+      .orderBy(desc(usersTable.minutesUsedToday))
+      .limit(10),
+  ]);
+
+  const cr            = costRows[0];
+  const sonioxCost    = +(Number(cr?.sonioxCost    ?? 0)).toFixed(4);
+  const translateCost = +(Number(cr?.translationCost ?? 0)).toFixed(4);
+  const totalCost     = +(Number(cr?.totalCost     ?? 0)).toFixed(4);
+  const sessions      =   Number(cr?.sessions      ?? 0);
+  const uniqueUsers   =   Number(cr?.uniqueUsers   ?? 0);
+
+  const ar            = activeRows[0];
+
+  res.json({
+    range: { label: range, start: rangeStart.toISOString() },
+    costBreakdown: {
+      sonioxCost,
+      translateCost,
+      totalCost,
+      sessions,
+      uniqueUsers,
+    },
+    efficiency: {
+      costPerSession: sessions  > 0 ? +(totalCost / sessions ).toFixed(4) : 0,
+      costPerUser:    uniqueUsers > 0 ? +(totalCost / uniqueUsers).toFixed(4) : 0,
+    },
+    activeSessions: {
+      count:        Number(ar?.count       ?? 0),
+      minutesLive:  +(Number(ar?.minutesLive ?? 0)).toFixed(1),
+    },
+    topTrialUsers: trialRows.map(u => ({
+      username:    u.username,
+      minutesToday: +Number(u.minutesToday).toFixed(1),
+      dailyLimit:   Number(u.dailyLimit),
+      pctUsed:      u.dailyLimit > 0 ? +(Number(u.minutesToday) / Number(u.dailyLimit) * 100).toFixed(1) : 0,
+    })),
+  });
+});
+
 // ── Lightweight active-sessions poll (for fast user-list status badges) ─────
 // Returns only the fields needed to render Online/Offline badges.
 // Much cheaper than /stats — single query + in-memory store lookup.
