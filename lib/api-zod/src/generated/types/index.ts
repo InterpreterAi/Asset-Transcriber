@@ -19,6 +19,7 @@ export * from "./loginRequest";
 export * from "./loginResponse";
 export * from "./messageResponse";
 export * from "./sessionResponse";
+export * from "./startSessionBody";
 export * from "./stopSessionRequest";
 export * from "./transcriptionTokenResponse";
 export * from "./usageInfo";

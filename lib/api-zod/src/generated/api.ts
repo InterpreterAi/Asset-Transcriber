@@ -77,6 +77,11 @@ export const GetTranscriptionTokenResponse = zod.object({
 /**
  * @summary Start a transcription session
  */
+export const StartSessionBody = zod.object({
+  srcLang: zod.string().optional(),
+  tgtLang: zod.string().optional(),
+});
+
 export const StartSessionResponse = zod.object({
   sessionId: zod.number(),
   message: zod.string(),

@@ -1108,8 +1108,10 @@ export function useTranscription(isAdmin = false) {
 
       const tokenRes   = await getTokenMut.mutateAsync(undefined as any);
       const sessionRes = await startSessionMut.mutateAsync({
-        srcLang: langPairRef.current.a,
-        tgtLang: langPairRef.current.b,
+        data: {
+          srcLang: langPairRef.current.a,
+          tgtLang: langPairRef.current.b,
+        },
       });
       sessionIdRef.current = sessionRes.sessionId;
       setSessionId(sessionRes.sessionId);

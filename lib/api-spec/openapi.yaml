@@ -121,6 +121,19 @@ paths:
       operationId: startSession
       tags: [transcription]
       summary: Start a transcription session
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                srcLang:
+                  type: string
+                  example: en
+                tgtLang:
+                  type: string
+                  example: ar
       responses:
         "200":
           description: Session started

@@ -122,3 +122,8 @@ export interface AdminFeedbackItem {
 export interface AdminFeedbackListResponse {
   feedback: AdminFeedbackItem[];
 }
+
+export type StartSessionBody = {
+  srcLang?: string;
+  tgtLang?: string;
+};

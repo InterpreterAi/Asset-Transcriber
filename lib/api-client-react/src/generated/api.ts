@@ -29,6 +29,7 @@ import type {
   LoginResponse,
   MessageResponse,
   SessionResponse,
+  StartSessionBody,
   StopSessionRequest,
   TranscriptionTokenResponse,
   UsageInfo,
@@ -441,11 +442,14 @@ export const getStartSessionUrl = () => {
 };
 
 export const startSession = async (
+  startSessionBody?: StartSessionBody,
   options?: RequestInit,
 ): Promise<SessionResponse> => {
   return customFetch<SessionResponse>(getStartSessionUrl(), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(startSessionBody),
   });
 };
 
@@ -456,14 +460,14 @@ export const getStartSessionMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof startSession>>,
     TError,
-    void,
+    { data: BodyType<StartSessionBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof startSession>>,
   TError,
-  void,
+  { data: BodyType<StartSessionBody> },
   TContext
 > => {
   const mutationKey = ["startSession"];
@@ -477,9 +481,11 @@ export const getStartSessionMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof startSession>>,
-    void
-  > = () => {
-    return startSession(requestOptions);
+    { data: BodyType<StartSessionBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return startSession(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -488,7 +494,7 @@ export const getStartSessionMutationOptions = <
 export type StartSessionMutationResult = NonNullable<
   Awaited<ReturnType<typeof startSession>>
 >;
-
+export type StartSessionMutationBody = BodyType<StartSessionBody>;
 export type StartSessionMutationError = ErrorType<ErrorResponse>;
 
 /**
@@ -501,14 +507,14 @@ export const useStartSession = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof startSession>>,
     TError,
-    void,
+    { data: BodyType<StartSessionBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof startSession>>,
   TError,
-  void,
+  { data: BodyType<StartSessionBody> },
   TContext
 > => {
   return useMutation(getStartSessionMutationOptions(options));

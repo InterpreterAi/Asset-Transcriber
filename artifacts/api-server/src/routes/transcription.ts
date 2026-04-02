@@ -166,7 +166,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
   }
 
   // Language pair sent by the client (e.g. { srcLang: "en", tgtLang: "ar" })
-  const { srcLang, tgtLang } = req.body as { srcLang?: string; tgtLang?: string };
+  const { srcLang, tgtLang } = (req.body ?? {}) as { srcLang?: string; tgtLang?: string };
   const langPair = (srcLang && tgtLang)
     ? `${langName(srcLang)} → ${langName(tgtLang)}`
     : null;
