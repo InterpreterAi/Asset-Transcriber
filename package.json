@@ -4,10 +4,9 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "dev": "NODE_ENV=development npm run build && npm run start",
-    "build": "cd artifacts/api-server && npm install && npm run build",
+    "build": "npm install --prefix artifacts/api-server && npm run build --prefix artifacts/api-server",
     "start": "node artifacts/api-server/dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "dev": "NODE_ENV=development npm run build && npm run start"
   },
   "dependencies": {
     "stripe": "^21.0.1",
