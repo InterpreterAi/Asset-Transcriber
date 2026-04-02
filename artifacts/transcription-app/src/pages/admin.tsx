@@ -22,7 +22,7 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle,
-  Pencil, Gift, Share2, UserPlus, AlertCircle,
+  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
@@ -244,23 +244,52 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{daysLeft}d left</span>;
 }
 
+// ── Audio device type detector ────────────────────────────────────────────────
+function detectAudioDevice(label: string | null | undefined) {
+  if (!label) return null;
+  const l = label.toLowerCase();
+  if (label === "Browser Tab Audio") {
+    return { type: "Tab Audio",  badgeCls: "bg-blue-50 text-blue-700 border-blue-100",   icon: <Monitor   className="w-3 h-3" /> };
+  }
+  if (l.includes("usb")) {
+    return { type: "USB",        badgeCls: "bg-violet-50 text-violet-700 border-violet-100", icon: <Usb      className="w-3 h-3" /> };
+  }
+  if (l.includes("bluetooth") || l.includes("airpod") || l.includes("wireless")) {
+    return { type: "Bluetooth",  badgeCls: "bg-sky-50 text-sky-700 border-sky-100",      icon: <Bluetooth className="w-3 h-3" /> };
+  }
+  if (l.includes("built-in") || l.includes("built in") || l.includes("internal") || l.includes("macbook") || l.includes("laptop")) {
+    return { type: "Built-in",   badgeCls: "bg-gray-100 text-gray-600 border-gray-200",  icon: <Mic       className="w-3 h-3" /> };
+  }
+  return   { type: "Microphone", badgeCls: "bg-green-50 text-green-700 border-green-100", icon: <Mic      className="w-3 h-3" /> };
+}
+
+function AudioDeviceInfo({ label, nameClass = "" }: { label: string | null | undefined; nameClass?: string }) {
+  const dev = detectAudioDevice(label);
+  if (!dev) return null;
+  const isTab = label === "Browser Tab Audio";
+  return (
+    <div className="flex flex-col gap-0.5 mt-0.5">
+      <span className={`inline-flex items-center gap-1 self-start text-[10px] font-semibold border rounded-full px-1.5 py-0.5 ${dev.badgeCls}`}>
+        {dev.icon}{dev.type}
+      </span>
+      {!isTab && (
+        <span className={`text-[10px] text-muted-foreground leading-tight ${nameClass}`} title={label ?? ""}>
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function sessionStatusBadge(userId: number, lastActivityAt: string | null | undefined, activeSessions: AdminStats["activeSessions"]) {
   const activeSession = activeSessions.find(s => s.userId === userId);
   if (activeSession) {
-    const isTab = activeSession.micLabel === "Browser Tab Audio";
     return (
       <div className="flex flex-col gap-1">
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording
         </span>
-        {activeSession.micLabel ? (
-          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground max-w-[130px]" title={activeSession.micLabel}>
-            {isTab
-              ? <Monitor className="w-3 h-3 shrink-0 text-blue-500" />
-              : <Mic className="w-3 h-3 shrink-0 text-green-600" />}
-            <span className="truncate">{isTab ? "Tab Audio" : activeSession.micLabel}</span>
-          </span>
-        ) : null}
+        <AudioDeviceInfo label={activeSession.micLabel} />
       </div>
     );
   }
@@ -1018,12 +1047,9 @@ export default function Admin() {
                         </p>
                       )}
                       {s.micLabel && (
-                        <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                          {s.micLabel === "Browser Tab Audio"
-                            ? <Monitor className="w-3 h-3 shrink-0" />
-                            : <Mic className="w-3 h-3 shrink-0" />}
-                          <span className="truncate">{s.micLabel}</span>
-                        </p>
+                        <div className="mb-1">
+                          <AudioDeviceInfo label={s.micLabel} />
+                        </div>
                       )}
                       {!s.hasSnapshot && !s.micLabel && (
                         <p className="text-xs text-amber-600 mb-1">No active connection — may be a ghost session</p>
@@ -2102,10 +2128,7 @@ export default function Admin() {
               <div className="flex flex-wrap items-center gap-4 px-5 py-2.5 bg-gray-50 border-b border-border text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /> {sessionDetail.snapshot.langA} ↔ {sessionDetail.snapshot.langB}</span>
                 <span className="flex items-center gap-1">
-                  {sessionDetail.snapshot.micLabel === "Browser Tab Audio"
-                    ? <Monitor className="w-3.5 h-3.5" />
-                    : <Mic className="w-3.5 h-3.5" />}
-                  {sessionDetail.snapshot.micLabel}
+                  <AudioDeviceInfo label={sessionDetail.snapshot.micLabel} />
                 </span>
                 <span className="flex items-center gap-1 ml-auto text-[10px]">
                   Updated {formatDistanceToNow(new Date(sessionDetail.snapshot.updatedAt), { addSuffix: true })}
