@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@workspace/db": "workspace:*",
+    "drizzle-orm": "^0.30.10",
     "express": "^4.19.2",
     "express-session": "^1.17.3",
     "cors": "^2.8.5",
