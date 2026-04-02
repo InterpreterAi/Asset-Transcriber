@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "AI Transcription & Translation"
+title = "InterpreterAI"
 version = "1.0.0"
 id = "artifacts/transcription-app"
 router = "path"

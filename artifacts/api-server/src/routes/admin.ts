@@ -756,12 +756,14 @@ router.get("/feedback", requireAdmin, async (_req, res) => {
       userId:    feedbackTable.userId,
       username:  usersTable.username,
       rating:    feedbackTable.rating,
+      recommend: feedbackTable.recommend,
       comment:   feedbackTable.comment,
+      source:    feedbackTable.source,
       createdAt: feedbackTable.createdAt,
     })
     .from(feedbackTable)
     .innerJoin(usersTable, eq(feedbackTable.userId, usersTable.id))
-    .orderBy(feedbackTable.createdAt);
+    .orderBy(desc(feedbackTable.createdAt));
 
   res.json({
     feedback: rows.map((r) => ({
@@ -769,7 +771,9 @@ router.get("/feedback", requireAdmin, async (_req, res) => {
       userId:    r.userId,
       username:  r.username,
       rating:    r.rating,
-      comment:   r.comment ?? undefined,
+      recommend: r.recommend ?? null,
+      comment:   r.comment ?? null,
+      source:    r.source ?? null,
       createdAt: r.createdAt,
     })),
   });

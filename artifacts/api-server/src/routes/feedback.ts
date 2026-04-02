@@ -7,18 +7,27 @@ import { sendTelegramNotification } from "../lib/telegram.js";
 const router = Router();
 
 const STAR_LABELS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
+const RECOMMEND_EMOJI: Record<string, string> = { yes: "👍", no: "👎", maybe: "🤷" };
 
 router.post("/", requireAuth, async (req, res) => {
-  const { rating, comment } = req.body as { rating?: number; comment?: string };
+  const { rating, comment, recommend, source } = req.body as {
+    rating?: number; comment?: string; recommend?: string; source?: string;
+  };
   if (!rating || rating < 1 || rating > 5) {
     res.status(400).json({ error: "Rating must be between 1 and 5" });
     return;
   }
+  if (recommend && !["yes", "no", "maybe"].includes(recommend)) {
+    res.status(400).json({ error: "Invalid recommend value" });
+    return;
+  }
 
   await db.insert(feedbackTable).values({
-    userId:  req.session.userId!,
+    userId:    req.session.userId!,
     rating,
-    comment: comment?.trim() || null,
+    recommend: recommend ?? null,
+    comment:   comment?.trim() || null,
+    source:    source ?? null,
   });
 
   const [user] = await db
@@ -27,10 +36,16 @@ router.post("/", requireAuth, async (req, res) => {
     .where(eq(usersTable.id, req.session.userId!));
 
   const stars = "⭐".repeat(rating);
+  const recLine = recommend ? `Recommend: ${RECOMMEND_EMOJI[recommend]} ${recommend}` : "";
+  const srcLine = source ? `Source: ${source}` : "";
   void sendTelegramNotification(
-    `${stars} New ${STAR_LABELS[rating]} Rating\n` +
-    `From: ${user?.username ?? "unknown"}\n` +
-    (comment?.trim() ? `Comment: ${comment.trim().substring(0, 300)}` : "No comment"),
+    [
+      `${stars} New ${STAR_LABELS[rating]} Rating`,
+      `From: ${user?.username ?? "unknown"}`,
+      recLine,
+      srcLine,
+      comment?.trim() ? `Comment: ${comment.trim().substring(0, 300)}` : "No comment",
+    ].filter(Boolean).join("\n"),
   );
 
   res.json({ message: "Feedback submitted. Thank you!" });

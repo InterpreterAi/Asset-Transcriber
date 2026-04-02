@@ -1574,6 +1574,20 @@ export default function Admin() {
                     ))}
                   </div>
                 </div>
+                {item.recommend && (
+                  <div className="mb-2.5">
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                      item.recommend === "yes"   ? "bg-green-50 text-green-700 border-green-100" :
+                      item.recommend === "no"    ? "bg-red-50 text-red-700 border-red-100" :
+                                                   "bg-amber-50 text-amber-700 border-amber-100"
+                    }`}>
+                      {item.recommend === "yes" ? "👍 Would recommend" : item.recommend === "no" ? "👎 Wouldn't recommend" : "🤔 Not sure"}
+                    </span>
+                  </div>
+                )}
+                {item.source === "daily-prompt" && (
+                  <p className="text-[10px] text-muted-foreground mb-2">via daily prompt</p>
+                )}
                 {item.comment
                   ? <p className="text-sm text-foreground/80 italic">"{item.comment}"</p>
                   : <p className="text-sm text-muted-foreground italic">No comment provided.</p>

@@ -20,6 +20,7 @@ import { SupportPanel } from "@/components/SupportPanel";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
+import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import { formatMinutes } from "@/lib/utils";
 
@@ -500,6 +501,7 @@ export default function Workspace() {
         isOpen={showUserFeedback}
         onClose={() => setShowUserFeedback(false)}
       />
+      <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
       {showInviteModal && (
         <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
       )}
