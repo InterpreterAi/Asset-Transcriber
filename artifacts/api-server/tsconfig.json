@@ -7,12 +7,9 @@
     "moduleResolution": "node",
     "esModuleInterop": true,
     "resolveJsonModule": true,
-
     "strict": false,
     "skipLibCheck": true,
     "noImplicitAny": false,
-    "noImplicitReturns": false,
-
     "types": ["node"]
   },
   "include": ["src"]
