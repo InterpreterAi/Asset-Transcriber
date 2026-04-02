@@ -2,13 +2,12 @@
   "name": "workspace",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {
-    "start": "node server.js",
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
-    "build": "pnpm -r --if-present run build"
-    "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
-  },
+ "scripts": {
+  "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+  "build": "node ./build.mjs",
+  "start": "node --enable-source-maps ./dist/index.mjs",
+  "typecheck": "tsc -p tsconfig.json --noEmit"
+},
   "private": true,
   "devDependencies": {
     "prettier": "^3.8.1",
