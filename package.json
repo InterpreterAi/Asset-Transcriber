@@ -2,16 +2,16 @@
   "name": "workspace",
   "version": "0.0.0",
   "license": "MIT",
- "scripts": {
-  "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
-  "build": "pnpm --filter artifacts/api-server run build"
-  "start": "node artifacts/api-server/dist/index.js",
-  "typecheck": "tsc -p tsconfig.json --noEmit"
-},
+  "scripts": {
+    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "build": "pnpm --filter artifacts/api-server run build",
+    "start": "node artifacts/api-server/dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
   "private": true,
   "devDependencies": {
     "prettier": "^3.8.1",
-    "typescript": "~5.9.2"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "stripe": "^21.0.1",
