@@ -12,10 +12,11 @@ export async function touchActivity(userId: number): Promise<void> {
 export function resetDailyUsageIfNeeded(user: User): boolean {
   const now = new Date();
   const lastReset = new Date(user.lastUsageResetAt);
+  // Always compare UTC calendar dates so "today" is consistent regardless of server timezone
   const isNewDay =
-    now.getFullYear() !== lastReset.getFullYear() ||
-    now.getMonth() !== lastReset.getMonth() ||
-    now.getDate() !== lastReset.getDate();
+    now.getUTCFullYear() !== lastReset.getUTCFullYear() ||
+    now.getUTCMonth()    !== lastReset.getUTCMonth()    ||
+    now.getUTCDate()     !== lastReset.getUTCDate();
   return isNewDay;
 }
 

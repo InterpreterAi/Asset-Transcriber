@@ -21,6 +21,15 @@ const PLAN_PRICES: Record<string, number> = {
 
 // ── List users ───────────────────────────────────────────────────────────────
 router.get("/users", requireAdmin, async (_req, res) => {
+  // Batch-reset daily usage for any user whose lastUsageResetAt is before today's UTC midnight.
+  // This ensures inactive users (who never trigger getUserWithResetCheck) show 0 after midnight.
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  await db
+    .update(usersTable)
+    .set({ minutesUsedToday: 0, lastUsageResetAt: now })
+    .where(lt(usersTable.lastUsageResetAt, todayUTC));
+
   const [users, shareCounts] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({

@@ -483,7 +483,7 @@ export default function Admin() {
   const [userSearch,     setUserSearch]     = useState("");
   const [lastSeenFilter, setLastSeenFilter] = useState("");
   const [newUsersFilter, setNewUsersFilter] = useState("");
-  const [sortBy,         setSortBy]         = useState<"lastSeen" | "minutesToday" | "totalUsage" | "sessionCount" | "">("lastSeen");
+  const [sortBy,         setSortBy]         = useState<"lastSeen" | "minutesToday" | "totalUsage" | "sessionCount" | "trialEnding" | "">("lastSeen");
   const [sortDir,        setSortDir]        = useState<"asc" | "desc">("desc");
   const [showCreate,     setShowCreate]     = useState(false);
   const [newUsername, setNewUsername] = useState("");
@@ -786,10 +786,11 @@ export default function Admin() {
     })
     .sort((a, b) => {
       let cmp = 0;
-      if (sortBy === "lastSeen")      cmp = (a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0) - (b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0);
+      if (sortBy === "lastSeen")           cmp = (a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0) - (b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0);
       else if (sortBy === "minutesToday")  cmp = a.minutesUsedToday - b.minutesUsedToday;
-      else if (sortBy === "totalUsage")   cmp = a.totalMinutesUsed - b.totalMinutesUsed;
-      else if (sortBy === "sessionCount") cmp = a.totalSessions - b.totalSessions;
+      else if (sortBy === "totalUsage")    cmp = a.totalMinutesUsed - b.totalMinutesUsed;
+      else if (sortBy === "sessionCount")  cmp = a.totalSessions - b.totalSessions;
+      else if (sortBy === "trialEnding")   cmp = new Date(a.trialEndsAt).getTime() - new Date(b.trialEndsAt).getTime();
       return sortDir === "asc" ? cmp : -cmp;
     });
 
@@ -1288,6 +1289,7 @@ export default function Admin() {
                   <option value="minutesToday">Sort: Today's Usage</option>
                   <option value="totalUsage">Sort: Total Usage</option>
                   <option value="sessionCount">Sort: Sessions</option>
+                  <option value="trialEnding">Sort: Trial Ending Soon</option>
                 </select>
 
                 <button
@@ -1391,7 +1393,16 @@ export default function Admin() {
                         </td>
 
                         {/* Plan */}
-                        <td className="px-4 py-3">{trialBadge(u.trialEndsAt, u.planType ?? "trial")}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
+                            {u.planType === "trial" && u.trialEndsAt && (
+                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                ends {format(new Date(u.trialEndsAt), "MMM d")}
+                              </span>
+                            )}
+                          </div>
+                        </td>
 
                         {/* Today */}
                         <td className="px-4 py-3">
