@@ -25,6 +25,15 @@ import { sessionStore } from "../lib/session-store.js";
 // OpenAI processes it, result is returned to the browser, nothing is retained.
 //
 
+// ── API cost rates ─────────────────────────────────────────────────────────
+// Soniox: $0.0025 per transcription-minute (= per 60 s of audio).
+const SONIOX_COST_PER_MIN = 0.0025;
+// gpt-4o-mini pricing (per token):
+//   Input  $0.15 / 1M tokens → $1.5e-7 per token
+//   Output $0.60 / 1M tokens → $6.0e-7 per token
+const OPENAI_INPUT_COST_PER_TOKEN  = 0.00000015;
+const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060;
+
 // ── Global system safety cap ───────────────────────────────────────────────
 // In-memory cache to avoid querying DB on every /token request.
 const GLOBAL_CAP_MINUTES = 200 * 60; // 200 hours/day = 12,000 minutes
@@ -110,9 +119,17 @@ async function sweepStaleSessions(): Promise<void> {
     for (const s of stale) {
       const durationSeconds = Math.round((now.getTime() - s.startedAt.getTime()) / 1000);
       const minutesUsed = durationSeconds / 60;
+      const sonioxCost  = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
       await db
         .update(sessionsTable)
-        .set({ endedAt: now, durationSeconds })
+        .set({
+          endedAt:               now,
+          durationSeconds,
+          audioSecondsProcessed: durationSeconds,
+          sonioxCost:            String(sonioxCost),
+          // totalSessionCost = soniox + whatever translation cost was accumulated
+          totalSessionCost: sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+        })
         .where(eq(sessionsTable.id, s.id));
       sessionStore.delete(s.id);
       // Credit the minutes to the user so "min today" stays accurate
