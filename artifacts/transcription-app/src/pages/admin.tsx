@@ -207,8 +207,21 @@ function fmtDuration(secs: number | null | undefined) {
 }
 
 function lastSeen(date: string | null | undefined) {
-  if (!date) return "Never";
-  return formatDistanceToNow(new Date(date), { addSuffix: true });
+  if (!date) return (
+    <span className="flex items-center gap-1.5 text-gray-400">
+      <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />
+      Never
+    </span>
+  );
+  const ms = Date.now() - new Date(date).getTime();
+  const dotColor = ms < 5 * 60 * 1000 ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.6)]" :
+                   ms < 60 * 60 * 1000 ? "bg-yellow-400" : "bg-gray-300";
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+      <span>{formatDistanceToNow(new Date(date), { addSuffix: true })}</span>
+    </span>
+  );
 }
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
@@ -453,8 +466,13 @@ export default function Admin() {
   };
 
   // ── Users tab state ───────────────────────────────────────────────────────
-  const [userFilter,  setUserFilter]  = useState<"all" | "trial" | "paying" | "inactive" | "high">("all");
-  const [showCreate,  setShowCreate]  = useState(false);
+  const [userFilter,     setUserFilter]     = useState<"all" | "trial" | "paying" | "inactive" | "high">("all");
+  const [userSearch,     setUserSearch]     = useState("");
+  const [lastSeenFilter, setLastSeenFilter] = useState("");
+  const [newUsersFilter, setNewUsersFilter] = useState("");
+  const [sortBy,         setSortBy]         = useState<"lastSeen" | "minutesToday" | "totalUsage" | "sessionCount" | "">("lastSeen");
+  const [sortDir,        setSortDir]        = useState<"asc" | "desc">("desc");
+  const [showCreate,     setShowCreate]     = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newLimit,    setNewLimit]    = useState(300);
@@ -717,13 +735,50 @@ export default function Admin() {
     setEditingUser(null);
   }
 
-  const filteredUsers = allUsers.filter(u => {
-    if (userFilter === "trial")    return u.planType === "trial";
-    if (userFilter === "paying")   return u.planType !== "trial";
-    if (userFilter === "inactive") return !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7;
-    if (userFilter === "high")     return u.minutesUsedToday >= 60;
-    return true;
-  });
+  const startOfTodayMs = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+
+  const filteredUsers = allUsers
+    .filter(u => {
+      if (userFilter === "trial")    return u.planType === "trial";
+      if (userFilter === "paying")   return u.planType !== "trial";
+      if (userFilter === "inactive") return !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7;
+      if (userFilter === "high")     return u.minutesUsedToday >= 60;
+      return true;
+    })
+    .filter(u => {
+      if (!userSearch) return true;
+      const q = userSearch.toLowerCase();
+      return u.username.toLowerCase().includes(q) || (u.email ?? "").toLowerCase().includes(q);
+    })
+    .filter(u => {
+      if (!lastSeenFilter) return true;
+      const now = Date.now();
+      const lastMs = u.lastActivityAt ? new Date(u.lastActivityAt).getTime() : 0;
+      if (lastSeenFilter === "5min")     return lastMs > now - 5 * 60 * 1000;
+      if (lastSeenFilter === "1h")       return lastMs > now - 60 * 60 * 1000;
+      if (lastSeenFilter === "today")    return lastMs >= startOfTodayMs;
+      if (lastSeenFilter === "week")     return lastMs > now - 7 * 24 * 60 * 60 * 1000;
+      if (lastSeenFilter === "inactive") return !u.lastActivityAt || lastMs < now - 7 * 24 * 60 * 60 * 1000;
+      return true;
+    })
+    .filter(u => {
+      if (!newUsersFilter) return true;
+      const now = Date.now();
+      const joinedMs = new Date(u.createdAt).getTime();
+      if (newUsersFilter === "today") return joinedMs >= startOfTodayMs;
+      if (newUsersFilter === "24h")   return joinedMs > now - 24 * 60 * 60 * 1000;
+      if (newUsersFilter === "7d")    return joinedMs > now - 7 * 24 * 60 * 60 * 1000;
+      if (newUsersFilter === "30d")   return joinedMs > now - 30 * 24 * 60 * 60 * 1000;
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "lastSeen")      cmp = (a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0) - (b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0);
+      else if (sortBy === "minutesToday")  cmp = a.minutesUsedToday - b.minutesUsedToday;
+      else if (sortBy === "totalUsage")   cmp = a.totalMinutesUsed - b.totalMinutesUsed;
+      else if (sortBy === "sessionCount") cmp = a.totalSessions - b.totalSessions;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
 
   const filterCounts = {
     all:      allUsers.length,
@@ -1143,23 +1198,108 @@ export default function Admin() {
         {mainTab === "users" && (
           <Card className="overflow-hidden border-border shadow-sm">
             {/* Filters + New User */}
-            <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border bg-white">
-              <div className="flex flex-wrap gap-1.5">
-                {(["all", "trial", "paying", "inactive", "high"] as const).map(f => (
-                  <button key={f} onClick={() => setUserFilter(f)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}
-                  >
-                    {f === "all"      && `All (${filterCounts.all})`}
-                    {f === "trial"    && `Trial (${filterCounts.trial})`}
-                    {f === "paying"   && `Paying (${filterCounts.paying})`}
-                    {f === "inactive" && `Inactive (${filterCounts.inactive})`}
-                    {f === "high"     && `High Usage (${filterCounts.high})`}
-                  </button>
-                ))}
+            <div className="p-4 border-b border-border bg-white space-y-3">
+              {/* Row 1: plan filter pills + New User button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {(["all", "trial", "paying", "inactive", "high"] as const).map(f => (
+                    <button key={f} onClick={() => setUserFilter(f)}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}
+                    >
+                      {f === "all"      && `All (${filterCounts.all})`}
+                      {f === "trial"    && `Trial (${filterCounts.trial})`}
+                      {f === "paying"   && `Paying (${filterCounts.paying})`}
+                      {f === "inactive" && `Inactive (${filterCounts.inactive})`}
+                      {f === "high"     && `High Usage (${filterCounts.high})`}
+                    </button>
+                  ))}
+                </div>
+                <Button onClick={() => setShowCreate(!showCreate)} size="sm" className="h-8 shadow-sm flex-shrink-0">
+                  <Plus className="w-4 h-4 mr-1.5" /> New User
+                </Button>
               </div>
-              <Button onClick={() => setShowCreate(!showCreate)} size="sm" className="h-8 shadow-sm flex-shrink-0">
-                <Plus className="w-4 h-4 mr-1.5" /> New User
-              </Button>
+
+              {/* Row 2: search + activity filters + sort */}
+              <div className="flex flex-wrap gap-2 items-center">
+                {/* Search */}
+                <div className="relative flex-1 min-w-[180px] max-w-[260px]">
+                  <input
+                    type="text"
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                    placeholder="Search email or username…"
+                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border bg-white text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                  {userSearch && (
+                    <button onClick={() => setUserSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Last Seen filter */}
+                <select
+                  value={lastSeenFilter}
+                  onChange={e => setLastSeenFilter(e.target.value)}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${lastSeenFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
+                >
+                  <option value="">Last Seen: Any</option>
+                  <option value="5min">Active (5 min)</option>
+                  <option value="1h">Active (1 hour)</option>
+                  <option value="today">Active Today</option>
+                  <option value="week">Active This Week</option>
+                  <option value="inactive">Inactive (7d+)</option>
+                </select>
+
+                {/* New Users filter */}
+                <select
+                  value={newUsersFilter}
+                  onChange={e => setNewUsersFilter(e.target.value)}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${newUsersFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
+                >
+                  <option value="">Joined: Any</option>
+                  <option value="today">Joined Today</option>
+                  <option value="24h">Last 24 Hours</option>
+                  <option value="7d">Last 7 Days</option>
+                  <option value="30d">Last 30 Days</option>
+                </select>
+
+                {/* Sort */}
+                <select
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${sortBy ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
+                >
+                  <option value="">Sort: Default</option>
+                  <option value="lastSeen">Sort: Last Seen</option>
+                  <option value="minutesToday">Sort: Today's Usage</option>
+                  <option value="totalUsage">Sort: Total Usage</option>
+                  <option value="sessionCount">Sort: Sessions</option>
+                </select>
+
+                <button
+                  onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
+                  className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:bg-gray-50 font-mono"
+                  title={sortDir === "desc" ? "Descending — click to flip" : "Ascending — click to flip"}
+                >
+                  {sortDir === "desc" ? "↓" : "↑"}
+                </button>
+
+                {/* Clear all filters */}
+                {(userSearch || lastSeenFilter || newUsersFilter || sortBy) && (
+                  <button
+                    onClick={() => { setUserSearch(""); setLastSeenFilter(""); setNewUsersFilter(""); setSortBy("lastSeen"); }}
+                    className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                  >
+                    Reset
+                  </button>
+                )}
+
+                {/* Result count */}
+                <span className="text-[11px] text-muted-foreground ml-auto">
+                  {filteredUsers.length} of {allUsers.length} users
+                </span>
+              </div>
             </div>
 
             {/* Create form */}
@@ -1255,7 +1395,12 @@ export default function Admin() {
                         {/* Total */}
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatMinutes(u.totalMinutesUsed)}
-                          <span className="text-gray-400 text-[10px]"> ({u.totalSessions})</span>
+                          <span className="text-gray-400 text-[10px]"> ({u.totalSessions} sess)</span>
+                          {u.totalShares > 0 && (
+                            <span className="ml-1.5 text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold" title="Total shares">
+                              {u.totalShares} shares
+                            </span>
+                          )}
                         </td>
 
                         {/* Last seen */}

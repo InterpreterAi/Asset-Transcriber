@@ -11,6 +11,7 @@ import supportRouter from "./support.js";
 import glossaryRouter from "./glossary.js";
 import terminologyRouter from "./terminology.js";
 import referralsRouter from "./referrals.js";
+import shareRouter from "./share.js";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/support", supportRouter);
 router.use("/glossary", glossaryRouter);
 router.use("/terminology", terminologyRouter);
 router.use("/referrals", referralsRouter);
+router.use("/share", shareRouter);
 
 export default router;

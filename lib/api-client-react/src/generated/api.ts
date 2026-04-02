@@ -440,17 +440,12 @@ export const getStartSessionUrl = () => {
   return `/api/transcription/session/start`;
 };
 
-export type StartSessionBody = { srcLang: string; tgtLang: string };
-
 export const startSession = async (
-  body: StartSessionBody,
   options?: RequestInit,
 ): Promise<SessionResponse> => {
   return customFetch<SessionResponse>(getStartSessionUrl(), {
     ...options,
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
-    body: JSON.stringify(body),
   });
 };
 
@@ -461,14 +456,14 @@ export const getStartSessionMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof startSession>>,
     TError,
-    StartSessionBody,
+    void,
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof startSession>>,
   TError,
-  StartSessionBody,
+  void,
   TContext
 > => {
   const mutationKey = ["startSession"];
@@ -482,9 +477,9 @@ export const getStartSessionMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof startSession>>,
-    StartSessionBody
-  > = (body) => {
-    return startSession(body, requestOptions);
+    void
+  > = () => {
+    return startSession(requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -506,14 +501,14 @@ export const useStartSession = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof startSession>>,
     TError,
-    StartSessionBody,
+    void,
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof startSession>>,
   TError,
-  StartSessionBody,
+  void,
   TContext
 > => {
   return useMutation(getStartSessionMutationOptions(options));

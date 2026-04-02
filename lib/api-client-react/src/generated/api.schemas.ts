@@ -25,10 +25,8 @@ export interface LoginRequest {
 export interface UserInfo {
   id: number;
   username: string;
-  email?: string | null;
   isAdmin: boolean;
   isActive: boolean;
-  planType?: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
   trialDaysRemaining: number;
@@ -81,17 +79,15 @@ export interface FeedbackRequest {
 export interface AdminUser {
   id: number;
   username: string;
-  email?: string | null;
   isAdmin: boolean;
   isActive: boolean;
-  planType?: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
-  trialDaysRemaining?: number | null;
   dailyLimitMinutes: number;
   minutesUsedToday: number;
   totalMinutesUsed: number;
   totalSessions: number;
+  totalShares: number;
   lastActivityAt?: string | null;
   createdAt: string;
 }

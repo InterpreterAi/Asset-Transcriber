@@ -118,6 +118,18 @@ async function migrateSchema() {
       CREATE INDEX IF NOT EXISTS idx_session_expire ON user_sessions (expire)
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS share_events (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        platform   TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_share_events_user ON share_events (user_id)
+    `);
+
     logger.info("Startup schema migration complete");
   } catch (err) {
     logger.error({ err }, "Startup schema migration failed — continuing anyway");

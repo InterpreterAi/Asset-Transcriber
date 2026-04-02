@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable, errorLogsTable, loginEventsTable } from "@workspace/db";
+import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable, errorLogsTable, loginEventsTable, shareEventsTable } from "@workspace/db";
 import { eq, sql, gt, isNull, and, desc, gte, lt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
@@ -21,7 +21,16 @@ const PLAN_PRICES: Record<string, number> = {
 
 // ── List users ───────────────────────────────────────────────────────────────
 router.get("/users", requireAdmin, async (_req, res) => {
-  const users = await db.select().from(usersTable).orderBy(usersTable.createdAt);
+  const [users, shareCounts] = await Promise.all([
+    db.select().from(usersTable).orderBy(usersTable.createdAt),
+    db.select({
+      userId: shareEventsTable.userId,
+      count:  sql<number>`COUNT(*)`,
+    }).from(shareEventsTable).groupBy(shareEventsTable.userId),
+  ]);
+
+  const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
+
   res.json({
     users: users.map((u) => ({
       id:                 u.id,
@@ -37,6 +46,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
       minutesUsedToday:   u.minutesUsedToday,
       totalMinutesUsed:   u.totalMinutesUsed,
       totalSessions:      u.totalSessions,
+      totalShares:        shareMap.get(u.id) ?? 0,
       lastActivityAt:     u.lastActivity ?? null,
       createdAt:          u.createdAt,
     })),
@@ -156,13 +166,16 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Session count today — non-admin users only (since midnight UTC)
+    // Session count today — non-admin users only (since midnight UTC).
+    // Only count sessions that lasted ≥30 s or are currently live, to exclude
+    // phantom rows created by failed start attempts or page-refresh reconnects.
     db.select({ count: sql<number>`COUNT(*)` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfToday}`,
         sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
     // Paying (non-trial, non-admin) users

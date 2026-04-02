@@ -17,5 +17,7 @@ export interface AdminUser {
   minutesUsedToday: number;
   totalMinutesUsed: number;
   totalSessions: number;
+  totalShares: number;
+  lastActivityAt?: Date | null;
   createdAt: Date;
 }

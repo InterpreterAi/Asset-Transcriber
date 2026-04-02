@@ -6,3 +6,4 @@ export * from "./glossary";
 export * from "./error-logs";
 export * from "./login-events";
 export * from "./referrals";
+export * from "./share-events";

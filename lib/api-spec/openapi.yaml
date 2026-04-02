@@ -547,6 +547,8 @@ components:
           type: number
         totalSessions:
           type: integer
+        totalShares:
+          type: integer
         lastActivityAt:
           type: string
           format: date-time
@@ -563,6 +565,7 @@ components:
         - minutesUsedToday
         - totalMinutesUsed
         - totalSessions
+        - totalShares
         - createdAt
 
     AdminUserListResponse:
