@@ -1,0 +1,5 @@
+[install]
+cmds = ["pnpm install --no-frozen-lockfile"]
+
+[build]
+cmds = ["pnpm run --filter @workspace/db build", "pnpm run build"]
