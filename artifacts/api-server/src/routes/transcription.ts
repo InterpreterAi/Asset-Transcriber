@@ -149,6 +149,48 @@ function langName(code: string): string {
   return LANG_NAMES[code] ?? code;
 }
 
+// ── Translation output language validator ──────────────────────────────────
+// Maps BCP-47 base codes to the Unicode ranges that MUST dominate the output
+// text for that language. Latin-script languages are omitted (no reliable
+// range check — they overlap too much).
+const SCRIPT_RANGES: Record<string, [number, number][]> = {
+  ar:  [[0x0600, 0x06FF]],
+  fa:  [[0x0600, 0x06FF]],
+  ur:  [[0x0600, 0x06FF]],
+  he:  [[0x0590, 0x05FF]],
+  hi:  [[0x0900, 0x097F]],
+  mr:  [[0x0900, 0x097F]],
+  ne:  [[0x0900, 0x097F]],
+  ru:  [[0x0400, 0x04FF]],
+  uk:  [[0x0400, 0x04FF]],
+  bg:  [[0x0400, 0x04FF]],
+  el:  [[0x0370, 0x03FF]],
+  th:  [[0x0E00, 0x0E7F]],
+  ko:  [[0xAC00, 0xD7AF], [0x1100, 0x11FF]],
+  zh:  [[0x4E00, 0x9FFF], [0x3400, 0x4DBF]],
+  ja:  [[0x3040, 0x30FF], [0x4E00, 0x9FFF]],
+  ka:  [[0x10A0, 0x10FF]],
+  hy:  [[0x0530, 0x058F]],
+};
+
+// Returns true if the translated text is written in the expected script for
+// tgtCode, or if we have no script expectation for that code (Latin etc.).
+// Threshold: ≥ 50 % of non-ASCII meaningful characters must be in the range.
+function matchesTargetScript(text: string, tgtCode: string): boolean {
+  const ranges = SCRIPT_RANGES[tgtCode];
+  if (!ranges) return true; // Latin-script target — cannot validate by script
+
+  const nonAscii = [...text].filter(c => (c.codePointAt(0) ?? 0) > 0x007F);
+  if (nonAscii.length < 3) return true; // too short to evaluate reliably
+
+  const inRange = nonAscii.filter(c => {
+    const cp = c.codePointAt(0)!;
+    return ranges.some(([lo, hi]) => cp >= lo && cp <= hi);
+  });
+
+  return inRange.length / nonAscii.length >= 0.50;
+}
+
 // ── /session/start ─────────────────────────────────────────────────────────
 router.post("/session/start", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
@@ -502,11 +544,44 @@ router.post("/translate", requireAuth, async (req, res) => {
       termHints.map(h => `  ${h}`).join("\n") + "\n"
     : "";
 
-  const systemPrompt =
-    `You are a professional simultaneous interpreter in a live interpreter call-center. ` +
-    `Your only job is to translate what the speaker literally said — nothing more, nothing less. ` +
-    `Translate from ${srcName} into ${tgtName}.\n\n` +
+  // ── Build system prompt helper ─────────────────────────────────────────────
+  // Accepts an optional forceOverride flag for the retry path; when true the
+  // language-lock instruction is elevated to the very top of the prompt with
+  // even stronger wording, and all domain-specific rules are stripped to keep
+  // the model focused solely on getting the target language right.
+  const buildSystemPrompt = (forceOverride = false): string => {
+    // Hard target-language lock — placed at the very start so it cannot be
+    // overridden by anything later in the prompt.
+    const langLock =
+      `CRITICAL OUTPUT LANGUAGE RULE:\n` +
+      `You MUST write your entire response in ${tgtName} — and ONLY in ${tgtName}.\n` +
+      `Do NOT output Arabic, do NOT output any language other than ${tgtName}.\n` +
+      `Even if the input text resembles or contains words from another language, ` +
+      `your translation output MUST be written exclusively in ${tgtName}.\n\n`;
 
+    if (forceOverride) {
+      return (
+        langLock +
+        `You are a professional interpreter. ` +
+        `Translate the following text from ${srcName} to ${tgtName}. ` +
+        `Output ONLY the translated text in ${tgtName}. ` +
+        `Do not use Arabic, do not use any language other than ${tgtName}. ` +
+        `Return ONLY the translated text, nothing else.`
+      );
+    }
+
+    return (
+      langLock +
+      `You are a professional simultaneous interpreter in a live interpreter call-center. ` +
+      `Your only job is to translate what the speaker literally said — nothing more, nothing less. ` +
+      `Translate from ${srcName} into ${tgtName}.\n\n` +
+      `SOURCE LANGUAGE: ${srcName}\n` +
+      `TARGET LANGUAGE: ${tgtName} — ALL output must be in ${tgtName} only.\n\n`
+    );
+  };
+
+  const systemPrompt =
+    buildSystemPrompt() +
     `CORE RULE: Translate only the exact words spoken. NEVER add words, context, or assumptions that the speaker did not say.\n\n` +
 
     `PRESERVE AMBIGUITY:\n` +
@@ -545,29 +620,67 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Return ONLY the translated text.\n` +
     `- No explanations, notes, alternatives, or the original text.`;
 
-  // Hard 12-second timeout — if OpenAI hangs, return 503 so the client can
-  // retry instead of blocking indefinitely and stalling the translation stream.
-  const controller = new AbortController();
-  const timeoutId  = setTimeout(() => controller.abort(), 12_000);
+  // ── OpenAI call with output-language validation + single retry ────────────
+  // Hard 12-second timeout per attempt — if OpenAI hangs, return 503.
+  // Validation: after receiving the translation we check that the output
+  // script matches the expected target language.  If it doesn't (e.g. Arabic
+  // characters appear when the target is Hindi), we immediately retry with a
+  // maximally-explicit override prompt that strips all domain rules and puts
+  // the language-lock at the very top.  The retry is attempted only once.
+  async function callOpenAI(prompt: string): Promise<string> {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 12_000);
+    try {
+      const resp = await openai.chat.completions.create(
+        {
+          model:       "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: prompt },
+            { role: "user",   content: text },
+          ],
+        },
+        { signal: controller.signal },
+      );
+      clearTimeout(timeoutId);
+      return resp.choices[0]?.message?.content?.trim() ?? "";
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
+    }
+  }
 
   try {
-    const resp = await openai.chat.completions.create(
-      {
-        model:       "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user",   content: text },
-        ],
-      },
-      { signal: controller.signal },
-    );
-    clearTimeout(timeoutId);
+    let translated = await callOpenAI(systemPrompt);
 
-    const translated = resp.choices[0]?.message?.content?.trim() ?? "";
+    // ── Output language validation ───────────────────────────────────────────
+    // If the response is not in the expected script (e.g. Arabic returned when
+    // target is Hindi), discard the bad output and retry once with the minimal
+    // force-override prompt that has the language lock at the very top.
+    if (translated && !matchesTargetScript(translated, tgtCode)) {
+      logger.warn(
+        { srcLang, tgtLang, tgtCode, textLen: text.length },
+        "Translation output failed script validation — retrying with force-override prompt",
+      );
+      const override = await callOpenAI(buildSystemPrompt(true));
+      if (override && matchesTargetScript(override, tgtCode)) {
+        translated = override;
+      } else if (override) {
+        // Even the retry gave a bad script — use the retry output anyway (it's
+        // still the model's best attempt) so the user sees something rather than
+        // nothing.  Log so we can track frequency.
+        logger.warn(
+          { srcLang, tgtLang, tgtCode, textLen: text.length },
+          "Force-override retry also failed script validation — using retry output",
+        );
+        translated = override;
+      }
+      // If override is empty the original translated value (even wrong-script)
+      // is returned below so the client is never left with an empty column.
+    }
+
     res.json({ translated }); // result returned to browser; nothing retained server-side
   } catch (err: unknown) {
-    clearTimeout(timeoutId);
     const isTimeout = err instanceof Error && err.name === "AbortError";
     logger.error(
       { err, srcLang, tgtLang, textLen: text.length, isTimeout },
