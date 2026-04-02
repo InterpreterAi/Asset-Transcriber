@@ -555,7 +555,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     const langLock =
       `CRITICAL OUTPUT LANGUAGE RULE:\n` +
       `You MUST write your entire response in ${tgtName} — and ONLY in ${tgtName}.\n` +
-      `Do NOT output Arabic, do NOT output any language other than ${tgtName}.\n` +
+      `Do NOT output any language other than ${tgtName}. ` +
       `Even if the input text resembles or contains words from another language, ` +
       `your translation output MUST be written exclusively in ${tgtName}.\n\n`;
 
@@ -565,7 +565,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         `You are a professional interpreter. ` +
         `Translate the following text from ${srcName} to ${tgtName}. ` +
         `Output ONLY the translated text in ${tgtName}. ` +
-        `Do not use Arabic, do not use any language other than ${tgtName}. ` +
+        `Do not use any other language. ` +
         `Return ONLY the translated text, nothing else.`
       );
     }
