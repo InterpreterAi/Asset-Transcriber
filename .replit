@@ -55,3 +55,4 @@ localPort = 3001
 [userenv]
 
 [userenv.shared]
+TELEGRAM_BOT_TOKEN = "8652782789: AAHGOChCUFNqzEvx0Gb2_tl 5czkBfhm8U-s"
