@@ -904,7 +904,10 @@ export function useTranscription(isAdmin = false) {
     // Clear snapshot accumulators — session is over.
     transcriptBufRef.current  = [];
     translationBufRef.current = [];
-  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval]);
+
+    // Clear columns for regular users when they manually stop a session.
+    if (!isAdminRef.current) doClear();
+  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, doClear]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
