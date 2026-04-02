@@ -311,7 +311,7 @@ router.post("/signup", async (req, res) => {
   }
 
   void sendTelegramNotification(
-    `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration`
+    `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration\nPlan: Free Trial (14 days)`
   );
   void sendWelcomeEmail(email.toLowerCase());
 
@@ -559,7 +559,7 @@ router.get("/google/callback", async (req, res) => {
 
     void sendTelegramNotification(
       isNewUser
-        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up`
+        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (14 days)`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`
     );
     if (isNewUser) void sendWelcomeEmail(googleEmail);
