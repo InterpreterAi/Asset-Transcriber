@@ -1,15 +1,14 @@
-{
+ {
   "name": "workspace",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@9.15.4",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
-    "build": "pnpm --filter \"./artifacts/api-server\" build",
+    "dev": "NODE_ENV=development pnpm run build && pnpm run start",
+    "build": "pnpm -r build",
     "start": "node artifacts/api-server/dist/index.js",
-    "dev": "pnpm --filter \"./artifacts/api-server\" dev"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "stripe": "^21.0.1",
@@ -18,5 +17,12 @@
   "devDependencies": {
     "prettier": "^3.3.1",
     "typescript": "^5.4.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "path-to-regexp": "8.4.0",
+      "picomatch@2": "2.3.2",
+      "picomatch@4": "4.0.4"
+    }
   }
 }
