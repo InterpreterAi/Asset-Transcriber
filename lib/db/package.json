@@ -8,6 +8,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./resolve-db-url": {
+      "types": "./src/resolve-db-url.ts",
+      "default": "./src/resolve-db-url.ts"
+    },
     "./schema": {
       "types": "./src/schema/index.ts",
       "default": "./src/schema/index.ts"

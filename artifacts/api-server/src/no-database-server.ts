@@ -25,7 +25,7 @@ const hint = {
     "Open the service that runs **this** Node container → Variables → New variable → Variable Reference → pick Postgres → add `DATABASE_URL` (or `DATABASE_PRIVATE_URL`).",
     "Or paste the full `postgresql://…` URL as `DATABASE_URL` on that same web/API service (Raw editor).",
     "Use the correct Railway **environment** (e.g. Production). Empty or Preview-only vars leave this process without a DB.",
-    "Redeploy the web/API service after saving. GET /debug/db-env on this host lists which keys are non-empty (values never shown).",
+    "Redeploy the web/API service after saving. GET /debug/db-env — `runtime.envKeysWithPostgresUriValues` lists env **names** whose values look like postgresql:// URLs (if empty, this process has no DB URL in the environment at all).",
   ],
 };
 
