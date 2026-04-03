@@ -1,6 +1,9 @@
 /**
- * Central auth-related environment resolution (Express API — not NextAuth).
- * Accepts common NextAuth-style names as fallbacks so Railway vars match tutorials.
+ * Central auth-related environment resolution (Express API + express-session).
+ * This app does not use the NextAuth.js library; Google OAuth is implemented in `routes/auth.ts`.
+ * Railway: set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the **web/API service** that runs
+ * this server, then redeploy. Remove stale duplicate vars (`AUTH_GOOGLE_*`, `VITE_GOOGLE_*`, etc.)
+ * so an old ID is not picked up via the alias chain in `getGoogleClientId()`.
  */
 import type { Request } from "express";
 import { logger } from "./logger.js";
@@ -10,6 +13,12 @@ function trimEnv(key: string): string | undefined {
   if (v == null) return undefined;
   const t = v.trim();
   return t === "" ? undefined : t;
+}
+
+/** Public OAuth client id — safe to expose; helps verify Railway after credential rotation. */
+function googleClientIdFingerprint(id: string): string {
+  if (id.length <= 24) return id;
+  return `${id.slice(0, 12)}…${id.slice(-10)}`;
 }
 
 /** Session signing secret — SESSION_SECRET preferred, NEXTAUTH_SECRET alias. */
@@ -102,8 +111,9 @@ export function logAuthEnvBootstrap(): void {
   }
 }
 
-/** For GET /debug/auth-env — booleans only, no secret values. */
-export function getAuthEnvDiagnostics(): Record<string, boolean> {
+/** For GET /debug/auth-env — booleans + non-secret OAuth client fingerprint. */
+export function getAuthEnvDiagnostics(): Record<string, boolean | string | null> {
+  const gid = getGoogleClientId();
   return {
     DATABASE_URL: Boolean(
       trimEnv("DATABASE_URL") ??
@@ -111,8 +121,10 @@ export function getAuthEnvDiagnostics(): Record<string, boolean> {
         trimEnv("DATABASE_PUBLIC_URL"),
     ),
     SESSION_SECRET: Boolean(trimEnv("SESSION_SECRET") ?? trimEnv("NEXTAUTH_SECRET")),
-    GOOGLE_CLIENT_ID: Boolean(getGoogleClientId()),
+    GOOGLE_CLIENT_ID: Boolean(gid),
     GOOGLE_CLIENT_SECRET: Boolean(getGoogleClientSecret()),
+    /** Matches the client id the running process uses (after alias resolution). */
+    googleClientIdFingerprint: gid ? googleClientIdFingerprint(gid) : null,
     ADMIN_PASSWORD: Boolean(trimEnv("ADMIN_PASSWORD")),
     APP_URL_OR_NEXTAUTH_URL: Boolean(trimEnv("APP_URL") ?? trimEnv("NEXTAUTH_URL")),
     RAILWAY_STATIC_URL: Boolean(trimEnv("RAILWAY_STATIC_URL")),
