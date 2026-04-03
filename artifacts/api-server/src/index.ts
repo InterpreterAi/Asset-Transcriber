@@ -1,5 +1,23 @@
-import "./load-local-env.js";
+import "./env-bootstrap.js";
 import { getDbEnvStartupLog, getDatabaseUrlRuntimeDebug, isPostgresEnvConfigured } from "./postgres-env.js";
+import { getSonioxMasterApiKey } from "./lib/soniox-env.js";
+
+const trim = (k: string) => Boolean(process.env[k]?.trim());
+console.info(
+  "[api-server] Env presence at startup (values never logged):",
+  JSON.stringify({
+    SONIOX_API_KEY: trim("SONIOX_API_KEY"),
+    SONIOX_STT_API_KEY: trim("SONIOX_STT_API_KEY"),
+    OPENAI_API_KEY: trim("OPENAI_API_KEY"),
+    DATABASE_URL: trim("DATABASE_URL"),
+  }),
+);
+
+if (!getSonioxMasterApiKey()) {
+  console.error(
+    "[api-server] Soniox API key missing — set SONIOX_API_KEY or SONIOX_STT_API_KEY (or SONIOX_KEY / SONIOX_API_TOKEN) on this service.",
+  );
+}
 
 console.info("[api-server] DB env startup probe (no secrets):", JSON.stringify(getDbEnvStartupLog()));
 

@@ -1,18 +1,8 @@
 import { Router } from "express";
-import OpenAI from "openai";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { openai } from "../lib/openai-client.js";
 
 const router = Router();
-
-// ── OpenAI client ─────────────────────────────────────────────────────────────
-// Prefer Replit AI integration proxy; fall back to a direct key.
-const _hasProxy = !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-const openai = new OpenAI({
-  baseURL: _hasProxy ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : undefined,
-  apiKey:  _hasProxy
-        ? (process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder")
-        : (process.env.OPENAI_API_KEY ?? "placeholder"),
-});
 
 // ── Language code → readable name map ────────────────────────────────────────
 const LANG_NAMES: Record<string, string> = {

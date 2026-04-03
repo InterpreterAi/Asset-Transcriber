@@ -127,7 +127,7 @@ app.get("/debug/ai-env", (_req, res) => {
   res.status(200).json({
     ok: true,
     message:
-      "Booleans only. Transcription needs SONIOX_API_KEY or SONIOX_STT_API_KEY. Translation needs OPENAI_API_KEY or Replit AI integration vars.",
+      "Booleans only. Transcription needs SONIOX_API_KEY (or SONIOX_STT_API_KEY, SONIOX_KEY, SONIOX_API_TOKEN; case-insensitive names work). Translation needs OPENAI_API_KEY or Replit AI integration vars. sonioxResolvedFromKey shows which env var won.",
     ai: getAiEnvDiagnostics(),
   });
 });

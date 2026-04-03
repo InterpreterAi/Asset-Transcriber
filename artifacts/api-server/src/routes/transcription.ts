@@ -1,5 +1,4 @@
 import { Router } from "express";
-import OpenAI from "openai";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -8,6 +7,7 @@ import { findTermHints } from "../data/terminology.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
+import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
@@ -53,17 +53,6 @@ async function isGlobalCapReached(): Promise<boolean> {
   }
   return globalCapCache.minutes >= GLOBAL_CAP_MINUTES;
 }
-
-// ── OpenAI ─────────────────────────────────────────────────────────────────
-// Always prefer the Replit AI integration proxy when configured.
-// OPENAI_API_KEY may exist but be stale — the proxy is the authoritative route.
-const hasIntegrationProxy = !!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-const openai = new OpenAI({
-  baseURL: hasIntegrationProxy ? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL : undefined,
-  apiKey:  hasIntegrationProxy
-        ? (process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder")
-        : (process.env.OPENAI_API_KEY ?? "placeholder"),
-});
 
 const router = Router();
 

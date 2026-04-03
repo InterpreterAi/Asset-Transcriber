@@ -1,6 +1,10 @@
 /** Presence checks for third-party AI keys (never log values). */
 
-import { getSonioxKeyEnvPresence, getSonioxMasterApiKey } from "./soniox-env.js";
+import {
+  getSonioxKeyEnvPresence,
+  getSonioxMasterApiKey,
+  getSonioxResolvedEnvKeyName,
+} from "./soniox-env.js";
 
 export function isSonioxConfigured(): boolean {
   return Boolean(getSonioxMasterApiKey());
@@ -17,6 +21,8 @@ export function isOpenAiConfigured(): boolean {
 export function getAiEnvDiagnostics(): {
   soniox: boolean;
   sonioxEnvKeys: ReturnType<typeof getSonioxKeyEnvPresence>;
+  /** Actual `process.env` key name that supplied the Soniox key (null if none). */
+  sonioxResolvedFromKey: string | null;
   openai: boolean;
   openaiRoute: "integration_proxy" | "direct_api_key" | "none";
 } {
@@ -24,6 +30,7 @@ export function getAiEnvDiagnostics(): {
   return {
     soniox: isSonioxConfigured(),
     sonioxEnvKeys: getSonioxKeyEnvPresence(),
+    sonioxResolvedFromKey: getSonioxResolvedEnvKeyName(),
     openai: isOpenAiConfigured(),
     openaiRoute: proxy ? "integration_proxy" : isOpenAiConfigured() ? "direct_api_key" : "none",
   };
