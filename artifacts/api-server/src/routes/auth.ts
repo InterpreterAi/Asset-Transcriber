@@ -26,6 +26,14 @@ import crypto from "node:crypto";
 
 const router = Router();
 
+/** Returned when connect-pg-simple / Postgres session storage fails (common Railway 500 on login + Google). */
+const SESSION_PERSIST_FAILED_JSON = {
+  error: "Could not save your session.",
+  hint:
+    "One instance: set Railway variable SESSION_STORE=memory (or unset SESSION_STORE if the image defaults to memory), redeploy. " +
+    "Multiple instances: use SESSION_STORE=postgres and ensure the user_sessions table exists and is writable.",
+} as const;
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function getClientIp(req: import("express").Request): string {
   return (
@@ -94,7 +102,17 @@ router.post("/login", async (req, res) => {
     if (user.twoFactorEnabled && user.twoFactorSecret) {
       req.session.pending2faUserId = user.id;
       delete req.session.userId;
-      await commitSession(req);
+      try {
+        await commitSession(req);
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException & { code?: string };
+        logger.error(
+          { err, errMessage: e?.message, errCode: e?.code },
+          "Login (2FA pending): session.save failed",
+        );
+        res.status(500).json(SESSION_PERSIST_FAILED_JSON);
+        return;
+      }
       res.json({ requires2fa: true });
       return;
     }
@@ -112,7 +130,7 @@ router.post("/login", async (req, res) => {
         { err, errMessage: e?.message, errCode: e?.code },
         "Login: session.save failed — check user_sessions table and Postgres connectivity",
       );
-      res.status(500).json({ error: "Login failed" });
+      res.status(500).json(SESSION_PERSIST_FAILED_JSON);
       return;
     }
 
@@ -206,7 +224,7 @@ router.post("/2fa/verify", async (req, res) => {
         { err, errMessage: e?.message, errCode: e?.code },
         "2FA verify: session.save failed",
       );
-      res.status(500).json({ error: "Verification failed" });
+      res.status(500).json(SESSION_PERSIST_FAILED_JSON);
       return;
     }
 
@@ -400,7 +418,17 @@ router.post("/signup", async (req, res) => {
   );
   void sendWelcomeEmail(email.toLowerCase());
 
-  await commitSession(req);
+  try {
+    await commitSession(req);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { code?: string };
+    logger.error(
+      { err, errMessage: e?.message, errCode: e?.code },
+      "Signup: session.save failed",
+    );
+    res.status(500).json(SESSION_PERSIST_FAILED_JSON);
+    return;
+  }
   res.status(201).json({ user: buildUserInfo(user!) });
 });
 
@@ -546,7 +574,13 @@ router.get("/google", async (req, res) => {
       { err, errMessage: e?.message, errCode: e?.code },
       "GET /api/auth/google: session save failed",
     );
-    res.status(500).send("Could not start Google login. Check server logs.");
+    res
+      .status(500)
+      .type("text/plain")
+      .send(
+        "Could not start Google login (session not saved). " +
+          SESSION_PERSIST_FAILED_JSON.hint,
+      );
   }
 });
 

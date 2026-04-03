@@ -39,7 +39,8 @@ export const sessionMiddleware = session(
         store: new PgSession({
           pool,
           tableName: "user_sessions",
-          createTableIfMissing: false,
+          // Self-heal if startup migration did not run; matches official connect-pg-simple DDL.
+          createTableIfMissing: true,
         }),
         secret: getSessionSecret(),
         resave: false,
