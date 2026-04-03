@@ -4,6 +4,7 @@
 #
 # REQUIRED: Add a PostgreSQL service, then in THIS service → Variables → New variable →
 # "Variable Reference" → pick Postgres → DATABASE_URL (copies the connection string here).
+# The Docker image builds the React app and serves it from "/" on the same URL as /api/*.
 
 [build]
 builder = "DOCKERFILE"

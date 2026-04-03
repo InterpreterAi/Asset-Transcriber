@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -20,13 +22,11 @@ const app: Express = express();
 // the real client IP from X-Forwarded-For without throwing a ValidationError.
 app.set("trust proxy", 1);
 
-// Railway / load balancers probe "/" or "/health" before the app is "ready".
-// These must stay BEFORE session (Postgres) and before /api rate limits.
+// Railway / load balancers probe "/health" before the app is "ready".
+// Must stay BEFORE session (Postgres) and before /api rate limits.
+// "/" is served by the SPA when artifacts/transcription-app/dist/public exists (Docker).
 app.get("/health", (_req, res) => {
   res.status(200).type("text/plain").send("ok");
-});
-app.get("/", (_req, res) => {
-  res.status(200).json({ ok: true, service: "api-server" });
 });
 
 app.use(
@@ -145,5 +145,29 @@ app.use("/api/admin", adminIpGuard);
 app.use("/api", generalLimiter);
 app.use("/api", errorLoggerMiddleware);
 app.use("/api", router);
+
+// Production web UI: same-origin /api/* (built in Docker via vite).
+const spaStaticRoot = path.resolve(
+  process.cwd(),
+  "artifacts/transcription-app/dist/public",
+);
+const spaIndexHtml = path.join(spaStaticRoot, "index.html");
+if (fs.existsSync(spaIndexHtml)) {
+  app.use((req, res, next) => {
+    if (req.path === "/api" || req.path.startsWith("/api/")) return next();
+    express.static(spaStaticRoot)(req, res, next);
+  });
+  app.use((req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    if (req.path === "/api" || req.path.startsWith("/api/") || req.path === "/health") {
+      return next();
+    }
+    res.sendFile(spaIndexHtml);
+  });
+} else {
+  app.get("/", (_req, res) => {
+    res.status(200).json({ ok: true, service: "api-server" });
+  });
+}
 
 export default app;

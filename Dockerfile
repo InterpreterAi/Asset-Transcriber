@@ -14,6 +14,8 @@ COPY scripts ./scripts
 ENV CI=true
 RUN pnpm install --frozen-lockfile
 
+# Web UI + API in one process (Express serves vite build from dist/public).
+RUN NODE_ENV=production pnpm --filter @workspace/transcription-app run build
 RUN pnpm run build:api-server
 
 ENV NODE_ENV=production
