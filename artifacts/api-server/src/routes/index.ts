@@ -12,6 +12,7 @@ import glossaryRouter from "./glossary.js";
 import terminologyRouter from "./terminology.js";
 import referralsRouter from "./referrals.js";
 import shareRouter from "./share.js";
+import { globalErrorHandler } from "../middlewares/globalErrorHandler.js";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,9 @@ router.use("/glossary", glossaryRouter);
 router.use("/terminology", terminologyRouter);
 router.use("/referrals", referralsRouter);
 router.use("/share", shareRouter);
+
+// Last: turns `next(err)` from any /api route into JSON here instead of relying on bubbling
+// past the SPA middleware (which can surface Express's HTML finalhandler in edge cases).
+router.use(globalErrorHandler);
 
 export default router;

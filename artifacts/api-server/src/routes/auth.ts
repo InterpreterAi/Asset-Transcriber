@@ -44,6 +44,16 @@ function logAuthToStderr(context: string, err: unknown) {
   }
 }
 
+/** Pino can throw when serializing exotic `err` values; never let that block `res.json`. */
+function safeAuthLoggerError(context: string, err: unknown) {
+  logAuthToStderr(context, err);
+  try {
+    logger.error(errMeta(err), context);
+  } catch (logErr) {
+    console.error("[auth] logger.error threw while logging failure:", logErr);
+  }
+}
+
 /** Returned when connect-pg-simple / Postgres session storage fails (common Railway 500 on login + Google). */
 const SESSION_PERSIST_FAILED_JSON = {
   error: "Could not save your session.",
@@ -133,8 +143,7 @@ router.post("/login", async (req, res) => {
       try {
         await commitSession(req);
       } catch (err) {
-        logAuthToStderr("Login (2FA pending) session.save", err);
-        logger.error(errMeta(err), "Login (2FA pending): session.save failed — full stack for Railway");
+        safeAuthLoggerError("Login (2FA pending): session.save failed — full stack for Railway", err);
         res.status(500).json({ ...SESSION_PERSIST_FAILED_JSON, code: "session_save_failed" });
         return;
       }
@@ -150,8 +159,7 @@ router.post("/login", async (req, res) => {
     try {
       await commitSession(req);
     } catch (err) {
-      logAuthToStderr("Login session.save", err);
-      logger.error(errMeta(err), "Login: session.save failed — full stack for Railway");
+      safeAuthLoggerError("Login: session.save failed — full stack for Railway", err);
       res.status(500).json({ ...SESSION_PERSIST_FAILED_JSON, code: "session_save_failed" });
       return;
     }
@@ -203,8 +211,7 @@ router.post("/login", async (req, res) => {
       });
     }
   } catch (err) {
-    logAuthToStderr("POST /api/auth/login uncaught", err);
-    logger.error(errMeta(err), "POST /api/auth/login failed — full stack (not necessarily session-related)");
+    safeAuthLoggerError("POST /api/auth/login failed — full stack (not necessarily session-related)", err);
     const pgCode = (err as { code?: string })?.code;
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({
@@ -253,8 +260,7 @@ router.post("/2fa/verify", async (req, res) => {
     try {
       await commitSession(req);
     } catch (err) {
-      logAuthToStderr("2FA verify session.save", err);
-      logger.error(errMeta(err), "2FA verify: session.save failed — full stack for Railway");
+      safeAuthLoggerError("2FA verify: session.save failed — full stack for Railway", err);
       res.status(500).json({ ...SESSION_PERSIST_FAILED_JSON, code: "session_save_failed" });
       return;
     }
@@ -297,8 +303,7 @@ router.post("/2fa/verify", async (req, res) => {
 
     res.json({ user: userPayload });
   } catch (err) {
-    logAuthToStderr("POST /api/auth/2fa/verify uncaught", err);
-    logger.error(errMeta(err), "POST /api/auth/2fa/verify failed — full stack");
+    safeAuthLoggerError("POST /api/auth/2fa/verify failed — full stack", err);
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({
       error: msg || "Verification failed",
@@ -453,8 +458,7 @@ router.post("/signup", async (req, res) => {
   try {
     await commitSession(req);
   } catch (err) {
-    logAuthToStderr("Signup session.save", err);
-    logger.error(errMeta(err), "Signup: session.save failed — full stack for Railway");
+    safeAuthLoggerError("Signup: session.save failed — full stack for Railway", err);
     res.status(500).json({ ...SESSION_PERSIST_FAILED_JSON, code: "session_save_failed" });
     return;
   }
@@ -609,8 +613,7 @@ router.get("/google", async (req, res) => {
     await commitSession(req);
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
   } catch (err) {
-    logAuthToStderr("GET /api/auth/google", err);
-    logger.error(errMeta(err), "GET /api/auth/google: failed — full stack for Railway");
+    safeAuthLoggerError("GET /api/auth/google: failed — full stack for Railway", err);
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({
       error: msg || "Could not start Google login",
@@ -642,10 +645,9 @@ router.get("/google/callback", async (req, res) => {
   try {
     await commitSession(req);
   } catch (err) {
-    logAuthToStderr("Google callback session.save (clear state)", err);
-    logger.error(
-      errMeta(err),
+    safeAuthLoggerError(
       "Google callback: session.save after clearing oauth state failed — full stack for Railway",
+      err,
     );
     res.redirect("/login?error=session_failed");
     return;
@@ -783,10 +785,9 @@ router.get("/google/callback", async (req, res) => {
     try {
       await commitSession(req);
     } catch (sessErr) {
-      logAuthToStderr("Google callback session.save (after login)", sessErr);
-      logger.error(
-        errMeta(sessErr),
+      safeAuthLoggerError(
         "Google callback: session.save after login failed — full stack for Railway",
+        sessErr,
       );
       res.redirect("/login?error=session_failed");
       return;
@@ -794,8 +795,7 @@ router.get("/google/callback", async (req, res) => {
 
     res.redirect("/workspace");
   } catch (err) {
-    logAuthToStderr("Google OAuth callback uncaught", err);
-    logger.error(errMeta(err), "Google OAuth callback error — full stack for Railway");
+    safeAuthLoggerError("Google OAuth callback error — full stack for Railway", err);
     res.redirect("/login?error=auth_failed");
   }
 });
