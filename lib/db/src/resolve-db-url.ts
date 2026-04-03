@@ -1,17 +1,38 @@
 /**
  * Shared Postgres URL resolution for the API pool, Drizzle Kit, and one-off scripts.
- * Keep in sync with deployment docs (Railway variable references).
+ * Keep in sync with artifacts/api-server/src/postgres-env.ts (URL key order + validation).
  */
+
+const POSTGRES_URL_ENV_KEYS = [
+  "DATABASE_URL",
+  "DATABASE_PRIVATE_URL",
+  "DATABASE_PUBLIC_URL",
+  "DATABASE_URL_UNPOOLED",
+  "POSTGRES_URL",
+  "POSTGRESQL_URL",
+  "POSTGRES_PRISMA_URL",
+  "NEON_DATABASE_URL",
+  "SUPABASE_DB_URL",
+] as const;
+
+function isPlausiblePostgresConnectionUrlValue(v: string): boolean {
+  const t = v.trim();
+  if (!t) return false;
+  if (!/^postgres(ql)?:\/\//i.test(t)) return false;
+  if (/\$\{[^}]+\}/.test(t)) return false;
+  return true;
+}
+
+function firstDirectPostgresUrlFromEnv(): string | undefined {
+  for (const key of POSTGRES_URL_ENV_KEYS) {
+    const v = process.env[key]?.trim();
+    if (v && isPlausiblePostgresConnectionUrlValue(v)) return v;
+  }
+  return undefined;
+}
+
 export function resolveDatabaseUrlFromEnv(): string {
-  const direct =
-    process.env.DATABASE_URL?.trim() ||
-    process.env.DATABASE_PRIVATE_URL?.trim() ||
-    process.env.DATABASE_PUBLIC_URL?.trim() ||
-    process.env.DATABASE_URL_UNPOOLED?.trim() ||
-    process.env.POSTGRES_URL?.trim() ||
-    process.env.POSTGRES_PRISMA_URL?.trim() ||
-    process.env.NEON_DATABASE_URL?.trim() ||
-    process.env.SUPABASE_DB_URL?.trim();
+  const direct = firstDirectPostgresUrlFromEnv();
   if (direct) return direct;
 
   const host =
