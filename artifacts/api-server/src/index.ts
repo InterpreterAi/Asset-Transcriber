@@ -1,14 +1,18 @@
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./lib/stripeClient.js";
-import { db, sessionsTable, usersTable } from "@workspace/db";
+import { db, pool, resolvedDatabaseUrl, sessionsTable, usersTable } from "@workspace/db";
 import { isNull, sql, eq } from "drizzle-orm";
 import { hashPassword } from "./lib/password.js";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
-import { pool } from "@workspace/db";
 
-const rawPort = process.env["PORT"];
-if (!rawPort) throw new Error("PORT environment variable is required");
+const rawPort =
+  process.env["PORT"] ?? process.env["RAILWAY_PORT"] ?? process.env["HTTP_PLATFORM_PORT"];
+if (!rawPort) {
+  throw new Error(
+    "PORT is not set. On Railway, use a Web service (PORT is injected automatically).",
+  );
+}
 
 const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
@@ -19,9 +23,10 @@ if (Number.isNaN(port) || port <= 0) {
 // Idempotent: adds any columns/tables that exist in the Drizzle schema but may
 // be missing from an older production database.  Safe to run on every restart.
 async function migrateSchema() {
-  const client = await pool.connect();
   try {
-    logger.info("Running startup schema migration…");
+    const client = await pool.connect();
+    try {
+      logger.info("Running startup schema migration…");
 
     // users table – columns added after initial release
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);
@@ -130,11 +135,17 @@ async function migrateSchema() {
       CREATE INDEX IF NOT EXISTS idx_share_events_user ON share_events (user_id)
     `);
 
-    logger.info("Startup schema migration complete");
+      logger.info("Startup schema migration complete");
+    } catch (err) {
+      logger.error({ err }, "Startup schema migration failed — continuing anyway");
+    } finally {
+      client.release();
+    }
   } catch (err) {
-    logger.error({ err }, "Startup schema migration failed — continuing anyway");
-  } finally {
-    client.release();
+    logger.error(
+      { err },
+      "Could not connect to Postgres for startup migration — continuing (API may fail until DB is reachable)",
+    );
   }
 }
 
@@ -167,11 +178,6 @@ async function clearStaleSessions() {
 
 // ── Stripe initialization (graceful — server still starts if Stripe not connected) ──
 async function initStripe() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    logger.warn("DATABASE_URL not set; skipping Stripe init");
-    return;
-  }
   if (!process.env.STRIPE_SECRET_KEY) {
     logger.warn("STRIPE_SECRET_KEY not set; Stripe features disabled until integration is connected");
     return;
@@ -179,7 +185,7 @@ async function initStripe() {
 
   try {
     logger.info("Initializing Stripe schema…");
-    await runMigrations({ databaseUrl });
+    await runMigrations({ databaseUrl: resolvedDatabaseUrl });
     logger.info("Stripe schema ready");
 
     const stripeSync = await getStripeSync();

@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { StripeSync } from "stripe-replit-sync";
+import { resolvedDatabaseUrl } from "@workspace/db";
 
 // ── Credential fetching ──────────────────────────────────────────────────────
 // After the Stripe Replit integration is connected, credentials are accessible
@@ -33,12 +34,10 @@ export async function getStripeSync(): Promise<StripeSync> {
   if (_stripeSync) return _stripeSync;
 
   const secretKey = getStripeSecretKey();
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL is required for Stripe sync");
 
   _stripeSync = new StripeSync({
     stripeSecretKey: secretKey,
-    poolConfig: { connectionString: databaseUrl },
+    poolConfig: { connectionString: resolvedDatabaseUrl },
   });
 
   return _stripeSync;

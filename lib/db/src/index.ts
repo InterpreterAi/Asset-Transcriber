@@ -44,9 +44,25 @@ function resolveDatabaseUrl(): string {
   );
 }
 
-const connectionString = resolveDatabaseUrl();
+/** Same URL used by the pool — use for Stripe sync / migrations when DATABASE_URL env is unset but PG* vars are. */
+export const resolvedDatabaseUrl = resolveDatabaseUrl();
 
-export const pool = new Pool({ connectionString });
+const isRailway = Boolean(
+  process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_PROJECT_ID ||
+    process.env.RAILWAY_STATIC_URL,
+);
+const looksLikeManagedHost =
+  /railway\.app|rlwy\.net|neon\.tech|supabase\.co|amazonaws\.com/i.test(
+    resolvedDatabaseUrl,
+  );
+
+const poolConfig: pg.PoolConfig = { connectionString: resolvedDatabaseUrl };
+if (isRailway || looksLikeManagedHost) {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
+
+export const pool = new Pool(poolConfig);
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
