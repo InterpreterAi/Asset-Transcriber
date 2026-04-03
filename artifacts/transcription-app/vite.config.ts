@@ -22,6 +22,10 @@ if (!isProduction) {
 
 const basePath = process.env.BASE_PATH ?? "/";
 
+// API server defaults to 8787 in development (see artifacts/api-server server-entry). Replit uses PORT=8080 — set VITE_API_ORIGIN=http://127.0.0.1:8080 there if needed.
+const apiProxyTarget =
+  process.env.VITE_API_ORIGIN ?? `http://127.0.0.1:${process.env.API_SERVER_PORT ?? "8787"}`;
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -64,7 +68,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: apiProxyTarget,
         changeOrigin: true,
         secure: false,
       },

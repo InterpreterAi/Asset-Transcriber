@@ -17,6 +17,7 @@ import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
 import { getAuthEnvDiagnostics } from "./lib/authEnv.js";
+import { getAiEnvDiagnostics } from "./lib/ai-env.js";
 import { apiMountJsonErrorHandler, globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
@@ -112,6 +113,16 @@ app.get("/debug/auth-env", (req, res) => {
     trustProxy: app.get("trust proxy"),
     requestSecure: req.secure,
     xForwardedProto: proto ?? null,
+  });
+});
+
+// Soniox + OpenAI presence (no secret values) — use after deploy to verify AI vars.
+app.get("/debug/ai-env", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    message:
+      "Booleans only. Real-time transcription needs SONIOX_API_KEY. Workspace translation needs OPENAI_API_KEY or Replit AI integration vars.",
+    ai: getAiEnvDiagnostics(),
   });
 });
 
@@ -246,6 +257,7 @@ if (spaEnabled) {
       req.path.startsWith("/api/") ||
       req.path === "/health" ||
       req.path === "/debug/auth-env" ||
+      req.path === "/debug/ai-env" ||
       req.path === "/debug/db-health"
     ) {
       return next();

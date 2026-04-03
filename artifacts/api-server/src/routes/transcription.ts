@@ -7,6 +7,7 @@ import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usa
 import { findTermHints } from "../data/terminology.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
+import { isOpenAiConfigured } from "../lib/ai-env.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -88,8 +89,15 @@ router.post("/token", requireAuth, async (req, res) => {
     return;
   }
 
-  const apiKey = process.env.SONIOX_API_KEY;
-  if (!apiKey) { res.status(500).json({ error: "Transcription service not configured" }); return; }
+  const apiKey = process.env.SONIOX_API_KEY?.trim();
+  if (!apiKey) {
+    res.status(503).json({
+      error:
+        "Transcription is unavailable: set SONIOX_API_KEY on the API server (Railway → Variables).",
+      code: "TRANSCRIPTION_NOT_CONFIGURED",
+    });
+    return;
+  }
 
   res.json({ apiKey, expiresIn: 3600 });
 });
@@ -506,6 +514,15 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   if (!text?.trim() || !srcLang || !tgtLang) {
     res.status(400).json({ error: "text, srcLang, and tgtLang are required" });
+    return;
+  }
+
+  if (!isOpenAiConfigured()) {
+    res.status(503).json({
+      error:
+        "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
+      code: "TRANSLATION_NOT_CONFIGURED",
+    });
     return;
   }
 

@@ -3,6 +3,7 @@
  * Railway stays "running" and health checks pass; user sees how to fix variables.
  */
 import http from "node:http";
+import { getAiEnvDiagnostics } from "./lib/ai-env.js";
 import { dbEnvDiagnostic } from "./postgres-env.js";
 
 const rawPort =
@@ -51,6 +52,18 @@ const server = http.createServer((req, res) => {
       databaseConfigured: false,
       message: "Presence only — values are never shown.",
       env: dbEnvDiagnostic(),
+    });
+    return;
+  }
+
+  if (path === "/debug/ai-env") {
+    json(200, {
+      ok: true,
+      status: "degraded",
+      databaseConfigured: false,
+      message:
+        "Full API disabled (no database). When DB is connected, transcription still needs SONIOX_API_KEY; translation needs OpenAI vars.",
+      ai: getAiEnvDiagnostics(),
     });
     return;
   }

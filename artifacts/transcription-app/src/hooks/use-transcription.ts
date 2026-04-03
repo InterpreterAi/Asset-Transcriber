@@ -1,6 +1,15 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 
+/** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
+function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const e = err as { name?: string; data?: { code?: string } | null };
+  if (e.name !== "ApiError") return undefined;
+  const c = e.data?.code;
+  return typeof c === "string" ? c : undefined;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -334,7 +343,13 @@ function validateLangByScript(
 //   • HTTP 401 / 403             → no retry (auth / quota — caller must handle)
 //   • Other 4xx                  → no retry (bad request)
 //   • Each attempt has a 9 s hard timeout via AbortController.
-async function fetchTranslation(text: string, sourceLang: string, targetLang: string): Promise<string> {
+//   • 503 + TRANSLATION_NOT_CONFIGURED — no retry (missing OpenAI / integration keys).
+async function fetchTranslation(
+  text: string,
+  sourceLang: string,
+  targetLang: string,
+  onTranslationNotConfigured?: (message: string) => void,
+): Promise<string> {
   const MAX_ATTEMPTS = 3;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
@@ -356,7 +371,21 @@ async function fetchTranslation(text: string, sourceLang: string, targetLang: st
       if (r.status === 401 || r.status === 403) return "";
       // Hard client errors (4xx except rate-limit) — no retry
       if (r.status >= 400 && r.status < 500 && r.status !== 429) return "";
-      // 5xx / 429 — fall through to back-off + retry
+      if (r.status === 503) {
+        const raw = await r.text();
+        try {
+          const j = JSON.parse(raw) as { code?: string; error?: string };
+          if (j.code === "TRANSLATION_NOT_CONFIGURED") {
+            onTranslationNotConfigured?.(
+              j.error ?? "Translation is unavailable: configure OpenAI on the API server.",
+            );
+            return "";
+          }
+        } catch {
+          /* fall through to retry */
+        }
+      }
+      // Other 5xx / 429 — fall through to back-off + retry
     } catch {
       clearTimeout(timeoutId);
       // AbortError (timeout) or network failure — fall through to retry
@@ -441,6 +470,7 @@ export function useTranscription(isAdmin = false) {
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
   const [error,         setError]         = useState<string | null>(null);
+  const [translationServiceError, setTranslationServiceError] = useState<string | null>(null);
   const [audioInfo,     setAudioInfo]     = useState<string>("");
   const [hasTranscript, setHasTranscript] = useState(false);
   const [sessionId,     setSessionId]     = useState<number | null>(null);
@@ -513,6 +543,11 @@ export function useTranscription(isAdmin = false) {
   const startSessionMut = useStartSession();
   const stopSessionMut  = useStopSession();
   const getTokenMut     = useGetTranscriptionToken();
+
+  const translationConfigReporterRef = useRef<(msg: string) => void>(() => {});
+  translationConfigReporterRef.current = (msg: string) => {
+    setTranslationServiceError((prev) => prev ?? msg);
+  };
 
   // ── scrollPanel ────────────────────────────────────────────────────────────
   const scrollPanel = useCallback((force = false) => {
@@ -604,7 +639,12 @@ export function useTranscription(isAdmin = false) {
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, dispatchLang, myTargetLang);
+        const translated = await fetchTranslation(
+          text,
+          dispatchLang,
+          myTargetLang,
+          (m) => translationConfigReporterRef.current(m),
+        );
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
@@ -839,6 +879,7 @@ export function useTranscription(isAdmin = false) {
     translationBufRef.current      = [];
     if (containerRef.current) containerRef.current.innerHTML = "";
     setHasTranscript(false);
+    setTranslationServiceError(null);
     resetSpeakerMap();
   }, [stopTranslationInterval]);
 
@@ -907,6 +948,7 @@ export function useTranscription(isAdmin = false) {
 
     // Clear columns for regular users when they manually stop a session.
     if (!isAdminRef.current) doClear();
+    setTranslationServiceError(null);
   }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, doClear]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
@@ -1089,6 +1131,7 @@ export function useTranscription(isAdmin = false) {
   const start = useCallback(async (deviceId: string, providedStream?: MediaStream) => {
     try {
       setError(null);
+      setTranslationServiceError(null);
       setAudioInfo("");
       if (silenceTimerRef.current !== null) {
         clearTimeout(silenceTimerRef.current);
@@ -1228,7 +1271,11 @@ export function useTranscription(isAdmin = false) {
       }, MAX_SESSION_MS);
 
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to start transcription";
+      let msg = err instanceof Error ? err.message : "Failed to start transcription";
+      if (getTranscriptionTokenFailureCode(err) === "TRANSCRIPTION_NOT_CONFIGURED") {
+        msg =
+          "Live transcription is off: the server is missing SONIOX_API_KEY. Add it in Railway (or .env for local API), then redeploy.";
+      }
       // Error object intentionally not logged to console (HIPAA)
       setError(msg);
       // If the session was created in the DB before the failure, close it
@@ -1270,6 +1317,7 @@ export function useTranscription(isAdmin = false) {
     audioInfo,
     micLevel,
     error,
+    translationServiceError,
     hasTranscript,
     sessionId,
     containerRef,
