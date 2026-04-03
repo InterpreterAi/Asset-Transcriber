@@ -1,5 +1,12 @@
 import { Router } from "express";
-import { db, usersTable, passwordResetTokensTable, sessionsTable, referralsTable } from "@workspace/db";
+import {
+  db,
+  usersTable,
+  passwordResetTokensTable,
+  sessionsTable,
+  referralsTable,
+  type User,
+} from "@workspace/db";
 import { and, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -33,6 +40,11 @@ function parseDevice(ua: string | undefined): string {
   if (/iPhone|Android.*Mobile|Windows Phone/i.test(ua)) return "Mobile";
   if (/iPad|Android(?!.*Mobile)/i.test(ua)) return "Tablet";
   return "Desktop";
+}
+
+function isPostgresUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } };
+  return e?.code === "23505" || e?.cause?.code === "23505";
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────
@@ -529,7 +541,11 @@ router.get("/google", async (req, res) => {
     await commitSession(req);
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
   } catch (err) {
-    logger.error({ err, errMessage: (err as Error)?.message }, "GET /api/auth/google: session save failed");
+    const e = err as NodeJS.ErrnoException & { code?: string };
+    logger.error(
+      { err, errMessage: e?.message, errCode: e?.code },
+      "GET /api/auth/google: session save failed",
+    );
     res.status(500).send("Could not start Google login. Check server logs.");
   }
 });
@@ -548,6 +564,18 @@ router.get("/google/callback", async (req, res) => {
   }
   delete req.session.oauthState;
 
+  try {
+    await commitSession(req);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { code?: string };
+    logger.error(
+      { err, errMessage: e?.message, errCode: e?.code },
+      "Google callback: session.save after clearing oauth state failed",
+    );
+    res.redirect("/login?error=session_failed");
+    return;
+  }
+
   const clientId     = getGoogleClientId();
   const clientSecret = getGoogleClientSecret();
   if (!clientId || !clientSecret) {
@@ -559,7 +587,6 @@ router.get("/google/callback", async (req, res) => {
   const redirectUri = getGoogleOAuthRedirectUri(req);
 
   try {
-    // Exchange authorisation code for access token.
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method:  "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -571,20 +598,24 @@ router.get("/google/callback", async (req, res) => {
         grant_type:    "authorization_code",
       }),
     });
-    const tokens = await tokenRes.json() as { access_token?: string; error?: string };
-    if (!tokens.access_token) {
-      logger.error({ tokens }, "Google token exchange failed");
+    const tokens = (await tokenRes.json()) as { access_token?: string; error?: string };
+    if (!tokenRes.ok || !tokens.access_token) {
+      logger.error({ status: tokenRes.status, tokens }, "Google token exchange failed");
       res.redirect("/login?error=token_failed");
       return;
     }
 
-    // Fetch the Google user profile.
     const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
-    const profile = await profileRes.json() as {
+    const profile = (await profileRes.json()) as {
       sub?: string; email?: string; name?: string; email_verified?: boolean;
     };
+    if (!profileRes.ok) {
+      logger.error({ status: profileRes.status, profile }, "Google userinfo failed");
+      res.redirect("/login?error=profile_failed");
+      return;
+    }
 
     const googleId    = profile.sub;
     const googleEmail = profile.email?.toLowerCase();
@@ -593,7 +624,6 @@ router.get("/google/callback", async (req, res) => {
       return;
     }
 
-    // Find an existing account by Google ID or email.
     let [user] = await db
       .select()
       .from(usersTable)
@@ -602,58 +632,98 @@ router.get("/google/callback", async (req, res) => {
 
     let isNewUser = false;
     if (user) {
-      // Back-fill googleAccountId if the user previously signed up with email.
       if (!user.googleAccountId) {
-        await db
-          .update(usersTable)
-          .set({ googleAccountId: googleId })
-          .where(eq(usersTable.id, user.id));
+        try {
+          await db
+            .update(usersTable)
+            .set({ googleAccountId: googleId })
+            .where(eq(usersTable.id, user.id));
+          const [refetched] = await db
+            .select()
+            .from(usersTable)
+            .where(eq(usersTable.id, user.id))
+            .limit(1);
+          if (refetched) user = refetched;
+        } catch (linkErr) {
+          logger.warn({ err: linkErr, userId: user.id }, "Google callback: googleAccountId back-fill failed");
+        }
       }
     } else {
-      // Create a new account — same 14-day trial as email signup.
       isNewUser = true;
       const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-      const baseUsername = googleEmail.split("@")[0]!.replace(/[^a-z0-9._-]/gi, "_");
+      const localPart   = googleEmail.split("@")[0] ?? "user";
+      const baseUsername = localPart.replace(/[^a-z0-9._-]/gi, "_").slice(0, 48) || "user";
 
-      [user] = await db
-        .insert(usersTable)
-        .values({
-          username:         baseUsername,
-          email:            googleEmail,
-          // Placeholder hash — never matches bcrypt; password login is blocked
-          // for Google-only accounts.
-          passwordHash:     `$google$${googleId}`,
-          googleAccountId:  googleId,
-          isAdmin:          false,
-          isActive:         true,
-          emailVerified:    true,
-          planType:         "trial",
-          trialStartedAt:   new Date(),
-          trialEndsAt,
-          dailyLimitMinutes: 300,
-          minutesUsedToday:  0,
-          totalMinutesUsed:  0,
-          totalSessions:     0,
-          lastUsageResetAt:  new Date(),
-        })
-        .returning();
+      let created: User | undefined;
+      for (let n = 0; n < 12; n++) {
+        const username = n === 0 ? baseUsername : `${baseUsername}_${n}`;
+        try {
+          const [row] = await db
+            .insert(usersTable)
+            .values({
+              username,
+              email:            googleEmail,
+              passwordHash:     `$google$${googleId}`,
+              googleAccountId:  googleId,
+              isAdmin:          false,
+              isActive:         true,
+              emailVerified:    true,
+              planType:         "trial",
+              trialStartedAt:   new Date(),
+              trialEndsAt,
+              dailyLimitMinutes: 300,
+              minutesUsedToday:  0,
+              totalMinutesUsed:  0,
+              totalSessions:     0,
+              lastUsageResetAt:  new Date(),
+            })
+            .returning();
+          created = row;
+          break;
+        } catch (insErr) {
+          if (!isPostgresUniqueViolation(insErr)) throw insErr;
+        }
+      }
+      if (!created) {
+        logger.error({ googleEmail, baseUsername }, "Google signup: could not allocate unique username");
+        res.redirect("/login?error=auth_failed");
+        return;
+      }
+      user = created;
     }
 
     void sendTelegramNotification(
       isNewUser
         ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (14 days)`
-        : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`
+        : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) void sendWelcomeEmail(googleEmail);
-    void touchActivity(user!.id);
+    void touchActivity(user!.id).catch((touchErr) => {
+      logger.warn({ err: touchErr, userId: user!.id }, "touchActivity after Google login failed");
+    });
 
     req.session.userId  = user!.id;
-    req.session.isAdmin = user!.isAdmin;
+    req.session.isAdmin = Boolean(user!.isAdmin);
 
-    await commitSession(req);
+    try {
+      await commitSession(req);
+    } catch (sessErr) {
+      const e = sessErr as NodeJS.ErrnoException & { code?: string };
+      logger.error(
+        { err: sessErr, errMessage: e?.message, errCode: e?.code },
+        "Google callback: session.save after login failed (same as password login — check user_sessions / Postgres)",
+      );
+      res.redirect("/login?error=session_failed");
+      return;
+    }
+
     res.redirect("/workspace");
   } catch (err) {
-    logger.error({ err, errMessage: (err as Error)?.message }, "Google OAuth callback error");
+    const e = err as NodeJS.ErrnoException & { code?: string };
+    logger.error(
+      { err, errMessage: e?.message, errCode: e?.code },
+      "Google OAuth callback error",
+    );
     res.redirect("/login?error=auth_failed");
   }
 });
