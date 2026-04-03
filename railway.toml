@@ -10,7 +10,8 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "NODE_ENV=production node artifacts/api-server/dist/index.mjs"
+# No "VAR=value cmd" here — Docker execs without a shell; NODE_ENV is set in Dockerfile.
+startCommand = "node artifacts/api-server/dist/index.mjs"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
