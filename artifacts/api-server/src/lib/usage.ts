@@ -1,6 +1,7 @@
 import { db, usersTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
+import { logger } from "./logger.js";
 
 export async function touchActivity(userId: number): Promise<void> {
   await db
@@ -12,6 +13,7 @@ export async function touchActivity(userId: number): Promise<void> {
 export function resetDailyUsageIfNeeded(user: User): boolean {
   const now = new Date();
   const lastReset = new Date(user.lastUsageResetAt);
+  if (!Number.isFinite(lastReset.getTime())) return false;
   // Always compare UTC calendar dates so "today" is consistent regardless of server timezone
   const isNewDay =
     now.getUTCFullYear() !== lastReset.getUTCFullYear() ||
@@ -24,11 +26,14 @@ export function getTrialDaysRemaining(user: User): number {
   const now = new Date();
   const end = new Date(user.trialEndsAt);
   const diff = end.getTime() - now.getTime();
+  if (!Number.isFinite(diff)) return 0;
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
 export function isTrialExpired(user: User): boolean {
-  return new Date() > new Date(user.trialEndsAt);
+  const end = new Date(user.trialEndsAt);
+  if (!Number.isFinite(end.getTime())) return false;
+  return new Date() > end;
 }
 
 export async function getUserWithResetCheck(userId: number): Promise<User | undefined> {
@@ -36,13 +41,18 @@ export async function getUserWithResetCheck(userId: number): Promise<User | unde
   const user = users[0];
   if (!user) return undefined;
 
-  const needsReset = resetDailyUsageIfNeeded(user);
-  if (needsReset) {
-    await db.update(usersTable)
-      .set({ minutesUsedToday: 0, lastUsageResetAt: new Date() })
-      .where(eq(usersTable.id, userId));
-    user.minutesUsedToday = 0;
-    user.lastUsageResetAt = new Date();
+  try {
+    const needsReset = resetDailyUsageIfNeeded(user);
+    if (needsReset) {
+      await db
+        .update(usersTable)
+        .set({ minutesUsedToday: 0, lastUsageResetAt: new Date() })
+        .where(eq(usersTable.id, userId));
+      user.minutesUsedToday = 0;
+      user.lastUsageResetAt = new Date();
+    }
+  } catch (err) {
+    logger.warn({ err, userId }, "getUserWithResetCheck: daily reset skipped");
   }
 
   return user;
@@ -51,7 +61,12 @@ export async function getUserWithResetCheck(userId: number): Promise<User | unde
 export function buildUserInfo(user: User) {
   const trialDaysRemaining = getTrialDaysRemaining(user);
   const trialExpired = isTrialExpired(user);
-  const minutesRemainingToday = Math.max(0, user.dailyLimitMinutes - user.minutesUsedToday);
+  const dailyLimit = Number(user.dailyLimitMinutes);
+  const usedToday = Number(user.minutesUsedToday);
+  const minutesRemainingToday = Math.max(
+    0,
+    (Number.isFinite(dailyLimit) ? dailyLimit : 0) - (Number.isFinite(usedToday) ? usedToday : 0),
+  );
   return {
     id: user.id,
     username: user.username,
@@ -64,10 +79,10 @@ export function buildUserInfo(user: User) {
     trialEndsAt: user.trialEndsAt,
     trialDaysRemaining,
     trialExpired,
-    dailyLimitMinutes: user.dailyLimitMinutes,
-    minutesUsedToday: user.minutesUsedToday,
+    dailyLimitMinutes: Number.isFinite(dailyLimit) ? dailyLimit : user.dailyLimitMinutes,
+    minutesUsedToday: Number.isFinite(usedToday) ? usedToday : user.minutesUsedToday,
     minutesRemainingToday,
-    totalMinutesUsed: user.totalMinutesUsed,
-    totalSessions: user.totalSessions,
+    totalMinutesUsed: Number(user.totalMinutesUsed) || 0,
+    totalSessions: Number(user.totalSessions) || 0,
   };
 }

@@ -89,13 +89,26 @@ router.post("/login", async (req, res) => {
 
     // ── Complete login ───────────────────────────────────────────────────────
     req.session.userId  = user.id;
-    req.session.isAdmin = user.isAdmin;
+    req.session.isAdmin = Boolean(user.isAdmin);
     delete req.session.pending2faUserId;
 
-    void touchActivity(user.id);
+    try {
+      await commitSession(req);
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException & { code?: string };
+      logger.error(
+        { err, errMessage: e?.message, errCode: e?.code },
+        "Login: session.save failed — check user_sessions table and Postgres connectivity",
+      );
+      res.status(500).json({ error: "Login failed" });
+      return;
+    }
+
+    void touchActivity(user.id).catch((touchErr) => {
+      logger.warn({ err: touchErr, userId: user.id }, "touchActivity after login failed");
+    });
     void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true });
 
-    // Admin login Telegram alert
     if (user.isAdmin) {
       const device = parseDevice(userAgent ?? undefined);
       const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
@@ -104,25 +117,30 @@ router.post("/login", async (req, res) => {
       );
     }
 
-    const freshUser = await getUserWithResetCheck(user.id);
-    if (!freshUser) {
-      logger.error({ userId: user.id }, "Login: getUserWithResetCheck returned no user after successful password");
-      res.status(500).json({ error: "User not found" });
-      return;
+    let userPayload: ReturnType<typeof buildUserInfo> & { sessionsToday: number };
+    try {
+      const freshUser = (await getUserWithResetCheck(user.id)) ?? user;
+      let sessionsToday = 0;
+      try {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const sessionsTodayRows = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(sessionsTable)
+          .where(
+            and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
+          );
+        sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
+      } catch (countErr) {
+        logger.warn({ err: countErr, userId: user.id }, "Login: sessionsToday count failed");
+      }
+      userPayload = { ...buildUserInfo(freshUser), sessionsToday };
+    } catch (enrichErr) {
+      logger.warn({ err: enrichErr, userId: user.id }, "Login: profile enrichment failed; returning minimal user");
+      userPayload = { ...buildUserInfo(user), sessionsToday: 0 };
     }
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const sessionsTodayRows = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(sessionsTable)
-      .where(
-        and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
-      );
-    const sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
-
-    await commitSession(req);
-    res.json({ user: { ...buildUserInfo(freshUser), sessionsToday } });
+    res.json({ user: userPayload });
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { code?: string };
     logger.error(
@@ -165,10 +183,24 @@ router.post("/2fa/verify", async (req, res) => {
     }
 
     req.session.userId  = user.id;
-    req.session.isAdmin = user.isAdmin;
+    req.session.isAdmin = Boolean(user.isAdmin);
     delete req.session.pending2faUserId;
 
-    void touchActivity(user.id);
+    try {
+      await commitSession(req);
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException & { code?: string };
+      logger.error(
+        { err, errMessage: e?.message, errCode: e?.code },
+        "2FA verify: session.save failed",
+      );
+      res.status(500).json({ error: "Verification failed" });
+      return;
+    }
+
+    void touchActivity(user.id).catch((touchErr) => {
+      logger.warn({ err: touchErr, userId: user.id }, "touchActivity after 2FA verify failed");
+    });
     void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true, is2fa: true });
 
     if (user.isAdmin) {
@@ -179,29 +211,30 @@ router.post("/2fa/verify", async (req, res) => {
       );
     }
 
-    const freshUser = await getUserWithResetCheck(user.id);
-    if (!freshUser) {
-      logger.error({ userId: user.id }, "2FA verify: getUserWithResetCheck returned no user");
-      res.status(500).json({ error: "User not found" });
-      return;
+    let userPayload: ReturnType<typeof buildUserInfo> & { sessionsToday: number };
+    try {
+      const freshUser = (await getUserWithResetCheck(user.id)) ?? user;
+      let sessionsToday = 0;
+      try {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const sessionsTodayRows = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(sessionsTable)
+          .where(
+            and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
+          );
+        sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
+      } catch (countErr) {
+        logger.warn({ err: countErr, userId: user.id }, "2FA verify: sessionsToday count failed");
+      }
+      userPayload = { ...buildUserInfo(freshUser), sessionsToday };
+    } catch (enrichErr) {
+      logger.warn({ err: enrichErr, userId: user.id }, "2FA verify: enrichment failed");
+      userPayload = { ...buildUserInfo(user), sessionsToday: 0 };
     }
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const sessionsTodayRows = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(sessionsTable)
-      .where(
-        and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
-      );
-
-    await commitSession(req);
-    res.json({
-      user: {
-        ...buildUserInfo(freshUser),
-        sessionsToday: Number(sessionsTodayRows[0]?.count ?? 0),
-      },
-    });
+    res.json({ user: userPayload });
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { code?: string };
     logger.error(
