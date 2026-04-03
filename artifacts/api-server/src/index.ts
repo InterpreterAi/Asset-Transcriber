@@ -3,6 +3,13 @@ import { getDbEnvStartupLog, getDatabaseUrlRuntimeDebug, isPostgresEnvConfigured
 import { getSonioxMasterApiKey } from "./lib/soniox-env.js";
 
 const trim = (k: string) => Boolean(process.env[k]?.trim());
+const secretishNames = Object.keys(process.env)
+  .filter((k) =>
+    /SONIOX|OPENAI|DATABASE|GOOGLE|SESSION|NEXTAUTH|AI_INTEGRATIONS|POSTGRES|PGHOST|PGUSER|PGDATABASE/i.test(
+      k,
+    ),
+  )
+  .sort();
 console.info(
   "[api-server] Env presence at startup (values never logged):",
   JSON.stringify({
@@ -10,6 +17,9 @@ console.info(
     SONIOX_STT_API_KEY: trim("SONIOX_STT_API_KEY"),
     OPENAI_API_KEY: trim("OPENAI_API_KEY"),
     DATABASE_URL: trim("DATABASE_URL"),
+    secretishEnvKeyNames: secretishNames,
+    RAILWAY_SERVICE_NAME: process.env.RAILWAY_SERVICE_NAME ?? null,
+    RAILWAY_ENVIRONMENT: process.env.RAILWAY_ENVIRONMENT ?? null,
   }),
 );
 

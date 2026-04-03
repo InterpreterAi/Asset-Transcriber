@@ -57,7 +57,7 @@ const server = http.createServer((req, res) => {
       status: "degraded",
       databaseConfigured: false,
       message:
-        "Full API disabled (no database). When DB is connected, transcription needs SONIOX_API_KEY or SONIOX_STT_API_KEY; translation needs OpenAI vars.",
+        "Full API disabled (no database). ai.runtimeFingerprint shows which env key NAMES exist in this process — if secretishKeyNames is empty, Railway vars are not on this service. Fix DATABASE_URL first, then redeploy.",
       ai: getAiEnvDiagnostics(),
     });
     return;
