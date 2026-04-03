@@ -103,6 +103,12 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
+  apps/api:
+    dependencies:
+      '@workspace/api-server':
+        specifier: workspace:*
+        version: link:../../artifacts/api-server
+
   artifacts/api-server:
     dependencies:
       '@node-rs/argon2':
@@ -196,6 +202,9 @@ importers:
       thread-stream:
         specifier: 3.1.0
         version: 3.1.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
 
   artifacts/debug-app:
     dependencies:
