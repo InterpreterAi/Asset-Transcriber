@@ -1,0 +1,9 @@
+# Deploy from the repository root so pnpm can link workspace:* packages (@workspace/db, @workspace/api-zod).
+# In Railway: set the service root directory to the repo root (not artifacts/api-server).
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "pnpm install --frozen-lockfile && pnpm run typecheck && pnpm run build:api-server"
+
+[deploy]
+startCommand = "node artifacts/api-server/dist/index.mjs"

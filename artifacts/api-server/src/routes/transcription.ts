@@ -663,7 +663,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           temperature: 0,
           messages: [
             { role: "system", content: prompt },
-            { role: "user",   content: text },
+            { role: "user",   content: text ?? "" },
           ],
         },
         { signal: controller.signal },

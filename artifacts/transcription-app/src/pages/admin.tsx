@@ -820,7 +820,7 @@ export default function Admin() {
       else if (sortBy === "minutesToday")  cmp = a.minutesUsedToday - b.minutesUsedToday;
       else if (sortBy === "totalUsage")    cmp = a.totalMinutesUsed - b.totalMinutesUsed;
       else if (sortBy === "sessionCount")  cmp = a.totalSessions - b.totalSessions;
-      else if (sortBy === "trialEnding")   cmp = new Date(a.trialEndsAt).getTime() - new Date(b.trialEndsAt).getTime();
+      else if (sortBy === "trialEnding")   cmp = new Date(a.trialEndsAt ?? 0).getTime() - new Date(b.trialEndsAt ?? 0).getTime();
       return sortDir === "asc" ? cmp : -cmp;
     });
 

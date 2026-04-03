@@ -41,7 +41,7 @@ router.get("/products-with-prices", async (_req, res) => {
       }
     }
 
-    res.json({ data: Array.from(productsMap.values()) });
+    return res.json({ data: Array.from(productsMap.values()) });
   } catch (err: any) {
     return res.status(503).json({ error: "Stripe products not available", detail: err.message });
   }
@@ -50,7 +50,7 @@ router.get("/products-with-prices", async (_req, res) => {
 router.get("/products", async (_req, res) => {
   try {
     const products = await storage.listProducts();
-    res.json({ data: products });
+    return res.json({ data: products });
   } catch (err: any) {
     return res.status(503).json({ error: "Stripe products not available", detail: err.message });
   }
@@ -62,7 +62,7 @@ router.get("/products/:productId/prices", async (req, res) => {
     const product = await storage.getProduct(productId);
     if (!product) return res.status(404).json({ error: "Product not found" });
     const prices = await storage.getPricesForProduct(productId);
-    res.json({ data: prices });
+    return res.json({ data: prices });
   } catch (err: any) {
     return res.status(503).json({ error: "Stripe not available", detail: err.message });
   }
@@ -77,7 +77,7 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
       return res.json({ subscription: null });
     }
     const subscription = await storage.getSubscription(user.stripeSubscriptionId);
-    res.json({ subscription });
+    return res.json({ subscription });
   } catch (err: any) {
     return res.status(503).json({ error: "Stripe not available", detail: err.message });
   }
@@ -114,9 +114,9 @@ router.post("/checkout", requireAuth, async (req: any, res) => {
       `${base}/workspace?checkout=cancel`
     );
 
-    res.json({ url: session.url });
+    return res.json({ url: session.url });
   } catch (err: any) {
-    res.status(500).json({ error: "Checkout failed", detail: err.message });
+    return res.status(500).json({ error: "Checkout failed", detail: err.message });
   }
 });
 
@@ -136,9 +136,9 @@ router.post("/portal", requireAuth, async (req: any, res) => {
       `${proto}://${host}/workspace`
     );
 
-    res.json({ url: session.url });
+    return res.json({ url: session.url });
   } catch (err: any) {
-    res.status(500).json({ error: "Portal failed", detail: err.message });
+    return res.status(500).json({ error: "Portal failed", detail: err.message });
   }
 });
 

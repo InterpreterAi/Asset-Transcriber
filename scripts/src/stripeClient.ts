@@ -12,5 +12,5 @@ function getStripeSecretKey(): string {
 
 export async function getUncachableStripeClient(): Promise<Stripe> {
   const secretKey = getStripeSecretKey();
-  return new Stripe(secretKey, { apiVersion: "2025-02-24.acacia" });
+  return new Stripe(secretKey, { apiVersion: "2026-03-25.dahlia" });
 }

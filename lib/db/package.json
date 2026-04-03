@@ -3,6 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+<<<<<<< HEAD
+=======
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "default": "./src/schema/index.ts"
+    }
+  },
+>>>>>>> b2b482ab (Refactor Vite configuration for improved environment variable handling and add optional plugins. Update API schemas to include optional fields for user information and feedback. Enhance admin route responses for better error handling and data consistency. Update Stripe API version and dependencies in package.json. Adjust TypeScript configuration for ES2023 compatibility.)
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"

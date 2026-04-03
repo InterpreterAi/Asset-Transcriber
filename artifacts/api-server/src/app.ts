@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
@@ -99,10 +99,9 @@ const transcriptionLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Please wait a moment." },
-  validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
     const session = (req as any).session;
-    return session?.userId ? `user:${session.userId}` : (req.ip ?? "unknown");
+    return session?.userId ? `user:${session.userId}` : ipKeyGenerator(req.ip ?? "unknown");
   },
 });
 

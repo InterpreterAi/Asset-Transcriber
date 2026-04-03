@@ -805,7 +805,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   if (dailyLimitMinutes !== undefined)    updates.dailyLimitMinutes = dailyLimitMinutes;
   if (planType)                           updates.planType = planType;
   if (password)                           updates.passwordHash = await hashPassword(password);
-  if (trialEndsAt !== undefined)          updates.trialEndsAt = trialEndsAt ? new Date(trialEndsAt) : null;
+  if (trialEndsAt !== undefined && trialEndsAt) updates.trialEndsAt = new Date(trialEndsAt);
   if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;
 
   const result = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();

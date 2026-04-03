@@ -17,6 +17,7 @@ async function buildAll() {
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
+    target: "node22",
     bundle: true,
     format: "esm",
     outdir: distDir,
