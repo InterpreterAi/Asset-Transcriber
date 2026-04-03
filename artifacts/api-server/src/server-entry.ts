@@ -199,18 +199,21 @@ async function initStripe() {
   }
 }
 
-// ── Ensure at least one admin exists (bootstrap with ADMIN_PASSWORD) ─────────
+// ── Ensure at least one admin exists; apply ADMIN_PASSWORD to every admin row ─
+// If any isAdmin user exists but none have username "admin", the old logic never
+// synced ADMIN_PASSWORD — password login then fails. When ADMIN_PASSWORD is set,
+// we update password_hash for ALL is_admin users on each boot (Railway recovery).
 async function ensureAdminUser() {
   try {
-    const anyAdmin = await db
+    const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+    const adminEmail = (process.env.ADMIN_EMAIL || "admin@interpreterai.com").trim().toLowerCase();
+
+    const adminRows = await db
       .select({ id: usersTable.id })
       .from(usersTable)
-      .where(eq(usersTable.isAdmin, true))
-      .limit(1);
+      .where(eq(usersTable.isAdmin, true));
 
-    const adminPassword = process.env.ADMIN_PASSWORD?.trim();
-
-    if (anyAdmin.length === 0) {
+    if (adminRows.length === 0) {
       if (!adminPassword) {
         logger.warn(
           "No user with isAdmin=true and ADMIN_PASSWORD is unset; cannot bootstrap admin. " +
@@ -218,7 +221,6 @@ async function ensureAdminUser() {
         );
         return;
       }
-      const adminEmail = (process.env.ADMIN_EMAIL || "admin@interpreterai.com").trim();
       const passwordHash = await hashPassword(adminPassword);
       const now = new Date();
       await db.insert(usersTable).values({
@@ -241,39 +243,46 @@ async function ensureAdminUser() {
       return;
     }
 
-    const existingNamed = await db
+    if (adminPassword) {
+      const passwordHash = await hashPassword(adminPassword);
+      const updated = await db
+        .update(usersTable)
+        .set({
+          passwordHash,
+          isActive: true,
+          planType: "unlimited",
+          dailyLimitMinutes: 9999,
+          trialEndsAt: new Date("2099-12-31"),
+        })
+        .where(eq(usersTable.isAdmin, true))
+        .returning({ id: usersTable.id });
+      logger.info(
+        { updatedAdminCount: updated.length },
+        "ADMIN_PASSWORD applied to all isAdmin users (use this Railway secret as the login password)",
+      );
+      return;
+    }
+
+    // No ADMIN_PASSWORD: still normalize plan for legacy row username=admin if present.
+    const [named] = await db
       .select()
       .from(usersTable)
       .where(eq(usersTable.username, "admin"))
       .limit(1);
+    if (!named) return;
 
-    if (existingNamed.length === 0) {
-      return;
-    }
-
-    const admin = existingNamed[0]!;
-    const updates: Record<string, unknown> = {};
-
-    if (admin.planType !== "unlimited" || admin.dailyLimitMinutes < 9999) {
-      updates.planType = "unlimited";
-      updates.dailyLimitMinutes = 9999;
-      updates.trialEndsAt = new Date("2099-12-31");
-      updates.isAdmin = true;
-      updates.isActive = true;
-    }
-
-    if (adminPassword) {
-      updates.passwordHash = await hashPassword(adminPassword);
-      logger.info("Admin password synced from ADMIN_PASSWORD env var (user admin)");
-    }
-
-    if (Object.keys(updates).length > 0) {
+    if (named.planType !== "unlimited" || named.dailyLimitMinutes < 9999) {
       await db
         .update(usersTable)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .set(updates as any)
+        .set({
+          planType: "unlimited",
+          dailyLimitMinutes: 9999,
+          trialEndsAt: new Date("2099-12-31"),
+          isAdmin: true,
+          isActive: true,
+        })
         .where(eq(usersTable.username, "admin"));
-      if (!adminPassword) logger.info("Admin user upgraded to unlimited plan");
+      logger.info("Admin user upgraded to unlimited plan (no ADMIN_PASSWORD in env)");
     }
   } catch (err) {
     logger.error({ err }, "Failed to ensure admin user");
