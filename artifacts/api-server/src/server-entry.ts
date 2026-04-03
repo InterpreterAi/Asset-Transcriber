@@ -5,6 +5,7 @@ import { isNull, sql, eq } from "drizzle-orm";
 import { hashPassword } from "./lib/password.js";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
+import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 
 const rawPort =
   process.env["PORT"] ?? process.env["RAILWAY_PORT"] ?? process.env["HTTP_PLATFORM_PORT"];
@@ -198,26 +199,27 @@ async function initStripe() {
   }
 }
 
-// ── Ensure admin user exists ──────────────────────────────────────────────────
+// ── Ensure at least one admin exists (bootstrap with ADMIN_PASSWORD) ─────────
 async function ensureAdminUser() {
   try {
-    const existing = await db
-      .select()
+    const anyAdmin = await db
+      .select({ id: usersTable.id })
       .from(usersTable)
-      .where(eq(usersTable.username, "admin"))
+      .where(eq(usersTable.isAdmin, true))
       .limit(1);
 
-    if (existing.length === 0) {
-      const initialPassword = process.env.ADMIN_PASSWORD;
-      if (!initialPassword) {
+    const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+
+    if (anyAdmin.length === 0) {
+      if (!adminPassword) {
         logger.warn(
-          "ADMIN_PASSWORD env var is not set. Admin account will NOT be created on first boot. " +
-            "Set ADMIN_PASSWORD to create the admin account automatically."
+          "No user with isAdmin=true and ADMIN_PASSWORD is unset; cannot bootstrap admin. " +
+            "Set ADMIN_PASSWORD on the running Railway service and redeploy.",
         );
         return;
       }
-      const adminEmail = process.env.ADMIN_EMAIL || "admin@interpreterai.com";
-      const passwordHash = await hashPassword(initialPassword);
+      const adminEmail = (process.env.ADMIN_EMAIL || "admin@interpreterai.com").trim();
+      const passwordHash = await hashPassword(adminPassword);
       const now = new Date();
       await db.insert(usersTable).values({
         username: "admin",
@@ -225,39 +227,53 @@ async function ensureAdminUser() {
         passwordHash,
         isAdmin: true,
         isActive: true,
+        emailVerified: true,
         planType: "unlimited",
         trialStartedAt: now,
         trialEndsAt: new Date("2099-12-31"),
         dailyLimitMinutes: 9999,
+        minutesUsedToday: 0,
+        totalMinutesUsed: 0,
+        totalSessions: 0,
         lastUsageResetAt: now,
       });
-      logger.info({ email: adminEmail }, "Admin user created (first boot)");
-    } else {
-      const admin = existing[0]!;
-      const updates: Record<string, unknown> = {};
+      logger.info({ email: adminEmail }, "Admin user created (no admin existed)");
+      return;
+    }
 
-      if (admin.planType !== "unlimited" || admin.dailyLimitMinutes < 9999) {
-        updates.planType = "unlimited";
-        updates.dailyLimitMinutes = 9999;
-        updates.trialEndsAt = new Date("2099-12-31");
-        updates.isAdmin = true;
-        updates.isActive = true;
-      }
+    const existingNamed = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.username, "admin"))
+      .limit(1);
 
-      const forcedPassword = process.env.ADMIN_PASSWORD;
-      if (forcedPassword) {
-        updates.passwordHash = await hashPassword(forcedPassword);
-        logger.info("Admin password updated from ADMIN_PASSWORD env var");
-      }
+    if (existingNamed.length === 0) {
+      return;
+    }
 
-      if (Object.keys(updates).length > 0) {
-        await db
-          .update(usersTable)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .set(updates as any)
-          .where(eq(usersTable.username, "admin"));
-        if (!forcedPassword) logger.info("Admin user upgraded to unlimited plan");
-      }
+    const admin = existingNamed[0]!;
+    const updates: Record<string, unknown> = {};
+
+    if (admin.planType !== "unlimited" || admin.dailyLimitMinutes < 9999) {
+      updates.planType = "unlimited";
+      updates.dailyLimitMinutes = 9999;
+      updates.trialEndsAt = new Date("2099-12-31");
+      updates.isAdmin = true;
+      updates.isActive = true;
+    }
+
+    if (adminPassword) {
+      updates.passwordHash = await hashPassword(adminPassword);
+      logger.info("Admin password synced from ADMIN_PASSWORD env var (user admin)");
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await db
+        .update(usersTable)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .set(updates as any)
+        .where(eq(usersTable.username, "admin"));
+      if (!adminPassword) logger.info("Admin user upgraded to unlimited plan");
     }
   } catch (err) {
     logger.error({ err }, "Failed to ensure admin user");
@@ -265,6 +281,7 @@ async function ensureAdminUser() {
 }
 
 async function main() {
+  logAuthEnvBootstrap();
   await migrateSchema();
   await clearStaleSessions();
   await ensureAdminUser();

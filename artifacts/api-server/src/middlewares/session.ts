@@ -1,6 +1,7 @@
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "@workspace/db";
+import { getSessionSecret } from "../lib/authEnv.js";
 
 const PgSession = connectPgSimple(session);
 
@@ -10,7 +11,7 @@ export const sessionMiddleware = session({
     tableName: "user_sessions",
     createTableIfMissing: false,
   }),
-  secret: process.env.SESSION_SECRET || "fallback-secret-change-me",
+  secret: getSessionSecret(),
   resave: false,
   saveUninitialized: false,
   cookie: {

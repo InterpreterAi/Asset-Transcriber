@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, usersTable, passwordResetTokensTable, sessionsTable, referralsTable } from "@workspace/db";
-import { eq, or, gte, sql } from "drizzle-orm";
+import { and, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
@@ -9,6 +9,11 @@ import { sendTelegramNotification } from "../lib/telegram.js";
 import { sendWelcomeEmail } from "../lib/email.js";
 import { logLoginEvent } from "../lib/login-events.js";
 import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
+import {
+  getGoogleClientId,
+  getGoogleClientSecret,
+  getGoogleOAuthRedirectUri,
+} from "../lib/authEnv.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -31,145 +36,164 @@ function parseDevice(ua: string | undefined): string {
 
 // ── Login ──────────────────────────────────────────────────────────────────
 router.post("/login", async (req, res) => {
-  const { username, password, email } = req.body as {
-    username?: string;
-    email?: string;
-    password?: string;
-  };
+  try {
+    const { username, password, email } = req.body as {
+      username?: string;
+      email?: string;
+      password?: string;
+    };
 
-  const ip        = getClientIp(req);
-  const userAgent = req.headers["user-agent"] ?? null;
-  const identifier = email || username;
+    const ip        = getClientIp(req);
+    const userAgent = req.headers["user-agent"] ?? null;
+    const identifier = email || username;
 
-  if (!identifier || !password) {
-    res.status(400).json({ error: "Email and password are required" });
-    return;
+    if (!identifier || !password) {
+      res.status(400).json({ error: "Email and password are required" });
+      return;
+    }
+
+    const users = await db
+      .select()
+      .from(usersTable)
+      .where(or(eq(usersTable.username, identifier), eq(usersTable.email, identifier)))
+      .limit(1);
+    const user = users[0];
+
+    if (!user) {
+      void logLoginEvent({ userId: null, email: identifier, ipAddress: ip, userAgent, success: false, failureReason: "user_not_found" });
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    if (!user.isActive) {
+      void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "account_disabled" });
+      res.status(401).json({ error: "Account is disabled" });
+      return;
+    }
+
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "wrong_password" });
+      res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    // ── 2FA check ────────────────────────────────────────────────────────────
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      req.session.pending2faUserId = user.id;
+      delete req.session.userId;
+      res.json({ requires2fa: true });
+      return;
+    }
+
+    // ── Complete login ───────────────────────────────────────────────────────
+    req.session.userId  = user.id;
+    req.session.isAdmin = user.isAdmin;
+    delete req.session.pending2faUserId;
+
+    void touchActivity(user.id);
+    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true });
+
+    // Admin login Telegram alert
+    if (user.isAdmin) {
+      const device = parseDevice(userAgent ?? undefined);
+      const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
+      void sendTelegramNotification(
+        `🔐 Admin login\n👤 ${user.email}\n🌐 IP: ${ip}\n📱 ${device}\n🕐 ${time}`
+      );
+    }
+
+    const freshUser = await getUserWithResetCheck(user.id);
+    if (!freshUser) {
+      logger.error({ userId: user.id }, "Login: getUserWithResetCheck returned no user after successful password");
+      res.status(500).json({ error: "User not found" });
+      return;
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const sessionsTodayRows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sessionsTable)
+      .where(
+        and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
+      );
+    const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
+
+    res.json({ user: { ...buildUserInfo(freshUser), sessionsToday } });
+  } catch (err) {
+    logger.error({ err }, "POST /api/auth/login failed");
+    res.status(500).json({ error: "Login failed" });
   }
-
-  const users = await db
-    .select()
-    .from(usersTable)
-    .where(or(eq(usersTable.username, identifier), eq(usersTable.email, identifier)))
-    .limit(1);
-  const user = users[0];
-
-  if (!user) {
-    void logLoginEvent({ userId: null, email: identifier, ipAddress: ip, userAgent, success: false, failureReason: "user_not_found" });
-    res.status(401).json({ error: "Invalid email or password" });
-    return;
-  }
-
-  if (!user.isActive) {
-    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "account_disabled" });
-    res.status(401).json({ error: "Account is disabled" });
-    return;
-  }
-
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "wrong_password" });
-    res.status(401).json({ error: "Invalid email or password" });
-    return;
-  }
-
-  // ── 2FA check ──────────────────────────────────────────────────────────────
-  if (user.twoFactorEnabled && user.twoFactorSecret) {
-    req.session.pending2faUserId = user.id;
-    delete req.session.userId;
-    res.json({ requires2fa: true });
-    return;
-  }
-
-  // ── Complete login ─────────────────────────────────────────────────────────
-  req.session.userId  = user.id;
-  req.session.isAdmin = user.isAdmin;
-  delete req.session.pending2faUserId;
-
-  void touchActivity(user.id);
-  void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true });
-
-  // Admin login Telegram alert
-  if (user.isAdmin) {
-    const device = parseDevice(userAgent ?? undefined);
-    const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
-    void sendTelegramNotification(
-      `🔐 Admin login\n👤 ${user.email}\n🌐 IP: ${ip}\n📱 ${device}\n🕐 ${time}`
-    );
-  }
-
-  const freshUser = await getUserWithResetCheck(user.id);
-  if (!freshUser) {
-    res.status(500).json({ error: "User not found" });
-    return;
-  }
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const sessionsTodayRows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionsTable)
-    .where(eq(sessionsTable.userId, freshUser.id) && gte(sessionsTable.startedAt, todayStart));
-  const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
-
-  res.json({ user: { ...buildUserInfo(freshUser), sessionsToday } });
 });
 
 // ── 2FA: Verify during login ───────────────────────────────────────────────
 router.post("/2fa/verify", async (req, res) => {
-  const pending2faUserId = req.session.pending2faUserId;
-  if (!pending2faUserId) {
-    res.status(400).json({ error: "No pending 2FA session" });
-    return;
+  try {
+    const pending2faUserId = req.session.pending2faUserId;
+    if (!pending2faUserId) {
+      res.status(400).json({ error: "No pending 2FA session" });
+      return;
+    }
+
+    const { token } = req.body as { token?: string };
+    if (!token) {
+      res.status(400).json({ error: "Verification code is required" });
+      return;
+    }
+
+    const ip        = getClientIp(req);
+    const userAgent = req.headers["user-agent"] ?? null;
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, pending2faUserId)).limit(1);
+    if (!user || !user.twoFactorSecret) {
+      res.status(400).json({ error: "Invalid session" });
+      return;
+    }
+
+    const valid = verifyTotp(user.twoFactorSecret, token);
+    if (!valid) {
+      void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "invalid_2fa_token", is2fa: true });
+      res.status(401).json({ error: "Invalid or expired verification code" });
+      return;
+    }
+
+    req.session.userId  = user.id;
+    req.session.isAdmin = user.isAdmin;
+    delete req.session.pending2faUserId;
+
+    void touchActivity(user.id);
+    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true, is2fa: true });
+
+    if (user.isAdmin) {
+      const device = parseDevice(userAgent ?? undefined);
+      const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
+      void sendTelegramNotification(
+        `🔐 Admin login (2FA)\n👤 ${user.email}\n🌐 IP: ${ip}\n📱 ${device}\n🕐 ${time}`
+      );
+    }
+
+    const freshUser = await getUserWithResetCheck(user.id);
+    if (!freshUser) {
+      logger.error({ userId: user.id }, "2FA verify: getUserWithResetCheck returned no user");
+      res.status(500).json({ error: "User not found" });
+      return;
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const sessionsTodayRows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(sessionsTable)
+      .where(
+        and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
+      );
+
+    res.json({ user: { ...buildUserInfo(freshUser), sessionsToday: sessionsTodayRows[0]?.count ?? 0 } });
+  } catch (err) {
+    logger.error({ err }, "POST /api/auth/2fa/verify failed");
+    res.status(500).json({ error: "Verification failed" });
   }
-
-  const { token } = req.body as { token?: string };
-  if (!token) {
-    res.status(400).json({ error: "Verification code is required" });
-    return;
-  }
-
-  const ip        = getClientIp(req);
-  const userAgent = req.headers["user-agent"] ?? null;
-
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, pending2faUserId)).limit(1);
-  if (!user || !user.twoFactorSecret) {
-    res.status(400).json({ error: "Invalid session" });
-    return;
-  }
-
-  const valid = verifyTotp(user.twoFactorSecret, token);
-  if (!valid) {
-    void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "invalid_2fa_token", is2fa: true });
-    res.status(401).json({ error: "Invalid or expired verification code" });
-    return;
-  }
-
-  req.session.userId  = user.id;
-  req.session.isAdmin = user.isAdmin;
-  delete req.session.pending2faUserId;
-
-  void touchActivity(user.id);
-  void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: true, is2fa: true });
-
-  if (user.isAdmin) {
-    const device = parseDevice(userAgent ?? undefined);
-    const time   = new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC";
-    void sendTelegramNotification(
-      `🔐 Admin login (2FA)\n👤 ${user.email}\n🌐 IP: ${ip}\n📱 ${device}\n🕐 ${time}`
-    );
-  }
-
-  const freshUser = await getUserWithResetCheck(user.id);
-  if (!freshUser) { res.status(500).json({ error: "User not found" }); return; }
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const sessionsTodayRows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(sessionsTable)
-    .where(eq(sessionsTable.userId, freshUser.id) && gte(sessionsTable.startedAt, todayStart));
-
-  res.json({ user: { ...buildUserInfo(freshUser), sessionsToday: sessionsTodayRows[0]?.count ?? 0 } });
 });
 
 // ── 2FA: Setup (generate secret + QR) ─────────────────────────────────────
@@ -337,7 +361,9 @@ router.get("/me", requireAuth, async (req, res) => {
   const sessionsTodayRows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(sessionsTable)
-    .where(eq(sessionsTable.userId, user.id) && gte(sessionsTable.startedAt, todayStart));
+    .where(
+      and(eq(sessionsTable.userId, user.id), gte(sessionsTable.startedAt, todayStart)),
+    );
   const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
   res.json({ ...buildUserInfo(user), sessionsToday });
 });
@@ -425,27 +451,24 @@ router.post("/forgot-password", async (req, res) => {
 });
 
 // ── Google OAuth ───────────────────────────────────────────────────────────
-// Resolves the public-facing base URL from Replit proxy headers so the
-// redirect_uri always matches regardless of dev vs production environment.
-function getRedirectUri(req: import("express").Request): string {
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "https";
-  const host  = (req.headers["x-forwarded-host"] as string | undefined) ?? req.headers.host ?? "";
-  return `${proto}://${host}/api/auth/google/callback`;
-}
+// redirect_uri is /api/auth/google/callback (see getGoogleOAuthRedirectUri).
 
 // Step 1 — redirect to Google's consent screen.
 router.get("/google", (req, res) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientId = getGoogleClientId();
   if (!clientId) {
+    logger.warn("GET /api/auth/google: GOOGLE_CLIENT_ID missing (checked aliases in authEnv)");
     res.status(503).send("Google login is not configured. Please add GOOGLE_CLIENT_ID.");
     return;
   }
   const state = crypto.randomBytes(16).toString("hex");
   req.session.oauthState = state;
 
+  const redirectUri = getGoogleOAuthRedirectUri(req);
+
   const params = new URLSearchParams({
     client_id:     clientId,
-    redirect_uri:  getRedirectUri(req),
+    redirect_uri:  redirectUri,
     response_type: "code",
     scope:         "openid email profile",
     state,
@@ -469,12 +492,15 @@ router.get("/google/callback", async (req, res) => {
   }
   delete req.session.oauthState;
 
-  const clientId     = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId     = getGoogleClientId();
+  const clientSecret = getGoogleClientSecret();
   if (!clientId || !clientSecret) {
+    logger.error("Google OAuth callback: client id or secret missing after authorize step");
     res.redirect("/login?error=not_configured");
     return;
   }
+
+  const redirectUri = getGoogleOAuthRedirectUri(req);
 
   try {
     // Exchange authorisation code for access token.
@@ -485,7 +511,7 @@ router.get("/google/callback", async (req, res) => {
         code,
         client_id:     clientId,
         client_secret: clientSecret,
-        redirect_uri:  getRedirectUri(req),
+        redirect_uri:  redirectUri,
         grant_type:    "authorization_code",
       }),
     });

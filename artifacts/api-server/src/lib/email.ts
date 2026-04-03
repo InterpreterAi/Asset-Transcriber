@@ -1,7 +1,6 @@
 import { Resend } from "resend";
+import { getStaticPublicBaseUrl } from "./authEnv.js";
 import { logger } from "./logger.js";
-
-const APP_URL = "https://asset-transcriber.replit.app";
 const FROM_ADDRESS = "InterpreterAI <noreply@interpreterai.app>";
 
 function getClient(): Resend | null {
@@ -29,7 +28,7 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
         "",
         "You can now access real-time transcription and translation for live interpretation.",
         "",
-        `Login here:\n${APP_URL}`,
+        `Login here:\n${getStaticPublicBaseUrl()}`,
         "",
         "If you did not create this account, please ignore this email.",
         "",
@@ -69,7 +68,7 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
               <table cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="background:#1d6ae5;border-radius:10px;">
-                    <a href="${APP_URL}"
+                    <a href="${getStaticPublicBaseUrl()}"
                        style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
                       Log In to InterpreterAI
                     </a>
@@ -119,7 +118,7 @@ export async function sendSupportConfirmationEmail(
         `We received your support request regarding: "${subject}"`,
         ``,
         `Our team will get back to you as soon as possible.`,
-        `You can view your ticket status at: ${APP_URL}`,
+        `You can view your ticket status at: ${getStaticPublicBaseUrl()}`,
         ``,
         `Ticket ID: #${ticketId}`,
         ``,
@@ -144,7 +143,7 @@ export async function sendSupportConfirmationEmail(
             <p style="margin:12px 0 0;font-size:11px;color:#aaa;">Ticket #${ticketId}</p>
           </div>
           <table cellpadding="0" cellspacing="0"><tr><td style="background:#1d6ae5;border-radius:10px;">
-            <a href="${APP_URL}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View My Tickets</a>
+            <a href="${getStaticPublicBaseUrl()}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View My Tickets</a>
           </td></tr></table>
         </td></tr>
         <tr><td style="padding:16px 36px;border-top:1px solid #f0f0f0;">
@@ -182,7 +181,7 @@ export async function sendAdminReplyEmail(
         ``,
         replyMessage,
         ``,
-        `View your ticket at: ${APP_URL}`,
+        `View your ticket at: ${getStaticPublicBaseUrl()}`,
         ``,
         `Best,`,
         `InterpreterAI Support`,
@@ -203,7 +202,7 @@ export async function sendAdminReplyEmail(
             <p style="margin:0;font-size:14px;color:#333;line-height:1.65;white-space:pre-wrap;">${replyMessage}</p>
           </div>
           <table cellpadding="0" cellspacing="0"><tr><td style="background:#1d6ae5;border-radius:10px;">
-            <a href="${APP_URL}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View Full Thread</a>
+            <a href="${getStaticPublicBaseUrl()}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View Full Thread</a>
           </td></tr></table>
         </td></tr>
         <tr><td style="padding:16px 36px;border-top:1px solid #f0f0f0;">
@@ -243,7 +242,7 @@ export async function sendTicketResolvedEmail(
         ``,
         `If you still have questions or the issue isn't fixed, you can reply to this ticket at any time and it will automatically reopen.`,
         ``,
-        `View your ticket at: ${APP_URL}`,
+        `View your ticket at: ${getStaticPublicBaseUrl()}`,
         ``,
         `Best,`,
         `InterpreterAI Support`,
@@ -269,7 +268,7 @@ export async function sendTicketResolvedEmail(
             Still having trouble? You can reply directly to this ticket at any time — it will automatically reopen so we can help.
           </p>
           <table cellpadding="0" cellspacing="0"><tr><td style="background:#1d6ae5;border-radius:10px;">
-            <a href="${APP_URL}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View My Tickets</a>
+            <a href="${getStaticPublicBaseUrl()}" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#fff;text-decoration:none;">View My Tickets</a>
           </td></tr></table>
         </td></tr>
         <tr><td style="padding:16px 36px;border-top:1px solid #f0f0f0;">
