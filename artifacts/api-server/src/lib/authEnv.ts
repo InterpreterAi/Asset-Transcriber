@@ -15,6 +15,7 @@
  * fallbacks) so an old client id cannot override Railway.
  */
 import type { Request } from "express";
+import { isPostgresEnvConfigured } from "../postgres-env.js";
 import { logger } from "./logger.js";
 
 function trimEnv(key: string): string | undefined {
@@ -136,13 +137,11 @@ export function getGoogleOAuthRedirectUri(req: Request): string {
 
 /** Presence-only snapshot for startup logs (never log values). */
 export function logAuthEnvBootstrap(): void {
-  const dbConfigured =
-    Boolean(trimEnv("DATABASE_URL")) ||
-    Boolean(trimEnv("DATABASE_PRIVATE_URL")) ||
-    Boolean(trimEnv("DATABASE_PUBLIC_URL"));
+  const dbConfigured = isPostgresEnvConfigured();
 
   logger.info(
     {
+      // Any supported Postgres connection env (URL or mixed PG* / POSTGRES_*), not only DATABASE_URL.
       DATABASE_URL: dbConfigured,
       SESSION_SECRET: Boolean(trimEnv("SESSION_SECRET") ?? trimEnv("NEXTAUTH_SECRET")),
       GOOGLE_CLIENT_ID: Boolean(getGoogleClientId()),
@@ -172,11 +171,7 @@ export function logAuthEnvBootstrap(): void {
 export function getAuthEnvDiagnostics(): Record<string, boolean | string | null> {
   const gid = getGoogleClientId();
   return {
-    DATABASE_URL: Boolean(
-      trimEnv("DATABASE_URL") ??
-        trimEnv("DATABASE_PRIVATE_URL") ??
-        trimEnv("DATABASE_PUBLIC_URL"),
-    ),
+    DATABASE_URL: isPostgresEnvConfigured(),
     SESSION_SECRET: Boolean(trimEnv("SESSION_SECRET") ?? trimEnv("NEXTAUTH_SECRET")),
     GOOGLE_CLIENT_ID: Boolean(gid),
     GOOGLE_CLIENT_SECRET: Boolean(getGoogleClientSecret()),
