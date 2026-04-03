@@ -26,6 +26,16 @@ import crypto from "node:crypto";
 
 const router = Router();
 
+function errMeta(err: unknown) {
+  const e = err as NodeJS.ErrnoException & { code?: string };
+  return {
+    err,
+    errMessage: err instanceof Error ? err.message : String(err),
+    errCode: e?.code,
+    errStack: err instanceof Error ? err.stack : undefined,
+  };
+}
+
 /** Returned when connect-pg-simple / Postgres session storage fails (common Railway 500 on login + Google). */
 const SESSION_PERSIST_FAILED_JSON = {
   error: "Could not save your session.",
@@ -105,11 +115,7 @@ router.post("/login", async (req, res) => {
       try {
         await commitSession(req);
       } catch (err) {
-        const e = err as NodeJS.ErrnoException & { code?: string };
-        logger.error(
-          { err, errMessage: e?.message, errCode: e?.code },
-          "Login (2FA pending): session.save failed",
-        );
+        logger.error(errMeta(err), "Login (2FA pending): session.save failed — full stack for Railway");
         res.status(500).json(SESSION_PERSIST_FAILED_JSON);
         return;
       }
@@ -125,11 +131,7 @@ router.post("/login", async (req, res) => {
     try {
       await commitSession(req);
     } catch (err) {
-      const e = err as NodeJS.ErrnoException & { code?: string };
-      logger.error(
-        { err, errMessage: e?.message, errCode: e?.code },
-        "Login: session.save failed — check user_sessions table and Postgres connectivity",
-      );
+      logger.error(errMeta(err), "Login: session.save failed — full stack for Railway");
       res.status(500).json(SESSION_PERSIST_FAILED_JSON);
       return;
     }
@@ -172,11 +174,7 @@ router.post("/login", async (req, res) => {
 
     res.json({ user: userPayload });
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: string };
-    logger.error(
-      { err, errMessage: e?.message, errCode: e?.code },
-      "POST /api/auth/login failed",
-    );
+    logger.error(errMeta(err), "POST /api/auth/login failed — full stack (not necessarily session-related)");
     res.status(500).json({ error: "Login failed" });
   }
 });
@@ -219,11 +217,7 @@ router.post("/2fa/verify", async (req, res) => {
     try {
       await commitSession(req);
     } catch (err) {
-      const e = err as NodeJS.ErrnoException & { code?: string };
-      logger.error(
-        { err, errMessage: e?.message, errCode: e?.code },
-        "2FA verify: session.save failed",
-      );
+      logger.error(errMeta(err), "2FA verify: session.save failed — full stack for Railway");
       res.status(500).json(SESSION_PERSIST_FAILED_JSON);
       return;
     }
@@ -266,11 +260,7 @@ router.post("/2fa/verify", async (req, res) => {
 
     res.json({ user: userPayload });
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: string };
-    logger.error(
-      { err, errMessage: e?.message, errCode: e?.code },
-      "POST /api/auth/2fa/verify failed",
-    );
+    logger.error(errMeta(err), "POST /api/auth/2fa/verify failed — full stack");
     res.status(500).json({ error: "Verification failed" });
   }
 });
@@ -421,11 +411,7 @@ router.post("/signup", async (req, res) => {
   try {
     await commitSession(req);
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: string };
-    logger.error(
-      { err, errMessage: e?.message, errCode: e?.code },
-      "Signup: session.save failed",
-    );
+    logger.error(errMeta(err), "Signup: session.save failed — full stack for Railway");
     res.status(500).json(SESSION_PERSIST_FAILED_JSON);
     return;
   }
@@ -569,11 +555,7 @@ router.get("/google", async (req, res) => {
     await commitSession(req);
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: string };
-    logger.error(
-      { err, errMessage: e?.message, errCode: e?.code },
-      "GET /api/auth/google: session save failed",
-    );
+    logger.error(errMeta(err), "GET /api/auth/google: session save failed — full stack for Railway");
     res
       .status(500)
       .type("text/plain")
@@ -601,10 +583,9 @@ router.get("/google/callback", async (req, res) => {
   try {
     await commitSession(req);
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: string };
     logger.error(
-      { err, errMessage: e?.message, errCode: e?.code },
-      "Google callback: session.save after clearing oauth state failed",
+      errMeta(err),
+      "Google callback: session.save after clearing oauth state failed — full stack for Railway",
     );
     res.redirect("/login?error=session_failed");
     return;
@@ -742,10 +723,9 @@ router.get("/google/callback", async (req, res) => {
     try {
       await commitSession(req);
     } catch (sessErr) {
-      const e = sessErr as NodeJS.ErrnoException & { code?: string };
       logger.error(
-        { err: sessErr, errMessage: e?.message, errCode: e?.code },
-        "Google callback: session.save after login failed (same as password login — check user_sessions / Postgres)",
+        errMeta(sessErr),
+        "Google callback: session.save after login failed — full stack for Railway",
       );
       res.redirect("/login?error=session_failed");
       return;
@@ -753,11 +733,7 @@ router.get("/google/callback", async (req, res) => {
 
     res.redirect("/workspace");
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: string };
-    logger.error(
-      { err, errMessage: e?.message, errCode: e?.code },
-      "Google OAuth callback error",
-    );
+    logger.error(errMeta(err), "Google OAuth callback error — full stack for Railway");
     res.redirect("/login?error=auth_failed");
   }
 });

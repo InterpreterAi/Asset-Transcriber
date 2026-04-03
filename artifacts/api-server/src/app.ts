@@ -7,7 +7,11 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
-import { sessionMiddleware, sessionStoreMode } from "./middlewares/session.js";
+import {
+  sessionMiddleware,
+  sessionStoreMode,
+  getSessionStoreResolution,
+} from "./middlewares/session.js";
 import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
@@ -102,6 +106,7 @@ app.get("/debug/auth-env", (req, res) => {
     message: "Presence only. Set these on the Railway service that runs this container.",
     env: getAuthEnvDiagnostics(),
     sessionStoreMode,
+    sessionStoreResolution: getSessionStoreResolution(),
     trustProxy: app.get("trust proxy"),
     requestSecure: req.secure,
     xForwardedProto: proto ?? null,
@@ -132,6 +137,8 @@ app.post(
 // ── Body parsing (after webhook route) ───────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Session MUST be registered before any route that uses req.session (e.g. /api/auth/*).
+// Order: json/urlencoded → sessionMiddleware → /api rate limits → app.use("/api", router).
 app.use(sessionMiddleware);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────

@@ -5,8 +5,53 @@ import { getSessionSecret } from "../lib/authEnv.js";
 import { logger } from "../lib/logger.js";
 
 const PgSession = connectPgSimple(session);
-const useMemoryStore = (process.env.SESSION_STORE ?? "").trim().toLowerCase() === "memory";
-export const sessionStoreMode = useMemoryStore ? "memory" : "postgres";
+
+const disableTempForce = ["1", "true", "yes"].includes(
+  (process.env.DISABLE_TEMP_FORCE_MEMORY ?? "").trim().toLowerCase(),
+);
+
+/**
+ * Flip to `false` after Railway session 500s are fixed. While `true`, MemoryStore wins even if
+ * `SESSION_STORE=postgres`. Override without editing code: `DISABLE_TEMP_FORCE_MEMORY=1`.
+ */
+const TEMP_FORCE_MEMORY_IN_SOURCE = true;
+
+/**
+ * Effective in-code / env toggle for forcing MemoryStore (diagnosing session 500s).
+ */
+export const TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE =
+  !disableTempForce && TEMP_FORCE_MEMORY_IN_SOURCE;
+
+const envSessionRaw = process.env.SESSION_STORE ?? "";
+const envWantsMemory = envSessionRaw.trim().toLowerCase() === "memory";
+
+const useMemoryStore = TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE || envWantsMemory;
+
+export const sessionStoreMode: "memory" | "postgres" = useMemoryStore ? "memory" : "postgres";
+
+export function getSessionStoreResolution(): {
+  TEMP_FORCE_MEMORY_IN_SOURCE: boolean;
+  TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE: boolean;
+  DISABLE_TEMP_FORCE_MEMORY: string | null;
+  envSESSION_STORE: string | null;
+  envWantsMemory: boolean;
+  effectiveMode: "memory" | "postgres";
+} {
+  return {
+    TEMP_FORCE_MEMORY_IN_SOURCE,
+    TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE,
+    DISABLE_TEMP_FORCE_MEMORY: process.env.DISABLE_TEMP_FORCE_MEMORY ?? null,
+    envSESSION_STORE: envSessionRaw.trim() === "" ? null : envSessionRaw.trim(),
+    envWantsMemory,
+    effectiveMode: sessionStoreMode,
+  };
+}
+
+if (TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE && envSessionRaw.trim().toLowerCase() === "postgres") {
+  logger.warn(
+    "TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE: ignoring SESSION_STORE=postgres — using MemoryStore. Set DISABLE_TEMP_FORCE_MEMORY=1 to use Postgres sessions.",
+  );
+}
 
 const production = process.env.NODE_ENV === "production";
 const sessionCookieInsecure =
@@ -23,7 +68,13 @@ const sessionCookie = {
 
 if (useMemoryStore) {
   logger.warn(
-    "SESSION_STORE=memory enabled; sessions are in-process only (single instance, non-persistent).",
+    { sessionStoreMode, TEMPORARY_FORCE_MEMORY_SESSION_IN_CODE, envSESSION_STORE: envSessionRaw || null },
+    "Session: using MemoryStore (in-process; single-instance only — not durable across restarts)",
+  );
+} else {
+  logger.info(
+    { sessionStoreMode },
+    "Session: using connect-pg-simple (Postgres user_sessions)",
   );
 }
 
@@ -39,7 +90,6 @@ export const sessionMiddleware = session(
         store: new PgSession({
           pool,
           tableName: "user_sessions",
-          // Self-heal if startup migration did not run; matches official connect-pg-simple DDL.
           createTableIfMissing: true,
         }),
         secret: getSessionSecret(),

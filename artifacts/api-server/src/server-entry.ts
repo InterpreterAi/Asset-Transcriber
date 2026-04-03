@@ -6,6 +6,7 @@ import { hashPassword } from "./lib/password.js";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { logAuthEnvBootstrap } from "./lib/authEnv.js";
+import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 
 const rawPort =
   process.env["PORT"] ?? process.env["RAILWAY_PORT"] ?? process.env["HTTP_PLATFORM_PORT"];
@@ -110,8 +111,7 @@ async function migrateSchema() {
       )
     `);
 
-      // Session store table — connect-pg-simple requires this to exist.
-      // createTableIfMissing is false in the middleware, so we guarantee it here.
+      // Session store table — connect-pg-simple; middleware also uses createTableIfMissing as fallback.
       await client.query(`
       CREATE TABLE IF NOT EXISTS user_sessions (
         sid    VARCHAR NOT NULL COLLATE "default",
@@ -292,6 +292,7 @@ async function ensureAdminUser() {
 async function main() {
   logAuthEnvBootstrap();
   await migrateSchema();
+  await logSessionAndDatabaseStartupStatus();
   await clearStaleSessions();
   await ensureAdminUser();
   await initStripe();

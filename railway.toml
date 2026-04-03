@@ -9,6 +9,9 @@
 # Sessions: Dockerfile sets SESSION_STORE=memory by default (fixes login/Google 500s when
 # Postgres session storage fails). Override with SESSION_STORE=postgres if you run multiple
 # replicas; then ensure user_sessions exists (startup migration creates it when DB is reachable).
+#
+# session.ts sets TEMP_FORCE_MEMORY_IN_SOURCE=true (forces MemoryStore even if SESSION_STORE=postgres).
+# Set DISABLE_TEMP_FORCE_MEMORY=1 on the service to respect SESSION_STORE only, or flip the constant to false after fixing Postgres sessions.
 
 [build]
 builder = "DOCKERFILE"
