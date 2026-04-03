@@ -7,6 +7,7 @@ export function resolveDatabaseUrlFromEnv(): string {
     process.env.DATABASE_URL?.trim() ||
     process.env.DATABASE_PRIVATE_URL?.trim() ||
     process.env.DATABASE_PUBLIC_URL?.trim() ||
+    process.env.DATABASE_URL_UNPOOLED?.trim() ||
     process.env.POSTGRES_URL?.trim() ||
     process.env.POSTGRES_PRISMA_URL?.trim() ||
     process.env.NEON_DATABASE_URL?.trim() ||

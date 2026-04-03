@@ -20,11 +20,11 @@ const hint = {
   message:
     "PostgreSQL is not configured for this service. The full API is disabled until a connection is set (DATABASE_URL, DATABASE_PRIVATE_URL, or POSTGRES_HOST+POSTGRES_USER+POSTGRES_DB, etc.).",
   railwaySteps: [
-    "Railway dashboard → your project → add (or open) a PostgreSQL database service.",
-    "Open THIS web/API service (the one running this app) → Variables → New variable.",
-    'Choose "Variable Reference" → select the Postgres plugin → add variable DATABASE_URL (maps to the DB service).',
-    "Or paste the full postgres://… URL as DATABASE_URL (Variables → Raw editor).",
-    "Redeploy THIS service after saving. GET /debug/db-env shows which env keys are non-empty (no secrets).",
+    "Postgres may already expose DATABASE_URL on the **database** service — that does NOT inject into your **web/API** service automatically.",
+    "Open the service that runs **this** Node container → Variables → New variable → Variable Reference → pick Postgres → add `DATABASE_URL` (or `DATABASE_PRIVATE_URL`).",
+    "Or paste the full `postgresql://…` URL as `DATABASE_URL` on that same web/API service (Raw editor).",
+    "Use the correct Railway **environment** (e.g. Production). Empty or Preview-only vars leave this process without a DB.",
+    "Redeploy the web/API service after saving. GET /debug/db-env on this host lists which keys are non-empty (values never shown).",
   ],
 };
 
