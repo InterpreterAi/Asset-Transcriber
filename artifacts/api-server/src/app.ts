@@ -17,7 +17,6 @@ import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
 import { getAuthEnvDiagnostics } from "./lib/authEnv.js";
-import { pool } from "@workspace/db";
 import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
@@ -116,9 +115,10 @@ app.get("/debug/auth-env", (req, res) => {
   });
 });
 
-// Before session: DB-only probe (auth uses users/sessions; failures here explain login 500s).
+// Before session: DB-only probe (dynamic import avoids loading @workspace/db before it is ready).
 app.get("/debug/db-health", async (_req, res, next) => {
   try {
+    const { pool } = await import("@workspace/db");
     await pool.query("SELECT 1");
     const users = await pool.query<{ r: string | null }>(
       `SELECT to_regclass('public.users') AS r`,
@@ -252,8 +252,12 @@ if (spaEnabled) {
       res.status(404).type("text/plain").send("Not found");
       return;
     }
-    res.sendFile(spaIndexHtml, (err) => {
-      if (err) next(err);
+    const absIndex = path.resolve(spaIndexHtml);
+    res.sendFile(absIndex, (err) => {
+      if (err) {
+        console.error("[spa] sendFile failed", { absIndex, cwd: process.cwd(), err });
+        next(err);
+      }
     });
   });
 } else {
