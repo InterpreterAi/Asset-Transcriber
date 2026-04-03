@@ -68,6 +68,15 @@ function isPostgresUniqueViolation(err: unknown): boolean {
 // ── Login ──────────────────────────────────────────────────────────────────
 router.post("/login", async (req, res) => {
   try {
+    if (!req.session) {
+      logger.error("POST /api/auth/login: req.session is missing — session middleware order bug?");
+      res.status(500).json({
+        error: "Session not initialized",
+        code: "no_req_session",
+      });
+      return;
+    }
+
     const { username, password, email } = req.body as {
       username?: string;
       email?: string;
@@ -172,10 +181,23 @@ router.post("/login", async (req, res) => {
       userPayload = { ...buildUserInfo(user), sessionsToday: 0 };
     }
 
-    res.json({ user: userPayload });
+    try {
+      res.json({ user: userPayload });
+    } catch (encodeErr) {
+      logger.error(errMeta(encodeErr), "Login: res.json failed (non-JSON-serializable user payload?)");
+      res.status(500).json({
+        error: "Login succeeded but response could not be encoded",
+        code: "login_response_encode_failed",
+      });
+    }
   } catch (err) {
     logger.error(errMeta(err), "POST /api/auth/login failed — full stack (not necessarily session-related)");
-    res.status(500).json({ error: "Login failed" });
+    const pgCode = (err as { code?: string })?.code;
+    res.status(500).json({
+      error: "Login failed",
+      code: "login_uncaught_exception",
+      pgCode: typeof pgCode === "string" && /^\d{5}$/.test(pgCode) ? pgCode : undefined,
+    });
   }
 });
 

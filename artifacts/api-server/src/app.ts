@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import express, { type Express } from "express";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -137,8 +138,10 @@ app.post(
 // ── Body parsing (after webhook route) ───────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Parse Cookie header into req.cookies before express-session (helps some proxy / Express 5 setups).
+app.use(cookieParser());
 // Session MUST be registered before any route that uses req.session (e.g. /api/auth/*).
-// Order: json/urlencoded → sessionMiddleware → /api rate limits → app.use("/api", router).
+// Order: json/urlencoded → cookieParser → sessionMiddleware → /api rate limits → app.use("/api", router).
 app.use(sessionMiddleware);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────

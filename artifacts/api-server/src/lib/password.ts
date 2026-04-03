@@ -9,7 +9,8 @@ export async function hashPassword(password: string): Promise<string> {
   return `${buf.toString("hex")}.${salt}`;
 }
 
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+export async function verifyPassword(password: string, stored: string | null | undefined): Promise<boolean> {
+  if (stored == null || typeof stored !== "string") return false;
   try {
     const [hashed, salt] = stored.split(".");
     if (!hashed || !salt) return false;
