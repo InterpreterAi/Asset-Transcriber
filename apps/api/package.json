@@ -1,0 +1,14 @@
+{
+  "name": "@apps/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Workspace entry for the HTTP API. Implementation lives in @workspace/api-server (artifacts/api-server) with Drizzle via @workspace/db.",
+  "scripts": {
+    "dev": "pnpm --filter @workspace/api-server run dev:watch",
+    "build": "pnpm --filter @workspace/api-server run build",
+    "start": "pnpm --filter @workspace/api-server run start"
+  },
+  "dependencies": {
+    "@workspace/api-server": "workspace:*"
+  }
+}

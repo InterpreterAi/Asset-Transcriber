@@ -9,10 +9,14 @@ import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 
 const rawPort =
-  process.env["PORT"] ?? process.env["RAILWAY_PORT"] ?? process.env["HTTP_PLATFORM_PORT"];
+  process.env["PORT"] ??
+  process.env["RAILWAY_PORT"] ??
+  process.env["HTTP_PLATFORM_PORT"] ??
+  (process.env.NODE_ENV !== "production" ? "8787" : undefined);
 if (!rawPort) {
   throw new Error(
-    "PORT is not set. On Railway, use a Web service (PORT is injected automatically).",
+    "PORT is not set. On Railway, use a Web service (PORT is injected automatically). " +
+      "For local dev, omit NODE_ENV=production or set PORT (default 8787 in development).",
   );
 }
 
