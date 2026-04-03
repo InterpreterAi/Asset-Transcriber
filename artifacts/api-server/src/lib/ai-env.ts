@@ -14,11 +14,14 @@ function missingServiceVariablesForInterpreterAi(): string[] {
   if (!getSonioxMasterApiKey()) {
     m.push("SONIOX_API_KEY (or SONIOX_STT_API_KEY, SONIOX_KEY, SONIOX_API_TOKEN)");
   }
-  if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim()) {
-    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.trim()) {
-      m.push("AI_INTEGRATIONS_OPENAI_API_KEY");
-    }
-  } else if (!process.env.OPENAI_API_KEY?.trim()) {
+  const ob = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim();
+  const oi = process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.trim();
+  const ok = process.env.OPENAI_API_KEY?.trim();
+  if (ob && oi) {
+    /* proxy path — openai-client uses both */
+  } else if (ob && !oi && !ok) {
+    m.push("OPENAI_API_KEY (or pair AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY)");
+  } else if (!ok && !(ob && oi)) {
     m.push("OPENAI_API_KEY");
   }
   if (!process.env.GOOGLE_CLIENT_ID?.trim()) m.push("GOOGLE_CLIENT_ID");
@@ -83,11 +86,20 @@ export function isSonioxConfigured(): boolean {
   return Boolean(getSonioxMasterApiKey());
 }
 
+/** Must match `openai-client.ts` proxy vs direct rules. */
 export function isOpenAiConfigured(): boolean {
-  if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim()) {
-    return Boolean(process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.trim());
-  }
-  return Boolean(process.env.OPENAI_API_KEY?.trim());
+  const ob = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim();
+  const oi = process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.trim();
+  const ok = process.env.OPENAI_API_KEY?.trim();
+  if (ob && oi) return true;
+  return Boolean(ok);
+}
+
+function openAiIntegrationProxyActive(): boolean {
+  return Boolean(
+    process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim() &&
+      process.env.AI_INTEGRATIONS_OPENAI_API_KEY?.trim(),
+  );
 }
 
 /**
@@ -111,7 +123,7 @@ export function getTranslationConnectionDiagnostics(): {
   };
 } {
   const ok = isOpenAiConfigured();
-  const proxy = Boolean(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim());
+  const proxy = openAiIntegrationProxyActive();
   return {
     liveWorkspace: {
       method: "POST",
@@ -120,8 +132,8 @@ export function getTranslationConnectionDiagnostics(): {
       openaiConfigured: ok,
       connectedForLiveInterpretation: ok,
       explanation: ok
-        ? `OpenAI is configured (${proxy ? "Replit AI_INTEGRATIONS_* proxy" : "OPENAI_API_KEY"}). If the UI still shows no translation, check DevTools → Network for this path (401/403/500) or same-language segments (server echoes source when src==tgt).`
-        : "Not connected: no OPENAI_API_KEY (and no AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY). Live translation cannot run; set keys on this API service and redeploy.",
+        ? `OpenAI is configured (${proxy ? "Replit AI_INTEGRATIONS_* proxy" : "direct OPENAI_API_KEY"}). If the UI still shows no translation, check DevTools → Network for this path (401/403/500) or same-language segments (server echoes source when src==tgt).`
+        : "Not connected: set OPENAI_API_KEY, or both AI_INTEGRATIONS_OPENAI_BASE_URL and AI_INTEGRATIONS_OPENAI_API_KEY for the Replit proxy. Remove a stray BASE_URL alone if you use direct OpenAI only.",
     },
     alternateHttpRoute: {
       method: "POST",
@@ -142,7 +154,7 @@ export function getAiEnvDiagnostics(): {
   translation: ReturnType<typeof getTranslationConnectionDiagnostics>;
   runtimeFingerprint: ReturnType<typeof getRuntimeEnvFingerprint>;
 } {
-  const proxy = Boolean(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim());
+  const proxy = openAiIntegrationProxyActive();
   return {
     soniox: isSonioxConfigured(),
     sonioxEnvKeys: getSonioxKeyEnvPresence(),

@@ -360,11 +360,12 @@ function validateLangByScript(
 //   • Other 4xx                  → no retry (bad request)
 //   • Each attempt has a 9 s hard timeout via AbortController.
 //   • 503 + TRANSLATION_NOT_CONFIGURED — no retry (missing OpenAI / integration keys).
+//   • 401 / 403 — no retry; `onTranslationIssue` explains session / access.
 async function fetchTranslation(
   text: string,
   sourceLang: string,
   targetLang: string,
-  onTranslationNotConfigured?: (message: string) => void,
+  onTranslationIssue?: (message: string) => void,
 ): Promise<string> {
   const MAX_ATTEMPTS = 3;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -383,16 +384,13 @@ async function fetchTranslation(
         const d = await r.json() as { translated?: string };
         return d.translated?.trim() ?? "";
       }
-      // Auth / quota — no point retrying
-      if (r.status === 401 || r.status === 403) return "";
-      // Hard client errors (4xx except rate-limit) — no retry
-      if (r.status >= 400 && r.status < 500 && r.status !== 429) return "";
+      // 503 before generic 4xx — otherwise TRANSLATION_NOT_CONFIGURED is never detected.
       if (r.status === 503) {
         const raw = await r.text();
         try {
           const j = JSON.parse(raw) as { code?: string; error?: string };
           if (j.code === "TRANSLATION_NOT_CONFIGURED") {
-            onTranslationNotConfigured?.(
+            onTranslationIssue?.(
               j.error ?? "Translation is unavailable: configure OpenAI on the API server.",
             );
             return "";
@@ -401,10 +399,27 @@ async function fetchTranslation(
           /* fall through to retry */
         }
       }
-      // Other 5xx / 429 — fall through to back-off + retry
+      if (r.status === 401 || r.status === 403) {
+        onTranslationIssue?.(
+          "Session expired or access denied — refresh the page and sign in again.",
+        );
+        return "";
+      }
+      if (r.status >= 400 && r.status < 500 && r.status !== 429) return "";
+      if (attempt === MAX_ATTEMPTS) {
+        onTranslationIssue?.(
+          "Translation service error — try again or contact support if it continues.",
+        );
+        return "";
+      }
     } catch {
       clearTimeout(timeoutId);
-      // AbortError (timeout) or network failure — fall through to retry
+      if (attempt === MAX_ATTEMPTS) {
+        onTranslationIssue?.(
+          "Translation request timed out or failed — try again.",
+        );
+        return "";
+      }
     }
     if (attempt < MAX_ATTEMPTS) {
       await new Promise<void>(res => setTimeout(res, 700 * attempt));
@@ -657,11 +672,8 @@ export function useTranscription(isAdmin = false) {
 
     void (async () => {
       try {
-        const translated = await fetchTranslation(
-          text,
-          dispatchLang,
-          myTargetLang,
-          (m) => translationConfigReporterRef.current(m),
+        const translated = await fetchTranslation(text, dispatchLang, myTargetLang, (m) =>
+          translationConfigReporterRef.current(m),
         );
 
         // Out-of-order gate: a newer result for THIS bubble already arrived.
