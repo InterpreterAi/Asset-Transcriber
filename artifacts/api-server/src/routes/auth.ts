@@ -14,6 +14,7 @@ import {
   getGoogleClientSecret,
   getGoogleOAuthRedirectUri,
 } from "../lib/authEnv.js";
+import { commitSession } from "../lib/commitSession.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -45,8 +46,7 @@ router.post("/login", async (req, res) => {
 
     const ip        = getClientIp(req);
     const userAgent = req.headers["user-agent"] ?? null;
-    const identifier = email || username;
-
+    const identifier = (email || username)?.trim().toLowerCase();
     if (!identifier || !password) {
       res.status(400).json({ error: "Email and password are required" });
       return;
@@ -82,6 +82,7 @@ router.post("/login", async (req, res) => {
     if (user.twoFactorEnabled && user.twoFactorSecret) {
       req.session.pending2faUserId = user.id;
       delete req.session.userId;
+      await commitSession(req);
       res.json({ requires2fa: true });
       return;
     }
@@ -118,11 +119,16 @@ router.post("/login", async (req, res) => {
       .where(
         and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
       );
-    const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
+    const sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
 
+    await commitSession(req);
     res.json({ user: { ...buildUserInfo(freshUser), sessionsToday } });
   } catch (err) {
-    logger.error({ err }, "POST /api/auth/login failed");
+    const e = err as NodeJS.ErrnoException & { code?: string };
+    logger.error(
+      { err, errMessage: e?.message, errCode: e?.code },
+      "POST /api/auth/login failed",
+    );
     res.status(500).json({ error: "Login failed" });
   }
 });
@@ -189,9 +195,19 @@ router.post("/2fa/verify", async (req, res) => {
         and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
       );
 
-    res.json({ user: { ...buildUserInfo(freshUser), sessionsToday: sessionsTodayRows[0]?.count ?? 0 } });
+    await commitSession(req);
+    res.json({
+      user: {
+        ...buildUserInfo(freshUser),
+        sessionsToday: Number(sessionsTodayRows[0]?.count ?? 0),
+      },
+    });
   } catch (err) {
-    logger.error({ err }, "POST /api/auth/2fa/verify failed");
+    const e = err as NodeJS.ErrnoException & { code?: string };
+    logger.error(
+      { err, errMessage: e?.message, errCode: e?.code },
+      "POST /api/auth/2fa/verify failed",
+    );
     res.status(500).json({ error: "Verification failed" });
   }
 });
@@ -339,6 +355,7 @@ router.post("/signup", async (req, res) => {
   );
   void sendWelcomeEmail(email.toLowerCase());
 
+  await commitSession(req);
   res.status(201).json({ user: buildUserInfo(user!) });
 });
 
@@ -364,7 +381,7 @@ router.get("/me", requireAuth, async (req, res) => {
     .where(
       and(eq(sessionsTable.userId, user.id), gte(sessionsTable.startedAt, todayStart)),
     );
-  const sessionsToday = sessionsTodayRows[0]?.count ?? 0;
+  const sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
   res.json({ ...buildUserInfo(user), sessionsToday });
 });
 
@@ -454,28 +471,34 @@ router.post("/forgot-password", async (req, res) => {
 // redirect_uri is /api/auth/google/callback (see getGoogleOAuthRedirectUri).
 
 // Step 1 — redirect to Google's consent screen.
-router.get("/google", (req, res) => {
-  const clientId = getGoogleClientId();
-  if (!clientId) {
-    logger.warn("GET /api/auth/google: GOOGLE_CLIENT_ID missing (checked aliases in authEnv)");
-    res.status(503).send("Google login is not configured. Please add GOOGLE_CLIENT_ID.");
-    return;
+router.get("/google", async (req, res) => {
+  try {
+    const clientId = getGoogleClientId();
+    if (!clientId) {
+      logger.warn("GET /api/auth/google: GOOGLE_CLIENT_ID missing (checked aliases in authEnv)");
+      res.status(503).send("Google login is not configured. Please add GOOGLE_CLIENT_ID.");
+      return;
+    }
+    const state = crypto.randomBytes(16).toString("hex");
+    req.session.oauthState = state;
+
+    const redirectUri = getGoogleOAuthRedirectUri(req);
+
+    const params = new URLSearchParams({
+      client_id:     clientId,
+      redirect_uri:  redirectUri,
+      response_type: "code",
+      scope:         "openid email profile",
+      state,
+      access_type:   "online",
+      prompt:        "select_account",
+    });
+    await commitSession(req);
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  } catch (err) {
+    logger.error({ err, errMessage: (err as Error)?.message }, "GET /api/auth/google: session save failed");
+    res.status(500).send("Could not start Google login. Check server logs.");
   }
-  const state = crypto.randomBytes(16).toString("hex");
-  req.session.oauthState = state;
-
-  const redirectUri = getGoogleOAuthRedirectUri(req);
-
-  const params = new URLSearchParams({
-    client_id:     clientId,
-    redirect_uri:  redirectUri,
-    response_type: "code",
-    scope:         "openid email profile",
-    state,
-    access_type:   "online",
-    prompt:        "select_account",
-  });
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
 // Step 2 — Google redirects back here with ?code=...
@@ -594,9 +617,10 @@ router.get("/google/callback", async (req, res) => {
     req.session.userId  = user!.id;
     req.session.isAdmin = user!.isAdmin;
 
+    await commitSession(req);
     res.redirect("/workspace");
   } catch (err) {
-    logger.error({ err }, "Google OAuth callback error");
+    logger.error({ err, errMessage: (err as Error)?.message }, "Google OAuth callback error");
     res.redirect("/login?error=auth_failed");
   }
 });

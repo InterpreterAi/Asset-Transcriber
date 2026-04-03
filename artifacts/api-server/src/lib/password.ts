@@ -10,9 +10,13 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [hashed, salt] = stored.split(".");
-  if (!hashed || !salt) return false;
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  const storedBuf = Buffer.from(hashed, "hex");
-  return buf.length === storedBuf.length && timingSafeEqual(buf, storedBuf);
+  try {
+    const [hashed, salt] = stored.split(".");
+    if (!hashed || !salt) return false;
+    const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+    const storedBuf = Buffer.from(hashed, "hex");
+    return buf.length === storedBuf.length && timingSafeEqual(buf, storedBuf);
+  } catch {
+    return false;
+  }
 }

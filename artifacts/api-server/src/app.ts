@@ -11,6 +11,7 @@ import { sessionMiddleware } from "./middlewares/session.js";
 import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
+import { getAuthEnvDiagnostics } from "./lib/authEnv.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -18,8 +19,7 @@ const ACTIVITY_DEBOUNCE_MS = 60_000;
 
 const app: Express = express();
 
-// Trust the first proxy hop (Replit's edge) so express-rate-limit can read
-// the real client IP from X-Forwarded-For without throwing a ValidationError.
+// Trust one proxy hop (Railway / Replit) for X-Forwarded-For, rate-limit IP, OAuth redirect host.
 app.set("trust proxy", 1);
 
 const spaStaticRoot = path.resolve(
@@ -75,6 +75,15 @@ app.use(
 );
 
 app.use(cors({ origin: true, credentials: true }));
+
+// Before session middleware: confirms which auth env keys the process actually sees.
+app.get("/debug/auth-env", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    message: "Presence only. Set these on the Railway service that runs this container.",
+    env: getAuthEnvDiagnostics(),
+  });
+});
 
 // ── Stripe webhook — MUST be before express.json() ───────────────────────────
 // Stripe requires the raw Buffer body; express.json() would break it.
@@ -174,7 +183,12 @@ if (spaEnabled) {
     /\.(?:js|mjs|css|map|json|ico|png|jpg|jpeg|gif|webp|svg|woff2?|ttf|eot|webmanifest)$/i;
   app.use((req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
-    if (req.path === "/api" || req.path.startsWith("/api/") || req.path === "/health") {
+    if (
+      req.path === "/api" ||
+      req.path.startsWith("/api/") ||
+      req.path === "/health" ||
+      req.path === "/debug/auth-env"
+    ) {
       return next();
     }
     if (assetLikePath.test(req.path)) {

@@ -28,7 +28,10 @@ export function getGoogleClientId(): string | undefined {
   return (
     trimEnv("GOOGLE_CLIENT_ID") ??
     trimEnv("AUTH_GOOGLE_CLIENT_ID") ??
-    trimEnv("GOOGLE_OAUTH_CLIENT_ID")
+    trimEnv("GOOGLE_OAUTH_CLIENT_ID") ??
+    /** Next/Vite tutorials often set this; the OAuth *client id* is public anyway. */
+    trimEnv("NEXT_PUBLIC_GOOGLE_CLIENT_ID") ??
+    trimEnv("VITE_GOOGLE_CLIENT_ID")
   );
 }
 
@@ -97,4 +100,21 @@ export function logAuthEnvBootstrap(): void {
   if (process.env.NODE_ENV === "production" && !getGoogleClientId()) {
     logger.warn("GOOGLE_CLIENT_ID missing — Google sign-in disabled until set on this service.");
   }
+}
+
+/** For GET /debug/auth-env — booleans only, no secret values. */
+export function getAuthEnvDiagnostics(): Record<string, boolean> {
+  return {
+    DATABASE_URL: Boolean(
+      trimEnv("DATABASE_URL") ??
+        trimEnv("DATABASE_PRIVATE_URL") ??
+        trimEnv("DATABASE_PUBLIC_URL"),
+    ),
+    SESSION_SECRET: Boolean(trimEnv("SESSION_SECRET") ?? trimEnv("NEXTAUTH_SECRET")),
+    GOOGLE_CLIENT_ID: Boolean(getGoogleClientId()),
+    GOOGLE_CLIENT_SECRET: Boolean(getGoogleClientSecret()),
+    ADMIN_PASSWORD: Boolean(trimEnv("ADMIN_PASSWORD")),
+    APP_URL_OR_NEXTAUTH_URL: Boolean(trimEnv("APP_URL") ?? trimEnv("NEXTAUTH_URL")),
+    RAILWAY_STATIC_URL: Boolean(trimEnv("RAILWAY_STATIC_URL")),
+  };
 }
