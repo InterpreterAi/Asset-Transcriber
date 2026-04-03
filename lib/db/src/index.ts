@@ -6,12 +6,14 @@ const { Pool } = pg;
 
 /**
  * Resolve Postgres URL for Railway / Docker / local.
- * - Prefer DATABASE_URL (Railway sets this when Postgres is linked to the service).
- * - Otherwise build from PG* vars (Railway Postgres template also exposes these).
+ * Railway: variables live on the Postgres *service*; your API must reference them
+ * (Variables → New → Reference → Postgres → DATABASE_URL), or set PG* the same way.
  */
 function resolveDatabaseUrl(): string {
   const direct =
     process.env.DATABASE_URL?.trim() ||
+    process.env.DATABASE_PRIVATE_URL?.trim() ||
+    process.env.DATABASE_PUBLIC_URL?.trim() ||
     process.env.POSTGRES_URL?.trim() ||
     process.env.POSTGRES_PRISMA_URL?.trim();
   if (direct) return direct;
@@ -19,7 +21,7 @@ function resolveDatabaseUrl(): string {
   const host = process.env.PGHOST?.trim();
   const port = process.env.PGPORT?.trim() || "5432";
   const user = process.env.PGUSER?.trim();
-  const password = process.env.PGPASSWORD ?? "";
+  const password = process.env.PGPASSWORD ?? process.env.POSTGRES_PASSWORD ?? "";
   const database = process.env.PGDATABASE?.trim();
 
   if (host && user && database) {
@@ -39,8 +41,9 @@ function resolveDatabaseUrl(): string {
   }
 
   throw new Error(
-    "Database configuration missing. Set DATABASE_URL, or add a Postgres service on Railway and link it so DATABASE_URL is injected. " +
-      "Alternatively set PGHOST, PGPORT, PGUSER, PGPASSWORD, and PGDATABASE (Railway Postgres template).",
+    "Database configuration missing. On Railway: add a PostgreSQL service, then in THIS (API) service open Variables → " +
+      "New variable → Variable Reference → select your Postgres service → choose DATABASE_URL (or DATABASE_PRIVATE_URL). " +
+      "Until that reference exists, the API cannot start. Local dev: set DATABASE_URL in .env.",
   );
 }
 
@@ -53,7 +56,7 @@ const isRailway = Boolean(
     process.env.RAILWAY_STATIC_URL,
 );
 const looksLikeManagedHost =
-  /railway\.app|rlwy\.net|neon\.tech|supabase\.co|amazonaws\.com/i.test(
+  /railway\.app|rlwy\.net|railway\.internal|neon\.tech|supabase\.co|amazonaws\.com/i.test(
     resolvedDatabaseUrl,
   );
 

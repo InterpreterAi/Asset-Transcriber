@@ -1,5 +1,8 @@
 # Deploy from the repository root so pnpm can link workspace:* packages (@workspace/db, @workspace/api-zod).
 # In Railway: set the service root directory to the repo root (not artifacts/api-server).
+#
+# REQUIRED: Add a PostgreSQL service, then in THIS service → Variables → New variable →
+# "Variable Reference" → pick Postgres → DATABASE_URL (copies the connection string here).
 
 [build]
 builder = "NIXPACKS"
