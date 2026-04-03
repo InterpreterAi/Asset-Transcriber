@@ -18,6 +18,7 @@ import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
 import { getAuthEnvDiagnostics } from "./lib/authEnv.js";
 import { getAiEnvDiagnostics } from "./lib/ai-env.js";
+import { getPublicEnvReadiness } from "./lib/readiness-env.js";
 import { apiMountJsonErrorHandler, globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
@@ -123,6 +124,28 @@ app.get("/debug/ai-env", (_req, res) => {
     message:
       "Booleans only. Transcription needs SONIOX_API_KEY or SONIOX_STT_API_KEY. Translation needs OPENAI_API_KEY or Replit AI integration vars.",
     ai: getAiEnvDiagnostics(),
+  });
+});
+
+// One-page checklist for “transcription / Google not working” (full API only).
+app.get("/debug/readiness", (_req, res) => {
+  const env = getPublicEnvReadiness();
+  res.status(200).json({
+    ok: true,
+    status: "full_api",
+    message:
+      "If any block below is false, fix Railway vars on this service and redeploy. Use /debug/db-health for row counts.",
+    env,
+    checklist: {
+      database: env.postgres.configured,
+      sessionSecret: env.session.SESSION_SECRET || env.session.NEXTAUTH_SECRET,
+      sonioxTranscription: env.ai.soniox,
+      openaiTranslation: env.ai.openai,
+      googleLogin:
+        env.googleOAuth.GOOGLE_CLIENT_ID &&
+        env.googleOAuth.GOOGLE_CLIENT_SECRET &&
+        (env.googleOAuth.NEXTAUTH_URL || env.googleOAuth.APP_URL),
+    },
   });
 });
 
@@ -302,6 +325,7 @@ if (spaEnabled) {
       req.path === "/health" ||
       req.path === "/debug/auth-env" ||
       req.path === "/debug/ai-env" ||
+      req.path === "/debug/readiness" ||
       req.path === "/debug/db-health"
     ) {
       return next();

@@ -4,6 +4,7 @@
  */
 import http from "node:http";
 import { getAiEnvDiagnostics } from "./lib/ai-env.js";
+import { getPublicEnvReadiness } from "./lib/readiness-env.js";
 import { dbEnvDiagnostic } from "./postgres-env.js";
 
 const rawPort =
@@ -64,6 +65,23 @@ const server = http.createServer((req, res) => {
       message:
         "Full API disabled (no database). When DB is connected, transcription needs SONIOX_API_KEY or SONIOX_STT_API_KEY; translation needs OpenAI vars.",
       ai: getAiEnvDiagnostics(),
+    });
+    return;
+  }
+
+  if (path === "/debug/readiness") {
+    json(200, {
+      ok: true,
+      status: "degraded",
+      databaseConfigured: false,
+      whyTranscriptionAndGoogleFail:
+        "This process is the minimal server: no DATABASE_URL, so no sessions DB, no /api/auth/*, no /api/transcription/token. Fix Postgres on this Railway service first, redeploy, then check this URL again (full API).",
+      env: getPublicEnvReadiness(),
+      nextSteps: [
+        "1) Add DATABASE_URL (variable reference to Postgres) on THIS service → Redeploy.",
+        "2) Then set SONIOX_API_KEY (transcription), GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + NEXTAUTH_URL (Google), SESSION_SECRET (cookies).",
+        "3) Google Cloud: authorized redirect must match https://YOUR_HOST/api/auth/callback/google if you use NEXTAUTH_URL (see authEnv GOOGLE_OAUTH_REDIRECT_PATH).",
+      ],
     });
     return;
   }
