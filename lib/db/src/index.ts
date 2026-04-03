@@ -15,14 +15,25 @@ function resolveDatabaseUrl(): string {
     process.env.DATABASE_PRIVATE_URL?.trim() ||
     process.env.DATABASE_PUBLIC_URL?.trim() ||
     process.env.POSTGRES_URL?.trim() ||
-    process.env.POSTGRES_PRISMA_URL?.trim();
+    process.env.POSTGRES_PRISMA_URL?.trim() ||
+    process.env.NEON_DATABASE_URL?.trim() ||
+    process.env.SUPABASE_DB_URL?.trim();
   if (direct) return direct;
 
-  const host = process.env.PGHOST?.trim();
-  const port = process.env.PGPORT?.trim() || "5432";
-  const user = process.env.PGUSER?.trim();
-  const password = process.env.PGPASSWORD ?? process.env.POSTGRES_PASSWORD ?? "";
-  const database = process.env.PGDATABASE?.trim();
+  const host =
+    process.env.PGHOST?.trim() || process.env.POSTGRES_HOST?.trim();
+  const port =
+    process.env.PGPORT?.trim() ||
+    process.env.POSTGRES_PORT?.trim() ||
+    "5432";
+  const user =
+    process.env.PGUSER?.trim() || process.env.POSTGRES_USER?.trim();
+  const password =
+    process.env.PGPASSWORD ??
+    process.env.POSTGRES_PASSWORD ??
+    "";
+  const database =
+    process.env.PGDATABASE?.trim() || process.env.POSTGRES_DB?.trim();
 
   if (host && user && database) {
     const u = encodeURIComponent(user);

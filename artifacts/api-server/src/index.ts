@@ -1,4 +1,4 @@
-import { isPostgresEnvConfigured } from "./is-postgres-env-set.js";
+import { isPostgresEnvConfigured } from "./postgres-env.js";
 
 if (!isPostgresEnvConfigured()) {
   await import("./no-database-server.js");
