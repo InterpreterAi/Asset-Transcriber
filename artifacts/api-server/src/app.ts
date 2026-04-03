@@ -17,7 +17,7 @@ import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
 import { getAuthEnvDiagnostics } from "./lib/authEnv.js";
-import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
+import { apiMountJsonErrorHandler, globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -231,6 +231,8 @@ app.use("/api/admin", adminIpGuard);
 app.use("/api", generalLimiter);
 app.use("/api", errorLoggerMiddleware);
 app.use("/api", router);
+// Before SPA: any `next(err)` from /api (including session/json/limiters) becomes JSON here.
+app.use(apiMountJsonErrorHandler);
 
 // Client-side routes (e.g. /workspace): never send index.html for missing real files —
 // that breaks JS/CSS (browser executes HTML as script → white screen).

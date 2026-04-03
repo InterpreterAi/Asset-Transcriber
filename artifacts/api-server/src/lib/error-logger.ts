@@ -51,6 +51,10 @@ export async function logError(opts: LogErrorOptions): Promise<void> {
       ipAddress:    opts.ipAddress ?? null,
     });
   } catch (err) {
-    logger.error({ err }, "Failed to write error log to DB");
+    try {
+      logger.error({ err }, "Failed to write error log to DB");
+    } catch {
+      console.error("[error-logger] logger.error threw while reporting DB log failure");
+    }
   }
 }
