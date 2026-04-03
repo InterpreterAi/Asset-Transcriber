@@ -24,11 +24,79 @@ if (Number.isNaN(port) || port <= 0) {
 // ── Schema migration on startup ───────────────────────────────────────────────
 // Idempotent: adds any columns/tables that exist in the Drizzle schema but may
 // be missing from an older production database.  Safe to run on every restart.
+// On failure we throw (no silent "continuing anyway") so Railway logs show the real SQL error.
 async function migrateSchema() {
+  const client = await pool.connect();
   try {
-    const client = await pool.connect();
+    logger.info("Running startup schema migration…");
+    await client.query("BEGIN");
+
     try {
-      logger.info("Running startup schema migration…");
+      // ── Core tables (Drizzle schema) — required on a fresh Railway Postgres. ──
+      // This app does not use Prisma; schema is applied here on every boot (idempotent).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id                     SERIAL PRIMARY KEY,
+          username               TEXT NOT NULL UNIQUE,
+          email                  TEXT UNIQUE,
+          password_hash          TEXT NOT NULL,
+          is_admin               BOOLEAN NOT NULL DEFAULT FALSE,
+          is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+          email_verified         BOOLEAN NOT NULL DEFAULT FALSE,
+          plan_type              TEXT NOT NULL DEFAULT 'trial',
+          trial_started_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+          trial_ends_at          TIMESTAMP NOT NULL,
+          daily_limit_minutes    INTEGER NOT NULL DEFAULT 300,
+          minutes_used_today     REAL NOT NULL DEFAULT 0,
+          total_minutes_used     REAL NOT NULL DEFAULT 0,
+          total_sessions         INTEGER NOT NULL DEFAULT 0,
+          last_usage_reset_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+          stripe_customer_id     TEXT,
+          stripe_subscription_id TEXT,
+          google_account_id      TEXT UNIQUE,
+          last_activity          TIMESTAMP,
+          two_factor_secret      TEXT,
+          two_factor_enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at             TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id         SERIAL PRIMARY KEY,
+          user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token      TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMP NOT NULL,
+          used_at    TIMESTAMP,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id                       SERIAL PRIMARY KEY,
+          user_id                  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          started_at               TIMESTAMP NOT NULL DEFAULT NOW(),
+          ended_at                 TIMESTAMP,
+          duration_seconds         INTEGER,
+          last_activity_at         TIMESTAMP,
+          lang_pair                TEXT,
+          audio_seconds_processed  INTEGER DEFAULT 0,
+          soniox_cost              NUMERIC(10, 6) DEFAULT 0,
+          translation_tokens       INTEGER DEFAULT 0,
+          translation_cost         NUMERIC(10, 6) DEFAULT 0,
+          total_session_cost       NUMERIC(10, 6) DEFAULT 0
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS feedback (
+          id         SERIAL PRIMARY KEY,
+          user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          rating     INTEGER NOT NULL,
+          recommend  TEXT,
+          comment    TEXT,
+          source     TEXT,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
 
       // users table – columns added after initial release
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);
@@ -136,18 +204,58 @@ async function migrateSchema() {
       CREATE INDEX IF NOT EXISTS idx_share_events_user ON share_events (user_id)
     `);
 
+      await client.query("COMMIT");
       logger.info("Startup schema migration complete");
     } catch (err) {
-      logger.error({ err }, "Startup schema migration failed — continuing anyway");
-    } finally {
-      client.release();
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        /* ignore */
+      }
+      const code = (err as { code?: string })?.code;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[FATAL] Startup schema migration failed:", msg, code ? `(pg ${code})` : "");
+      console.error(err);
+      logger.error({ err, pgCode: code }, "Startup schema migration failed");
+      throw err;
     }
-  } catch (err) {
-    logger.error(
-      { err },
-      "Could not connect to Postgres for startup migration — continuing (API may fail until DB is reachable)",
-    );
+  } finally {
+    client.release();
   }
+}
+
+/** Refuse to serve if Postgres or core tables are unusable — avoids opaque HTTP 500 on every /api/auth call. */
+async function requireDatabaseReadyForApi(): Promise<void> {
+  try {
+    await pool.query("SELECT 1");
+  } catch (err) {
+    console.error("[FATAL] Postgres not reachable (SELECT 1 failed). Check DATABASE_URL on this Railway service.");
+    console.error(err);
+    throw err;
+  }
+  const usersReg = await pool.query<{ r: string | null }>(
+    `SELECT to_regclass('public.users') AS r`,
+  );
+  const sessionsReg = await pool.query<{ r: string | null }>(
+    `SELECT to_regclass('public.sessions') AS r`,
+  );
+  if (!usersReg.rows[0]?.r || !sessionsReg.rows[0]?.r) {
+    const msg =
+      "Core tables missing after migration: public.users and/or public.sessions. " +
+      "See earlier [FATAL] migrate logs for the SQL error.";
+    console.error(`[FATAL] ${msg}`);
+    throw new Error(msg);
+  }
+  try {
+    await pool.query("SELECT id FROM users LIMIT 1");
+  } catch (err) {
+    console.error(
+      "[FATAL] public.users exists but is not readable — wrong schema, RLS, or permissions?",
+    );
+    console.error(err);
+    throw err;
+  }
+  logger.info("Startup: database readiness check passed (users + sessions)");
 }
 
 // ── Stale session cleanup on startup ─────────────────────────────────────────
@@ -292,6 +400,7 @@ async function ensureAdminUser() {
 async function main() {
   logAuthEnvBootstrap();
   await migrateSchema();
+  await requireDatabaseReadyForApi();
   await logSessionAndDatabaseStartupStatus();
   await clearStaleSessions();
   await ensureAdminUser();
