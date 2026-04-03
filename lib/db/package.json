@@ -14,8 +14,8 @@
     }
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.mjs",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.mjs"
+    "push": "drizzle-kit push --config ./drizzle.config.cjs",
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.cjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
