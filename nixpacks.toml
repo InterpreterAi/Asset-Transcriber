@@ -1,4 +1,7 @@
-# Align with railway.toml: install from monorepo root, then build the API bundle.
+# Pin Node 22; Nixpacks installs pnpm from root package.json "packageManager".
+[variables]
+NIXPACKS_NODE_VERSION = "22"
+
 [install]
 cmds = ["pnpm install --frozen-lockfile"]
 
