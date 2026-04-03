@@ -127,7 +127,7 @@ app.get("/debug/ai-env", (_req, res) => {
   res.status(200).json({
     ok: true,
     message:
-      "Booleans only. Check ai.runtimeFingerprint: secretishKeyNames must include SONIOX_* and OPENAI_* if Railway is injecting them into THIS service. railway.serviceName must match the service where you set variables (not the Postgres plugin alone).",
+      "See ai.translation for live OpenAI path (/api/transcription/translate). ai.openai must be true or translation stays empty. ai.runtimeFingerprint shows which env names exist in this process.",
     ai: getAiEnvDiagnostics(),
   });
 });

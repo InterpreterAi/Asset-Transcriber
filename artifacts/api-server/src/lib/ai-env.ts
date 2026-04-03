@@ -90,6 +90,47 @@ export function isOpenAiConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
+/**
+ * How live workspace translation is wired (OpenAI). The UI calls POST /api/transcription/translate only —
+ * not POST /api/translate (Google/MyMemory).
+ */
+export function getTranslationConnectionDiagnostics(): {
+  liveWorkspace: {
+    method: string;
+    httpPath: string;
+    openaiModel: string;
+    /** Same as top-level `openai` — when false, API returns 503 TRANSLATION_NOT_CONFIGURED. */
+    openaiConfigured: boolean;
+    connectedForLiveInterpretation: boolean;
+    explanation: string;
+  };
+  alternateHttpRoute: {
+    method: string;
+    httpPath: string;
+    note: string;
+  };
+} {
+  const ok = isOpenAiConfigured();
+  const proxy = Boolean(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim());
+  return {
+    liveWorkspace: {
+      method: "POST",
+      httpPath: "/api/transcription/translate",
+      openaiModel: "gpt-4o-mini",
+      openaiConfigured: ok,
+      connectedForLiveInterpretation: ok,
+      explanation: ok
+        ? `OpenAI is configured (${proxy ? "Replit AI_INTEGRATIONS_* proxy" : "OPENAI_API_KEY"}). If the UI still shows no translation, check DevTools → Network for this path (401/403/500) or same-language segments (server echoes source when src==tgt).`
+        : "Not connected: no OPENAI_API_KEY (and no AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY). Live translation cannot run; set keys on this API service and redeploy.",
+    },
+    alternateHttpRoute: {
+      method: "POST",
+      httpPath: "/api/translate",
+      note: "Uses public Google/MyMemory endpoints — not used by the live workspace transcription hook.",
+    },
+  };
+}
+
 /** For GET /debug/ai-env — booleans only. */
 export function getAiEnvDiagnostics(): {
   soniox: boolean;
@@ -98,6 +139,7 @@ export function getAiEnvDiagnostics(): {
   sonioxResolvedFromKey: string | null;
   openai: boolean;
   openaiRoute: "integration_proxy" | "direct_api_key" | "none";
+  translation: ReturnType<typeof getTranslationConnectionDiagnostics>;
   runtimeFingerprint: ReturnType<typeof getRuntimeEnvFingerprint>;
 } {
   const proxy = Boolean(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim());
@@ -107,6 +149,7 @@ export function getAiEnvDiagnostics(): {
     sonioxResolvedFromKey: getSonioxResolvedEnvKeyName(),
     openai: isOpenAiConfigured(),
     openaiRoute: proxy ? "integration_proxy" : isOpenAiConfigured() ? "direct_api_key" : "none",
+    translation: getTranslationConnectionDiagnostics(),
     runtimeFingerprint: getRuntimeEnvFingerprint(),
   };
 }
