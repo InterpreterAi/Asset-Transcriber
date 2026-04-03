@@ -5,7 +5,7 @@ import { resolveDatabaseUrlFromEnv, getDatabaseConnectionFingerprint } from "./r
 
 const { Pool } = pg;
 
-/** Same URL used by the pool — use for Stripe sync / Drizzle Kit when DATABASE_URL env is unset but PG* vars are. */
+/** Resolved from env via `resolveDatabaseUrlFromEnv()` — prefers `DATABASE_URL`, never `DATABASE_PUBLIC_URL` (client-only). */
 export const resolvedDatabaseUrl = resolveDatabaseUrlFromEnv();
 
 const isRailway = Boolean(

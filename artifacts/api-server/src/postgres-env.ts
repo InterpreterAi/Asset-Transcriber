@@ -18,11 +18,13 @@ import {
   normalizeDatabaseEnvValue,
   parsePostgresConnectionStringFromEnvValue,
   POSTGRES_URL_ENV_KEYS,
+  POSTGRES_URL_ENV_KEYS_CLIENT_ONLY,
 } from "../../../lib/db/src/resolve-db-url";
 
 /** Keys we report in /debug/db-env (presence only, never values). */
 export const DB_ENV_DIAGNOSTIC_KEYS = [
   ...POSTGRES_URL_ENV_KEYS,
+  ...POSTGRES_URL_ENV_KEYS_CLIENT_ONLY,
   "PGHOST",
   "PGPORT",
   "PGUSER",
@@ -61,6 +63,7 @@ export function getDbEnvStartupLog(): {
   probe: {
     DATABASE_URL: EnvKeyProbe;
     DATABASE_PRIVATE_URL: EnvKeyProbe;
+    DATABASE_PUBLIC_URL: EnvKeyProbe;
     POSTGRES_URL: EnvKeyProbe;
     PG_URL: EnvKeyProbe;
     PGDATABASE: EnvKeyProbe;
@@ -74,6 +77,7 @@ export function getDbEnvStartupLog(): {
     probe: {
       DATABASE_URL: probeEnvKey("DATABASE_URL"),
       DATABASE_PRIVATE_URL: probeEnvKey("DATABASE_PRIVATE_URL"),
+      DATABASE_PUBLIC_URL: probeEnvKey("DATABASE_PUBLIC_URL"),
       POSTGRES_URL: probeEnvKey("POSTGRES_URL"),
       PG_URL: probeEnvKey("PG_URL"),
       PGDATABASE: probeEnvKey("PGDATABASE"),
@@ -110,22 +114,30 @@ export function getDatabaseUrlRuntimeDebug(): {
   probe: {
     DATABASE_URL: EnvKeyProbe;
     DATABASE_PRIVATE_URL: EnvKeyProbe;
+    DATABASE_PUBLIC_URL: EnvKeyProbe;
   };
 } {
   const e = process.env;
   const urlKeys = {} as Record<string, UrlKeyRuntimeHint>;
   let firstPlausibleUrlKeyFromKnownList: (typeof POSTGRES_URL_ENV_KEYS)[number] | null = null;
 
-  for (const k of POSTGRES_URL_ENV_KEYS) {
+  const fillUrlKeyHint = (k: string) => {
     const t = normalizeDatabaseEnvValue(e[k]);
     const set = t.length > 0;
     const looksLikePostgresUri = parsePostgresConnectionStringFromEnvValue(e[k]) !== undefined;
     const looksLikeUnexpandedReference =
       set && !looksLikePostgresUri && /\$\{[^}]+\}/.test(t);
     urlKeys[k] = { set, length: t.length, looksLikePostgresUri, looksLikeUnexpandedReference };
-    if (looksLikePostgresUri && !firstPlausibleUrlKeyFromKnownList) {
+  };
+
+  for (const k of POSTGRES_URL_ENV_KEYS) {
+    fillUrlKeyHint(k);
+    if (urlKeys[k]!.looksLikePostgresUri && !firstPlausibleUrlKeyFromKnownList) {
       firstPlausibleUrlKeyFromKnownList = k;
     }
+  }
+  for (const k of POSTGRES_URL_ENV_KEYS_CLIENT_ONLY) {
+    fillUrlKeyHint(k);
   }
 
   return {
@@ -146,6 +158,7 @@ export function getDatabaseUrlRuntimeDebug(): {
     probe: {
       DATABASE_URL: probeEnvKey("DATABASE_URL"),
       DATABASE_PRIVATE_URL: probeEnvKey("DATABASE_PRIVATE_URL"),
+      DATABASE_PUBLIC_URL: probeEnvKey("DATABASE_PUBLIC_URL"),
     },
   };
 }
@@ -159,6 +172,7 @@ export function getDebugDbEnvHttpPayload(status: "degraded" | "full_api"): {
   probe: {
     DATABASE_URL: EnvKeyProbe;
     DATABASE_PRIVATE_URL: EnvKeyProbe;
+    DATABASE_PUBLIC_URL: EnvKeyProbe;
     POSTGRES_URL: EnvKeyProbe;
     PG_URL: EnvKeyProbe;
     PGDATABASE: EnvKeyProbe;
@@ -176,6 +190,7 @@ export function getDebugDbEnvHttpPayload(status: "degraded" | "full_api"): {
     probe: {
       DATABASE_URL: probeEnvKey("DATABASE_URL"),
       DATABASE_PRIVATE_URL: probeEnvKey("DATABASE_PRIVATE_URL"),
+      DATABASE_PUBLIC_URL: probeEnvKey("DATABASE_PUBLIC_URL"),
       POSTGRES_URL: probeEnvKey("POSTGRES_URL"),
       PG_URL: probeEnvKey("PG_URL"),
       PGDATABASE: probeEnvKey("PGDATABASE"),

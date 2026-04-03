@@ -3,10 +3,13 @@
  * Also scans all process.env entries for postgres:// values — Railway/custom names often differ from DATABASE_URL.
  */
 
+/**
+ * Ordered keys for **server** pool / ORM (`pg`, Drizzle). `DATABASE_PUBLIC_URL` is omitted on purpose:
+ * Railway exposes it for external/browser clients; the API must use `DATABASE_URL` (or private URL, etc.).
+ */
 export const POSTGRES_URL_ENV_KEYS = [
   "DATABASE_URL",
   "DATABASE_PRIVATE_URL",
-  "DATABASE_PUBLIC_URL",
   "DATABASE_URL_UNPOOLED",
   "POSTGRES_URL",
   "PG_URL",
@@ -18,7 +21,14 @@ export const POSTGRES_URL_ENV_KEYS = [
   "PGDATABASE",
 ] as const;
 
-const POSTGRES_URL_ENV_KEY_SET = new Set<string>(POSTGRES_URL_ENV_KEYS);
+/** Still set in production for the frontend — never chosen for `resolveDatabaseUrlFromEnv()`. */
+export const POSTGRES_URL_ENV_KEYS_CLIENT_ONLY = ["DATABASE_PUBLIC_URL"] as const;
+
+/** Keys excluded from env sweep (handled by ordered list or client-only / never for server). */
+const POSTGRES_URL_ENV_KEY_SET = new Set<string>([
+  ...POSTGRES_URL_ENV_KEYS,
+  ...POSTGRES_URL_ENV_KEYS_CLIENT_ONLY,
+]);
 
 /** Strip BOM / wrapping quotes (common when pasting Railway URLs into the dashboard). */
 export function normalizeDatabaseEnvValue(raw: string | undefined): string {
@@ -62,7 +72,6 @@ function envKeyScoreForPostgresUrl(key: string): number {
   const u = key.toUpperCase();
   if (u === "DATABASE_URL") return 100;
   if (u === "DATABASE_PRIVATE_URL") return 99;
-  if (u === "DATABASE_PUBLIC_URL") return 98;
   if (u === "DATABASE_URL_UNPOOLED") return 97;
   if (u.includes("DATABASE") && u.includes("URL")) return 80;
   if (u === "POSTGRES_URL" || u === "POSTGRESQL_URL" || u === "PG_URL") return 75;
@@ -76,8 +85,8 @@ function envKeyScoreForPostgresUrl(key: string): number {
 }
 
 /**
- * Any env var whose value looks like a Postgres URI, excluding keys already tried in POSTGRES_URL_ENV_KEYS
- * (those are handled first in firstDirectPostgresUrlFromEnv).
+ * Any env var whose value looks like a Postgres URI, excluding names in `POSTGRES_URL_ENV_KEY_SET`
+ * (ordered resolution + client-only keys such as DATABASE_PUBLIC_URL).
  */
 function findPostgresUrlViaEnvSweep(): string | undefined {
   const candidates: Array<{ value: string; score: number }> = [];
