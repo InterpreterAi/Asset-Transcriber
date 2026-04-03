@@ -71,6 +71,7 @@ catalogs:
       version: 3.25.76
 
 overrides:
+  cookie-signature: 1.2.2
   path-to-regexp: 8.4.0
   picomatch@2: 2.3.2
   picomatch@4: 4.0.4
@@ -86,6 +87,15 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0(stripe@21.0.1(@types/node@25.3.5))
     devDependencies:
+      dotenv:
+        specifier: ^16.6.1
+        version: 16.6.1
+      drizzle-kit:
+        specifier: ^0.31.9
+        version: 0.31.9
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(@types/pg@8.18.0)(pg@8.20.0)
       prettier:
         specifier: ^3.8.1
         version: 3.8.1
@@ -595,6 +605,12 @@ importers:
 
   lib/db:
     dependencies:
+      dotenv:
+        specifier: ^16.6.1
+        version: 16.6.1
+      drizzle-kit:
+        specifier: ^0.31.9
+        version: 0.31.9
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.1(@types/pg@8.18.0)(pg@8.20.0)
@@ -614,9 +630,6 @@ importers:
       '@types/pg':
         specifier: ^8.18.0
         version: 8.18.0
-      drizzle-kit:
-        specifier: ^0.31.9
-        version: 0.31.9
 
   scripts:
     dependencies:
@@ -2644,12 +2657,6 @@ packages:
     resolution: {integrity: sha512-nGUvgXnotP3BsjiLX2ypbQnWoGUPIIfHQNZkkC668ntrzGWEZVW70HDEB1qnNGMicPje6EttlIgzo51YSwNQGw==}
     engines: {node: '>= 0.8.0'}
 
-  cookie-signature@1.0.6:
-    resolution: {integrity: sha512-QADzlaHc8icV8I7vbaJXJwod9HWYp8uCqf1xa4OfNu1T7JVxQIrUgOWtHdNDtPiywmFbiS12VjotIXLrKM3orQ==}
-
-  cookie-signature@1.0.7:
-    resolution: {integrity: sha512-NXdYc3dLr47pBkpUCHtKSwIOQXLVn8dZEuywboCOJY/osA0wFSLlSawr3KN8qXJEyX66FcONTH8EIlVuK0yyFA==}
-
   cookie-signature@1.2.2:
     resolution: {integrity: sha512-D76uU73ulSXrD1UXF4KE2TMxVVwhsnCgfAyTg9k8P6KGZjlXKrOLe4dJQKI3Bxi5wjesZoFXJWElNWBjPZMbhg==}
     engines: {node: '>=6.6.0'}
@@ -2774,6 +2781,10 @@ packages:
 
   dom-helpers@5.2.1:
     resolution: {integrity: sha512-nRCa7CK3VTrM2NmGkIy4cbK7IZlgBE/PYMn55rrXefr5xXDP0LdtfPnblFDoVdcAfslJ7or6iqAUnx0CCGIWQA==}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   drizzle-kit@0.31.9:
     resolution: {integrity: sha512-GViD3IgsXn7trFyBUUHyTFBpH/FsHTxYJ66qdbVggxef4UBPHRYxQaRzYLTuekYnk9i5FIEL9pbBIwMqX/Uwrg==}
@@ -6218,11 +6229,7 @@ snapshots:
   cookie-parser@1.4.7:
     dependencies:
       cookie: 0.7.2
-      cookie-signature: 1.0.6
-
-  cookie-signature@1.0.6: {}
-
-  cookie-signature@1.0.7: {}
+      cookie-signature: 1.2.2
 
   cookie-signature@1.2.2: {}
 
@@ -6315,6 +6322,8 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.28.6
       csstype: 3.2.3
+
+  dotenv@16.6.1: {}
 
   drizzle-kit@0.31.9:
     dependencies:
@@ -6525,7 +6534,7 @@ snapshots:
   express-session@1.19.0:
     dependencies:
       cookie: 0.7.2
-      cookie-signature: 1.0.7
+      cookie-signature: 1.2.2
       debug: 2.6.9
       depd: 2.0.0
       on-headers: 1.1.0
