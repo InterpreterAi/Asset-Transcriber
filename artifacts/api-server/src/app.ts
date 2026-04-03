@@ -22,12 +22,33 @@ const app: Express = express();
 // the real client IP from X-Forwarded-For without throwing a ValidationError.
 app.set("trust proxy", 1);
 
+const spaStaticRoot = path.resolve(
+  process.cwd(),
+  "artifacts/transcription-app/dist/public",
+);
+const spaIndexHtml = path.join(spaStaticRoot, "index.html");
+const spaEnabled = fs.existsSync(spaIndexHtml);
+
 // Railway / load balancers probe "/health" before the app is "ready".
 // Must stay BEFORE session (Postgres) and before /api rate limits.
-// "/" is served by the SPA when artifacts/transcription-app/dist/public exists (Docker).
 app.get("/health", (_req, res) => {
   res.status(200).type("text/plain").send("ok");
 });
+
+// SPA build output — MUST be before session/json/pino so /assets/*.js does not hit
+// connect-pg-simple (Postgres) on every chunk; that caused very slow loads and blank screens.
+if (spaEnabled) {
+  app.use(
+    express.static(spaStaticRoot, {
+      index: ["index.html"],
+      setHeaders(res, filePath) {
+        if (/\/assets\//.test(filePath.replace(/\\/g, "/"))) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }),
+  );
+}
 
 app.use(
   pinoHttp({
@@ -146,23 +167,23 @@ app.use("/api", generalLimiter);
 app.use("/api", errorLoggerMiddleware);
 app.use("/api", router);
 
-// Production web UI: same-origin /api/* (built in Docker via vite).
-const spaStaticRoot = path.resolve(
-  process.cwd(),
-  "artifacts/transcription-app/dist/public",
-);
-const spaIndexHtml = path.join(spaStaticRoot, "index.html");
-if (fs.existsSync(spaIndexHtml)) {
-  app.use((req, res, next) => {
-    if (req.path === "/api" || req.path.startsWith("/api/")) return next();
-    express.static(spaStaticRoot)(req, res, next);
-  });
+// Client-side routes (e.g. /workspace): never send index.html for missing real files —
+// that breaks JS/CSS (browser executes HTML as script → white screen).
+if (spaEnabled) {
+  const assetLikePath =
+    /\.(?:js|mjs|css|map|json|ico|png|jpg|jpeg|gif|webp|svg|woff2?|ttf|eot|webmanifest)$/i;
   app.use((req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
     if (req.path === "/api" || req.path.startsWith("/api/") || req.path === "/health") {
       return next();
     }
-    res.sendFile(spaIndexHtml);
+    if (assetLikePath.test(req.path)) {
+      res.status(404).type("text/plain").send("Not found");
+      return;
+    }
+    res.sendFile(spaIndexHtml, (err) => {
+      if (err) next(err);
+    });
   });
 } else {
   app.get("/", (_req, res) => {
