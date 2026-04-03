@@ -1,5 +1,6 @@
+# Align with railway.toml: install from monorepo root, then build the API bundle.
 [install]
-cmds = ["pnpm install --no-frozen-lockfile"]
+cmds = ["pnpm install --frozen-lockfile"]
 
 [build]
-cmds = ["pnpm run --filter @workspace/db build", "pnpm run build"]
+cmds = ["pnpm run typecheck && pnpm run build:api-server"]

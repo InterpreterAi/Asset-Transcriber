@@ -1,16 +1,17 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "CommonJS",
-    "rootDir": "src",
     "outDir": "dist",
-    "moduleResolution": "node",
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "strict": false,
-    "skipLibCheck": true,
-    "noImplicitAny": false,
+    "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../../lib/db"
+    },
+    {
+      "path": "../../lib/api-zod"
+    }
+  ]
 }
