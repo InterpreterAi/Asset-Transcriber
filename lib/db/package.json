@@ -3,8 +3,6 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-<<<<<<< HEAD
-=======
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -15,17 +13,19 @@
       "default": "./src/schema/index.ts"
     }
   },
->>>>>>> b2b482ab (Refactor Vite configuration for improved environment variable handling and add optional plugins. Update API schemas to include optional fields for user information and feedback. Enhance admin route responses for better error handling and data consistency. Update Stripe API version and dependencies in package.json. Adjust TypeScript configuration for ES2023 compatibility.)
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
+    "push": "drizzle-kit push --config ./drizzle.config.ts",
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
   },
   "dependencies": {
-    "drizzle-orm": "^0.30.0",
-    "postgres": "^3.4.4"
+    "drizzle-orm": "catalog:",
+    "drizzle-zod": "^0.8.3",
+    "pg": "^8.20.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.20.14",
-    "typescript": "^5.4.2"
+    "@types/node": "catalog:",
+    "@types/pg": "^8.18.0",
+    "drizzle-kit": "^0.31.9"
   }
 }
