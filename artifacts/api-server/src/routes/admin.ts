@@ -77,7 +77,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
   const [
     activeRow,
-    totalRow,
+    customerTotalRow,
     dauRow,
     minutesTodayRow,
     minutesWeekRow,
@@ -89,27 +89,23 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     sessionsTodayRow,
     payingUsersRow,
     trialUsersRow,
+    sessionsTodayCustomerRow,
+    allRegisteredUsersRow,
   ] = await Promise.all([
-    // Active non-admin users: last_activity within the past 5 minutes
+    // Active users (all roles): last_activity within the past 5 minutes
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
-      .where(and(
-        gt(usersTable.lastActivity, fiveMinutesAgo),
-        sql`${usersTable.isAdmin} = false`,
-      )),
+      .where(gt(usersTable.lastActivity, fiveMinutesAgo)),
 
-    // Total registered non-admin users
+    // Non-admin users only — SaaS / MRR segment
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(sql`${usersTable.isAdmin} = false`),
 
-    // Daily active non-admin users: last_activity since midnight today
+    // Daily active users (all roles): last_activity since midnight UTC today
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
-      .where(and(
-        gt(usersTable.lastActivity, startOfToday),
-        sql`${usersTable.isAdmin} = false`,
-      )),
+      .where(gt(usersTable.lastActivity, startOfToday)),
 
     // Minutes used today — non-admin users only (since midnight UTC).
     // Includes live sessions by using elapsed time when duration_seconds is not yet set.
@@ -161,7 +157,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
-    // Open (live) sessions — non-admin users only
+    // Open (live) sessions — all users (admins testing transcription show up here)
     db.select({
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
@@ -173,10 +169,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(and(
-        isNull(sessionsTable.endedAt),
-        sql`${usersTable.isAdmin} = false`,
-      ))
+      .where(isNull(sessionsTable.endedAt))
       .orderBy(sessionsTable.startedAt),
 
     // All non-admin users for MRR calculation
@@ -195,15 +188,12 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Session count today — non-admin users only (since midnight UTC).
-    // Only count sessions that lasted ≥30 s or are currently live, to exclude
-    // phantom rows created by failed start attempts or page-refresh reconnects.
+    // Session count today — all users (since midnight UTC).
     db.select({ count: sql<number>`COUNT(*)` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfToday}`,
-        sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
@@ -222,6 +212,19 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.planType} = 'trial'`,
         sql`${usersTable.isAdmin} = false`,
       )),
+
+    // Sessions today — non-admin only (pairs with costTodayRow for cost/session)
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfToday}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
+      )),
+
+    // All registered users (admins + customers) — headline "Total Users"
+    db.select({ count: sql<number>`COUNT(*)` }).from(usersTable),
   ]);
 
   // Display minutes: non-admin users only
@@ -243,14 +246,21 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   const trialCount     = Number(trialUsersRow[0]?.count  ?? 0);
   const totalNonAdmin  = payingCount + trialCount;
   const conversionRate = totalNonAdmin > 0 ? +((payingCount / totalNonAdmin) * 100).toFixed(1) : 0;
+  const customerUsers  = Number(customerTotalRow[0]?.count ?? 0);
+  const allRegistered  = Number(allRegisteredUsersRow[0]?.count ?? 0);
 
   const avgSessionMin  = +(Number(avgSessionRow[0]?.avg ?? 0) / 60).toFixed(1);
   const sessionsToday  = Number(sessionsTodayRow[0]?.count ?? 0);
-  const costPerSession = sessionsToday > 0 ? +(totalCostToday / sessionsToday).toFixed(4) : 0;
+  const sessionsTodayCustomer = Number(sessionsTodayCustomerRow[0]?.count ?? 0);
+  const costPerSession =
+    sessionsTodayCustomer > 0 ? +(totalCostToday / sessionsTodayCustomer).toFixed(4) : 0;
 
   res.json({
     activeUsers:       Number(activeRow[0]?.count  ?? 0),
-    totalUsers:        Number(totalRow[0]?.count   ?? 0),
+    /** Every row in `users` (admins included). */
+    totalUsers:        allRegistered,
+    /** Non-admin accounts — SaaS metrics / costs still use this segment where noted. */
+    customerUsers,
     dailyActiveUsers:  Number(dauRow[0]?.count     ?? 0),
     minutesToday,
     minutesWeek,

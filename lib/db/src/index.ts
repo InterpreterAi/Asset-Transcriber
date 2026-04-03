@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
-import { resolveDatabaseUrlFromEnv } from "./resolve-db-url.js";
+import { resolveDatabaseUrlFromEnv, getDatabaseConnectionFingerprint } from "./resolve-db-url.js";
 
 const { Pool } = pg;
 
@@ -27,3 +27,4 @@ export const pool = new Pool(poolConfig);
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
+export { getDatabaseConnectionFingerprint };

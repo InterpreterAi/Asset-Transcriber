@@ -8,6 +8,7 @@ import { findTermHints } from "../data/terminology.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
+import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -66,40 +67,92 @@ const openai = new OpenAI({
 
 const router = Router();
 
+const SONIOX_TEMP_KEY_URL = "https://api.soniox.com/v1/auth/temporary-api-key";
+
+/** Prefer short-lived keys for the browser WebSocket (Soniox-recommended); fall back to master key if the REST call fails. */
+async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: string; expiresIn: number }> {
+  try {
+    const res = await fetch(SONIOX_TEMP_KEY_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${masterKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        usage_type: "transcribe_websocket",
+        expires_in_seconds: 3600,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      logger.warn(
+        { status: res.status, snippet: body.slice(0, 240) },
+        "Soniox temporary-api-key failed; using master SONIOX_API_KEY for WebSocket",
+      );
+      return { apiKey: masterKey, expiresIn: 3600 };
+    }
+    const data = (await res.json()) as { api_key?: string; expires_at?: string };
+    if (!data.api_key) {
+      logger.warn("Soniox temporary-api-key: missing api_key in body; using master key");
+      return { apiKey: masterKey, expiresIn: 3600 };
+    }
+    let expiresIn = 3600;
+    if (data.expires_at) {
+      const t = Date.parse(data.expires_at);
+      if (!Number.isNaN(t)) {
+        expiresIn = Math.max(60, Math.min(3600, Math.round((t - Date.now()) / 1000)));
+      }
+    }
+    return { apiKey: data.api_key, expiresIn };
+  } catch (err) {
+    logger.warn({ err }, "Soniox temporary-api-key request error; using master key");
+    return { apiKey: masterKey, expiresIn: 3600 };
+  }
+}
+
 // ── /token ─────────────────────────────────────────────────────────────────
 router.post("/token", requireAuth, async (req, res) => {
-  const user = await getUserWithResetCheck(req.session.userId!);
-  if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
-  if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
+  try {
+    const user = await getUserWithResetCheck(req.session.userId!);
+    if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
+    if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
-  // Only block on trial expiry when the user is still on the trial plan
-  if (user.planType === "trial" && isTrialExpired(user)) {
-    res.status(403).json({ error: "Trial expired — please upgrade." });
-    return;
-  }
+    // Only block on trial expiry when the user is still on the trial plan
+    if (user.planType === "trial" && isTrialExpired(user)) {
+      res.status(403).json({ error: "Trial expired — please upgrade." });
+      return;
+    }
 
-  if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-    res.status(403).json({ error: "Daily trial limit reached (5 hours). Try again tomorrow." });
-    return;
-  }
+    if (user.minutesUsedToday >= user.dailyLimitMinutes) {
+      res.status(403).json({ error: "Daily trial limit reached (5 hours). Try again tomorrow." });
+      return;
+    }
 
-  // Global safety cap
-  if (await isGlobalCapReached()) {
-    res.status(503).json({ error: "System temporarily unavailable. Please try again later." });
-    return;
-  }
+    // Global safety cap
+    if (await isGlobalCapReached()) {
+      res.status(503).json({ error: "System temporarily unavailable. Please try again later." });
+      return;
+    }
 
-  const apiKey = process.env.SONIOX_API_KEY?.trim();
-  if (!apiKey) {
+    const masterKey = getSonioxMasterApiKey();
+    if (!masterKey) {
+      res.status(503).json({
+        error:
+          "Transcription is unavailable: set SONIOX_API_KEY (or SONIOX_STT_API_KEY) on this API service in Railway, then redeploy.",
+        code: "TRANSCRIPTION_NOT_CONFIGURED",
+      });
+      return;
+    }
+
+    const { apiKey, expiresIn } = await getSonioxKeyForClient(masterKey);
+    res.json({ apiKey, expiresIn });
+  } catch (err) {
+    logger.error({ err }, "POST /api/transcription/token failed");
     res.status(503).json({
-      error:
-        "Transcription is unavailable: set SONIOX_API_KEY on the API server (Railway → Variables).",
-      code: "TRANSCRIPTION_NOT_CONFIGURED",
+      error: "Could not issue a transcription token. Try again or contact support.",
+      code: "TRANSCRIPTION_TOKEN_ERROR",
     });
-    return;
   }
-
-  res.json({ apiKey, expiresIn: 3600 });
 });
 
 // How old a session's last heartbeat must be before we consider it abandoned.

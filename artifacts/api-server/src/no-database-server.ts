@@ -62,7 +62,7 @@ const server = http.createServer((req, res) => {
       status: "degraded",
       databaseConfigured: false,
       message:
-        "Full API disabled (no database). When DB is connected, transcription still needs SONIOX_API_KEY; translation needs OpenAI vars.",
+        "Full API disabled (no database). When DB is connected, transcription needs SONIOX_API_KEY or SONIOX_STT_API_KEY; translation needs OpenAI vars.",
       ai: getAiEnvDiagnostics(),
     });
     return;

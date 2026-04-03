@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import {
   db,
   usersTable,
@@ -573,8 +573,11 @@ router.post("/forgot-password", async (req, res) => {
   });
 });
 
-// ── Google OAuth ───────────────────────────────────────────────────────────
-// redirect_uri is /api/auth/google/callback (see getGoogleOAuthRedirectUri).
+// ── Google OAuth (Express — not NextAuth.js; there is no GoogleProvider/authOptions in this repo) ──
+// Credentials: getGoogleClientId() / getGoogleClientSecret() in production read only
+// process.env.GOOGLE_CLIENT_ID and process.env.GOOGLE_CLIENT_SECRET (see authEnv.ts).
+// Callback: GET /api/auth/google/callback and GET /api/auth/callback/google (same handler).
+// redirect_uri from getGoogleOAuthRedirectUri(req) — must match Google Cloud Console.
 
 // Step 1 — redirect to Google's consent screen.
 router.get("/google", async (req, res) => {
@@ -589,7 +592,10 @@ router.get("/google", async (req, res) => {
     }
     const clientId = getGoogleClientId();
     if (!clientId) {
-      logger.warn("GET /api/auth/google: GOOGLE_CLIENT_ID missing (checked aliases in authEnv)");
+      logger.warn(
+        "GET /api/auth/google: GOOGLE_CLIENT_ID missing " +
+          (process.env.NODE_ENV === "production" ? "(production reads only GOOGLE_CLIENT_ID)." : "(see authEnv aliases in dev)."),
+      );
       res.status(503).json({
         error: "Google login is not configured. Add GOOGLE_CLIENT_ID.",
         code: "google_not_configured",
@@ -623,8 +629,9 @@ router.get("/google", async (req, res) => {
   }
 });
 
-// Step 2 — Google redirects back here with ?code=...
-router.get("/google/callback", async (req, res) => {
+// Step 2 — Google redirects back with ?code=...
+// Registered at both paths so Google Console can use either our default or NextAuth’s URI shape.
+const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
   const { code, state, error } = req.query as Record<string, string | undefined>;
 
   if (error || !code) {
@@ -798,7 +805,10 @@ router.get("/google/callback", async (req, res) => {
     safeAuthLoggerError("Google OAuth callback error — full stack for Railway", err);
     res.redirect("/login?error=auth_failed");
   }
-});
+};
+
+router.get("/google/callback", handleGoogleOAuthCallback);
+router.get("/callback/google", handleGoogleOAuthCallback);
 
 // ── Reset Password ─────────────────────────────────────────────────────────
 router.post("/reset-password", async (req, res) => {

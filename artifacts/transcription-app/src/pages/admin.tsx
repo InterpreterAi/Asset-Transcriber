@@ -32,6 +32,8 @@ import { formatMinutes } from "@/lib/utils";
 interface AdminStats {
   activeUsers:        number;
   totalUsers:         number;
+  /** Non-admin accounts (SaaS segment); minutes/costs still exclude admin usage where applicable. */
+  customerUsers?:   number;
   dailyActiveUsers:   number;
   minutesToday:       number;
   minutesWeek:        number;
@@ -955,7 +957,18 @@ export default function Admin() {
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">System Metrics</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: "Total Users",    value: stats?.totalUsers ?? allUsers.length, icon: <Users className="w-4 h-4" />,     color: "text-primary bg-primary/10" },
+                  {
+                    label: "Total Users",
+                    value: stats?.totalUsers ?? allUsers.length,
+                    sub:
+                      stats?.customerUsers != null && stats.customerUsers !== stats.totalUsers
+                        ? `${stats.customerUsers} non-admin`
+                        : stats?.customerUsers != null
+                          ? "all roles"
+                          : undefined,
+                    icon: <Users className="w-4 h-4" />,
+                    color: "text-primary bg-primary/10",
+                  },
                   { label: "Active Now",     value: stats?.activeUsers ?? 0,              icon: <Activity className="w-4 h-4" />,   color: "text-blue-600 bg-blue-50",   sub: "last 5 min" },
                   { label: "Active Today",   value: stats?.dailyActiveUsers ?? 0,         icon: <TrendingUp className="w-4 h-4" />, color: "text-emerald-600 bg-emerald-50" },
                   { label: "Min Today",      value: formatMinutes(stats?.minutesToday ?? 0), icon: <Clock className="w-4 h-4" />,   color: "text-orange-600 bg-orange-50" },

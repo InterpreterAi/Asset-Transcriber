@@ -121,15 +121,26 @@ app.get("/debug/ai-env", (_req, res) => {
   res.status(200).json({
     ok: true,
     message:
-      "Booleans only. Real-time transcription needs SONIOX_API_KEY. Workspace translation needs OPENAI_API_KEY or Replit AI integration vars.",
+      "Booleans only. Transcription needs SONIOX_API_KEY or SONIOX_STT_API_KEY. Translation needs OPENAI_API_KEY or Replit AI integration vars.",
     ai: getAiEnvDiagnostics(),
   });
 });
 
 // Before session: DB-only probe (dynamic import avoids loading @workspace/db before it is ready).
+function databaseFingerprint(connectionString: string): { host: string | null; database: string | null } {
+  try {
+    const u = new URL(connectionString.replace(/^postgresql:/i, "postgres:"));
+    const path = (u.pathname || "").replace(/^\//, "");
+    const database = (path.split("?")[0] || "").split("/")[0] || null;
+    return { host: u.hostname || null, database };
+  } catch {
+    return { host: null, database: null };
+  }
+}
+
 app.get("/debug/db-health", async (_req, res, next) => {
   try {
-    const { pool } = await import("@workspace/db");
+    const { pool, resolvedDatabaseUrl } = await import("@workspace/db");
     await pool.query("SELECT 1");
     const users = await pool.query<{ r: string | null }>(
       `SELECT to_regclass('public.users') AS r`,
@@ -137,11 +148,44 @@ app.get("/debug/db-health", async (_req, res, next) => {
     const sessions = await pool.query<{ r: string | null }>(
       `SELECT to_regclass('public.sessions') AS r`,
     );
+    const hasUsers    = Boolean(users.rows[0]?.r);
+    const hasSessions = Boolean(sessions.rows[0]?.r);
+    let counts:
+      | {
+          usersTotal: number;
+          usersNonAdmin: number;
+          usersAdmin: number;
+          sessionsTotal: number;
+        }
+      | undefined;
+    if (hasUsers) {
+      const [ut, una, ua] = await Promise.all([
+        pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users`),
+        pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users WHERE is_admin = false`),
+        pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users WHERE is_admin = true`),
+      ]);
+      let sessionsTotal = 0;
+      if (hasSessions) {
+        const st = await pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM sessions`);
+        sessionsTotal = st.rows[0]?.c ?? 0;
+      }
+      counts = {
+        usersTotal:    ut.rows[0]?.c  ?? 0,
+        usersNonAdmin: una.rows[0]?.c ?? 0,
+        usersAdmin:    ua.rows[0]?.c  ?? 0,
+        sessionsTotal,
+      };
+    }
     res.status(200).json({
       ok: true,
       ping: "ok",
-      usersTable: Boolean(users.rows[0]?.r),
-      sessionsTable: Boolean(sessions.rows[0]?.r),
+      connection: databaseFingerprint(resolvedDatabaseUrl),
+      usersTable: hasUsers,
+      sessionsTable: hasSessions,
+      counts,
+      note:
+        "Admin dashboard /api/admin/stats historically counted only non-admin users for totalUsers and many session metrics. " +
+        "If you only have admin accounts, those numbers were 0 even with a healthy DB — now fixed to show all users for headline totals.",
     });
   } catch (err) {
     next(err);

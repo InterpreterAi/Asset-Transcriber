@@ -1,9 +1,18 @@
 /**
  * Central auth-related environment resolution (Express API + express-session).
- * This app does not use the NextAuth.js library; Google OAuth is implemented in `routes/auth.ts`.
- * Railway: set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the **web/API service** that runs
- * this server, then redeploy. Remove stale duplicate vars (`AUTH_GOOGLE_*`, `VITE_GOOGLE_*`, etc.)
- * so an old ID is not picked up via the alias chain in `getGoogleClientId()`.
+ *
+ * There is no NextAuth.js in this repo — Google OAuth lives in `routes/auth.ts`.
+ * Use the same env names Railway/NextAuth tutorials expect: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+ * `NEXTAUTH_URL` (or `APP_URL`) for the public origin.
+ *
+ * OAuth redirect URI (must match Google Cloud Console exactly):
+ *   `{NEXTAUTH_URL or APP_URL}/api/auth/{path}`
+ * If `GOOGLE_OAUTH_REDIRECT_PATH` is unset and `NEXTAUTH_URL` is set → path `callback/google` (NextAuth’s `/api/auth/callback/google`).
+ * Otherwise default path `google/callback` → `/api/auth/google/callback`.
+ * Override anytime with `GOOGLE_OAUTH_REDIRECT_PATH=callback/google` or `=google/callback`.
+ *
+ * In **production**, only `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are read (no VITE_/NEXT_PUBLIC_
+ * fallbacks) so an old client id cannot override Railway.
  */
 import type { Request } from "express";
 import { logger } from "./logger.js";
@@ -45,18 +54,25 @@ export function getSessionSecret(): string {
   return "fallback-secret-change-me";
 }
 
+/** In production, only `process.env.GOOGLE_CLIENT_ID` (trimmed / quotes stripped). No VITE_/NEXT_PUBLIC_ fallbacks. */
 export function getGoogleClientId(): string | undefined {
+  if (process.env.NODE_ENV === "production") {
+    return readGoogleCredential("GOOGLE_CLIENT_ID");
+  }
   return (
     readGoogleCredential("GOOGLE_CLIENT_ID") ??
     readGoogleCredential("AUTH_GOOGLE_CLIENT_ID") ??
     readGoogleCredential("GOOGLE_OAUTH_CLIENT_ID") ??
-    /** Next/Vite tutorials often set this; the OAuth *client id* is public anyway. */
     readGoogleCredential("NEXT_PUBLIC_GOOGLE_CLIENT_ID") ??
     readGoogleCredential("VITE_GOOGLE_CLIENT_ID")
   );
 }
 
+/** In production, only `process.env.GOOGLE_CLIENT_SECRET`. */
 export function getGoogleClientSecret(): string | undefined {
+  if (process.env.NODE_ENV === "production") {
+    return readGoogleCredential("GOOGLE_CLIENT_SECRET");
+  }
   return (
     readGoogleCredential("GOOGLE_CLIENT_SECRET") ??
     readGoogleCredential("AUTH_GOOGLE_CLIENT_SECRET") ??
@@ -64,10 +80,29 @@ export function getGoogleClientSecret(): string | undefined {
   );
 }
 
+const DEFAULT_GOOGLE_OAUTH_REDIRECT_PATH = "google/callback";
+
+/** Path under `/api/auth/` — must match an Authorized redirect URI in Google Cloud Console. */
+export function getGoogleOAuthRedirectPath(): string {
+  const raw = trimEnv("GOOGLE_OAUTH_REDIRECT_PATH")?.replace(/^\/+/g, "").replace(/\/+$/g, "") ?? "";
+  if (raw === "callback/google" || raw === "google/callback") return raw;
+  if (raw.length > 0) {
+    logger.warn(
+      { GOOGLE_OAUTH_REDIRECT_PATH: raw },
+      "Invalid GOOGLE_OAUTH_REDIRECT_PATH — use google/callback or callback/google; using default",
+    );
+  }
+  // NextAuth-style URI when NEXTAUTH_URL is set and path not overridden (…/api/auth/callback/google).
+  if (trimEnv("NEXTAUTH_URL")) return "callback/google";
+  return DEFAULT_GOOGLE_OAUTH_REDIRECT_PATH;
+}
+
 function publicBaseFromEnv(): string | undefined {
+  // Prefer NEXTAUTH_URL when set — matches common Railway/NextAuth tutorials and avoids a stale APP_URL
+  // overriding the domain used for Google OAuth redirect_uri.
   const fromEnv =
-    trimEnv("APP_URL") ??
     trimEnv("NEXTAUTH_URL") ??
+    trimEnv("APP_URL") ??
     trimEnv("RAILWAY_STATIC_URL") ??
     trimEnv("RAILWAY_PUBLIC_DOMAIN");
   if (!fromEnv) return undefined;
@@ -96,7 +131,7 @@ export function getPublicBaseUrl(req: Request): string {
 
 /** Must match Google Cloud Console "Authorized redirect URIs". */
 export function getGoogleOAuthRedirectUri(req: Request): string {
-  return `${getPublicBaseUrl(req)}/api/auth/google/callback`;
+  return `${getPublicBaseUrl(req)}/api/auth/${getGoogleOAuthRedirectPath()}`;
 }
 
 /** Presence-only snapshot for startup logs (never log values). */
@@ -114,6 +149,8 @@ export function logAuthEnvBootstrap(): void {
       GOOGLE_CLIENT_SECRET: Boolean(getGoogleClientSecret()),
       ADMIN_PASSWORD: Boolean(trimEnv("ADMIN_PASSWORD")),
       APP_URL: Boolean(trimEnv("APP_URL") ?? trimEnv("NEXTAUTH_URL")),
+      googleOAuthRedirectPath: getGoogleOAuthRedirectPath(),
+      googleOAuthEnvOnlyProduction: process.env.NODE_ENV === "production",
     },
     "Auth-related environment (presence only; Railway vars must be on the running web service)",
   );
@@ -145,6 +182,8 @@ export function getAuthEnvDiagnostics(): Record<string, boolean | string | null>
     GOOGLE_CLIENT_SECRET: Boolean(getGoogleClientSecret()),
     /** Matches the client id the running process uses (after alias resolution). */
     googleClientIdFingerprint: gid ? googleClientIdFingerprint(gid) : null,
+    googleOAuthRedirectPath: getGoogleOAuthRedirectPath(),
+    googleOAuthProductionUsesEnvOnly: process.env.NODE_ENV === "production",
     ADMIN_PASSWORD: Boolean(trimEnv("ADMIN_PASSWORD")),
     APP_URL_OR_NEXTAUTH_URL: Boolean(trimEnv("APP_URL") ?? trimEnv("NEXTAUTH_URL")),
     RAILWAY_STATIC_URL: Boolean(trimEnv("RAILWAY_STATIC_URL")),

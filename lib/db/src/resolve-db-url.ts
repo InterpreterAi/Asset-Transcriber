@@ -49,3 +49,16 @@ export function resolveDatabaseUrlFromEnv(): string {
       "On Railway: copy from Postgres service or add a variable reference on the service that runs this command.",
   );
 }
+
+/** Host + database name only (no credentials) — for /debug/db-health. */
+export function getDatabaseConnectionFingerprint(): { host: string | null; database: string | null } {
+  try {
+    const connectionString = resolveDatabaseUrlFromEnv();
+    const u = new URL(connectionString.replace(/^postgresql:/i, "postgres:"));
+    const path = (u.pathname || "").replace(/^\//, "");
+    const database = (path.split("?")[0] || "").split("/")[0] || null;
+    return { host: u.hostname || null, database };
+  } catch {
+    return { host: null, database: null };
+  }
+}

@@ -48,35 +48,45 @@ const CLS = {
 interface SonioxToken {
   text:      string;
   is_final:  boolean;
-  speaker?:  number;
+  speaker?:  number | string;
   language?: string;
 }
 
 interface SonioxMessage {
-  tokens?:   SonioxToken[];
-  finished?: boolean;
-  error?:    string;
-  code?:     number;
-  message?:  string;
+  tokens?:        SonioxToken[];
+  finished?:      boolean;
+  /** Legacy / alternate error shapes from Soniox */
+  error?:         string;
+  error_message?: string;
+  error_code?:    number;
+  code?:          number;
+  message?:       string;
 }
 
 // ── Speaker normalization (temporal-LRU pool) ──────────────────────────────────
-const _speakerMap  = new Map<number, number>();
+// Soniox v4 returns `speaker` as a string (e.g. "1"); older responses used numbers.
+const _speakerMap  = new Map<string, number>();
 const _slotLastMs  = new Map<number, number>();
 let   _slotCount   = 0;
 
 function resetSpeakerMap() { _speakerMap.clear(); _slotLastMs.clear(); _slotCount = 0; }
 
-function normalizeSpeaker(rawId: number | undefined): { label: string; slot: number } {
-  if (rawId === undefined) return { label: "", slot: 0 };
-  if (_speakerMap.has(rawId)) {
-    const slot = _speakerMap.get(rawId)!;
+function speakerKey(rawId: number | string | undefined): string | undefined {
+  if (rawId === undefined || rawId === null) return undefined;
+  return String(rawId);
+}
+
+function normalizeSpeaker(rawId: number | string | undefined): { label: string; slot: number } {
+  const key = speakerKey(rawId);
+  if (key === undefined) return { label: "", slot: 0 };
+  if (_speakerMap.has(key)) {
+    const slot = _speakerMap.get(key)!;
     _slotLastMs.set(slot, Date.now());
     return { label: `Speaker ${slot}`, slot };
   }
   if (_slotCount < MAX_SPEAKERS) {
     _slotCount++;
-    _speakerMap.set(rawId, _slotCount);
+    _speakerMap.set(key, _slotCount);
     _slotLastMs.set(_slotCount, Date.now());
     return { label: `Speaker ${_slotCount}`, slot: _slotCount };
   }
@@ -85,9 +95,15 @@ function normalizeSpeaker(rawId: number | undefined): { label: string; slot: num
     const t = _slotLastMs.get(s) ?? 0;
     if (t < lruMs) { lruMs = t; lruSlot = s; }
   }
-  _speakerMap.set(rawId, lruSlot);
+  _speakerMap.set(key, lruSlot);
   _slotLastMs.set(lruSlot, Date.now());
   return { label: `Speaker ${lruSlot}`, slot: lruSlot };
+}
+
+function sameSpeaker(a: unknown, b: unknown): boolean {
+  if (a === undefined || a === null) return b === undefined || b === null;
+  if (b === undefined || b === null) return false;
+  return String(a) === String(b);
 }
 
 // ── Language-pair helpers ──────────────────────────────────────────────────────
@@ -485,7 +501,9 @@ export function useTranscription(isAdmin = false) {
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
-  const currentSpeakerRef = useRef<number | undefined>(undefined);
+  const currentSpeakerRef = useRef<string | undefined>(undefined);
+  /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
+  const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
@@ -723,7 +741,7 @@ export function useTranscription(isAdmin = false) {
   // Builds a two-column segment row with color-coded speaker tags.
   // Creates a fresh BubbleTransState for the new bubble so all translation
   // requests for previous bubbles are structurally isolated.
-  const createBubble = useCallback((rawSpeaker: number | undefined): HTMLSpanElement => {
+  const createBubble = useCallback((rawSpeaker: number | string | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
     const { label, slot } = normalizeSpeaker(rawSpeaker);
     const tagCls = slot > 0
@@ -922,6 +940,7 @@ export function useTranscription(isAdmin = false) {
       wsRef.current.close();
       wsRef.current = null;
     }
+    pcmBacklogRef.current = [];
 
     if (audioCtxRef.current) {
       await audioCtxRef.current.close();
@@ -957,18 +976,24 @@ export function useTranscription(isAdmin = false) {
     const ws = new WebSocket(SONIOX_WS_URL);
 
     ws.onopen = () => {
+      const pair = langPairRef.current;
+      const base = (c: string) => (c || "en").split("-")[0]!.toLowerCase();
+      const language_hints = [...new Set([base(pair.a), base(pair.b), "en"])].filter(Boolean);
       ws.send(JSON.stringify({
         api_key:                        apiKey,
         model:                          "stt-rt-v4",
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
-        language_hints:                 ["en", "ar"],
+        language_hints,
         enable_language_identification: true,
         enable_speaker_diarization:     true,
-        diarization:                    { enable: true },
       }));
-      // WebSocket open — no logging (HIPAA: no connection metadata in browser console)
+      const w = wsRef.current;
+      if (w && w.readyState === WebSocket.OPEN) {
+        for (const buf of pcmBacklogRef.current) w.send(buf);
+        pcmBacklogRef.current = [];
+      }
     };
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -977,7 +1002,20 @@ export function useTranscription(isAdmin = false) {
       let msg: SonioxMessage;
       try { msg = JSON.parse(evt.data as string); } catch { return; }
 
-      if (msg.error) { setError(msg.error); void stop(); return; }
+      const errText =
+        typeof msg.error_message === "string" && msg.error_message.trim()
+          ? msg.error_message.trim()
+          : typeof msg.error === "string" && msg.error.trim()
+            ? msg.error.trim()
+            : typeof msg.message === "string" && msg.message.trim()
+              ? msg.message.trim()
+              : null;
+      const errCode = msg.error_code ?? msg.code;
+      if (errText) {
+        setError(errCode ? `${errText} (${errCode})` : errText);
+        void stop();
+        return;
+      }
       if (msg.finished) { void stop(); return; }
 
       const tokens = msg.tokens ?? [];
@@ -1048,9 +1086,10 @@ export function useTranscription(isAdmin = false) {
       }
 
       for (const token of newFinals) {
-        if (token.speaker !== currentSpeakerRef.current || !activeBubbleRef.current) {
+        if (!sameSpeaker(token.speaker, currentSpeakerRef.current) || !activeBubbleRef.current) {
           finalizeLiveBubble();
-          currentSpeakerRef.current = token.speaker;
+          currentSpeakerRef.current =
+            token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           finalCountRef.current     = finals.length - newFinals.length +
             newFinals.indexOf(token);
           activeBubbleRef.current = createBubble(token.speaker);
@@ -1076,10 +1115,10 @@ export function useTranscription(isAdmin = false) {
       if (
         nfSpeaker !== undefined &&
         activeBubbleRef.current !== null &&
-        nfSpeaker !== currentSpeakerRef.current
+        !sameSpeaker(nfSpeaker, currentSpeakerRef.current)
       ) {
         finalizeLiveBubble();
-        currentSpeakerRef.current = nfSpeaker;
+        currentSpeakerRef.current = String(nfSpeaker);
         activeBubbleRef.current   = createBubble(nfSpeaker);
         setHasTranscript(true);
       }
@@ -1089,7 +1128,8 @@ export function useTranscription(isAdmin = false) {
       } else if (nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
           const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
-          currentSpeakerRef.current = spk;
+          currentSpeakerRef.current =
+            spk !== undefined && spk !== null ? String(spk) : undefined;
           activeBubbleRef.current   = createBubble(spk);
           setHasTranscript(true);
         }
@@ -1148,6 +1188,7 @@ export function useTranscription(isAdmin = false) {
       detectedLangRef.current        = "en";
       segmentDetectedLangRef.current = null;
       resetSpeakerMap();
+      pcmBacklogRef.current          = [];
 
       const tokenRes   = await getTokenMut.mutateAsync(undefined as any);
       const sessionRes = await startSessionMut.mutateAsync({
@@ -1188,7 +1229,7 @@ export function useTranscription(isAdmin = false) {
 
       setAudioInfo(`${ctx.sampleRate} Hz → ${TARGET_RATE} Hz`);
 
-      await ctx.audioWorklet.addModule("/pcm-processor.js");
+      await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}pcm-processor.js`);
 
       // ── Audio source isolation ────────────────────────────────────────────
       // Tab Audio mode: providedStream is the tab-only MediaStream captured by
@@ -1228,13 +1269,17 @@ export function useTranscription(isAdmin = false) {
       worklet.connect(ctx.destination);
 
       worklet.port.onmessage = (e) => {
-        const pcm = e.data as ArrayBuffer;
-        const wsState = wsRef.current?.readyState;
-        // No chunk logging — audio metadata stays out of browser console (HIPAA)
-        if (wsState === WebSocket.OPEN) {
-          wsRef.current!.send(pcm);
+        const raw = e.data as ArrayBuffer;
+        const w = wsRef.current;
+        if (w?.readyState === WebSocket.OPEN) {
+          w.send(raw);
+        } else {
+          pcmBacklogRef.current.push(raw.slice(0));
+          if (pcmBacklogRef.current.length > 200) {
+            pcmBacklogRef.current.splice(0, pcmBacklogRef.current.length - 200);
+          }
         }
-        const samples = new Int16Array(pcm);
+        const samples = new Int16Array(raw);
         let sum = 0;
         for (let i = 0; i < samples.length; i++) {
           const s = (samples[i] ?? 0) / 32768;
