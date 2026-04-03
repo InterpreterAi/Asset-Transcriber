@@ -1,5 +1,7 @@
 export * from "./users";
+export * from "./accounts";
 export * from "./sessions";
+export * from "./user-sessions";
 export * from "./feedback";
 export * from "./support";
 export * from "./glossary";

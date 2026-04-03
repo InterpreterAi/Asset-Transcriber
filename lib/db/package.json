@@ -14,8 +14,8 @@
     }
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push": "drizzle-kit push --config ./drizzle.config.mjs",
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/pg": "^8.18.0",
+    "dotenv": "^16.6.1",
     "drizzle-kit": "^0.31.9"
   }
 }

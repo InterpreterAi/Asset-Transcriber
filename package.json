@@ -10,6 +10,8 @@
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:api-server": "pnpm --filter @workspace/api-server run build",
+    "db:push": "pnpm --filter @workspace/db run push",
+    "db:push:force": "pnpm --filter @workspace/db run push-force",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "validate:package-json": "node scripts/validate-all-package-json.mjs"
@@ -20,6 +22,9 @@
     "stripe-replit-sync": "^1.0.0"
   },
   "devDependencies": {
+    "dotenv": "^16.6.1",
+    "drizzle-kit": "^0.31.9",
+    "drizzle-orm": "^0.45.1",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
   },
