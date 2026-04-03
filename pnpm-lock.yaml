@@ -146,6 +146,9 @@ importers:
       speakeasy:
         specifier: ^2.0.0
         version: 2.0.0
+      sql-template-strings:
+        specifier: ^2.2.2
+        version: 2.2.2
     devDependencies:
       '@types/connect-pg-simple':
         specifier: ^7.0.3
