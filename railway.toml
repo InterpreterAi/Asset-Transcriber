@@ -1,12 +1,13 @@
 # Deploy from the repository root so pnpm can link workspace:* packages (@workspace/db, @workspace/api-zod).
-# In Railway: set the service root directory to the repo root (not artifacts/api-server).
+# In Railway: set the service "Root Directory" to empty / repo root — NOT artifacts/api-server.
+# If Root Directory is wrong, you will see tsc errors (missing express, @workspace/db, @types/node).
 #
 # REQUIRED: Add a PostgreSQL service, then in THIS service → Variables → New variable →
 # "Variable Reference" → pick Postgres → DATABASE_URL (copies the connection string here).
 
 [build]
-builder = "NIXPACKS"
-buildCommand = "pnpm install --frozen-lockfile && pnpm run typecheck && pnpm run build:api-server"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "NODE_ENV=production node artifacts/api-server/dist/index.mjs"
