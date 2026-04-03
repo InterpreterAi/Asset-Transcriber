@@ -11,8 +11,9 @@ const disableTempForce = ["1", "true", "yes"].includes(
 );
 
 /**
- * Flip to `false` after Railway session 500s are fixed. While `true`, MemoryStore wins even if
- * `SESSION_STORE=postgres`. Override without editing code: `DISABLE_TEMP_FORCE_MEMORY=1`.
+ * MemoryStore by default (avoids Postgres `user_sessions` failures → HTTP 500 on login/OAuth).
+ * Set `SESSION_STORE=postgres` only for multi-replica; then set `DISABLE_TEMP_FORCE_MEMORY=1`
+ * so that env is respected. Flip this to `false` when Postgres sessions are fully verified.
  */
 const TEMP_FORCE_MEMORY_IN_SOURCE = true;
 

@@ -17,6 +17,8 @@ import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
 import { getAuthEnvDiagnostics } from "./lib/authEnv.js";
+import { pool } from "@workspace/db";
+import { globalErrorHandler } from "./middlewares/globalErrorHandler.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -112,6 +114,27 @@ app.get("/debug/auth-env", (req, res) => {
     requestSecure: req.secure,
     xForwardedProto: proto ?? null,
   });
+});
+
+// Before session: DB-only probe (auth uses users/sessions; failures here explain login 500s).
+app.get("/debug/db-health", async (_req, res, next) => {
+  try {
+    await pool.query("SELECT 1");
+    const users = await pool.query<{ r: string | null }>(
+      `SELECT to_regclass('public.users') AS r`,
+    );
+    const sessions = await pool.query<{ r: string | null }>(
+      `SELECT to_regclass('public.sessions') AS r`,
+    );
+    res.status(200).json({
+      ok: true,
+      ping: "ok",
+      usersTable: Boolean(users.rows[0]?.r),
+      sessionsTable: Boolean(sessions.rows[0]?.r),
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── Stripe webhook — MUST be before express.json() ───────────────────────────
@@ -220,7 +243,8 @@ if (spaEnabled) {
       req.path === "/api" ||
       req.path.startsWith("/api/") ||
       req.path === "/health" ||
-      req.path === "/debug/auth-env"
+      req.path === "/debug/auth-env" ||
+      req.path === "/debug/db-health"
     ) {
       return next();
     }
@@ -237,5 +261,9 @@ if (spaEnabled) {
     res.status(200).json({ ok: true, service: "api-server" });
   });
 }
+
+// Catches `next(err)` from session middleware, sendFile, and rejected async handlers.
+// Without this, Express sends plain text "Internal Server Error" with no JSON body.
+app.use(globalErrorHandler);
 
 export default app;

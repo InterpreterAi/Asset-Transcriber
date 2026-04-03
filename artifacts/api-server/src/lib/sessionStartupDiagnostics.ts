@@ -28,10 +28,38 @@ export async function logSessionAndDatabaseStartupStatus(): Promise<void> {
       "Startup: Postgres connection — SELECT 1 succeeded",
     );
   } catch (err) {
+    console.error("[startup] Postgres SELECT 1 FAILED");
+    console.error(errStack(err) ?? err);
     logger.error(
       { err, errStack: errStack(err) },
       "Startup: Postgres connection — SELECT 1 FAILED",
     );
+  }
+
+  try {
+    const u = await pool.query<{ r: string | null }>(
+      `SELECT to_regclass('public.users') AS r`,
+    );
+    const s = await pool.query<{ r: string | null }>(
+      `SELECT to_regclass('public.sessions') AS r`,
+    );
+    logger.info(
+      {
+        usersTable: Boolean(u.rows[0]?.r),
+        sessionsTable: Boolean(s.rows[0]?.r),
+      },
+      "Startup: core tables — public.users and public.sessions (to_regclass)",
+    );
+    if (!u.rows[0]?.r) {
+      console.error("[startup] public.users table missing — login will fail");
+    }
+    if (!s.rows[0]?.r) {
+      console.error("[startup] public.sessions table missing — some features may fail");
+    }
+  } catch (err) {
+    console.error("[startup] core table probe failed");
+    console.error(errStack(err) ?? err);
+    logger.error({ err, errStack: errStack(err) }, "Startup: core table probe failed");
   }
 
   if (sessionStoreMode !== "postgres") {
@@ -70,6 +98,8 @@ export async function logSessionAndDatabaseStartupStatus(): Promise<void> {
       "Startup: user_sessions — probe INSERT + DELETE succeeded (app role can write)",
     );
   } catch (err) {
+    console.error("[startup] user_sessions probe FAILED");
+    console.error(errStack(err) ?? err);
     logger.error(
       {
         err,
