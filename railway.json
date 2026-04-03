@@ -4,7 +4,9 @@
     "buildCommand": "pnpm install --frozen-lockfile && pnpm run typecheck && pnpm run build:api-server"
   },
   "deploy": {
-    "startCommand": "node artifacts/api-server/dist/index.mjs",
+    "startCommand": "NODE_ENV=production node artifacts/api-server/dist/index.mjs",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE"
   }
 }

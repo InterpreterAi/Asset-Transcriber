@@ -20,6 +20,15 @@ const app: Express = express();
 // the real client IP from X-Forwarded-For without throwing a ValidationError.
 app.set("trust proxy", 1);
 
+// Railway / load balancers probe "/" or "/health" before the app is "ready".
+// These must stay BEFORE session (Postgres) and before /api rate limits.
+app.get("/health", (_req, res) => {
+  res.status(200).type("text/plain").send("ok");
+});
+app.get("/", (_req, res) => {
+  res.status(200).json({ ok: true, service: "api-server" });
+});
+
 app.use(
   pinoHttp({
     logger,
