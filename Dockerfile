@@ -19,6 +19,8 @@ RUN NODE_ENV=production pnpm --filter @workspace/transcription-app run build
 RUN pnpm run build:api-server
 
 ENV NODE_ENV=production
+# Railway: set DATABASE_URL on the service that runs this image (Variable Reference to Postgres).
+# See railway.toml and railway.api.env.example — variables on the Postgres service alone are not visible here.
 # Single-process deploys (typical Railway): in-memory sessions avoid connect-pg-simple / user_sessions
 # failures that surface as HTTP 500 on login and Google OAuth. For multiple replicas, set
 # SESSION_STORE=postgres in Railway Variables and ensure the user_sessions table exists.

@@ -1,3 +1,4 @@
+import "./load-local-env.js";
 import { getDbEnvStartupLog, getDatabaseUrlRuntimeDebug, isPostgresEnvConfigured } from "./postgres-env.js";
 
 console.info("[api-server] DB env startup probe (no secrets):", JSON.stringify(getDbEnvStartupLog()));

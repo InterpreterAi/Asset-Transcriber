@@ -2,9 +2,25 @@
 # In Railway: set the service "Root Directory" to empty / repo root — NOT artifacts/api-server.
 # If Root Directory is wrong, you will see tsc errors (missing express, @workspace/db, @types/node).
 #
-# REQUIRED: Add a PostgreSQL service, then in THIS service → Variables → New variable →
-# "Variable Reference" → pick Postgres → DATABASE_URL (copies the connection string here).
+# ── Postgres → API (required; config-as-code cannot set cross-service references) ──
+# DATABASE_URL exists on the Postgres *plugin* service by default; it is NOT visible to other
+# services until you add a reference on the service that runs THIS Dockerfile.
+#
+# On the API / web service (the one using this railway.toml): Variables → New variable →
+#   "Variable Reference" → select your Postgres service → DATABASE_URL
+# Or raw value (double braces — replace Postgres if your DB service name differs):
+#   DATABASE_URL=${{Postgres.DATABASE_URL}}
+#
+# After redeploy, verify: GET /debug/db-env → probe.DATABASE_URL.parsesAsPostgresUri should be true.
+# See railway.api.env.example for copy-paste lines.
+#
+# CLI (project linked: `railway link`): use your API service name from the dashboard / `railway service`
+#   railway variable set -s <API_SERVICE_NAME> DATABASE_URL='${{Postgres.DATABASE_URL}}'
+#
 # The Docker image builds the React app and serves it from "/" on the same URL as /api/*.
+#
+# Live transcription: set SONIOX_API_KEY (or SONIOX_STT_API_KEY) on this same API service.
+# See railway.api.env.example and repo-root .env.example for local dev.
 #
 # Sessions: Dockerfile sets SESSION_STORE=memory by default (fixes login/Google 500s when
 # Postgres session storage fails). Override with SESSION_STORE=postgres if you run multiple
