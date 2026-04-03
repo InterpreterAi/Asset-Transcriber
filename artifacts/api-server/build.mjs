@@ -28,7 +28,13 @@ async function buildAll() {
     // Examples of unbundleable packages:
     // - uses native modules and loads them dynamically (e.g. sharp)
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
+    // Session store: bundling express-session + connect-pg-simple breaks at runtime (login 500s);
+    // load those from node_modules. Keep `pg` bundled so Stripe sync / pg-node-migrations resolve.
     external: [
+      "express-session",
+      "connect-pg-simple",
+      // pg-node-migrations (via stripe-replit-sync) requires this; pnpm may not place it next to that package for esbuild.
+      "sql-template-strings",
       "*.node",
       "sharp",
       "better-sqlite3",

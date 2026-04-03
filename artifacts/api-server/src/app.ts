@@ -7,7 +7,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
-import { sessionMiddleware } from "./middlewares/session.js";
+import { sessionMiddleware, sessionStoreMode } from "./middlewares/session.js";
 import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
 import { adminIpGuard } from "./middlewares/adminIpGuard.js";
@@ -19,8 +19,25 @@ const ACTIVITY_DEBOUNCE_MS = 60_000;
 
 const app: Express = express();
 
-// Trust one proxy hop (Railway / Replit) for X-Forwarded-For, rate-limit IP, OAuth redirect host.
-app.set("trust proxy", 1);
+// Trust reverse proxy (Railway often chains >1 hop). Without this, req.secure stays false and
+// Secure session cookies never stick — breaks password login + Google OAuth state.
+const trustEnv = process.env.TRUST_PROXY?.trim().toLowerCase();
+const trustProxy: boolean | number =
+  trustEnv === "false" || trustEnv === "0"
+    ? false
+    : trustEnv === "true" || trustEnv === "1"
+      ? true
+      : trustEnv && /^\d+$/.test(trustEnv)
+        ? Number(trustEnv)
+        : Boolean(
+              process.env.RAILWAY_ENVIRONMENT ||
+                process.env.RAILWAY_PROJECT_ID ||
+                process.env.FLY_APP_NAME ||
+                process.env.RENDER,
+            )
+          ? true
+          : 1;
+app.set("trust proxy", trustProxy);
 
 const spaStaticRoot = path.resolve(
   process.cwd(),
@@ -77,11 +94,17 @@ app.use(
 app.use(cors({ origin: true, credentials: true }));
 
 // Before session middleware: confirms which auth env keys the process actually sees.
-app.get("/debug/auth-env", (_req, res) => {
+app.get("/debug/auth-env", (req, res) => {
+  const xfProto = req.headers["x-forwarded-proto"];
+  const proto = Array.isArray(xfProto) ? xfProto[0] : xfProto;
   res.status(200).json({
     ok: true,
     message: "Presence only. Set these on the Railway service that runs this container.",
     env: getAuthEnvDiagnostics(),
+    sessionStoreMode,
+    trustProxy: app.get("trust proxy"),
+    requestSecure: req.secure,
+    xForwardedProto: proto ?? null,
   });
 });
 

@@ -26,7 +26,8 @@
     "qrcode": "^1.5.4",
     "resend": "^6.9.4",
     "scrypt-js": "^3.0.1",
-    "speakeasy": "^2.0.0"
+    "speakeasy": "^2.0.0",
+    "sql-template-strings": "^2.2.2"
   },
   "devDependencies": {
     "@types/connect-pg-simple": "^7.0.3",
