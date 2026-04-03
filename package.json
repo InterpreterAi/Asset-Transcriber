@@ -1,8 +1,6 @@
 {
   "name": "workspace",
   "version": "0.0.0",
-<<<<<<< HEAD
-=======
   "license": "MIT",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -15,23 +13,14 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
->>>>>>> b2b482ab (Refactor Vite configuration for improved environment variable handling and add optional plugins. Update API schemas to include optional fields for user information and feedback. Enhance admin route responses for better error handling and data consistency. Update Stripe API version and dependencies in package.json. Adjust TypeScript configuration for ES2023 compatibility.)
   "private": true,
-  "license": "MIT",
-  "packageManager": "pnpm@9.15.4",
-  "scripts": {
-    "dev": "NODE_ENV=development pnpm run build && pnpm run start",
-    "build": "pnpm -r build",
-    "start": "node artifacts/api-server/dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
   "dependencies": {
     "stripe": "^21.0.1",
     "stripe-replit-sync": "^1.0.0"
   },
   "devDependencies": {
-    "prettier": "^3.3.1",
-    "typescript": "^5.4.2"
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
   },
   "pnpm": {
     "overrides": {
