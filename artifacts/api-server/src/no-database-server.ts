@@ -5,7 +5,7 @@
 import http from "node:http";
 import { getAiEnvDiagnostics } from "./lib/ai-env.js";
 import { getPublicEnvReadiness } from "./lib/readiness-env.js";
-import { dbEnvDiagnostic, getDatabaseUrlRuntimeDebug } from "./postgres-env.js";
+import { getDebugDbEnvHttpPayload } from "./postgres-env.js";
 
 const rawPort =
   process.env["PORT"] ?? process.env["RAILWAY_PORT"] ?? process.env["HTTP_PLATFORM_PORT"] ?? "8080";
@@ -47,14 +47,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/debug/db-env") {
-    json(200, {
-      ok: true,
-      status: "degraded",
-      databaseConfigured: false,
-      message: "Presence only — values are never shown.",
-      env: dbEnvDiagnostic(),
-      runtime: getDatabaseUrlRuntimeDebug(),
-    });
+    json(200, getDebugDbEnvHttpPayload("degraded"));
     return;
   }
 

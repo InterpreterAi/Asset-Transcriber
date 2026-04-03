@@ -9,10 +9,13 @@ export const POSTGRES_URL_ENV_KEYS = [
   "DATABASE_PUBLIC_URL",
   "DATABASE_URL_UNPOOLED",
   "POSTGRES_URL",
+  "PG_URL",
   "POSTGRESQL_URL",
   "POSTGRES_PRISMA_URL",
   "NEON_DATABASE_URL",
   "SUPABASE_DB_URL",
+  /** Mis-set on some hosts; only used when the value parses as a postgres:// URI (otherwise composite PG* still uses it as the DB name). */
+  "PGDATABASE",
 ] as const;
 
 const POSTGRES_URL_ENV_KEY_SET = new Set<string>(POSTGRES_URL_ENV_KEYS);
@@ -30,12 +33,29 @@ export function normalizeDatabaseEnvValue(raw: string | undefined): string {
   return t;
 }
 
+/**
+ * Extracts a postgres(ql):// URI from an env value: either the whole string (after normalize)
+ * or the first substring starting at postgres:// / postgresql:// (handles pasted noise / wrappers).
+ */
+export function parsePostgresConnectionStringFromEnvValue(raw: string | undefined): string | undefined {
+  const t = normalizeDatabaseEnvValue(raw);
+  if (!t) return undefined;
+  const lower = t.toLowerCase();
+  const idxPgsql = lower.indexOf("postgresql://");
+  const idxPg = lower.indexOf("postgres://");
+  let start = -1;
+  if (idxPgsql >= 0 && idxPg >= 0) start = Math.min(idxPgsql, idxPg);
+  else start = idxPgsql >= 0 ? idxPgsql : idxPg;
+  if (start < 0) return undefined;
+  let rest = t.slice(start).trim();
+  rest = rest.replace(/[`'")\];,\s]+$/g, "").trim();
+  if (/\$\{[^}]+\}/.test(rest)) return undefined;
+  if (!/^postgres(ql)?:\/\//i.test(rest)) return undefined;
+  return rest;
+}
+
 export function isPlausiblePostgresConnectionString(v: string | undefined): boolean {
-  const t = normalizeDatabaseEnvValue(v);
-  if (!t) return false;
-  if (!/^postgres(ql)?:\/\//i.test(t)) return false;
-  if (/\$\{[^}]+\}/.test(t)) return false;
-  return true;
+  return parsePostgresConnectionStringFromEnvValue(v) !== undefined;
 }
 
 function envKeyScoreForPostgresUrl(key: string): number {
@@ -45,11 +65,12 @@ function envKeyScoreForPostgresUrl(key: string): number {
   if (u === "DATABASE_PUBLIC_URL") return 98;
   if (u === "DATABASE_URL_UNPOOLED") return 97;
   if (u.includes("DATABASE") && u.includes("URL")) return 80;
-  if (u === "POSTGRES_URL" || u === "POSTGRESQL_URL") return 75;
+  if (u === "POSTGRES_URL" || u === "POSTGRESQL_URL" || u === "PG_URL") return 75;
   if (u.includes("POSTGRES") && u.includes("URL")) return 70;
   if (u.includes("SUPABASE") && u.includes("URL")) return 65;
   if (u.includes("NEON") && u.includes("URL")) return 65;
   if (u.includes("DATABASE")) return 40;
+  if (u === "PGDATABASE") return 35;
   if (u.includes("POSTGRES") || u.startsWith("PG")) return 30;
   return 5;
 }
@@ -63,8 +84,8 @@ function findPostgresUrlViaEnvSweep(): string | undefined {
   for (const [key, raw] of Object.entries(process.env)) {
     if (raw === undefined) continue;
     if (POSTGRES_URL_ENV_KEY_SET.has(key)) continue;
-    const value = normalizeDatabaseEnvValue(raw);
-    if (!isPlausiblePostgresConnectionString(value)) continue;
+    const value = parsePostgresConnectionStringFromEnvValue(raw);
+    if (!value) continue;
     candidates.push({ value, score: envKeyScoreForPostgresUrl(key) });
   }
   if (candidates.length === 0) return undefined;
@@ -74,8 +95,8 @@ function findPostgresUrlViaEnvSweep(): string | undefined {
 
 function firstDirectPostgresUrlFromEnv(): string | undefined {
   for (const key of POSTGRES_URL_ENV_KEYS) {
-    const v = normalizeDatabaseEnvValue(process.env[key]);
-    if (v && isPlausiblePostgresConnectionString(v)) return v;
+    const url = parsePostgresConnectionStringFromEnvValue(process.env[key]);
+    if (url) return url;
   }
   return findPostgresUrlViaEnvSweep();
 }
@@ -138,13 +159,12 @@ export function resolveDatabaseUrlFromEnv(): string {
   );
 }
 
-/** Env keys (names only) whose values look like postgres:// or postgresql:// — for degraded /debug. */
-export function listEnvKeysWithPostgresUriValues(maxKeys = 32): string[] {
+/** Env keys (names only) whose values contain a usable postgres(ql):// URI — for /debug/db-env. */
+export function listEnvKeysWithPostgresUriValues(maxKeys = 48): string[] {
   const keys: string[] = [];
   for (const [key, raw] of Object.entries(process.env)) {
     if (raw === undefined) continue;
-    const v = normalizeDatabaseEnvValue(raw);
-    if (isPlausiblePostgresConnectionString(v)) keys.push(key);
+    if (parsePostgresConnectionStringFromEnvValue(raw)) keys.push(key);
   }
   keys.sort((a, b) => a.localeCompare(b));
   return keys.slice(0, maxKeys);

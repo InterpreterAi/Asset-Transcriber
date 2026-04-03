@@ -1,8 +1,10 @@
-import { getDatabaseUrlRuntimeDebug, isPostgresEnvConfigured } from "./postgres-env.js";
+import { getDbEnvStartupLog, getDatabaseUrlRuntimeDebug, isPostgresEnvConfigured } from "./postgres-env.js";
+
+console.info("[api-server] DB env startup probe (no secrets):", JSON.stringify(getDbEnvStartupLog()));
 
 if (!isPostgresEnvConfigured()) {
   console.error(
-    "[api-server] Postgres not configured at startup (safe diagnostics, no secrets):",
+    "[api-server] Postgres not configured at startup (extended diagnostics, no secrets):",
     JSON.stringify(getDatabaseUrlRuntimeDebug()),
   );
   await import("./no-database-server.js");
