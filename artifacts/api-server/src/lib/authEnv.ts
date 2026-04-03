@@ -15,6 +15,18 @@ function trimEnv(key: string): string | undefined {
   return t === "" ? undefined : t;
 }
 
+/** Strips wrapping quotes from Railway / JSON paste mistakes (avoids invalid_client). */
+function readGoogleCredential(key: string): string | undefined {
+  const v = process.env[key];
+  if (v == null) return undefined;
+  let t = v.trim();
+  if (t === "") return undefined;
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    t = t.slice(1, -1).trim();
+  }
+  return t === "" ? undefined : t;
+}
+
 /** Public OAuth client id — safe to expose; helps verify Railway after credential rotation. */
 function googleClientIdFingerprint(id: string): string {
   if (id.length <= 24) return id;
@@ -35,20 +47,20 @@ export function getSessionSecret(): string {
 
 export function getGoogleClientId(): string | undefined {
   return (
-    trimEnv("GOOGLE_CLIENT_ID") ??
-    trimEnv("AUTH_GOOGLE_CLIENT_ID") ??
-    trimEnv("GOOGLE_OAUTH_CLIENT_ID") ??
+    readGoogleCredential("GOOGLE_CLIENT_ID") ??
+    readGoogleCredential("AUTH_GOOGLE_CLIENT_ID") ??
+    readGoogleCredential("GOOGLE_OAUTH_CLIENT_ID") ??
     /** Next/Vite tutorials often set this; the OAuth *client id* is public anyway. */
-    trimEnv("NEXT_PUBLIC_GOOGLE_CLIENT_ID") ??
-    trimEnv("VITE_GOOGLE_CLIENT_ID")
+    readGoogleCredential("NEXT_PUBLIC_GOOGLE_CLIENT_ID") ??
+    readGoogleCredential("VITE_GOOGLE_CLIENT_ID")
   );
 }
 
 export function getGoogleClientSecret(): string | undefined {
   return (
-    trimEnv("GOOGLE_CLIENT_SECRET") ??
-    trimEnv("AUTH_GOOGLE_CLIENT_SECRET") ??
-    trimEnv("GOOGLE_OAUTH_CLIENT_SECRET")
+    readGoogleCredential("GOOGLE_CLIENT_SECRET") ??
+    readGoogleCredential("AUTH_GOOGLE_CLIENT_SECRET") ??
+    readGoogleCredential("GOOGLE_OAUTH_CLIENT_SECRET")
   );
 }
 
@@ -106,8 +118,16 @@ export function logAuthEnvBootstrap(): void {
     "Auth-related environment (presence only; Railway vars must be on the running web service)",
   );
 
-  if (process.env.NODE_ENV === "production" && !getGoogleClientId()) {
+  const gid = getGoogleClientId();
+  if (process.env.NODE_ENV === "production" && !gid) {
     logger.warn("GOOGLE_CLIENT_ID missing — Google sign-in disabled until set on this service.");
+  }
+  // Web OAuth clients use this suffix; wrong shape → Google returns 401 invalid_client ("client not found").
+  if (gid && !gid.includes(".apps.googleusercontent.com")) {
+    logger.warn(
+      "GOOGLE_CLIENT_ID does not look like a Google *Web client* ID (expected …apps.googleusercontent.com). " +
+        "Using an Android/iOS key or a typo triggers OAuth client was not found.",
+    );
   }
 }
 
