@@ -366,7 +366,7 @@ export default function Admin() {
     isActive:          true,
     planType:          "trial",
     trialEndsAt:       "",
-    dailyLimitMinutes: 300,
+    dailyLimitMinutes: 180,
     minutesUsedToday:  0,
   });
   const [editSaving, setEditSaving]  = useState(false);
@@ -520,7 +520,7 @@ export default function Admin() {
   const [showCreate,     setShowCreate]     = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newLimit,    setNewLimit]    = useState(300);
+  const [newLimit,    setNewLimit]    = useState(180);
   const [newIsAdmin,  setNewIsAdmin]  = useState(false);
 
   // ── Session History drawer ─────────────────────────────────────────────────
@@ -673,7 +673,7 @@ export default function Admin() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     await createMut.mutateAsync({ data: { username: newUsername, password: newPassword, dailyLimitMinutes: newLimit, isAdmin: newIsAdmin } });
-    setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewLimit(300); setNewIsAdmin(false);
+    setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewLimit(180); setNewIsAdmin(false);
     queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
   };
 
@@ -2473,7 +2473,7 @@ export default function Admin() {
                       className="h-9 text-sm"
                     />
                     <div className="flex gap-1">
-                      {[60, 120, 300, 600].map(m => (
+                      {[60, 120, 180, 300, 600].map(m => (
                         <button
                           key={m}
                           onClick={() => setEditForm(f => ({ ...f, dailyLimitMinutes: m }))}

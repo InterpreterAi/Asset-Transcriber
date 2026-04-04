@@ -7,6 +7,7 @@ import { getTrialDaysRemaining } from "../lib/usage.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
+import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 
 const router = Router();
 
@@ -766,7 +767,7 @@ router.post("/users", requireAdmin, async (req, res) => {
     isActive: true,
     trialStartedAt: new Date(),
     trialEndsAt,
-    dailyLimitMinutes: dailyLimitMinutes ?? 300,
+    dailyLimitMinutes: dailyLimitMinutes ?? TRIAL_DAILY_LIMIT_MINUTES,
     minutesUsedToday: 0,
     totalMinutesUsed: 0,
     totalSessions: 0,

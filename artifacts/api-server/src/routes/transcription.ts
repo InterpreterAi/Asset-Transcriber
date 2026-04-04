@@ -9,6 +9,7 @@ import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
+import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -113,7 +114,12 @@ router.post("/token", requireAuth, async (req, res) => {
     }
 
     if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-      res.status(403).json({ error: "Daily trial limit reached (5 hours). Try again tomorrow." });
+      res.status(403).json({
+        error:
+          user.planType === "trial"
+            ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
+            : "Daily usage limit reached. Try again tomorrow.",
+      });
       return;
     }
 
@@ -270,7 +276,12 @@ router.post("/session/start", requireAuth, async (req, res) => {
   }
 
   if (user.minutesUsedToday >= user.dailyLimitMinutes) {
-    res.status(403).json({ error: "Daily trial limit reached (5 hours). Try again tomorrow." });
+    res.status(403).json({
+      error:
+        user.planType === "trial"
+          ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
+          : "Daily usage limit reached. Try again tomorrow.",
+    });
     return;
   }
 

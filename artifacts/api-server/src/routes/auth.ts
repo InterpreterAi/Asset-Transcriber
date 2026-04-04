@@ -22,6 +22,7 @@ import {
   getGoogleOAuthRedirectUri,
 } from "../lib/authEnv.js";
 import { commitSession } from "../lib/commitSession.js";
+import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -432,7 +433,7 @@ router.post("/signup", async (req, res) => {
       planType: "trial",
       trialStartedAt: new Date(),
       trialEndsAt,
-      dailyLimitMinutes: 300,
+      dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
       minutesUsedToday: 0,
       totalMinutesUsed: 0,
       totalSessions: 0,
@@ -755,7 +756,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
               planType:         "trial",
               trialStartedAt:   new Date(),
               trialEndsAt,
-              dailyLimitMinutes: 300,
+              dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
               minutesUsedToday:  0,
               totalMinutesUsed:  0,
               totalSessions:     0,

@@ -7,6 +7,7 @@ import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
+import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -50,7 +51,7 @@ async function migrateSchema() {
           plan_type              TEXT NOT NULL DEFAULT 'trial',
           trial_started_at       TIMESTAMP NOT NULL DEFAULT NOW(),
           trial_ends_at          TIMESTAMP NOT NULL,
-          daily_limit_minutes    INTEGER NOT NULL DEFAULT 300,
+          daily_limit_minutes    INTEGER NOT NULL DEFAULT 180,
           minutes_used_today     REAL NOT NULL DEFAULT 0,
           total_minutes_used     REAL NOT NULL DEFAULT 0,
           total_sessions         INTEGER NOT NULL DEFAULT 0,
@@ -207,6 +208,10 @@ async function migrateSchema() {
       await client.query(`
       CREATE INDEX IF NOT EXISTS idx_share_events_user ON share_events (user_id)
     `);
+
+      await client.query(
+        `ALTER TABLE users ALTER COLUMN daily_limit_minutes SET DEFAULT ${TRIAL_DAILY_LIMIT_MINUTES}`,
+      );
 
       await client.query("COMMIT");
       logger.info("Startup schema migration complete");
@@ -401,10 +406,23 @@ async function ensureAdminUser() {
   }
 }
 
+/** Active trials (14-day window not expired) use the current trial daily cap — keeps existing users in sync with signup defaults. */
+async function syncActiveTrialDailyLimits(): Promise<void> {
+  const r = await pool.query(
+    `UPDATE users SET daily_limit_minutes = $1 WHERE plan_type = 'trial' AND trial_ends_at > NOW()`,
+    [TRIAL_DAILY_LIMIT_MINUTES],
+  );
+  const n = r.rowCount ?? 0;
+  if (n > 0) {
+    logger.info({ updatedRows: n }, "Applied TRIAL_DAILY_LIMIT_MINUTES to active trial users");
+  }
+}
+
 async function main() {
   logAuthEnvBootstrap();
   await migrateSchema();
   await requireDatabaseReadyForApi();
+  await syncActiveTrialDailyLimits();
   await logSessionAndDatabaseStartupStatus();
   await clearStaleSessions();
   await ensureAdminUser();

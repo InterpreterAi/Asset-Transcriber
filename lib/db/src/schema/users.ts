@@ -13,7 +13,7 @@ export const usersTable = pgTable("users", {
   planType: text("plan_type").notNull().default("trial"),
   trialStartedAt: timestamp("trial_started_at").notNull().defaultNow(),
   trialEndsAt: timestamp("trial_ends_at").notNull(),
-  dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(300),
+  dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(180),
   minutesUsedToday: real("minutes_used_today").notNull().default(0),
   totalMinutesUsed: real("total_minutes_used").notNull().default(0),
   totalSessions: integer("total_sessions").notNull().default(0),
