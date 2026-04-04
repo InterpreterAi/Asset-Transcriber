@@ -615,38 +615,38 @@ export default function Landing() {
             {[
               {
                 name: "Basic",
-                price: "$40",
-                sub: "Perfect for part-time interpreters",
+                price: "$39",
                 features: [
                   "Real-time transcription",
                   "Bidirectional translation",
                   "Speaker identification",
-                  "Up to 5 hours interpreting per day",
+                  "Tab audio capture",
+                  "Up to 3 hours of real-time interpreting daily",
                 ],
                 highlight: false,
               },
               {
                 name: "Professional",
-                price: "$80",
-                sub: "Most popular for full-time interpreters",
+                price: "$69",
+                sub: "Most interpreters choose this plan",
                 features: [
                   "Everything in Basic",
-                  "Up to 7 hours interpreting per day",
                   "Personal glossary system",
                   "Domain terminology hints",
                   "Priority processing",
+                  "Tab audio capture",
+                  "Up to 6 hours of real-time interpreting daily",
                 ],
                 highlight: true,
               },
               {
                 name: "Unlimited",
-                price: "$120",
-                sub: "For agencies and heavy users",
+                price: "$99",
+                sub: "Ideal for interpreters working full-day assignments",
                 features: [
-                  "Unlimited interpreting hours",
+                  "Everything in Professional",
                   "Tab audio capture",
-                  "API access",
-                  "Dedicated support",
+                  "Unlimited interpreting hours",
                 ],
                 highlight: false,
               },
@@ -666,10 +666,14 @@ export default function Landing() {
                 <div className={`text-sm font-semibold mb-0.5 ${highlight ? "text-white/80" : "text-muted-foreground"}`}>
                   {name}
                 </div>
-                <div className={`text-4xl font-display font-bold mb-0.5 ${highlight ? "text-white" : "text-foreground"}`}>
+                <div
+                  className={`text-4xl font-display font-bold ${sub ? "mb-0.5" : "mb-5"} ${highlight ? "text-white" : "text-foreground"}`}
+                >
                   {price}<span className={`text-base font-normal ml-1 ${highlight ? "text-white/60" : "text-muted-foreground"}`}>/mo</span>
                 </div>
-                <div className={`text-[12px] mb-5 ${highlight ? "text-white/70" : "text-muted-foreground"}`}>{sub}</div>
+                {sub ? (
+                  <div className={`text-[12px] mb-5 ${highlight ? "text-white/70" : "text-muted-foreground"}`}>{sub}</div>
+                ) : null}
                 <ul className="space-y-2 mb-6 flex-1">
                   {features.map(f => (
                     <li key={f} className={`text-sm flex items-start gap-2 ${highlight ? "text-white/90" : "text-foreground"}`}>
