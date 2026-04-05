@@ -52,6 +52,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/debug/ai-env") {
+    if (process.env.NODE_ENV !== "development") {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
     json(200, {
       ok: true,
       status: "degraded",

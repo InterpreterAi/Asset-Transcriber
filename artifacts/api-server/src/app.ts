@@ -122,8 +122,12 @@ app.get("/debug/auth-env", (req, res) => {
   });
 });
 
-// Soniox + OpenAI presence (no secret values) — use after deploy to verify AI vars.
+// Soniox + OpenAI diagnostics — development only (never expose env fingerprints in production).
 app.get("/debug/ai-env", (_req, res) => {
+  if (process.env.NODE_ENV !== "development") {
+    res.status(404).type("text/plain").send("Not found");
+    return;
+  }
   res.status(200).json({
     ok: true,
     message:
