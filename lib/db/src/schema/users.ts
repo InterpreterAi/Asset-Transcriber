@@ -13,6 +13,8 @@ export const usersTable = pgTable("users", {
   planType: text("plan_type").notNull().default("trial"),
   trialStartedAt: timestamp("trial_started_at").notNull().defaultNow(),
   trialEndsAt: timestamp("trial_ends_at").notNull(),
+  /** Set when the "2 days before trial end" reminder email has been sent (SMTP). */
+  trialReminderSentAt: timestamp("trial_reminder_sent_at"),
   dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(180),
   minutesUsedToday: real("minutes_used_today").notNull().default(0),
   totalMinutesUsed: real("total_minutes_used").notNull().default(0),

@@ -8,6 +8,7 @@ import { logger } from "./lib/logger.js";
 import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
+import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -62,6 +63,7 @@ async function migrateSchema() {
           last_activity          TIMESTAMP,
           two_factor_secret      TEXT,
           two_factor_enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+          trial_reminder_sent_at TIMESTAMP,
           created_at             TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
@@ -107,6 +109,7 @@ async function migrateSchema() {
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_sent_at TIMESTAMP`);
 
       // sessions table – columns added after initial release
       await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
@@ -434,6 +437,7 @@ async function main() {
       process.exit(1);
     }
     logger.info({ port }, "Server listening");
+    scheduleTrialReminderJob();
   });
 }
 

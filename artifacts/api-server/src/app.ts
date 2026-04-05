@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import express, { type Express } from "express";
+import express, { type Express, type RequestHandler } from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -102,12 +102,21 @@ app.use(
 
 app.use(cors({ origin: true, credentials: true }));
 
+/** Debug routes must not run in production — no env fingerprints or diagnostics. */
+const devOnlyDebug: RequestHandler = (_req, res, next) => {
+  if (process.env.NODE_ENV !== "development") {
+    res.status(404).type("text/plain").send("Not found");
+    return;
+  }
+  next();
+};
+
 // Before session middleware: confirms which auth env keys the process actually sees.
-app.get("/debug/db-env", (_req, res) => {
+app.get("/debug/db-env", devOnlyDebug, (_req, res) => {
   res.status(200).json(getDebugDbEnvHttpPayload("full_api"));
 });
 
-app.get("/debug/auth-env", (req, res) => {
+app.get("/debug/auth-env", devOnlyDebug, (req, res) => {
   const xfProto = req.headers["x-forwarded-proto"];
   const proto = Array.isArray(xfProto) ? xfProto[0] : xfProto;
   res.status(200).json({
@@ -122,12 +131,7 @@ app.get("/debug/auth-env", (req, res) => {
   });
 });
 
-// Soniox + OpenAI diagnostics — development only (never expose env fingerprints in production).
-app.get("/debug/ai-env", (_req, res) => {
-  if (process.env.NODE_ENV !== "development") {
-    res.status(404).type("text/plain").send("Not found");
-    return;
-  }
+app.get("/debug/ai-env", devOnlyDebug, (_req, res) => {
   res.status(200).json({
     ok: true,
     message:
@@ -137,7 +141,7 @@ app.get("/debug/ai-env", (_req, res) => {
 });
 
 // One-page checklist for “transcription / Google not working” (full API only).
-app.get("/debug/readiness", (_req, res) => {
+app.get("/debug/readiness", devOnlyDebug, (_req, res) => {
   const env = getPublicEnvReadiness();
   res.status(200).json({
     ok: true,

@@ -25,9 +25,14 @@ const hint = {
     "Open the service that runs **this** Node container → Variables → New variable → Variable Reference → pick Postgres → add `DATABASE_URL` (or `DATABASE_PRIVATE_URL`).",
     "Or paste the full `postgresql://…` URL as `DATABASE_URL` on that same web/API service (Raw editor).",
     "Use the correct Railway **environment** (e.g. Production). Empty or Preview-only vars leave this process without a DB.",
-    "Redeploy the web/API service after saving. GET /debug/db-env — `runtime.envKeysWithPostgresUriValues` lists env **names** whose values look like postgresql:// URLs (if empty, this process has no DB URL in the environment at all).",
+    "Redeploy the web/API service after saving. With NODE_ENV=development locally, GET /debug/db-env lists env key names that look like Postgres URLs (not available in production).",
   ],
 };
+
+function debugNotFound(res: http.ServerResponse): void {
+  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end("Not found");
+}
 
 const server = http.createServer((req, res) => {
   const path = req.url?.split("?")[0] ?? "/";
@@ -47,14 +52,17 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/debug/db-env") {
+    if (process.env.NODE_ENV !== "development") {
+      debugNotFound(res);
+      return;
+    }
     json(200, getDebugDbEnvHttpPayload("degraded"));
     return;
   }
 
   if (path === "/debug/ai-env") {
     if (process.env.NODE_ENV !== "development") {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("Not found");
+      debugNotFound(res);
       return;
     }
     json(200, {
@@ -69,6 +77,10 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/debug/readiness") {
+    if (process.env.NODE_ENV !== "development") {
+      debugNotFound(res);
+      return;
+    }
     json(200, {
       ok: true,
       status: "degraded",
