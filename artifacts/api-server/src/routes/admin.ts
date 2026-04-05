@@ -7,7 +7,7 @@ import { getTrialDaysRemaining } from "../lib/usage.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
-import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 
 const router = Router();
 
@@ -758,14 +758,15 @@ router.post("/users", requireAdmin, async (req, res) => {
   }
 
   const passwordHash = await hashPassword(password);
-  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const trialStartedAt = new Date();
+  const trialEndsAt    = computeTrialEndsAt(trialStartedAt);
 
   const result = await db.insert(usersTable).values({
     username,
     passwordHash,
     isAdmin: isAdmin ?? false,
     isActive: true,
-    trialStartedAt: new Date(),
+    trialStartedAt,
     trialEndsAt,
     dailyLimitMinutes: dailyLimitMinutes ?? TRIAL_DAILY_LIMIT_MINUTES,
     minutesUsedToday: 0,

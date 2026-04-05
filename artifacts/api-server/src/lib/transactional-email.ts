@@ -10,7 +10,6 @@ import {
   emailTrialInformationBlock,
   emailTrialReminderInner,
   emailTrialWelcomeInner,
-  formatEmailDate,
   renderInterpreterAiEmail,
 } from "./email-template.js";
 import {
@@ -63,11 +62,10 @@ export async function sendEmailVerificationEmail(to: string, token: string): Pro
 
 export async function sendPostVerificationWelcomeEmail(
   to: string,
-  trialEndsAt: Date,
+  trialEndsAt: Date | string,
   explicitName?: string | null,
 ): Promise<void> {
   const base = appBaseUrl();
-  const endStr = formatEmailDate(trialEndsAt);
   const subject = "Welcome to InterpreterAI — Your free trial has started";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
@@ -75,7 +73,7 @@ export async function sendPostVerificationWelcomeEmail(
     bodyHtml: [
       emailStandardGreeting(to, explicitName),
       emailParagraph("Welcome to InterpreterAI."),
-      emailTrialInformationBlock(emailTrialWelcomeInner(endStr)),
+      emailTrialInformationBlock(emailTrialWelcomeInner(trialEndsAt)),
       emailParagraph("You can now start using real-time transcription and translation."),
       emailSubheading("Get started in 3 steps"),
       emailOrderedList([
@@ -148,19 +146,18 @@ export async function sendGettingStartedEmail(
 /** ~48 hours before trial ends. */
 export async function sendTrialReminder48hEmail(
   to: string,
-  trialEndsAt: Date,
+  trialEndsAt: Date | string,
   displayName?: string | null,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
-  const endStr = formatEmailDate(trialEndsAt);
   const subject = "Your InterpreterAI trial ends in 2 days";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
     heading: "Your trial ends in 2 days",
     bodyHtml: [
       emailStandardGreeting(to, displayName),
-      emailTrialInformationBlock(emailTrialReminderInner(endStr)),
+      emailTrialInformationBlock(emailTrialReminderInner(trialEndsAt)),
       emailParagraph(
         "Upgrade now to continue using real-time transcription and translation during your interpreting sessions.",
       ),
@@ -174,19 +171,18 @@ export async function sendTrialReminder48hEmail(
 /** ~12 hours before trial ends. */
 export async function sendTrialReminder12hEmail(
   to: string,
-  trialEndsAt: Date,
+  trialEndsAt: Date | string,
   displayName?: string | null,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
-  const endStr = formatEmailDate(trialEndsAt);
   const subject = "Your trial expires today";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
     heading: "Your trial expires today",
     bodyHtml: [
       emailStandardGreeting(to, displayName),
-      emailTrialInformationBlock(emailTrialReminderInner(endStr)),
+      emailTrialInformationBlock(emailTrialReminderInner(trialEndsAt)),
       emailParagraph(
         "Your InterpreterAI free trial ends soon. Upgrade now to keep uninterrupted access.",
       ),

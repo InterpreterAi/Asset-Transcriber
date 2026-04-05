@@ -47,6 +47,11 @@ export function formatEmailDate(d: Date, timeZone = "UTC"): string {
   });
 }
 
+/** Normalize DB / API `trial_ends_at` for trial emails (always formatted via {@link formatEmailDate}). */
+export function coerceTrialEndsAtForEmail(trialEndsAt: Date | string): Date {
+  return trialEndsAt instanceof Date ? trialEndsAt : new Date(trialEndsAt);
+}
+
 function normalizeBaseUrl(base: string): string {
   return base.replace(/\/+$/, "");
 }
@@ -110,13 +115,15 @@ export function emailTrialInformationBlock(innerHtmlSafe: string): string {
   return `<div style="background-color:#f5f6fb;border-radius:8px;padding:16px;margin:20px 0;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">${innerHtmlSafe}</div>`;
 }
 
-export function emailTrialWelcomeInner(trialEndDateFormatted: string): string {
+export function emailTrialWelcomeInner(trialEndsAt: Date | string): string {
+  const trialEndDateFormatted = formatEmailDate(coerceTrialEndsAtForEmail(trialEndsAt));
   return `<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.06em;">TRIAL INFORMATION</p>
 <p style="margin:0 0 12px;">Your free trial has started.</p>
 <p style="margin:0;">Your free trial ends on:<br /><strong style="color:${TEXT_HEADING};">${escapeHtml(trialEndDateFormatted)}</strong></p>`;
 }
 
-export function emailTrialReminderInner(trialEndDateFormatted: string): string {
+export function emailTrialReminderInner(trialEndsAt: Date | string): string {
+  const trialEndDateFormatted = formatEmailDate(coerceTrialEndsAtForEmail(trialEndsAt));
   return `<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.06em;">TRIAL INFORMATION</p>
 <p style="margin:0 0 8px;">Your free trial will end on:</p>
 <p style="margin:0 0 12px;"><strong style="color:${TEXT_HEADING};">${escapeHtml(trialEndDateFormatted)}</strong></p>`;

@@ -38,7 +38,7 @@ import {
   getGoogleOAuthRedirectUri,
 } from "../lib/authEnv.js";
 import { commitSession } from "../lib/commitSession.js";
-import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -90,10 +90,11 @@ function getClientIp(req: import("express").Request): string {
 
 function signupTrialFields(grantTrial: boolean) {
   if (grantTrial) {
+    const trialStartedAt = new Date();
     return {
-      trialEndsAt:       new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      trialStartedAt,
+      trialEndsAt:       computeTrialEndsAt(trialStartedAt),
       dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
-      trialStartedAt:    new Date(),
     } as const;
   }
   return {
