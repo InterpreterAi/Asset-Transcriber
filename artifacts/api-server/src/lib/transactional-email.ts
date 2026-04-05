@@ -1,6 +1,6 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
+import { isResendConfigured, sendResendTransactionalEmail } from "./email.js";
 import { logger } from "./logger.js";
-import { isSmtpConfigured, sendEmail, sendSmtpMail } from "./email-service.js";
 
 function escapeHtml(s: string): string {
   return s
@@ -34,6 +34,14 @@ const NEW_USER_WORKSPACE_URL = "https://asset-transcriber-production.up.railway.
  */
 export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
   const subject = "Welcome to InterpreterAI";
+  const text = [
+    "Welcome to InterpreterAI.",
+    "",
+    "Your free trial has started.",
+    "",
+    "You can access the app here:",
+    NEW_USER_WORKSPACE_URL,
+  ].join("\n");
   const workspaceUrl = escapeHtml(NEW_USER_WORKSPACE_URL);
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333;">
@@ -42,15 +50,15 @@ export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
 <p>You can access the app here:<br><a href="${workspaceUrl}">${workspaceUrl}</a></p>
 </body></html>`;
 
-  const ok = await sendEmail(to, subject, html);
-  if (ok) logger.info({ email: to }, "Welcome email sent (SMTP)");
+  const ok = await sendResendTransactionalEmail(to, subject, { html, text });
+  if (ok) logger.info({ email: to }, "Welcome email sent (Resend)");
 }
 
 /**
  * Trial ends in 2 days — scheduled job only.
  */
 export async function sendTrialReminderEmail(to: string, displayName?: string | null): Promise<boolean> {
-  if (!isSmtpConfigured()) return false;
+  if (!isResendConfigured()) return false;
   const name = displayNameForEmail(to, displayName);
   const url = appUrl();
   const subject = "Your InterpreterAI trial ends soon";
@@ -80,7 +88,7 @@ export async function sendTrialReminderEmail(to: string, displayName?: string | 
   <p>— InterpreterAI</p>
 </body></html>`;
 
-  return sendSmtpMail({ to, subject, text, html });
+  return sendResendTransactionalEmail(to, subject, { text, html });
 }
 
 /**
@@ -90,7 +98,7 @@ export async function sendSubscriptionConfirmationEmail(
   to: string,
   displayName?: string | null,
 ): Promise<boolean> {
-  if (!isSmtpConfigured()) return false;
+  if (!isResendConfigured()) return false;
   const name = displayNameForEmail(to, displayName);
   const subject = "Your InterpreterAI subscription is active";
   const text = [
@@ -115,5 +123,5 @@ export async function sendSubscriptionConfirmationEmail(
   <p>— InterpreterAI</p>
 </body></html>`;
 
-  return sendSmtpMail({ to, subject, text, html });
+  return sendResendTransactionalEmail(to, subject, { text, html });
 }

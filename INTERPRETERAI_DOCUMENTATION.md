@@ -501,11 +501,7 @@ Audit log of all login attempts.
 
 | Variable | Purpose |
 |---|---|
-| `EMAIL_HOST` | SMTP server hostname for sending emails (password reset, welcome email). |
-| `EMAIL_PORT` | SMTP port (usually 587 for TLS, 465 for SSL). |
-| `EMAIL_USER` | SMTP authentication username. |
-| `EMAIL_PASS` | SMTP authentication password. |
-| `EMAIL_FROM` | Sender address shown on outgoing emails. |
+| `RESEND_API_KEY` | API key for [Resend](https://resend.com) — transactional email (welcome, support tickets, trial reminders). Sender identity is configured in code / Resend dashboard. |
 
 ### Google OAuth
 

@@ -1,7 +1,7 @@
 import { db, usersTable } from "@workspace/db";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { isResendConfigured } from "./email.js";
 import { logger } from "./logger.js";
-import { isSmtpConfigured } from "./smtp-mail.js";
 import { sendTrialReminderEmail } from "./transactional-email.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -10,7 +10,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Users on trial whose end date is exactly 2 calendar days from CURRENT_DATE (DB timezone, usually UTC on Railway).
  */
 export async function runTrialReminderJob(): Promise<void> {
-  if (!isSmtpConfigured()) return;
+  if (!isResendConfigured()) return;
 
   try {
     const rows = await db
