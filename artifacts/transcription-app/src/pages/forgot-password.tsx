@@ -20,7 +20,7 @@ export default function ForgotPassword() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
@@ -58,7 +58,7 @@ export default function ForgotPassword() {
               </div>
               <p className="font-semibold mb-1">Check your email</p>
               <p className="text-sm text-muted-foreground">
-                If an account exists for <strong>{email}</strong>, we sent a password reset link.
+                If an account exists for <strong>{email.trim()}</strong>, we sent a password reset link.
               </p>
               <p className="text-xs text-muted-foreground mt-3">
                 No email? Contact{" "}

@@ -33,12 +33,17 @@ export async function sendPasswordResetEmail(toEmail: string, resetToken: string
 <p style="margin:0;">If you did not request a reset, you can safely ignore this email.</p>`,
   });
 
-  await sendEmail({
+  const ok = await sendEmail({
     from: RESEND_FROM_SECURITY,
     to: toEmail,
     subject: "Reset your InterpreterAI password",
     html,
   });
+  if (!ok) {
+    throw new Error(
+      "Password reset email was not delivered (check RESEND_API_KEY and Resend dashboard logs)",
+    );
+  }
 }
 
 export async function sendSupportConfirmationEmail(

@@ -743,10 +743,16 @@ router.post("/forgot-password", async (req, res) => {
     return;
   }
 
+  const ident = String(email).trim().toLowerCase();
+  if (!ident) {
+    res.status(400).json({ error: "Email is required" });
+    return;
+  }
+
   const users = await db
     .select()
     .from(usersTable)
-    .where(or(eq(usersTable.email, email.toLowerCase()), eq(usersTable.username, email.toLowerCase())))
+    .where(or(eq(usersTable.email, ident), eq(usersTable.username, ident)))
     .limit(1);
 
   // Always return success to avoid user enumeration
@@ -759,25 +765,39 @@ router.post("/forgot-password", async (req, res) => {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
+  await db.delete(passwordResetTokensTable).where(eq(passwordResetTokensTable.userId, user.id));
+
   await db.insert(passwordResetTokensTable).values({
     userId: user.id,
     token,
     expiresAt,
   });
 
-  const typed = email.trim().toLowerCase();
   const recipient =
     user.email?.trim().toLowerCase() ??
-    (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed) ? typed : null);
+    (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ident) ? ident : null);
+  const isDev = process.env.NODE_ENV !== "production";
+
   if (recipient) {
-    void sendPasswordResetEmail(recipient, token).catch((err) => {
-      logger.error({ err, userId: user.id }, "Forgot password: sendPasswordResetEmail failed");
-    });
+    try {
+      await sendPasswordResetEmail(recipient, token);
+    } catch (err) {
+      logger.error(
+        { err, userId: user.id, recipient },
+        "Forgot password: sendPasswordResetEmail failed — check RESEND_API_KEY and getStaticPublicBaseUrl()",
+      );
+      if (isDev) {
+        res.status(503).json({
+          error:
+            "Could not send the reset email. In development, verify RESEND_API_KEY and that the API can reach Resend.",
+        });
+        return;
+      }
+    }
   } else {
     logger.warn({ userId: user.id }, "Forgot password: user has no email address; reset link not emailed");
   }
 
-  const isDev = process.env.NODE_ENV !== "production";
   res.json({
     message: "If an account exists, a reset link has been sent",
     ...(isDev ? { devToken: token } : {}),

@@ -104,6 +104,8 @@ function publicBaseFromEnv(): string | undefined {
   const fromEnv =
     trimEnv("NEXTAUTH_URL") ??
     trimEnv("APP_URL") ??
+    trimEnv("PUBLIC_APP_URL") ??
+    trimEnv("FRONTEND_URL") ??
     trimEnv("RAILWAY_STATIC_URL") ??
     trimEnv("RAILWAY_PUBLIC_DOMAIN");
   if (!fromEnv) return undefined;
@@ -114,7 +116,15 @@ function publicBaseFromEnv(): string | undefined {
 
 /** For emails and other code paths without an HTTP request. */
 export function getStaticPublicBaseUrl(): string {
-  return publicBaseFromEnv() ?? "https://asset-transcriber.replit.app";
+  const fromEnv = publicBaseFromEnv();
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === "production") {
+    logger.warn(
+      "No APP_URL, NEXTAUTH_URL, PUBLIC_APP_URL, or FRONTEND_URL — using https://app.interpreterai.org for email links; set one of these for the correct domain.",
+    );
+    return "https://app.interpreterai.org";
+  }
+  return "http://localhost:3000";
 }
 
 /**
@@ -147,7 +157,12 @@ export function logAuthEnvBootstrap(): void {
       GOOGLE_CLIENT_ID: Boolean(getGoogleClientId()),
       GOOGLE_CLIENT_SECRET: Boolean(getGoogleClientSecret()),
       ADMIN_PASSWORD: Boolean(trimEnv("ADMIN_PASSWORD")),
-      APP_URL: Boolean(trimEnv("APP_URL") ?? trimEnv("NEXTAUTH_URL")),
+      APP_URL: Boolean(
+        trimEnv("APP_URL") ??
+          trimEnv("NEXTAUTH_URL") ??
+          trimEnv("PUBLIC_APP_URL") ??
+          trimEnv("FRONTEND_URL"),
+      ),
       googleOAuthRedirectPath: getGoogleOAuthRedirectPath(),
       googleOAuthEnvOnlyProduction: process.env.NODE_ENV === "production",
     },
@@ -180,7 +195,12 @@ export function getAuthEnvDiagnostics(): Record<string, boolean | string | null>
     googleOAuthRedirectPath: getGoogleOAuthRedirectPath(),
     googleOAuthProductionUsesEnvOnly: process.env.NODE_ENV === "production",
     ADMIN_PASSWORD: Boolean(trimEnv("ADMIN_PASSWORD")),
-    APP_URL_OR_NEXTAUTH_URL: Boolean(trimEnv("APP_URL") ?? trimEnv("NEXTAUTH_URL")),
+    APP_URL_OR_NEXTAUTH_URL: Boolean(
+      trimEnv("APP_URL") ??
+        trimEnv("NEXTAUTH_URL") ??
+        trimEnv("PUBLIC_APP_URL") ??
+        trimEnv("FRONTEND_URL"),
+    ),
     RAILWAY_STATIC_URL: Boolean(trimEnv("RAILWAY_STATIC_URL")),
   };
 }

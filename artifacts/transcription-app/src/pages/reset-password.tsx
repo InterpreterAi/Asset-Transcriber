@@ -1,13 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { motion } from "framer-motion";
 import { Mic2, Lock, Eye, EyeOff, CheckCircle } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
 
+function readResetTokenFromLocation(searchFromRouter: string): string {
+  const fromRouter = new URLSearchParams(searchFromRouter).get("token");
+  if (fromRouter) return fromRouter;
+  if (typeof window !== "undefined") {
+    return new URLSearchParams(window.location.search).get("token") ?? "";
+  }
+  return "";
+}
+
 export default function ResetPassword() {
   const [, setLocation] = useLocation();
   const search = useSearch();
-  const token = new URLSearchParams(search).get("token") ?? "";
+  const [token, setToken] = useState(() => readResetTokenFromLocation(search));
+
+  useEffect(() => {
+    setToken(readResetTokenFromLocation(search));
+  }, [search]);
 
   const [newPassword, setNewPassword]         = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
