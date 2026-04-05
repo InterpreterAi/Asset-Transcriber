@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import express, { type Express, type RequestHandler } from "express";
+import { areDebugHttpEndpointsEnabled, isPublicDebugEndpointPath } from "./lib/debug-routes-policy.js";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -61,6 +62,19 @@ app.get("/health", (_req, res) => {
   res.status(200).type("text/plain").send("ok");
 });
 
+// Block /debug/* before express.static and all other middleware — production must never
+// hit handlers that read process.env (Railway "Asset-Transcriber" = this same process).
+const blockDebugEndpointsOutsideDevelopment: RequestHandler = (req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  if (!isPublicDebugEndpointPath(req.path)) return next();
+  if (!areDebugHttpEndpointsEnabled()) {
+    res.status(404).type("text/plain").send("Not found");
+    return;
+  }
+  next();
+};
+app.use(blockDebugEndpointsOutsideDevelopment);
+
 // SPA build output — MUST be before session/json/pino so /assets/*.js does not hit
 // connect-pg-simple (Postgres) on every chunk; that caused very slow loads and blank screens.
 if (spaEnabled) {
@@ -102,21 +116,13 @@ app.use(
 
 app.use(cors({ origin: true, credentials: true }));
 
-/** Debug routes must not run in production — no env fingerprints or diagnostics. */
-const devOnlyDebug: RequestHandler = (_req, res, next) => {
-  if (process.env.NODE_ENV !== "development") {
-    res.status(404).type("text/plain").send("Not found");
-    return;
-  }
-  next();
-};
-
 // Before session middleware: confirms which auth env keys the process actually sees.
-app.get("/debug/db-env", devOnlyDebug, (_req, res) => {
+// (Gated at the top of the stack when NODE_ENV !== "development".)
+app.get("/debug/db-env", (_req, res) => {
   res.status(200).json(getDebugDbEnvHttpPayload("full_api"));
 });
 
-app.get("/debug/auth-env", devOnlyDebug, (req, res) => {
+app.get("/debug/auth-env", (req, res) => {
   const xfProto = req.headers["x-forwarded-proto"];
   const proto = Array.isArray(xfProto) ? xfProto[0] : xfProto;
   res.status(200).json({
@@ -131,7 +137,7 @@ app.get("/debug/auth-env", devOnlyDebug, (req, res) => {
   });
 });
 
-app.get("/debug/ai-env", devOnlyDebug, (_req, res) => {
+app.get("/debug/ai-env", (_req, res) => {
   res.status(200).json({
     ok: true,
     message:
@@ -141,7 +147,7 @@ app.get("/debug/ai-env", devOnlyDebug, (_req, res) => {
 });
 
 // One-page checklist for “transcription / Google not working” (full API only).
-app.get("/debug/readiness", devOnlyDebug, (_req, res) => {
+app.get("/debug/readiness", (_req, res) => {
   const env = getPublicEnvReadiness();
   res.status(200).json({
     ok: true,

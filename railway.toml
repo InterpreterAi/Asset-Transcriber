@@ -11,7 +11,7 @@
 # Or raw value (double braces — replace Postgres if your DB service name differs):
 #   DATABASE_URL=${{Postgres.DATABASE_URL}}
 #
-# After redeploy, verify: GET /debug/db-env → probe.DATABASE_URL.parsesAsPostgresUri should be true.
+# After local dev deploy (NODE_ENV=development), GET /debug/db-env can verify DB probe. In production these /debug/* routes return 404.
 # See railway.api.env.example for copy-paste lines.
 #
 # CLI (project linked: `railway link`): use your API service name from the dashboard / `railway service`

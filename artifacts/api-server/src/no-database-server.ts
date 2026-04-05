@@ -4,6 +4,7 @@
  */
 import http from "node:http";
 import { getAiEnvDiagnostics } from "./lib/ai-env.js";
+import { areDebugHttpEndpointsEnabled, isPublicDebugEndpointPath } from "./lib/debug-routes-policy.js";
 import { getPublicEnvReadiness } from "./lib/readiness-env.js";
 import { getDebugDbEnvHttpPayload } from "./postgres-env.js";
 
@@ -36,6 +37,12 @@ function debugNotFound(res: http.ServerResponse): void {
 
 const server = http.createServer((req, res) => {
   const path = req.url?.split("?")[0] ?? "/";
+
+  if (isPublicDebugEndpointPath(path) && !areDebugHttpEndpointsEnabled()) {
+    debugNotFound(res);
+    return;
+  }
+
   const json = (code: number, body: unknown) => {
     res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(body, null, 2));
@@ -52,19 +59,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/debug/db-env") {
-    if (process.env.NODE_ENV !== "development") {
-      debugNotFound(res);
-      return;
-    }
     json(200, getDebugDbEnvHttpPayload("degraded"));
     return;
   }
 
   if (path === "/debug/ai-env") {
-    if (process.env.NODE_ENV !== "development") {
-      debugNotFound(res);
-      return;
-    }
     json(200, {
       ok: true,
       status: "degraded",
@@ -77,10 +76,6 @@ const server = http.createServer((req, res) => {
   }
 
   if (path === "/debug/readiness") {
-    if (process.env.NODE_ENV !== "development") {
-      debugNotFound(res);
-      return;
-    }
     json(200, {
       ok: true,
       status: "degraded",
