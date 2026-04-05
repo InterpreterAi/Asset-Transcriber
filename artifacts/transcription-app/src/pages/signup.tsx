@@ -13,6 +13,8 @@ export default function Signup() {
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
   const [referralId, setReferralId] = useState<number | null>(null);
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState("");
 
   useEffect(() => {
     const rid = sessionStorage.getItem("referralId");
@@ -49,6 +51,12 @@ export default function Signup() {
       sessionStorage.removeItem("referralCode");
       sessionStorage.removeItem("referralId");
 
+      if (data.needsEmailVerification) {
+        setPendingEmail(data.email ?? email);
+        setVerificationSent(true);
+        return;
+      }
+
       setLocation("/workspace");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");
@@ -83,6 +91,24 @@ export default function Signup() {
         </div>
 
         <Card className="p-7 bg-white border border-border shadow-md rounded-2xl">
+          {verificationSent ? (
+            <div className="text-center space-y-4 py-2">
+              <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto border border-primary/20">
+                <Mail className="w-7 h-7 text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold text-foreground">Check your email</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                We sent a verification link to{" "}
+                <span className="font-medium text-foreground">{pendingEmail || email}</span>.
+                Verify your email to activate InterpreterAI, then sign in.
+              </p>
+              <p className="text-xs text-muted-foreground">The link expires in 24 hours.</p>
+              <Button type="button" className="w-full h-11 mt-2" onClick={() => setLocation("/login")}>
+                Go to sign in
+              </Button>
+            </div>
+          ) : (
+            <>
           <a
             href="/api/auth/google"
             className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 shadow-sm mb-4"
@@ -175,6 +201,8 @@ export default function Signup() {
               Create Account
             </Button>
           </form>
+            </>
+          )}
         </Card>
 
         <p className="text-center text-sm text-muted-foreground mt-5">

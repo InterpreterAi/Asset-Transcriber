@@ -3,6 +3,7 @@ import {
   db,
   usersTable,
   passwordResetTokensTable,
+  emailVerificationTokensTable,
   sessionsTable,
   referralsTable,
   type User,
@@ -14,7 +15,11 @@ import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usag
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import { sendPasswordResetEmail } from "../lib/email.js";
-import { sendNewAccountWelcomeEmail } from "../lib/transactional-email.js";
+import {
+  sendEmailVerificationEmail,
+  sendPostVerificationWelcomeEmail,
+} from "../lib/transactional-email.js";
+import { getStaticPublicBaseUrl } from "../lib/authEnv.js";
 import { logLoginEvent } from "../lib/login-events.js";
 import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
 import {
@@ -135,6 +140,23 @@ router.post("/login", async (req, res) => {
     if (!valid) {
       void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "wrong_password" });
       res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    if (user.requiresEmailVerification && !user.emailVerified) {
+      void logLoginEvent({
+        userId:       user.id,
+        email:        user.email,
+        ipAddress:    ip,
+        userAgent,
+        success:      false,
+        failureReason: "email_not_verified",
+      });
+      res.status(403).json({
+        error:
+          "Please verify your email before signing in. Check your inbox for a verification link, or request a new one from the login page.",
+        code: "email_not_verified",
+      });
       return;
     }
 
@@ -431,6 +453,7 @@ router.post("/signup", async (req, res) => {
       isAdmin: false,
       isActive: true,
       emailVerified: false,
+      requiresEmailVerification: true,
       planType: "trial",
       trialStartedAt: new Date(),
       trialEndsAt,
@@ -442,29 +465,123 @@ router.post("/signup", async (req, res) => {
     })
     .returning();
 
-  req.session.userId = user!.id;
-  req.session.isAdmin = false;
+  const newUser = user!;
 
   if (referralId) {
     void db
       .update(referralsTable)
-      .set({ registeredUserId: user!.id, registeredAt: new Date() })
+      .set({ registeredUserId: newUser.id, registeredAt: new Date() })
       .where(eq(referralsTable.id, referralId));
   }
 
   void sendTelegramNotification(
     `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration\nPlan: Free Trial (14 days)`
   );
-  void sendNewAccountWelcomeEmail(email.toLowerCase());
 
-  try {
-    await commitSession(req);
-  } catch (err) {
-    safeAuthLoggerError("Signup: session.save failed — full stack for Railway", err);
-    res.status(500).json({ ...SESSION_PERSIST_FAILED_JSON, code: "session_save_failed" });
+  const verifyToken = crypto.randomBytes(32).toString("hex");
+  const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, newUser.id));
+  await db.insert(emailVerificationTokensTable).values({
+    userId: newUser.id,
+    token: verifyToken,
+    expiresAt: verifyExpires,
+  });
+
+  void sendEmailVerificationEmail(email.toLowerCase(), verifyToken).catch((err) => {
+    logger.error({ err, userId: newUser.id }, "Signup: sendEmailVerificationEmail failed");
+  });
+
+  res.status(201).json({
+    needsEmailVerification: true,
+    email: email.toLowerCase(),
+    message: "Check your email to verify your account before signing in.",
+  });
+});
+
+// ── Verify email (link from transactional email; 24h token) ───────────────
+router.get("/verify-email", async (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token.trim() : "";
+  const base = getStaticPublicBaseUrl().replace(/\/+$/, "");
+  if (!token) {
+    res.redirect(`${base}/login?verify=missing`);
     return;
   }
-  res.status(201).json({ user: buildUserInfo(user!) });
+
+  try {
+    const rows = await db
+      .select()
+      .from(emailVerificationTokensTable)
+      .where(eq(emailVerificationTokensTable.token, token))
+      .limit(1);
+    const row = rows[0];
+    if (!row || new Date() > row.expiresAt) {
+      res.redirect(`${base}/login?verify=invalid`);
+      return;
+    }
+
+    const [acct] = await db.select().from(usersTable).where(eq(usersTable.id, row.userId)).limit(1);
+    if (!acct?.email) {
+      res.redirect(`${base}/login?verify=invalid`);
+      return;
+    }
+
+    await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.id, row.id));
+    await db
+      .update(usersTable)
+      .set({ emailVerified: true, requiresEmailVerification: false })
+      .where(eq(usersTable.id, acct.id));
+
+    void sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null).catch((err) => {
+      logger.error({ err, userId: acct.id }, "verify-email: welcome email failed");
+    });
+
+    res.redirect(`${base}/login?verify=ok`);
+  } catch (err) {
+    safeAuthLoggerError("GET /api/auth/verify-email failed", err);
+    res.redirect(`${base}/login?verify=error`);
+  }
+});
+
+// ── Resend verification email ──────────────────────────────────────────────
+router.post("/resend-verification", async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email?.trim()) {
+    res.status(400).json({ error: "Email is required" });
+    return;
+  }
+
+  const ident = email.trim().toLowerCase();
+  const users = await db
+    .select()
+    .from(usersTable)
+    .where(or(eq(usersTable.email, ident), eq(usersTable.username, ident)))
+    .limit(1);
+
+  if (users.length === 0) {
+    res.json({ ok: true, message: "If an account exists and needs verification, we sent an email." });
+    return;
+  }
+
+  const u = users[0]!;
+  if (!u.requiresEmailVerification || u.emailVerified || !u.email) {
+    res.json({ ok: true, message: "If an account exists and needs verification, we sent an email." });
+    return;
+  }
+
+  const verifyToken = crypto.randomBytes(32).toString("hex");
+  const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, u.id));
+  await db.insert(emailVerificationTokensTable).values({
+    userId: u.id,
+    token: verifyToken,
+    expiresAt: verifyExpires,
+  });
+
+  void sendEmailVerificationEmail(u.email, verifyToken).catch((err) => {
+    logger.error({ err, userId: u.id }, "resend-verification: send failed");
+  });
+
+  res.json({ ok: true, message: "If an account exists and needs verification, we sent an email." });
 });
 
 // ── Logout ─────────────────────────────────────────────────────────────────
@@ -794,7 +911,11 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
-      void sendNewAccountWelcomeEmail(googleEmail);
+      void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null).catch(
+        (err) => {
+          logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");
+        },
+      );
     }
     void touchActivity(user!.id).catch((touchErr) => {
       logger.warn({ err: touchErr, userId: user!.id }, "touchActivity after Google login failed");

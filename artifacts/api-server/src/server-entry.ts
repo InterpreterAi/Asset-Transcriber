@@ -9,6 +9,7 @@ import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
+import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -78,6 +79,18 @@ async function migrateSchema() {
         )
       `);
       await client.query(`
+        CREATE TABLE IF NOT EXISTS email_verification_tokens (
+          id         SERIAL PRIMARY KEY,
+          user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token      TEXT NOT NULL UNIQUE,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(
+        `CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id)`,
+      );
+      await client.query(`
         CREATE TABLE IF NOT EXISTS sessions (
           id                       SERIAL PRIMARY KEY,
           user_id                  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -110,6 +123,18 @@ async function migrateSchema() {
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_sent_at TIMESTAMP`);
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS requires_email_verification BOOLEAN NOT NULL DEFAULT FALSE`,
+      );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS getting_started_email_sent_at TIMESTAMP`,
+      );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_expired_email_sent_at TIMESTAMP`,
+      );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_confirmation_sent_at TIMESTAMP`,
+      );
 
       // sessions table – columns added after initial release
       await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
@@ -438,6 +463,7 @@ async function main() {
     }
     logger.info({ port }, "Server listening");
     scheduleTrialReminderJob();
+    scheduleOnboardingEmailJob();
   });
 }
 

@@ -1,5 +1,5 @@
 import { db, usersTable } from "@workspace/db";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, isNotNull, sql } from "drizzle-orm";
 import { isResendConfigured } from "./resend-mail.js";
 import { logger } from "./logger.js";
 import { sendTrialReminderEmail } from "./transactional-email.js";
@@ -7,7 +7,7 @@ import { sendTrialReminderEmail } from "./transactional-email.js";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Users on trial whose end date is exactly 2 calendar days from CURRENT_DATE (DB timezone, usually UTC on Railway).
+ * Trial users whose trial ends within the next 48 hours (and reminder not yet sent).
  */
 export async function runTrialReminderJob(): Promise<void> {
   if (!isResendConfigured()) return;
@@ -15,9 +15,10 @@ export async function runTrialReminderJob(): Promise<void> {
   try {
     const rows = await db
       .select({
-        id:       usersTable.id,
-        email:    usersTable.email,
-        username: usersTable.username,
+        id:          usersTable.id,
+        email:       usersTable.email,
+        username:    usersTable.username,
+        trialEndsAt: usersTable.trialEndsAt,
       })
       .from(usersTable)
       .where(
@@ -25,7 +26,8 @@ export async function runTrialReminderJob(): Promise<void> {
           eq(usersTable.planType, "trial"),
           isNull(usersTable.trialReminderSentAt),
           gt(usersTable.trialEndsAt, new Date()),
-          sql`(users.trial_ends_at::date - CURRENT_DATE) = 2`,
+          sql`${usersTable.trialEndsAt} <= NOW() + INTERVAL '48 hours'`,
+          isNotNull(usersTable.email),
         ),
       );
 
@@ -33,7 +35,7 @@ export async function runTrialReminderJob(): Promise<void> {
       const to = row.email?.trim().toLowerCase() ?? "";
       if (!to || !EMAIL_RE.test(to)) continue;
 
-      const ok = await sendTrialReminderEmail(to);
+      const ok = await sendTrialReminderEmail(to, row.trialEndsAt, row.username);
       if (ok) {
         await db
           .update(usersTable)

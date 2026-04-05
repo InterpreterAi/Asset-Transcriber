@@ -1,6 +1,10 @@
 import { Router, type IRouter } from "express";
+import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { storage } from "../lib/storage.js";
 import { stripeService } from "../lib/stripeService.js";
+import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
+import { formatEmailDate } from "../lib/email-template.js";
 
 const router: IRouter = Router();
 
@@ -77,6 +81,39 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
       return res.json({ subscription: null });
     }
     const subscription = await storage.getSubscription(user.stripeSubscriptionId);
+
+    const email = user.email?.trim().toLowerCase();
+    if (
+      subscription &&
+      email &&
+      !user.subscriptionConfirmationSentAt
+    ) {
+      const raw = subscription as Record<string, unknown>;
+      const status = raw.status;
+      if (status === "active" || status === "trialing") {
+        const periodEnd = raw.current_period_end ?? raw.currentPeriodEnd;
+        let nextBillingDate = "See your billing portal";
+        if (typeof periodEnd === "number" && Number.isFinite(periodEnd)) {
+          nextBillingDate = formatEmailDate(new Date(periodEnd * 1000));
+        }
+        let planName = "InterpreterAI";
+        const items = raw.items as
+          | { data?: Array<{ plan?: { nickname?: string | null }; price?: { nickname?: string | null } }> }
+          | undefined;
+        const first = items?.data?.[0];
+        const nick = first?.plan?.nickname || first?.price?.nickname;
+        if (nick && String(nick).trim()) planName = String(nick).trim();
+
+        const ok = await sendSubscriptionConfirmationEmail(email, planName, nextBillingDate, user.username);
+        if (ok) {
+          await db
+            .update(usersTable)
+            .set({ subscriptionConfirmationSentAt: new Date() })
+            .where(eq(usersTable.id, user.id));
+        }
+      }
+    }
+
     return res.json({ subscription });
   } catch (err: any) {
     return res.status(503).json({ error: "Stripe not available", detail: err.message });

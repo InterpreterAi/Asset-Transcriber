@@ -99,6 +99,17 @@ export const signupLimiter = rateLimit({
   handler: rateLimitExceededHandler("signup"),
 });
 
+/** Resend email verification: 5 per hour per IP. */
+export const resendVerificationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
+  message: { error: "Too many verification emails requested. Please try again later." },
+  handler: rateLimitExceededHandler("resend_verification"),
+});
+
 /** Password reset requests: 5 per hour per IP. */
 export const forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

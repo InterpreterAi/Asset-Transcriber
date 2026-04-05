@@ -15,6 +15,11 @@ export const usersTable = pgTable("users", {
   trialEndsAt: timestamp("trial_ends_at").notNull(),
   /** Set when the "2 days before trial end" reminder email has been sent (Resend). */
   trialReminderSentAt: timestamp("trial_reminder_sent_at"),
+  /** Email/password signups must verify before login; OAuth signups stay false. */
+  requiresEmailVerification: boolean("requires_email_verification").notNull().default(false),
+  gettingStartedEmailSentAt: timestamp("getting_started_email_sent_at"),
+  trialExpiredEmailSentAt: timestamp("trial_expired_email_sent_at"),
+  subscriptionConfirmationSentAt: timestamp("subscription_confirmation_sent_at"),
   dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(180),
   minutesUsedToday: real("minutes_used_today").notNull().default(0),
   totalMinutesUsed: real("total_minutes_used").notNull().default(0),
@@ -38,7 +43,16 @@ export const passwordResetTokensTable = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const emailVerificationTokensTable = pgTable("email_verification_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof usersTable.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokensTable.$inferSelect;
+export type EmailVerificationToken = typeof emailVerificationTokensTable.$inferSelect;

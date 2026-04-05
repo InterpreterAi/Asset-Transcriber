@@ -13,17 +13,23 @@ import {
   sendEmail,
 } from "./resend-mail.js";
 
+function appBaseUrl(): string {
+  return getStaticPublicBaseUrl().replace(/\/+$/, "");
+}
+
 export async function sendPasswordResetEmail(toEmail: string, resetToken: string): Promise<void> {
-  const base = getStaticPublicBaseUrl().replace(/\/+$/, "");
+  const base = appBaseUrl();
   const resetUrl = `${base}/reset-password?token=${encodeURIComponent(resetToken)}`;
   const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
     heading: "Reset your password",
     bodyHtml: [
-      emailParagraph("We received a request to reset the password for your InterpreterAI account."),
-      emailParagraph("If you made this request, use the button below. This link expires in one hour."),
-      emailParagraph("If you did not request a password reset, you can safely ignore this email."),
+      emailParagraph("We received a request to reset your password."),
+      emailParagraph("Click the button below to create a new password."),
     ].join(""),
-    button: { href: resetUrl, label: "Reset password" },
+    primaryButton: { href: resetUrl, label: "Reset Password" },
+    noteHtml: `<p style="margin:0 0 8px;"><strong>Security note:</strong> This link expires in <strong>1 hour</strong>.</p>
+<p style="margin:0;">If you did not request a reset, you can safely ignore this email.</p>`,
   });
 
   await sendEmail({
@@ -34,36 +40,14 @@ export async function sendPasswordResetEmail(toEmail: string, resetToken: string
   });
 }
 
-export async function sendWelcomeEmail(toEmail: string): Promise<void> {
-  const base = getStaticPublicBaseUrl();
-  const html = renderInterpreterAiEmail({
-    heading: "Welcome to InterpreterAI",
-    bodyHtml: [
-      emailParagraph("Hello,"),
-      emailParagraph("Your InterpreterAI account has been successfully created."),
-      emailParagraph(
-        "You can now access real-time transcription and translation for live interpretation.",
-      ),
-    ].join(""),
-    button: { href: base, label: "Log in to InterpreterAI" },
-    noteHtml: `<p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">If you did not create this account, you can ignore this email.</p>`,
-  });
-
-  await sendEmail({
-    from: RESEND_FROM_ONBOARDING,
-    to: toEmail,
-    subject: "Welcome to InterpreterAI",
-    html,
-  });
-}
-
 export async function sendSupportConfirmationEmail(
   toEmail: string,
   ticketId: number,
   subject: string,
 ): Promise<void> {
-  const base = getStaticPublicBaseUrl();
+  const base = appBaseUrl();
   const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
     heading: "We received your message",
     bodyHtml: [
       emailGreeting("there"),
@@ -73,7 +57,7 @@ export async function sendSupportConfirmationEmail(
       emailCallout("Your subject", subject),
       emailParagraph(`Reference: ticket #${ticketId}.`),
     ].join(""),
-    button: { href: base, label: "View my tickets" },
+    primaryButton: { href: `${base}/workspace`, label: "View my tickets" },
   });
 
   await sendEmail({
@@ -90,8 +74,9 @@ export async function sendAdminReplyEmail(
   subject: string,
   replyMessage: string,
 ): Promise<void> {
-  const base = getStaticPublicBaseUrl();
+  const base = appBaseUrl();
   const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
     heading: "New reply on your ticket",
     bodyHtml: [
       emailGreeting("there"),
@@ -99,7 +84,7 @@ export async function sendAdminReplyEmail(
       emailParagraph("Our team sent the following reply:"),
       emailPreformattedBlock(replyMessage),
     ].join(""),
-    button: { href: base, label: "View full thread" },
+    primaryButton: { href: `${base}/workspace`, label: "View full thread" },
   });
 
   await sendEmail({
@@ -115,8 +100,9 @@ export async function sendTicketResolvedEmail(
   ticketId: number,
   subject: string,
 ): Promise<void> {
-  const base = getStaticPublicBaseUrl();
+  const base = appBaseUrl();
   const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
     heading: "Your ticket is resolved",
     bodyHtml: [
       emailGreeting("there"),
@@ -128,7 +114,7 @@ export async function sendTicketResolvedEmail(
         "If something still isn't right, reply to this thread anytime — it will reopen so we can help.",
       ),
     ].join(""),
-    button: { href: base, label: "View my tickets" },
+    primaryButton: { href: `${base}/workspace`, label: "View my tickets" },
   });
 
   await sendEmail({

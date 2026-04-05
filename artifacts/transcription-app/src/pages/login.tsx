@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useLogin } from "@workspace/api-client-react";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
@@ -34,8 +34,28 @@ export default function Login() {
   const [otpValue, setOtpValue]   = useState("");
   const [verifying, setVerifying] = useState(false);
   const [error, setError]         = useState(oauthError ? (GOOGLE_ERROR_MESSAGES[oauthError] ?? "Sign-in failed.") : "");
+  const [verifyBanner, setVerifyBanner] = useState<string | null>(null);
+  const [showResend, setShowResend]     = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const otpRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const p = new URLSearchParams(search);
+    const v = p.get("verify");
+    if (v === "ok") {
+      setVerifyBanner("Your email is verified. You can sign in now.");
+      setError("");
+    } else if (v === "invalid" || v === "missing" || v === "error") {
+      setVerifyBanner(null);
+      setError(
+        v === "missing"
+          ? "Verification link is missing. Request a new email below."
+          : "That verification link is invalid or has expired. Request a new one below.",
+      );
+      setShowResend(true);
+    }
+  }, [search]);
 
   // ── Step 1: email + password ────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,7 +71,14 @@ export default function Login() {
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation("/workspace");
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Invalid credentials");
+      const data = err?.response?.data;
+      if (err?.response?.status === 403 && data?.code === "email_not_verified") {
+        setShowResend(true);
+        setError(data?.error || "Please verify your email before signing in.");
+        return;
+      }
+      setShowResend(false);
+      setError(data?.error || err?.message || "Invalid credentials");
     }
   };
 
@@ -86,6 +113,29 @@ export default function Login() {
   const handleOtpInput = (v: string) => {
     const digits = v.replace(/\D/g, "").slice(0, 6);
     setOtpValue(digits);
+  };
+
+  const handleResendVerification = async () => {
+    if (!username.trim()) {
+      setError("Enter your email address above, then tap resend.");
+      return;
+    }
+    setResendLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ email: username.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || "Could not resend email");
+      setVerifyBanner("If your account needs verification, we sent a new email. Check your inbox.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not resend email");
+    } finally {
+      setResendLoading(false);
+    }
   };
 
   return (
@@ -135,6 +185,11 @@ export default function Login() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
+                  {verifyBanner && (
+                    <div className="bg-emerald-50 text-emerald-900 text-sm p-3 rounded-xl border border-emerald-200 text-center font-medium">
+                      {verifyBanner}
+                    </div>
+                  )}
                   {error && (
                     <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-xl border border-destructive/20 text-center font-medium">
                       {error}
@@ -183,6 +238,17 @@ export default function Login() {
                   >
                     Sign In
                   </Button>
+                  {showResend && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full h-11"
+                      isLoading={resendLoading}
+                      onClick={handleResendVerification}
+                    >
+                      Resend verification email
+                    </Button>
+                  )}
                 </form>
               </Card>
 
@@ -256,7 +322,7 @@ export default function Login() {
 
               <p className="text-center text-xs text-muted-foreground mt-5">
                 Lost access to your authenticator?{" "}
-                <a href="mailto:support@interpreterai.com" className="text-primary hover:underline">Contact support</a>
+                <a href="mailto:support@interpreterai.org" className="text-primary hover:underline">Contact support</a>
               </p>
             </motion.div>
           )}

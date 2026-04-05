@@ -26,6 +26,7 @@ import {
   authLimiter,
   forgotPasswordLimiter,
   generalApiLimiter,
+  resendVerificationLimiter,
   loginLimiter,
   sessionHeartbeatLimiter,
   signupLimiter,
@@ -73,6 +74,17 @@ const spaEnabled = fs.existsSync(spaIndexHtml);
 app.get("/health", (_req, res) => {
   res.status(200).type("text/plain").send("ok");
 });
+
+// Branded logo for transactional emails (`<img src="{APP_URL}/email/logo.png">`).
+// Supports cwd = repo root (Docker /app) or `artifacts/api-server` (local `node dist/index.mjs`).
+const emailAssetsCandidates = [
+  path.resolve(process.cwd(), "public/email"),
+  path.resolve(process.cwd(), "artifacts/api-server/public/email"),
+];
+const emailAssetsRoot = emailAssetsCandidates.find((p) => fs.existsSync(p));
+if (emailAssetsRoot) {
+  app.use("/email", express.static(emailAssetsRoot, { maxAge: "7d" }));
+}
 
 // Block /debug/* before express.static and all other middleware — production must never
 // hit handlers that read process.env (Railway "Asset-Transcriber" = this same process).
@@ -299,6 +311,7 @@ app.use("/api", (req, res, next) => {
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/2fa/verify", loginLimiter);
 app.use("/api/auth/signup", signupLimiter);
+app.use("/api/auth/resend-verification", resendVerificationLimiter);
 app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api", sessionHeartbeatLimiter);
