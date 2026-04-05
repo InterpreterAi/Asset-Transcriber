@@ -4,12 +4,11 @@ import {
   usersTable,
   passwordResetTokensTable,
   emailVerificationTokensTable,
-  trialConsumedEmailsTable,
   sessionsTable,
   referralsTable,
   type User,
 } from "@workspace/db";
-import { and, count, eq, or, gte, sql } from "drizzle-orm";
+import { and, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
@@ -88,18 +87,12 @@ function getClientIp(req: import("express").Request): string {
   );
 }
 
-function signupTrialFields(grantTrial: boolean, accountCreatedAt: Date) {
-  if (grantTrial) {
-    return {
-      trialStartedAt:    accountCreatedAt,
-      trialEndsAt:       computeTrialEndsAt(accountCreatedAt),
-      dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
-    } as const;
-  }
+/** Every new account gets a standard 14-day trial and 180 min/day cap (aligned with `created_at`). */
+function defaultTrialFieldsForNewAccount(accountCreatedAt: Date) {
   return {
-    trialEndsAt:       new Date(0),
-    dailyLimitMinutes: 0,
     trialStartedAt:    accountCreatedAt,
+    trialEndsAt:       computeTrialEndsAt(accountCreatedAt),
+    dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
   } as const;
 }
 
@@ -490,15 +483,9 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
-  const [trialConsumedCount] = await db
-    .select({ n: count() })
-    .from(trialConsumedEmailsTable)
-    .where(eq(trialConsumedEmailsTable.email, normalized));
-  const grantTrial = Number(trialConsumedCount?.n ?? 0) === 0;
-
   const passwordHash = await hashPassword(password);
   const accountCreatedAt = new Date();
-  const trial            = signupTrialFields(grantTrial, accountCreatedAt);
+  const trial            = defaultTrialFieldsForNewAccount(accountCreatedAt);
 
   let newUser: User;
   try {
@@ -520,12 +507,11 @@ router.post("/signup", async (req, res) => {
           minutesUsedToday: 0,
           totalMinutesUsed: 0,
           totalSessions: 0,
-          lastUsageResetAt: new Date(),
+          lastUsageResetAt: accountCreatedAt,
+          createdAt: accountCreatedAt,
         })
         .returning();
       if (!u) throw new Error("User insert failed");
-      // Lock this email for future signups (re-register → no second trial). Trial is granted only when grantTrial above.
-      await tx.insert(trialConsumedEmailsTable).values({ email: normalized }).onConflictDoNothing();
       return u;
     });
   } catch (err) {
@@ -542,7 +528,7 @@ router.post("/signup", async (req, res) => {
   }
 
   void sendTelegramNotification(
-    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: ${grantTrial ? "Free Trial (14 days)" : "No trial (email previously used)"}`,
+    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Free Trial (14 days)`,
   );
 
   const verifyToken = crypto.randomBytes(32).toString("hex");
@@ -969,13 +955,8 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         res.redirect("/login?error=disposable_email");
         return;
       }
-      const [googleConsumedCount] = await db
-        .select({ n: count() })
-        .from(trialConsumedEmailsTable)
-        .where(eq(trialConsumedEmailsTable.email, googleEmail));
-      const grantGoogleTrial = Number(googleConsumedCount?.n ?? 0) === 0;
-      const googleAccountAt  = new Date();
-      const googleTrial      = signupTrialFields(grantGoogleTrial, googleAccountAt);
+      const googleAccountAt = new Date();
+      const googleTrial     = defaultTrialFieldsForNewAccount(googleAccountAt);
 
       const localPart    = googleEmail.split("@")[0] ?? "user";
       const baseUsername = localPart.replace(/[^a-z0-9._-]/gi, "_").slice(0, 48) || "user";
@@ -1003,11 +984,11 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
                 minutesUsedToday:  0,
                 totalMinutesUsed:  0,
                 totalSessions:     0,
-                lastUsageResetAt:  new Date(),
+                lastUsageResetAt:  googleAccountAt,
+                createdAt:         googleAccountAt,
               })
               .returning();
             if (!row) throw new Error("Google user insert failed");
-            await tx.insert(trialConsumedEmailsTable).values({ email: googleEmail }).onConflictDoNothing();
             return row;
           });
           break;
@@ -1023,27 +1004,17 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       user = created;
     }
 
-    const googleGrantTrial =
-      isNewUser &&
-      new Date(user!.trialEndsAt).getTime() > Date.now() &&
-      Number(user!.dailyLimitMinutes) > 0;
     void sendTelegramNotification(
       isNewUser
-        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: ${googleGrantTrial ? "Free Trial (14 days)" : "No trial (email previously used)"}`
+        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (14 days)`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
-      if (googleGrantTrial) {
-        void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null).catch(
-          (err) => {
-            logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");
-          },
-        );
-      } else {
-        void sendAccountVerifiedNoTrialEmail(googleEmail).catch((err) => {
-          logger.error({ err, userId: user!.id }, "Google signup: no-trial confirmation email failed");
-        });
-      }
+      void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null).catch(
+        (err) => {
+          logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");
+        },
+      );
     }
     void touchActivity(user!.id).catch((touchErr) => {
       logger.warn({ err: touchErr, userId: user!.id }, "touchActivity after Google login failed");

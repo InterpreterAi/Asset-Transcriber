@@ -152,15 +152,7 @@ async function migrateSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      // Emails that already have (or had) an account — blocks a second free trial on re-signup.
-      // New signups also insert here in the auth transaction after the user row is created.
-      await client.query(`
-        INSERT INTO trial_consumed_emails (email)
-        SELECT DISTINCT lower(trim(email))
-        FROM users
-        WHERE email IS NOT NULL AND trim(email) <> ''
-        ON CONFLICT (email) DO NOTHING
-      `);
+      // Table retained for legacy DBs; trial gating no longer uses it (every signup gets a full trial).
 
       // sessions table – columns added after initial release
       await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);

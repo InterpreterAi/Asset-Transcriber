@@ -1,5 +1,16 @@
 import { Router } from "express";
-import { db, usersTable, feedbackTable, sessionsTable, supportTicketsTable, supportRepliesTable, errorLogsTable, loginEventsTable, shareEventsTable } from "@workspace/db";
+import {
+  db,
+  usersTable,
+  trialConsumedEmailsTable,
+  feedbackTable,
+  sessionsTable,
+  supportTicketsTable,
+  supportRepliesTable,
+  errorLogsTable,
+  loginEventsTable,
+  shareEventsTable,
+} from "@workspace/db";
 import { eq, sql, gt, isNull, and, desc, gte, lt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
@@ -852,10 +863,21 @@ router.delete("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  const result = await db.delete(usersTable).where(eq(usersTable.id, userId)).returning();
-  if (result.length === 0) {
+  const [row] = await db
+    .select({ email: usersTable.email })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  if (!row) {
     res.status(404).json({ error: "User not found" });
     return;
+  }
+
+  await db.delete(usersTable).where(eq(usersTable.id, userId));
+
+  const em = row.email?.trim().toLowerCase();
+  if (em) {
+    await db.delete(trialConsumedEmailsTable).where(eq(trialConsumedEmailsTable.email, em));
   }
 
   res.json({ message: "User deleted" });

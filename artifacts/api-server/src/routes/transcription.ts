@@ -59,6 +59,13 @@ async function isGlobalCapReached(): Promise<boolean> {
 const router = Router();
 router.use(requireJsonObjectBody);
 
+/** Daily cap applies only when the account has a positive per-day limit (trial/paid). `dailyLimitMinutes <= 0` must not block (avoids legacy bad rows where `used >= 0` always). */
+function isDailyTranscriptionCapReached(user: { minutesUsedToday: number; dailyLimitMinutes: number }): boolean {
+  const cap = Number(user.dailyLimitMinutes);
+  if (!Number.isFinite(cap) || cap <= 0) return false;
+  return Number(user.minutesUsedToday) >= cap;
+}
+
 const SONIOX_TEMP_KEY_URL = "https://api.soniox.com/v1/auth/temporary-api-key";
 
 /** Prefer short-lived keys for the browser WebSocket (Soniox-recommended); fall back to master key if the REST call fails. */
@@ -115,7 +122,7 @@ router.post("/token", requireAuth, async (req, res) => {
       return;
     }
 
-    if (user.minutesUsedToday >= user.dailyLimitMinutes) {
+    if (isDailyTranscriptionCapReached(user)) {
       res.status(403).json({
         error:
           user.planType === "trial"
@@ -267,7 +274,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
     return;
   }
 
-  if (user.minutesUsedToday >= user.dailyLimitMinutes) {
+  if (isDailyTranscriptionCapReached(user)) {
     res.status(403).json({
       error:
         user.planType === "trial"
