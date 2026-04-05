@@ -1,14 +1,10 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
-import { logger } from "./logger.js";
+import {
+  emailGreeting,
+  emailParagraph,
+  renderInterpreterAiEmail,
+} from "./email-template.js";
 import { isResendConfigured, sendEmail } from "./resend-mail.js";
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 /** Friendly greeting from email local-part or explicit OAuth name. */
 export function displayNameForEmail(email: string, explicitName?: string | null): string {
@@ -34,13 +30,15 @@ const NEW_USER_WORKSPACE_URL = "https://asset-transcriber-production.up.railway.
  */
 export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
   const subject = "Welcome to InterpreterAI";
-  const workspaceUrl = escapeHtml(NEW_USER_WORKSPACE_URL);
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333;">
-<p>Welcome to InterpreterAI.</p>
-<p>Your free trial has started.</p>
-<p>You can access the app here:<br><a href="${workspaceUrl}">${workspaceUrl}</a></p>
-</body></html>`;
+  const html = renderInterpreterAiEmail({
+    heading: "Welcome to InterpreterAI",
+    bodyHtml: [
+      emailParagraph("Welcome to InterpreterAI."),
+      emailParagraph("Your free trial has started."),
+      emailParagraph("Open your workspace below to start using real-time transcription and translation."),
+    ].join(""),
+    button: { href: NEW_USER_WORKSPACE_URL, label: "Open workspace" },
+  });
 
   await sendEmail({ to, subject, html });
 }
@@ -53,16 +51,17 @@ export async function sendTrialReminderEmail(to: string, displayName?: string | 
   const name = displayNameForEmail(to, displayName);
   const url = appUrl();
   const subject = "Your InterpreterAI trial ends soon";
-  const html = `
-<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:24px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#333;line-height:1.6;">
-  <p>Hi ${escapeHtml(name)},</p>
-  <p>Your InterpreterAI trial will end in 2 days.</p>
-  <p>If you'd like to continue using real-time transcription and translation during your calls, you can upgrade anytime.</p>
-  <p>Plans start at $39/month.</p>
-  <p><a href="${escapeHtml(url)}" style="color:#1d6ae5;">Upgrade here</a></p>
-  <p>— InterpreterAI</p>
-</body></html>`;
+  const html = renderInterpreterAiEmail({
+    heading: "Your trial ends in 2 days",
+    bodyHtml: [
+      emailGreeting(name),
+      emailParagraph(
+        "Your InterpreterAI trial will end in 2 days. To keep using real-time transcription and translation, you can upgrade anytime.",
+      ),
+      emailParagraph("Plans start at $39/month."),
+    ].join(""),
+    button: { href: url, label: "View your account" },
+  });
 
   return sendEmail({ to, subject, html });
 }
@@ -76,16 +75,17 @@ export async function sendSubscriptionConfirmationEmail(
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const name = displayNameForEmail(to, displayName);
+  const url = appUrl();
   const subject = "Your InterpreterAI subscription is active";
-  const html = `
-<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:24px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#333;line-height:1.6;">
-  <p>Hi ${escapeHtml(name)},</p>
-  <p>Your InterpreterAI subscription is now active.</p>
-  <p>You now have full access to your plan features.</p>
-  <p>Thank you for supporting InterpreterAI.</p>
-  <p>— InterpreterAI</p>
-</body></html>`;
+  const html = renderInterpreterAiEmail({
+    heading: "Subscription active",
+    bodyHtml: [
+      emailGreeting(name),
+      emailParagraph("Your InterpreterAI subscription is now active."),
+      emailParagraph("You have full access to your plan features. Thank you for supporting InterpreterAI."),
+    ].join(""),
+    button: { href: url, label: "Open InterpreterAI" },
+  });
 
   return sendEmail({ to, subject, html });
 }
