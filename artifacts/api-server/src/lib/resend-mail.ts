@@ -1,8 +1,8 @@
 import { Resend } from "resend";
 import { logger } from "./logger.js";
 
-/** Resend’s unverified-domain / development sender — no custom domain setup required. */
-export const RESEND_FROM_ADDRESS = "InterpreterAI <onboarding@resend.dev>";
+/** Verified Resend sending domain (interpreterai.org). */
+export const RESEND_FROM_ADDRESS = "InterpreterAI <onboarding@interpreterai.org>";
 
 export function isResendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY?.trim());

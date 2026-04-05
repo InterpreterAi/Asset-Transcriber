@@ -8,6 +8,26 @@ import {
 } from "./email-template.js";
 import { sendEmail } from "./resend-mail.js";
 
+export async function sendPasswordResetEmail(toEmail: string, resetToken: string): Promise<void> {
+  const base = getStaticPublicBaseUrl().replace(/\/+$/, "");
+  const resetUrl = `${base}/reset-password?token=${encodeURIComponent(resetToken)}`;
+  const html = renderInterpreterAiEmail({
+    heading: "Reset your password",
+    bodyHtml: [
+      emailParagraph("We received a request to reset the password for your InterpreterAI account."),
+      emailParagraph("If you made this request, use the button below. This link expires in one hour."),
+      emailParagraph("If you did not request a password reset, you can safely ignore this email."),
+    ].join(""),
+    button: { href: resetUrl, label: "Reset password" },
+  });
+
+  await sendEmail({
+    to: toEmail,
+    subject: "Reset your InterpreterAI password",
+    html,
+  });
+}
+
 export async function sendWelcomeEmail(toEmail: string): Promise<void> {
   const base = getStaticPublicBaseUrl();
   const html = renderInterpreterAiEmail({

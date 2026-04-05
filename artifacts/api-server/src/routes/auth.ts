@@ -13,6 +13,7 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
+import { sendPasswordResetEmail } from "../lib/email.js";
 import { sendNewAccountWelcomeEmail } from "../lib/transactional-email.js";
 import { logLoginEvent } from "../lib/login-events.js";
 import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
@@ -565,8 +566,18 @@ router.post("/forgot-password", async (req, res) => {
     expiresAt,
   });
 
-  // In production: send email with reset link
-  // For now: return token directly in dev (remove in production)
+  const typed = email.trim().toLowerCase();
+  const recipient =
+    user.email?.trim().toLowerCase() ??
+    (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed) ? typed : null);
+  if (recipient) {
+    void sendPasswordResetEmail(recipient, token).catch((err) => {
+      logger.error({ err, userId: user.id }, "Forgot password: sendPasswordResetEmail failed");
+    });
+  } else {
+    logger.warn({ userId: user.id }, "Forgot password: user has no email address; reset link not emailed");
+  }
+
   const isDev = process.env.NODE_ENV !== "production";
   res.json({
     message: "If an account exists, a reset link has been sent",
