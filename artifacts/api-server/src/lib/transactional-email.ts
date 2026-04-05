@@ -1,6 +1,7 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
 import {
   emailBulletList,
+  emailGettingStartedGreeting,
   emailOrderedList,
   emailParagraph,
   emailStandardGreeting,
@@ -89,7 +90,14 @@ export async function sendPostVerificationWelcomeEmail(
   await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
-export async function sendGettingStartedEmail(to: string, explicitName?: string | null): Promise<boolean> {
+/**
+ * ~12 minutes after signup (verified). Not the post-verification welcome email.
+ * @param profileDisplayName Optional real display name (e.g. OAuth full name) — first word only; never pass username.
+ */
+export async function sendGettingStartedEmail(
+  to: string,
+  profileDisplayName?: string | null,
+): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Start your first transcription session";
@@ -97,19 +105,21 @@ export async function sendGettingStartedEmail(to: string, explicitName?: string 
     appBaseUrl: base,
     heading: "Start your first transcription session",
     bodyHtml: [
-      emailStandardGreeting(to, explicitName),
-      emailParagraph("You can start using InterpreterAI in less than a minute."),
+      emailGettingStartedGreeting(profileDisplayName ?? null),
+      emailParagraph("You're ready to start your first transcription session."),
       emailSubheading("Steps to begin"),
       emailOrderedList([
         "Open your workspace",
         'Click "Start Session"',
-        "Begin speaking to see live transcription",
+        "Choose your language pair",
+        "Select the audio source (Tab Audio or Mic)",
       ]),
-      emailSubheading("Tips for interpreters"),
+      emailSubheading("Tips for best results"),
       emailBulletList([
-        "Use headphones for better audio clarity",
-        "Speak clearly for highest transcription accuracy",
-        "Switch languages anytime during a session",
+        "Select the correct language pair before starting",
+        'Use "Tab Audio" to capture the caller\u2019s voice during a call',
+        'The "Mic" option is mainly for personal dictation or notes and does not capture the caller audio during calls',
+        "Use headphones to avoid audio feedback",
       ]),
     ].join(""),
     primaryButton: { href: workspaceUrl(), label: "Open Workspace" },

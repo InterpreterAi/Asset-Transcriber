@@ -15,9 +15,8 @@ export async function runOnboardingEmailJob(): Promise<void> {
   try {
     const gsRows = await db
       .select({
-        id:       usersTable.id,
-        email:    usersTable.email,
-        username: usersTable.username,
+        id:    usersTable.id,
+        email: usersTable.email,
       })
       .from(usersTable)
       .where(
@@ -33,7 +32,8 @@ export async function runOnboardingEmailJob(): Promise<void> {
       const to = row.email?.trim().toLowerCase() ?? "";
       if (!to || !EMAIL_RE.test(to)) continue;
 
-      const ok = await sendGettingStartedEmail(to, row.username);
+      // Greeting uses profileDisplayName only when we store a real name — never username.
+      const ok = await sendGettingStartedEmail(to, null);
       if (ok) {
         await db
           .update(usersTable)

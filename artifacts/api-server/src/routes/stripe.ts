@@ -156,7 +156,7 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
       if (status === "active" || status === "trialing") {
         const invId = invoiceIdFromSubscription(raw);
         if (invId && u.paymentReceiptLastInvoiceId !== invId) {
-          let inv: Awaited<ReturnType<typeof storage.getInvoice>> = null;
+          let inv: Awaited<ReturnType<typeof storage.getInvoice>> | null = null;
           try {
             inv = await storage.getInvoice(invId);
           } catch (selErr) {

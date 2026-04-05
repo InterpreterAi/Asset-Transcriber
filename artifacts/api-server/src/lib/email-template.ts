@@ -71,6 +71,23 @@ export function emailStandardGreeting(recipientEmail: string, explicitName?: str
   return `<p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">Hi ${escapeHtml(who)},</p>`;
 }
 
+/**
+ * Second onboarding email only: greet with a real given name if provided.
+ * Never uses email local-part, username, or handles — omit or pass null for “Hi there,”.
+ */
+export function emailGettingStartedGreeting(profileDisplayName?: string | null): string {
+  const t = profileDisplayName?.trim();
+  if (!t || t.includes("@")) {
+    return `<p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">Hi there,</p>`;
+  }
+  const first = t.split(/\s+/).filter(Boolean)[0] ?? "";
+  if (!first) {
+    return `<p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">Hi there,</p>`;
+  }
+  const cap = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+  return `<p style="margin:0 0 16px;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">Hi ${escapeHtml(cap)},</p>`;
+}
+
 export function emailFooterBlockHtml(appBaseUrl: string): string {
   const b = normalizeBaseUrl(appBaseUrl);
   const terms = escapeHtmlAttr(`${b}/terms`);
