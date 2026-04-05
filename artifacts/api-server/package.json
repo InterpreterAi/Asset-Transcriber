@@ -16,12 +16,13 @@
     "@workspace/db": "workspace:*",
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",
-    "dotenv": "^16.6.1",
     "cors": "^2",
+    "dotenv": "^16.6.1",
     "drizzle-orm": "catalog:",
     "express": "^5",
     "express-rate-limit": "^8.3.1",
     "express-session": "^1.19.0",
+    "nodemailer": "^8.0.4",
     "openai": "^6.33.0",
     "pino": "^9",
     "pino-http": "^10",
@@ -38,12 +39,13 @@
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.18.2",
     "@types/node": "catalog:",
+    "@types/nodemailer": "^7.0.11",
     "@types/qrcode": "^1.5.6",
     "@types/speakeasy": "^2.0.10",
     "esbuild": "^0.27.3",
-    "tsx": "catalog:",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",
-    "thread-stream": "3.1.0"
+    "thread-stream": "3.1.0",
+    "tsx": "catalog:"
   }
 }
