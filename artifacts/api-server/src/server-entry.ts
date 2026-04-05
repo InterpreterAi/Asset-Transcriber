@@ -151,6 +151,8 @@ async function migrateSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
+      // Emails that already have (or had) an account — blocks a second free trial on re-signup.
+      // New signups also insert here in the auth transaction after the user row is created.
       await client.query(`
         INSERT INTO trial_consumed_emails (email)
         SELECT DISTINCT lower(trim(email))

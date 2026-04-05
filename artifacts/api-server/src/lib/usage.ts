@@ -23,16 +23,23 @@ export function resetDailyUsageIfNeeded(user: User): boolean {
 }
 
 export function getTrialDaysRemaining(user: User): number {
+  const daily = Number(user.dailyLimitMinutes);
+  if (!Number.isFinite(daily) || daily <= 0) return 0;
   const now = new Date();
   const end = new Date(user.trialEndsAt);
+  if (!Number.isFinite(end.getTime()) || end.getTime() <= 0) return 0;
   const diff = end.getTime() - now.getTime();
   if (!Number.isFinite(diff)) return 0;
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+/** True only when the user is on the trial plan, was granted a real trial window, and that window has ended. */
 export function isTrialExpired(user: User): boolean {
+  if (user.planType !== "trial") return false;
+  const daily = Number(user.dailyLimitMinutes);
+  if (!Number.isFinite(daily) || daily <= 0) return false;
   const end = new Date(user.trialEndsAt);
-  if (!Number.isFinite(end.getTime())) return false;
+  if (!Number.isFinite(end.getTime()) || end.getTime() <= 0) return false;
   return new Date() > end;
 }
 

@@ -491,12 +491,12 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
-  const [consumed] = await db
+  const trialConsumedRows = await db
     .select({ email: trialConsumedEmailsTable.email })
     .from(trialConsumedEmailsTable)
     .where(eq(trialConsumedEmailsTable.email, normalized))
     .limit(1);
-  const grantTrial = !consumed;
+  const grantTrial = trialConsumedRows.length === 0;
 
   const passwordHash = await hashPassword(password);
   const trial = signupTrialFields(grantTrial);
@@ -525,9 +525,8 @@ router.post("/signup", async (req, res) => {
         })
         .returning();
       if (!u) throw new Error("User insert failed");
-      if (grantTrial) {
-        await tx.insert(trialConsumedEmailsTable).values({ email: normalized }).onConflictDoNothing();
-      }
+      // Lock this email for future signups (re-register → no second trial). Trial is granted only when grantTrial above.
+      await tx.insert(trialConsumedEmailsTable).values({ email: normalized }).onConflictDoNothing();
       return u;
     });
   } catch (err) {
@@ -951,12 +950,12 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         res.redirect("/login?error=disposable_email");
         return;
       }
-      const [consumedGoogle] = await db
+      const googleTrialConsumedRows = await db
         .select({ email: trialConsumedEmailsTable.email })
         .from(trialConsumedEmailsTable)
         .where(eq(trialConsumedEmailsTable.email, googleEmail))
         .limit(1);
-      const grantGoogleTrial = !consumedGoogle;
+      const grantGoogleTrial = googleTrialConsumedRows.length === 0;
       const googleTrial      = signupTrialFields(grantGoogleTrial);
 
       const localPart    = googleEmail.split("@")[0] ?? "user";
@@ -989,9 +988,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
               })
               .returning();
             if (!row) throw new Error("Google user insert failed");
-            if (grantGoogleTrial) {
-              await tx.insert(trialConsumedEmailsTable).values({ email: googleEmail }).onConflictDoNothing();
-            }
+            await tx.insert(trialConsumedEmailsTable).values({ email: googleEmail }).onConflictDoNothing();
             return row;
           });
           break;

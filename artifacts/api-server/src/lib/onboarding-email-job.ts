@@ -54,6 +54,8 @@ export async function runOnboardingEmailJob(): Promise<void> {
         and(
           eq(usersTable.planType, "trial"),
           isNull(usersTable.trialExpiredEmailSentAt),
+          sql`${usersTable.dailyLimitMinutes} > 0`,
+          sql`${usersTable.trialEndsAt} > TIMESTAMP '1970-01-02'`,
           sql`${usersTable.trialEndsAt} < NOW()`,
           isNotNull(usersTable.email),
         ),
