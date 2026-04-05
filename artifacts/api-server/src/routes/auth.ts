@@ -9,7 +9,7 @@ import {
   referralsTable,
   type User,
 } from "@workspace/db";
-import { and, eq, or, gte, sql } from "drizzle-orm";
+import { and, count, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
@@ -88,19 +88,18 @@ function getClientIp(req: import("express").Request): string {
   );
 }
 
-function signupTrialFields(grantTrial: boolean) {
+function signupTrialFields(grantTrial: boolean, accountCreatedAt: Date) {
   if (grantTrial) {
-    const trialStartedAt = new Date();
     return {
-      trialStartedAt,
-      trialEndsAt:       computeTrialEndsAt(trialStartedAt),
+      trialStartedAt:    accountCreatedAt,
+      trialEndsAt:       computeTrialEndsAt(accountCreatedAt),
       dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
     } as const;
   }
   return {
     trialEndsAt:       new Date(0),
     dailyLimitMinutes: 0,
-    trialStartedAt:    new Date(),
+    trialStartedAt:    accountCreatedAt,
   } as const;
 }
 
@@ -491,15 +490,15 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
-  const trialConsumedRows = await db
-    .select({ email: trialConsumedEmailsTable.email })
+  const [trialConsumedCount] = await db
+    .select({ n: count() })
     .from(trialConsumedEmailsTable)
-    .where(eq(trialConsumedEmailsTable.email, normalized))
-    .limit(1);
-  const grantTrial = trialConsumedRows.length === 0;
+    .where(eq(trialConsumedEmailsTable.email, normalized));
+  const grantTrial = Number(trialConsumedCount?.n ?? 0) === 0;
 
   const passwordHash = await hashPassword(password);
-  const trial = signupTrialFields(grantTrial);
+  const accountCreatedAt = new Date();
+  const trial            = signupTrialFields(grantTrial, accountCreatedAt);
 
   let newUser: User;
   try {
@@ -950,13 +949,13 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         res.redirect("/login?error=disposable_email");
         return;
       }
-      const googleTrialConsumedRows = await db
-        .select({ email: trialConsumedEmailsTable.email })
+      const [googleConsumedCount] = await db
+        .select({ n: count() })
         .from(trialConsumedEmailsTable)
-        .where(eq(trialConsumedEmailsTable.email, googleEmail))
-        .limit(1);
-      const grantGoogleTrial = googleTrialConsumedRows.length === 0;
-      const googleTrial      = signupTrialFields(grantGoogleTrial);
+        .where(eq(trialConsumedEmailsTable.email, googleEmail));
+      const grantGoogleTrial = Number(googleConsumedCount?.n ?? 0) === 0;
+      const googleAccountAt  = new Date();
+      const googleTrial      = signupTrialFields(grantGoogleTrial, googleAccountAt);
 
       const localPart    = googleEmail.split("@")[0] ?? "user";
       const baseUsername = localPart.replace(/[^a-z0-9._-]/gi, "_").slice(0, 48) || "user";

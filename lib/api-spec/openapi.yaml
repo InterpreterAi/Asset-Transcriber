@@ -635,9 +635,17 @@ components:
           type: integer
         username:
           type: string
+        email:
+          type: string
+          nullable: true
         rating:
           type: integer
         comment:
+          type: string
+        recommend:
+          type: string
+          enum: [yes, no, maybe]
+        source:
           type: string
         createdAt:
           type: string

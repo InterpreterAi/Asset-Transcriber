@@ -119,6 +119,7 @@ export interface AdminFeedbackItem {
   id: number;
   userId: number;
   username: string;
+  email?: string | null;
   rating: number;
   comment?: string;
   recommend?: "yes" | "no" | "unsure";

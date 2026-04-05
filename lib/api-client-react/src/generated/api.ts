@@ -733,7 +733,9 @@ export const getSubmitFeedbackMutationOptions = <
     { data: BodyType<FeedbackRequest> }
   > = (props) => {
     const { data } = props ?? {};
-
+    if (!data || typeof data.rating !== "number" || data.rating < 1 || data.rating > 5) {
+      return Promise.reject(new Error("Invalid feedback: rating 1–5 required"));
+    }
     return submitFeedback(data, requestOptions);
   };
 

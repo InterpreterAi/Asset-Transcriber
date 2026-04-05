@@ -21,6 +21,7 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
+import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import { formatMinutes } from "@/lib/utils";
 
@@ -510,6 +511,12 @@ export default function Workspace() {
       <UserFeedbackModal
         isOpen={showUserFeedback}
         onClose={() => setShowUserFeedback(false)}
+      />
+      <EarlyTrialFeedbackPrompt
+        planType={user.planType}
+        trialExpired={user.trialExpired}
+        minutesRemainingToday={user.minutesRemainingToday}
+        dailyLimitMinutes={user.dailyLimitMinutes}
       />
       <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
       {showInviteModal && (

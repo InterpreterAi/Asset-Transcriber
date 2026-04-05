@@ -117,6 +117,7 @@ async function migrateSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
+      await client.query(`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS email TEXT`);
 
       // users table – columns added after initial release
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);

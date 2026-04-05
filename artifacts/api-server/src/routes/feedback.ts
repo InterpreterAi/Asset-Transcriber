@@ -22,18 +22,25 @@ router.post("/", requireAuth, async (req, res) => {
     return;
   }
 
+  const userId = req.session.userId!;
+  const [submitter] = await db
+    .select({ username: usersTable.username, email: usersTable.email })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+
+  const submitterEmail = submitter?.email?.trim().toLowerCase() ?? null;
+
   await db.insert(feedbackTable).values({
-    userId:    req.session.userId!,
+    userId,
+    email:     submitterEmail,
     rating,
     recommend: recommend ?? null,
     comment:   comment?.trim() || null,
     source:    source ?? null,
   });
 
-  const [user] = await db
-    .select({ username: usersTable.username })
-    .from(usersTable)
-    .where(eq(usersTable.id, req.session.userId!));
+  const user = submitter;
 
   const stars = "⭐".repeat(rating);
   const recLine = recommend ? `Recommend: ${RECOMMEND_EMOJI[recommend]} ${recommend}` : "";

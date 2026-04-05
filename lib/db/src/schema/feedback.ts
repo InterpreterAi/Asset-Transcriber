@@ -4,6 +4,8 @@ import { usersTable } from "./users";
 export const feedbackTable = pgTable("feedback", {
   id:        serial("id").primaryKey(),
   userId:    integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  /** Denormalized at submit time (snapshot for admin / exports). */
+  email:     text("email"),
   rating:    integer("rating").notNull(),
   recommend: text("recommend"),
   comment:   text("comment"),

@@ -1605,6 +1605,9 @@ export default function Admin() {
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h3 className="font-semibold text-sm">{item.username}</h3>
+                    {item.email && (
+                      <p className="text-[11px] text-muted-foreground">{item.email}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">{format(new Date(item.createdAt), "MMM d, yyyy")}</p>
                   </div>
                   <div className="flex gap-0.5">
@@ -1626,6 +1629,11 @@ export default function Admin() {
                 )}
                 {item.source === "daily-prompt" && (
                   <p className="text-[10px] text-muted-foreground mb-2">via daily prompt</p>
+                )}
+                {(item.source === "trial-ended" || item.source === "trial-daily-mid-session") && (
+                  <p className="text-[10px] text-muted-foreground mb-2">
+                    {item.source === "trial-ended" ? "trial ended modal" : "mid-trial prompt"}
+                  </p>
                 )}
                 {item.comment
                   ? <p className="text-sm text-foreground/80 italic">"{item.comment}"</p>
