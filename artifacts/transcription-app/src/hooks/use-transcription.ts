@@ -513,6 +513,8 @@ export function useTranscription(isAdmin = false) {
   const isRecRef     = useRef(false);
   const sessionIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
+  /** PCM sample-seconds sent toward Soniox (mono @ TARGET_RATE) — used for daily limits, not wall clock. */
+  const audioPcmSecondsRef = useRef(0);
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
@@ -964,10 +966,12 @@ export function useTranscription(isAdmin = false) {
     setMicLevel(0);
 
     if (sessionIdRef.current) {
-      const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      const wallSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      const pcmSec = Math.floor(audioPcmSecondsRef.current);
+      const durationSeconds = Math.max(0, Math.min(pcmSec, wallSec));
       try {
         await stopSessionMut.mutateAsync({
-          data: { sessionId: sessionIdRef.current, durationSeconds: duration },
+          data: { sessionId: sessionIdRef.current, durationSeconds },
         });
       } catch { /* session stop error — silenced (HIPAA) */ }
       sessionIdRef.current = null;
@@ -1214,6 +1218,7 @@ export function useTranscription(isAdmin = false) {
       transcriptBufRef.current  = [];
       translationBufRef.current = [];
       startTimeRef.current = Date.now();
+      audioPcmSecondsRef.current = 0;
 
       // ── Session heartbeat ─────────────────────────────────────────────────
       // Ping every 30 s so the server knows the session is still alive.
@@ -1292,6 +1297,7 @@ export function useTranscription(isAdmin = false) {
           }
         }
         const samples = new Int16Array(raw);
+        audioPcmSecondsRef.current += samples.length / TARGET_RATE;
         let sum = 0;
         for (let i = 0; i < samples.length; i++) {
           const s = (samples[i] ?? 0) / 32768;
@@ -1340,10 +1346,12 @@ export function useTranscription(isAdmin = false) {
       // ghost-session cleanup must happen here to prevent the next start()
       // from getting a stale open session.
       if (sessionIdRef.current) {
-        const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const wallSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const pcmSec = Math.floor(audioPcmSecondsRef.current);
+        const durationSeconds = Math.max(0, Math.min(pcmSec, wallSec));
         try {
           await stopSessionMut.mutateAsync({
-            data: { sessionId: sessionIdRef.current, durationSeconds: duration },
+            data: { sessionId: sessionIdRef.current, durationSeconds },
           });
         } catch { /* ignore — server will auto-close on next start */ }
         sessionIdRef.current = null;

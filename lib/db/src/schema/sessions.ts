@@ -11,7 +11,7 @@ export const sessionsTable = pgTable("sessions", {
   langPair:        text("lang_pair"),
 
   // ── Real API-usage cost tracking ──────────────────────────────────────────
-  // Soniox: audio seconds are the session's durationSeconds (audio goes browser→Soniox directly).
+  // Soniox: billable seconds = audio_seconds_processed (PCM sent from the client; see /session/stop).
   // OpenAI: tokens are accumulated incrementally after each /translate call.
   audioSecondsProcessed: integer("audio_seconds_processed").default(0),
   sonioxCost:            numeric("soniox_cost",        { precision: 10, scale: 6 }).default("0"),

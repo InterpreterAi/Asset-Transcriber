@@ -497,7 +497,8 @@ export default function Workspace() {
   }
   if (!user) return null;
 
-  const isLimitReached = user.minutesRemainingToday <= 0;
+  const isLimitReached =
+    user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
   const isBlocked      = user.trialExpired || isLimitReached;
 
   return (

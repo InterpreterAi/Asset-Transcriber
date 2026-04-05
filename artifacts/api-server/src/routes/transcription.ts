@@ -175,29 +175,19 @@ async function sweepStaleSessions(): Promise<void> {
 
     const now = new Date();
     for (const s of stale) {
-      const durationSeconds = Math.round((now.getTime() - s.startedAt.getTime()) / 1000);
-      const minutesUsed = durationSeconds / 60;
-      const sonioxCost  = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
+      // Do not bill wall-clock time: the client never reported processed audio (tab close / refresh).
+      // Daily limits must reflect only audio seconds credited via POST /session/stop.
       await db
         .update(sessionsTable)
         .set({
           endedAt:               now,
-          durationSeconds,
-          audioSecondsProcessed: durationSeconds,
-          sonioxCost:            String(sonioxCost),
-          // totalSessionCost = soniox + whatever translation cost was accumulated
-          totalSessionCost: sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+          durationSeconds:        0,
+          audioSecondsProcessed: 0,
+          sonioxCost:            "0",
+          totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
         })
         .where(eq(sessionsTable.id, s.id));
       sessionStore.delete(s.id);
-      // Credit the minutes to the user so "min today" stays accurate
-      await db
-        .update(usersTable)
-        .set({
-          minutesUsedToday: sql`minutes_used_today + ${minutesUsed}`,
-          totalMinutesUsed: sql`total_minutes_used + ${minutesUsed}`,
-        })
-        .where(eq(usersTable.id, s.userId));
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -305,22 +295,20 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   if (openSessions.length > 0) {
     const now = new Date();
-    // Close orphaned sessions and credit their duration so "min today" stays accurate
+    // Close orphaned rows (refresh / lost stop) without billing wall-clock time — only
+    // POST /session/stop with client-reported audio seconds updates daily usage.
     for (const orphan of openSessions) {
-      const durationSeconds = Math.round((now.getTime() - orphan.startedAt.getTime()) / 1000);
-      const minutesUsed = durationSeconds / 60;
       await db
         .update(sessionsTable)
-        .set({ endedAt: now, durationSeconds })
+        .set({
+          endedAt:               now,
+          durationSeconds:        0,
+          audioSecondsProcessed: 0,
+          sonioxCost:            "0",
+          totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
+        })
         .where(eq(sessionsTable.id, orphan.id));
       sessionStore.delete(orphan.id);
-      await db
-        .update(usersTable)
-        .set({
-          minutesUsedToday: sql`minutes_used_today + ${minutesUsed}`,
-          totalMinutesUsed: sql`total_minutes_used + ${minutesUsed}`,
-        })
-        .where(eq(usersTable.id, user.id));
     }
   }
 
@@ -386,14 +374,16 @@ router.post("/session/stop", requireAuth, async (req, res) => {
     return;
   }
 
-  const minutesUsed = durationSeconds / 60;
+  // Billable duration = audio seconds processed in this session (client measures PCM sent to Soniox).
+  const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSeconds) || 0)), 3 * 60 * 60);
+  const minutesUsed = audioSeconds / 60;
   const sonioxCost  = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
 
   await db.update(sessionsTable)
     .set({
       endedAt:               new Date(),
-      durationSeconds,
-      audioSecondsProcessed: durationSeconds,
+      durationSeconds:       audioSeconds,
+      audioSecondsProcessed: audioSeconds,
       sonioxCost:            String(sonioxCost),
       // totalSessionCost = soniox + whatever translation cost was accumulated during the session
       totalSessionCost: sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
