@@ -42,8 +42,7 @@ export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
 <p>You can access the app here:<br><a href="${workspaceUrl}">${workspaceUrl}</a></p>
 </body></html>`;
 
-  const ok = await sendEmail({ to, subject, html });
-  if (ok) logger.info({ email: to }, "Welcome email sent (Resend)");
+  await sendEmail({ to, subject, html });
 }
 
 /**

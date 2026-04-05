@@ -1,33 +1,74 @@
 import { Resend } from "resend";
 import { logger } from "./logger.js";
 
-const FROM_ADDRESS = "noreply@interpreterai.app";
+/** Resend’s unverified-domain / development sender — no custom domain setup required. */
+export const RESEND_FROM_ADDRESS = "InterpreterAI <onboarding@resend.dev>";
 
 export function isResendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
-/**
- * Send mail via Resend. Returns false if RESEND_API_KEY is missing or the request fails.
- */
-export async function sendEmail(params: {
+type SendParams = {
   to: string;
   subject: string;
   html: string;
-}): Promise<boolean> {
+  /** Optional plain-text part; welcome / transactional HTML-only is OK for Resend. */
+  text?: string;
+};
+
+async function deliver(params: SendParams): Promise<boolean> {
   const key = process.env.RESEND_API_KEY?.trim();
-  if (!key) return false;
+  if (!key) {
+    logger.warn(
+      { to: params.to, subject: params.subject },
+      "RESEND_API_KEY not set — email not sent",
+    );
+    return false;
+  }
+
   try {
     const client = new Resend(key);
-    await client.emails.send({
-      from: FROM_ADDRESS,
+    const result = await client.emails.send({
+      from: RESEND_FROM_ADDRESS,
       to: params.to,
       subject: params.subject,
       html: params.html,
+      ...(params.text !== undefined ? { text: params.text } : {}),
     });
+
+    if (result.error) {
+      logger.error(
+        {
+          to: params.to,
+          subject: params.subject,
+          resendError: result.error,
+          statusCode: result.error.statusCode,
+          errorName: result.error.name,
+        },
+        "Resend send failed (API error)",
+      );
+      return false;
+    }
+
+    logger.info(
+      {
+        to: params.to,
+        subject: params.subject,
+        messageId: result.data?.id,
+        from: RESEND_FROM_ADDRESS,
+      },
+      "Resend email sent successfully",
+    );
     return true;
   } catch (err) {
-    logger.error({ err, to: params.to }, "Resend send failed");
+    logger.error({ err, to: params.to, subject: params.subject }, "Resend send failed (exception)");
     return false;
   }
+}
+
+/**
+ * Send mail via Resend (signup welcome, trial reminder, etc.).
+ */
+export async function sendEmail(params: SendParams): Promise<boolean> {
+  return deliver(params);
 }

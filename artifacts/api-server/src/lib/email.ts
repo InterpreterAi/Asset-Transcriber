@@ -1,41 +1,25 @@
-import { Resend } from "resend";
 import { getStaticPublicBaseUrl } from "./authEnv.js";
-import { logger } from "./logger.js";
-const FROM_ADDRESS = "InterpreterAI <noreply@interpreterai.app>";
-
-function getClient(): Resend | null {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
-    logger.warn("RESEND_API_KEY is not set — email sending is disabled");
-    return null;
-  }
-  return new Resend(key);
-}
+import { sendEmail } from "./resend-mail.js";
 
 export async function sendWelcomeEmail(toEmail: string): Promise<void> {
-  const client = getClient();
-  if (!client) return;
-
-  try {
-    await client.emails.send({
-      from: FROM_ADDRESS,
-      to: toEmail,
-      subject: "Welcome to InterpreterAI",
-      text: [
-        "Hello,",
-        "",
-        "Your InterpreterAI account has been successfully created.",
-        "",
-        "You can now access real-time transcription and translation for live interpretation.",
-        "",
-        `Login here:\n${getStaticPublicBaseUrl()}`,
-        "",
-        "If you did not create this account, please ignore this email.",
-        "",
-        "Best,",
-        "InterpreterAI",
-      ].join("\n"),
-      html: `
+  await sendEmail({
+    to: toEmail,
+    subject: "Welcome to InterpreterAI",
+    text: [
+      "Hello,",
+      "",
+      "Your InterpreterAI account has been successfully created.",
+      "",
+      "You can now access real-time transcription and translation for live interpretation.",
+      "",
+      `Login here:\n${getStaticPublicBaseUrl()}`,
+      "",
+      "If you did not create this account, please ignore this email.",
+      "",
+      "Best,",
+      "InterpreterAI",
+    ].join("\n"),
+    html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -47,13 +31,11 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
     <tr>
       <td align="center">
         <table width="540" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-          <!-- Header -->
           <tr>
             <td style="background:#1d6ae5;padding:28px 36px;">
               <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">InterpreterAI</p>
             </td>
           </tr>
-          <!-- Body -->
           <tr>
             <td style="padding:36px 36px 28px;">
               <p style="margin:0 0 16px;font-size:22px;font-weight:700;color:#1a1a1a;letter-spacing:-0.3px;">Welcome to InterpreterAI</p>
@@ -64,7 +46,6 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
               <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
                 You can now access real-time transcription and translation for live interpretation.
               </p>
-              <!-- Button -->
               <table cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="background:#1d6ae5;border-radius:10px;">
@@ -80,7 +61,6 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
               </p>
             </td>
           </tr>
-          <!-- Footer -->
           <tr>
             <td style="padding:20px 36px;border-top:1px solid #f0f0f0;">
               <p style="margin:0;font-size:12px;color:#aaa;">© 2026 InterpreterAI · All rights reserved</p>
@@ -92,11 +72,7 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
   </table>
 </body>
 </html>`,
-    });
-    logger.info({ email: toEmail }, "Welcome email sent");
-  } catch (err) {
-    logger.error({ err, email: toEmail }, "Failed to send welcome email");
-  }
+  });
 }
 
 export async function sendSupportConfirmationEmail(
@@ -104,28 +80,23 @@ export async function sendSupportConfirmationEmail(
   ticketId: number,
   subject: string,
 ): Promise<void> {
-  const client = getClient();
-  if (!client) return;
-
-  try {
-    await client.emails.send({
-      from: FROM_ADDRESS,
-      to:   toEmail,
-      subject: `[Ticket #${ticketId}] We received your support request`,
-      text: [
-        `Hi,`,
-        ``,
-        `We received your support request regarding: "${subject}"`,
-        ``,
-        `Our team will get back to you as soon as possible.`,
-        `You can view your ticket status at: ${getStaticPublicBaseUrl()}`,
-        ``,
-        `Ticket ID: #${ticketId}`,
-        ``,
-        `Best,`,
-        `InterpreterAI Support`,
-      ].join("\n"),
-      html: `
+  await sendEmail({
+    to: toEmail,
+    subject: `[Ticket #${ticketId}] We received your support request`,
+    text: [
+      `Hi,`,
+      ``,
+      `We received your support request regarding: "${subject}"`,
+      ``,
+      `Our team will get back to you as soon as possible.`,
+      `You can view your ticket status at: ${getStaticPublicBaseUrl()}`,
+      ``,
+      `Ticket ID: #${ticketId}`,
+      ``,
+      `Best,`,
+      `InterpreterAI Support`,
+    ].join("\n"),
+    html: `
 <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:40px 20px;">
@@ -153,11 +124,7 @@ export async function sendSupportConfirmationEmail(
     </td></tr>
   </table>
 </body></html>`,
-    });
-    logger.info({ email: toEmail, ticketId }, "Support confirmation email sent");
-  } catch (err) {
-    logger.error({ err }, "Failed to send support confirmation email");
-  }
+  });
 }
 
 export async function sendAdminReplyEmail(
@@ -166,27 +133,22 @@ export async function sendAdminReplyEmail(
   subject: string,
   replyMessage: string,
 ): Promise<void> {
-  const client = getClient();
-  if (!client) return;
-
-  try {
-    await client.emails.send({
-      from: FROM_ADDRESS,
-      to:   toEmail,
-      subject: `[Ticket #${ticketId}] Re: ${subject}`,
-      text: [
-        `Hi,`,
-        ``,
-        `You have a new reply on your support request: "${subject}"`,
-        ``,
-        replyMessage,
-        ``,
-        `View your ticket at: ${getStaticPublicBaseUrl()}`,
-        ``,
-        `Best,`,
-        `InterpreterAI Support`,
-      ].join("\n"),
-      html: `
+  await sendEmail({
+    to: toEmail,
+    subject: `[Ticket #${ticketId}] Re: ${subject}`,
+    text: [
+      `Hi,`,
+      ``,
+      `You have a new reply on your support request: "${subject}"`,
+      ``,
+      replyMessage,
+      ``,
+      `View your ticket at: ${getStaticPublicBaseUrl()}`,
+      ``,
+      `Best,`,
+      `InterpreterAI Support`,
+    ].join("\n"),
+    html: `
 <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:40px 20px;">
@@ -212,11 +174,7 @@ export async function sendAdminReplyEmail(
     </td></tr>
   </table>
 </body></html>`,
-    });
-    logger.info({ email: toEmail, ticketId }, "Admin reply email sent");
-  } catch (err) {
-    logger.error({ err }, "Failed to send admin reply email");
-  }
+  });
 }
 
 export async function sendTicketResolvedEmail(
@@ -224,30 +182,25 @@ export async function sendTicketResolvedEmail(
   ticketId: number,
   subject: string,
 ): Promise<void> {
-  const client = getClient();
-  if (!client) return;
-
-  try {
-    await client.emails.send({
-      from: FROM_ADDRESS,
-      to:   toEmail,
-      subject: `[Ticket #${ticketId}] Your request has been resolved`,
-      text: [
-        `Hi,`,
-        ``,
-        `Your support request has been marked as resolved.`,
-        ``,
-        `Subject: "${subject}"`,
-        `Ticket: #${ticketId}`,
-        ``,
-        `If you still have questions or the issue isn't fixed, you can reply to this ticket at any time and it will automatically reopen.`,
-        ``,
-        `View your ticket at: ${getStaticPublicBaseUrl()}`,
-        ``,
-        `Best,`,
-        `InterpreterAI Support`,
-      ].join("\n"),
-      html: `
+  await sendEmail({
+    to: toEmail,
+    subject: `[Ticket #${ticketId}] Your request has been resolved`,
+    text: [
+      `Hi,`,
+      ``,
+      `Your support request has been marked as resolved.`,
+      ``,
+      `Subject: "${subject}"`,
+      `Ticket: #${ticketId}`,
+      ``,
+      `If you still have questions or the issue isn't fixed, you can reply to this ticket at any time and it will automatically reopen.`,
+      ``,
+      `View your ticket at: ${getStaticPublicBaseUrl()}`,
+      ``,
+      `Best,`,
+      `InterpreterAI Support`,
+    ].join("\n"),
+    html: `
 <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:40px 20px;">
@@ -278,9 +231,5 @@ export async function sendTicketResolvedEmail(
     </td></tr>
   </table>
 </body></html>`,
-    });
-    logger.info({ email: toEmail, ticketId }, "Ticket resolved email sent");
-  } catch (err) {
-    logger.error({ err }, "Failed to send ticket resolved email");
-  }
+  });
 }
