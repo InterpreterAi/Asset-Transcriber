@@ -1,7 +1,6 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
-import { sendWelcomeEmail } from "./email.js";
 import { logger } from "./logger.js";
-import { isSmtpConfigured, sendSmtpMail } from "./smtp-mail.js";
+import { isSmtpConfigured, sendEmail, sendSmtpMail } from "./email-service.js";
 
 function escapeHtml(s: string): string {
   return s
@@ -24,82 +23,31 @@ export function displayNameForEmail(email: string, explicitName?: string | null)
     .join(" ");
 }
 
-function formatTrialEndDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 function appUrl(): string {
   return getStaticPublicBaseUrl();
 }
 
+const NEW_USER_WORKSPACE_URL = "https://asset-transcriber-production.up.railway.app/workspace";
+
 /**
- * 1) Free trial started — new account (email or Google).
- * Uses Gmail SMTP when configured; otherwise falls back to legacy Resend welcome.
+ * New account (email signup or Google) — welcome + trial notice. Fire-and-forget from auth; errors are logged only.
  */
-export async function sendFreeTrialStartedEmail(
-  to: string,
-  opts: { trialEndsAt: Date; displayName?: string | null },
-): Promise<void> {
-  const name = displayNameForEmail(to, opts.displayName);
-  const end = formatTrialEndDate(opts.trialEndsAt);
-  const url = appUrl();
-
-  if (!isSmtpConfigured()) {
-    void sendWelcomeEmail(to);
-    return;
-  }
-
-  const subject = "Your InterpreterAI free trial has started";
-  const text = [
-    `Hi ${name},`,
-    "",
-    "Welcome to InterpreterAI.",
-    "",
-    "Your 14-day free trial has started today.",
-    "",
-    "Daily usage during the trial:",
-    "• Up to 3 hours of real-time interpreting per day",
-    "",
-    "Trial end date:",
-    end,
-    "",
-    "You can upgrade anytime from your dashboard.",
-    "",
-    "Start using InterpreterAI:",
-    url,
-    "",
-    "— InterpreterAI",
-  ].join("\n");
-
-  const html = `
-<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:24px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#333;line-height:1.6;">
-  <p>Hi ${escapeHtml(name)},</p>
-  <p>Welcome to InterpreterAI.</p>
-  <p>Your 14-day free trial has started today.</p>
-  <p><strong>Daily usage during the trial:</strong></p>
-  <ul>
-    <li>Up to 3 hours of real-time interpreting per day</li>
-  </ul>
-  <p><strong>Trial end date:</strong><br>${escapeHtml(end)}</p>
-  <p>You can upgrade anytime from your dashboard.</p>
-  <p><a href="${escapeHtml(url)}" style="color:#1d6ae5;">Start using InterpreterAI</a></p>
-  <p>— InterpreterAI</p>
+export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
+  const subject = "Welcome to InterpreterAI";
+  const workspaceUrl = escapeHtml(NEW_USER_WORKSPACE_URL);
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333;">
+<p>Welcome to InterpreterAI.</p>
+<p>Your free trial has started.</p>
+<p>You can access the app here:<br><a href="${workspaceUrl}">${workspaceUrl}</a></p>
 </body></html>`;
 
-  const ok = await sendSmtpMail({ to, subject, text, html });
-  if (ok) logger.info({ email: to }, "Free trial started email sent (SMTP)");
-  else void sendWelcomeEmail(to);
+  const ok = await sendEmail(to, subject, html);
+  if (ok) logger.info({ email: to }, "Welcome email sent (SMTP)");
 }
 
 /**
- * 2) Trial ends in 2 days — scheduled job only.
+ * Trial ends in 2 days — scheduled job only.
  */
 export async function sendTrialReminderEmail(to: string, displayName?: string | null): Promise<boolean> {
   if (!isSmtpConfigured()) return false;
@@ -136,7 +84,7 @@ export async function sendTrialReminderEmail(to: string, displayName?: string | 
 }
 
 /**
- * 3) Subscription active — prepared for future Stripe webhook; not called yet.
+ * Subscription active — prepared for future Stripe webhook; not called yet.
  */
 export async function sendSubscriptionConfirmationEmail(
   to: string,

@@ -13,7 +13,7 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
-import { sendFreeTrialStartedEmail } from "../lib/transactional-email.js";
+import { sendNewAccountWelcomeEmail } from "../lib/transactional-email.js";
 import { logLoginEvent } from "../lib/login-events.js";
 import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
 import {
@@ -454,7 +454,7 @@ router.post("/signup", async (req, res) => {
   void sendTelegramNotification(
     `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration\nPlan: Free Trial (14 days)`
   );
-  void sendFreeTrialStartedEmail(email.toLowerCase(), { trialEndsAt: user!.trialEndsAt });
+  void sendNewAccountWelcomeEmail(email.toLowerCase());
 
   try {
     await commitSession(req);
@@ -783,10 +783,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
-      void sendFreeTrialStartedEmail(googleEmail, {
-        trialEndsAt: user!.trialEndsAt,
-        displayName: profile.name,
-      });
+      void sendNewAccountWelcomeEmail(googleEmail);
     }
     void touchActivity(user!.id).catch((touchErr) => {
       logger.warn({ err: touchErr, userId: user!.id }, "touchActivity after Google login failed");
