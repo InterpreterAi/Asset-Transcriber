@@ -74,6 +74,11 @@ export class Storage {
     return result.rows[0] ?? null;
   }
 
+  async getInvoice(invoiceId: string) {
+    const result = await db.execute(sql`SELECT * FROM stripe.invoices WHERE id = ${invoiceId}`);
+    return result.rows[0] ?? null;
+  }
+
   async getUserById(userId: number) {
     const [user] = await db
       .select()

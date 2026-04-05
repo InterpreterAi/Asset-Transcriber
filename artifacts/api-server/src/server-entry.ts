@@ -135,6 +135,15 @@ async function migrateSchema() {
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_confirmation_sent_at TIMESTAMP`,
       );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_12h_sent_at TIMESTAMP`,
+      );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_canceled_email_sent_at TIMESTAMP`,
+      );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_receipt_last_invoice_id TEXT`,
+      );
 
       // sessions table – columns added after initial release
       await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);

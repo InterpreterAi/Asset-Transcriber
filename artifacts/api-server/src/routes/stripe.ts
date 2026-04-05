@@ -3,10 +3,33 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { storage } from "../lib/storage.js";
 import { stripeService } from "../lib/stripeService.js";
-import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
+import {
+  sendPaymentReceiptEmail,
+  sendSubscriptionCanceledEmail,
+  sendSubscriptionConfirmationEmail,
+} from "../lib/transactional-email.js";
 import { formatEmailDate } from "../lib/email-template.js";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
+
+function formatStripeAmount(amountPaid: unknown, currency: unknown): string {
+  const cents = typeof amountPaid === "number" ? amountPaid : Number(amountPaid);
+  const cur = (typeof currency === "string" ? currency : "usd").toUpperCase();
+  if (!Number.isFinite(cents)) return "—";
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: cur }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${cur}`;
+  }
+}
+
+function invoiceIdFromSubscription(raw: Record<string, unknown>): string | null {
+  const li = raw.latest_invoice;
+  if (typeof li === "string") return li;
+  if (li && typeof li === "object" && "id" in li) return String((li as { id: string }).id);
+  return null;
+}
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.session?.userId) {
@@ -81,16 +104,23 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
       return res.json({ subscription: null });
     }
     const subscription = await storage.getSubscription(user.stripeSubscriptionId);
-
     const email = user.email?.trim().toLowerCase();
-    if (
-      subscription &&
-      email &&
-      !user.subscriptionConfirmationSentAt
-    ) {
+
+    if (subscription && email) {
       const raw = subscription as Record<string, unknown>;
       const status = raw.status;
-      if (status === "active" || status === "trialing") {
+
+      let u = user;
+      if ((status === "active" || status === "trialing") && u.subscriptionCanceledEmailSentAt) {
+        await db
+          .update(usersTable)
+          .set({ subscriptionCanceledEmailSentAt: null })
+          .where(eq(usersTable.id, u.id));
+        const refreshed = await storage.getUserById(u.id);
+        if (refreshed) u = refreshed;
+      }
+
+      if (!u.subscriptionConfirmationSentAt && (status === "active" || status === "trialing")) {
         const periodEnd = raw.current_period_end ?? raw.currentPeriodEnd;
         let nextBillingDate = "See your billing portal";
         if (typeof periodEnd === "number" && Number.isFinite(periodEnd)) {
@@ -104,12 +134,66 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
         const nick = first?.plan?.nickname || first?.price?.nickname;
         if (nick && String(nick).trim()) planName = String(nick).trim();
 
-        const ok = await sendSubscriptionConfirmationEmail(email, planName, nextBillingDate, user.username);
+        const ok = await sendSubscriptionConfirmationEmail(email, planName, nextBillingDate, u.username);
         if (ok) {
           await db
             .update(usersTable)
             .set({ subscriptionConfirmationSentAt: new Date() })
-            .where(eq(usersTable.id, user.id));
+            .where(eq(usersTable.id, u.id));
+        }
+      }
+
+      if (status === "canceled" && !u.subscriptionCanceledEmailSentAt) {
+        const ok = await sendSubscriptionCanceledEmail(email, u.username);
+        if (ok) {
+          await db
+            .update(usersTable)
+            .set({ subscriptionCanceledEmailSentAt: new Date() })
+            .where(eq(usersTable.id, u.id));
+        }
+      }
+
+      if (status === "active" || status === "trialing") {
+        const invId = invoiceIdFromSubscription(raw);
+        if (invId && u.paymentReceiptLastInvoiceId !== invId) {
+          let inv: Awaited<ReturnType<typeof storage.getInvoice>> = null;
+          try {
+            inv = await storage.getInvoice(invId);
+          } catch (selErr) {
+            logger.warn({ err: selErr, userId: u.id, invId }, "Stripe invoice lookup failed (table or id)");
+          }
+          if (inv) {
+            const invRaw = inv as Record<string, unknown>;
+            if (invRaw.status === "paid") {
+              const amt = formatStripeAmount(invRaw.amount_paid, invRaw.currency);
+              const created = invRaw.created;
+              const paidDateFormatted =
+                typeof created === "number" && Number.isFinite(created)
+                  ? formatEmailDate(new Date(created * 1000))
+                  : "—";
+              const invNum = invRaw.number != null ? String(invRaw.number) : null;
+              try {
+                const ok = await sendPaymentReceiptEmail(
+                  email,
+                  {
+                    amountFormatted: amt,
+                    paidDateFormatted,
+                    invoiceNumber: invNum,
+                    description: null,
+                  },
+                  u.username,
+                );
+                if (ok) {
+                  await db
+                    .update(usersTable)
+                    .set({ paymentReceiptLastInvoiceId: invId })
+                    .where(eq(usersTable.id, u.id));
+                }
+              } catch (receiptErr) {
+                logger.warn({ err: receiptErr, userId: u.id }, "Payment receipt email skipped");
+              }
+            }
+          }
         }
       }
     }

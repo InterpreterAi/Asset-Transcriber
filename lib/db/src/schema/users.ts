@@ -13,13 +13,18 @@ export const usersTable = pgTable("users", {
   planType: text("plan_type").notNull().default("trial"),
   trialStartedAt: timestamp("trial_started_at").notNull().defaultNow(),
   trialEndsAt: timestamp("trial_ends_at").notNull(),
-  /** Set when the "2 days before trial end" reminder email has been sent (Resend). */
+  /** Sent when trial end is within 48 hours (subject: ends in 2 days). */
   trialReminderSentAt: timestamp("trial_reminder_sent_at"),
+  /** Sent when trial end is within 12 hours (subject: expires today). */
+  trialReminder12hSentAt: timestamp("trial_reminder_12h_sent_at"),
   /** Email/password signups must verify before login; OAuth signups stay false. */
   requiresEmailVerification: boolean("requires_email_verification").notNull().default(false),
   gettingStartedEmailSentAt: timestamp("getting_started_email_sent_at"),
   trialExpiredEmailSentAt: timestamp("trial_expired_email_sent_at"),
   subscriptionConfirmationSentAt: timestamp("subscription_confirmation_sent_at"),
+  subscriptionCanceledEmailSentAt: timestamp("subscription_canceled_email_sent_at"),
+  /** Last Stripe invoice id we emailed as a payment receipt (avoid duplicates). */
+  paymentReceiptLastInvoiceId: text("payment_receipt_last_invoice_id"),
   dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(180),
   minutesUsedToday: real("minutes_used_today").notNull().default(0),
   totalMinutesUsed: real("total_minutes_used").notNull().default(0),

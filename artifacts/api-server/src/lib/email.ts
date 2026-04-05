@@ -1,9 +1,9 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
 import {
   emailCallout,
-  emailGreeting,
   emailParagraph,
   emailPreformattedBlock,
+  emailStandardGreeting,
   renderInterpreterAiEmail,
 } from "./email-template.js";
 import {
@@ -24,6 +24,7 @@ export async function sendPasswordResetEmail(toEmail: string, resetToken: string
     appBaseUrl: base,
     heading: "Reset your password",
     bodyHtml: [
+      emailStandardGreeting(toEmail, null),
       emailParagraph("We received a request to reset your password."),
       emailParagraph("Click the button below to create a new password."),
     ].join(""),
@@ -50,7 +51,7 @@ export async function sendSupportConfirmationEmail(
     appBaseUrl: base,
     heading: "We received your message",
     bodyHtml: [
-      emailGreeting("there"),
+      emailStandardGreeting(toEmail, null),
       emailParagraph(
         "Thanks for contacting InterpreterAI support. We've received your request and will get back to you as soon as we can.",
       ),
@@ -79,7 +80,7 @@ export async function sendAdminReplyEmail(
     appBaseUrl: base,
     heading: "New reply on your ticket",
     bodyHtml: [
-      emailGreeting("there"),
+      emailStandardGreeting(toEmail, null),
       emailParagraph(`Regarding: ${subject} (ticket #${ticketId}).`),
       emailParagraph("Our team sent the following reply:"),
       emailPreformattedBlock(replyMessage),
@@ -105,7 +106,7 @@ export async function sendTicketResolvedEmail(
     appBaseUrl: base,
     heading: "Your ticket is resolved",
     bodyHtml: [
-      emailGreeting("there"),
+      emailStandardGreeting(toEmail, null),
       emailParagraph(
         "We've marked your support request as resolved. We hope everything is working well for you now.",
       ),

@@ -84,6 +84,14 @@ const emailAssetsCandidates = [
 const emailAssetsRoot = emailAssetsCandidates.find((p) => fs.existsSync(p));
 if (emailAssetsRoot) {
   app.use("/email", express.static(emailAssetsRoot, { maxAge: "7d" }));
+  app.get("/logo.png", (_req, res) => {
+    const f = path.join(emailAssetsRoot, "logo.png");
+    if (fs.existsSync(f)) {
+      res.sendFile(path.resolve(f));
+    } else {
+      res.status(404).end();
+    }
+  });
 }
 
 // Block /debug/* before express.static and all other middleware — production must never
