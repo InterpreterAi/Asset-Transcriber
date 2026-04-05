@@ -5,7 +5,6 @@ import { areDebugHttpEndpointsEnabled, isPublicDebugEndpointPath } from "./lib/d
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
@@ -22,6 +21,19 @@ import { getAiEnvDiagnostics } from "./lib/ai-env.js";
 import { getPublicEnvReadiness } from "./lib/readiness-env.js";
 import { getDebugDbEnvHttpPayload } from "./postgres-env.js";
 import { apiMountJsonErrorHandler, globalErrorHandler } from "./middlewares/globalErrorHandler.js";
+import {
+  aiCostLimiter,
+  authLimiter,
+  forgotPasswordLimiter,
+  generalApiLimiter,
+  loginLimiter,
+  sessionHeartbeatLimiter,
+  signupLimiter,
+  transcriptionSessionStartLimiter,
+} from "./middlewares/apiRateLimits.js";
+import { jsonParseErrorHandler } from "./middlewares/jsonParseError.js";
+import { aiUsageMonitorMiddleware } from "./middlewares/aiUsageMonitor.js";
+import { blockUnauthenticatedAiRequests } from "./middlewares/unauthenticatedAiBlock.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -256,7 +268,8 @@ app.post(
 );
 
 // ── Body parsing (after webhook route) ───────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
+app.use(jsonParseErrorHandler);
 app.use(express.urlencoded({ extended: true }));
 // Parse Cookie header into req.cookies before express-session (helps some proxy / Express 5 setups).
 app.use(cookieParser());
@@ -264,46 +277,9 @@ app.use(cookieParser());
 // Order: json/urlencoded → cookieParser → sessionMiddleware → /api rate limits → app.use("/api", router).
 app.use(sessionMiddleware);
 
-// ── Rate limiting ─────────────────────────────────────────────────────────────
-
-// Brute-force protection: 5 failed login attempts per 10 minutes per IP
-const loginLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true,
-  message: { error: "Too many login attempts. Please wait 10 minutes before trying again." },
-});
-
-const authLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests. Please wait a moment." },
-  skip: (req) => req.method === "GET" && req.path.startsWith("/api/auth/me"),
-});
-
-const transcriptionLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests. Please wait a moment." },
-  keyGenerator: (req) => {
-    const session = (req as any).session;
-    return session?.userId ? `user:${session.userId}` : ipKeyGenerator(req.ip ?? "unknown");
-  },
-});
-
-const generalLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests. Please slow down." },
-});
+// ── Rate limiting (see middlewares/apiRateLimits.ts) ───────────────────────────
+// Stack: login/signup/forgot → auth → heartbeat → session-start cap → AI/transcription
+//        → admin IP → general (60/IP/min) → block unauthenticated AI paths → usage log → router.
 
 // ── Activity tracking — fires on every authenticated API request ──────────────
 // Debounced to one DB write per user per 60 s so the users table isn't
@@ -322,10 +298,16 @@ app.use("/api", (req, res, next) => {
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/2fa/verify", loginLimiter);
+app.use("/api/auth/signup", signupLimiter);
+app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth", authLimiter);
-app.use("/api/transcription/token", transcriptionLimiter);
+app.use("/api", sessionHeartbeatLimiter);
+app.use("/api", transcriptionSessionStartLimiter);
+app.use("/api", aiCostLimiter);
 app.use("/api/admin", adminIpGuard);
-app.use("/api", generalLimiter);
+app.use("/api", generalApiLimiter);
+app.use("/api", blockUnauthenticatedAiRequests);
+app.use("/api", aiUsageMonitorMiddleware);
 app.use("/api", errorLoggerMiddleware);
 app.use("/api", router);
 // Before SPA: any `next(err)` from /api (including session/json/limiters) becomes JSON here.

@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 
 const router = Router();
+router.use(requireJsonObjectBody);
 
 // ── Language code normalisation ───────────────────────────────────────────────
 // Google Translate uses BCP-47 codes; normalise a few common mismatches.

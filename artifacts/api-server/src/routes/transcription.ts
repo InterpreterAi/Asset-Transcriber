@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
 import { logger } from "../lib/logger.js";
@@ -56,6 +57,7 @@ async function isGlobalCapReached(): Promise<boolean> {
 }
 
 const router = Router();
+router.use(requireJsonObjectBody);
 
 const SONIOX_TEMP_KEY_URL = "https://api.soniox.com/v1/auth/temporary-api-key";
 

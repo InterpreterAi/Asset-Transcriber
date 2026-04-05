@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { openai } from "../lib/openai-client.js";
+import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 
 const router = Router();
+router.use(requireJsonObjectBody);
 
 // ── Language code → readable name map ────────────────────────────────────────
 const LANG_NAMES: Record<string, string> = {
