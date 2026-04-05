@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import { logger } from "./logger.js";
 
 export function isSmtpConfigured(): boolean {
@@ -17,7 +18,8 @@ function getTransporter(): nodemailer.Transporter | null {
   if (!transporter) {
     const port = Number(process.env.SMTP_PORT?.trim() || "587");
     const secure = port === 465;
-    transporter = nodemailer.createTransport({
+    // `family` forces IPv4; omitted from @types/nodemailer but honored by nodemailer (net.connect).
+    const smtpOptions = {
       host: process.env.SMTP_HOST!.trim(),
       port,
       secure,
@@ -25,7 +27,9 @@ function getTransporter(): nodemailer.Transporter | null {
         user: process.env.SMTP_USER!.trim(),
         pass: process.env.SMTP_PASS!.trim(),
       },
-    });
+      family: 4,
+    } as SMTPTransport.Options & { family: 4 };
+    transporter = nodemailer.createTransport(smtpOptions);
   }
   return transporter;
 }
