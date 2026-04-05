@@ -1,8 +1,18 @@
 import { Resend } from "resend";
 import { logger } from "./logger.js";
 
-/** Verified Resend sending domain (interpreterai.org). */
-export const RESEND_FROM_ADDRESS = "InterpreterAI <onboarding@interpreterai.org>";
+/** Verified Resend domain: interpreterai.org */
+
+export const RESEND_FROM_ONBOARDING = "InterpreterAI <onboarding@interpreterai.org>";
+
+export const RESEND_FROM_SUPPORT = "InterpreterAI Support <support@interpreterai.org>";
+
+export const RESEND_FROM_NOREPLY = "InterpreterAI <noreply@interpreterai.org>";
+
+export const RESEND_FROM_SECURITY = "InterpreterAI Security <security@interpreterai.org>";
+
+/** @deprecated Use RESEND_FROM_ONBOARDING or another explicit sender. */
+export const RESEND_FROM_ADDRESS = RESEND_FROM_ONBOARDING;
 
 export function isResendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY?.trim());
@@ -12,7 +22,8 @@ type SendParams = {
   to: string;
   subject: string;
   html: string;
-  /** Optional plain-text part; welcome / transactional HTML-only is OK for Resend. */
+  from: string;
+  /** Optional plain-text part. */
   text?: string;
 };
 
@@ -20,7 +31,7 @@ async function deliver(params: SendParams): Promise<boolean> {
   const key = process.env.RESEND_API_KEY?.trim();
   if (!key) {
     logger.warn(
-      { to: params.to, subject: params.subject },
+      { to: params.to, subject: params.subject, from: params.from },
       "RESEND_API_KEY not set — email not sent",
     );
     return false;
@@ -29,7 +40,7 @@ async function deliver(params: SendParams): Promise<boolean> {
   try {
     const client = new Resend(key);
     const result = await client.emails.send({
-      from: RESEND_FROM_ADDRESS,
+      from: params.from,
       to: params.to,
       subject: params.subject,
       html: params.html,
@@ -41,6 +52,7 @@ async function deliver(params: SendParams): Promise<boolean> {
         {
           to: params.to,
           subject: params.subject,
+          from: params.from,
           resendError: result.error,
           statusCode: result.error.statusCode,
           errorName: result.error.name,
@@ -55,19 +67,22 @@ async function deliver(params: SendParams): Promise<boolean> {
         to: params.to,
         subject: params.subject,
         messageId: result.data?.id,
-        from: RESEND_FROM_ADDRESS,
+        from: params.from,
       },
       "Resend email sent successfully",
     );
     return true;
   } catch (err) {
-    logger.error({ err, to: params.to, subject: params.subject }, "Resend send failed (exception)");
+    logger.error(
+      { err, to: params.to, subject: params.subject, from: params.from },
+      "Resend send failed (exception)",
+    );
     return false;
   }
 }
 
 /**
- * Send mail via Resend (signup welcome, trial reminder, etc.).
+ * Send mail via Resend. Pass the appropriate `from` for the email category.
  */
 export async function sendEmail(params: SendParams): Promise<boolean> {
   return deliver(params);

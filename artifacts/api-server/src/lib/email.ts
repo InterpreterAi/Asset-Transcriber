@@ -6,7 +6,12 @@ import {
   emailPreformattedBlock,
   renderInterpreterAiEmail,
 } from "./email-template.js";
-import { sendEmail } from "./resend-mail.js";
+import {
+  RESEND_FROM_ONBOARDING,
+  RESEND_FROM_SECURITY,
+  RESEND_FROM_SUPPORT,
+  sendEmail,
+} from "./resend-mail.js";
 
 export async function sendPasswordResetEmail(toEmail: string, resetToken: string): Promise<void> {
   const base = getStaticPublicBaseUrl().replace(/\/+$/, "");
@@ -22,6 +27,7 @@ export async function sendPasswordResetEmail(toEmail: string, resetToken: string
   });
 
   await sendEmail({
+    from: RESEND_FROM_SECURITY,
     to: toEmail,
     subject: "Reset your InterpreterAI password",
     html,
@@ -44,6 +50,7 @@ export async function sendWelcomeEmail(toEmail: string): Promise<void> {
   });
 
   await sendEmail({
+    from: RESEND_FROM_ONBOARDING,
     to: toEmail,
     subject: "Welcome to InterpreterAI",
     html,
@@ -70,6 +77,7 @@ export async function sendSupportConfirmationEmail(
   });
 
   await sendEmail({
+    from: RESEND_FROM_SUPPORT,
     to: toEmail,
     subject: `[Ticket #${ticketId}] We received your support request`,
     html,
@@ -95,6 +103,7 @@ export async function sendAdminReplyEmail(
   });
 
   await sendEmail({
+    from: RESEND_FROM_SUPPORT,
     to: toEmail,
     subject: `[Ticket #${ticketId}] Re: ${subject}`,
     html,
@@ -123,6 +132,7 @@ export async function sendTicketResolvedEmail(
   });
 
   await sendEmail({
+    from: RESEND_FROM_SUPPORT,
     to: toEmail,
     subject: `[Ticket #${ticketId}] Your request has been resolved`,
     html,

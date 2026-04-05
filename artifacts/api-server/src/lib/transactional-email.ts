@@ -4,7 +4,12 @@ import {
   emailParagraph,
   renderInterpreterAiEmail,
 } from "./email-template.js";
-import { isResendConfigured, sendEmail } from "./resend-mail.js";
+import {
+  isResendConfigured,
+  RESEND_FROM_NOREPLY,
+  RESEND_FROM_ONBOARDING,
+  sendEmail,
+} from "./resend-mail.js";
 
 /** Friendly greeting from email local-part or explicit OAuth name. */
 export function displayNameForEmail(email: string, explicitName?: string | null): string {
@@ -40,7 +45,7 @@ export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
     button: { href: NEW_USER_WORKSPACE_URL, label: "Open workspace" },
   });
 
-  await sendEmail({ to, subject, html });
+  await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
 /**
@@ -63,7 +68,7 @@ export async function sendTrialReminderEmail(to: string, displayName?: string | 
     button: { href: url, label: "View your account" },
   });
 
-  return sendEmail({ to, subject, html });
+  return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
 }
 
 /**
@@ -87,5 +92,5 @@ export async function sendSubscriptionConfirmationEmail(
     button: { href: url, label: "Open InterpreterAI" },
   });
 
-  return sendEmail({ to, subject, html });
+  return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
 }
