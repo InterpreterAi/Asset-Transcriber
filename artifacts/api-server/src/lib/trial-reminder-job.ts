@@ -1,6 +1,6 @@
 import { db, usersTable } from "@workspace/db";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
-import { isResendConfigured } from "./email.js";
+import { isResendConfigured } from "./resend-mail.js";
 import { logger } from "./logger.js";
 import { sendTrialReminderEmail } from "./transactional-email.js";
 

@@ -12,34 +12,6 @@ function getClient(): Resend | null {
   return new Resend(key);
 }
 
-export function isResendConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY?.trim());
-}
-
-/** Transactional send via Resend. Returns false if API key is missing or the request fails. */
-export async function sendResendTransactionalEmail(
-  to: string,
-  subject: string,
-  body: { html: string; text: string },
-): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY?.trim();
-  if (!key) return false;
-  try {
-    const client = new Resend(key);
-    await client.emails.send({
-      from: FROM_ADDRESS,
-      to,
-      subject,
-      text: body.text,
-      html: body.html,
-    });
-    return true;
-  } catch (err) {
-    logger.error({ err, to }, "Resend transactional email failed");
-    return false;
-  }
-}
-
 export async function sendWelcomeEmail(toEmail: string): Promise<void> {
   const client = getClient();
   if (!client) return;

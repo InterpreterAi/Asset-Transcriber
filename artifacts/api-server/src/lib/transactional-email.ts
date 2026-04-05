@@ -1,6 +1,6 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
-import { isResendConfigured, sendResendTransactionalEmail } from "./email.js";
 import { logger } from "./logger.js";
+import { isResendConfigured, sendEmail } from "./resend-mail.js";
 
 function escapeHtml(s: string): string {
   return s
@@ -34,14 +34,6 @@ const NEW_USER_WORKSPACE_URL = "https://asset-transcriber-production.up.railway.
  */
 export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
   const subject = "Welcome to InterpreterAI";
-  const text = [
-    "Welcome to InterpreterAI.",
-    "",
-    "Your free trial has started.",
-    "",
-    "You can access the app here:",
-    NEW_USER_WORKSPACE_URL,
-  ].join("\n");
   const workspaceUrl = escapeHtml(NEW_USER_WORKSPACE_URL);
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333;">
@@ -50,7 +42,7 @@ export async function sendNewAccountWelcomeEmail(to: string): Promise<void> {
 <p>You can access the app here:<br><a href="${workspaceUrl}">${workspaceUrl}</a></p>
 </body></html>`;
 
-  const ok = await sendResendTransactionalEmail(to, subject, { html, text });
+  const ok = await sendEmail({ to, subject, html });
   if (ok) logger.info({ email: to }, "Welcome email sent (Resend)");
 }
 
@@ -62,21 +54,6 @@ export async function sendTrialReminderEmail(to: string, displayName?: string | 
   const name = displayNameForEmail(to, displayName);
   const url = appUrl();
   const subject = "Your InterpreterAI trial ends soon";
-  const text = [
-    `Hi ${name},`,
-    "",
-    "Your InterpreterAI trial will end in 2 days.",
-    "",
-    "If you'd like to continue using real-time transcription and translation during your calls, you can upgrade anytime.",
-    "",
-    "Plans start at $39/month.",
-    "",
-    "Upgrade here:",
-    url,
-    "",
-    "— InterpreterAI",
-  ].join("\n");
-
   const html = `
 <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:24px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#333;line-height:1.6;">
@@ -88,7 +65,7 @@ export async function sendTrialReminderEmail(to: string, displayName?: string | 
   <p>— InterpreterAI</p>
 </body></html>`;
 
-  return sendResendTransactionalEmail(to, subject, { text, html });
+  return sendEmail({ to, subject, html });
 }
 
 /**
@@ -101,18 +78,6 @@ export async function sendSubscriptionConfirmationEmail(
   if (!isResendConfigured()) return false;
   const name = displayNameForEmail(to, displayName);
   const subject = "Your InterpreterAI subscription is active";
-  const text = [
-    `Hi ${name},`,
-    "",
-    "Your InterpreterAI subscription is now active.",
-    "",
-    "You now have full access to your plan features.",
-    "",
-    "Thank you for supporting InterpreterAI.",
-    "",
-    "— InterpreterAI",
-  ].join("\n");
-
   const html = `
 <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:24px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#333;line-height:1.6;">
@@ -123,5 +88,5 @@ export async function sendSubscriptionConfirmationEmail(
   <p>— InterpreterAI</p>
 </body></html>`;
 
-  return sendResendTransactionalEmail(to, subject, { text, html });
+  return sendEmail({ to, subject, html });
 }
