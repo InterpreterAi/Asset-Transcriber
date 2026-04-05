@@ -88,14 +88,14 @@ export const loginLimiter = rateLimit({
   handler: rateLimitExceededHandler("login"),
 });
 
-/** New account creation: 5 per hour per IP. */
+/** Email/password signup: 3 per hour per IP. */
 export const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 5,
+  max: 3,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
-  message: { error: "Too many signup attempts from this network. Please try again later." },
+  message: { error: "Too many signup attempts. Please try again later." },
   handler: rateLimitExceededHandler("signup"),
 });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { useLocation } from "wouter";
-import { useGetMe, useLogout } from "@workspace/api-client-react";
+import { ApiError, useGetMe, useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { InviteModal } from "@/components/InviteModal";
@@ -348,7 +348,17 @@ export default function Workspace() {
   };
 
 
-  useEffect(() => { if (userError) setLocation("/login"); }, [userError, setLocation]);
+  useEffect(() => {
+    if (!userError) return;
+    if (userError instanceof ApiError && userError.status === 403) {
+      const d = userError.data as { code?: string } | null;
+      if (d?.code === "email_not_verified") {
+        setLocation("/login?verify=required");
+        return;
+      }
+    }
+    setLocation("/login");
+  }, [userError, setLocation]);
 
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);

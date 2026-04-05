@@ -4,6 +4,7 @@ import {
   usersTable,
   passwordResetTokensTable,
   emailVerificationTokensTable,
+  trialConsumedEmailsTable,
   sessionsTable,
   referralsTable,
   type User,
@@ -16,9 +17,18 @@ import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import { sendPasswordResetEmail } from "../lib/email.js";
 import {
+  sendAccountVerifiedNoTrialEmail,
   sendEmailVerificationEmail,
   sendPostVerificationWelcomeEmail,
 } from "../lib/transactional-email.js";
+import {
+  isDisposableEmailDomain,
+  isValidSignupEmail,
+  validateSignupPassword,
+  SIGNUP_DISPOSABLE_EMAIL,
+  SIGNUP_EMAIL_INVALID,
+} from "../lib/signup-validation.js";
+import { verifyTurnstileForSignup } from "../lib/turnstile.js";
 import { getStaticPublicBaseUrl } from "../lib/authEnv.js";
 import { logLoginEvent } from "../lib/login-events.js";
 import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
@@ -76,6 +86,21 @@ function getClientIp(req: import("express").Request): string {
     ?? req.ip
     ?? "unknown"
   );
+}
+
+function signupTrialFields(grantTrial: boolean) {
+  if (grantTrial) {
+    return {
+      trialEndsAt:       new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+      trialStartedAt:    new Date(),
+    } as const;
+  }
+  return {
+    trialEndsAt:       new Date(0),
+    dailyLimitMinutes: 0,
+    trialStartedAt:    new Date(),
+  } as const;
 }
 
 function parseDevice(ua: string | undefined): string {
@@ -411,29 +436,53 @@ router.get("/2fa/status", requireAuth, async (req, res) => {
   res.json({ enabled: user?.twoFactorEnabled ?? false });
 });
 
+// ── Signup: public Turnstile site key (safe to expose) ───────────────────────
+router.get("/signup-config", (_req, res) => {
+  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY?.trim() ?? null });
+});
+
 // ── Sign Up ────────────────────────────────────────────────────────────────
 router.post("/signup", async (req, res) => {
-  const { email, password, referralId } = req.body as { email?: string; password?: string; referralId?: number };
+  const { email, password, referralId, turnstileToken } = req.body as {
+    email?: string;
+    password?: string;
+    referralId?: number;
+    turnstileToken?: string;
+  };
+
+  const turnstile = await verifyTurnstileForSignup(turnstileToken, getClientIp(req));
+  if (!turnstile.ok) {
+    res.status(400).json({ error: turnstile.error ?? "Verification failed." });
+    return;
+  }
 
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
     return;
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.status(400).json({ error: "Invalid email address" });
+  if (!isValidSignupEmail(email)) {
+    res.status(400).json({ error: SIGNUP_EMAIL_INVALID });
     return;
   }
 
-  if (password.length < 8) {
-    res.status(400).json({ error: "Password must be at least 8 characters" });
+  const normalized = email.trim().toLowerCase();
+
+  if (isDisposableEmailDomain(normalized)) {
+    res.status(400).json({ error: SIGNUP_DISPOSABLE_EMAIL });
+    return;
+  }
+
+  const pwErr = validateSignupPassword(password);
+  if (pwErr) {
+    res.status(400).json({ error: pwErr });
     return;
   }
 
   const existing = await db
     .select({ id: usersTable.id })
     .from(usersTable)
-    .where(or(eq(usersTable.username, email.toLowerCase()), eq(usersTable.email, email.toLowerCase())))
+    .where(or(eq(usersTable.username, normalized), eq(usersTable.email, normalized)))
     .limit(1);
 
   if (existing.length > 0) {
@@ -441,31 +490,50 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
+  const [consumed] = await db
+    .select({ email: trialConsumedEmailsTable.email })
+    .from(trialConsumedEmailsTable)
+    .where(eq(trialConsumedEmailsTable.email, normalized))
+    .limit(1);
+  const grantTrial = !consumed;
+
   const passwordHash = await hashPassword(password);
-  const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const trial = signupTrialFields(grantTrial);
 
-  const [user] = await db
-    .insert(usersTable)
-    .values({
-      username: email.toLowerCase(),
-      email: email.toLowerCase(),
-      passwordHash,
-      isAdmin: false,
-      isActive: true,
-      emailVerified: false,
-      requiresEmailVerification: true,
-      planType: "trial",
-      trialStartedAt: new Date(),
-      trialEndsAt,
-      dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
-      minutesUsedToday: 0,
-      totalMinutesUsed: 0,
-      totalSessions: 0,
-      lastUsageResetAt: new Date(),
-    })
-    .returning();
-
-  const newUser = user!;
+  let newUser: User;
+  try {
+    newUser = await db.transaction(async (tx) => {
+      const [u] = await tx
+        .insert(usersTable)
+        .values({
+          username: normalized,
+          email: normalized,
+          passwordHash,
+          isAdmin: false,
+          isActive: true,
+          emailVerified: false,
+          requiresEmailVerification: true,
+          planType: "trial",
+          trialStartedAt: trial.trialStartedAt,
+          trialEndsAt: trial.trialEndsAt,
+          dailyLimitMinutes: trial.dailyLimitMinutes,
+          minutesUsedToday: 0,
+          totalMinutesUsed: 0,
+          totalSessions: 0,
+          lastUsageResetAt: new Date(),
+        })
+        .returning();
+      if (!u) throw new Error("User insert failed");
+      if (grantTrial) {
+        await tx.insert(trialConsumedEmailsTable).values({ email: normalized }).onConflictDoNothing();
+      }
+      return u;
+    });
+  } catch (err) {
+    safeAuthLoggerError("POST /api/auth/signup transaction failed", err);
+    res.status(500).json({ error: "Could not create account. Please try again." });
+    return;
+  }
 
   if (referralId) {
     void db
@@ -475,7 +543,7 @@ router.post("/signup", async (req, res) => {
   }
 
   void sendTelegramNotification(
-    `🆕 New InterpreterAI user\nEmail: ${email.toLowerCase()}\nMethod: Email Registration\nPlan: Free Trial (14 days)`
+    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: ${grantTrial ? "Free Trial (14 days)" : "No trial (email previously used)"}`,
   );
 
   const verifyToken = crypto.randomBytes(32).toString("hex");
@@ -487,13 +555,13 @@ router.post("/signup", async (req, res) => {
     expiresAt: verifyExpires,
   });
 
-  void sendEmailVerificationEmail(email.toLowerCase(), verifyToken).catch((err) => {
+  void sendEmailVerificationEmail(normalized, verifyToken).catch((err) => {
     logger.error({ err, userId: newUser.id }, "Signup: sendEmailVerificationEmail failed");
   });
 
   res.status(201).json({
     needsEmailVerification: true,
-    email: email.toLowerCase(),
+    email: normalized,
     message: "Check your email to verify your account before signing in.",
   });
 });
@@ -531,9 +599,17 @@ router.get("/verify-email", async (req, res) => {
       .set({ emailVerified: true, requiresEmailVerification: false })
       .where(eq(usersTable.id, acct.id));
 
-    void sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null).catch((err) => {
-      logger.error({ err, userId: acct.id }, "verify-email: welcome email failed");
-    });
+    const trialActive =
+      new Date(acct.trialEndsAt).getTime() > Date.now() && Number(acct.dailyLimitMinutes) > 0;
+    if (trialActive) {
+      void sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null).catch((err) => {
+        logger.error({ err, userId: acct.id }, "verify-email: welcome email failed");
+      });
+    } else {
+      void sendAccountVerifiedNoTrialEmail(acct.email).catch((err) => {
+        logger.error({ err, userId: acct.id }, "verify-email: no-trial confirmation email failed");
+      });
+    }
 
     res.redirect(`${base}/login?verify=ok`);
   } catch (err) {
@@ -596,6 +672,13 @@ router.get("/me", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
   if (!user) {
     res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  if (!user.emailVerified && !user.isAdmin) {
+    res.status(403).json({
+      error: "Please verify your email before accessing InterpreterAI.",
+      code:  "email_not_verified",
+    });
     return;
   }
   const todayStart = new Date();
@@ -863,35 +946,53 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       }
     } else {
       isNewUser = true;
-      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-      const localPart   = googleEmail.split("@")[0] ?? "user";
+      if (isDisposableEmailDomain(googleEmail)) {
+        res.redirect("/login?error=disposable_email");
+        return;
+      }
+      const [consumedGoogle] = await db
+        .select({ email: trialConsumedEmailsTable.email })
+        .from(trialConsumedEmailsTable)
+        .where(eq(trialConsumedEmailsTable.email, googleEmail))
+        .limit(1);
+      const grantGoogleTrial = !consumedGoogle;
+      const googleTrial      = signupTrialFields(grantGoogleTrial);
+
+      const localPart    = googleEmail.split("@")[0] ?? "user";
       const baseUsername = localPart.replace(/[^a-z0-9._-]/gi, "_").slice(0, 48) || "user";
 
       let created: User | undefined;
       for (let n = 0; n < 12; n++) {
         const username = n === 0 ? baseUsername : `${baseUsername}_${n}`;
         try {
-          const [row] = await db
-            .insert(usersTable)
-            .values({
-              username,
-              email:            googleEmail,
-              passwordHash:     `$google$${googleId}`,
-              googleAccountId:  googleId,
-              isAdmin:          false,
-              isActive:         true,
-              emailVerified:    true,
-              planType:         "trial",
-              trialStartedAt:   new Date(),
-              trialEndsAt,
-              dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
-              minutesUsedToday:  0,
-              totalMinutesUsed:  0,
-              totalSessions:     0,
-              lastUsageResetAt:  new Date(),
-            })
-            .returning();
-          created = row;
+          created = await db.transaction(async (tx) => {
+            const [row] = await tx
+              .insert(usersTable)
+              .values({
+                username,
+                email:            googleEmail,
+                passwordHash:     `$google$${googleId}`,
+                googleAccountId:  googleId,
+                isAdmin:          false,
+                isActive:         true,
+                emailVerified:    true,
+                requiresEmailVerification: false,
+                planType:         "trial",
+                trialStartedAt:   googleTrial.trialStartedAt,
+                trialEndsAt:      googleTrial.trialEndsAt,
+                dailyLimitMinutes: googleTrial.dailyLimitMinutes,
+                minutesUsedToday:  0,
+                totalMinutesUsed:  0,
+                totalSessions:     0,
+                lastUsageResetAt:  new Date(),
+              })
+              .returning();
+            if (!row) throw new Error("Google user insert failed");
+            if (grantGoogleTrial) {
+              await tx.insert(trialConsumedEmailsTable).values({ email: googleEmail }).onConflictDoNothing();
+            }
+            return row;
+          });
           break;
         } catch (insErr) {
           if (!isPostgresUniqueViolation(insErr)) throw insErr;
@@ -905,17 +1006,27 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       user = created;
     }
 
+    const googleGrantTrial =
+      isNewUser &&
+      new Date(user!.trialEndsAt).getTime() > Date.now() &&
+      Number(user!.dailyLimitMinutes) > 0;
     void sendTelegramNotification(
       isNewUser
-        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (14 days)`
+        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: ${googleGrantTrial ? "Free Trial (14 days)" : "No trial (email previously used)"}`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
-      void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null).catch(
-        (err) => {
-          logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");
-        },
-      );
+      if (googleGrantTrial) {
+        void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null).catch(
+          (err) => {
+            logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");
+          },
+        );
+      } else {
+        void sendAccountVerifiedNoTrialEmail(googleEmail).catch((err) => {
+          logger.error({ err, userId: user!.id }, "Google signup: no-trial confirmation email failed");
+        });
+      }
     }
     void touchActivity(user!.id).catch((touchErr) => {
       logger.warn({ err: touchErr, userId: user!.id }, "touchActivity after Google login failed");

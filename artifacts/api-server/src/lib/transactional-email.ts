@@ -90,6 +90,23 @@ export async function sendPostVerificationWelcomeEmail(
   await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
+/** After email verify when this address is not eligible for a new trial (e.g. reused email). */
+export async function sendAccountVerifiedNoTrialEmail(to: string): Promise<void> {
+  const base = appBaseUrl();
+  const subject = "Your InterpreterAI email is verified";
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    heading: "Email verified",
+    bodyHtml: [
+      emailStandardGreeting(to, null),
+      emailParagraph("Your email address has been verified. Sign in to open your workspace."),
+    ].join(""),
+    primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
+  });
+
+  await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+}
+
 /**
  * ~12 minutes after signup (verified). Not the post-verification welcome email.
  * @param profileDisplayName Optional real display name (e.g. OAuth full name) — first word only; never pass username.

@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Mic2, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Turnstile } from "@marsidev/react-turnstile";
 import { Button, Input, Card } from "@/components/ui-components";
 
 export default function Signup() {
@@ -15,11 +16,27 @@ export default function Signup() {
   const [referralId, setReferralId] = useState<number | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
+  type TurnstileCfg = { status: "loading" } | { status: "ready"; siteKey: string | null };
+  const [turnstileCfg, setTurnstileCfg] = useState<TurnstileCfg>({ status: "loading" });
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
     const rid = sessionStorage.getItem("referralId");
     if (rid && /^\d+$/.test(rid)) setReferralId(parseInt(rid));
   }, []);
+
+  useEffect(() => {
+    void fetch("/api/auth/signup-config", { credentials: "include" })
+      .then((r) => r.json() as Promise<{ turnstileSiteKey?: string | null }>)
+      .then((d) =>
+        setTurnstileCfg({ status: "ready", siteKey: d.turnstileSiteKey?.trim() || null }),
+      )
+      .catch(() => setTurnstileCfg({ status: "ready", siteKey: null }));
+  }, []);
+
+  const onTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
+  const onTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
+  const onTurnstileError = useCallback(() => setTurnstileToken(null), []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,8 +46,16 @@ export default function Signup() {
       setError("Passwords do not match");
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
+    if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError("Password must be at least 8 characters and include at least one letter and one number.");
+      return;
+    }
+    if (turnstileCfg.status === "loading") {
+      setError("Please wait for the page to finish loading.");
+      return;
+    }
+    if (turnstileCfg.status === "ready" && turnstileCfg.siteKey && !turnstileToken?.trim()) {
+      setError("Please complete the verification challenge.");
       return;
     }
 
@@ -38,6 +63,7 @@ export default function Signup() {
     try {
       const body: Record<string, unknown> = { email, password };
       if (referralId) body.referralId = referralId;
+      if (turnstileToken?.trim()) body.turnstileToken = turnstileToken;
 
       const res = await fetch("/api/auth/signup", {
         method:  "POST",
@@ -45,8 +71,17 @@ export default function Signup() {
         credentials: "include",
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Signup failed");
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        needsEmailVerification?: boolean;
+        email?: string;
+      };
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error(data.error || "Too many signup attempts. Please try again later.");
+        }
+        throw new Error(data.error || "Signup failed");
+      }
 
       sessionStorage.removeItem("referralCode");
       sessionStorage.removeItem("referralId");
@@ -186,6 +221,17 @@ export default function Signup() {
               </div>
             </div>
 
+            {turnstileCfg.status === "ready" && turnstileCfg.siteKey ? (
+              <div className="flex justify-center min-h-[65px]">
+                <Turnstile
+                  siteKey={turnstileCfg.siteKey}
+                  onSuccess={onTurnstileSuccess}
+                  onExpire={onTurnstileExpire}
+                  onError={onTurnstileError}
+                />
+              </div>
+            ) : null}
+
             <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
               By signing up you agree to our{" "}
               <button type="button" onClick={() => setLocation("/terms")} className="underline hover:text-foreground">
@@ -197,7 +243,7 @@ export default function Signup() {
               </button>
             </p>
 
-            <Button type="submit" className="w-full h-11 mt-1" isLoading={loading}>
+            <Button type="submit" className="w-full h-11 mt-1" isLoading={loading || turnstileCfg.status === "loading"}>
               Create Account
             </Button>
           </form>

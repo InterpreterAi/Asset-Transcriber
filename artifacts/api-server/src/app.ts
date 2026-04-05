@@ -318,7 +318,8 @@ app.use("/api", (req, res, next) => {
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/2fa/verify", loginLimiter);
-app.use("/api/auth/signup", signupLimiter);
+// Prefix mount would also match `/api/auth/signup-config`; limit POST signup only.
+app.post("/api/auth/signup", signupLimiter);
 app.use("/api/auth/resend-verification", resendVerificationLimiter);
 app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth", authLimiter);

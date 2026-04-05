@@ -145,6 +145,20 @@ async function migrateSchema() {
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_receipt_last_invoice_id TEXT`,
       );
 
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS trial_consumed_emails (
+          email      TEXT PRIMARY KEY,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        INSERT INTO trial_consumed_emails (email)
+        SELECT DISTINCT lower(trim(email))
+        FROM users
+        WHERE email IS NOT NULL AND trim(email) <> ''
+        ON CONFLICT (email) DO NOTHING
+      `);
+
       // sessions table – columns added after initial release
       await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
 

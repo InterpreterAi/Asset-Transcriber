@@ -14,6 +14,7 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   profile_failed:   "Could not retrieve your Google profile. Try again.",
   auth_failed:      "Google sign-in failed. Please try again.",
   not_configured:   "Google login is not yet enabled.",
+  disposable_email: "Temporary email addresses are not allowed.",
   session_failed:
     "Could not save your session (database). Check Postgres and the user_sessions table, then try again.",
 };
@@ -46,6 +47,10 @@ export default function Login() {
     if (v === "ok") {
       setVerifyBanner("Your email is verified. You can sign in now.");
       setError("");
+    } else if (v === "required") {
+      setVerifyBanner(null);
+      setError("Please verify your email before accessing InterpreterAI.");
+      setShowResend(true);
     } else if (v === "invalid" || v === "missing" || v === "error") {
       setVerifyBanner(null);
       setError(
