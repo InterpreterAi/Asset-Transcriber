@@ -360,11 +360,15 @@ export const getGetTranscriptionTokenUrl = () => {
 export const getTranscriptionToken = async (
   options?: RequestInit,
 ): Promise<TranscriptionTokenResponse> => {
+  // Transcription router applies requireJsonObjectBody: Express only parses JSON when
+  // Content-Type is application/json and body is present — send `{}` so req.body is an object.
   return customFetch<TranscriptionTokenResponse>(
     getGetTranscriptionTokenUrl(),
     {
       ...options,
-      method: "POST",
+      method:  "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body:    JSON.stringify({}),
     },
   );
 };

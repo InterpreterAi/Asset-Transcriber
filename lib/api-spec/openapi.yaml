@@ -96,6 +96,14 @@ paths:
       operationId: getTranscriptionToken
       tags: [transcription]
       summary: Get a short-lived Soniox API token for transcription
+      requestBody:
+        required: false
+        description: Empty JSON object; required by API JSON-body validation on the transcription router.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
       responses:
         "200":
           description: Token issued
