@@ -414,6 +414,14 @@ export default function Workspace() {
     return () => clearTimeout(t);
   }, [user?.trialExpired]);
 
+  // Re-render while recording so half-daily trial feedback can use live PCM minutes (server total updates on session stop).
+  const [usageRecomputeTick, setUsageRecomputeTick] = useState(0);
+  useEffect(() => {
+    if (!transcription.isRecording) return;
+    const id = setInterval(() => setUsageRecomputeTick((n) => n + 1), 5_000);
+    return () => clearInterval(id);
+  }, [transcription.isRecording]);
+
   // ── Snapshot push for admin "View Session" ──────────────────────────────
   // Periodic push plus debounced pushes when finalized lines land (translation
   // often arrives after transcript; without extra pushes admin sees gaps).
@@ -544,6 +552,11 @@ export default function Workspace() {
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
   const isBlocked      = user.trialExpired || isLimitReached;
 
+  const effectiveMinutesUsedToday =
+    user.minutesUsedToday +
+    (transcription.isRecording ? transcription.getApproxBillableMinutesThisSession() : 0) +
+    0 * usageRecomputeTick;
+
   return (
     <div className="h-full w-full max-w-[100vw] bg-background flex overflow-hidden text-foreground">
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
@@ -559,10 +572,12 @@ export default function Workspace() {
       <EarlyTrialFeedbackPrompt
         planType={user.planType}
         trialExpired={user.trialExpired}
-        minutesRemainingToday={user.minutesRemainingToday}
+        effectiveMinutesUsedToday={effectiveMinutesUsedToday}
         dailyLimitMinutes={user.dailyLimitMinutes}
       />
-      <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
+      {!(user.planType === "trial" && !user.trialExpired) && (
+        <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
+      )}
       {showInviteModal && (
         <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
       )}

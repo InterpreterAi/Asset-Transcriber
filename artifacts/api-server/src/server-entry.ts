@@ -8,6 +8,7 @@ import { logger } from "./lib/logger.js";
 import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
+import { isOpenAiConfigured } from "./lib/ai-env.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
 import { scheduleTrialActiveReminderJob } from "./lib/trial-active-reminder-job.js";
@@ -490,6 +491,12 @@ async function main() {
       process.exit(1);
     }
     logger.info({ port }, "Server listening");
+    if (!isOpenAiConfigured()) {
+      logger.error(
+        "OPENAI_API_KEY (or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY) is missing. " +
+          "Live transcription may work via Soniox but POST /api/transcription/translate will return 503 — users see transcript only.",
+      );
+    }
     scheduleTrialReminderJob();
     scheduleOnboardingEmailJob();
     scheduleTrialActiveReminderJob();

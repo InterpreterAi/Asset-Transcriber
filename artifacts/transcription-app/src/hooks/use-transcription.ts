@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
+import { fetchPublicFallbackTranslation } from "@/lib/public-translation-fallback";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -353,21 +354,34 @@ function validateLangByScript(
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
 //
-// Retry policy:
+// Primary: POST /api/transcription/translate (OpenAI on API server).
+// Fallback: when the API is down, unreachable, or returns fatal 503 / exhausted
+// retries, uses browser → public MyMemory/Lingva (`fetchPublicFallbackTranslation`)
+// so translation can continue without Railway.
+//
+// Retry policy (primary only):
 //   • Network errors / timeouts  → retry up to MAX_ATTEMPTS with back-off
 //   • HTTP 5xx / 429             → retry up to MAX_ATTEMPTS with back-off
-//   • HTTP 401 / 403             → no retry (auth / quota — caller must handle)
+//   • HTTP 401 / 403             → try public fallback before surfacing error
 //   • Other 4xx                  → no retry (bad request)
-//   • Each attempt has a 9 s hard timeout via AbortController.
-//   • 503 + TRANSLATION_NOT_CONFIGURED — no retry (missing OpenAI / integration keys).
-//   • 401 / 403 — no retry; `onTranslationIssue` explains session / access.
-async function fetchTranslation(
+//   • Fatal 503 codes            → try public fallback before surfacing error
+type PrimaryTranslationResult =
+  | { outcome: "ok"; text: string }
+  | { outcome: "try_fallback"; userMessage?: string };
+
+async function translateViaPrimaryApi(
   text: string,
   sourceLang: string,
   targetLang: string,
-  onTranslationIssue?: (message: string) => void,
-): Promise<string> {
+): Promise<PrimaryTranslationResult> {
   const MAX_ATTEMPTS = 3;
+  const fatal503Codes = new Set([
+    "TRANSLATION_NOT_CONFIGURED",
+    "OPENAI_AUTH_FAILED",
+    "OPENAI_RATE_LIMITED",
+    "OPENAI_BILLING",
+  ]);
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 9_000);
@@ -382,49 +396,78 @@ async function fetchTranslation(
       clearTimeout(timeoutId);
       if (r.ok) {
         const d = await r.json() as { translated?: string };
-        return d.translated?.trim() ?? "";
+        return { outcome: "ok", text: d.translated?.trim() ?? "" };
       }
-      // 503 before generic 4xx — otherwise TRANSLATION_NOT_CONFIGURED is never detected.
+
       if (r.status === 503) {
         const raw = await r.text();
         try {
           const j = JSON.parse(raw) as { code?: string; error?: string };
-          if (j.code === "TRANSLATION_NOT_CONFIGURED") {
-            onTranslationIssue?.(
-              j.error ?? "Translation is unavailable: configure OpenAI on the API server.",
-            );
-            return "";
+          if (j.code && fatal503Codes.has(j.code)) {
+            return {
+              outcome:     "try_fallback",
+              userMessage: j.error ??
+                (j.code === "TRANSLATION_NOT_CONFIGURED"
+                  ? "Translation is unavailable: configure OpenAI on the API server."
+                  : "Translation is temporarily unavailable."),
+            };
           }
         } catch {
           /* fall through to retry */
         }
       }
+
       if (r.status === 401 || r.status === 403) {
-        onTranslationIssue?.(
-          "Session expired or access denied — refresh the page and sign in again.",
-        );
-        return "";
+        return {
+          outcome:     "try_fallback",
+          userMessage: "Session expired or access denied — refresh the page and sign in again.",
+        };
       }
-      if (r.status >= 400 && r.status < 500 && r.status !== 429) return "";
+
+      if (r.status >= 400 && r.status < 500 && r.status !== 429) {
+        return { outcome: "ok", text: "" };
+      }
+
       if (attempt === MAX_ATTEMPTS) {
-        onTranslationIssue?.(
-          "Translation service error — try again or contact support if it continues.",
-        );
-        return "";
+        return {
+          outcome:     "try_fallback",
+          userMessage:
+            "Translation service returned an error — try again. If it persists, check API logs and OpenAI key/billing.",
+        };
       }
     } catch {
       clearTimeout(timeoutId);
       if (attempt === MAX_ATTEMPTS) {
-        onTranslationIssue?.(
-          "Translation request timed out or failed — try again.",
-        );
-        return "";
+        return {
+          outcome:     "try_fallback",
+          userMessage:
+            "Cannot reach the translation service (timeout or network error). If transcription still works, the API may be paused or OpenAI may be misconfigured on the server.",
+        };
       }
     }
     if (attempt < MAX_ATTEMPTS) {
       await new Promise<void>(res => setTimeout(res, 700 * attempt));
     }
   }
+  return {
+    outcome:     "try_fallback",
+    userMessage: "Translation service unavailable.",
+  };
+}
+
+async function fetchTranslation(
+  text: string,
+  sourceLang: string,
+  targetLang: string,
+  onTranslationIssue?: (message: string) => void,
+): Promise<string> {
+  const primary = await translateViaPrimaryApi(text, sourceLang, targetLang);
+  if (primary.outcome === "ok") return primary.text;
+
+  const fallback = await fetchPublicFallbackTranslation(text, sourceLang, targetLang);
+  if (fallback) return fallback;
+
+  if (primary.userMessage) onTranslationIssue?.(primary.userMessage);
   return "";
 }
 
@@ -1395,6 +1438,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     translation: translationBufRef.current.join("\n"),
   }), []);
 
+  /** Billable audio minutes in the current open session (PCM sent ÷ 60). Server `minutesUsedToday` excludes until stop. */
+  const getApproxBillableMinutesThisSession = useCallback(
+    () => audioPcmSecondsRef.current / 60,
+    [],
+  );
+
   return {
     isRecording,
     audioInfo,
@@ -1408,6 +1457,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stop,
     setLangPair,
     getSnapshot,
+    getApproxBillableMinutesThisSession,
     clear: doClear,
     isStarting: getTokenMut.isPending || startSessionMut.isPending,
   };

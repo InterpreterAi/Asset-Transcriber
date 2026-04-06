@@ -906,13 +906,49 @@ router.post("/translate", requireAuth, async (req, res) => {
     res.json({ translated: result.text }); // result returned to browser; nothing retained server-side
   } catch (err: unknown) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
+    const upstreamStatus =
+      err && typeof err === "object"
+        ? (() => {
+            const o = err as { status?: unknown; response?: { status?: unknown } };
+            if (typeof o.status === "number" && Number.isFinite(o.status)) return o.status;
+            const rs = o.response?.status;
+            if (typeof rs === "number" && Number.isFinite(rs)) return rs;
+            return undefined;
+          })()
+        : undefined;
+
+    let statusCode = 500;
+    let body: { error: string; code?: string } = { error: "Translation failed" };
+
+    if (isTimeout) {
+      statusCode = 503;
+      body = { error: "Translation timed out — please retry" };
+    } else if (upstreamStatus === 401 || upstreamStatus === 403) {
+      statusCode = 503;
+      body = {
+        code: "OPENAI_AUTH_FAILED",
+        error:
+          "Translation is unavailable: OpenAI rejected the API key (401/403). Check OPENAI_API_KEY or integration keys on this Railway service and redeploy.",
+      };
+    } else if (upstreamStatus === 429) {
+      statusCode = 503;
+      body = {
+        code: "OPENAI_RATE_LIMITED",
+        error: "Translation is temporarily unavailable (OpenAI rate limit). Try again in a minute.",
+      };
+    } else if (upstreamStatus === 402) {
+      statusCode = 503;
+      body = {
+        code: "OPENAI_BILLING",
+        error: "Translation is unavailable: OpenAI returned a billing/payment error. Check your OpenAI account billing.",
+      };
+    }
+
     logger.error(
-      { err, srcLang, tgtLang, textLen: text.length, isTimeout },
+      { err, srcLang, tgtLang, textLen: text.length, isTimeout, upstreamStatus },
       isTimeout ? "Translation timed out (>12 s)" : "Translation failed",
     );
-    res.status(isTimeout ? 503 : 500).json({
-      error: isTimeout ? "Translation timed out — please retry" : "Translation failed",
-    });
+    res.status(statusCode).json(body);
   }
 });
 

@@ -1,33 +1,29 @@
 import { useState, useEffect } from "react";
-import { Star, X, CheckCircle } from "lucide-react";
+import { Star, CheckCircle, AlertCircle } from "lucide-react";
 
 type Props = {
   planType?: string;
   trialExpired: boolean;
-  minutesRemainingToday: number;
+  /** Includes server `minutesUsedToday` plus in-session PCM estimate while recording. */
+  effectiveMinutesUsedToday: number;
   dailyLimitMinutes: number;
 };
 
-const STORAGE_PROMPT_PREFIX = "ifai_trial_midday_";
-const STORAGE_SUBMITTED_PREFIX = "ifai_trial_midday_submitted_";
+const STORAGE_PREFIX = "ifai_trial_halfday_mandatory_";
+const MIN_COMMENT_LENGTH = 10;
 
-function twoHourBucketKey() {
-  const now = new Date();
-  const bucket = Math.floor(now.getTime() / (2 * 60 * 60 * 1000));
-  return `${STORAGE_PROMPT_PREFIX}${bucket}`;
-}
-
-function submittedTodayKey() {
-  return `${STORAGE_SUBMITTED_PREFIX}${new Date().toISOString().slice(0, 10)}`;
+function submittedTodayStorageKey() {
+  return `${STORAGE_PREFIX}${new Date().toISOString().slice(0, 10)}`;
 }
 
 /**
- * Re-prompts every 2 hours when ~1 hour remains, unless submitted that day.
+ * Trial only: once per calendar day, after the user has used ≥ half of their daily
+ * allowance, blocks the workspace until they submit a star rating and a written comment.
  */
 export function EarlyTrialFeedbackPrompt({
   planType,
   trialExpired,
-  minutesRemainingToday,
+  effectiveMinutesUsedToday,
   dailyLimitMinutes,
 }: Props) {
   const [visible, setVisible]   = useState(false);
@@ -41,28 +37,24 @@ export function EarlyTrialFeedbackPrompt({
 
   const onTrial =
     (planType ?? "trial") === "trial" && !trialExpired && dailyLimitMinutes >= 60;
-  const oneHourOrLessLeft =
-    minutesRemainingToday > 0 && minutesRemainingToday <= 60;
+  const halfThreshold = dailyLimitMinutes / 2;
+  const halfUsageReached = effectiveMinutesUsedToday >= halfThreshold - 1e-6;
 
   useEffect(() => {
-    if (!onTrial || !oneHourOrLessLeft) return;
-    if (localStorage.getItem(submittedTodayKey())) return;
-    if (localStorage.getItem(twoHourBucketKey())) return;
+    if (!onTrial || !halfUsageReached) return;
+    if (localStorage.getItem(submittedTodayStorageKey()) === "submitted") return;
+
     const t = setTimeout(() => {
       setVisible(true);
       setTimeout(() => setAnimate(true), 30);
-    }, 2500);
+    }, 800);
     return () => clearTimeout(t);
-  }, [onTrial, oneHourOrLessLeft, minutesRemainingToday]);
+  }, [onTrial, halfUsageReached, effectiveMinutesUsedToday, dailyLimitMinutes]);
 
-  const dismiss = () => {
-    localStorage.setItem(twoHourBucketKey(), "dismissed");
-    setAnimate(false);
-    setTimeout(() => setVisible(false), 300);
-  };
+  const canSubmit = rating >= 1 && comment.trim().length >= MIN_COMMENT_LENGTH;
 
   const handleSubmit = async () => {
-    if (rating < 1 || loading) return;
+    if (!canSubmit || loading) return;
     setLoading(true);
     setErr(null);
     try {
@@ -72,19 +64,18 @@ export function EarlyTrialFeedbackPrompt({
         headers:     { "Content-Type": "application/json" },
         body: JSON.stringify({
           rating,
-          comment: comment.trim() || undefined,
-          source:  "trial-daily-mid-session",
+          comment: comment.trim(),
+          source:  "trial-half-daily-mandatory",
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not send feedback");
-      localStorage.setItem(twoHourBucketKey(), "submitted");
-      localStorage.setItem(submittedTodayKey(), "submitted");
+      localStorage.setItem(submittedTodayStorageKey(), "submitted");
       setDone(true);
       setTimeout(() => {
         setAnimate(false);
         setTimeout(() => setVisible(false), 320);
-      }, 1800);
+      }, 1600);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -98,14 +89,18 @@ export function EarlyTrialFeedbackPrompt({
 
   return (
     <div
-      className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-opacity duration-300 ${
-        animate ? "opacity-100" : "opacity-0 pointer-events-none"
+      className={`fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 transition-opacity duration-300 ${
+        animate ? "opacity-100" : "opacity-0"
       }`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="trial-feedback-title"
     >
       <div
-        className={`bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-transform duration-300 ${
+        className={`bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-transform duration-300 pointer-events-auto ${
           animate ? "scale-100 translate-y-0" : "scale-95 translate-y-4"
         }`}
+        onClick={e => e.stopPropagation()}
       >
         {done ? (
           <div className="p-8 text-center space-y-3">
@@ -113,24 +108,24 @@ export function EarlyTrialFeedbackPrompt({
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
             <p className="font-semibold text-foreground">Thank you!</p>
-            <p className="text-sm text-muted-foreground">Your feedback helps us improve InterpreterAI.</p>
+            <p className="text-sm text-muted-foreground">You can continue your session.</p>
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">How would you rate InterpreterAI so far?</h2>
-              <button
-                type="button"
-                onClick={dismiss}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-amber-500/10">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <div className="min-w-0">
+                <h2 id="trial-feedback-title" className="text-sm font-semibold text-foreground">
+                  Daily feedback required
+                </h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  You&apos;ve used about half of today&apos;s trial time. Please rate your experience and leave a short comment to continue.
+                </p>
+              </div>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-xs text-muted-foreground">
-                You have about an hour of interpreting time left today. We&apos;d love a quick rating while you&apos;re in the flow.
+                Stars and a comment (at least {MIN_COMMENT_LENGTH} characters) are required. This appears once per day during your free trial.
               </p>
               <div className="flex justify-center gap-1" onMouseLeave={() => setHovered(0)}>
                 {[1, 2, 3, 4, 5].map((s) => (
@@ -150,36 +145,35 @@ export function EarlyTrialFeedbackPrompt({
                   </button>
                 ))}
               </div>
-              <textarea
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Optional feedback…"
-                rows={3}
-                maxLength={500}
-                className="w-full px-3 py-2 text-sm rounded-xl border border-input bg-background outline-none focus:ring-2 focus:ring-primary/30 resize-none"
-              />
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                  Comment <span className="text-destructive">*</span>
+                </label>
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Tell us what’s working or what we should improve…"
+                  rows={4}
+                  maxLength={500}
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-input bg-background outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {comment.trim().length}/{MIN_COMMENT_LENGTH}+ characters required
+                </p>
+              </div>
               {err && (
                 <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
                   {err}
                 </p>
               )}
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  disabled={rating < 1 || loading}
-                  onClick={() => void handleSubmit()}
-                  className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
-                >
-                  {loading ? "Sending…" : "Submit Feedback"}
-                </button>
-                <button
-                  type="button"
-                  onClick={dismiss}
-                  className="px-4 h-10 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  Continue Session
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={!canSubmit || loading}
+                onClick={() => void handleSubmit()}
+                className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
+              >
+                {loading ? "Sending…" : "Submit and continue"}
+              </button>
             </div>
           </>
         )}
