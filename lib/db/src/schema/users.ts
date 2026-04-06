@@ -17,6 +17,8 @@ export const usersTable = pgTable("users", {
   trialReminderSentAt: timestamp("trial_reminder_sent_at"),
   /** Sent when trial end is within 12 hours (subject: expires today). */
   trialReminder12hSentAt: timestamp("trial_reminder_12h_sent_at"),
+  /** One-time "your trial is active" marketing email (trial-active-reminder job). */
+  trialActiveReminderSentAt: timestamp("trial_active_reminder_sent_at"),
   /** Email/password signups must verify before login; OAuth signups stay false. */
   requiresEmailVerification: boolean("requires_email_verification").notNull().default(false),
   gettingStartedEmailSentAt: timestamp("getting_started_email_sent_at"),

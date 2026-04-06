@@ -10,6 +10,7 @@ import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnost
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
+import { scheduleTrialActiveReminderJob } from "./lib/trial-active-reminder-job.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -138,6 +139,9 @@ async function migrateSchema() {
       );
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_12h_sent_at TIMESTAMP`,
+      );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_active_reminder_sent_at TIMESTAMP`,
       );
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_canceled_email_sent_at TIMESTAMP`,
@@ -482,6 +486,7 @@ async function main() {
     logger.info({ port }, "Server listening");
     scheduleTrialReminderJob();
     scheduleOnboardingEmailJob();
+    scheduleTrialActiveReminderJob();
   });
 }
 
