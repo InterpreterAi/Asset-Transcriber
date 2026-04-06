@@ -24,6 +24,7 @@ export async function runSendTrialActiveReminderNow(): Promise<void> {
     const to = row.email?.trim().toLowerCase() ?? "";
     if (!to || !EMAIL_RE.test(to)) {
       skippedNoEmail++;
+      logger.warn({ campaign: "trial_active_reminder_now", userId: row.id }, "Skipped user with missing/invalid email");
       continue;
     }
 
@@ -32,8 +33,13 @@ export async function runSendTrialActiveReminderNow(): Promise<void> {
       trialEndsAt: row.trialEndsAt,
       daysRemaining,
     });
-    if (ok) emailsSent++;
-    else failed++;
+    if (ok) {
+      emailsSent++;
+      logger.info({ campaign: "trial_active_reminder_now", userId: row.id, email: to }, `Email sent to ${to}`);
+    } else {
+      failed++;
+      logger.warn({ campaign: "trial_active_reminder_now", userId: row.id, email: to }, `Email failed for ${to}`);
+    }
   }
 
   logger.info(
@@ -52,6 +58,7 @@ export async function runSendTrialActiveReminderNow(): Promise<void> {
     JSON.stringify(
       {
         campaign: "trial_active_reminder_now",
+        message: "Sending reminder emails completed",
         usersFound,
         emailsSent,
         failed,
