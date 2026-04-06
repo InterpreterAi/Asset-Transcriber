@@ -493,10 +493,18 @@ interface BubbleTransState {
   translationLocked: boolean;  // true after first finalized translation — no further updates
 }
 
+export type UseTranscriptionOptions = {
+  /** Fired when finalized transcript/translation lines are appended for admin live view (debounce in parent). */
+  onAdminSnapshotBuffersUpdated?: () => void;
+};
+
 // ── Hook ───────────────────────────────────────────────────────────────────────
-export function useTranscription(isAdmin = false) {
+export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
+
+  const onAdminSnapshotBuffersUpdatedRef = useRef<(() => void) | undefined>(undefined);
+  onAdminSnapshotBuffersUpdatedRef.current = options?.onAdminSnapshotBuffersUpdated;
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -629,7 +637,11 @@ export function useTranscription(isAdmin = false) {
         transTextEl.removeAttribute("lang");
         transTextEl.className       = CLS.transText;
         transTextEl.textContent     = text;
-        if (isFinal) state.translationLocked = true;
+        if (isFinal) {
+          state.translationLocked = true;
+          translationBufRef.current.push(text);
+          onAdminSnapshotBuffersUpdatedRef.current?.();
+        }
         scrollPanel();
       }
       return;
@@ -666,7 +678,11 @@ export function useTranscription(isAdmin = false) {
         transTextEl.removeAttribute("lang");
         transTextEl.className       = CLS.transText;
         transTextEl.textContent     = text;
-        if (isFinal) state.translationLocked = true;
+        if (isFinal) {
+          state.translationLocked = true;
+          translationBufRef.current.push(text);
+          onAdminSnapshotBuffersUpdatedRef.current?.();
+        }
         scrollPanel();
       }
       return;
@@ -718,6 +734,7 @@ export function useTranscription(isAdmin = false) {
           state.translationLocked = true;
           // Accumulate for admin snapshot.
           if (translated) translationBufRef.current.push(translated);
+          onAdminSnapshotBuffersUpdatedRef.current?.();
         }
 
         scrollPanel();
@@ -875,6 +892,7 @@ export function useTranscription(isAdmin = false) {
     if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
       // Accumulate for admin snapshot.
       transcriptBufRef.current.push(finalText);
+      onAdminSnapshotBuffersUpdatedRef.current?.();
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.
       const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
