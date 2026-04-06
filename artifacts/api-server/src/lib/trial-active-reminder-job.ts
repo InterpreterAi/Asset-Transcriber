@@ -9,8 +9,13 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * One-time “your trial is still active” campaign via Resend.
  *
- * **Opt-in:** set `TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=YYYY-MM-DD` (UTC calendar date when sends are allowed).
- * Optional: `TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR` (0–23, default `12`) — no sends before this UTC hour on that date.
+ * **Opt-in:** set `TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=YYYY-MM-DD` (UTC calendar date).
+ * Set `TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=0-23` to the **scheduled UTC hour** for the blast
+ * (sends only during that whole UTC hour, e.g. hour `10` = 10:00–10:59 UTC). Ignores recipient time zones.
+ *
+ * Example — 12:00 PM Egypt (UTC+2) on 6 Apr 2026:
+ *   TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=2026-04-06
+ *   TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=10
  *
  * Each eligible user is emailed at most once (`users.trial_active_reminder_sent_at`). Does not modify trial dates or limits.
  */
@@ -23,27 +28,31 @@ export function isTrialActiveReminderSendWindow(): boolean {
   if (todayUtc !== date) return false;
 
   const rawHour = process.env.TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR?.trim();
-  const minHour = rawHour === undefined || rawHour === "" ? 12 : Number(rawHour);
-  if (!Number.isFinite(minHour) || minHour < 0 || minHour > 23) {
+  const scheduledUtcHour = rawHour === undefined || rawHour === "" ? 12 : Number(rawHour);
+  if (!Number.isFinite(scheduledUtcHour) || scheduledUtcHour < 0 || scheduledUtcHour > 23) {
     logger.warn(
       { TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR: rawHour },
-      "Trial active reminder: invalid TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR — using 12",
+      "Trial active reminder: invalid TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR — using UTC hour 12",
     );
-    return now.getUTCHours() >= 12;
+    return now.getUTCHours() === 12;
   }
-  return now.getUTCHours() >= minHour;
+  return now.getUTCHours() === scheduledUtcHour;
 }
 
 export async function runTrialActiveReminderJob(): Promise<void> {
   if (!isResendConfigured()) return;
   if (!isTrialActiveReminderSendWindow()) return;
 
+  logger.info(
+    { campaign: "trial_active_reminder" },
+    "Trial active reminder job: execution started (scheduled UTC date/hour window active)",
+  );
+
   try {
     const rows = await db
       .select({
-        id:          usersTable.id,
-        email:       usersTable.email,
-        trialEndsAt: usersTable.trialEndsAt,
+        id:    usersTable.id,
+        email: usersTable.email,
       })
       .from(usersTable)
       .where(
@@ -60,22 +69,17 @@ export async function runTrialActiveReminderJob(): Promise<void> {
         ),
       );
 
-    if (rows.length === 0) {
-      logger.info(
-        { campaign: "trial_active_reminder" },
-        "Trial active reminder job: no eligible users in this run",
-      );
-      return;
-    }
-
-    logger.info(
-      { campaign: "trial_active_reminder", eligibleCount: rows.length },
-      "Trial active reminder job: processing eligible users",
-    );
+    const usersFound = rows.length;
+    let emailsSent = 0;
+    let emailsFailed = 0;
+    let skippedInvalidEmail = 0;
 
     for (const row of rows) {
       const to = row.email?.trim().toLowerCase() ?? "";
-      if (!to || !EMAIL_RE.test(to)) continue;
+      if (!to || !EMAIL_RE.test(to)) {
+        skippedInvalidEmail++;
+        continue;
+      }
 
       const ok = await sendTrialActiveReminderEmail(to);
       if (ok) {
@@ -83,32 +87,37 @@ export async function runTrialActiveReminderJob(): Promise<void> {
           .update(usersTable)
           .set({ trialActiveReminderSentAt: new Date() })
           .where(eq(usersTable.id, row.id));
-        logger.info(
-          {
-            userId: row.id,
-            email: to,
-            campaign: "trial_active_reminder",
-            trialEndsAt: row.trialEndsAt,
-          },
-          "Trial active reminder email sent",
-        );
+        emailsSent++;
       } else {
+        emailsFailed++;
         logger.warn(
           { userId: row.id, email: to, campaign: "trial_active_reminder" },
-          "Trial active reminder email not sent (Resend returned failure — will retry next run if still eligible)",
+          "Trial active reminder email not sent (Resend returned failure — will retry next run in this UTC hour if still eligible)",
         );
       }
     }
+
+    logger.info(
+      {
+        campaign: "trial_active_reminder",
+        usersFound,
+        emailsSent,
+        emailsFailed,
+        skippedInvalidEmail,
+      },
+      "Trial active reminder job: execution finished",
+    );
   } catch (err) {
     logger.error({ err, campaign: "trial_active_reminder" }, "Trial active reminder job failed");
   }
 }
 
-const FIFTEEN_MIN_MS = 15 * 60 * 1000;
+/** Shorter than other mail jobs so a deploy shortly before the scheduled UTC hour still ticks inside that hour. */
+const REMINDER_TICK_MS = 5 * 60 * 1000;
 
-/** First run a few minutes after boot, then every 15 minutes (same pattern as other mail jobs). */
+/** First run 1 minute after boot, then every 5 minutes (only the matching UTC date/hour does work). */
 export function scheduleTrialActiveReminderJob(): void {
   const run = () => void runTrialActiveReminderJob();
-  setTimeout(run, 180_000);
-  setInterval(run, FIFTEEN_MIN_MS);
+  setTimeout(run, 60_000);
+  setInterval(run, REMINDER_TICK_MS);
 }
