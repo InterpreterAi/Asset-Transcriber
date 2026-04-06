@@ -71,6 +71,8 @@ router.get("/users", requireAdmin, async (_req, res) => {
       totalMinutesUsed:   u.totalMinutesUsed,
       totalSessions:      u.totalSessions,
       totalShares:        shareMap.get(u.id) ?? 0,
+      defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
+      defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
       lastActivityAt:     u.lastActivity ?? null,
       createdAt:          u.createdAt,
     })),
@@ -812,7 +814,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  const { isActive, isAdmin, dailyLimitMinutes, password, planType, trialEndsAt, minutesUsedToday } = req.body as {
+  const { isActive, isAdmin, dailyLimitMinutes, password, planType, trialEndsAt, minutesUsedToday, defaultLangA, defaultLangB } = req.body as {
     isActive?: boolean;
     isAdmin?: boolean;
     dailyLimitMinutes?: number;
@@ -820,6 +822,8 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     planType?: string;
     trialEndsAt?: string | null;
     minutesUsedToday?: number;
+    defaultLangA?: string;
+    defaultLangB?: string;
   };
 
   const updates: Partial<typeof usersTable.$inferSelect> = {};
@@ -830,6 +834,17 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   if (password)                           updates.passwordHash = await hashPassword(password);
   if (trialEndsAt !== undefined && trialEndsAt) updates.trialEndsAt = new Date(trialEndsAt);
   if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;
+  if (defaultLangA && defaultLangA.trim()) (updates as Record<string, unknown>).defaultLangA = defaultLangA.trim();
+  if (defaultLangB && defaultLangB.trim()) (updates as Record<string, unknown>).defaultLangB = defaultLangB.trim();
+
+  if (
+    (updates as Record<string, unknown>).defaultLangA &&
+    (updates as Record<string, unknown>).defaultLangB &&
+    (updates as Record<string, unknown>).defaultLangA === (updates as Record<string, unknown>).defaultLangB
+  ) {
+    res.status(400).json({ error: "Default language pair must use two different languages" });
+    return;
+  }
 
   const result = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
   if (result.length === 0) {
@@ -851,6 +866,8 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     minutesUsedToday:  user.minutesUsedToday,
     totalMinutesUsed:  user.totalMinutesUsed,
     totalSessions:     user.totalSessions,
+    defaultLangA:      (user as { defaultLangA?: string }).defaultLangA ?? "en",
+    defaultLangB:      (user as { defaultLangB?: string }).defaultLangB ?? "ar",
     createdAt:         user.createdAt,
   });
 });

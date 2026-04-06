@@ -360,6 +360,7 @@ export default function Admin() {
     id: number; username: string; email: string | null; isAdmin: boolean;
     planType: string; trialEndsAt: string | null; trialDaysRemaining: number | null;
     dailyLimitMinutes: number; minutesUsedToday: number;
+    defaultLangA: string; defaultLangB: string;
     totalMinutesUsed: number; totalSessions: number; createdAt: string;
   } | null>(null);
   const [editForm, setEditForm] = useState({
@@ -368,6 +369,8 @@ export default function Admin() {
     trialEndsAt:       "",
     dailyLimitMinutes: 180,
     minutesUsedToday:  0,
+    defaultLangA:      "en",
+    defaultLangB:      "ar",
   });
   const [editSaving, setEditSaving]  = useState(false);
   const [editError,  setEditError]   = useState<string | null>(null);
@@ -698,6 +701,8 @@ export default function Admin() {
 
   // ── Edit user drawer helpers ───────────────────────────────────────────────
   function openEditUser(u: typeof allUsers[0]) {
+    const userDefaultA = ((u as unknown as { defaultLangA?: string }).defaultLangA ?? defaultLangA ?? "en").trim();
+    const userDefaultB = ((u as unknown as { defaultLangB?: string }).defaultLangB ?? defaultLangB ?? "ar").trim();
     setEditingUser({
       id:                u.id,
       username:          u.username,
@@ -708,6 +713,8 @@ export default function Admin() {
       trialDaysRemaining: (u.trialDaysRemaining as number | null | undefined) ?? null,
       dailyLimitMinutes: u.dailyLimitMinutes,
       minutesUsedToday:  u.minutesUsedToday,
+      defaultLangA:      userDefaultA || "en",
+      defaultLangB:      userDefaultB || "ar",
       totalMinutesUsed:  u.totalMinutesUsed,
       totalSessions:     u.totalSessions,
       createdAt:         u.createdAt ?? new Date().toISOString(),
@@ -718,6 +725,8 @@ export default function Admin() {
       trialEndsAt:       u.trialEndsAt ? new Date(u.trialEndsAt).toISOString().slice(0, 10) : "",
       dailyLimitMinutes: u.dailyLimitMinutes,
       minutesUsedToday:  Math.round(u.minutesUsedToday),
+      defaultLangA:      userDefaultA || "en",
+      defaultLangB:      userDefaultB || "ar",
     });
     setEditError(null);
   }
@@ -734,11 +743,17 @@ export default function Admin() {
     setEditSaving(true);
     setEditError(null);
     try {
+      if (!editForm.defaultLangA || !editForm.defaultLangB || editForm.defaultLangA === editForm.defaultLangB) {
+        setEditError("Please choose two different default languages.");
+        return;
+      }
       const body: Record<string, unknown> = {
         isActive:          editForm.isActive,
         planType:          editForm.planType,
         dailyLimitMinutes: editForm.dailyLimitMinutes,
         minutesUsedToday:  editForm.minutesUsedToday,
+        defaultLangA:      editForm.defaultLangA,
+        defaultLangB:      editForm.defaultLangB,
       };
       if (editForm.planType === "trial" && editForm.trialEndsAt) {
         body.trialEndsAt = new Date(editForm.trialEndsAt).toISOString();
@@ -2462,6 +2477,51 @@ export default function Admin() {
                     )}
                   </div>
                 )}
+              </section>
+
+              {/* ── Default Language Pair ── */}
+              <section className="px-5 py-4 border-b border-border/60 space-y-3">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Languages className="w-3 h-3" /> Default Language Pair
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Source</label>
+                    <select
+                      value={editForm.defaultLangA}
+                      onChange={(e) => {
+                        const nextA = e.target.value;
+                        setEditForm((f) => ({
+                          ...f,
+                          defaultLangA: nextA,
+                          defaultLangB: nextA === f.defaultLangB ? defaultLangB : f.defaultLangB,
+                        }));
+                      }}
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    >
+                      {(langConfigData?.allLanguages ?? []).map(l => (
+                        <option key={l.value} value={l.value}>{l.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Target</label>
+                    <select
+                      value={editForm.defaultLangB}
+                      onChange={e => setEditForm(f => ({ ...f, defaultLangB: e.target.value }))}
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    >
+                      {(langConfigData?.allLanguages ?? [])
+                        .filter(l => l.value !== editForm.defaultLangA)
+                        .map(l => (
+                          <option key={l.value} value={l.value}>{l.label}</option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  This applies to this user on workspace load.
+                </p>
               </section>
 
               {/* ── Daily Usage Limit ── */}

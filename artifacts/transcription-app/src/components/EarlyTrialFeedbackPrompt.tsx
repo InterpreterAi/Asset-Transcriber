@@ -8,14 +8,21 @@ type Props = {
   dailyLimitMinutes: number;
 };
 
-const STORAGE_PREFIX = "ifai_trial_midday_";
+const STORAGE_PROMPT_PREFIX = "ifai_trial_midday_";
+const STORAGE_SUBMITTED_PREFIX = "ifai_trial_midday_submitted_";
 
-function todayKey() {
-  return `${STORAGE_PREFIX}${new Date().toISOString().slice(0, 10)}`;
+function twoHourBucketKey() {
+  const now = new Date();
+  const bucket = Math.floor(now.getTime() / (2 * 60 * 60 * 1000));
+  return `${STORAGE_PROMPT_PREFIX}${bucket}`;
+}
+
+function submittedTodayKey() {
+  return `${STORAGE_SUBMITTED_PREFIX}${new Date().toISOString().slice(0, 10)}`;
 }
 
 /**
- * One prompt per day when ~1 hour of the daily cap remains (e.g. 2h used of 3h on trial).
+ * Re-prompts every 2 hours when ~1 hour remains, unless submitted that day.
  */
 export function EarlyTrialFeedbackPrompt({
   planType,
@@ -39,7 +46,8 @@ export function EarlyTrialFeedbackPrompt({
 
   useEffect(() => {
     if (!onTrial || !oneHourOrLessLeft) return;
-    if (localStorage.getItem(todayKey())) return;
+    if (localStorage.getItem(submittedTodayKey())) return;
+    if (localStorage.getItem(twoHourBucketKey())) return;
     const t = setTimeout(() => {
       setVisible(true);
       setTimeout(() => setAnimate(true), 30);
@@ -48,7 +56,7 @@ export function EarlyTrialFeedbackPrompt({
   }, [onTrial, oneHourOrLessLeft, minutesRemainingToday]);
 
   const dismiss = () => {
-    localStorage.setItem(todayKey(), "dismissed");
+    localStorage.setItem(twoHourBucketKey(), "dismissed");
     setAnimate(false);
     setTimeout(() => setVisible(false), 300);
   };
@@ -70,7 +78,8 @@ export function EarlyTrialFeedbackPrompt({
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not send feedback");
-      localStorage.setItem(todayKey(), "submitted");
+      localStorage.setItem(twoHourBucketKey(), "submitted");
+      localStorage.setItem(submittedTodayKey(), "submitted");
       setDone(true);
       setTimeout(() => {
         setAnimate(false);

@@ -34,6 +34,8 @@ export const usersTable = pgTable("users", {
   lastUsageResetAt: timestamp("last_usage_reset_at").notNull().defaultNow(),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  defaultLangA: text("default_lang_a").notNull().default("en"),
+  defaultLangB: text("default_lang_b").notNull().default("ar"),
   paypalSubscriptionId: text("paypal_subscription_id"),
   subscriptionStatus: text("subscription_status"),
   subscriptionPlan: text("subscription_plan"),

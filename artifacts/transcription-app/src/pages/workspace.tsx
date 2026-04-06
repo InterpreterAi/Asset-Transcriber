@@ -108,6 +108,26 @@ export default function Workspace() {
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/usage/language-defaults", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { defaultLangA?: string; defaultLangB?: string };
+        const nextA = (data.defaultLangA ?? "").trim();
+        const nextB = (data.defaultLangB ?? "").trim();
+        if (!cancelled && nextA && nextB && nextA !== nextB) {
+          setLangA(nextA);
+          setLangB(nextB);
+        }
+      } catch {
+        // keep current local defaults if endpoint fails
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Always-current ref so the snapshot interval never reads stale closure values
   const micLabelRef = useRef("Microphone");
   const langARef    = useRef(langA);

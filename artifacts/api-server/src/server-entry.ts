@@ -153,6 +153,8 @@ async function migrateSchema() {
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP`);
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_a TEXT NOT NULL DEFAULT 'en'`);
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_b TEXT NOT NULL DEFAULT 'ar'`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS trial_consumed_emails (
