@@ -92,7 +92,46 @@ export default function Workspace() {
   const logoutMut         = useLogout();
 
   const { devices }   = useAudioDevices();
-  const transcription = useTranscription(user?.isAdmin ?? false);
+
+  const [langA, setLangA] = useState("en");
+  const [langB, setLangB] = useState("ar");
+  const langARef    = useRef(langA);
+  const langBRef    = useRef(langB);
+  useEffect(() => { langARef.current = langA; }, [langA]);
+  useEffect(() => { langBRef.current = langB; }, [langB]);
+  const micLabelRef = useRef("Microphone");
+
+  const snapshotCtxRef = useRef<{
+    transcription: ReturnType<typeof useTranscription> | null;
+    debounce: ReturnType<typeof setTimeout> | null;
+  }>({ transcription: null, debounce: null });
+
+  const transcription = useTranscription(user?.isAdmin ?? false, {
+    onAdminSnapshotBuffersUpdated: () => {
+      if (snapshotCtxRef.current.debounce != null) return;
+      snapshotCtxRef.current.debounce = setTimeout(() => {
+        snapshotCtxRef.current.debounce = null;
+        const t = snapshotCtxRef.current.transcription;
+        if (!t?.isRecording || !t.sessionId) return;
+        const snap = t.getSnapshot();
+        void fetch("/api/transcription/session/snapshot", {
+          method:      "PUT",
+          headers:     { "Content-Type": "application/json" },
+          credentials: "include",
+          body:        JSON.stringify({
+            sessionId:   t.sessionId,
+            langA:       langARef.current,
+            langB:       langBRef.current,
+            micLabel:    micLabelRef.current,
+            transcript:  snap.transcript,
+            translation: snap.translation,
+          }),
+        }).catch(() => { /* best-effort */ });
+      }, 400);
+    },
+  });
+  snapshotCtxRef.current.transcription = transcription;
+
   useSessionHeartbeat(!!user);
 
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
@@ -104,9 +143,6 @@ export default function Workspace() {
   const [activeTab, setActiveTab]               = useState("mic");
   const [inputMode, setInputMode]               = useState<"mic" | "tab">("mic");
   const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
-
-  const [langA, setLangA] = useState("en");
-  const [langB, setLangB] = useState("ar");
 
   useEffect(() => {
     let cancelled = false;
@@ -128,12 +164,6 @@ export default function Workspace() {
     return () => { cancelled = true; };
   }, []);
 
-  // Always-current ref so the snapshot interval never reads stale closure values
-  const micLabelRef = useRef("Microphone");
-  const langARef    = useRef(langA);
-  const langBRef    = useRef(langB);
-  useEffect(() => { langARef.current = langA; }, [langA]);
-  useEffect(() => { langBRef.current = langB; }, [langB]);
   useEffect(() => {
     const micDev = devices.find(d => d.deviceId === selectedDeviceId);
     micLabelRef.current = inputMode === "tab"
@@ -385,20 +415,20 @@ export default function Workspace() {
   }, [user?.trialExpired]);
 
   // ── Snapshot push for admin "View Session" ──────────────────────────────
-  // Every 5 s while recording, push the accumulated transcript/translation,
-  // lang pair, and mic label to the server so an admin can view it live.
-  // Data is in-memory only — not stored persistently.
+  // Periodic push plus debounced pushes when finalized lines land (translation
+  // often arrives after transcript; without extra pushes admin sees gaps).
   useEffect(() => {
     if (!transcription.isRecording || !transcription.sessionId) return;
-    const sid = transcription.sessionId;
     const push = () => {
-      const snap = transcription.getSnapshot();
-      fetch("/api/transcription/session/snapshot", {
+      const t = snapshotCtxRef.current.transcription;
+      if (!t?.isRecording || !t.sessionId) return;
+      const snap = t.getSnapshot();
+      void fetch("/api/transcription/session/snapshot", {
         method:      "PUT",
         headers:     { "Content-Type": "application/json" },
         credentials: "include",
         body:        JSON.stringify({
-          sessionId:   sid,
+          sessionId:   t.sessionId,
           langA:       langARef.current,
           langB:       langBRef.current,
           micLabel:    micLabelRef.current,
@@ -408,8 +438,15 @@ export default function Workspace() {
       }).catch(() => { /* best-effort */ });
     };
     push();
-    const interval = setInterval(push, 5_000);
-    return () => clearInterval(interval);
+    const interval = setInterval(push, 2_500);
+    return () => {
+      clearInterval(interval);
+      const d = snapshotCtxRef.current.debounce;
+      if (d != null) {
+        clearTimeout(d);
+        snapshotCtxRef.current.debounce = null;
+      }
+    };
   }, [transcription.isRecording, transcription.sessionId]);
 
   const handleLogout = async () => {

@@ -585,7 +585,32 @@ export default function Admin() {
   const fetchSessionDetail = useCallback(async (sessionId: number) => {
     try {
       const res = await fetch(`/api/admin/session/${sessionId}`, { credentials: "include" });
-      if (res.ok) setSessionDetail(await res.json() as SessionDetail);
+      if (!res.ok) return;
+      const next = await res.json() as SessionDetail;
+      // Live view: translation lines often land after transcript on the client; a poll can
+      // see shorter `translation` than a previous tick. Merge monotonically so admin UI
+      // does not flicker or drop text between refreshes.
+      setSessionDetail((prev) => {
+        if (!next.isLive || !prev?.isLive || prev.sessionId !== next.sessionId) return next;
+        if (!next.snapshot) return next;
+        if (!prev.snapshot) return next;
+        const ps = prev.snapshot;
+        const ns = next.snapshot;
+        if (!ns.transcript.trim() && !ns.translation.trim()) return next;
+        const mergedTranscript =
+          ns.transcript.length >= ps.transcript.length ? ns.transcript : ps.transcript;
+        const mergedTranslation =
+          ns.translation.length >= ps.translation.length ? ns.translation : ps.translation;
+        return {
+          ...next,
+          snapshot: {
+            ...ns,
+            transcript: mergedTranscript,
+            translation: mergedTranslation,
+            updatedAt: Math.max(ns.updatedAt, ps.updatedAt),
+          },
+        };
+      });
     } catch { /* ignore */ }
   }, []);
 
@@ -597,7 +622,7 @@ export default function Admin() {
     }
     setViewLoading(true);
     fetchSessionDetail(viewingSessionId).then(() => setViewLoading(false));
-    viewPollRef.current = setInterval(() => fetchSessionDetail(viewingSessionId), 5_000);
+    viewPollRef.current = setInterval(() => fetchSessionDetail(viewingSessionId), 2_000);
     return () => { if (viewPollRef.current) clearInterval(viewPollRef.current); };
   }, [viewingSessionId, fetchSessionDetail]);
 
@@ -2219,7 +2244,7 @@ export default function Admin() {
             {/* Modal footer */}
             <div className="p-3 border-t border-border bg-gray-50 flex items-center justify-between">
               <span className="text-[11px] text-muted-foreground">
-                {sessionDetail?.isLive ? "Auto-refreshing every 5 s" : "Session ended"}
+                {sessionDetail?.isLive ? "Auto-refreshing every 2 s" : "Session ended"}
               </span>
               <span className="text-[11px] text-muted-foreground">
                 Started {sessionDetail ? format(new Date(sessionDetail.startedAt), "MMM d, HH:mm") : ""}
