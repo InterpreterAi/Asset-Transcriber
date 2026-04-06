@@ -180,41 +180,27 @@ export default function Workspace() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
-  type StripePrice = { id: string; unit_amount: number; currency: string; recurring: { interval: string } | null };
-  type StripeProduct = { id: string; name: string; description: string; prices: StripePrice[] };
-  const [upgradePlans, setUpgradePlans] = useState<StripeProduct[]>([]);
-  const [plansLoading, setPlansLoading] = useState(false);
-
-  const fetchPlans = async () => {
-    setPlansLoading(true);
-    try {
-      const res = await fetch("/api/stripe/products-with-prices", { credentials: "include" });
-      const data = await res.json() as { data?: StripeProduct[]; error?: string };
-      if (res.ok && data.data) setUpgradePlans(data.data);
-    } catch { /* ignore */ } finally {
-      setPlansLoading(false);
-    }
-  };
+  const [selectedPlan, setSelectedPlan] = useState<"basic" | "professional" | "unlimited" | null>(null);
 
   const handleOpenUpgrade = () => {
     setShowUpgrade(true);
     setUpgradeError(null);
-    void fetchPlans();
+    setSelectedPlan(null);
   };
 
-  const handleCheckout = async (priceId: string) => {
-    setUpgradeLoading(priceId);
+  const handlePayPalCheckout = async (planType: "basic" | "professional" | "unlimited") => {
+    setUpgradeLoading(planType);
     setUpgradeError(null);
     try {
-      const res = await fetch("/api/stripe/checkout", {
+      const res = await fetch("/api/payments/create-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ userId: user?.id, planType }),
       });
-      const data = await res.json() as { url?: string; error?: string };
-      if (!res.ok || !data.url) throw new Error(data.error ?? "Checkout failed");
-      window.location.href = data.url;
+      const data = await res.json() as { approvalUrl?: string; error?: string };
+      if (!res.ok || !data.approvalUrl) throw new Error(data.error ?? "Checkout failed");
+      window.location.href = data.approvalUrl;
     } catch (err: unknown) {
       setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -551,88 +537,70 @@ export default function Workspace() {
                 </div>
               )}
 
-              {plansLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <span className="w-8 h-8 border-2 border-border border-t-primary rounded-full animate-spin" />
-                </div>
-              ) : upgradePlans.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">
-                  <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm font-medium">Plans not available yet</p>
-                  <p className="text-xs mt-1">Please check back soon or contact support.</p>
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-3">
-                  {upgradePlans.map((plan) => {
-                    const monthlyPrice = plan.prices.find(p => p.recurring?.interval === "month");
-                    const yearlyPrice  = plan.prices.find(p => p.recurring?.interval === "year");
-                    const isHighlighted = plan.name.toLowerCase().includes("professional");
-                    return (
-                      <div
-                        key={plan.id}
-                        className={`relative rounded-xl border p-5 flex flex-col gap-3 ${
-                          isHighlighted
-                            ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                            : "border-border bg-muted/20"
-                        }`}
-                      >
-                        {isHighlighted && (
-                          <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                            MOST POPULAR
-                          </span>
-                        )}
-                        <div>
-                          <p className="font-semibold text-sm">{plan.name.replace("InterpreterAI ", "")}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{plan.description}</p>
-                        </div>
-                        {monthlyPrice && (
-                          <div>
-                            <p className="text-2xl font-bold">${(monthlyPrice.unit_amount / 100).toFixed(0)}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
-                            {yearlyPrice && (
-                              <p className="text-[11px] text-muted-foreground">${(yearlyPrice.unit_amount / 100).toFixed(0)}/yr — save {Math.round(100 - (yearlyPrice.unit_amount / (monthlyPrice.unit_amount * 12)) * 100)}%</p>
-                            )}
-                          </div>
-                        )}
-                        <div className="flex flex-col gap-2 mt-auto">
-                          {monthlyPrice && (
-                            <button
-                              onClick={() => void handleCheckout(monthlyPrice.id)}
-                              disabled={upgradeLoading === monthlyPrice.id}
-                              className={`w-full h-9 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-                                isHighlighted
-                                  ? "bg-primary text-white hover:bg-primary/90"
-                                  : "bg-foreground text-background hover:bg-foreground/90"
-                              } disabled:opacity-60`}
-                            >
-                              {upgradeLoading === monthlyPrice.id ? (
-                                <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                              ) : (
-                                <Zap className="w-3.5 h-3.5" />
-                              )}
-                              Monthly
-                            </button>
-                          )}
-                          {yearlyPrice && (
-                            <button
-                              onClick={() => void handleCheckout(yearlyPrice.id)}
-                              disabled={upgradeLoading === yearlyPrice.id}
-                              className="w-full h-9 rounded-lg text-xs font-semibold border border-border bg-white hover:bg-muted/60 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                            >
-                              {upgradeLoading === yearlyPrice.id ? (
-                                <span className="w-3.5 h-3.5 border-2 border-muted border-t-foreground rounded-full animate-spin" />
-                              ) : null}
-                              Yearly (best value)
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[
+                  { key: "basic", title: "Basic", price: 39, subtitle: "Good for regular interpreter workflows" },
+                  { key: "professional", title: "Professional", price: 69, subtitle: "Most popular for daily heavy usage", highlight: true },
+                  { key: "unlimited", title: "Unlimited", price: 99, subtitle: "Maximum daily capacity and priority support" },
+                ].map((plan) => (
+                  <button
+                    key={plan.key}
+                    onClick={() => setSelectedPlan(plan.key as "basic" | "professional" | "unlimited")}
+                    className={`text-left relative rounded-xl border p-5 flex flex-col gap-3 transition-all ${
+                      selectedPlan === plan.key
+                        ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                        : "border-border bg-muted/20 hover:border-primary/40"
+                    }`}
+                  >
+                    {plan.highlight && (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                        MOST POPULAR
+                      </span>
+                    )}
+                    <div>
+                      <p className="font-semibold text-sm">{plan.title}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{plan.subtitle}</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">${plan.price}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {selectedPlan && (
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <p className="text-sm font-semibold">Secure Checkout</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Pay with Card or PayPal</p>
+
+                  <div className="mt-3 grid sm:grid-cols-2 gap-2">
+                    <div className="rounded-lg border border-border bg-white px-3 py-2 text-xs flex items-center gap-2">
+                      <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                      PayPal
+                    </div>
+                    <div className="rounded-lg border border-border bg-white px-3 py-2 text-xs flex items-center gap-2">
+                      <CreditCard className="w-3.5 h-3.5 text-primary" />
+                      Debit/Credit Card (PayPal Guest Checkout)
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => void handlePayPalCheckout(selectedPlan)}
+                    disabled={upgradeLoading === selectedPlan}
+                    className="mt-3 w-full h-10 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {upgradeLoading === selectedPlan ? (
+                      <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    Continue to Secure Checkout
+                  </button>
                 </div>
               )}
 
               <p className="text-center text-[11px] text-muted-foreground pt-2">
-                Secure payment by Stripe. Cancel anytime. All plans include real-time AI transcription & translation.
+                Secure payment by PayPal. Card and PayPal supported. Cancel anytime.
               </p>
             </div>
           </div>
