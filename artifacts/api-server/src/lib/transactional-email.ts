@@ -1,6 +1,7 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
 import {
   emailBulletList,
+  formatEmailDate,
   emailGettingStartedGreeting,
   emailOrderedList,
   emailParagraph,
@@ -214,10 +215,21 @@ export async function sendTrialExpiredEmail(to: string, displayName?: string | n
 }
 
 /** One-time campaign: users on an active free trial who have not subscribed (see trial-active-reminder job). */
-export async function sendTrialActiveReminderEmail(to: string): Promise<boolean> {
+export async function sendTrialActiveReminderEmail(
+  to: string,
+  opts?: { trialEndsAt?: Date | string; daysRemaining?: number | null },
+): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Reminder: Your InterpreterAI free trial is active";
+  const trialDateText =
+    opts?.trialEndsAt !== undefined ? formatEmailDate(opts.trialEndsAt instanceof Date ? opts.trialEndsAt : new Date(opts.trialEndsAt)) : null;
+  const daysRemaining = Number(opts?.daysRemaining ?? NaN);
+  const remainingLine = Number.isFinite(daysRemaining)
+    ? daysRemaining > 0
+      ? `You currently have about ${daysRemaining} day${daysRemaining === 1 ? "" : "s"} remaining before expiry.`
+      : "According to your account, this trial end date has already passed."
+    : null;
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
     heading: "Your free trial is active",
@@ -229,6 +241,8 @@ export async function sendTrialActiveReminderEmail(to: string): Promise<boolean>
         "InterpreterAI helps interpreters during calls and remote sessions with real-time transcription and translation.",
       ),
       emailParagraph("If you haven't tried it yet, tomorrow is a great time to start."),
+      ...(trialDateText ? [emailParagraph(`Your trial is set to expire on ${trialDateText}.`)] : []),
+      ...(remainingLine ? [emailParagraph(remainingLine)] : []),
       emailParagraph("You can test:"),
       emailBulletList([
         "Real-time transcription during calls",
