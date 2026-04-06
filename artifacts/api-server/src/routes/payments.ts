@@ -5,7 +5,9 @@ import { logger } from "../lib/logger.js";
 import {
   createPayPalSubscription,
   inferPlanTypeFromPayPalPlanId,
+  paypalPlanEnvDiagnostics,
   paypalPlanConfig,
+  PayPalApiError,
   type BillingPlanType,
   verifyPayPalWebhookSignature,
 } from "../lib/paypal.js";
@@ -25,6 +27,7 @@ function isBillingPlanType(v: unknown): v is BillingPlanType {
 
 router.post("/create-subscription", requireAuth, async (req: any, res) => {
   try {
+    console.log("create-subscription route hit", req.body);
     const { userId, planType } = req.body as { userId?: number; planType?: string };
     if (!userId || !isBillingPlanType(planType)) {
       res.status(400).json({ error: "userId and valid planType are required" });
@@ -35,6 +38,34 @@ router.post("/create-subscription", requireAuth, async (req: any, res) => {
       return;
     }
 
+    logger.info(
+      {
+        route: "/api/payments/create-subscription",
+        userId,
+        planType,
+      },
+      "PayPal create-subscription request received",
+    );
+    console.log("create-subscription incoming planType", planType);
+
+    const planEnvDiag = paypalPlanEnvDiagnostics();
+    const missingPlanVars = Object.entries(planEnvDiag)
+      .filter(([, ok]) => !ok)
+      .map(([k]) => k);
+    if (missingPlanVars.length > 0) {
+      console.error("create-subscription missing PayPal plan env vars", missingPlanVars);
+      logger.error(
+        { userId, planType, missingPlanVars, planEnvDiag },
+        "PayPal plan env vars missing",
+      );
+      res.status(503).json({
+        error: `PayPal plan IDs are missing: ${missingPlanVars.join(", ")}`,
+        code: "paypal_plan_env_missing",
+        missingPlanVars,
+      });
+      return;
+    }
+
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
     if (!user) {
       res.status(404).json({ error: "User not found" });
@@ -42,6 +73,18 @@ router.post("/create-subscription", requireAuth, async (req: any, res) => {
     }
 
     const plan = paypalPlanConfig(planType);
+    logger.info(
+      {
+        userId,
+        incomingPlanType: planType,
+        resolvedPlanId: plan.paypalPlanId,
+      },
+      "PayPal create-subscription resolved plan mapping",
+    );
+    console.log("create-subscription resolved PayPal planId", {
+      incomingPlanType: planType,
+      resolvedPlanId: plan.paypalPlanId,
+    });
     if (!plan.paypalPlanId) {
       res.status(503).json({ error: `PayPal plan not configured for ${planType}` });
       return;
@@ -56,8 +99,25 @@ router.post("/create-subscription", requireAuth, async (req: any, res) => {
 
     res.json({ approvalUrl });
   } catch (err) {
+    console.error("create-subscription thrown error", err);
+    if (err instanceof PayPalApiError) {
+      logger.error(
+        {
+          err,
+          statusCode: err.statusCode,
+          details: err.details,
+        },
+        "POST /api/payments/create-subscription PayPal API error",
+      );
+      res.status(err.statusCode || 500).json({
+        error: err.message,
+        code: "paypal_create_subscription_failed",
+        paypalDetails: err.details ?? null,
+      });
+      return;
+    }
     logger.error({ err }, "POST /api/payments/create-subscription failed");
-    res.status(500).json({ error: "Failed to create PayPal subscription" });
+    res.status(500).json({ error: "Failed to create PayPal subscription", code: "paypal_unknown_error" });
   }
 });
 

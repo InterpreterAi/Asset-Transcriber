@@ -66,6 +66,38 @@ function isDailyTranscriptionCapReached(user: { minutesUsedToday: number; dailyL
   return Number(user.minutesUsedToday) >= cap;
 }
 
+type SessionDiagCounters = {
+  transcriptionSegments: number;
+  translationSegments: number;
+  dashboardUpdates: number;
+};
+
+const diagCounters = new Map<number, SessionDiagCounters>();
+const diagSegmentSeq = new Map<number, number>();
+const diagLastTranslatedBySession = new Map<number, { segmentId: string; translated: string }>();
+
+function diagNowIso(): string {
+  return new Date().toISOString();
+}
+
+function ensureDiagCounter(sessionId: number): SessionDiagCounters {
+  const current = diagCounters.get(sessionId);
+  if (current) return current;
+  const seeded: SessionDiagCounters = {
+    transcriptionSegments: 0,
+    translationSegments: 0,
+    dashboardUpdates: 0,
+  };
+  diagCounters.set(sessionId, seeded);
+  return seeded;
+}
+
+function nextDiagSegmentId(sessionId: number): string {
+  const n = (diagSegmentSeq.get(sessionId) ?? 0) + 1;
+  diagSegmentSeq.set(sessionId, n);
+  return `seg-${n}`;
+}
+
 const SONIOX_TEMP_KEY_URL = "https://api.soniox.com/v1/auth/temporary-api-key";
 
 /** Prefer short-lived keys for the browser WebSocket (Soniox-recommended); fall back to master key if the REST call fails. */
@@ -471,6 +503,23 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     updatedAt:   Date.now(),
   });
 
+  const diagCounter = ensureDiagCounter(sessionId);
+  diagCounter.dashboardUpdates += 1;
+  const lastTranslated = diagLastTranslatedBySession.get(sessionId);
+  const dashboardHasLastSegment =
+    Boolean(lastTranslated?.translated) && (translation ?? "").includes(lastTranslated!.translated);
+  logger.info(
+    {
+      ts: diagNowIso(),
+      stage: "broadcast_to_dashboard",
+      sessionId,
+      segmentId: lastTranslated?.segmentId ?? null,
+      dashboardHasLastSegment,
+      counters: diagCounter,
+    },
+    "TRANSCRIPTION_DIAG",
+  );
+
   res.json({ ok: true });
 });
 
@@ -557,10 +606,12 @@ router.post("/translate", requireAuth, async (req, res) => {
   // isFinal was previously used to bypass the translation cache.
   // The cache has been removed entirely (HIPAA). isFinal is accepted
   // for API compatibility but ignored — every request is processed ephemerally.
-  const { text, srcLang, tgtLang } = req.body as {
+  const { text, srcLang, tgtLang, sessionId: incomingSessionId, segmentId: incomingSegmentId } = req.body as {
     text?: string;
     srcLang?: string;
     tgtLang?: string;
+    sessionId?: number;
+    segmentId?: string;
     isFinal?: boolean; // accepted but unused — kept for API compatibility
   };
 
@@ -598,6 +649,36 @@ router.post("/translate", requireAuth, async (req, res) => {
   // ── User personal glossary ─────────────────────────────────────────────────
   // Load the user's saved glossary entries and add any that match the current text
   const userId = req.session.userId!;
+
+  // Diagnostics only: resolve active session and segment IDs, then count stage events.
+  let diagSessionId: number | null =
+    typeof incomingSessionId === "number" && Number.isFinite(incomingSessionId) ? incomingSessionId : null;
+  if (diagSessionId == null) {
+    const [openSession] = await db
+      .select({ id: sessionsTable.id })
+      .from(sessionsTable)
+      .where(and(eq(sessionsTable.userId, userId), isNull(sessionsTable.endedAt)))
+      .orderBy(desc(sessionsTable.id))
+      .limit(1);
+    diagSessionId = openSession?.id ?? null;
+  }
+  const diagSid = diagSessionId ?? -1;
+  const diagSegId =
+    typeof incomingSegmentId === "string" && incomingSegmentId.trim()
+      ? incomingSegmentId.trim()
+      : nextDiagSegmentId(diagSid);
+  const diagCounter = ensureDiagCounter(diagSid);
+  diagCounter.transcriptionSegments += 1;
+  logger.info(
+    {
+      ts: diagNowIso(),
+      stage: "transcription_segment_received",
+      sessionId: diagSid,
+      segmentId: diagSegId,
+      counters: diagCounter,
+    },
+    "TRANSCRIPTION_DIAG",
+  );
 
   // Capture lang pair on the user's open session (fire-and-forget, no await)
   // Uses full language names so history shows "English → Arabic" not "en → ar".
@@ -770,6 +851,15 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   try {
+    logger.info(
+      {
+        ts: diagNowIso(),
+        stage: "translation_request_sent",
+        sessionId: diagSid,
+        segmentId: diagSegId,
+      },
+      "TRANSCRIPTION_DIAG",
+    );
     let result = await callOpenAI(systemPrompt);
 
     // ── Output language validation ───────────────────────────────────────────
@@ -798,6 +888,20 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     // Accumulate cost for the primary call (after validation so we always count it).
     accumulateCost(result.promptTokens, result.completionTokens);
+
+    diagCounter.translationSegments += 1;
+    diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: result.text });
+    logger.info(
+      {
+        ts: diagNowIso(),
+        stage: "translation_response_received",
+        sessionId: diagSid,
+        segmentId: diagSegId,
+        translatedLength: result.text.length,
+        counters: diagCounter,
+      },
+      "TRANSCRIPTION_DIAG",
+    );
 
     res.json({ translated: result.text }); // result returned to browser; nothing retained server-side
   } catch (err: unknown) {

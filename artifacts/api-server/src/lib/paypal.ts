@@ -2,6 +2,18 @@ import { logger } from "./logger.js";
 
 export type BillingPlanType = "basic" | "professional" | "unlimited";
 
+export class PayPalApiError extends Error {
+  statusCode: number;
+  details?: unknown;
+
+  constructor(message: string, statusCode: number, details?: unknown) {
+    super(message);
+    this.name = "PayPalApiError";
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
+
 type PlanConfig = {
   paypalPlanId: string;
   dailyLimitMinutes: number;
@@ -38,6 +50,25 @@ export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
   return table[planType];
 }
 
+export function paypalPlanEnvDiagnostics(): {
+  PAYPAL_PLAN_ID_BASIC: boolean;
+  PAYPAL_PLAN_ID_PROFESSIONAL: boolean;
+  PAYPAL_PLAN_ID_UNLIMITED: boolean;
+} {
+  return {
+    PAYPAL_PLAN_ID_BASIC: Boolean(envTrim("PAYPAL_PLAN_ID_BASIC")),
+    PAYPAL_PLAN_ID_PROFESSIONAL: Boolean(envTrim("PAYPAL_PLAN_ID_PROFESSIONAL")),
+    PAYPAL_PLAN_ID_UNLIMITED: Boolean(envTrim("PAYPAL_PLAN_ID_UNLIMITED")),
+  };
+}
+
+function missingPayPalPlanEnvVars(): string[] {
+  const diag = paypalPlanEnvDiagnostics();
+  return Object.entries(diag)
+    .filter(([, ok]) => !ok)
+    .map(([k]) => k);
+}
+
 export function inferPlanTypeFromPayPalPlanId(planId: string): BillingPlanType | null {
   const normalized = planId.trim();
   if (!normalized) return null;
@@ -64,9 +95,34 @@ export async function getPayPalAccessToken(): Promise<string> {
     },
     body: "grant_type=client_credentials",
   });
-  const json = (await res.json()) as { access_token?: string; error_description?: string };
+  const json = (await res.json()) as {
+    access_token?: string;
+    error_description?: string;
+    error?: string;
+  };
+  logger.info(
+    {
+      paypalBaseUrl: paypalBaseUrl(),
+      statusCode: res.status,
+      hasAccessToken: Boolean(json.access_token),
+      error: json.error,
+      errorDescription: json.error_description,
+    },
+    "PayPal OAuth token response",
+  );
+  console.log("PayPal OAuth token response", {
+    paypalBaseUrl: paypalBaseUrl(),
+    statusCode: res.status,
+    hasAccessToken: Boolean(json.access_token),
+    error: json.error,
+    errorDescription: json.error_description,
+  });
   if (!res.ok || !json.access_token) {
-    throw new Error(json.error_description ?? "Failed to get PayPal access token");
+    throw new PayPalApiError(
+      json.error_description ?? json.error ?? "Failed to get PayPal access token",
+      res.status || 500,
+      json,
+    );
   }
   return json.access_token;
 }
@@ -77,6 +133,15 @@ export async function createPayPalSubscription(input: {
   planType: BillingPlanType;
   email?: string | null;
 }): Promise<string> {
+  const missingPlanEnv = missingPayPalPlanEnvVars();
+  if (missingPlanEnv.length > 0) {
+    throw new PayPalApiError(
+      `Missing PayPal plan env vars: ${missingPlanEnv.join(", ")}`,
+      503,
+      { missingPlanEnv },
+    );
+  }
+
   const token = await getPayPalAccessToken();
   const body: Record<string, unknown> = {
     plan_id: input.planId,
@@ -95,6 +160,22 @@ export async function createPayPalSubscription(input: {
     body.subscriber = { email_address: input.email.trim() };
   }
 
+  logger.info(
+    {
+      userId: input.userId,
+      planType: input.planType,
+      planId: input.planId,
+      payload: body,
+    },
+    "PayPal create subscription request payload",
+  );
+  console.log("PayPal create subscription request payload", {
+    userId: input.userId,
+    planType: input.planType,
+    planId: input.planId,
+    payload: body,
+  });
+
   const res = await fetch(`${paypalBaseUrl()}/v1/billing/subscriptions`, {
     method: "POST",
     headers: {
@@ -110,13 +191,48 @@ export async function createPayPalSubscription(input: {
     links?: Array<{ rel?: string; href?: string }>;
     message?: string;
     details?: Array<{ issue?: string; description?: string }>;
+    name?: string;
+    debug_id?: string;
   };
+  logger.info(
+    {
+      userId: input.userId,
+      planType: input.planType,
+      planId: input.planId,
+      statusCode: res.status,
+      response: json,
+    },
+    "PayPal create subscription response",
+  );
+  console.log("PayPal create subscription response", {
+    userId: input.userId,
+    planType: input.planType,
+    planId: input.planId,
+    statusCode: res.status,
+    response: json,
+  });
   if (!res.ok) {
-    const detail = json.details?.[0]?.description ?? json.message ?? "PayPal subscription creation failed";
-    throw new Error(detail);
+    const detail = json.details?.[0]?.description ?? json.message ?? json.name ?? "PayPal subscription creation failed";
+    console.error("PayPal create subscription API error", {
+      userId: input.userId,
+      planType: input.planType,
+      planId: input.planId,
+      statusCode: res.status,
+      response: json,
+    });
+    throw new PayPalApiError(detail, res.status || 500, json);
   }
   const approve = json.links?.find((l) => l.rel === "approve")?.href;
-  if (!approve) throw new Error("PayPal did not return an approval URL");
+  if (!approve) {
+    console.error("PayPal create subscription missing approval URL", {
+      userId: input.userId,
+      planType: input.planType,
+      planId: input.planId,
+      statusCode: res.status,
+      response: json,
+    });
+    throw new PayPalApiError("PayPal did not return an approval URL", 502, json);
+  }
   return approve;
 }
 
