@@ -260,6 +260,40 @@ export async function sendTrialActiveReminderEmail(
   return sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
+/** One-time immediate reminder for currently trial users (manual blast). */
+export async function sendTrialAvailabilityReminderEmail(
+  to: string,
+  opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
+): Promise<boolean> {
+  if (!isResendConfigured()) return false;
+  const base = appBaseUrl();
+  const subject = "Reminder: Your InterpreterAI free trial is active";
+  const trialDateText = formatEmailDate(opts.trialEndsAt instanceof Date ? opts.trialEndsAt : new Date(opts.trialEndsAt));
+  const daysRemaining = Number(opts.daysRemaining ?? NaN);
+  const remainingLine = Number.isFinite(daysRemaining)
+    ? daysRemaining > 0
+      ? `You currently have about ${daysRemaining} day${daysRemaining === 1 ? "" : "s"} remaining before expiry.`
+      : "According to your account, this trial end date has already passed."
+    : null;
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    heading: "Your free trial is active",
+    bodyHtml: [
+      emailParagraph("Hello,"),
+      emailParagraph("InterpreterAI is now fully available."),
+      emailParagraph("Your free trial is currently active."),
+      emailParagraph(`Your trial is set to expire on ${trialDateText}.`),
+      ...(remainingLine ? [emailParagraph(remainingLine)] : []),
+      emailParagraph("You can start using real-time transcription and translation right away in your workspace."),
+      emailParagraph("Best regards,"),
+      emailParagraph("InterpreterAI"),
+    ].join(""),
+    primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
+  });
+
+  return sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+}
+
 export async function sendSubscriptionConfirmationEmail(
   to: string,
   planName: string,
