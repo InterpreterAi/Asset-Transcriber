@@ -264,14 +264,29 @@ export function emailSubheading(text: string): string {
   return `<p style="margin:22px 0 10px;font-family:${FONT};font-size:13px;font-weight:700;color:#5B8CFF;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(text)}</p>`;
 }
 
-/** Referral line + unsubscribe (uses users.email_reminders_enabled); placed above Terms/Privacy footer. */
+/** Referral section + unsubscribe (uses users.email_reminders_enabled); placed above Terms/Privacy footer. */
 function emailReferralPromoAndUnsubscribeBeforeStandardFooter(
   appBaseUrl: string,
   recipientUserId: number | null,
 ): string {
-  const promo = "Invite 3 interpreters → get 3 extra hours free.";
-  const promoBlock = `<div style="margin:0;padding:14px 16px;background:linear-gradient(135deg,#f0f4ff,#eef6ff);border:1px solid ${BORDER};border-radius:8px;font-family:${FONT};font-size:15px;font-weight:600;line-height:1.5;color:${TEXT_HEADING};text-align:center;">
-${escapeHtml(promo)}
+  const inviteHref = "https://app.interpreterai.org/invite";
+  const promoBlock = `<div style="margin:0;padding:16px;border:1px solid ${BORDER};border-radius:10px;background-color:#ffffff;">
+<p style="margin:0 0 8px;font-family:${FONT};font-size:18px;font-weight:700;line-height:1.35;color:${TEXT_HEADING};text-align:center;">Get 3 extra hours free</p>
+<p style="margin:0 0 14px;font-family:${FONT};font-size:14px;line-height:1.6;color:${TEXT};text-align:center;">Invite 3 interpreters to InterpreterAI and unlock 3 extra hours of transcription.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;border-collapse:collapse;">
+  <tr>
+    <td align="center">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${escapeHtmlAttr(inviteHref)}" style="height:44px;v-text-anchor:middle;width:220px;" arcsize="10%" fillcolor="${BTN_FALLBACK}">
+        <w:anchorlock/><center style="color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:600;">Invite Interpreters</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-- -->
+      <a href="${escapeHtmlAttr(inviteHref)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 22px;font-family:${FONT};font-size:14px;font-weight:600;color:#ffffff !important;text-decoration:none;line-height:1.2;border-radius:8px;background-color:${BTN_FALLBACK};background-image:${BTN_GRADIENT};mso-hide:all;">Invite Interpreters</a>
+      <!--<![endif]-->
+    </td>
+  </tr>
+</table>
 </div>`;
   const unsubHref =
     recipientUserId != null && Number.isInteger(recipientUserId) && recipientUserId > 0
