@@ -18,6 +18,8 @@ const TRANSLATION_POLL_MS = 700;
 // Same-speaker silence window before auto-finalizing a segment.
 // Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
 const SILENCE_TIMEOUT_MS  = 4500;
+// NF speaker changes wait this long before splitting; cancels if diarization reverts.
+const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -603,6 +605,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
   // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Latest NF token speaker from the most recent message (only updated when defined). */
+  const lastNfSpeakerRef = useRef<number | string | undefined>(undefined);
+  const speakerChangeDebounceTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
@@ -951,6 +957,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Finalize and hard-close the active segment boundary so no later partial text
   // can continue writing into that finalized segment.
   const closeActiveSegmentBoundary = useCallback(() => {
+    if (speakerChangeDebounceTimerRef.current !== null) {
+      clearTimeout(speakerChangeDebounceTimerRef.current);
+      speakerChangeDebounceTimerRef.current = null;
+    }
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble();
     currentSpeakerRef.current = undefined;
@@ -968,6 +978,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (speakerChangeDebounceTimerRef.current !== null) {
+      clearTimeout(speakerChangeDebounceTimerRef.current);
+      speakerChangeDebounceTimerRef.current = null;
+    }
+    lastNfSpeakerRef.current = undefined;
     stopTranslationInterval();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
@@ -996,6 +1011,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (speakerChangeDebounceTimerRef.current !== null) {
+      clearTimeout(speakerChangeDebounceTimerRef.current);
+      speakerChangeDebounceTimerRef.current = null;
+    }
+    lastNfSpeakerRef.current = undefined;
     if (inactivityTimerRef.current !== null) {
       clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = null;
@@ -1186,27 +1206,46 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
-      // Use the latest unstable-token speaker in this message so rapid turn-taking
-      // switches segments immediately, without waiting for transcript stabilization.
+      // Latest unstable-token speaker in this message (used after debounce).
       const nfSpeaker = [...tokens]
         .reverse()
         .find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
-      // ── Fix 2: Immediate speaker-change on NF tokens ──────────────────────
-      // When Soniox NF tokens show a new speaker while a segment is open,
-      // finalize the current segment immediately and open a fresh one for the
-      // new speaker.  This prevents the new speaker's text from appearing in
-      // the old bubble even for a fraction of a second, eliminating the "text
-      // jumps to a new segment" visual artifact.
+      if (nfSpeaker !== undefined) {
+        lastNfSpeakerRef.current = nfSpeaker;
+      }
+
+      // ── NF speaker change (debounced) ─────────────────────────────────────
+      // Do not split on the first conflicting NF sample; wait SPEAKER_CHANGE_DEBOUNCE_MS
+      // then split only if lastNfSpeakerRef still disagrees with currentSpeakerRef.
+      // Explicit same-speaker NF clears a pending switch (diarization reverted).
+      const debouncePending = speakerChangeDebounceTimerRef.current !== null;
       if (
         nfSpeaker !== undefined &&
-        activeBubbleRef.current !== null &&
-        !sameSpeaker(nfSpeaker, currentSpeakerRef.current)
+        debouncePending &&
+        sameSpeaker(nfSpeaker, currentSpeakerRef.current)
       ) {
-        closeActiveSegmentBoundary();
-        currentSpeakerRef.current = String(nfSpeaker);
-        activeBubbleRef.current   = createBubble(nfSpeaker);
-        setHasTranscript(true);
+        const pending = speakerChangeDebounceTimerRef.current;
+        if (pending !== null) clearTimeout(pending);
+        speakerChangeDebounceTimerRef.current = null;
+      } else if (
+        nfSpeaker !== undefined &&
+        activeBubbleRef.current !== null &&
+        !sameSpeaker(nfSpeaker, currentSpeakerRef.current) &&
+        speakerChangeDebounceTimerRef.current === null
+      ) {
+        speakerChangeDebounceTimerRef.current = setTimeout(() => {
+          speakerChangeDebounceTimerRef.current = null;
+          if (!isRecRef.current || !activeBubbleRef.current) return;
+          const candidate = lastNfSpeakerRef.current;
+          if (candidate === undefined) return;
+          if (sameSpeaker(candidate, currentSpeakerRef.current)) return;
+          closeActiveSegmentBoundary();
+          currentSpeakerRef.current = String(candidate);
+          activeBubbleRef.current   = createBubble(candidate);
+          setHasTranscript(true);
+          scrollPanel();
+        }, SPEAKER_CHANGE_DEBOUNCE_MS);
       }
 
       if (activeBubbleNFRef.current) {
