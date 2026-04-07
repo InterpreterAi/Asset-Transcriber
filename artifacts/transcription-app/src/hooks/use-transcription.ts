@@ -1211,43 +1211,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         .reverse()
         .find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
-      if (nfSpeaker !== undefined) {
-        lastNfSpeakerRef.current = nfSpeaker;
-      }
-
-      // ── NF speaker change (debounced) ─────────────────────────────────────
-      // Do not split on the first conflicting NF sample; wait SPEAKER_CHANGE_DEBOUNCE_MS
-      // then split only if lastNfSpeakerRef still disagrees with currentSpeakerRef.
-      // Explicit same-speaker NF clears a pending switch (diarization reverted).
-      const debouncePending = speakerChangeDebounceTimerRef.current !== null;
-      if (
-        nfSpeaker !== undefined &&
-        debouncePending &&
-        sameSpeaker(nfSpeaker, currentSpeakerRef.current)
-      ) {
-        const pending = speakerChangeDebounceTimerRef.current;
-        if (pending !== null) clearTimeout(pending);
-        speakerChangeDebounceTimerRef.current = null;
-      } else if (
-        nfSpeaker !== undefined &&
-        activeBubbleRef.current !== null &&
-        !sameSpeaker(nfSpeaker, currentSpeakerRef.current) &&
-        speakerChangeDebounceTimerRef.current === null
-      ) {
-        speakerChangeDebounceTimerRef.current = setTimeout(() => {
-          speakerChangeDebounceTimerRef.current = null;
-          if (!isRecRef.current || !activeBubbleRef.current) return;
-          const candidate = lastNfSpeakerRef.current;
-          if (candidate === undefined) return;
-          if (sameSpeaker(candidate, currentSpeakerRef.current)) return;
-          closeActiveSegmentBoundary();
-          currentSpeakerRef.current = String(candidate);
-          activeBubbleRef.current   = createBubble(candidate);
-          setHasTranscript(true);
-          scrollPanel();
-        }, SPEAKER_CHANGE_DEBOUNCE_MS);
-      }
-
       if (activeBubbleNFRef.current) {
         activeBubbleNFRef.current.textContent = nfText;
       } else if (nfText && containerRef.current) {
