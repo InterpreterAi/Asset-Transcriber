@@ -4,6 +4,7 @@
  */
 
 import { buildEmailReminderUnsubscribeUrl } from "./email-reminder-unsubscribe.js";
+import { renderEmailBaseTemplate } from "./email-base-template.js";
 
 const FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
@@ -25,7 +26,7 @@ const BTN_FALLBACK = "#7B61FF";
 const SUPPORT_EMAIL = "support@interpreterai.org";
 const FOOTER_TAGLINE = "You're receiving this email because you have an InterpreterAI account.";
 
-const EMAIL_WIDTH = 520;
+const EMAIL_WIDTH = 600;
 
 export function escapeHtml(s: string): string {
   return s
@@ -189,40 +190,19 @@ export function renderInterpreterAiEmail(opts: InterpreterAiEmailOptions): strin
 
   const footer = emailFooterBlockHtml(base);
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta http-equiv="x-ua-compatible" content="ie=edge">
-<title>${opts.heading ? escapeHtml(opts.heading) : "InterpreterAI"}</title>
-</head>
-<body style="margin:0;padding:0;background-color:${BG_PAGE};-webkit-font-smoothing:antialiased;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:${BG_PAGE};border-collapse:collapse;">
-  <tr>
-    <td align="center" style="padding:28px 12px;">
-      <table role="presentation" width="${EMAIL_WIDTH}" cellspacing="0" cellpadding="0" border="0" style="max-width:${EMAIL_WIDTH}px;width:100%;margin:0 auto;background-color:${BG_CARD};border-radius:12px;overflow:hidden;border:1px solid ${BORDER};border-collapse:collapse;">
-        <tr>
-          <td align="center" style="padding:28px 24px 8px;">
-            <img src="${logo}" width="140" height="auto" alt="InterpreterAI" style="display:block;width:140px;max-width:140px;height:auto;margin:0 auto 20px auto;border:0;outline:none;text-decoration:none;" />
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:8px 28px 28px;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">
-            ${headingBlock}
-            ${opts.bodyHtml}
-            ${buttonBlock}
-            ${noteBlock}
-            ${referralFooterAppend}
-            ${footer}
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-</body>
-</html>`;
+  return renderEmailBaseTemplate({
+    title: opts.heading ? escapeHtml(opts.heading) : "InterpreterAI",
+    logoUrl: logo,
+    emailWidthPx: EMAIL_WIDTH,
+    bgPage: BG_PAGE,
+    bgCard: BG_CARD,
+    borderColor: BORDER,
+    fontFamily: FONT,
+    bodyColor: TEXT,
+    headingHtml: headingBlock,
+    contentHtml: `${opts.bodyHtml}${buttonBlock}${noteBlock}${referralFooterAppend}`,
+    footerHtml: footer,
+  });
 }
 
 export function emailParagraph(text: string): string {
