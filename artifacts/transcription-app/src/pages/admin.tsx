@@ -1475,7 +1475,14 @@ export default function Admin() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredUsers.map(u => {
-                    const todayPct  = Math.min(100, (u.minutesUsedToday / u.dailyLimitMinutes) * 100);
+                    const nearLimitEpsilonMin = 0.25; // 15s tolerance for float/clock drift
+                    const todayUsedRaw = Number(u.minutesUsedToday) || 0;
+                    const todayLimitRaw = Number(u.dailyLimitMinutes) || 0;
+                    const todayUsed =
+                      todayLimitRaw > 0 && todayUsedRaw >= (todayLimitRaw - nearLimitEpsilonMin)
+                        ? todayLimitRaw
+                        : todayUsedRaw;
+                    const todayPct = todayLimitRaw > 0 ? Math.min(100, (todayUsed / todayLimitRaw) * 100) : 0;
                     return (
                       <tr
                         key={u.id}
@@ -1527,7 +1534,7 @@ export default function Admin() {
                               <div className="h-full bg-primary rounded-full" style={{ width: `${todayPct}%` }} />
                             </div>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {formatMinutes(u.minutesUsedToday)} / {formatMinutes(u.dailyLimitMinutes)}
+                              {formatMinutes(todayUsed)} / {formatMinutes(todayLimitRaw)}
                             </span>
                           </div>
                         </td>
