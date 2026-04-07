@@ -1,6 +1,11 @@
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import {
+  PRICING_PLANS,
+  PRICING_SHARED_FEATURES,
+  PRICING_SHARED_FEATURES_SECTION_TITLE,
+} from "@/lib/pricing-copy";
+import {
   Mic2, ChevronRight, Check, Zap, Globe, Users, Monitor,
   Shield, Clock, BookOpen, Gavel, Video, Building2, Quote,
   ArrowRight, Headphones, FileText, Languages,
@@ -611,46 +616,21 @@ export default function Landing() {
               Simple, Transparent Pricing
             </h2>
           </motion.div>
+          <motion.div {...fade(0.05)} className="max-w-2xl mx-auto mb-10">
+            <h3 className="text-center text-base font-semibold tracking-tight text-foreground mb-4">
+              {PRICING_SHARED_FEATURES_SECTION_TITLE}
+            </h3>
+            <ul className="space-y-2 max-w-xl mx-auto">
+              {PRICING_SHARED_FEATURES.map(f => (
+                <li key={f} className="text-sm flex items-start gap-2 text-foreground">
+                  <Check className="w-4 h-4 flex-shrink-0 mt-0.5 text-primary" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+          </motion.div>
           <motion.div {...fade(0.1)} className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-            {[
-              {
-                name: "Basic",
-                price: "$39",
-                features: [
-                  "Real-time transcription",
-                  "Bidirectional translation",
-                  "Speaker identification",
-                  "Tab audio capture",
-                  "Up to 3 hours of real-time interpreting daily",
-                ],
-                highlight: false,
-              },
-              {
-                name: "Professional",
-                price: "$69",
-                sub: "Most interpreters choose this plan",
-                features: [
-                  "Everything in Basic",
-                  "Personal glossary system",
-                  "Domain terminology hints",
-                  "Priority processing",
-                  "Tab audio capture",
-                  "Up to 6 hours of real-time interpreting daily",
-                ],
-                highlight: true,
-              },
-              {
-                name: "Unlimited",
-                price: "$99",
-                sub: "Ideal for interpreters working full-day assignments",
-                features: [
-                  "Everything in Professional",
-                  "Tab audio capture",
-                  "Unlimited interpreting hours",
-                ],
-                highlight: false,
-              },
-            ].map(({ name, price, sub, features, highlight }) => (
+            {PRICING_PLANS.map(({ name, priceLabel, tagline, features, highlight }) => (
               <div
                 key={name}
                 className={`rounded-2xl border p-6 flex flex-col ${highlight
@@ -667,13 +647,11 @@ export default function Landing() {
                   {name}
                 </div>
                 <div
-                  className={`text-4xl font-display font-bold ${sub ? "mb-0.5" : "mb-5"} ${highlight ? "text-white" : "text-foreground"}`}
+                  className={`text-4xl font-display font-bold mb-0.5 ${highlight ? "text-white" : "text-foreground"}`}
                 >
-                  {price}<span className={`text-base font-normal ml-1 ${highlight ? "text-white/60" : "text-muted-foreground"}`}>/mo</span>
+                  {priceLabel}<span className={`text-base font-normal ml-1 ${highlight ? "text-white/60" : "text-muted-foreground"}`}>/mo</span>
                 </div>
-                {sub ? (
-                  <div className={`text-[12px] mb-5 ${highlight ? "text-white/70" : "text-muted-foreground"}`}>{sub}</div>
-                ) : null}
+                <div className={`text-[12px] mb-5 ${highlight ? "text-white/70" : "text-muted-foreground"}`}>{tagline}</div>
                 <ul className="space-y-2 mb-6 flex-1">
                   {features.map(f => (
                     <li key={f} className={`text-sm flex items-start gap-2 ${highlight ? "text-white/90" : "text-foreground"}`}>

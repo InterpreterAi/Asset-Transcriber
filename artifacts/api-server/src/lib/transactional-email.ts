@@ -18,6 +18,8 @@ import {
   RESEND_FROM_NOREPLY,
   RESEND_FROM_ONBOARDING,
   sendEmail,
+  sendEmailWithResult,
+  type SendEmailResult,
 } from "./resend-mail.js";
 
 /** @deprecated Prefer emailStandardGreeting / firstNameForGreeting for new code. */
@@ -260,12 +262,10 @@ export async function sendTrialActiveReminderEmail(
   return sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
-/** One-time immediate reminder for currently trial users (manual blast). */
-export async function sendTrialAvailabilityReminderEmail(
+function buildTrialAvailabilityReminderMail(
   to: string,
   opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
-): Promise<boolean> {
-  if (!isResendConfigured()) return false;
+): { subject: string; html: string } {
   const base = appBaseUrl();
   const subject = "Reminder: Your InterpreterAI free trial is active";
   const trialDateText = formatEmailDate(opts.trialEndsAt instanceof Date ? opts.trialEndsAt : new Date(opts.trialEndsAt));
@@ -290,8 +290,29 @@ export async function sendTrialAvailabilityReminderEmail(
     ].join(""),
     primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
   });
+  return { subject, html };
+}
 
+/** One-time immediate reminder for currently trial users (manual blast). */
+export async function sendTrialAvailabilityReminderEmail(
+  to: string,
+  opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
+): Promise<boolean> {
+  if (!isResendConfigured()) return false;
+  const { subject, html } = buildTrialAvailabilityReminderMail(to, opts);
   return sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+}
+
+/** Same email as {@link sendTrialAvailabilityReminderEmail}; returns Resend API outcome for scripts. */
+export async function sendTrialAvailabilityReminderEmailWithResult(
+  to: string,
+  opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
+): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html } = buildTrialAvailabilityReminderMail(to, opts);
+  return sendEmailWithResult({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
 export async function sendSubscriptionConfirmationEmail(

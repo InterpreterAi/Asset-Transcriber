@@ -27,14 +27,24 @@ type SendParams = {
   text?: string;
 };
 
-async function deliver(params: SendParams): Promise<boolean> {
+export type SendEmailResult = {
+  ok: boolean;
+  /** Resend message id when `ok` */
+  messageId?: string;
+  /** Present when Resend returned an error object */
+  resendError?: { name?: string; message?: string; statusCode?: number };
+  /** Set when an exception was thrown */
+  exceptionMessage?: string;
+};
+
+async function deliverWithResult(params: SendParams): Promise<SendEmailResult> {
   const key = process.env.RESEND_API_KEY?.trim();
   if (!key) {
     logger.warn(
       { to: params.to, subject: params.subject, from: params.from },
       "RESEND_API_KEY not set — email not sent",
     );
-    return false;
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not set" };
   }
 
   try {
@@ -48,37 +58,54 @@ async function deliver(params: SendParams): Promise<boolean> {
     });
 
     if (result.error) {
+      const e = result.error;
       logger.error(
         {
           to: params.to,
           subject: params.subject,
           from: params.from,
-          resendError: result.error,
-          statusCode: result.error.statusCode,
-          errorName: result.error.name,
+          resendError: e,
+          statusCode: e.statusCode,
+          errorName: e.name,
         },
         "Resend send failed (API error)",
       );
-      return false;
+      return {
+        ok: false,
+        resendError: {
+          name: e.name,
+          message: e.message,
+          statusCode: e.statusCode ?? undefined,
+        },
+      };
     }
 
+    const messageId = result.data?.id;
     logger.info(
       {
         to: params.to,
         subject: params.subject,
-        messageId: result.data?.id,
+        messageId,
         from: params.from,
       },
       "Resend email sent successfully",
     );
-    return true;
+    return { ok: true, messageId };
   } catch (err) {
     logger.error(
       { err, to: params.to, subject: params.subject, from: params.from },
       "Resend send failed (exception)",
     );
-    return false;
+    return {
+      ok: false,
+      exceptionMessage: err instanceof Error ? err.message : String(err),
+    };
   }
+}
+
+async function deliver(params: SendParams): Promise<boolean> {
+  const r = await deliverWithResult(params);
+  return r.ok;
 }
 
 /**
@@ -86,4 +113,9 @@ async function deliver(params: SendParams): Promise<boolean> {
  */
 export async function sendEmail(params: SendParams): Promise<boolean> {
   return deliver(params);
+}
+
+/** Same as {@link sendEmail} but returns Resend response details for logging. */
+export async function sendEmailWithResult(params: SendParams): Promise<SendEmailResult> {
+  return deliverWithResult(params);
 }

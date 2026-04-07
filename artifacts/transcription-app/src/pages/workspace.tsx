@@ -24,6 +24,11 @@ import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import { formatMinutes } from "@/lib/utils";
+import {
+  PRICING_PLANS,
+  PRICING_SHARED_FEATURES,
+  PRICING_SHARED_FEATURES_SECTION_TITLE,
+} from "@/lib/pricing-copy";
 
 const LANG_OPTIONS = [
   { value: "ar",    label: "Arabic" },
@@ -609,15 +614,23 @@ export default function Workspace() {
                 </div>
               )}
 
+              <div className="rounded-xl border border-border bg-muted/20 p-4">
+                <p className="text-sm font-semibold">{PRICING_SHARED_FEATURES_SECTION_TITLE}</p>
+                <ul className="mt-2 space-y-1.5">
+                  {PRICING_SHARED_FEATURES.map(f => (
+                    <li key={f} className="text-xs text-muted-foreground flex items-start gap-2">
+                      <Check className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-3">
-                {[
-                  { key: "basic", title: "Basic", price: 39, subtitle: "Good for regular interpreter workflows" },
-                  { key: "professional", title: "Professional", price: 69, subtitle: "Most popular for daily heavy usage", highlight: true },
-                  { key: "unlimited", title: "Unlimited", price: 99, subtitle: "Maximum daily capacity and priority support" },
-                ].map((plan) => (
+                {PRICING_PLANS.map((plan) => (
                   <button
                     key={plan.key}
-                    onClick={() => setSelectedPlan(plan.key as "basic" | "professional" | "unlimited")}
+                    onClick={() => setSelectedPlan(plan.key)}
                     className={`text-left relative rounded-xl border p-5 flex flex-col gap-3 transition-all ${
                       selectedPlan === plan.key
                         ? "border-primary bg-primary/5 ring-2 ring-primary/20"
@@ -630,12 +643,23 @@ export default function Workspace() {
                       </span>
                     )}
                     <div>
-                      <p className="font-semibold text-sm">{plan.title}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{plan.subtitle}</p>
+                      <p className="font-semibold text-sm">{plan.name}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{plan.tagline}</p>
                     </div>
                     <div>
-                      <p className="text-2xl font-bold">${plan.price}<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                      <p className="text-2xl font-bold">
+                        {plan.priceLabel}
+                        <span className="text-sm font-normal text-muted-foreground">/mo</span>
+                      </p>
                     </div>
+                    <ul className="space-y-1 pt-0.5">
+                      {plan.features.map(f => (
+                        <li key={f} className="text-[11px] text-muted-foreground flex items-start gap-2 leading-relaxed">
+                          <Check className="w-3 h-3 shrink-0 text-primary mt-0.5" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
                   </button>
                 ))}
               </div>

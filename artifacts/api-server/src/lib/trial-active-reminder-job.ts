@@ -9,11 +9,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * One-time “your trial is still active” campaign via Resend.
  *
- * **Opt-in:** set `TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=YYYY-MM-DD` (UTC calendar date).
- * Set `TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=0-23` to the **scheduled UTC hour** for the blast
- * (sends only during that whole UTC hour, e.g. hour `10` = 10:00–10:59 UTC). Ignores recipient time zones.
+ * **Not used for “send immediately”** — for that, run the manual script
+ * `send-trial-users-reminder-now.ts` (or equivalent); it does not read these env vars.
  *
- * Example — 12:00 PM Egypt (UTC+2) on 6 Apr 2026:
+ * **Opt-in (UTC only):** `TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=YYYY-MM-DD` must match **today’s date in UTC**
+ * (`toISOString().slice(0,10)` on the server), not your local or Egypt calendar day if that day differs.
+ * `TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=0-23` is the **UTC hour** (sends only during that hour, e.g. `10` = 10:00–10:59 UTC).
+ *
+ * Example — 12:00 PM Egypt (UTC+2, no DST) on 6 Apr 2026:
  *   TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=2026-04-06
  *   TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=10
  *
