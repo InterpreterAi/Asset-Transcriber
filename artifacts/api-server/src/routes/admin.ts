@@ -410,16 +410,50 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .where(sql`${usersTable.isAdmin} = false`)
       .groupBy(usersTable.planType),
 
-    // Top 10 users by minutesUsedToday
+    // Top 10 users by live-accurate usage today (session-derived)
     db.select({
-      username:       usersTable.username,
-      minutesToday:   usersTable.minutesUsedToday,
-      totalMinutes:   usersTable.totalMinutesUsed,
-      planType:       usersTable.planType,
+      username: usersTable.username,
+      minutesToday: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 60.0`,
+      totalMinutes: usersTable.totalMinutesUsed,
+      planType: usersTable.planType,
     })
-      .from(usersTable)
-      .where(and(sql`${usersTable.isAdmin} = false`, gt(usersTable.minutesUsedToday, 0)))
-      .orderBy(desc(usersTable.minutesUsedToday))
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${todayUTC}`,
+        sql`${usersTable.isAdmin} = false`,
+      ))
+      .groupBy(usersTable.id, usersTable.username, usersTable.totalMinutesUsed, usersTable.planType)
+      .having(sql`COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) > 0`)
+      .orderBy(desc(sql`COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        )`))
       .limit(10),
   ]);
 
@@ -543,19 +577,50 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // ── Top trial users by usage today ───────────────────────────────────────
+    // ── Top trial users by live-accurate usage today ────────────────────────
     db.select({
-      username:         usersTable.username,
-      minutesToday:     usersTable.minutesUsedToday,
-      dailyLimit:       usersTable.dailyLimitMinutes,
+      username: usersTable.username,
+      minutesToday: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 60.0`,
+      dailyLimit: usersTable.dailyLimitMinutes,
     })
-      .from(usersTable)
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
+        sql`s.started_at >= ${new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))}`,
         sql`${usersTable.isAdmin} = false`,
         sql`${usersTable.planType} = 'trial'`,
-        gt(usersTable.minutesUsedToday, 0),
       ))
-      .orderBy(desc(usersTable.minutesUsedToday))
+      .groupBy(usersTable.id, usersTable.username, usersTable.dailyLimitMinutes)
+      .having(sql`COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) > 0`)
+      .orderBy(desc(sql`COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        )`))
       .limit(10),
   ]);
 

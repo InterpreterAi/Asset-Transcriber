@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { db, sessionsTable } from "@workspace/db";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, getTrialDaysRemaining, isTrialExpired } from "../lib/usage.js";
 
@@ -11,9 +13,33 @@ router.get("/me", requireAuth, async (req, res) => {
     return;
   }
 
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const [todayUsage] = await db
+    .select({
+      minutesToday: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN ${sessionsTable.endedAt} IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - ${sessionsTable.startedAt}))
+              ELSE COALESCE(${sessionsTable.audioSecondsProcessed}, ${sessionsTable.durationSeconds}, 0)
+            END
+          ),
+          0
+        ) / 60.0`,
+    })
+    .from(sessionsTable)
+    .where(and(
+      eq(sessionsTable.userId, user.id),
+      gte(sessionsTable.startedAt, todayUTC),
+    ));
+
+  const minutesUsedToday = Number(todayUsage?.minutesToday ?? user.minutesUsedToday ?? 0);
+
   res.json({
-    minutesUsedToday: user.minutesUsedToday,
-    minutesRemainingToday: Math.max(0, user.dailyLimitMinutes - user.minutesUsedToday),
+    minutesUsedToday,
+    minutesRemainingToday: Math.max(0, user.dailyLimitMinutes - minutesUsedToday),
     totalMinutesUsed: user.totalMinutesUsed,
     totalSessions: user.totalSessions,
     dailyLimitMinutes: user.dailyLimitMinutes,
