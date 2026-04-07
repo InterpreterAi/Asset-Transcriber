@@ -46,15 +46,33 @@ router.get("/users", requireAdmin, async (_req, res) => {
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayUTC));
 
-  const [users, shareCounts] = await Promise.all([
+  const [users, shareCounts, todayUsageRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
       count:  sql<number>`COUNT(*)`,
     }).from(shareEventsTable).groupBy(shareEventsTable.userId),
+    db.select({
+      userId: sessionsTable.userId,
+      minutesToday: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN ${sessionsTable.endedAt} IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - ${sessionsTable.startedAt}))
+              ELSE COALESCE(${sessionsTable.audioSecondsProcessed}, ${sessionsTable.durationSeconds}, 0)
+            END
+          ),
+          0
+        ) / 60.0`,
+    })
+      .from(sessionsTable)
+      .where(gte(sessionsTable.startedAt, todayUTC))
+      .groupBy(sessionsTable.userId),
   ]);
 
   const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
+  const todayUsageMap = new Map(todayUsageRows.map((r) => [r.userId, Number(r.minutesToday)]));
 
   res.json({
     users: users.map((u) => ({
@@ -68,7 +86,8 @@ router.get("/users", requireAdmin, async (_req, res) => {
       trialEndsAt:        u.trialEndsAt,
       trialDaysRemaining: getTrialDaysRemaining(u),
       dailyLimitMinutes:  u.dailyLimitMinutes,
-      minutesUsedToday:   u.minutesUsedToday,
+      // Live-accurate "today" usage for admin table/pills.
+      minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
       totalMinutesUsed:   u.totalMinutesUsed,
       totalSessions:      u.totalSessions,
       totalShares:        shareMap.get(u.id) ?? 0,
