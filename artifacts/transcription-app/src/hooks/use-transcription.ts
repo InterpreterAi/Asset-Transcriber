@@ -15,10 +15,9 @@ function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const TRANSLATION_POLL_MS = 700;
-// How long a gap in incoming tokens (ms) triggers automatic segment finalization.
-// Set to 1200 ms (~1.2 s) — long enough to avoid splitting mid-word pauses
-// but short enough that natural sentence-end pauses close the segment cleanly.
-const SILENCE_TIMEOUT_MS  = 1200;
+// Same-speaker silence window before auto-finalizing a segment.
+// Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
+const SILENCE_TIMEOUT_MS  = 4500;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -949,6 +948,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     softFinalize();
   }, [softFinalize]);
 
+  // Finalize and hard-close the active segment boundary so no later partial text
+  // can continue writing into that finalized segment.
+  const closeActiveSegmentBoundary = useCallback(() => {
+    if (!activeBubbleRef.current) return;
+    finalizeLiveBubble();
+    currentSpeakerRef.current = undefined;
+    activeBubbleRef.current   = null;
+    activeBubbleNFRef.current = null;
+    styleUpgradedRef.current  = false;
+  }, [finalizeLiveBubble]);
+
   // ── doClear ────────────────────────────────────────────────────────────────
   // Wipes all transcript/translation DOM content and resets every per-bubble
   // ref. Used by the exported `clear` (manual Clear button) and by the
@@ -1108,12 +1118,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
         if (!activeBubbleRef.current) return;  // nothing open — nothing to do
-        softFinalize();
-        // Drop active refs so the next speech token creates a fresh segment.
-        currentSpeakerRef.current = undefined;
-        activeBubbleRef.current   = null;
-        activeBubbleNFRef.current = null;
-        styleUpgradedRef.current  = false;
+        closeActiveSegmentBoundary();
         // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
         // so slicing from the current count will correctly pick up only new finals.
       }, SILENCE_TIMEOUT_MS);
@@ -1164,7 +1169,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       for (const token of newFinals) {
         if (!sameSpeaker(token.speaker, currentSpeakerRef.current) || !activeBubbleRef.current) {
-          finalizeLiveBubble();
+          closeActiveSegmentBoundary();
           currentSpeakerRef.current =
             token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           finalCountRef.current     = finals.length - newFinals.length +
@@ -1194,7 +1199,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         activeBubbleRef.current !== null &&
         !sameSpeaker(nfSpeaker, currentSpeakerRef.current)
       ) {
-        finalizeLiveBubble();
+        closeActiveSegmentBoundary();
         currentSpeakerRef.current = String(nfSpeaker);
         activeBubbleRef.current   = createBubble(nfSpeaker);
         setHasTranscript(true);
@@ -1240,7 +1245,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
 
     return ws;
-  }, [stop, createBubble, finalizeLiveBubble, scrollPanel]);
+  }, [stop, closeActiveSegmentBoundary, createBubble, scrollPanel]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   // Pass providedStream to skip getUserMedia (e.g. for tab audio captured via
