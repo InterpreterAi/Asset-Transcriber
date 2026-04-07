@@ -1214,10 +1214,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
-      // Latest unstable-token speaker in this message (used after debounce).
+      // Latest unstable-token speaker in this message.
       const nfSpeaker = [...tokens]
         .reverse()
         .find(t => !t.is_final && t.speaker !== undefined)?.speaker;
+
+      // Immediate speaker boundary on live (NF) diarization change:
+      // finalize current segment now and start a new one so incoming text
+      // from the new speaker never enters the previous segment.
+      if (
+        nfSpeaker !== undefined &&
+        activeBubbleRef.current !== null &&
+        !sameSpeaker(nfSpeaker, currentSpeakerRef.current)
+      ) {
+        closeActiveSegmentBoundary();
+        currentSpeakerRef.current = String(nfSpeaker);
+        activeBubbleRef.current = createBubble(nfSpeaker);
+        setHasTranscript(true);
+      }
 
       if (activeBubbleNFRef.current) {
         activeBubbleNFRef.current.textContent = nfText;
