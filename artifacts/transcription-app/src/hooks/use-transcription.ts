@@ -1185,8 +1185,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       scrollPanel();
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
-      const nfText    = tokens.filter(t => !t.is_final).map(t => t.text).join("");
-      const nfSpeaker = tokens.find(t => !t.is_final && t.speaker !== undefined)?.speaker;
+      const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      // Use the latest unstable-token speaker in this message so rapid turn-taking
+      // switches segments immediately, without waiting for transcript stabilization.
+      const nfSpeaker = [...tokens]
+        .reverse()
+        .find(t => !t.is_final && t.speaker !== undefined)?.speaker;
 
       // ── Fix 2: Immediate speaker-change on NF tokens ──────────────────────
       // When Soniox NF tokens show a new speaker while a segment is open,
