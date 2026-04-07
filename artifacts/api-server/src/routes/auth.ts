@@ -436,10 +436,10 @@ router.get("/signup-config", (_req, res) => {
 
 // ── Sign Up ────────────────────────────────────────────────────────────────
 router.post("/signup", async (req, res) => {
-  const { email, password, referralId, turnstileToken } = req.body as {
+  const { email, password, referrerUserId, turnstileToken } = req.body as {
     email?: string;
     password?: string;
-    referralId?: number;
+    referrerUserId?: number;
     turnstileToken?: string;
   };
 
@@ -520,11 +520,20 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
-  if (referralId) {
-    void db
-      .update(referralsTable)
-      .set({ registeredUserId: newUser.id, registeredAt: new Date() })
-      .where(eq(referralsTable.id, referralId));
+  if (referrerUserId && Number.isFinite(referrerUserId) && referrerUserId !== newUser.id) {
+    const [referrer] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, referrerUserId))
+      .limit(1);
+    if (referrer) {
+      void db.insert(referralsTable).values({
+        referrerUserId: referrer.id,
+        referredUserId: newUser.id,
+        status: "pending",
+        sessionsCount: 0,
+      });
+    }
   }
 
   void sendTelegramNotification(
@@ -821,6 +830,13 @@ router.get("/google", async (req, res) => {
     }
     const state = crypto.randomBytes(16).toString("hex");
     req.session.oauthState = state;
+    const refRaw = typeof req.query.ref === "string" ? req.query.ref : undefined;
+    const ref = refRaw && /^\d+$/.test(refRaw) ? Number(refRaw) : undefined;
+    if (ref && Number.isFinite(ref)) {
+      req.session.oauthReferralUserId = ref;
+    } else {
+      delete req.session.oauthReferralUserId;
+    }
 
     const redirectUri = getGoogleOAuthRedirectUri(req);
 
@@ -865,6 +881,11 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
     return;
   }
   delete req.session.oauthState;
+  const oauthReferralUserId =
+    typeof req.session.oauthReferralUserId === "number" && Number.isFinite(req.session.oauthReferralUserId)
+      ? req.session.oauthReferralUserId
+      : undefined;
+  delete req.session.oauthReferralUserId;
 
   try {
     await commitSession(req);
@@ -1010,6 +1031,21 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
+      if (oauthReferralUserId && oauthReferralUserId !== user!.id) {
+        const [referrer] = await db
+          .select({ id: usersTable.id })
+          .from(usersTable)
+          .where(eq(usersTable.id, oauthReferralUserId))
+          .limit(1);
+        if (referrer) {
+          void db.insert(referralsTable).values({
+            referrerUserId: referrer.id,
+            referredUserId: user!.id,
+            status: "pending",
+            sessionsCount: 0,
+          });
+        }
+      }
       void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null, user!.id).catch(
         (err) => {
           logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");

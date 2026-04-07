@@ -8,7 +8,7 @@ import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
-  LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle,
+  LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -146,6 +146,20 @@ export default function Workspace() {
   const [inviteCopied, setInviteCopied]         = useState(false);
   const [showInviteModal, setShowInviteModal]   = useState(false);
   const [activeTab, setActiveTab]               = useState("mic");
+  const [referralsData, setReferralsData] = useState<{
+    referralLink: string;
+    successfulReferrals: number;
+    rewardPending: boolean;
+    referrals: Array<{
+      id: number;
+      status: "pending" | "active";
+      sessionsCount: number;
+      createdAt: string;
+      username: string | null;
+      email: string | null;
+    }>;
+  } | null>(null);
+  const [referralsLoading, setReferralsLoading] = useState(false);
   const [inputMode, setInputMode]               = useState<"mic" | "tab">("mic");
   const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
 
@@ -302,6 +316,16 @@ export default function Workspace() {
       .then((d: { enabled: boolean }) => setTwoFaEnabled(d.enabled))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "referrals") return;
+    setReferralsLoading(true);
+    fetch("/api/referrals/my", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => setReferralsData(d))
+      .catch(() => setReferralsData(null))
+      .finally(() => setReferralsLoading(false));
+  }, [activeTab]);
 
   const handle2faSetup = async () => {
     setTwoFaLoading(true); setTwoFaMsg(null);
@@ -786,6 +810,18 @@ export default function Workspace() {
             <MessageCircle className="w-4.5 h-4.5 shrink-0" />
             <span className="text-sm font-medium md:hidden">Send Feedback</span>
           </button>
+          <button
+            onClick={() => { setActiveTab("referrals"); setSettingsOpen(false); }}
+            className={`flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all ${
+              activeTab === "referrals"
+                ? "bg-white shadow-sm text-primary"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            }`}
+            title="Referrals"
+          >
+            <Gift className="w-4.5 h-4.5 shrink-0" />
+            <span className="text-sm font-medium md:hidden">Referrals</span>
+          </button>
         </div>
 
         <div className="px-2 md:px-0 md:flex md:justify-center">
@@ -1149,6 +1185,60 @@ export default function Workspace() {
       {/* GLOSSARY PANEL */}
       {activeTab === "glossary" && (
         <GlossaryPanel onClose={() => setActiveTab("mic")} />
+      )}
+
+      {activeTab === "referrals" && (
+        <div className="w-full md:w-72 bg-white border-r border-border flex flex-col overflow-y-auto shrink-0 z-10">
+          <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
+            <span className="font-semibold text-sm">Referrals</span>
+            <button
+              onClick={() => setActiveTab("mic")}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            {referralsLoading && <p className="text-xs text-muted-foreground">Loading referrals...</p>}
+            {!referralsLoading && referralsData && (
+              <>
+                <div className="rounded-xl border border-border p-3 bg-muted/20">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Referral link</p>
+                  <p className="text-xs font-mono mt-1 break-all">{referralsData.referralLink}</p>
+                </div>
+                <div className="rounded-xl border border-border p-3 bg-muted/20">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Successful referrals</p>
+                  <p className="text-lg font-semibold mt-1">{referralsData.successfulReferrals}</p>
+                  {referralsData.rewardPending && (
+                    <p className="text-xs text-amber-700 mt-1">Reward pending - 3 referrals completed</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Referred interpreters</p>
+                  {referralsData.referrals.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No referrals yet.</p>
+                  ) : (
+                    referralsData.referrals.map((r) => (
+                      <div key={r.id} className="rounded-lg border border-border p-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium truncate">{r.username ?? r.email ?? `User #${r.id}`}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                            r.status === "active" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                          }`}>
+                            {r.status}
+                          </span>
+                        </div>
+                        <p className="text-muted-foreground mt-1">
+                          Joined {new Date(r.createdAt).toLocaleDateString()} · Sessions {r.sessionsCount}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* MAIN CONTENT */}

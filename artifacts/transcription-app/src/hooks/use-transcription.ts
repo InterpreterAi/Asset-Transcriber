@@ -11,6 +11,14 @@ function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
   return typeof c === "string" ? c : undefined;
 }
 
+function getApiErrorMessage(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const e = err as { name?: string; data?: { error?: string } | null };
+  if (e.name !== "ApiError") return undefined;
+  const msg = e.data?.error;
+  return typeof msg === "string" ? msg : undefined;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -1406,10 +1414,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }, MAX_SESSION_MS);
 
     } catch (err: unknown) {
-      let msg = err instanceof Error ? err.message : "Failed to start transcription";
-      if (getTranscriptionTokenFailureCode(err) === "TRANSCRIPTION_NOT_CONFIGURED") {
+      const errCode = getTranscriptionTokenFailureCode(err);
+      let msg =
+        getApiErrorMessage(err) ??
+        (err instanceof Error ? err.message : "Failed to start transcription");
+      if (errCode === "TRANSCRIPTION_NOT_CONFIGURED") {
         msg =
           "Live transcription is off: the server is missing SONIOX_API_KEY. Add it in Railway (or .env for local API), then redeploy.";
+      } else if (errCode === "FEEDBACK_REQUIRED") {
+        msg = "Daily feedback is required before you can start another session.";
       }
       // Error object intentionally not logged to console (HIPAA)
       setError(msg);

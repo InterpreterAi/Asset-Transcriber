@@ -19,8 +19,8 @@ export default function InvitePage() {
         body:    JSON.stringify({ refCode: ref }),
       })
         .then(r => r.json())
-        .then((d: { referralId?: number }) => {
-          if (d.referralId) sessionStorage.setItem("referralId", String(d.referralId));
+        .then((d: { referrerUserId?: number }) => {
+          if (d.referrerUserId) sessionStorage.setItem("referralCode", String(d.referrerUserId));
         })
         .catch(() => {});
     }

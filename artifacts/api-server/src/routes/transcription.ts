@@ -11,6 +11,7 @@ import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { hasSubmittedMandatoryFeedbackToday, isMandatoryFeedbackRequiredByUsage } from "../lib/feedback-gate.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -162,6 +163,16 @@ router.post("/token", requireAuth, async (req, res) => {
             : "Daily usage limit reached. Try again tomorrow.",
       });
       return;
+    }
+    if (isMandatoryFeedbackRequiredByUsage(user)) {
+      const submitted = await hasSubmittedMandatoryFeedbackToday(user.id);
+      if (!submitted) {
+        res.status(403).json({
+          error: "Daily feedback required before starting another session.",
+          code: "FEEDBACK_REQUIRED",
+        });
+        return;
+      }
     }
 
     // Global safety cap
@@ -315,6 +326,16 @@ router.post("/session/start", requireAuth, async (req, res) => {
     });
     return;
   }
+  if (isMandatoryFeedbackRequiredByUsage(user)) {
+    const submitted = await hasSubmittedMandatoryFeedbackToday(user.id);
+    if (!submitted) {
+      res.status(403).json({
+        error: "Daily feedback required before starting another session.",
+        code: "FEEDBACK_REQUIRED",
+      });
+      return;
+    }
+  }
 
   // Language pair sent by the client (e.g. { srcLang: "en", tgtLang: "ar" })
   const { srcLang, tgtLang } = (req.body ?? {}) as { srcLang?: string; tgtLang?: string };
@@ -360,11 +381,13 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   void db
     .update(referralsTable)
-    .set({ hasStartedSession: true })
+    .set({
+      status: "active",
+      sessionsCount: sql`COALESCE(${referralsTable.sessionsCount}, 0) + 1`,
+    })
     .where(
       and(
-        eq(referralsTable.registeredUserId, user.id),
-        eq(referralsTable.hasStartedSession, false),
+        eq(referralsTable.referredUserId, user.id),
       )
     );
 

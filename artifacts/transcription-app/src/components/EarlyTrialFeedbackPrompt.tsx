@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Star, CheckCircle, AlertCircle } from "lucide-react";
 
 type Props = {
@@ -9,12 +9,7 @@ type Props = {
   dailyLimitMinutes: number;
 };
 
-const STORAGE_PREFIX = "ifai_trial_halfday_mandatory_";
 const MIN_COMMENT_LENGTH = 10;
-
-function submittedTodayStorageKey() {
-  return `${STORAGE_PREFIX}${new Date().toISOString().slice(0, 10)}`;
-}
 
 /**
  * Trial only: once per calendar day, after the user has used ≥ half of their daily
@@ -34,22 +29,47 @@ export function EarlyTrialFeedbackPrompt({
   const [loading, setLoading] = useState(false);
   const [done, setDone]       = useState(false);
   const [err, setErr]         = useState<string | null>(null);
+  const [requiredByServer, setRequiredByServer] = useState(false);
+  const [submittedByServer, setSubmittedByServer] = useState(false);
 
   const onTrial =
     (planType ?? "trial") === "trial" && !trialExpired && dailyLimitMinutes >= 60;
   const halfThreshold = dailyLimitMinutes / 2;
   const halfUsageReached = effectiveMinutesUsedToday >= halfThreshold - 1e-6;
 
+  const refreshStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/feedback/status", {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { required?: boolean; submitted?: boolean };
+      setRequiredByServer(Boolean(data.required));
+      setSubmittedByServer(Boolean(data.submitted));
+    } catch {
+      // non-blocking; backend still enforces on session start
+    }
+  }, []);
+
   useEffect(() => {
     if (!onTrial || !halfUsageReached) return;
-    if (localStorage.getItem(submittedTodayStorageKey()) === "submitted") return;
+    void refreshStatus();
+  }, [onTrial, halfUsageReached, effectiveMinutesUsedToday, dailyLimitMinutes, refreshStatus]);
 
+  useEffect(() => {
+    const shouldShow = requiredByServer && !submittedByServer && onTrial && halfUsageReached;
+    if (!shouldShow) {
+      setAnimate(false);
+      setVisible(false);
+      return;
+    }
     const t = setTimeout(() => {
       setVisible(true);
       setTimeout(() => setAnimate(true), 30);
-    }, 800);
+    }, 300);
     return () => clearTimeout(t);
-  }, [onTrial, halfUsageReached, effectiveMinutesUsedToday, dailyLimitMinutes]);
+  }, [requiredByServer, submittedByServer, onTrial, halfUsageReached]);
 
   const canSubmit = rating >= 1 && comment.trim().length >= MIN_COMMENT_LENGTH;
 
@@ -70,7 +90,7 @@ export function EarlyTrialFeedbackPrompt({
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not send feedback");
-      localStorage.setItem(submittedTodayStorageKey(), "submitted");
+      await refreshStatus();
       setDone(true);
       setTimeout(() => {
         setAnimate(false);

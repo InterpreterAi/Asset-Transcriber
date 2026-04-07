@@ -3,11 +3,33 @@ import { db, feedbackTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
+import {
+  hasSubmittedMandatoryFeedbackToday,
+  isMandatoryFeedbackRequiredByUsage,
+  MANDATORY_FEEDBACK_SOURCE,
+} from "../lib/feedback-gate.js";
+import { getUserWithResetCheck } from "../lib/usage.js";
 
 const router = Router();
 
 const STAR_LABELS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
 const RECOMMEND_EMOJI: Record<string, string> = { yes: "👍", no: "👎", maybe: "🤷" };
+const MIN_MANDATORY_COMMENT_LENGTH = 10;
+
+router.get("/status", requireAuth, async (req, res) => {
+  const user = await getUserWithResetCheck(req.session.userId!);
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  const required = isMandatoryFeedbackRequiredByUsage(user);
+  const submitted = required ? await hasSubmittedMandatoryFeedbackToday(user.id) : false;
+  res.json({
+    required,
+    submitted,
+    source: MANDATORY_FEEDBACK_SOURCE,
+  });
+});
 
 router.post("/", requireAuth, async (req, res) => {
   const { rating, comment, recommend, source } = req.body as {
@@ -19,6 +41,15 @@ router.post("/", requireAuth, async (req, res) => {
   }
   if (recommend && !["yes", "no", "maybe"].includes(recommend)) {
     res.status(400).json({ error: "Invalid recommend value" });
+    return;
+  }
+  if (
+    source === MANDATORY_FEEDBACK_SOURCE &&
+    (comment?.trim().length ?? 0) < MIN_MANDATORY_COMMENT_LENGTH
+  ) {
+    res.status(400).json({
+      error: `Comment must be at least ${MIN_MANDATORY_COMMENT_LENGTH} characters for required feedback`,
+    });
     return;
   }
 

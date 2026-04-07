@@ -13,7 +13,7 @@ export default function Signup() {
   const [showPw, setShowPw]     = useState(false);
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
-  const [referralId, setReferralId] = useState<number | null>(null);
+  const [referrerUserId, setReferrerUserId] = useState<number | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
   type TurnstileCfg = { status: "loading" } | { status: "ready"; siteKey: string | null };
@@ -21,8 +21,8 @@ export default function Signup() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   useEffect(() => {
-    const rid = sessionStorage.getItem("referralId");
-    if (rid && /^\d+$/.test(rid)) setReferralId(parseInt(rid));
+    const rid = sessionStorage.getItem("referralCode");
+    if (rid && /^\d+$/.test(rid)) setReferrerUserId(parseInt(rid));
   }, []);
 
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function Signup() {
     setLoading(true);
     try {
       const body: Record<string, unknown> = { email, password };
-      if (referralId) body.referralId = referralId;
+      if (referrerUserId) body.referrerUserId = referrerUserId;
       if (turnstileToken?.trim()) body.turnstileToken = turnstileToken;
 
       const res = await fetch("/api/auth/signup", {
@@ -84,7 +84,6 @@ export default function Signup() {
       }
 
       sessionStorage.removeItem("referralCode");
-      sessionStorage.removeItem("referralId");
 
       if (data.needsEmailVerification) {
         setPendingEmail(data.email ?? email);
@@ -118,7 +117,7 @@ export default function Signup() {
           </button>
           <h1 className="text-2xl font-display font-semibold tracking-tight mb-1">Create your account</h1>
           <p className="text-sm text-muted-foreground">14-day free trial · No credit card required</p>
-          {referralId && (
+          {referrerUserId && (
             <p className="text-xs font-medium text-primary mt-1.5 bg-primary/8 px-3 py-1 rounded-full inline-block border border-primary/20">
               You were invited by a colleague
             </p>
@@ -145,7 +144,7 @@ export default function Signup() {
           ) : (
             <>
           <a
-            href="/api/auth/google"
+            href={referrerUserId ? `/api/auth/google?ref=${referrerUserId}` : "/api/auth/google"}
             className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 shadow-sm mb-4"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

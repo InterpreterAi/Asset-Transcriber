@@ -196,6 +196,20 @@ interface SystemEvent {
   meta:        Record<string, unknown>;
 }
 
+interface AdminReferralRow {
+  id: number;
+  referrerId: number;
+  referrerName: string | null;
+  referrerEmail: string | null;
+  referredUserId: number;
+  referredUsername: string | null;
+  referredEmail: string | null;
+  status: "pending" | "active";
+  sessionsCount: number;
+  createdAt: string;
+  rewardPending: boolean;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(n: number) {
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
@@ -339,7 +353,7 @@ export default function Admin() {
   const resetMut  = useAdminResetUsage();
 
   // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor">("overview");
+  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Fast-poll active sessions — only when Users tab is open, every 3 s.
@@ -444,6 +458,20 @@ export default function Admin() {
     refetchInterval: mainTab === "monitor" ? 15_000 : false,
   });
   const [eventTypeFilter, setEventTypeFilter] = useState("all");
+
+  const { data: referralsAdminData } = useQuery({
+    queryKey: ["admin-referrals"],
+    queryFn: async () => {
+      const res = await fetch("/api/referrals/admin/analytics", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch referrals");
+      return res.json() as Promise<{
+        totals: { totalReferrals: number; activeReferrals: number; pendingReferrals: number };
+        rows: AdminReferralRow[];
+      }>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "referrals",
+    refetchInterval: mainTab === "referrals" ? 30_000 : false,
+  });
 
   // ── Support tab state ─────────────────────────────────────────────────────
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
@@ -882,6 +910,7 @@ export default function Admin() {
     { id: "users",      label: "Users",      icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
     { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
     { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
+    { id: "referrals",  label: "Referrals",  icon: <Gift className="w-4 h-4" />,            badge: referralsAdminData?.totals.pendingReferrals ?? null },
     { id: "support",    label: "Support",    icon: <LifeBuoy className="w-4 h-4" />,        badge: supportTickets.filter(t => t.status === "open").length > 0 ? supportTickets.filter(t => t.status === "open").length : null },
     { id: "errors",     label: "Errors",     icon: <AlertTriangle className="w-4 h-4" />,   badge: null },
   ];
@@ -1689,6 +1718,87 @@ export default function Admin() {
                 No feedback received yet.
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── REFERRALS TAB ────────────────────────────────────────────────── */}
+        {mainTab === "referrals" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Card className="p-4 border-none shadow-sm bg-white">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total referrals</p>
+                <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalReferrals ?? 0}</p>
+              </Card>
+              <Card className="p-4 border-none shadow-sm bg-white">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Active referrals</p>
+                <p className="text-2xl font-bold mt-1 text-green-700">{referralsAdminData?.totals.activeReferrals ?? 0}</p>
+              </Card>
+              <Card className="p-4 border-none shadow-sm bg-white">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pending referrals</p>
+                <p className="text-2xl font-bold mt-1 text-amber-700">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
+              </Card>
+            </div>
+            <Card className="border-none shadow-sm bg-white overflow-hidden">
+              <div className="px-4 py-3 border-b border-border">
+                <h3 className="font-semibold text-base">Referral tracking</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Manual rewards only. Badge indicates a referrer has reached 3 active referrals.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] text-sm">
+                  <thead className="bg-muted/30 text-muted-foreground text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left px-4 py-2.5">Referrer</th>
+                      <th className="text-left px-4 py-2.5">Referred user</th>
+                      <th className="text-left px-4 py-2.5">Status</th>
+                      <th className="text-left px-4 py-2.5">Sessions</th>
+                      <th className="text-left px-4 py-2.5">Joined</th>
+                      <th className="text-left px-4 py-2.5">Reward</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(referralsAdminData?.rows ?? []).map((row) => (
+                      <tr key={row.id} className="border-t border-border/60">
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{row.referrerName ?? `User #${row.referrerId}`}</p>
+                          <p className="text-xs text-muted-foreground">{row.referrerEmail ?? "No email"}</p>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{row.referredUsername ?? `User #${row.referredUserId}`}</p>
+                          <p className="text-xs text-muted-foreground">{row.referredEmail ?? "No email"}</p>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            row.status === "active" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                          }`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">{row.sessionsCount}</td>
+                        <td className="px-4 py-2.5">{format(new Date(row.createdAt), "MMM d, yyyy")}</td>
+                        <td className="px-4 py-2.5">
+                          {row.rewardPending ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">
+                              Reward pending - 3 referrals completed
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Not yet</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {(referralsAdminData?.rows?.length ?? 0) === 0 && (
+                      <tr>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                          No referrals yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           </div>
         )}
 
