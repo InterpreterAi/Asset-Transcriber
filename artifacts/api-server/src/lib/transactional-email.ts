@@ -43,12 +43,13 @@ function billingUrl(): string {
   return `${appBaseUrl()}/workspace`;
 }
 
-export async function sendEmailVerificationEmail(to: string, token: string): Promise<void> {
+export async function sendEmailVerificationEmail(to: string, token: string, recipientUserId: number): Promise<void> {
   const base = appBaseUrl();
   const verifyUrl = `${base}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
   const subject = "Verify your InterpreterAI email";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Verify your email",
     bodyHtml: [
       emailStandardGreeting(to, null),
@@ -66,12 +67,14 @@ export async function sendEmailVerificationEmail(to: string, token: string): Pro
 export async function sendPostVerificationWelcomeEmail(
   to: string,
   trialEndsAt: Date | string,
-  explicitName?: string | null,
+  explicitName: string | null | undefined,
+  recipientUserId: number,
 ): Promise<void> {
   const base = appBaseUrl();
   const subject = "Welcome to InterpreterAI — Your free trial has started";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Welcome to InterpreterAI",
     bodyHtml: [
       emailStandardGreeting(to, explicitName),
@@ -92,11 +95,12 @@ export async function sendPostVerificationWelcomeEmail(
 }
 
 /** After email verify when this address is not eligible for a new trial (e.g. reused email). */
-export async function sendAccountVerifiedNoTrialEmail(to: string): Promise<void> {
+export async function sendAccountVerifiedNoTrialEmail(to: string, recipientUserId: number): Promise<void> {
   const base = appBaseUrl();
   const subject = "Your InterpreterAI email is verified";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Email verified",
     bodyHtml: [
       emailStandardGreeting(to, null),
@@ -114,13 +118,15 @@ export async function sendAccountVerifiedNoTrialEmail(to: string): Promise<void>
  */
 export async function sendGettingStartedEmail(
   to: string,
-  profileDisplayName?: string | null,
+  profileDisplayName: string | null | undefined,
+  recipientUserId: number,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Start your first transcription session";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Start your first transcription session",
     bodyHtml: [
       emailGettingStartedGreeting(profileDisplayName ?? null),
@@ -150,13 +156,15 @@ export async function sendGettingStartedEmail(
 export async function sendTrialReminder48hEmail(
   to: string,
   trialEndsAt: Date | string,
-  displayName?: string | null,
+  displayName: string | null | undefined,
+  recipientUserId: number,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Your InterpreterAI trial ends in 2 days";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Your trial ends in 2 days",
     bodyHtml: [
       emailStandardGreeting(to, displayName),
@@ -175,13 +183,15 @@ export async function sendTrialReminder48hEmail(
 export async function sendTrialReminder12hEmail(
   to: string,
   trialEndsAt: Date | string,
-  displayName?: string | null,
+  displayName: string | null | undefined,
+  recipientUserId: number,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Your trial expires today";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Your trial expires today",
     bodyHtml: [
       emailStandardGreeting(to, displayName),
@@ -196,12 +206,17 @@ export async function sendTrialReminder12hEmail(
   return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
 }
 
-export async function sendTrialExpiredEmail(to: string, displayName?: string | null): Promise<boolean> {
+export async function sendTrialExpiredEmail(
+  to: string,
+  displayName: string | null | undefined,
+  recipientUserId: number,
+): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Your InterpreterAI trial has ended";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Your trial has ended",
     bodyHtml: [
       emailStandardGreeting(to, displayName),
@@ -219,7 +234,7 @@ export async function sendTrialExpiredEmail(to: string, displayName?: string | n
 /** One-time campaign: users on an active free trial who have not subscribed (see trial-active-reminder job). */
 export async function sendTrialActiveReminderEmail(
   to: string,
-  opts?: { trialEndsAt?: Date | string; daysRemaining?: number | null },
+  opts?: { userId?: number; trialEndsAt?: Date | string; daysRemaining?: number | null },
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
@@ -234,6 +249,7 @@ export async function sendTrialActiveReminderEmail(
     : null;
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId: opts?.userId ?? null,
     heading: "Your free trial is active",
     bodyHtml: [
       emailParagraph("Hello,"),
@@ -263,8 +279,8 @@ export async function sendTrialActiveReminderEmail(
 }
 
 function buildTrialAvailabilityReminderMail(
-  to: string,
-  opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
+  _to: string,
+  opts: { userId: number; trialEndsAt: Date | string; daysRemaining?: number | null },
 ): { subject: string; html: string } {
   const base = appBaseUrl();
   const subject = "Reminder: Your InterpreterAI free trial is active";
@@ -277,6 +293,7 @@ function buildTrialAvailabilityReminderMail(
     : null;
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId: opts.userId,
     heading: "Your free trial is active",
     bodyHtml: [
       emailParagraph("Hello,"),
@@ -296,7 +313,7 @@ function buildTrialAvailabilityReminderMail(
 /** One-time immediate reminder for currently trial users (manual blast). */
 export async function sendTrialAvailabilityReminderEmail(
   to: string,
-  opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
+  opts: { userId: number; trialEndsAt: Date | string; daysRemaining?: number | null },
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const { subject, html } = buildTrialAvailabilityReminderMail(to, opts);
@@ -306,7 +323,7 @@ export async function sendTrialAvailabilityReminderEmail(
 /** Same email as {@link sendTrialAvailabilityReminderEmail}; returns Resend API outcome for scripts. */
 export async function sendTrialAvailabilityReminderEmailWithResult(
   to: string,
-  opts: { trialEndsAt: Date | string; daysRemaining?: number | null },
+  opts: { userId: number; trialEndsAt: Date | string; daysRemaining?: number | null },
 ): Promise<SendEmailResult> {
   if (!isResendConfigured()) {
     return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
@@ -319,13 +336,15 @@ export async function sendSubscriptionConfirmationEmail(
   to: string,
   planName: string,
   nextBillingDate: string,
-  displayName?: string | null,
+  displayName: string | null | undefined,
+  recipientUserId: number,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Your InterpreterAI subscription is active";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Your subscription is active",
     bodyHtml: [
       emailStandardGreeting(to, displayName),
@@ -342,7 +361,8 @@ export async function sendSubscriptionConfirmationEmail(
 export async function sendPaymentReceiptEmail(
   to: string,
   opts: { amountFormatted: string; paidDateFormatted: string; invoiceNumber?: string | null; description?: string | null },
-  displayName?: string | null,
+  displayName: string | null | undefined,
+  recipientUserId: number,
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
@@ -359,6 +379,7 @@ export async function sendPaymentReceiptEmail(
   }
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Payment received",
     bodyHtml: [emailStandardGreeting(to, displayName), emailParagraph("Thank you — we received your payment."), ...lines].join(
       "",
@@ -369,12 +390,17 @@ export async function sendPaymentReceiptEmail(
   return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
 }
 
-export async function sendSubscriptionCanceledEmail(to: string, displayName?: string | null): Promise<boolean> {
+export async function sendSubscriptionCanceledEmail(
+  to: string,
+  displayName: string | null | undefined,
+  recipientUserId: number,
+): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Your InterpreterAI subscription has been canceled";
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Subscription canceled",
     bodyHtml: [
       emailStandardGreeting(to, displayName),

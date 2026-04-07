@@ -15,11 +15,27 @@ const wantPretty =
 
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
-  redact: [
-    "req.headers.authorization",
-    "req.headers.cookie",
-    "res.headers['set-cookie']",
-  ],
+  redact: {
+    paths: [
+      "req.headers.authorization",
+      "req.headers.cookie",
+      "res.headers['set-cookie']",
+      "password",
+      "passwordHash",
+      "currentPassword",
+      "newPassword",
+      "token",
+      "secret",
+      "apiKey",
+      "api_key",
+      "DATABASE_URL",
+      "OPENAI_API_KEY",
+      "RESEND_API_KEY",
+      "SONIOX_API_KEY",
+      "STRIPE_SECRET_KEY",
+    ],
+    censor: "[redacted]",
+  },
   ...(isProduction || !wantPretty
     ? {}
     : {

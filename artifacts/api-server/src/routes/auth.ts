@@ -540,7 +540,7 @@ router.post("/signup", async (req, res) => {
     expiresAt: verifyExpires,
   });
 
-  void sendEmailVerificationEmail(normalized, verifyToken).catch((err) => {
+  void sendEmailVerificationEmail(normalized, verifyToken, newUser.id).catch((err) => {
     logger.error({ err, userId: newUser.id }, "Signup: sendEmailVerificationEmail failed");
   });
 
@@ -587,11 +587,11 @@ router.get("/verify-email", async (req, res) => {
     const trialActive =
       new Date(acct.trialEndsAt).getTime() > Date.now() && Number(acct.dailyLimitMinutes) > 0;
     if (trialActive) {
-      void sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null).catch((err) => {
+      void sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null, acct.id).catch((err) => {
         logger.error({ err, userId: acct.id }, "verify-email: welcome email failed");
       });
     } else {
-      void sendAccountVerifiedNoTrialEmail(acct.email).catch((err) => {
+      void sendAccountVerifiedNoTrialEmail(acct.email, acct.id).catch((err) => {
         logger.error({ err, userId: acct.id }, "verify-email: no-trial confirmation email failed");
       });
     }
@@ -638,7 +638,7 @@ router.post("/resend-verification", async (req, res) => {
     expiresAt: verifyExpires,
   });
 
-  void sendEmailVerificationEmail(u.email, verifyToken).catch((err) => {
+  void sendEmailVerificationEmail(u.email, verifyToken, u.id).catch((err) => {
     logger.error({ err, userId: u.id }, "resend-verification: send failed");
   });
 
@@ -766,7 +766,7 @@ router.post("/forgot-password", async (req, res) => {
 
   if (recipient) {
     try {
-      await sendPasswordResetEmail(recipient, token);
+      await sendPasswordResetEmail(recipient, token, user.id);
     } catch (err) {
       logger.error(
         { err, userId: user.id, recipient },
@@ -1010,7 +1010,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
-      void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null).catch(
+      void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null, user!.id).catch(
         (err) => {
           logger.error({ err, userId: user!.id }, "Google signup: welcome email failed");
         },

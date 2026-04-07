@@ -43,7 +43,7 @@ router.post("/", requireAuth, async (req, res) => {
   );
 
   // Confirmation email (non-blocking)
-  void sendSupportConfirmationEmail(email, ticket.id, subject);
+  void sendSupportConfirmationEmail(email, ticket.id, subject, req.session.userId!);
 
   logger.info({ ticketId: ticket.id }, "Support ticket created");
   res.status(201).json({ ticket: { id: ticket.id, subject: ticket.subject, status: ticket.status } });

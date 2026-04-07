@@ -156,6 +156,19 @@ async function migrateSchema() {
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_a TEXT NOT NULL DEFAULT 'en'`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_b TEXT NOT NULL DEFAULT 'ar'`);
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+      );
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS admin_activity_events (
+          id          SERIAL PRIMARY KEY,
+          event_type  TEXT NOT NULL,
+          user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          detail      TEXT,
+          created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS trial_consumed_emails (

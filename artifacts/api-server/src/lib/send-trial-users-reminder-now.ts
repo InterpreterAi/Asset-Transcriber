@@ -70,26 +70,35 @@ export async function runSendTrialUsersReminderNow(): Promise<void> {
     ),
   );
 
-  const rows = await db
-    .select({
-      id: usersTable.id,
-      email: usersTable.email,
-      planType: usersTable.planType,
-      subscriptionStatus: usersTable.subscriptionStatus,
-      trialEndsAt: usersTable.trialEndsAt,
-      trialStartedAt: usersTable.trialStartedAt,
-      dailyLimitMinutes: usersTable.dailyLimitMinutes,
-    })
-    .from(usersTable)
-    .where(
-      and(
-        or(eq(usersTable.planType, "trial"), eq(usersTable.subscriptionStatus, "trial")),
-        isNotNull(usersTable.email),
-        gt(usersTable.trialEndsAt, new Date(0)),
-        sql`${usersTable.dailyLimitMinutes} > 0`,
-      ),
-    );
+  const blastCore = and(
+    or(eq(usersTable.planType, "trial"), eq(usersTable.subscriptionStatus, "trial")),
+    isNotNull(usersTable.email),
+    gt(usersTable.trialEndsAt, new Date(0)),
+    sql`${usersTable.dailyLimitMinutes} > 0`,
+  );
 
+  const [eligibleRow, skippedUnsubRow, rows] = await Promise.all([
+    db.select({ c: sql<number>`count(*)::int` }).from(usersTable).where(blastCore),
+    db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(usersTable)
+      .where(and(blastCore, eq(usersTable.emailRemindersEnabled, false))),
+    db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        planType: usersTable.planType,
+        subscriptionStatus: usersTable.subscriptionStatus,
+        trialEndsAt: usersTable.trialEndsAt,
+        trialStartedAt: usersTable.trialStartedAt,
+        dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      })
+      .from(usersTable)
+      .where(and(blastCore, eq(usersTable.emailRemindersEnabled, true))),
+  ]);
+
+  const trialUsersEligible = eligibleRow[0]?.c ?? 0;
+  const skippedDueToUnsubscribe = skippedUnsubRow[0]?.c ?? 0;
   const totalUsers = rows.length;
   let emailsSent = 0;
   let emailsFailed = 0;
@@ -108,6 +117,8 @@ export async function runSendTrialUsersReminderNow(): Promise<void> {
     JSON.stringify(
       {
         phase: "selected_for_send",
+        trialUsersEligible,
+        skippedDueToUnsubscribe,
         count: totalUsers,
         users: selectedPayload,
       },
@@ -116,7 +127,12 @@ export async function runSendTrialUsersReminderNow(): Promise<void> {
     ),
   );
   logger.info(
-    { totalUsers, selectedUserIds: rows.map((r) => r.id) },
+    {
+      trialUsersEligible,
+      skippedDueToUnsubscribe,
+      selectedForSend: totalUsers,
+      selectedUserIds: rows.map((r) => r.id),
+    },
     "TRIAL USERS REMINDER NOW: selected users for blast",
   );
 
@@ -157,6 +173,7 @@ export async function runSendTrialUsersReminderNow(): Promise<void> {
 
     try {
       const resendResult = await sendTrialAvailabilityReminderEmailWithResult(to, {
+        userId: row.id,
         trialEndsAt: row.trialEndsAt,
         daysRemaining,
       });
@@ -215,8 +232,10 @@ export async function runSendTrialUsersReminderNow(): Promise<void> {
   }
 
   const summary = {
-    total_users: totalUsers,
-    emails_sent: emailsSent,
+    trial_users_eligible: trialUsersEligible,
+    skipped_due_to_unsubscribe: skippedDueToUnsubscribe,
+    selected_for_send: totalUsers,
+    emails_sent_successfully: emailsSent,
     emails_failed: emailsFailed,
     skipped_invalid_email: skippedInvalidEmail,
   };

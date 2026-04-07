@@ -30,6 +30,7 @@ export async function runSendTrialActiveReminderNow(): Promise<void> {
 
     const daysRemaining = getTrialDaysRemaining(row);
     const ok = await sendTrialActiveReminderEmail(to, {
+      userId: row.id,
       trialEndsAt: row.trialEndsAt,
       daysRemaining,
     });

@@ -21,7 +21,7 @@ import {
   Globe, Download, ChevronRight, Wifi, WifiOff, BarChart2,
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
-  Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle,
+  Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle, Mail,
   Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
@@ -189,7 +189,7 @@ interface SystemMonitorData {
 
 interface SystemEvent {
   id:          string;
-  type:        "login_success" | "login_failure" | "session_start" | "session_end" | "api_error" | "proxy_failure";
+  type:        "login_success" | "login_failure" | "session_start" | "session_end" | "api_error" | "proxy_failure" | "email_reminder_unsubscribe";
   title:       string;
   description: string;
   timestamp:   string;
@@ -1153,6 +1153,7 @@ export default function Admin() {
               case "session_end":    return <LogOut   className="w-3.5 h-3.5 text-gray-500" />;
               case "api_error":      return <Server   className="w-3.5 h-3.5 text-amber-500" />;
               case "proxy_failure":  return <Zap      className="w-3.5 h-3.5 text-orange-500" />;
+              case "email_reminder_unsubscribe": return <Mail className="w-3.5 h-3.5 text-violet-500" />;
             }
           }
 
@@ -1164,6 +1165,7 @@ export default function Admin() {
               case "session_end":    return "bg-gray-400";
               case "api_error":      return "bg-amber-400";
               case "proxy_failure":  return "bg-orange-400";
+              case "email_reminder_unsubscribe": return "bg-violet-400";
             }
           }
 
@@ -1175,6 +1177,7 @@ export default function Admin() {
             { value: "session_end",   label: "Session End" },
             { value: "api_error",     label: "API Errors" },
             { value: "proxy_failure", label: "Proxy" },
+            { value: "email_reminder_unsubscribe", label: "Email unsubscribes" },
           ];
 
           return (

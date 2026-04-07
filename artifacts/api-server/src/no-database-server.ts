@@ -4,7 +4,6 @@
  */
 import http from "node:http";
 import { getAiEnvDiagnostics } from "./lib/ai-env.js";
-import { areDebugHttpEndpointsEnabled, isPublicDebugEndpointPath } from "./lib/debug-routes-policy.js";
 import { getPublicEnvReadiness } from "./lib/readiness-env.js";
 import { getDebugDbEnvHttpPayload } from "./postgres-env.js";
 
@@ -26,7 +25,7 @@ const hint = {
     "Open the service that runs **this** Node container → Variables → New variable → Variable Reference → pick Postgres → add `DATABASE_URL` (or `DATABASE_PRIVATE_URL`).",
     "Or paste the full `postgresql://…` URL as `DATABASE_URL` on that same web/API service (Raw editor).",
     "Use the correct Railway **environment** (e.g. Production). Empty or Preview-only vars leave this process without a DB.",
-    "Redeploy the web/API service after saving. With NODE_ENV=development locally, GET /debug/db-env lists env key names that look like Postgres URLs (not available in production).",
+    "Redeploy the web/API service after saving. With NODE_ENV=development locally, GET /debug/db-env lists env key names (never values). /debug/* is disabled when NODE_ENV is not development.",
   ],
 };
 
@@ -38,7 +37,7 @@ function debugNotFound(res: http.ServerResponse): void {
 const server = http.createServer((req, res) => {
   const path = req.url?.split("?")[0] ?? "/";
 
-  if (isPublicDebugEndpointPath(path) && !areDebugHttpEndpointsEnabled()) {
+  if (process.env.NODE_ENV !== "development" && (path === "/debug" || path.startsWith("/debug/"))) {
     debugNotFound(res);
     return;
   }
@@ -58,12 +57,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (path === "/debug/db-env") {
+  if (process.env.NODE_ENV === "development" && path === "/debug/db-env") {
     json(200, getDebugDbEnvHttpPayload("degraded"));
     return;
   }
 
-  if (path === "/debug/ai-env") {
+  if (process.env.NODE_ENV === "development" && path === "/debug/ai-env") {
     json(200, {
       ok: true,
       status: "degraded",
@@ -75,7 +74,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (path === "/debug/readiness") {
+  if (process.env.NODE_ENV === "development" && path === "/debug/readiness") {
     json(200, {
       ok: true,
       status: "degraded",

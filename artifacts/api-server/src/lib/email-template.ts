@@ -3,6 +3,8 @@
  * Logo: production CDN (see LOGO_URL). Footer and links use appBaseUrl.
  */
 
+import { buildEmailReminderUnsubscribeUrl } from "./email-reminder-unsubscribe.js";
+
 const FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
 
@@ -137,6 +139,8 @@ export function emailTrialExpiredInner(): string {
 export type InterpreterAiEmailOptions = {
   /** Used for footer links only (Terms, Privacy). */
   appBaseUrl: string;
+  /** When set, appended promo + one-click unsubscribe (sets email_reminders_enabled) appear above the standard footer. */
+  recipientUserId?: number | null;
   heading?: string;
   bodyHtml: string;
   primaryButton?: { href: string; label: string };
@@ -181,6 +185,8 @@ export function renderInterpreterAiEmail(opts: InterpreterAiEmailOptions): strin
     ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid ${BORDER};font-family:${FONT};font-size:13px;line-height:1.55;color:${FOOTER_COLOR};">${opts.noteHtml}</div>`
     : "";
 
+  const referralFooterAppend = emailReferralPromoAndUnsubscribeBeforeStandardFooter(base, opts.recipientUserId ?? null);
+
   const footer = emailFooterBlockHtml(base);
 
   return `<!DOCTYPE html>
@@ -207,6 +213,7 @@ export function renderInterpreterAiEmail(opts: InterpreterAiEmailOptions): strin
             ${opts.bodyHtml}
             ${buttonBlock}
             ${noteBlock}
+            ${referralFooterAppend}
             ${footer}
           </td>
         </tr>
@@ -255,4 +262,25 @@ export function emailBulletList(items: string[]): string {
 
 export function emailSubheading(text: string): string {
   return `<p style="margin:22px 0 10px;font-family:${FONT};font-size:13px;font-weight:700;color:#5B8CFF;text-transform:uppercase;letter-spacing:0.06em;">${escapeHtml(text)}</p>`;
+}
+
+/** Referral line + unsubscribe (uses users.email_reminders_enabled); placed above Terms/Privacy footer. */
+function emailReferralPromoAndUnsubscribeBeforeStandardFooter(
+  appBaseUrl: string,
+  recipientUserId: number | null,
+): string {
+  const promo = "Invite 3 interpreters → get 3 extra hours free.";
+  const promoBlock = `<div style="margin:0;padding:14px 16px;background:linear-gradient(135deg,#f0f4ff,#eef6ff);border:1px solid ${BORDER};border-radius:8px;font-family:${FONT};font-size:15px;font-weight:600;line-height:1.5;color:${TEXT_HEADING};text-align:center;">
+${escapeHtml(promo)}
+</div>`;
+  const unsubHref =
+    recipientUserId != null && Number.isInteger(recipientUserId) && recipientUserId > 0
+      ? buildEmailReminderUnsubscribeUrl(appBaseUrl, recipientUserId)
+      : null;
+  const linkPart = unsubHref
+    ? `<p style="margin:14px 0 0;font-family:${FONT};font-size:12px;line-height:1.55;color:${FOOTER_COLOR};text-align:center;">
+<a href="${escapeHtmlAttr(unsubHref)}" style="color:#5B8CFF;text-decoration:underline;">Unsubscribe from promotional emails</a>
+</p>`
+    : "";
+  return `<div style="margin-top:20px;">${promoBlock}${linkPart}</div>`;
 }

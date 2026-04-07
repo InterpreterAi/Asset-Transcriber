@@ -32,7 +32,7 @@ export async function runTrialReminderJob(): Promise<void> {
       const to = row.email?.trim().toLowerCase() ?? "";
       if (!to || !EMAIL_RE.test(to)) continue;
 
-      const ok = await sendTrialReminder48hEmail(to, row.trialEndsAt, row.username);
+      const ok = await sendTrialReminder48hEmail(to, row.trialEndsAt, row.username, row.id);
       if (ok) {
         await db
           .update(usersTable)
@@ -64,7 +64,7 @@ export async function runTrialReminderJob(): Promise<void> {
       const to = row.email?.trim().toLowerCase() ?? "";
       if (!to || !EMAIL_RE.test(to)) continue;
 
-      const ok = await sendTrialReminder12hEmail(to, row.trialEndsAt, row.username);
+      const ok = await sendTrialReminder12hEmail(to, row.trialEndsAt, row.username, row.id);
       if (ok) {
         await db
           .update(usersTable)

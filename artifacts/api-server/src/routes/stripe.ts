@@ -134,7 +134,7 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
         const nick = first?.plan?.nickname || first?.price?.nickname;
         if (nick && String(nick).trim()) planName = String(nick).trim();
 
-        const ok = await sendSubscriptionConfirmationEmail(email, planName, nextBillingDate, u.username);
+        const ok = await sendSubscriptionConfirmationEmail(email, planName, nextBillingDate, u.username, u.id);
         if (ok) {
           await db
             .update(usersTable)
@@ -144,7 +144,7 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
       }
 
       if (status === "canceled" && !u.subscriptionCanceledEmailSentAt) {
-        const ok = await sendSubscriptionCanceledEmail(email, u.username);
+        const ok = await sendSubscriptionCanceledEmail(email, u.username, u.id);
         if (ok) {
           await db
             .update(usersTable)
@@ -182,6 +182,7 @@ router.get("/subscription", requireAuth, async (req: any, res) => {
                     description: null,
                   },
                   u.username,
+                  u.id,
                 );
                 if (ok) {
                   await db

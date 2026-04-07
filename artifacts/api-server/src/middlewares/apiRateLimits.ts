@@ -23,6 +23,12 @@ export function isTranscriptionSessionStartPost(req: Request): boolean {
 /**
  * Routes that bill or proxy AI / transcription (counted separately from general API limit).
  */
+export function isTranslationPath(req: Request): boolean {
+  if (req.method !== "POST") return false;
+  const p = apiRequestPath(req);
+  return p.includes("/transcription/translate");
+}
+
 export function isAiCostPath(req: Request): boolean {
   if (req.method !== "POST" && req.method !== "PUT") return false;
   const p = apiRequestPath(req);
@@ -77,21 +83,21 @@ function rateLimitExceededHandler(limiterId: string) {
   };
 }
 
-/** Failed login / 2FA verify: 5 failures per 10 minutes per IP. */
+/** Failed login / 2FA verify: max 10 failures per IP per hour. */
 export const loginLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 5,
+  windowMs: 60 * 60 * 1000,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  message: { error: "Too many login attempts. Please wait 10 minutes before trying again." },
+  message: { error: "Too many login attempts. Please wait before trying again." },
   handler: rateLimitExceededHandler("login"),
 });
 
-/** Email/password signup: 3 per hour per IP. */
+/** Email/password signup: max 5 per IP per hour. */
 export const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 3,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
@@ -162,6 +168,18 @@ export const sessionHeartbeatLimiter = rateLimit({
   message: { error: "Too many session heartbeats. Please wait a moment." },
   handler: rateLimitExceededHandler("session_heartbeat"),
   skip: (req) => req.method === "OPTIONS" || !isSessionHeartbeatPost(req),
+});
+
+/** POST /api/transcription/translate — dedicated cap in addition to the broader AI bucket. */
+export const translationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: rateLimitUserOrIpKey,
+  message: { error: "Too many translation requests. Please slow down." },
+  handler: rateLimitExceededHandler("translation"),
+  skip: (req) => req.method === "OPTIONS" || !isTranslationPath(req),
 });
 
 /**

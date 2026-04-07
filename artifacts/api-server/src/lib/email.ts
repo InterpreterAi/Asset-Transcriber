@@ -17,11 +17,16 @@ function appBaseUrl(): string {
   return getStaticPublicBaseUrl().replace(/\/+$/, "");
 }
 
-export async function sendPasswordResetEmail(toEmail: string, resetToken: string): Promise<void> {
+export async function sendPasswordResetEmail(
+  toEmail: string,
+  resetToken: string,
+  recipientUserId: number,
+): Promise<void> {
   const base = appBaseUrl();
   const resetUrl = `${base}/reset-password?token=${encodeURIComponent(resetToken)}`;
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Reset your password",
     bodyHtml: [
       emailStandardGreeting(toEmail, null),
@@ -50,10 +55,12 @@ export async function sendSupportConfirmationEmail(
   toEmail: string,
   ticketId: number,
   subject: string,
+  recipientUserId: number,
 ): Promise<void> {
   const base = appBaseUrl();
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "We received your message",
     bodyHtml: [
       emailStandardGreeting(toEmail, null),
@@ -79,10 +86,12 @@ export async function sendAdminReplyEmail(
   ticketId: number,
   subject: string,
   replyMessage: string,
+  recipientUserId: number | null,
 ): Promise<void> {
   const base = appBaseUrl();
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "New reply on your ticket",
     bodyHtml: [
       emailStandardGreeting(toEmail, null),
@@ -105,10 +114,12 @@ export async function sendTicketResolvedEmail(
   toEmail: string,
   ticketId: number,
   subject: string,
+  recipientUserId: number | null,
 ): Promise<void> {
   const base = appBaseUrl();
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
+    recipientUserId,
     heading: "Your ticket is resolved",
     bodyHtml: [
       emailStandardGreeting(toEmail, null),

@@ -33,7 +33,7 @@ export async function runOnboardingEmailJob(): Promise<void> {
       if (!to || !EMAIL_RE.test(to)) continue;
 
       // Greeting uses profileDisplayName only when we store a real name — never username.
-      const ok = await sendGettingStartedEmail(to, null);
+      const ok = await sendGettingStartedEmail(to, null, row.id);
       if (ok) {
         await db
           .update(usersTable)
@@ -65,7 +65,7 @@ export async function runOnboardingEmailJob(): Promise<void> {
       const to = row.email?.trim().toLowerCase() ?? "";
       if (!to || !EMAIL_RE.test(to)) continue;
 
-      const ok = await sendTrialExpiredEmail(to, row.username);
+      const ok = await sendTrialExpiredEmail(to, row.username, row.id);
       if (ok) {
         await db
           .update(usersTable)

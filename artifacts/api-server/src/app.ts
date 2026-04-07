@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import express, { type Express, type RequestHandler } from "express";
-import { areDebugHttpEndpointsEnabled, isPublicDebugEndpointPath } from "./lib/debug-routes-policy.js";
+import express, { type Express } from "express";
 import cookieParser from "cookie-parser";
-import cors from "cors";
 import pinoHttp from "pino-http";
 import { WebhookHandlers } from "./lib/webhookHandlers.js";
 import router from "./routes/index.js";
@@ -31,10 +29,15 @@ import {
   sessionHeartbeatLimiter,
   signupLimiter,
   transcriptionSessionStartLimiter,
+  translationLimiter,
 } from "./middlewares/apiRateLimits.js";
 import { jsonParseErrorHandler } from "./middlewares/jsonParseError.js";
 import { aiUsageMonitorMiddleware } from "./middlewares/aiUsageMonitor.js";
 import { blockUnauthenticatedAiRequests } from "./middlewares/unauthenticatedAiBlock.js";
+import { securityHeadersMiddleware } from "./middlewares/securityHeaders.js";
+import { createProductionCorsMiddleware } from "./middlewares/corsPolicy.js";
+import { blockSensitivePathMiddleware } from "./middlewares/blockSensitivePaths.js";
+import { blockDebugInProductionMiddleware } from "./middlewares/blockDebugInProduction.js";
 
 // Per-user debounce: only write last_activity to DB once per 60 s per user.
 const activityDebounce = new Map<number, number>();
@@ -75,6 +78,10 @@ app.get("/health", (_req, res) => {
   res.status(200).type("text/plain").send("ok");
 });
 
+app.use(securityHeadersMiddleware);
+app.use(blockSensitivePathMiddleware);
+app.use(blockDebugInProductionMiddleware);
+
 // Branded logo for transactional emails (`<img src="{APP_URL}/email/logo.png">`).
 // Supports cwd = repo root (Docker /app) or `artifacts/api-server` (local `node dist/index.mjs`).
 const emailAssetsCandidates = [
@@ -93,19 +100,6 @@ if (emailAssetsRoot) {
     }
   });
 }
-
-// Block /debug/* before express.static and all other middleware — production must never
-// hit handlers that read process.env (Railway "Asset-Transcriber" = this same process).
-const blockDebugEndpointsOutsideDevelopment: RequestHandler = (req, res, next) => {
-  if (req.method !== "GET" && req.method !== "HEAD") return next();
-  if (!isPublicDebugEndpointPath(req.path)) return next();
-  if (!areDebugHttpEndpointsEnabled()) {
-    res.status(404).type("text/plain").send("Not found");
-    return;
-  }
-  next();
-};
-app.use(blockDebugEndpointsOutsideDevelopment);
 
 // SPA build output — MUST be before session/json/pino so /assets/*.js does not hit
 // connect-pg-simple (Postgres) on every chunk; that caused very slow loads and blank screens.
@@ -146,59 +140,59 @@ app.use(
   }),
 );
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(createProductionCorsMiddleware());
 
-// Before session middleware: confirms which auth env keys the process actually sees.
-// (Gated at the top of the stack when NODE_ENV !== "development".)
-app.get("/debug/db-env", (_req, res) => {
-  res.status(200).json(getDebugDbEnvHttpPayload("full_api"));
-});
-
-app.get("/debug/auth-env", (req, res) => {
-  const xfProto = req.headers["x-forwarded-proto"];
-  const proto = Array.isArray(xfProto) ? xfProto[0] : xfProto;
-  res.status(200).json({
-    ok: true,
-    message: "Presence only. Set these on the Railway service that runs this container.",
-    env: getAuthEnvDiagnostics(),
-    sessionStoreMode,
-    sessionStoreResolution: getSessionStoreResolution(),
-    trustProxy: app.get("trust proxy"),
-    requestSecure: req.secure,
-    xForwardedProto: proto ?? null,
+// Debug diagnostics — registered only in NODE_ENV=development (middleware above still 404s /debug in production).
+if (process.env.NODE_ENV === "development") {
+  app.get("/debug/db-env", (_req, res) => {
+    res.status(200).json(getDebugDbEnvHttpPayload("full_api"));
   });
-});
 
-app.get("/debug/ai-env", (_req, res) => {
-  res.status(200).json({
-    ok: true,
-    message:
-      "See ai.translation for live OpenAI path (/api/transcription/translate). ai.openai must be true or translation stays empty. ai.runtimeFingerprint shows which env names exist in this process.",
-    ai: getAiEnvDiagnostics(),
+  app.get("/debug/auth-env", (req, res) => {
+    const xfProto = req.headers["x-forwarded-proto"];
+    const proto = Array.isArray(xfProto) ? xfProto[0] : xfProto;
+    res.status(200).json({
+      ok: true,
+      message: "Presence only. Set these on the Railway service that runs this container.",
+      env: getAuthEnvDiagnostics(),
+      sessionStoreMode,
+      sessionStoreResolution: getSessionStoreResolution(),
+      trustProxy: app.get("trust proxy"),
+      requestSecure: req.secure,
+      xForwardedProto: proto ?? null,
+    });
   });
-});
 
-// One-page checklist for “transcription / Google not working” (full API only).
-app.get("/debug/readiness", (_req, res) => {
-  const env = getPublicEnvReadiness();
-  res.status(200).json({
-    ok: true,
-    status: "full_api",
-    message:
-      "If any block below is false, fix Railway vars on this service and redeploy. Use /debug/db-health for row counts.",
-    env,
-    checklist: {
-      database: env.postgres.configured,
-      sessionSecret: env.session.SESSION_SECRET || env.session.NEXTAUTH_SECRET,
-      sonioxTranscription: env.ai.soniox,
-      openaiTranslation: env.ai.openai,
-      googleLogin:
-        env.googleOAuth.GOOGLE_CLIENT_ID &&
-        env.googleOAuth.GOOGLE_CLIENT_SECRET &&
-        (env.googleOAuth.NEXTAUTH_URL || env.googleOAuth.APP_URL),
-    },
+  app.get("/debug/ai-env", (_req, res) => {
+    res.status(200).json({
+      ok: true,
+      message:
+        "See ai.translation for live OpenAI path (/api/transcription/translate). ai.openai must be true or translation stays empty. ai.runtimeFingerprint shows which env names exist in this process.",
+      ai: getAiEnvDiagnostics(),
+    });
   });
-});
+
+  app.get("/debug/readiness", (_req, res) => {
+    const env = getPublicEnvReadiness();
+    res.status(200).json({
+      ok: true,
+      status: "full_api",
+      message:
+        "If any block below is false, fix Railway vars on this service and redeploy. Use /debug/db-health for row counts.",
+      env,
+      checklist: {
+        database: env.postgres.configured,
+        sessionSecret: env.session.SESSION_SECRET || env.session.NEXTAUTH_SECRET,
+        sonioxTranscription: env.ai.soniox,
+        openaiTranslation: env.ai.openai,
+        googleLogin:
+          env.googleOAuth.GOOGLE_CLIENT_ID &&
+          env.googleOAuth.GOOGLE_CLIENT_SECRET &&
+          (env.googleOAuth.NEXTAUTH_URL || env.googleOAuth.APP_URL),
+      },
+    });
+  });
+}
 
 // Before session: DB-only probe (dynamic import avoids loading @workspace/db before it is ready).
 function databaseFingerprint(connectionString: string): { host: string | null; database: string | null } {
@@ -212,59 +206,61 @@ function databaseFingerprint(connectionString: string): { host: string | null; d
   }
 }
 
-app.get("/debug/db-health", async (_req, res, next) => {
-  try {
-    const { pool, resolvedDatabaseUrl } = await import("@workspace/db");
-    await pool.query("SELECT 1");
-    const users = await pool.query<{ r: string | null }>(
-      `SELECT to_regclass('public.users') AS r`,
-    );
-    const sessions = await pool.query<{ r: string | null }>(
-      `SELECT to_regclass('public.sessions') AS r`,
-    );
-    const hasUsers    = Boolean(users.rows[0]?.r);
-    const hasSessions = Boolean(sessions.rows[0]?.r);
-    let counts:
-      | {
-          usersTotal: number;
-          usersNonAdmin: number;
-          usersAdmin: number;
-          sessionsTotal: number;
+if (process.env.NODE_ENV === "development") {
+  app.get("/debug/db-health", async (_req, res, next) => {
+    try {
+      const { pool, resolvedDatabaseUrl } = await import("@workspace/db");
+      await pool.query("SELECT 1");
+      const users = await pool.query<{ r: string | null }>(
+        `SELECT to_regclass('public.users') AS r`,
+      );
+      const sessions = await pool.query<{ r: string | null }>(
+        `SELECT to_regclass('public.sessions') AS r`,
+      );
+      const hasUsers    = Boolean(users.rows[0]?.r);
+      const hasSessions = Boolean(sessions.rows[0]?.r);
+      let counts:
+        | {
+            usersTotal: number;
+            usersNonAdmin: number;
+            usersAdmin: number;
+            sessionsTotal: number;
+          }
+        | undefined;
+      if (hasUsers) {
+        const [ut, una, ua] = await Promise.all([
+          pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users`),
+          pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users WHERE is_admin = false`),
+          pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users WHERE is_admin = true`),
+        ]);
+        let sessionsTotal = 0;
+        if (hasSessions) {
+          const st = await pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM sessions`);
+          sessionsTotal = st.rows[0]?.c ?? 0;
         }
-      | undefined;
-    if (hasUsers) {
-      const [ut, una, ua] = await Promise.all([
-        pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users`),
-        pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users WHERE is_admin = false`),
-        pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM users WHERE is_admin = true`),
-      ]);
-      let sessionsTotal = 0;
-      if (hasSessions) {
-        const st = await pool.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM sessions`);
-        sessionsTotal = st.rows[0]?.c ?? 0;
+        counts = {
+          usersTotal:    ut.rows[0]?.c  ?? 0,
+          usersNonAdmin: una.rows[0]?.c ?? 0,
+          usersAdmin:    ua.rows[0]?.c  ?? 0,
+          sessionsTotal,
+        };
       }
-      counts = {
-        usersTotal:    ut.rows[0]?.c  ?? 0,
-        usersNonAdmin: una.rows[0]?.c ?? 0,
-        usersAdmin:    ua.rows[0]?.c  ?? 0,
-        sessionsTotal,
-      };
+      res.status(200).json({
+        ok: true,
+        ping: "ok",
+        connection: databaseFingerprint(resolvedDatabaseUrl),
+        usersTable: hasUsers,
+        sessionsTable: hasSessions,
+        counts,
+        note:
+          "Admin dashboard /api/admin/stats historically counted only non-admin users for totalUsers and many session metrics. " +
+          "If you only have admin accounts, those numbers were 0 even with a healthy DB — now fixed to show all users for headline totals.",
+      });
+    } catch (err) {
+      next(err);
     }
-    res.status(200).json({
-      ok: true,
-      ping: "ok",
-      connection: databaseFingerprint(resolvedDatabaseUrl),
-      usersTable: hasUsers,
-      sessionsTable: hasSessions,
-      counts,
-      note:
-        "Admin dashboard /api/admin/stats historically counted only non-admin users for totalUsers and many session metrics. " +
-        "If you only have admin accounts, those numbers were 0 even with a healthy DB — now fixed to show all users for headline totals.",
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+  });
+}
 
 // ── Stripe webhook — MUST be before express.json() ───────────────────────────
 // Stripe requires the raw Buffer body; express.json() would break it.
@@ -288,7 +284,7 @@ app.post(
 );
 
 // ── Body parsing (after webhook route) ───────────────────────────────────────
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "1mb", strict: true }));
 app.use(jsonParseErrorHandler);
 app.use(express.urlencoded({ extended: true }));
 // Parse Cookie header into req.cookies before express-session (helps some proxy / Express 5 setups).
@@ -325,6 +321,7 @@ app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api", sessionHeartbeatLimiter);
 app.use("/api", transcriptionSessionStartLimiter);
+app.use("/api", translationLimiter);
 app.use("/api", aiCostLimiter);
 app.use("/api/admin", adminIpGuard);
 app.use("/api", generalApiLimiter);
@@ -346,11 +343,8 @@ if (spaEnabled) {
       req.path === "/api" ||
       req.path.startsWith("/api/") ||
       req.path === "/health" ||
-      req.path === "/debug/auth-env" ||
-      req.path === "/debug/ai-env" ||
-      req.path === "/debug/readiness" ||
-      req.path === "/debug/db-env" ||
-      req.path === "/debug/db-health"
+      req.path === "/debug" ||
+      req.path.startsWith("/debug/")
     ) {
       return next();
     }

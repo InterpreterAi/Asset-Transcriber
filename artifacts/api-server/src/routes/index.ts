@@ -13,6 +13,7 @@ import glossaryRouter from "./glossary.js";
 import terminologyRouter from "./terminology.js";
 import referralsRouter from "./referrals.js";
 import shareRouter from "./share.js";
+import emailPreferencesRouter from "./email-preferences.js";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use("/glossary", glossaryRouter);
 router.use("/terminology", terminologyRouter);
 router.use("/referrals", referralsRouter);
 router.use("/share", shareRouter);
+router.use("/email-preferences", emailPreferencesRouter);
 
 export default router;

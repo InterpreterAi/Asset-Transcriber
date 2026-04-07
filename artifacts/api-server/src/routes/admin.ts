@@ -10,6 +10,7 @@ import {
   errorLogsTable,
   loginEventsTable,
   shareEventsTable,
+  adminActivityEventsTable,
 } from "@workspace/db";
 import { eq, sql, gt, isNull, and, desc, gte, lt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
@@ -1050,7 +1051,7 @@ router.post("/support/:id/reply", requireAdmin, async (req, res) => {
     .where(eq(supportTicketsTable.id, ticketId));
 
   // Email user
-  void sendAdminReplyEmail(ticket.email, ticket.id, ticket.subject, message.trim());
+  void sendAdminReplyEmail(ticket.email, ticket.id, ticket.subject, message.trim(), ticket.userId);
 
   res.status(201).json({ reply });
 });
@@ -1074,7 +1075,7 @@ router.put("/support/:id/status", requireAdmin, async (req, res) => {
 
   // Email user when ticket is resolved
   if (status === "resolved" && before.status !== "resolved") {
-    void sendTicketResolvedEmail(updated.email, updated.id, updated.subject);
+    void sendTicketResolvedEmail(updated.email, updated.id, updated.subject, updated.userId);
   }
 
   res.json({ ticket: updated });
@@ -1257,7 +1258,7 @@ router.get("/system-events", requireAdmin, async (req, res) => {
   const limit   = Math.min(Number(req.query["limit"]) || 60, 200);
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [loginRows, sessionRows, errorRows] = await Promise.all([
+  const [loginRows, sessionRows, errorRows, activityRows] = await Promise.all([
     db.select({
       id:            loginEventsTable.id,
       email:         loginEventsTable.email,
@@ -1304,6 +1305,21 @@ router.get("/system-events", requireAdmin, async (req, res) => {
       .where(gte(errorLogsTable.createdAt, since24h))
       .orderBy(desc(errorLogsTable.createdAt))
       .limit(limit),
+
+    db
+      .select({
+        id: adminActivityEventsTable.id,
+        eventType: adminActivityEventsTable.eventType,
+        detail: adminActivityEventsTable.detail,
+        createdAt: adminActivityEventsTable.createdAt,
+        username: usersTable.username,
+        email: usersTable.email,
+      })
+      .from(adminActivityEventsTable)
+      .leftJoin(usersTable, eq(adminActivityEventsTable.userId, usersTable.id))
+      .where(gte(adminActivityEventsTable.createdAt, since24h))
+      .orderBy(desc(adminActivityEventsTable.createdAt))
+      .limit(limit),
   ]);
 
   type SystemEvent = {
@@ -1313,6 +1329,20 @@ router.get("/system-events", requireAdmin, async (req, res) => {
   };
 
   const events: SystemEvent[] = [];
+
+  for (const a of activityRows) {
+    const actor = a.username ?? a.email ?? "user";
+    if (a.eventType === "email_reminder_unsubscribe") {
+      events.push({
+        id:          `activity-${a.id}`,
+        type:        "email_reminder_unsubscribe",
+        title:       "Trial reminders unsubscribed",
+        description: `${actor}: ${a.detail ?? "disabled trial reminder emails"}`,
+        timestamp:   a.createdAt.toISOString(),
+        meta:        { username: a.username, email: a.email, detail: a.detail },
+      });
+    }
+  }
 
   for (const e of loginRows) {
     const actor = e.username ?? e.email ?? "unknown";
