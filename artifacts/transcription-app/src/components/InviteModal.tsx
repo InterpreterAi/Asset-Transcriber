@@ -15,7 +15,7 @@ function buildLink(userId: number) {
 }
 
 const MSG =
-  "I'm using InterpreterAI — a real-time AI transcription and translation tool for professional interpreters. Try it free for 14 days:";
+  "I'm using InterpreterAI — a real-time AI transcription and translation tool for professional interpreters. Try it free for 7 days:";
 
 async function trackShare(platform: string) {
   try {

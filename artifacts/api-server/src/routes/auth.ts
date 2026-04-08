@@ -87,7 +87,7 @@ function getClientIp(req: import("express").Request): string {
   );
 }
 
-/** Every new account gets a standard 14-day trial and 180 min/day cap (aligned with `created_at`). */
+/** Every new account gets the current trial length and 180 min/day cap (aligned with `created_at`). */
 function defaultTrialFieldsForNewAccount(accountCreatedAt: Date) {
   return {
     trialStartedAt:    accountCreatedAt,
@@ -537,7 +537,7 @@ router.post("/signup", async (req, res) => {
   }
 
   void sendTelegramNotification(
-    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Free Trial (14 days)`,
+    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Free Trial (7 days)`,
   );
 
   const verifyToken = crypto.randomBytes(32).toString("hex");
@@ -1041,7 +1041,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
 
     void sendTelegramNotification(
       isNewUser
-        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (14 days)`
+        ? `🆕 New InterpreterAI user\nEmail: ${googleEmail}\nMethod: Google Sign-Up\nPlan: Free Trial (7 days)`
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {

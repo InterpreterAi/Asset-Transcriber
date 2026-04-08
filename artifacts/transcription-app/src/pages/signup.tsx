@@ -116,7 +116,7 @@ export default function Signup() {
             </div>
           </button>
           <h1 className="text-2xl font-display font-semibold tracking-tight mb-1">Create your account</h1>
-          <p className="text-sm text-muted-foreground">14-day free trial · No credit card required</p>
+          <p className="text-sm text-muted-foreground">7-day free trial · No credit card required</p>
           {referrerUserId && (
             <p className="text-xs font-medium text-primary mt-1.5 bg-primary/8 px-3 py-1 rounded-full inline-block border border-primary/20">
               You were invited by a colleague

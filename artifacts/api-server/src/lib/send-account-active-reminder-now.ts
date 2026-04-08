@@ -1,8 +1,10 @@
+import "../env-bootstrap.js";
 import { db, usersTable } from "@workspace/db";
 import { isNotNull } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { isResendConfigured } from "./resend-mail.js";
 import { sendAccountActiveReminderEmailWithResult } from "./transactional-email.js";
+import { isPostgresEnvConfigured } from "../postgres-env.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_BATCH_SIZE = 10;
@@ -19,6 +21,10 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 }
 
 export async function runSendAccountActiveReminderNow(): Promise<void> {
+  if (!isPostgresEnvConfigured()) {
+    logger.error("ACCOUNT ACTIVE REMINDER NOW: Database URL not configured; aborting.");
+    return;
+  }
   if (!isResendConfigured()) {
     logger.error("ACCOUNT ACTIVE REMINDER NOW: RESEND_API_KEY not configured; aborting.");
     return;

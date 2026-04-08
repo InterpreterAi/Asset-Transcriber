@@ -30,7 +30,7 @@ export default function Terms() {
           <p>By using this service, you agree that the developers are not liable for any misuse of the tool in professional environments where such tools may be restricted.</p>
 
           <h2>Subscription Plans</h2>
-          <p>New accounts receive a 14-day free trial with a daily usage limit of 180 minutes (3 hours). After the trial period, continued access requires a paid subscription. Plans are billed monthly and may be cancelled at any time:</p>
+          <p>New accounts receive a 7-day free trial with a daily usage limit of 180 minutes (3 hours). Existing users keep the trial duration that was originally assigned to their account. After the trial period, continued access requires a paid subscription. Plans are billed monthly and may be cancelled at any time:</p>
           <ul>
             <li><strong>Basic</strong> – $40/month – up to 5 hours/day</li>
             <li><strong>Professional</strong> – $80/month – up to 7 hours/day</li>

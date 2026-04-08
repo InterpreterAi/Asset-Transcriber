@@ -269,7 +269,7 @@ export async function sendTrialActiveReminderEmail(
     bodyHtml: [
       emailParagraph("Hello,"),
       emailParagraph("Just a quick reminder that your InterpreterAI free trial is currently active."),
-      emailParagraph("You have 14 days of access with up to 3 hours of real-time interpreting per day."),
+      emailParagraph("You have trial access with up to 3 hours of real-time interpreting per day."),
       emailParagraph(
         "InterpreterAI helps interpreters during calls and remote sessions with real-time transcription and translation.",
       ),

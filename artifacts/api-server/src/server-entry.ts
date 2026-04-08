@@ -479,7 +479,7 @@ async function ensureAdminUser() {
   }
 }
 
-/** Active trials (14-day window not expired) use the current trial daily cap — keeps existing users in sync with signup defaults. */
+/** Active trials use the current trial daily cap — keeps existing users in sync with signup defaults. */
 async function syncActiveTrialDailyLimits(): Promise<void> {
   const r = await pool.query(
     `UPDATE users SET daily_limit_minutes = $1 WHERE plan_type = 'trial' AND trial_ends_at > NOW()`,
