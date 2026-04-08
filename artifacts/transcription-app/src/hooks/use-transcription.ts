@@ -378,10 +378,15 @@ type PrimaryTranslationResult =
   | { outcome: "ok"; text: string }
   | { outcome: "try_fallback"; userMessage?: string };
 
+type TranslateApiOptions = {
+  streamingDelta?: boolean;
+};
+
 async function translateViaPrimaryApi(
   text: string,
   sourceLang: string,
   targetLang: string,
+  options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
   const MAX_ATTEMPTS = 3;
   const fatal503Codes = new Set([
@@ -400,7 +405,12 @@ async function translateViaPrimaryApi(
         headers:     { "Content-Type": "application/json" },
         credentials: "include",
         signal:      controller.signal,
-        body:        JSON.stringify({ text, srcLang: sourceLang, tgtLang: targetLang }),
+        body:        JSON.stringify({
+          text,
+          srcLang:        sourceLang,
+          tgtLang:        targetLang,
+          streamingDelta: Boolean(options?.streamingDelta),
+        }),
       });
       clearTimeout(timeoutId);
       if (r.ok) {
@@ -464,20 +474,47 @@ async function translateViaPrimaryApi(
   };
 }
 
+type FetchTranslationOptions = TranslateApiOptions & {
+  /** Full segment source when `text` is a delta — used if public fallback runs (needs whole sentence). */
+  fullSegmentForFallback?: string;
+};
+
+type FetchTranslationResult = {
+  text: string;
+  /** Public fallback translated the full segment while we were in delta mode — replace the cell, do not append. */
+  replaceStreamColumn: boolean;
+};
+
 async function fetchTranslation(
   text: string,
   sourceLang: string,
   targetLang: string,
   onTranslationIssue?: (message: string) => void,
-): Promise<string> {
-  const primary = await translateViaPrimaryApi(text, sourceLang, targetLang);
-  if (primary.outcome === "ok") return primary.text;
+  options?: FetchTranslationOptions,
+): Promise<FetchTranslationResult> {
+  const primary = await translateViaPrimaryApi(text, sourceLang, targetLang, options);
+  if (primary.outcome === "ok") {
+    return { text: primary.text, replaceStreamColumn: false };
+  }
 
-  const fallback = await fetchPublicFallbackTranslation(text, sourceLang, targetLang);
-  if (fallback) return fallback;
+  const fallbackSource =
+    options?.streamingDelta && options.fullSegmentForFallback?.trim()
+      ? options.fullSegmentForFallback.trim()
+      : text;
+  const fallback = await fetchPublicFallbackTranslation(
+    fallbackSource,
+    sourceLang,
+    targetLang,
+  );
+  if (fallback) {
+    return {
+      text:               fallback,
+      replaceStreamColumn: Boolean(options?.streamingDelta),
+    };
+  }
 
   if (primary.userMessage) onTranslationIssue?.(primary.userMessage);
-  return "";
+  return { text: "", replaceStreamColumn: false };
 }
 
 // ── Admin click-to-copy ────────────────────────────────────────────────────────
@@ -532,6 +569,29 @@ function applyTextStyle(el: HTMLElement) {
   el.style.lineHeight = "var(--ts-line-height, 1.625)";
 }
 
+/** Append a new streaming fragment to what is already shown (placeholder … counts as empty). */
+function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
+  const piece = newPiece.trim();
+  if (!piece) return prevDisplayed.trim();
+  const prev = prevDisplayed.trim();
+  if (!prev || prev === "…") return piece;
+  return `${prev} ${piece}`;
+}
+
+function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
+  const isArabic = /[\u0600-\u06FF]/.test(merged);
+  el.dir             = isArabic ? "rtl" : "ltr";
+  el.style.textAlign = isArabic ? "right" : "";
+  if (isArabic) {
+    el.lang      = "ar";
+    el.className = CLS.transText + " ts-arabic";
+  } else {
+    el.removeAttribute("lang");
+    el.className = CLS.transText;
+  }
+  el.textContent = merged;
+}
+
 // ── Per-bubble translation state ───────────────────────────────────────────────
 // Each segment gets its own isolated state object. dispatchTranslation closures
 // capture the state object at the time of dispatch, so in-flight requests from
@@ -543,6 +603,10 @@ interface BubbleTransState {
   lastShownLen:      number;   // char length of last shown translation (for stabilization)
   finalizing:        boolean;  // true once softFinalize has been called — blocks in-flight polls
   translationLocked: boolean;  // true after first finalized translation — no further updates
+  /** Source prefix already reflected in the translation column (streaming); final pass replaces all. */
+  streamCommittedSource: string;
+  /** At most one in-flight primary translation per segment while polling (avoids overlapping deltas). */
+  streamInflight:        boolean;
 }
 
 export type UseTranscriptionOptions = {
@@ -607,8 +671,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
-  // lastTranslatedBuffer: text last SENT to the API. Interval skips if unchanged.
-  const lastTranslatedBuffer = useRef<string>("");
   // setInterval handle.
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -670,6 +732,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Monotonic gate (per-bubble): a result is accepted only if its seq number
   //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
   //   out-of-order arrivals while still showing every result in order.
+  //
+  // Streaming (isFinal=false): sends only the new source tail to the API when
+  //   possible and appends the returned fragment to the translation column.
+  // Final (isFinal=true): sends the full segment source and replaces the column.
   const dispatchTranslation = useCallback((text: string, lang: string, isFinal = false) => {
     const state = activeBubbleStateRef.current;
     if (!state || text.length < 3) return;
@@ -678,12 +744,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
 
-    lastTranslatedBuffer.current = text;
+    const pair = langPairRef.current;
 
     // Guard: only translate if the detected language belongs to the selected pair.
     // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
     // copy the original text verbatim into the translation column — no API call.
-    const pair = langPairRef.current;
     if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) {
       state.seq += 1;
       const mySeq = state.seq;
@@ -696,6 +761,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         transTextEl.removeAttribute("lang");
         transTextEl.className       = CLS.transText;
         transTextEl.textContent     = text;
+        state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
           translationBufRef.current.push(text);
@@ -706,29 +772,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    state.seq += 1;
-    const mySeq = state.seq;
-
     // ── Dispatch-time script validation (second safety layer) ─────────────────
-    // Re-validate the source language against the final segment text. This catches
-    // any remaining misidentifications that slipped through the detection-time
-    // check (e.g. the very first short token locked the wrong direction before
-    // enough text was available to evaluate the script confidently).
-    const dispatchLang  = validateLangByScript(lang, text, pair);
-    // Resolve target at dispatch time: opposite of the validated source language.
-    // If validated lang is "ar" and pair is {a:"en", b:"ar"} → target = "en".
-    // If validated lang is "en" → target = "ar".
-    const myTargetLang  = resolveTarget(dispatchLang, pair);
+    const dispatchLang = validateLangByScript(lang, text, pair);
+    const myTargetLang = resolveTarget(dispatchLang, pair);
     const { transTextEl } = state;
 
     // ── Same-language guard (Rule 5/6) ────────────────────────────────────────
-    // If dispatchLang === myTargetLang the direction resolved to X→X — this
-    // happens for Latin-Latin pairs (e.g. es↔en) when the segment lock fired
-    // on the wrong language and the script validator could not override it
-    // (both languages share Latin script so no confident override is possible).
-    // Rather than sending a no-op translation to the API, show the original
-    // text in the translation column exactly like the third-language path.
     if (matchesLang(dispatchLang, myTargetLang)) {
+      state.seq += 1;
+      const mySeq = state.seq;
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
@@ -737,6 +789,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         transTextEl.removeAttribute("lang");
         transTextEl.className       = CLS.transText;
         transTextEl.textContent     = text;
+        state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
           translationBufRef.current.push(text);
@@ -747,60 +800,76 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
+    if (!isFinal && state.streamInflight) return;
+
+    let apiText: string;
+    let useStreamingDelta = false;
+    if (isFinal) {
+      apiText = text;
+      useStreamingDelta = false;
+    } else if (text.startsWith(state.streamCommittedSource)) {
+      const delta = text.slice(state.streamCommittedSource.length).trimStart();
+      if (delta.length === 0) return;
+      apiText = delta;
+      useStreamingDelta = true;
+    } else {
+      // Live transcript revised earlier words — retranslate full visible source once.
+      apiText = text;
+      useStreamingDelta = false;
+    }
+
+    state.seq += 1;
+    const mySeq = state.seq;
+    if (!isFinal) state.streamInflight = true;
+
     void (async () => {
       try {
-        const translated = await fetchTranslation(text, dispatchLang, myTargetLang, (m) =>
-          translationConfigReporterRef.current(m),
+        const { text: translated, replaceStreamColumn } = await fetchTranslation(
+          apiText,
+          dispatchLang,
+          myTargetLang,
+          (m) => translationConfigReporterRef.current(m),
+          {
+            streamingDelta:         useStreamingDelta && !isFinal,
+            fullSegmentForFallback: useStreamingDelta && !isFinal ? text : undefined,
+          },
         );
 
-        // Out-of-order gate: a newer result for THIS bubble already arrived.
         if (mySeq <= state.lastShownSeq) return;
-        // DOM no longer connected (bubble was cleared).
-        if (!translated || !transTextEl.isConnected) {
-          // Empty result means all retries failed — clear lastTranslatedBuffer so
-          // the polling interval can dispatch a fresh attempt on the next tick
-          // instead of staying permanently stuck on this text.
-          if (!translated) lastTranslatedBuffer.current = "";
-          return;
-        }
-        // Re-check lock after the async round-trip. Another in-flight request
-        // may have already written + locked this segment while we were waiting.
-        // This is the critical guard that prevents the overwrite race.
+        if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
-        // Block any poll (isFinal=false) request that was already in-flight when
-        // softFinalize was called. The finalizing flag is set synchronously before
-        // the final dispatch, so all earlier poll fetches are rejected here.
         if (!isFinal && state.finalizing) return;
 
-        state.lastShownSeq = mySeq;
-        state.lastShownLen = translated.length;
-
-        const isArabic = /[\u0600-\u06FF]/.test(translated);
-        transTextEl.dir             = isArabic ? "rtl" : "ltr";
-        transTextEl.style.textAlign = isArabic ? "right" : "";
-        if (isArabic) {
-          transTextEl.lang      = "ar";
-          transTextEl.className = CLS.transText + " ts-arabic";
-        } else {
-          transTextEl.removeAttribute("lang");
-          transTextEl.className = CLS.transText;
+        if (!translated) {
+          return;
         }
-        transTextEl.textContent = translated;
 
-        // Lock: after a finalized translation is written, no further update
-        // may overwrite it. The next speech creates a brand-new segment.
         if (isFinal) {
+          state.lastShownSeq = mySeq;
+          state.lastShownLen = translated.length;
+          applyTranslationTypography(transTextEl, translated);
+          state.streamCommittedSource = text;
           state.translationLocked = true;
-          // Accumulate for admin snapshot.
-          if (translated) translationBufRef.current.push(translated);
+          translationBufRef.current.push(translated);
           onAdminSnapshotBuffersUpdatedRef.current?.();
+        } else if (useStreamingDelta && !replaceStreamColumn) {
+          const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
+          state.lastShownSeq = mySeq;
+          state.lastShownLen = merged.length;
+          applyTranslationTypography(transTextEl, merged);
+          state.streamCommittedSource = text;
+        } else {
+          state.lastShownSeq = mySeq;
+          state.lastShownLen = translated.length;
+          applyTranslationTypography(transTextEl, translated);
+          state.streamCommittedSource = text;
         }
 
         scrollPanel();
       } catch {
-        // Unexpected error — reset so the interval can retry on the next tick.
-        // No error detail is logged here (HIPAA — never log speech content context).
-        lastTranslatedBuffer.current = "";
+        /* HIPAA — never log speech context */
+      } finally {
+        if (!isFinal) state.streamInflight = false;
       }
     })();
   }, [scrollPanel]);
@@ -814,7 +883,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // fall back to the global detected language immediately so translation
       // starts streaming in real-time rather than waiting for a language tag.
       const segLang = segmentDetectedLangRef.current ?? detectedLangRef.current;
-      if (!buffer || buffer === lastTranslatedBuffer.current) return;
+      const st      = activeBubbleStateRef.current;
+      if (!buffer || buffer.length < 3) return;
+      if (!st || st.translationLocked || st.finalizing || st.streamInflight) return;
+      if (buffer === st.streamCommittedSource) return;
       dispatchTranslation(buffer, segLang, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
@@ -904,10 +976,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastShownLen:      0,
       finalizing:        false,
       translationLocked: false,
+      streamCommittedSource: "",
+      streamInflight:        false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
-    lastTranslatedBuffer.current   = "";
     // Reset the per-segment language lock so translation waits for Soniox to
     // report the actual language before firing — prevents first-chunk wrong-direction.
     segmentDetectedLangRef.current = null;
@@ -948,13 +1021,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
-    if (finalText.length > 2 && finalText !== lastTranslatedBuffer.current) {
+    if (finalText.length > 2) {
       // Accumulate for admin snapshot.
       transcriptBufRef.current.push(finalText);
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.
       const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+      // Always run a final full-source pass so the model can correct the whole utterance.
       dispatchTranslation(finalText, lang, true);
     }
   }, [dispatchTranslation, stopTranslationInterval]);
@@ -1001,7 +1075,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
-    lastTranslatedBuffer.current   = "";
     finalCountRef.current          = 0;
     segmentDetectedLangRef.current = null;
     transcriptBufRef.current       = [];
@@ -1303,7 +1376,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current   = null;
       styleUpgradedRef.current       = false;
       liveBufferRef.current          = "";
-      lastTranslatedBuffer.current   = "";
       finalCountRef.current          = 0;
       detectedLangRef.current        = "en";
       segmentDetectedLangRef.current = null;

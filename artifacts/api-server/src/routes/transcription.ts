@@ -264,6 +264,70 @@ function langName(code: string): string {
   return LANG_NAMES[code] ?? code;
 }
 
+/** When true, the client sends only a newly appended source tail; model must return only that fragment's translation. */
+const STREAMING_FRAGMENT_RULES =
+  `STREAMING FRAGMENT MODE:\n` +
+  `The user message is ONLY a newly appended tail of a longer live utterance (not the full sentence).\n` +
+  `Translate ONLY that tail. Output ONLY the translation of the tail — no quotation marks, labels, or preamble.\n` +
+  `Do NOT repeat or restate text that would duplicate translations already shown for earlier words.\n` +
+  `If the tail is grammatically incomplete, translate it literally without inventing subjects, objects, or context the speaker did not say.\n\n`;
+
+/** Neutral professional output register for the target language (medical/legal interpreting). */
+const OUTPUT_REGISTER_ZH_CN =
+  "Standard Mandarin in Simplified Chinese script (简体), professional register — no regional slang.";
+const OUTPUT_REGISTER_ZH_TW =
+  "Standard Mandarin in Traditional Chinese script (繁體), professional register — no regional slang.";
+
+const OUTPUT_REGISTER_BY_BASE: Record<string, string> = {
+  ar: "Modern Standard Arabic (MSA / فصحى). Do NOT use dialect particles such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه.",
+  bg: "Standard Bulgarian — professional medical/legal register, no regional slang.",
+  hr: "Standard Croatian — professional medical/legal register.",
+  cs: "Standard Czech — professional medical/legal register.",
+  da: "Standard Danish — professional medical/legal register.",
+  nl: "Standard Dutch (Netherlands norm) — professional medical/legal register.",
+  en: "Standard international English — professional medical/legal register.",
+  fa: "Standard Iranian Persian (Farsi) — professional medical/legal register.",
+  fi: "Standard Finnish — professional medical/legal register.",
+  fr: "Neutral international French — professional medical/legal register, avoid heavy regional slang.",
+  de: "Standard High German (Hochdeutsch) — professional medical/legal register.",
+  el: "Standard Modern Greek — professional medical/legal register.",
+  he: "Standard Modern Hebrew — professional medical/legal register.",
+  hi: "Standard Hindi — professional medical/legal register.",
+  hu: "Standard Hungarian — professional medical/legal register.",
+  id: "Formal standard Indonesian (Bahasa Indonesia) — professional medical/legal register.",
+  it: "Standard Italian — professional medical/legal register.",
+  ja: "Standard Japanese, polite neutral form — professional medical/legal register.",
+  ko: "Standard Korean (Seoul norm) — professional medical/legal register.",
+  ms: "Standard Bahasa Melayu — professional medical/legal register.",
+  nb: "Standard Norwegian Bokmål — professional medical/legal register.",
+  pl: "Standard Polish — professional medical/legal register.",
+  pt: "Neutral international Portuguese — avoid strong regional slang; professional medical/legal register.",
+  ro: "Standard Romanian — professional medical/legal register.",
+  ru: "Standard Russian — professional medical/legal register.",
+  sk: "Standard Slovak — professional medical/legal register.",
+  es: "Neutral Latin American Spanish — professional medical/legal register, avoid heavy regional slang.",
+  sv: "Standard Swedish — professional medical/legal register.",
+  th: "Standard Thai — professional medical/legal register.",
+  tr: "Standard Turkish — professional medical/legal register.",
+  uk: "Standard Ukrainian — professional medical/legal register.",
+  ur: "Standard Urdu — professional medical/legal register.",
+  vi: "Standard Vietnamese — professional medical/legal register.",
+};
+
+function targetOutputRegisterInstructions(tgtLangCode: string, tgtDisplayName: string): string {
+  const lc = tgtLangCode.toLowerCase();
+  const base = lc.split("-")[0] ?? lc;
+  if (base === "zh") {
+    const line =
+      lc.includes("tw") || lc.includes("hant") ? OUTPUT_REGISTER_ZH_TW : OUTPUT_REGISTER_ZH_CN;
+    return `TARGET OUTPUT REGISTER: ${line}\n\n`;
+  }
+  const spec =
+    OUTPUT_REGISTER_BY_BASE[base] ??
+    `Standard professional ${tgtDisplayName} suitable for medical/legal interpreting — avoid regional slang and colloquialisms.`;
+  return `TARGET OUTPUT REGISTER: ${spec}\n\n`;
+}
+
 // ── Translation output language validator ──────────────────────────────────
 // Maps BCP-47 base codes to the Unicode ranges that MUST dominate the output
 // text for that language. Latin-script languages are omitted (no reliable
@@ -629,14 +693,24 @@ router.post("/translate", requireAuth, async (req, res) => {
   // isFinal was previously used to bypass the translation cache.
   // The cache has been removed entirely (HIPAA). isFinal is accepted
   // for API compatibility but ignored — every request is processed ephemerally.
-  const { text, srcLang, tgtLang, sessionId: incomingSessionId, segmentId: incomingSegmentId } = req.body as {
+  const {
+    text,
+    srcLang,
+    tgtLang,
+    sessionId: incomingSessionId,
+    segmentId: incomingSegmentId,
+    streamingDelta: rawStreamingDelta,
+  } = req.body as {
     text?: string;
     srcLang?: string;
     tgtLang?: string;
     sessionId?: number;
     segmentId?: string;
+    /** Client sends only a new source tail while live-transcribing; model returns only that fragment's translation. */
+    streamingDelta?: boolean;
     isFinal?: boolean; // accepted but unused — kept for API compatibility
   };
+  const streamingDelta = Boolean(rawStreamingDelta);
 
   if (!text?.trim() || !srcLang || !tgtLang) {
     res.status(400).json({ error: "text, srcLang, and tgtLang are required" });
@@ -731,12 +805,6 @@ router.post("/translate", requireAuth, async (req, res) => {
       "Understand and translate dialect vocabulary faithfully — do not reject or misread colloquial words.\n"
     : "";
 
-  // Arabic output standard — professional interpretation output is MSA
-  const arabicTargetRule = tgtCode === "ar"
-    ? "- Write Modern Standard Arabic (فصحى) suitable for professional interpretation. " +
-      "Do NOT use dialect output words such as: ليش, شو, مو, هيك, زي, كده, عشان, وين, فين, إزاي, ليه\n"
-    : "";
-
   const termRule = termHints.length > 0
     ? `- Use these exact glossary translations for the following terms:\n` +
       termHints.map(h => `  ${h}`).join("\n") + "\n"
@@ -747,7 +815,8 @@ router.post("/translate", requireAuth, async (req, res) => {
   // language-lock instruction is elevated to the very top of the prompt with
   // even stronger wording, and all domain-specific rules are stripped to keep
   // the model focused solely on getting the target language right.
-  const buildSystemPrompt = (forceOverride = false): string => {
+  const buildSystemPrompt = (forceOverride: boolean, forStreamingDelta: boolean): string => {
+    const frag = forStreamingDelta ? STREAMING_FRAGMENT_RULES : "";
     // Hard target-language lock — placed at the very start so it cannot be
     // overridden by anything later in the prompt.
     const langLock =
@@ -760,6 +829,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     if (forceOverride) {
       return (
         langLock +
+        frag +
         `You are a professional interpreter. ` +
         `Translate the following text from ${srcName} to ${tgtName}. ` +
         `Output ONLY the translated text in ${tgtName}. ` +
@@ -770,17 +840,19 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     return (
       langLock +
-      `You are a professional simultaneous interpreter in a live interpreter call-center. ` +
-      `Your only job is to translate what the speaker literally said — nothing more, nothing less. ` +
-      `Translate from ${srcName} into ${tgtName}.\n\n` +
+      frag +
+      `You are a professional simultaneous interpreter in a live medical/legal call. ` +
+      `Preserve the speaker's full meaning and intent accurately — do not summarize, simplify, omit nuance, or editorialize. ` +
+      `Use correct medical and legal terminology in ${tgtName} when the speaker uses those domains (never invent terms they did not say).\n\n` +
       `SOURCE LANGUAGE: ${srcName}\n` +
       `TARGET LANGUAGE: ${tgtName} — ALL output must be in ${tgtName} only.\n\n`
     );
   };
 
   const systemPrompt =
-    buildSystemPrompt() +
-    `CORE RULE: Translate only the exact words spoken. NEVER add words, context, or assumptions that the speaker did not say.\n\n` +
+    buildSystemPrompt(false, streamingDelta) +
+    targetOutputRegisterInstructions(tgtLang, tgtName) +
+    `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 
     `PRESERVE AMBIGUITY:\n` +
     `- If a word is ambiguous (e.g. "number", "case", "file", "account"), translate it with the same ambiguity.\n` +
@@ -789,34 +861,43 @@ router.post("/translate", requireAuth, async (req, res) => {
     `  "my case"   → "قضيتي" (NOT "حالتي الطبية" or "حالتي القانونية" — keep it neutral)\n` +
     `  "my file"   → "ملفي"  (NOT "ملفي الطبي" or "ملفي القانوني")\n\n` +
 
+    `PROPER NAMES AND GEOGRAPHIC ENTITIES:\n` +
+    `- Do NOT semantically translate personal names, city names, hospital/clinic names, or organization names.\n` +
+    `- Transliterate them phonetically into the target script so they remain recognizable (e.g. "Las Vegas" → Arabic: لاس فيغاس).\n` +
+    `- Ordinary common nouns and job titles are translated normally unless they are part of a proper name.\n\n` +
+
+    `ACRONYMS AND ABBREVIATIONS:\n` +
+    `- When the speaker uses an acronym or letter sequence that stands for a known concept (e.g. SSI, DNA, MRI), translate the MEANING into ${tgtName}.\n` +
+    `- Use the full established term in the target language where one exists (e.g. Social Security benefits/SSI concept → appropriate ${tgtName} term).\n` +
+    `- You may add a brief parenthetical with the original English acronym only if it helps clarity for the interpreter.\n` +
+    `- If the meaning is truly unknown, transliterate the letters phonetically and do not invent an expansion.\n\n` +
+
+    `NUMBERS, DATES, DOSAGES, AND UNITS:\n` +
+    `- Preserve every digit and magnitude exactly: do not round, merge, or reformat unless the target language requires a standard script-specific numeral form.\n` +
+    `- Keep medical doses and measurement units accurate (e.g. "500 milligrams" must stay 500 mg equivalent in ${tgtName}, not an approximate amount).\n` +
+    `- Reproduce IDs and codes exactly as spoken.\n\n` +
+
     `INTERPRETER INTRODUCTIONS:\n` +
     `- Interpreters often introduce themselves: "my name is X and my number is 3602"\n` +
     `- "my number" in this context is an interpreter ID, not a phone number.\n` +
     `- Translate exactly as spoken: "اسمي X ورقمي هو 3602" — never add "هاتفي" or "تليفوني"\n\n` +
 
-    `NUMBERS AND IDENTIFIERS:\n` +
-    `- Reproduce every number exactly as spoken. Never infer its purpose.\n` +
-    `- "my number is 3602" → "رقمي هو 3602"\n` +
-    `- "case number 4417" → "رقم القضية 4417"\n\n` +
-
     `WHEN IN DOUBT:\n` +
-    `- Always keep the literal translation. Never expand meaning.\n` +
-    `- The text may be an incomplete sentence still being spoken. Translate exactly what is there; never predict or complete the sentence.\n\n` +
+    `- Prefer faithful literal rendering over creative paraphrase.\n` +
+    `- For full-sentence input, translate the complete utterance; in STREAMING FRAGMENT MODE, only the tail is provided — follow that mode strictly.\n\n` +
 
     `CONSISTENCY:\n` +
-    `- Use the SAME word choice every time for the same word. Never swap synonyms mid-sentence.\n` +
-    `- Names must appear exactly as spoken.\n\n` +
+    `- Use the SAME word choice every time for the same term within the segment. Never swap synonyms mid-utterance without cause.\n\n` +
 
     `DOMAIN TERMINOLOGY (only when explicitly spoken):\n` +
-    `- Accident/insurance: use terms like collision, liability, claim, deductible, at-fault — only when the speaker uses them.\n` +
-    `- Medical: use clinical terms only when the speaker uses medical language.\n` +
-    `- Legal: use legal terms only when the speaker uses legal language.\n` +
+    `- Medical: use precise clinical or lay equivalents in ${tgtName} matching the register the speaker used.\n` +
+    `- Legal: use precise legal equivalents in ${tgtName} when the speaker uses legal language.\n` +
+    `- Insurance/accident: use standard terms (collision, liability, claim, deductible, at-fault) only when the speaker uses them.\n` +
     arabicSourceRule +
-    arabicTargetRule +
     termRule +
     `OUTPUT:\n` +
     `- Return ONLY the translated text.\n` +
-    `- No explanations, notes, alternatives, or the original text.`;
+    `- No explanations, notes, alternatives, or the original source text.`;
 
   // ── OpenAI call with output-language validation + single retry ────────────
   // Returns the translated text and the real token counts for cost tracking.
@@ -894,7 +975,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",
       );
-      const retry = await callOpenAI(buildSystemPrompt(true));
+      const retry = await callOpenAI(buildSystemPrompt(true, streamingDelta));
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
 
