@@ -10,7 +10,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "glossary:generate": "node ./scripts/generate-interpreter-glossaries.mjs",
-    "glossary:verify": "tsx ./scripts/verify-interpreter-glossary.ts"
+    "glossary:verify": "tsx ./scripts/verify-interpreter-glossary.ts",
+    "email:send-account-active-reminder-now": "tsx ./src/lib/send-account-active-reminder-now.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",

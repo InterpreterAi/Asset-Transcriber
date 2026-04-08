@@ -347,6 +347,43 @@ export async function sendTrialAvailabilityReminderEmailWithResult(
   return sendEmailWithResult({ from: RESEND_FROM_ONBOARDING, to, subject, html });
 }
 
+function buildAccountActiveReminderMail(
+  _to: string,
+  opts?: { userId?: number | null },
+): { subject: string; html: string } {
+  const base = appBaseUrl();
+  const subject = "InterpreterAI reminder — continue using your daily AI interpreter hours";
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId: opts?.userId ?? null,
+    heading: "Your account is active",
+    bodyHtml: [
+      emailParagraph("Hello,"),
+      emailParagraph("Just a quick reminder that your InterpreterAI account is active and ready to use."),
+      emailParagraph("You can use the platform every day for real-time transcription and translation sessions."),
+      emailParagraph(
+        "Your usage resets daily, so feel free to jump back in and continue using your available hours.",
+      ),
+      emailParagraph("Best regards"),
+      emailParagraph("InterpreterAI"),
+    ].join(""),
+    primaryButton: { href: "https://app.interpreterai.org", label: "Open the app" },
+  });
+  return { subject, html };
+}
+
+/** One-time reminder blast email content (returns Resend API details for scripts). */
+export async function sendAccountActiveReminderEmailWithResult(
+  to: string,
+  opts?: { userId?: number | null },
+): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html } = buildAccountActiveReminderMail(to, opts);
+  return sendEmailWithResult({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+}
+
 export async function sendSubscriptionConfirmationEmail(
   to: string,
   planName: string,
