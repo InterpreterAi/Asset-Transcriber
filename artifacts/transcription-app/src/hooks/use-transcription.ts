@@ -60,7 +60,8 @@ const CLS = {
   // font-size is controlled via --ts-font-size CSS variable (set by workspace)
   textLive:    "ts-text leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
   textFin:     "ts-text leading-relaxed text-foreground font-medium flex-1 min-w-0",
-  nf:          "text-muted-foreground/45 italic",
+  /** Non-final / live hypothesis tail — grey so finalized tokens in the sibling span read as primary text. */
+  nf:          "text-muted-foreground/60 italic",
   transText:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transPend:   "ts-text text-muted-foreground/30 italic flex-1 min-w-0",
 } as const;
@@ -1507,40 +1508,44 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalCountRef.current = finals.length;
       scrollPanel();
 
-      // ── NF (non-final) tokens ─────────────────────────────────────────────
+      // ── NF (non-final) tokens — transcript UI only (does not call dispatchTranslation) ──
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
-      // Latest unstable-token speaker in this message (exclude null — same as finals below).
       const nfSpeaker = [...tokens]
         .reverse()
         .find(t => !t.is_final && t.speaker !== undefined && t.speaker !== null)?.speaker;
 
-      if (!activeBubbleNFRef.current && nfText && containerRef.current) {
-        if (!activeBubbleRef.current) {
-          const spk =
-            nfSpeaker ??
-            tokens.find(t => t.speaker !== undefined && t.speaker !== null)?.speaker;
-          currentSpeakerRef.current =
-            spk !== undefined && spk !== null ? String(spk) : undefined;
-          if (hasVisibleText(nfText)) {
-            activeBubbleRef.current   = createBubble(spk);
-            setHasTranscript(true);
-          }
+      // Open a row on NF-first messages. Once createBubble runs, activeBubbleNFRef is set — we must still
+      // update that span on every message (the old guard `!activeBubbleNFRef` blocked all later NF updates).
+      if (nfText && containerRef.current && !activeBubbleRef.current) {
+        const spk =
+          nfSpeaker ??
+          tokens.find(t => t.speaker !== undefined && t.speaker !== null)?.speaker;
+        currentSpeakerRef.current =
+          spk !== undefined && spk !== null ? String(spk) : undefined;
+        if (hasVisibleText(nfText)) {
+          activeBubbleRef.current = createBubble(spk);
+          setHasTranscript(true);
         }
-        const nfEl = activeBubbleNFRef.current as HTMLSpanElement | null;
-        const st = activeBubbleStateRef.current;
-        if (nfEl && st) {
-          const prev = st.lastNfRawText;
-          let suffix = "";
+      }
+
+      const nfEl = activeBubbleNFRef.current;
+      if (nfText) {
+        const stNf = activeBubbleStateRef.current;
+        if (nfEl && stNf) {
+          const prev = stNf.lastNfRawText;
           if (nfText.startsWith(prev)) {
-            suffix = nfText.slice(prev.length);
-          } else if (nfText.length > prev.length) {
-            suffix = nfText.slice(prev.length);
+            const suffix = nfText.slice(prev.length);
+            if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+          } else {
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
           }
-          if (suffix) {
-            nfEl.textContent = (nfEl.textContent ?? "") + suffix;
-          }
-          st.lastNfRawText = nfText;
+          stNf.lastNfRawText = nfText;
         }
+      } else if (nfEl) {
+        nfEl.textContent = "";
+        const stNf = activeBubbleStateRef.current;
+        if (stNf) stNf.lastNfRawText = "";
       }
 
       // ── Update live translation buffer ────────────────────────────────────
