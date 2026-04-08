@@ -589,6 +589,10 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   return `${prev} ${piece}`;
 }
 
+function hasVisibleText(text: string | null | undefined): boolean {
+  return Boolean(text && text.trim().length > 0);
+}
+
 
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
@@ -1441,9 +1445,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           finalCountRef.current     = finals.length - newFinals.length +
             newFinals.indexOf(token);
-          activeBubbleRef.current = createBubble(token.speaker);
-          setHasTranscript(true);
+          if (hasVisibleText(token.text)) {
+            activeBubbleRef.current = createBubble(token.speaker);
+            setHasTranscript(true);
+          }
         }
+        if (!activeBubbleRef.current) continue;
         finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
       }
       scheduleFinalTextRenderFlush();
@@ -1465,7 +1472,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfSpeaker !== undefined &&
         nfSpeaker !== null &&
         activeBubbleRef.current !== null &&
-        !sameSpeaker(nfSpeaker, currentSpeakerRef.current)
+        !sameSpeaker(nfSpeaker, currentSpeakerRef.current) &&
+        hasVisibleText(nfText)
       ) {
         closeActiveSegmentBoundary();
         currentSpeakerRef.current = String(nfSpeaker);
@@ -1482,8 +1490,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             tokens.find(t => t.speaker !== undefined && t.speaker !== null)?.speaker;
           currentSpeakerRef.current =
             spk !== undefined && spk !== null ? String(spk) : undefined;
-          activeBubbleRef.current   = createBubble(spk);
-          setHasTranscript(true);
+          if (hasVisibleText(nfText)) {
+            activeBubbleRef.current   = createBubble(spk);
+            setHasTranscript(true);
+          }
         }
         const nfEl = activeBubbleNFRef.current as HTMLSpanElement | null;
         if (nfEl) {
