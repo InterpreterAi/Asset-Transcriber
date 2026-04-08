@@ -11,6 +11,14 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 export type GlossaryCategory = "medical" | "legal" | "immigration" | "insurance";
 
+/**
+ * Glossary rows are English-led: `translations.en` is the canonical English
+ * rendering (spell-out for acronyms). The JSON object key is often a short
+ * spoken form (e.g. DHS). At load, every code in INTERPRETER_GLOSSARY_LANG_CODES
+ * gets a string — explicit per-language values in JSON, else fallback to `en`.
+ * Restore uses the session target language so placeholders become Arabic, French,
+ * etc., not the source acronym.
+ */
 export type GlossaryFileEntry = {
   category: GlossaryCategory;
   translations: Partial<Record<InterpreterGlossaryLangCode, string>>;
@@ -56,11 +64,12 @@ function resolveGlossaryDataDir(): string {
   return path.join(MODULE_DIR, "data");
 }
 
+/** Ensures every workspace language has a restore string; defaults to canonical English. */
 function materializeTranslations(
   canonicalKey: string,
   raw: Partial<Record<InterpreterGlossaryLangCode, string>>,
 ): Record<InterpreterGlossaryLangCode, string> {
-  const en = raw.en?.trim() || canonicalKey;
+  const en = raw.en?.trim() || canonicalKey.trim();
   const out = {} as Record<InterpreterGlossaryLangCode, string>;
   for (const code of INTERPRETER_GLOSSARY_LANG_CODES) {
     const v = raw[code]?.trim();
@@ -307,6 +316,7 @@ export function glossaryPlaceholderPromptRule(slotCount: number): string {
     `GLOSSARY PLACEHOLDERS:\n` +
     `- The user message may contain tokens TERM_1, TERM_2, … (up to TERM_${slotCount}).\n` +
     `- Copy each token EXACTLY once in the same position in your translation — do not translate, expand, or remove them.\n` +
+    `- Do not output the source acronym or your own expansion in place of a token; the server replaces each TERM_n with the correct target-language official form after translation.\n` +
     `- Do not add spaces inside the token (e.g. keep TERM_1, not TERM_ 1).\n\n`
   );
 }

@@ -1,6 +1,9 @@
 /**
- * Language codes supported in workspace language selectors — glossary entries
- * materialize every code at load (missing keys fall back to English).
+ * Workspace language codes (38) used for glossary `translations` and restore.
+ * Authoring convention: `translations.en` is the canonical English gloss (full
+ * phrase when the JSON key is an acronym). Missing keys in JSON are filled at
+ * load with that English string so every target resolves; prefer adding real
+ * target-language strings in data files for production quality.
  */
 export const INTERPRETER_GLOSSARY_LANG_CODES = [
   "ar",
