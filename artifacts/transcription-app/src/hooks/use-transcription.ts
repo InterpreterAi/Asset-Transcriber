@@ -28,14 +28,13 @@ function getApiErrorMessage(err: unknown): string | undefined {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const STABILIZE_FINAL_MS = 350;
 const FINAL_TEXT_RENDER_BUFFER_MS = 250;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // Same-speaker silence window before auto-finalizing a segment.
 // Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
-const SILENCE_TIMEOUT_MS  = 1200;
+const SILENCE_TIMEOUT_MS  = 500;
 // NF speaker changes wait this long before splitting; cancels if diarization reverts.
 const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
 // ── Speaker color palette ──────────────────────────────────────────────────────
@@ -631,7 +630,7 @@ interface BubbleTransState {
   lastLiveSourceTs:      number;
 }
 
-type TranslationTriggerReason = "polling" | "segment_finalize" | "stabilize_finalize" | "language_passthrough";
+type TranslationTriggerReason = "polling" | "segment_finalize" | "language_passthrough";
 
 type TranslationDiag = {
   callCount: number;
@@ -705,7 +704,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   // setInterval handle.
-  const finalTranslationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string }>>([]);
   const segmentSeqRef = useRef(0);
@@ -894,9 +892,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const reason: TranslationTriggerReason = isFinal
-      ? (lockOnFinal ? "segment_finalize" : "stabilize_finalize")
-      : "polling";
+    const reason: TranslationTriggerReason = isFinal ? "segment_finalize" : "polling";
     const estimatedTokens = Math.max(1, Math.round(chars * EST_TOKENS_PER_CHAR));
     const nowMs = Date.now();
     const diag = translationDiagRef.current;
@@ -1009,10 +1005,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
-    if (finalTranslationTimerRef.current !== null) {
-      clearTimeout(finalTranslationTimerRef.current);
-      finalTranslationTimerRef.current = null;
-    }
   }, []);
 
   // ── createBubble ──────────────────────────────────────────────────────────
@@ -1188,10 +1180,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    if (finalTranslationTimerRef.current !== null) {
-      clearTimeout(finalTranslationTimerRef.current);
-      finalTranslationTimerRef.current = null;
-    }
     if (speakerChangeDebounceTimerRef.current !== null) {
       clearTimeout(speakerChangeDebounceTimerRef.current);
       speakerChangeDebounceTimerRef.current = null;
@@ -1232,10 +1220,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
-    }
-    if (finalTranslationTimerRef.current !== null) {
-      clearTimeout(finalTranslationTimerRef.current);
-      finalTranslationTimerRef.current = null;
     }
     if (speakerChangeDebounceTimerRef.current !== null) {
       clearTimeout(speakerChangeDebounceTimerRef.current);
@@ -1467,10 +1451,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
-      if (finalTranslationTimerRef.current !== null && nfText.length > 0) {
-        clearTimeout(finalTranslationTimerRef.current);
-        finalTranslationTimerRef.current = null;
-      }
       // Latest unstable-token speaker in this message (exclude null — same as finals below).
       const nfSpeaker = [...tokens]
         .reverse()
@@ -1534,20 +1514,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const p = activeBubbleRef.current?.parentElement;
           if (p) p.className = CLS.textFin;
         }
-        if (finalTranslationTimerRef.current !== null) {
-          clearTimeout(finalTranslationTimerRef.current);
-        }
-        finalTranslationTimerRef.current = setTimeout(() => {
-          finalTranslationTimerRef.current = null;
-          const st = activeBubbleStateRef.current;
-          if (!st || st.translationLocked || st.finalizing) return;
-          const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
-          const latest = liveBufferRef.current.trim();
-          if (latest.length < 3) return;
-          // Fast "final so far" overwrite without locking the segment;
-          // true final lock still occurs in softFinalize().
-          dispatchTranslation(latest, lang, true, { lockOnFinal: false });
-        }, STABILIZE_FINAL_MS);
       }
     };
 
@@ -1568,6 +1534,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     scrollPanel,
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
+    flushFinalTextRenderQueue,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
