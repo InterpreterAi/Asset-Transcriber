@@ -634,9 +634,11 @@ interface BubbleTransState {
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
   lastLiveSourceTs:      number;
+  /** One-time early non-final translation hint for this segment. */
+  earlyHintSent:         boolean;
 }
 
-type TranslationTriggerReason = "segment_finalize" | "language_passthrough";
+type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
 
 type TranslationDiag = {
   callCount: number;
@@ -898,7 +900,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const reason: TranslationTriggerReason = "segment_finalize";
+    const reason: TranslationTriggerReason = isFinal ? "segment_finalize" : "early_hint";
     const estimatedTokens = Math.max(1, Math.round(chars * EST_TOKENS_PER_CHAR));
     const nowMs = Date.now();
     const diag = translationDiagRef.current;
@@ -1095,6 +1097,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       streamInflight:        false,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
+      earlyHintSent:         false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -1517,6 +1520,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveBufferRef.current !== finalText.trim()
       ) {
         activeBubbleRef.current.textContent = liveBufferRef.current;
+      }
+
+      // One-time early translation preview for this segment (no polling/timer).
+      const st = activeBubbleStateRef.current;
+      const hintSource = liveBufferRef.current.trim();
+      if (
+        st &&
+        !st.earlyHintSent &&
+        !st.translationLocked &&
+        !st.finalizing &&
+        hintSource.length >= 20
+      ) {
+        const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+        dispatchTranslation(hintSource, lang, false);
+        st.earlyHintSent = true;
       }
 
       // When Soniox commits all text (NF gone), immediately finalize style.
