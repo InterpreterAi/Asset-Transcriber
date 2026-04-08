@@ -464,3 +464,109 @@ export async function sendSubscriptionCanceledEmail(
 
   return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
 }
+
+/** Subject for the one-time translation architecture product update (see send script). */
+export const TRANSLATION_ARCHITECTURE_UPDATE_EMAIL_SUBJECT =
+  "InterpreterAI Update — Translation Fixed & Improved";
+
+const TRANSLATION_ARCHITECTURE_UPDATE_PLAIN_TEXT = `Hello,
+
+We want to share an important update regarding InterpreterAI.
+
+Some users recently reported that the translation was sometimes unstable, slow, or inaccurate during longer sentences. We sincerely apologize for that experience.
+
+Over the past hours we rebuilt and improved major parts of the translation system, and the new version is now live.
+
+The improvements include:
+• More stable real-time translation
+• Better handling of long sentences
+• Faster response during live calls
+• Reduced flickering or changing translations
+
+The system should now perform much more accurately and consistently during interpretation sessions.
+
+We invite you to test the updated version today and share your feedback with us.
+
+You can access the platform here:
+https://app.interpreterai.org
+
+If your trial hours run out today, you still have two options to continue using the platform:
+
+Option 1 — Basic Plan
+3 hours per day for 30 days — $39/month
+
+Option 2 — Referral Program
+Invite 3 interpreters and receive 3 additional hours per day for 3 days.
+
+Your feedback helps us improve the system for interpreters everywhere.
+
+Thank you for being part of the early users of InterpreterAI.
+
+Best regards,
+InterpreterAI Team`;
+
+function buildTranslationArchitectureUpdateMail(opts: { userId: number }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const base = appBaseUrl();
+  const appHref = "https://app.interpreterai.org";
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId: opts.userId,
+    heading: "Translation fixed & improved",
+    bodyHtml: [
+      emailParagraph("Hello,"),
+      emailParagraph("We want to share an important update regarding InterpreterAI."),
+      emailParagraph(
+        "Some users recently reported that the translation was sometimes unstable, slow, or inaccurate during longer sentences. We sincerely apologize for that experience.",
+      ),
+      emailParagraph(
+        "Over the past hours we rebuilt and improved major parts of the translation system, and the new version is now live.",
+      ),
+      emailParagraph("The improvements include:"),
+      emailBulletList([
+        "More stable real-time translation",
+        "Better handling of long sentences",
+        "Faster response during live calls",
+        "Reduced flickering or changing translations",
+      ]),
+      emailParagraph(
+        "The system should now perform much more accurately and consistently during interpretation sessions.",
+      ),
+      emailParagraph("We invite you to test the updated version today and share your feedback with us."),
+      emailParagraph("You can access the platform here:"),
+      emailParagraph(appHref),
+      emailParagraph(
+        "If your trial hours run out today, you still have two options to continue using the platform:",
+      ),
+      emailSubheading("Option 1 — Basic Plan"),
+      emailParagraph("3 hours per day for 30 days — $39/month"),
+      emailSubheading("Option 2 — Referral Program"),
+      emailParagraph("Invite 3 interpreters and receive 3 additional hours per day for 3 days."),
+      emailParagraph("Your feedback helps us improve the system for interpreters everywhere."),
+      emailParagraph("Thank you for being part of the early users of InterpreterAI."),
+      emailParagraph("Best regards,"),
+      emailParagraph("InterpreterAI Team"),
+    ].join(""),
+    primaryButton: { href: appHref, label: "Open InterpreterAI" },
+  });
+  return {
+    subject: TRANSLATION_ARCHITECTURE_UPDATE_EMAIL_SUBJECT,
+    html,
+    text: TRANSLATION_ARCHITECTURE_UPDATE_PLAIN_TEXT,
+  };
+}
+
+/** One-time broadcast: translation pipeline improvements (script sets DB flag after success). */
+export async function sendTranslationArchitectureUpdateEmailWithResult(
+  to: string,
+  opts: { userId: number },
+): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html, text } = buildTranslationArchitectureUpdateMail(opts);
+  return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
+}

@@ -148,6 +148,9 @@ async function migrateSchema() {
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_active_reminder_sent_at TIMESTAMP`,
       );
       await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS translation_architecture_update_email_sent_at TIMESTAMP`,
+      );
+      await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_canceled_email_sent_at TIMESTAMP`,
       );
       await client.query(
