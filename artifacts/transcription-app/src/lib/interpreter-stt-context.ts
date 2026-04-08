@@ -89,6 +89,7 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     terms.push(
       `you're through to the ${d} interpreter`,
       `you are through to the ${d} interpreter`,
+      `You are through to the ${d} interpreter`,
       `thank you for calling the ${d} interpreter`,
       `through to the ${d} interpreter`,
       `the ${d} interpreter`,
@@ -99,6 +100,9 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "you're through to the interpreter",
     "you are through to the interpreter",
     "thank you for calling the interpreter",
+    "thank you for calling",
+    "Arabic interpreter",
+    "my interpreter ID number is",
     "my name is",
     "my ID number is",
     "my number is",
@@ -109,6 +113,9 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "interpreter",
     "interpreting",
     "ID number",
+    "SSI benefits",
+    "Medicaid",
+    "Social Security",
   );
 
   return {

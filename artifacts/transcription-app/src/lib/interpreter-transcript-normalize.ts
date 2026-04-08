@@ -55,6 +55,30 @@ function buildRules(pair: LangPair): Rule[] {
 
   rules.push(
     {
+      pattern: /\bfollowing\s+you\s+are\s+through\s+to\b/gi,
+      replace: "You are through to",
+    },
+    {
+      pattern: /\bfollowing\s+you'?re\s+through\s+to\b/gi,
+      replace: "You're through to",
+    },
+    {
+      pattern: /\byou\s+are\s+through\s+too\b/gi,
+      replace: "you are through to",
+    },
+    {
+      pattern: /\byou'?re\s+through\s+too\b/gi,
+      replace: "you're through to",
+    },
+    {
+      pattern: /\bthank\s+you\s+for\s+calling\s+your\s+through\b/gi,
+      replace: "thank you for calling, you're through",
+    },
+    {
+      pattern: /\bcalling\s+your\s+through\b/gi,
+      replace: "calling, you're through",
+    },
+    {
       pattern: /\bplease\s+speak\s+in\s+shore\s+clear\s+phrases\b/gi,
       replace: "please speak in short clear phrases",
     },
