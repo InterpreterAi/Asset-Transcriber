@@ -130,9 +130,10 @@ export async function runTrialActiveReminderJob(): Promise<void> {
 /** Shorter than other mail jobs so a deploy shortly before the scheduled UTC hour still ticks inside that hour. */
 const REMINDER_TICK_MS = 5 * 60 * 1000;
 
-/** First run 1 minute after boot, then every 5 minutes (only the matching UTC date/hour does work). */
+/** Run once at boot, again after 1 minute, then every 5 minutes (only the matching UTC date/hour sends). */
 export function scheduleTrialActiveReminderJob(): void {
   const run = () => void runTrialActiveReminderJob();
+  void runTrialActiveReminderJob();
   setTimeout(run, 60_000);
   setInterval(run, REMINDER_TICK_MS);
 }

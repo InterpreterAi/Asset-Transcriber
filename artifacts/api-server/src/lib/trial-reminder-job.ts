@@ -80,9 +80,10 @@ export async function runTrialReminderJob(): Promise<void> {
 
 const FIFTEEN_MIN_MS = 15 * 60 * 1000;
 
-/** Run shortly after boot and every 15 minutes so 12h / 48h windows are hit reliably. */
+/** Run once at schedule time, again after 1 minute, then every 15 minutes (immediate + reliable catch-up). */
 export function scheduleTrialReminderJob(): void {
   const run = () => void runTrialReminderJob();
+  void runTrialReminderJob();
   setTimeout(run, 60_000);
   setInterval(run, FIFTEEN_MIN_MS);
 }

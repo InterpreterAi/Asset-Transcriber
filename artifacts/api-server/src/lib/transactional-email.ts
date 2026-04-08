@@ -61,7 +61,12 @@ export async function sendEmailVerificationEmail(to: string, token: string, reci
 <p style="margin:0;">If you did not create an account, you can ignore this email.</p>`,
   });
 
-  await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+  const ok = await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+  if (!ok) {
+    throw new Error(
+      "Verification email was not delivered (check RESEND_API_KEY and Resend dashboard logs).",
+    );
+  }
 }
 
 export async function sendPostVerificationWelcomeEmail(
@@ -91,7 +96,12 @@ export async function sendPostVerificationWelcomeEmail(
     primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
   });
 
-  await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+  const ok = await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+  if (!ok) {
+    throw new Error(
+      "Post-verification welcome email was not delivered (check RESEND_API_KEY and Resend dashboard logs).",
+    );
+  }
 }
 
 /** After email verify when this address is not eligible for a new trial (e.g. reused email). */
@@ -109,7 +119,12 @@ export async function sendAccountVerifiedNoTrialEmail(to: string, recipientUserI
     primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
   });
 
-  await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+  const okNoTrial = await sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+  if (!okNoTrial) {
+    throw new Error(
+      "Account-verified email was not delivered (check RESEND_API_KEY and Resend dashboard logs).",
+    );
+  }
 }
 
 /**

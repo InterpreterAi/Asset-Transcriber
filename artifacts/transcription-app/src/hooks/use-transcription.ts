@@ -565,12 +565,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const [audioInfo,     setAudioInfo]     = useState<string>("");
   const [hasTranscript, setHasTranscript] = useState(false);
   const [sessionId,     setSessionId]     = useState<number | null>(null);
+  /** True for the full `start()` path (not just token/session HTTP) so the UI cannot re-enable Start mid-setup. */
+  const [startBusy, setStartBusy] = useState(false);
 
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
   const workletRef   = useRef<AudioWorkletNode | null>(null);
   const streamsRef   = useRef<MediaStream[]>([]);
   const isRecRef     = useRef(false);
+  const startInFlightRef = useRef(false);
   const sessionIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   /** PCM sample-seconds sent toward Soniox (mono @ TARGET_RATE) — used for daily limits, not wall clock. */
@@ -1282,6 +1285,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Pass providedStream to skip getUserMedia (e.g. for tab audio captured via
   // getDisplayMedia in the UI layer). All audio processing is identical.
   const start = useCallback(async (deviceId: string, providedStream?: MediaStream) => {
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
+    setStartBusy(true);
+    let sessionStartPromise: ReturnType<typeof startSessionMut.mutateAsync> | undefined;
     try {
       setError(null);
       setTranslationServiceError(null);
@@ -1303,13 +1310,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       resetSpeakerMap();
       pcmBacklogRef.current          = [];
 
-      const tokenRes   = await getTokenMut.mutateAsync(undefined as any);
-      const sessionRes = await startSessionMut.mutateAsync({
+      // Run in parallel for lower latency; if one fails, still await the session
+      // promise in `catch` so we can close a DB row that may have been created first.
+      sessionStartPromise = startSessionMut.mutateAsync({
         data: {
           srcLang: langPairRef.current.a,
           tgtLang: langPairRef.current.b,
         },
       });
+      const [tokenRes, sessionRes] = await Promise.all([
+        getTokenMut.mutateAsync(undefined as any),
+        sessionStartPromise,
+      ]);
       sessionIdRef.current = sessionRes.sessionId;
       setSessionId(sessionRes.sessionId);
       transcriptBufRef.current  = [];
@@ -1431,6 +1443,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }, MAX_SESSION_MS);
 
     } catch (err: unknown) {
+      let orphanSessionId: number | null = null;
+      if (sessionStartPromise) {
+        try {
+          const sr = await sessionStartPromise;
+          orphanSessionId = sr.sessionId;
+        } catch {
+          /* session start failed */
+        }
+      }
+
       const errCode = getTranscriptionTokenFailureCode(err);
       let msg =
         getApiErrorMessage(err) ??
@@ -1446,20 +1468,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // If the session was created in the DB before the failure, close it
       // explicitly. stop() returns early when isRecRef is false, so this
       // ghost-session cleanup must happen here to prevent the next start()
-      // from getting a stale open session.
-      if (sessionIdRef.current) {
+      // from getting a stale open session. `orphanSessionId` covers parallel
+      // token+session where the session won the race before the other failed.
+      const ghostId = sessionIdRef.current ?? orphanSessionId;
+      if (ghostId != null) {
         const wallSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
         const pcmSec = Math.floor(audioPcmSecondsRef.current);
         const durationSeconds = Math.max(0, Math.min(pcmSec, wallSec));
         try {
           await stopSessionMut.mutateAsync({
-            data: { sessionId: sessionIdRef.current, durationSeconds },
+            data: { sessionId: ghostId, durationSeconds },
           });
         } catch { /* ignore — server will auto-close on next start */ }
         sessionIdRef.current = null;
         setSessionId(null);
       }
       void stop();
+    } finally {
+      startInFlightRef.current = false;
+      setStartBusy(false);
     }
   }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, startTranslationInterval]);
 
@@ -1500,6 +1527,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     getSnapshot,
     getApproxBillableMinutesThisSession,
     clear: doClear,
-    isStarting: getTokenMut.isPending || startSessionMut.isPending,
+    isStarting:
+      startBusy || getTokenMut.isPending || startSessionMut.isPending,
   };
 }

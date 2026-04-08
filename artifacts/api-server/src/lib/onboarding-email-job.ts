@@ -81,9 +81,10 @@ export async function runOnboardingEmailJob(): Promise<void> {
 
 const FIFTEEN_MIN_MS = 15 * 60 * 1000;
 
-/** First run shortly after boot, then every 15 minutes. */
+/** Run once immediately, again after 2 minutes, then every 15 minutes. */
 export function scheduleOnboardingEmailJob(): void {
   const run = () => void runOnboardingEmailJob();
+  void runOnboardingEmailJob();
   setTimeout(run, 120_000);
   setInterval(run, FIFTEEN_MIN_MS);
 }

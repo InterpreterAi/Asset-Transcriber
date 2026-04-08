@@ -549,14 +549,21 @@ router.post("/signup", async (req, res) => {
     expiresAt: verifyExpires,
   });
 
-  void sendEmailVerificationEmail(normalized, verifyToken, newUser.id).catch((err) => {
+  let verificationEmailSent = true;
+  try {
+    await sendEmailVerificationEmail(normalized, verifyToken, newUser.id);
+  } catch (err) {
+    verificationEmailSent = false;
     logger.error({ err, userId: newUser.id }, "Signup: sendEmailVerificationEmail failed");
-  });
+  }
 
   res.status(201).json({
     needsEmailVerification: true,
     email: normalized,
-    message: "Check your email to verify your account before signing in.",
+    verificationEmailSent,
+    message: verificationEmailSent
+      ? "Check your email to verify your account before signing in."
+      : "Your account was created, but we could not send the verification email. Check RESEND_API_KEY or use “Resend verification” on the login page.",
   });
 });
 
@@ -595,14 +602,14 @@ router.get("/verify-email", async (req, res) => {
 
     const trialActive =
       new Date(acct.trialEndsAt).getTime() > Date.now() && Number(acct.dailyLimitMinutes) > 0;
-    if (trialActive) {
-      void sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null, acct.id).catch((err) => {
-        logger.error({ err, userId: acct.id }, "verify-email: welcome email failed");
-      });
-    } else {
-      void sendAccountVerifiedNoTrialEmail(acct.email, acct.id).catch((err) => {
-        logger.error({ err, userId: acct.id }, "verify-email: no-trial confirmation email failed");
-      });
+    try {
+      if (trialActive) {
+        await sendPostVerificationWelcomeEmail(acct.email, acct.trialEndsAt, null, acct.id);
+      } else {
+        await sendAccountVerifiedNoTrialEmail(acct.email, acct.id);
+      }
+    } catch (err) {
+      logger.error({ err, userId: acct.id }, "verify-email: post-verification email failed (user is verified)");
     }
 
     res.redirect(`${base}/login?verify=ok`);
@@ -647,9 +654,16 @@ router.post("/resend-verification", async (req, res) => {
     expiresAt: verifyExpires,
   });
 
-  void sendEmailVerificationEmail(u.email, verifyToken, u.id).catch((err) => {
+  try {
+    await sendEmailVerificationEmail(u.email, verifyToken, u.id);
+  } catch (err) {
     logger.error({ err, userId: u.id }, "resend-verification: send failed");
-  });
+    res.status(503).json({
+      error:
+        "Could not send the verification email. Try again in a few minutes or contact support if this persists.",
+    });
+    return;
+  }
 
   res.json({ ok: true, message: "If an account exists and needs verification, we sent an email." });
 });

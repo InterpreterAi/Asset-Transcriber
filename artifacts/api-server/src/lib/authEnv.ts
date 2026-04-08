@@ -124,7 +124,11 @@ export function getStaticPublicBaseUrl(): string {
     );
     return "https://app.interpreterai.org";
   }
-  return "http://localhost:3000";
+  // Local Vite dev for this monorepo defaults to PORT=5173 (see transcription-app).
+  logger.info(
+    "No public app URL in env — using http://localhost:5173 for email links in development. Set APP_URL or FRONTEND_URL if your UI runs on another origin.",
+  );
+  return "http://localhost:5173";
 }
 
 /**
