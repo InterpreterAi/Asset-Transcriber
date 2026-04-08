@@ -28,8 +28,8 @@ function getApiErrorMessage(err: unknown): string | undefined {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const TRANSLATION_POLL_MS = 1200;
-const FINAL_TRANSLATION_DELAY_MS = 500;
+const TRANSLATION_POLL_MS = 1000;
+const FINAL_TRANSLATION_DELAY_MS = 300;
 // Same-speaker silence window before auto-finalizing a segment.
 // Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
 const SILENCE_TIMEOUT_MS  = 4500;
@@ -585,41 +585,6 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   return `${prev} ${piece}`;
 }
 
-function wordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function phraseAtWordLimit(text: string, maxWords: number): string | null {
-  const t = text.trim();
-  if (!t) return null;
-  const words = t.split(/\s+/).filter(Boolean);
-  if (words.length < maxWords) return null;
-  return words.slice(0, maxWords).join(" ");
-}
-
-/**
- * Returns the next phrase chunk that is stable enough to translate live.
- * Boundaries:
- *  1) punctuation (. , ? ! :)
- *  2) >= 7 words
- *  3) pause elapsed (>= 700 ms) with any pending words
- */
-function nextLivePhraseChunk(uncommitted: string, pauseElapsed: boolean): string | null {
-  const text = uncommitted.trim();
-  if (!text) return null;
-
-  // Prefer explicit punctuation boundaries.
-  const punctMatch = text.match(/^([\s\S]*?[.,?!:])(?:\s|$)/);
-  if (punctMatch?.[1]) return punctMatch[1].trim();
-
-  // Otherwise keep chunks bounded in size while the speaker continues.
-  const longChunk = phraseAtWordLimit(text, 7);
-  if (longChunk) return longChunk;
-
-  // On short pause, flush whatever words we have.
-  if (pauseElapsed && wordCount(text) > 0) return text;
-  return null;
-}
 
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
@@ -868,9 +833,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       apiText = text;
       useStreamingDelta = false;
     } else {
-      // Live mode now translates phrase chunks only (already boundary-selected by poller).
+      // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
-      useStreamingDelta = true;
+      useStreamingDelta = false;
     }
 
     state.seq += 1;
@@ -944,14 +909,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st      = activeBubbleStateRef.current;
       if (!buffer || buffer.length < 3) return;
       if (!st || st.translationLocked || st.finalizing || st.streamInflight) return;
-      if (!buffer.startsWith(st.streamCommittedSource)) return;
-
-      const now = Date.now();
-      const pauseElapsed = now - st.lastLiveSourceTs >= TRANSLATION_POLL_MS;
-      const uncommitted = buffer.slice(st.streamCommittedSource.length);
-      const phrase = nextLivePhraseChunk(uncommitted, pauseElapsed);
-      if (!phrase || phrase.length < 2) return;
-      dispatchTranslation(phrase, segLang, false);
+      if (buffer === st.streamCommittedSource) return;
+      dispatchTranslation(buffer, segLang, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
 
