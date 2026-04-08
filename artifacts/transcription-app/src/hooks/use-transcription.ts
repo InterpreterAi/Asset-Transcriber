@@ -29,12 +29,13 @@ function getApiErrorMessage(err: unknown): string | undefined {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TRANSLATION_DELAY_MS = 300;
+const FINAL_TEXT_RENDER_BUFFER_MS = 250;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // Same-speaker silence window before auto-finalizing a segment.
 // Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
-const SILENCE_TIMEOUT_MS  = 4500;
+const SILENCE_TIMEOUT_MS  = 1200;
 // NF speaker changes wait this long before splitting; cancels if diarization reverts.
 const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
 // ── Speaker color palette ──────────────────────────────────────────────────────
@@ -705,6 +706,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const liveBufferRef        = useRef<string>("");
   // setInterval handle.
   const finalTranslationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string }>>([]);
   const segmentSeqRef = useRef(0);
   const translationDiagRef = useRef<TranslationDiag>({
     callCount: 0,
@@ -714,6 +717,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lastInputMeta: null,
     redundantCalls: 0,
   });
+
+  const flushFinalTextRenderQueue = useCallback(() => {
+    if (finalRenderTimerRef.current !== null) {
+      clearTimeout(finalRenderTimerRef.current);
+      finalRenderTimerRef.current = null;
+    }
+    const q = finalRenderQueueRef.current;
+    if (q.length === 0) return;
+    finalRenderQueueRef.current = [];
+    for (const { target, text } of q) {
+      if (!target.isConnected) continue;
+      target.textContent = (target.textContent ?? "") + text;
+    }
+  }, []);
+
+  const scheduleFinalTextRenderFlush = useCallback(() => {
+    if (finalRenderTimerRef.current !== null) return;
+    finalRenderTimerRef.current = setTimeout(() => {
+      finalRenderTimerRef.current = null;
+      flushFinalTextRenderQueue();
+    }, FINAL_TEXT_RENDER_BUFFER_MS);
+  }, [flushFinalTextRenderQueue]);
+
+  const getBufferedFinalTextForActiveBubble = useCallback((): string => {
+    const active = activeBubbleRef.current;
+    if (!active) return "";
+    let pending = "";
+    for (const item of finalRenderQueueRef.current) {
+      if (item.target === active) pending += item.text;
+    }
+    return pending;
+  }, []);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -1079,6 +1114,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Stops the polling interval FIRST so no in-flight poll requests can race
   // against the final fetch and overwrite the locked translation.
   const softFinalize = useCallback(() => {
+    flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
 
     // Stop polling AND mark as finalizing synchronously, before the async
@@ -1118,7 +1154,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Always run a final full-source pass so the model can correct the whole utterance.
       dispatchTranslation(finalText, lang, true);
     }
-  }, [dispatchTranslation, stopTranslationInterval]);
+  }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   const finalizeLiveBubble = useCallback(() => {
@@ -1129,6 +1165,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Finalize and hard-close the active segment boundary so no later partial text
   // can continue writing into that finalized segment.
   const closeActiveSegmentBoundary = useCallback(() => {
+    flushFinalTextRenderQueue();
     if (speakerChangeDebounceTimerRef.current !== null) {
       clearTimeout(speakerChangeDebounceTimerRef.current);
       speakerChangeDebounceTimerRef.current = null;
@@ -1139,13 +1176,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     styleUpgradedRef.current  = false;
-  }, [finalizeLiveBubble]);
+  }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
 
   // ── doClear ────────────────────────────────────────────────────────────────
   // Wipes all transcript/translation DOM content and resets every per-bubble
   // ref. Used by the exported `clear` (manual Clear button) and by the
   // inactivity / max-session auto-stop for non-admin users.
   const doClear = useCallback(() => {
+    flushFinalTextRenderQueue();
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
@@ -1182,9 +1220,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setHasTranscript(false);
     setTranslationServiceError(null);
     resetSpeakerMap();
-  }, [stopTranslationInterval]);
+  }, [stopTranslationInterval, flushFinalTextRenderQueue]);
 
   const stop = useCallback(async () => {
+    flushFinalTextRenderQueue();
     if (!isRecRef.current) return;
     isRecRef.current = false;
     setIsRecording(false);
@@ -1295,7 +1334,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // Clear columns for regular users when they manually stop a session.
     if (!isAdminRef.current) doClear();
     setTranslationServiceError(null);
-  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, doClear]);
+  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, doClear, flushFinalTextRenderQueue]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
@@ -1419,9 +1458,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleRef.current = createBubble(token.speaker);
           setHasTranscript(true);
         }
-        activeBubbleRef.current.textContent =
-          (activeBubbleRef.current.textContent ?? "") + token.text;
+        finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
       }
+      scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
       scrollPanel();
@@ -1471,7 +1510,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
 
       // ── Update live translation buffer ────────────────────────────────────
-      const finalText = activeBubbleRef.current?.textContent ?? "";
+      const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
       const rawLive   = (finalText + nfText).trim();
       liveBufferRef.current = normalizeInterpreterTranscript(rawLive, langPairRef.current);
       if (activeBubbleStateRef.current) {
@@ -1522,7 +1561,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
 
     return ws;
-  }, [stop, closeActiveSegmentBoundary, createBubble, scrollPanel]);
+  }, [
+    stop,
+    closeActiveSegmentBoundary,
+    createBubble,
+    scrollPanel,
+    scheduleFinalTextRenderFlush,
+    getBufferedFinalTextForActiveBubble,
+  ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
   // Pass providedStream to skip getUserMedia (e.g. for tab audio captured via
