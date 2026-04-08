@@ -1214,16 +1214,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
-      // Latest unstable-token speaker in this message.
+      // Latest unstable-token speaker in this message (exclude null — same as finals below).
       const nfSpeaker = [...tokens]
         .reverse()
-        .find(t => !t.is_final && t.speaker !== undefined)?.speaker;
+        .find(t => !t.is_final && t.speaker !== undefined && t.speaker !== null)?.speaker;
 
       // Immediate speaker boundary on live (NF) diarization change:
       // finalize current segment now and start a new one so incoming text
       // from the new speaker never enters the previous segment.
       if (
         nfSpeaker !== undefined &&
+        nfSpeaker !== null &&
         activeBubbleRef.current !== null &&
         !sameSpeaker(nfSpeaker, currentSpeakerRef.current)
       ) {
@@ -1237,7 +1238,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         activeBubbleNFRef.current.textContent = nfText;
       } else if (nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
-          const spk = nfSpeaker ?? tokens.find(t => t.speaker !== undefined)?.speaker;
+          const spk =
+            nfSpeaker ??
+            tokens.find(t => t.speaker !== undefined && t.speaker !== null)?.speaker;
           currentSpeakerRef.current =
             spk !== undefined && spk !== null ? String(spk) : undefined;
           activeBubbleRef.current   = createBubble(spk);
