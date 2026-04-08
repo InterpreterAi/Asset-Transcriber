@@ -5,6 +5,12 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
+import {
+  initInterpreterGlossaries,
+  applyGlossaryPlaceholders,
+  restoreGlossaryPlaceholders,
+  glossaryPlaceholderPromptRule,
+} from "../lib/interpreter-glossary.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
@@ -741,6 +747,13 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
+  initInterpreterGlossaries();
+  const { masked: textForOpenAI, slotToEntryIndex, hadPlaceholders } = applyGlossaryPlaceholders(text);
+  const glossaryMaxSlot =
+    slotToEntryIndex.size === 0 ? 0 : Math.max(...slotToEntryIndex.keys());
+  const glossarySlotRule =
+    hadPlaceholders && glossaryMaxSlot > 0 ? glossaryPlaceholderPromptRule(glossaryMaxSlot) : "";
+
   const termHints = findTermHints(text, srcLang, tgtLang);
 
   // ── User personal glossary ─────────────────────────────────────────────────
@@ -851,6 +864,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const systemPrompt =
     buildSystemPrompt(false, streamingDelta) +
+    glossarySlotRule +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 
@@ -907,7 +921,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   // once with a maximally-explicit override prompt.
   interface CallResult { text: string; promptTokens: number; completionTokens: number }
 
-  async function callOpenAI(prompt: string): Promise<CallResult> {
+  async function callOpenAI(prompt: string, userContent: string): Promise<CallResult> {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 12_000);
     try {
@@ -917,7 +931,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           temperature: 0,
           messages: [
             { role: "system", content: prompt },
-            { role: "user",   content: text ?? "" },
+            { role: "user",   content: userContent },
           ],
         },
         { signal: controller.signal },
@@ -964,29 +978,37 @@ router.post("/translate", requireAuth, async (req, res) => {
       },
       "TRANSCRIPTION_DIAG",
     );
-    let result = await callOpenAI(systemPrompt);
+    let result = await callOpenAI(systemPrompt, textForOpenAI);
+    result = {
+      ...result,
+      text: restoreGlossaryPlaceholders(result.text, slotToEntryIndex, tgtLang),
+    };
 
     // ── Output language validation ───────────────────────────────────────────
     // If the response is not in the expected script (e.g. Arabic returned when
     // target is Hindi), discard the bad output and retry once with the minimal
     // force-override prompt that has the language lock at the very top.
+    // Restore placeholders before validation so TERM_n tokens do not skew script checks.
     if (result.text && !matchesTargetScript(result.text, tgtCode)) {
       logger.warn(
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",
       );
-      const retry = await callOpenAI(buildSystemPrompt(true, streamingDelta));
+      const retryPrompt = buildSystemPrompt(true, streamingDelta) + glossarySlotRule;
+      const retry = await callOpenAI(retryPrompt, textForOpenAI);
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
 
-      if (retry.text && matchesTargetScript(retry.text, tgtCode)) {
-        result = retry;
-      } else if (retry.text) {
+      const retryRestored = restoreGlossaryPlaceholders(retry.text, slotToEntryIndex, tgtLang);
+
+      if (retryRestored && matchesTargetScript(retryRestored, tgtCode)) {
+        result = { ...retry, text: retryRestored };
+      } else if (retryRestored) {
         logger.warn(
           { srcLang, tgtLang, tgtCode, textLen: text.length },
           "Force-override retry also failed script validation — using retry output",
         );
-        result = retry;
+        result = { ...retry, text: retryRestored };
       }
     }
 

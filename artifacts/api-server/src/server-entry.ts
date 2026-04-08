@@ -13,6 +13,7 @@ import { isResendConfigured } from "./lib/resend-mail.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
 import { scheduleTrialActiveReminderJob } from "./lib/trial-active-reminder-job.js";
+import { initInterpreterGlossaries } from "./lib/interpreter-glossary.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -491,6 +492,7 @@ async function syncActiveTrialDailyLimits(): Promise<void> {
 
 async function main() {
   logAuthEnvBootstrap();
+  initInterpreterGlossaries();
   await migrateSchema();
   await requireDatabaseReadyForApi();
   await syncActiveTrialDailyLimits();
