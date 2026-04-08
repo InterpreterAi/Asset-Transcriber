@@ -35,8 +35,8 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // Silence segmentation thresholds.
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
-const SHORT_PAUSE_MS = 700;
-const LONG_PAUSE_MS  = 1100;
+const SHORT_PAUSE_MS = 650;
+const LONG_PAUSE_MS  = 1200;
 const EARLY_HINT_MIN_WORDS = 8;
 const LIVE_PREVIEW_WORD_STEP = 8;
 // ── Speaker color palette ──────────────────────────────────────────────────────
@@ -768,8 +768,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset only after
-  // LONG_PAUSE_MS of no Soniox activity (short pauses do not split segments).
+  // LONG_PAUSE_MS of no Soniox activity closes/finalizes current segment.
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // SHORT_PAUSE_MS of no tokens triggers non-final translation preview only.
+  const shortPauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
@@ -1200,6 +1202,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (shortPauseTimerRef.current !== null) {
+      clearTimeout(shortPauseTimerRef.current);
+      shortPauseTimerRef.current = null;
+    }
     stopTranslationInterval();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
@@ -1235,6 +1241,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+    if (shortPauseTimerRef.current !== null) {
+      clearTimeout(shortPauseTimerRef.current);
+      shortPauseTimerRef.current = null;
     }
     if (inactivityTimerRef.current !== null) {
       clearTimeout(inactivityTimerRef.current);
@@ -1383,12 +1393,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      // ── Fix 1: Silence / pause-based segment finalization ─────────────────
-      // Every message with tokens resets the silence timer.  After
-      // LONG_PAUSE_MS of no tokens the current segment is finalized and
-      // the active-bubble refs are cleared so the next token opens a new one.
+      // ── Silence / pause-based timers ───────────────────────────────────────
+      // Every message with tokens resets both pause timers:
+      // - SHORT_PAUSE_MS: dispatch non-final translation preview (no close)
+      // - LONG_PAUSE_MS: finalize/close current segment
       // Also reset the 5-min inactivity auto-stop timer on every speech event.
       resetInactivityRef.current?.();
+      if (shortPauseTimerRef.current !== null) clearTimeout(shortPauseTimerRef.current);
+      shortPauseTimerRef.current = setTimeout(() => {
+        shortPauseTimerRef.current = null;
+        if (!activeBubbleRef.current) return;
+        flushFinalTextRenderQueue();
+        const st = activeBubbleStateRef.current;
+        if (!st || st.translationLocked || st.finalizing) return;
+        const source = (activeBubbleRef.current.textContent ?? "").trim();
+        if (source.length < 3) return;
+        const wordsNow = countWords(source);
+        if (wordsNow - st.lastPreviewWordsSent < LIVE_PREVIEW_WORD_STEP) return;
+        const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+        dispatchTranslation(source, lang, false, undefined, st.segmentId);
+        st.earlyHintSent = true;
+        st.lastPreviewWordsSent = wordsNow;
+      }, SHORT_PAUSE_MS);
       if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
@@ -1579,6 +1605,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (silenceTimerRef.current !== null) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
+      }
+      if (shortPauseTimerRef.current !== null) {
+        clearTimeout(shortPauseTimerRef.current);
+        shortPauseTimerRef.current = null;
       }
       currentSpeakerRef.current      = undefined;
       activeBubbleRef.current        = null;
