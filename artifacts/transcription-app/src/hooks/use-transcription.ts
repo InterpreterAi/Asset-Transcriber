@@ -1,6 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { fetchPublicFallbackTranslation } from "@/lib/public-translation-fallback";
+import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
+import { normalizeInterpreterTranscript } from "@/lib/interpreter-transcript-normalize";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -1014,6 +1016,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleNFRef.current.textContent = "";
     }
 
+    if (activeBubbleRef.current) {
+      const pre = activeBubbleRef.current.textContent ?? "";
+      const norm = normalizeInterpreterTranscript(pre, langPairRef.current);
+      if (norm !== pre) activeBubbleRef.current.textContent = norm;
+    }
+
     if (!styleUpgradedRef.current) {
       styleUpgradedRef.current = true;
       const p = activeBubbleRef.current.parentElement;
@@ -1170,6 +1178,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const pair = langPairRef.current;
       const base = (c: string) => (c || "en").split("-")[0]!.toLowerCase();
       const language_hints = [...new Set([base(pair.a), base(pair.b), "en"])].filter(Boolean);
+      const interpreterCtx = buildSonioxInterpreterContext(pair);
       ws.send(JSON.stringify({
         api_key:                        apiKey,
         model:                          "stt-rt-v4",
@@ -1177,6 +1186,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
         language_hints,
+        context:                        interpreterCtx,
         enable_language_identification: true,
         enable_speaker_diarization:     true,
       }));
@@ -1330,7 +1340,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = activeBubbleRef.current?.textContent ?? "";
-      liveBufferRef.current = (finalText + nfText).trim();
+      const rawLive   = (finalText + nfText).trim();
+      liveBufferRef.current = normalizeInterpreterTranscript(rawLive, langPairRef.current);
+      if (
+        nfText.length === 0 &&
+        activeBubbleRef.current &&
+        liveBufferRef.current !== finalText.trim()
+      ) {
+        activeBubbleRef.current.textContent = liveBufferRef.current;
+      }
 
       // When Soniox commits all text (NF gone), immediately finalize style.
       if (nfText.length === 0 && finalText.trim().length > 2) {
