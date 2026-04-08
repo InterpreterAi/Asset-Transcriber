@@ -40,7 +40,7 @@ const LONG_PAUSE_MS  = 750;
 const EARLY_HINT_MIN_WORDS = 8;
 const LIVE_PREVIEW_WORD_STEP = 6;
 // NF speaker changes wait this long before splitting; cancels if diarization reverts.
-const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
+const SPEAKER_CHANGE_DEBOUNCE_MS = 450;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -772,6 +772,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const lastNfSpeakerRef = useRef<number | string | undefined>(undefined);
   const speakerChangeDebounceTimerRef =
     useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSpeakerRef = useRef<string | undefined>(undefined);
 
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
@@ -1180,6 +1181,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(speakerChangeDebounceTimerRef.current);
       speakerChangeDebounceTimerRef.current = null;
     }
+    pendingSpeakerRef.current = undefined;
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble();
     currentSpeakerRef.current = undefined;
@@ -1187,6 +1189,49 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current = null;
     styleUpgradedRef.current  = false;
   }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
+
+  const queueSpeakerChangeIfStable = useCallback((
+    nextSpeakerRaw: number | string | undefined,
+    hasIncomingVisibleText: boolean,
+  ) => {
+    if (nextSpeakerRaw === undefined || nextSpeakerRaw === null) return;
+    if (!hasIncomingVisibleText) return;
+    const nextSpeaker = String(nextSpeakerRaw);
+
+    if (sameSpeaker(nextSpeaker, currentSpeakerRef.current)) {
+      if (speakerChangeDebounceTimerRef.current !== null) {
+        clearTimeout(speakerChangeDebounceTimerRef.current);
+        speakerChangeDebounceTimerRef.current = null;
+      }
+      pendingSpeakerRef.current = undefined;
+      return;
+    }
+
+    if (
+      pendingSpeakerRef.current === nextSpeaker &&
+      speakerChangeDebounceTimerRef.current !== null
+    ) {
+      return;
+    }
+
+    if (speakerChangeDebounceTimerRef.current !== null) {
+      clearTimeout(speakerChangeDebounceTimerRef.current);
+      speakerChangeDebounceTimerRef.current = null;
+    }
+
+    pendingSpeakerRef.current = nextSpeaker;
+    speakerChangeDebounceTimerRef.current = setTimeout(() => {
+      speakerChangeDebounceTimerRef.current = null;
+      const pending = pendingSpeakerRef.current;
+      pendingSpeakerRef.current = undefined;
+      if (!pending || !activeBubbleRef.current) return;
+      if (sameSpeaker(pending, currentSpeakerRef.current)) return;
+      closeActiveSegmentBoundary();
+      currentSpeakerRef.current = pending;
+      activeBubbleRef.current = createBubble(pending);
+      setHasTranscript(true);
+    }, SPEAKER_CHANGE_DEBOUNCE_MS);
+  }, [closeActiveSegmentBoundary, createBubble]);
 
   // ── doClear ────────────────────────────────────────────────────────────────
   // Wipes all transcript/translation DOM content and resets every per-bubble
@@ -1202,6 +1247,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(speakerChangeDebounceTimerRef.current);
       speakerChangeDebounceTimerRef.current = null;
     }
+    pendingSpeakerRef.current = undefined;
     lastNfSpeakerRef.current = undefined;
     stopTranslationInterval();
     activeBubbleStateRef.current   = null;
@@ -1243,6 +1289,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(speakerChangeDebounceTimerRef.current);
       speakerChangeDebounceTimerRef.current = null;
     }
+    pendingSpeakerRef.current = undefined;
     lastNfSpeakerRef.current = undefined;
     if (inactivityTimerRef.current !== null) {
       clearTimeout(inactivityTimerRef.current);
@@ -1451,8 +1498,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
 
       for (const token of newFinals) {
-        if (!sameSpeaker(token.speaker, currentSpeakerRef.current) || !activeBubbleRef.current) {
-          closeActiveSegmentBoundary();
+        if (!activeBubbleRef.current) {
           currentSpeakerRef.current =
             token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           finalCountRef.current     = finals.length - newFinals.length +
@@ -1461,6 +1507,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(token.speaker);
             setHasTranscript(true);
           }
+        } else {
+          queueSpeakerChangeIfStable(token.speaker, hasVisibleText(token.text));
         }
         if (!activeBubbleRef.current) continue;
         finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
@@ -1477,20 +1525,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         .reverse()
         .find(t => !t.is_final && t.speaker !== undefined && t.speaker !== null)?.speaker;
 
-      // Immediate speaker boundary on live (NF) diarization change:
-      // finalize current segment now and start a new one so incoming text
-      // from the new speaker never enters the previous segment.
       if (
         nfSpeaker !== undefined &&
         nfSpeaker !== null &&
         activeBubbleRef.current !== null &&
-        !sameSpeaker(nfSpeaker, currentSpeakerRef.current) &&
         hasVisibleText(nfText)
       ) {
-        closeActiveSegmentBoundary();
-        currentSpeakerRef.current = String(nfSpeaker);
-        activeBubbleRef.current = createBubble(nfSpeaker);
-        setHasTranscript(true);
+        queueSpeakerChangeIfStable(nfSpeaker, true);
       }
 
       if (!activeBubbleNFRef.current && nfText && containerRef.current) {
@@ -1565,6 +1606,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stop,
     closeActiveSegmentBoundary,
     createBubble,
+    queueSpeakerChangeIfStable,
     scrollPanel,
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
@@ -1587,6 +1629,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
       }
+      pendingSpeakerRef.current      = undefined;
       currentSpeakerRef.current      = undefined;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
