@@ -32,9 +32,11 @@ const FINAL_TEXT_RENDER_BUFFER_MS = 250;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
-// Same-speaker silence window before auto-finalizing a segment.
-// Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
-const SILENCE_TIMEOUT_MS  = 500;
+// Silence segmentation thresholds.
+// - pause < SHORT_PAUSE_MS: keep writing in current segment
+// - pause >= LONG_PAUSE_MS: close/finalize current segment
+const SHORT_PAUSE_MS = 700;
+const LONG_PAUSE_MS  = 1600;
 // NF speaker changes wait this long before splitting; cancels if diarization reverts.
 const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
 // ── Speaker color palette ──────────────────────────────────────────────────────
@@ -628,11 +630,9 @@ interface BubbleTransState {
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
   lastLiveSourceTs:      number;
-  /** One-time early non-final translation hint for this segment. */
-  earlyHintSent:         boolean;
 }
 
-type TranslationTriggerReason = "polling" | "segment_finalize" | "language_passthrough";
+type TranslationTriggerReason = "segment_finalize" | "language_passthrough";
 
 type TranslationDiag = {
   callCount: number;
@@ -751,8 +751,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
-  // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
-  // SILENCE_TIMEOUT_MS of no Soniox activity so segments close at natural pauses.
+  // Reset every time tokens arrive. Fires softFinalize() + bubble reset only after
+  // LONG_PAUSE_MS of no Soniox activity (short pauses do not split segments).
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Latest NF token speaker from the most recent message (only updated when defined). */
   const lastNfSpeakerRef = useRef<number | string | undefined>(undefined);
@@ -894,7 +894,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const reason: TranslationTriggerReason = isFinal ? "segment_finalize" : "polling";
+    const reason: TranslationTriggerReason = "segment_finalize";
     const estimatedTokens = Math.max(1, Math.round(chars * EST_TOKENS_PER_CHAR));
     const nowMs = Date.now();
     const diag = translationDiagRef.current;
@@ -1091,7 +1091,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       streamInflight:        false,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
-      earlyHintSent:         false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -1378,7 +1377,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── Fix 1: Silence / pause-based segment finalization ─────────────────
       // Every message with tokens resets the silence timer.  After
-      // SILENCE_TIMEOUT_MS of no tokens the current segment is finalized and
+      // LONG_PAUSE_MS of no tokens the current segment is finalized and
       // the active-bubble refs are cleared so the next token opens a new one.
       // Also reset the 5-min inactivity auto-stop timer on every speech event.
       resetInactivityRef.current?.();
@@ -1389,7 +1388,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         closeActiveSegmentBoundary();
         // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
         // so slicing from the current count will correctly pick up only new finals.
-      }, SILENCE_TIMEOUT_MS);
+      }, LONG_PAUSE_MS);
 
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
@@ -1508,24 +1507,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveBufferRef.current !== finalText.trim()
       ) {
         activeBubbleRef.current.textContent = liveBufferRef.current;
-      }
-
-      // One-time low-latency hint: dispatch a single early non-final translation
-      // once NF has enough context, then wait for softFinalize() for the final pass.
-      const st = activeBubbleStateRef.current;
-      if (
-        st &&
-        !st.earlyHintSent &&
-        !st.translationLocked &&
-        !st.finalizing &&
-        nfText.trim().length >= 20
-      ) {
-        const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
-        const source = liveBufferRef.current.trim();
-        if (source.length >= 3) {
-          dispatchTranslation(source, lang, false);
-          st.earlyHintSent = true;
-        }
       }
 
       // When Soniox commits all text (NF gone), immediately finalize style.
