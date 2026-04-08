@@ -290,6 +290,17 @@ const STREAMING_FRAGMENT_RULES =
   `Do NOT repeat or restate text that would duplicate translations already shown for earlier words.\n` +
   `If the tail is grammatically incomplete, translate it literally without inventing subjects, objects, or context the speaker did not say.\n\n`;
 
+/** Full-segment finalize pass from the client — authoritative translation replacing earlier partials. */
+function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
+  return (
+    `FINAL SEGMENT CORRECTION:\n` +
+    `- The user message is the COMPLETE finalized source text for one interpreter segment (e.g. after a pause or speaker change in live interpreting).\n` +
+    `- Produce one polished, grammatically natural translation of the ENTIRE message in ${tgtDisplayName}.\n` +
+    `- This pass may supersede partial or incremental translations shown earlier — prioritize accuracy and coherence for the full utterance.\n` +
+    `- Do not summarize, omit content, or add information not present in the source.\n\n`
+  );
+}
+
 /** Neutral professional output register for the target language (medical/legal interpreting). */
 const OUTPUT_REGISTER_ZH_CN =
   "Standard Mandarin in Simplified Chinese script (简体), professional register — no regional slang.";
@@ -708,9 +719,10 @@ router.get("/sessions", requireAuth, async (req, res) => {
 
 // ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
-  // isFinal was previously used to bypass the translation cache.
-  // The cache has been removed entirely (HIPAA). isFinal is accepted
-  // for API compatibility but ignored — every request is processed ephemerally.
+  // isFinal: when true, the client sends the full segment after finalize — we add
+  // FINAL SEGMENT CORRECTION instructions so the model treats the message as the
+  // authoritative pass (see finalSegmentCorrectionPrompt). No cache; every request
+  // is processed ephemerally (HIPAA).
   const {
     text,
     srcLang,
@@ -718,6 +730,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     sessionId: incomingSessionId,
     segmentId: incomingSegmentId,
     streamingDelta: rawStreamingDelta,
+    isFinal: rawIsFinal,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -726,9 +739,11 @@ router.post("/translate", requireAuth, async (req, res) => {
     segmentId?: string;
     /** Client sends only a new source tail while live-transcribing; model returns only that fragment's translation. */
     streamingDelta?: boolean;
-    isFinal?: boolean; // accepted but unused — kept for API compatibility
+    /** Full segment after pause/speaker change — prompt asks for authoritative polished translation. */
+    isFinal?: boolean;
   };
   const streamingDelta = Boolean(rawStreamingDelta);
+  const isFinalSegment = Boolean(rawIsFinal);
 
   if (!text?.trim() || !srcLang || !tgtLang) {
     res.status(400).json({ error: "text, srcLang, and tgtLang are required" });
@@ -863,6 +878,9 @@ router.post("/translate", requireAuth, async (req, res) => {
       termHints.map(h => `  ${h}`).join("\n") + "\n"
     : "";
 
+  const finalSegmentBlock =
+    isFinalSegment && !streamingDelta ? finalSegmentCorrectionPrompt(tgtName) : "";
+
   // ── Build system prompt helper ─────────────────────────────────────────────
   // Accepts an optional forceOverride flag for the retry path; when true the
   // language-lock instruction is elevated to the very top of the prompt with
@@ -950,6 +968,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Insurance/accident: use standard terms (collision, liability, claim, deductible, at-fault) only when the speaker uses them.\n` +
     arabicSourceRule +
     termRule +
+    finalSegmentBlock +
     `OUTPUT:\n` +
     `- Return ONLY the translated text.\n` +
     `- No explanations, notes, alternatives, or the original source text.`;
@@ -1035,7 +1054,8 @@ router.post("/translate", requireAuth, async (req, res) => {
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",
       );
-      const retryPrompt = buildSystemPrompt(true, streamingDelta) + placeholderRules;
+      const retryPrompt =
+        buildSystemPrompt(true, streamingDelta) + placeholderRules + finalSegmentBlock;
       const retry = await callOpenAI(retryPrompt, textForOpenAI);
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);

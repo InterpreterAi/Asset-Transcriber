@@ -391,6 +391,8 @@ type PrimaryTranslationResult =
 
 type TranslateApiOptions = {
   streamingDelta?: boolean;
+  /** Server adds final-segment correction instructions (full utterance after finalize). */
+  isFinal?: boolean;
 };
 
 async function translateViaPrimaryApi(
@@ -421,6 +423,7 @@ async function translateViaPrimaryApi(
           srcLang:        sourceLang,
           tgtLang:        targetLang,
           streamingDelta: Boolean(options?.streamingDelta),
+          isFinal:        Boolean(options?.isFinal),
         }),
       });
       clearTimeout(timeoutId);
@@ -983,6 +986,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           {
             streamingDelta:         useStreamingDelta && !isFinal,
             fullSegmentForFallback: useStreamingDelta && !isFinal ? text : undefined,
+            isFinal,
           },
         );
         const responseSegmentId = requestSegmentId;
