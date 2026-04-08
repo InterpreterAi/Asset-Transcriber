@@ -1407,14 +1407,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         flushFinalTextRenderQueue();
         const st = activeBubbleStateRef.current;
         if (!st || st.translationLocked || st.finalizing) return;
-        const source = (activeBubbleRef.current.textContent ?? "").trim();
+        const source = liveBufferRef.current.trim();
         if (source.length < 3) return;
-        const wordsNow = countWords(source);
-        if (wordsNow - st.lastPreviewWordsSent < LIVE_PREVIEW_WORD_STEP) return;
         const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
         dispatchTranslation(source, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
-        st.lastPreviewWordsSent = wordsNow;
+        st.lastPreviewWordsSent = countWords(source);
       }, SHORT_PAUSE_MS);
       // Reset finalization timer only while speech is still active (NF tokens).
       // Soniox may continue emitting final-only stabilization updates after
