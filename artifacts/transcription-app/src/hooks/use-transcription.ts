@@ -1105,7 +1105,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (p) p.className = CLS.textFin;
     }
 
-    const finalText = activeBubbleRef.current.textContent?.trim() ?? "";
+    // Use the latest normalized live buffer (final + NF) as translation source.
+    // This preserves any trailing NF words when a segment closes unexpectedly.
+    const finalText = liveBufferRef.current.trim() || (activeBubbleRef.current.textContent?.trim() ?? "");
     if (finalText.length > 2) {
       // Accumulate for admin snapshot.
       transcriptBufRef.current.push(finalText);
