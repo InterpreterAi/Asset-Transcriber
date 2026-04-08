@@ -646,6 +646,10 @@ interface BubbleTransState {
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
   lastNfRawText:         string;
+  /** Locked source language for this segment (set once from first visible token with a language tag). */
+  segmentSourceLang:     string | null;
+  /** Locked target language (opposite side of selected pair). */
+  segmentTargetLang:     string | null;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -702,11 +706,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
   const detectedLangRef      = useRef<string>("en");
-  // Per-segment language lock: null until Soniox reports the first language tag
-  // for this segment. Translation is blocked (not fired) until this is set.
-  // Locked to the first detected language for the segment's lifetime so the
-  // translation direction never flips mid-segment.
-  const segmentDetectedLangRef = useRef<string | null>(null);
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
   const langPairRef       = useRef<{ a: string; b: string }>({ a: "en", b: "ar" });
@@ -846,11 +845,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const chars = text.length;
 
     const pair = langPairRef.current;
+    const langForPair = state.segmentSourceLang ?? lang;
 
     // Guard: only translate if the detected language belongs to the selected pair.
     // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
     // copy the original text verbatim into the translation column — no API call.
-    if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) {
+    if (!matchesLang(langForPair, pair.a) && !matchesLang(langForPair, pair.b)) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
@@ -883,9 +883,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // ── Dispatch-time script validation (second safety layer) ─────────────────
-    const dispatchLang = validateLangByScript(lang, text, pair);
-    const myTargetLang = resolveTarget(dispatchLang, pair);
+    // ── Source/target: locked for entire segment after first visible token w/ language ──
+    const dispatchLang =
+      state.segmentSourceLang !== null
+        ? state.segmentSourceLang
+        : validateLangByScript(lang, text, pair);
+    const myTargetLang =
+      state.segmentTargetLang !== null
+        ? state.segmentTargetLang
+        : resolveTarget(dispatchLang, pair);
     const { transTextEl } = state;
 
     // ── Same-language guard (Rule 5/6) ────────────────────────────────────────
@@ -1114,12 +1120,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastPreviewWordsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
+      segmentSourceLang:     null,
+      segmentTargetLang:     null,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
-    // Reset the per-segment language lock so translation waits for Soniox to
-    // report the actual language before firing — prevents first-chunk wrong-direction.
-    segmentDetectedLangRef.current = null;
 
     scrollPanel(true);
     return finalSpan;
@@ -1167,7 +1172,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.
-      const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+      const lang = activeBubbleStateRef.current?.segmentSourceLang ?? detectedLangRef.current;
       const segId = activeBubbleStateRef.current?.segmentId;
       // Always run a final full-source pass so the model can correct the whole utterance.
       dispatchTranslation(finalText, lang, true, undefined, segId);
@@ -1214,7 +1219,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
     finalCountRef.current          = 0;
-    segmentDetectedLangRef.current = null;
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
     translationDiagRef.current = {
@@ -1340,6 +1344,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setTranslationServiceError(null);
   }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, doClear, flushFinalTextRenderQueue]);
 
+  /** Lock segment translation direction from the first visible token that carries a language tag (Soniox order). */
+  const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
+    const st = activeBubbleStateRef.current;
+    if (!st || st.segmentSourceLang !== null) return;
+    const first = tokens.find(
+      t =>
+        hasVisibleText(t.text) &&
+        t.language !== undefined &&
+        t.language !== null &&
+        String(t.language).trim() !== "",
+    );
+    if (!first?.language) return;
+    const pair = langPairRef.current;
+    const allTokenText = tokens.map(t => t.text).join("");
+    const validated = validateLangByScript(first.language, allTokenText, pair);
+    st.segmentSourceLang = validated;
+    st.segmentTargetLang = resolveTarget(validated, pair);
+  }, []);
+
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
   const buildWs = useCallback((apiKey: string): WebSocket => {
@@ -1409,7 +1432,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!st || st.translationLocked || st.finalizing) return;
         const source = liveBufferRef.current.trim();
         if (source.length < 3) return;
-        const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+        const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(source, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = countWords(source);
@@ -1438,38 +1461,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // meant we started translation before the language was known.
       const langToken = tokens.find(t => t.language);
       if (langToken?.language) {
-        // ── Script-validation layer (Fix: English detected as Arabic) ──────────
-        // Cross-validate Soniox's language tag against the Unicode script of the
-        // actual token text. If the text is clearly Latin but Soniox says "ar"
-        // (or clearly Arabic but Soniox says "en"), override with the correct
-        // language from the user's selected pair. Only overrides when evidence
-        // is strong (≥70 % Arabic or ≤15 % Arabic in the script character count).
         const allTokenText  = tokens.map(t => t.text).join("");
         const validatedLang = validateLangByScript(
           langToken.language,
           allTokenText,
           langPairRef.current,
         );
-
         detectedLangRef.current = validatedLang;
-
-        if (segmentDetectedLangRef.current === null) {
-          // Lock the per-segment language to the first (validated) detected value.
-          // Prevents translation direction from flipping mid-segment.
-          segmentDetectedLangRef.current = validatedLang;
-        } else {
-          // Re-evaluate the locked language when incoming text strongly contradicts
-          // it. This corrects cases where the very first token was tagged wrongly
-          // and locked in the wrong direction before enough text was available.
-          const revalidated = validateLangByScript(
-            segmentDetectedLangRef.current,
-            allTokenText,
-            langPairRef.current,
-          );
-          if (revalidated !== segmentDetectedLangRef.current) {
-            segmentDetectedLangRef.current = revalidated;
-          }
-        }
       }
 
       for (const token of newFinals) {
@@ -1559,6 +1557,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         activeBubbleRef.current.textContent = liveBufferRef.current;
       }
 
+      tryLockSegmentDirectionFromTokens(tokens);
+
       flushFinalTextRenderQueue();
 
       // Non-final preview translation while the segment is open:
@@ -1578,7 +1578,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP
         )
       ) {
-        const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+        const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
@@ -1603,6 +1603,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
+    tryLockSegmentDirectionFromTokens,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
@@ -1633,7 +1634,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       liveBufferRef.current          = "";
       finalCountRef.current          = 0;
       detectedLangRef.current        = "en";
-      segmentDetectedLangRef.current = null;
       resetSpeakerMap();
       pcmBacklogRef.current          = [];
 
