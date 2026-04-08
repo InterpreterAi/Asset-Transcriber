@@ -47,6 +47,16 @@ const cases: { input: string; tgt: string; mustContain: string[] }[] = [
     tgt:   "ar",
     mustContain: ["وزارة الأمن الداخلي"],
   },
+  {
+    input: "We called DHS.",
+    tgt:   "fr",
+    mustContain: ["Sécurité intérieure"],
+  },
+  {
+    input: "SNAP enrollment is open.",
+    tgt:   "de",
+    mustContain: ["Ernährungshilfeprogramm"],
+  },
 ];
 
 for (const { input, tgt, mustContain } of cases) {
