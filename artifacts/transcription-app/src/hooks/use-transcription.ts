@@ -628,6 +628,8 @@ interface BubbleTransState {
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
   lastLiveSourceTs:      number;
+  /** One-time early non-final translation hint for this segment. */
+  earlyHintSent:         boolean;
 }
 
 type TranslationTriggerReason = "polling" | "segment_finalize" | "language_passthrough";
@@ -1089,6 +1091,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       streamInflight:        false,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
+      earlyHintSent:         false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -1505,6 +1508,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveBufferRef.current !== finalText.trim()
       ) {
         activeBubbleRef.current.textContent = liveBufferRef.current;
+      }
+
+      // One-time low-latency hint: dispatch a single early non-final translation
+      // once NF has enough context, then wait for softFinalize() for the final pass.
+      const st = activeBubbleStateRef.current;
+      if (
+        st &&
+        !st.earlyHintSent &&
+        !st.translationLocked &&
+        !st.finalizing &&
+        nfText.trim().length >= 20
+      ) {
+        const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+        const source = liveBufferRef.current.trim();
+        if (source.length >= 3) {
+          dispatchTranslation(source, lang, false);
+          st.earlyHintSent = true;
+        }
       }
 
       // When Soniox commits all text (NF gone), immediately finalize style.
