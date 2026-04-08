@@ -28,7 +28,7 @@ function getApiErrorMessage(err: unknown): string | undefined {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 250;
+const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
@@ -36,11 +36,9 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
 const SHORT_PAUSE_MS = 700;
-const LONG_PAUSE_MS  = 750;
+const LONG_PAUSE_MS  = 1100;
 const EARLY_HINT_MIN_WORDS = 8;
-const LIVE_PREVIEW_WORD_STEP = 6;
-// NF speaker changes wait this long before splitting; cancels if diarization reverts.
-const SPEAKER_CHANGE_DEBOUNCE_MS = 450;
+const LIVE_PREVIEW_WORD_STEP = 8;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -644,6 +642,10 @@ interface BubbleTransState {
   earlyHintSent:         boolean;
   /** Word count at the last non-final preview dispatch. */
   lastPreviewWordsSent:  number;
+  /** Count of finalized tokens committed in this segment. */
+  finalTokensSeen:       number;
+  /** Last observed raw NF text used for append-only NF rendering. */
+  lastNfRawText:         string;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -768,11 +770,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset only after
   // LONG_PAUSE_MS of no Soniox activity (short pauses do not split segments).
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Latest NF token speaker from the most recent message (only updated when defined). */
-  const lastNfSpeakerRef = useRef<number | string | undefined>(undefined);
-  const speakerChangeDebounceTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingSpeakerRef = useRef<string | undefined>(undefined);
 
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
@@ -832,9 +829,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lang: string,
     isFinal = false,
     options?: { lockOnFinal?: boolean },
+    segmentIdLock?: string,
   ) => {
     const state = activeBubbleStateRef.current;
     if (!state || text.length < 3) return;
+    const requestSegmentId = segmentIdLock ?? state.segmentId;
+    if (requestSegmentId !== state.segmentId) return;
 
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
@@ -977,6 +977,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             fullSegmentForFallback: useStreamingDelta && !isFinal ? text : undefined,
           },
         );
+        const responseSegmentId = requestSegmentId;
+        if (responseSegmentId !== state.segmentId) return;
 
         if (mySeq <= state.lastShownSeq) return;
         if (!transTextEl.isConnected) return;
@@ -1108,6 +1110,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
       lastPreviewWordsSent:  0,
+      finalTokensSeen:       0,
+      lastNfRawText:         "",
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -1162,8 +1166,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.
       const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+      const segId = activeBubbleStateRef.current?.segmentId;
       // Always run a final full-source pass so the model can correct the whole utterance.
-      dispatchTranslation(finalText, lang, true);
+      dispatchTranslation(finalText, lang, true, undefined, segId);
     }
   }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue]);
 
@@ -1177,11 +1182,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // can continue writing into that finalized segment.
   const closeActiveSegmentBoundary = useCallback(() => {
     flushFinalTextRenderQueue();
-    if (speakerChangeDebounceTimerRef.current !== null) {
-      clearTimeout(speakerChangeDebounceTimerRef.current);
-      speakerChangeDebounceTimerRef.current = null;
-    }
-    pendingSpeakerRef.current = undefined;
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble();
     currentSpeakerRef.current = undefined;
@@ -1189,49 +1189,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current = null;
     styleUpgradedRef.current  = false;
   }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
-
-  const queueSpeakerChangeIfStable = useCallback((
-    nextSpeakerRaw: number | string | undefined,
-    hasIncomingVisibleText: boolean,
-  ) => {
-    if (nextSpeakerRaw === undefined || nextSpeakerRaw === null) return;
-    if (!hasIncomingVisibleText) return;
-    const nextSpeaker = String(nextSpeakerRaw);
-
-    if (sameSpeaker(nextSpeaker, currentSpeakerRef.current)) {
-      if (speakerChangeDebounceTimerRef.current !== null) {
-        clearTimeout(speakerChangeDebounceTimerRef.current);
-        speakerChangeDebounceTimerRef.current = null;
-      }
-      pendingSpeakerRef.current = undefined;
-      return;
-    }
-
-    if (
-      pendingSpeakerRef.current === nextSpeaker &&
-      speakerChangeDebounceTimerRef.current !== null
-    ) {
-      return;
-    }
-
-    if (speakerChangeDebounceTimerRef.current !== null) {
-      clearTimeout(speakerChangeDebounceTimerRef.current);
-      speakerChangeDebounceTimerRef.current = null;
-    }
-
-    pendingSpeakerRef.current = nextSpeaker;
-    speakerChangeDebounceTimerRef.current = setTimeout(() => {
-      speakerChangeDebounceTimerRef.current = null;
-      const pending = pendingSpeakerRef.current;
-      pendingSpeakerRef.current = undefined;
-      if (!pending || !activeBubbleRef.current) return;
-      if (sameSpeaker(pending, currentSpeakerRef.current)) return;
-      closeActiveSegmentBoundary();
-      currentSpeakerRef.current = pending;
-      activeBubbleRef.current = createBubble(pending);
-      setHasTranscript(true);
-    }, SPEAKER_CHANGE_DEBOUNCE_MS);
-  }, [closeActiveSegmentBoundary, createBubble]);
 
   // ── doClear ────────────────────────────────────────────────────────────────
   // Wipes all transcript/translation DOM content and resets every per-bubble
@@ -1243,12 +1200,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    if (speakerChangeDebounceTimerRef.current !== null) {
-      clearTimeout(speakerChangeDebounceTimerRef.current);
-      speakerChangeDebounceTimerRef.current = null;
-    }
-    pendingSpeakerRef.current = undefined;
-    lastNfSpeakerRef.current = undefined;
     stopTranslationInterval();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
@@ -1285,12 +1236,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    if (speakerChangeDebounceTimerRef.current !== null) {
-      clearTimeout(speakerChangeDebounceTimerRef.current);
-      speakerChangeDebounceTimerRef.current = null;
-    }
-    pendingSpeakerRef.current = undefined;
-    lastNfSpeakerRef.current = undefined;
     if (inactivityTimerRef.current !== null) {
       clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = null;
@@ -1507,11 +1452,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(token.speaker);
             setHasTranscript(true);
           }
-        } else {
-          queueSpeakerChangeIfStable(token.speaker, hasVisibleText(token.text));
         }
         if (!activeBubbleRef.current) continue;
         finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
+        if (activeBubbleStateRef.current) {
+          activeBubbleStateRef.current.finalTokensSeen += 1;
+        }
       }
       scheduleFinalTextRenderFlush();
 
@@ -1524,15 +1470,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const nfSpeaker = [...tokens]
         .reverse()
         .find(t => !t.is_final && t.speaker !== undefined && t.speaker !== null)?.speaker;
-
-      if (
-        nfSpeaker !== undefined &&
-        nfSpeaker !== null &&
-        activeBubbleRef.current !== null &&
-        hasVisibleText(nfText)
-      ) {
-        queueSpeakerChangeIfStable(nfSpeaker, true);
-      }
 
       if (!activeBubbleNFRef.current && nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
@@ -1547,8 +1484,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
         const nfEl = activeBubbleNFRef.current as HTMLSpanElement | null;
-        if (nfEl) {
-          nfEl.textContent = "";
+        const st = activeBubbleStateRef.current;
+        if (nfEl && st) {
+          const prev = st.lastNfRawText;
+          let suffix = "";
+          if (nfText.startsWith(prev)) {
+            suffix = nfText.slice(prev.length);
+          } else if (nfText.length > prev.length) {
+            suffix = nfText.slice(prev.length);
+          }
+          if (suffix) {
+            nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+          }
+          st.lastNfRawText = nfText;
         }
       }
 
@@ -1570,8 +1518,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         activeBubbleRef.current.textContent = liveBufferRef.current;
       }
 
+      flushFinalTextRenderQueue();
+
       // Non-final preview translation while the segment is open:
-      // first at EARLY_HINT_MIN_WORDS, then every LIVE_PREVIEW_WORD_STEP words.
+      // first after enough stable final evidence, then every LIVE_PREVIEW_WORD_STEP words.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
@@ -1579,6 +1529,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st &&
         !st.translationLocked &&
         !st.finalizing &&
+        st.finalTokensSeen >= 3 &&
+        hintSource.length >= 25 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (
           !st.earlyHintSent ||
@@ -1586,7 +1538,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         )
       ) {
         const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
-        dispatchTranslation(hintSource, lang, false);
+        dispatchTranslation(hintSource, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
       }
@@ -1606,7 +1558,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stop,
     closeActiveSegmentBoundary,
     createBubble,
-    queueSpeakerChangeIfStable,
     scrollPanel,
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
@@ -1629,7 +1580,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
       }
-      pendingSpeakerRef.current      = undefined;
       currentSpeakerRef.current      = undefined;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
