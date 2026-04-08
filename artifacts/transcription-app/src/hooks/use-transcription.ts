@@ -28,7 +28,7 @@ function getApiErrorMessage(err: unknown): string | undefined {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TRANSLATION_DELAY_MS = 300;
+const STABILIZE_FINAL_MS = 350;
 const FINAL_TEXT_RENDER_BUFFER_MS = 250;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
@@ -1547,7 +1547,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           // Fast "final so far" overwrite without locking the segment;
           // true final lock still occurs in softFinalize().
           dispatchTranslation(latest, lang, true, { lockOnFinal: false });
-        }, FINAL_TRANSLATION_DELAY_MS);
+        }, STABILIZE_FINAL_MS);
       }
     };
 
