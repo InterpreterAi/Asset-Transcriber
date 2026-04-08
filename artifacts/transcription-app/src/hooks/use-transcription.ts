@@ -1392,6 +1392,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
+      const hasNonFinalTokens = tokens.some(t => !t.is_final);
 
       // ── Silence / pause-based timers ───────────────────────────────────────
       // Every message with tokens resets both pause timers:
@@ -1415,14 +1416,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
       }, SHORT_PAUSE_MS);
-      if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
-        silenceTimerRef.current = null;
-        if (!activeBubbleRef.current) return;  // nothing open — nothing to do
-        closeActiveSegmentBoundary();
-        // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
-        // so slicing from the current count will correctly pick up only new finals.
-      }, LONG_PAUSE_MS);
+      // Reset finalization timer only while speech is still active (NF tokens).
+      // Soniox may continue emitting final-only stabilization updates after
+      // speech stops; those must not postpone segment closure.
+      if (hasNonFinalTokens) {
+        if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          if (!activeBubbleRef.current) return;  // nothing open — nothing to do
+          closeActiveSegmentBoundary();
+          // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
+          // so slicing from the current count will correctly pick up only new finals.
+        }, LONG_PAUSE_MS);
+      }
 
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
