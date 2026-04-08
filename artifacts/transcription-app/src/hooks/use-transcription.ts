@@ -28,8 +28,10 @@ function getApiErrorMessage(err: unknown): string | undefined {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const TRANSLATION_POLL_MS = 1000;
 const FINAL_TRANSLATION_DELAY_MS = 300;
+const EST_TOKENS_PER_CHAR = 0.25;
+const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
+const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // Same-speaker silence window before auto-finalizing a segment.
 // Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
 const SILENCE_TIMEOUT_MS  = 4500;
@@ -611,6 +613,7 @@ function applyTranslationTypography(el: HTMLParagraphElement, merged: string): v
 // capture the state object at the time of dispatch, so in-flight requests from
 // a previous segment can NEVER write into a later segment's DOM element.
 interface BubbleTransState {
+  segmentId:          string;
   transTextEl:       HTMLParagraphElement;
   seq:               number;   // incremented on every dispatch FOR THIS bubble
   lastShownSeq:      number;   // highest seq whose result was written to DOM
@@ -626,6 +629,17 @@ interface BubbleTransState {
   /** Timestamp when lastLiveSource changed. */
   lastLiveSourceTs:      number;
 }
+
+type TranslationTriggerReason = "polling" | "segment_finalize" | "stabilize_finalize" | "language_passthrough";
+
+type TranslationDiag = {
+  callCount: number;
+  estimatedTokensTotal: number;
+  perSegmentCalls: Map<string, number>;
+  callTimestampsMs: number[];
+  lastInputMeta: { segmentId: string; chars: number; words: number } | null;
+  redundantCalls: number;
+};
 
 export type UseTranscriptionOptions = {
   /** Fired when finalized transcript/translation lines are appended for admin live view (debounce in parent). */
@@ -690,8 +704,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   // setInterval handle.
-  const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finalTranslationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const segmentSeqRef = useRef(0);
+  const translationDiagRef = useRef<TranslationDiag>({
+    callCount: 0,
+    estimatedTokensTotal: 0,
+    perSegmentCalls: new Map(),
+    callTimestampsMs: [],
+    lastInputMeta: null,
+    redundantCalls: 0,
+  });
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -768,6 +790,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    const chars = text.length;
 
     const pair = langPairRef.current;
 
@@ -775,6 +799,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
     // copy the original text verbatim into the translation column — no API call.
     if (!matchesLang(lang, pair.a) && !matchesLang(lang, pair.b)) {
+      console.info(
+        "[translation_call]",
+        `time=${new Date(Date.now()).toISOString()}`,
+        `segment_id=${state.segmentId}`,
+        "reason=language_passthrough",
+        `is_final=${isFinal ? "true" : "false"}`,
+        `buffer_words=${words}`,
+        `buffer_chars=${chars}`,
+        "estimated_tokens=0",
+      );
       state.seq += 1;
       const mySeq = state.seq;
       const { transTextEl } = state;
@@ -824,6 +858,47 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       return;
     }
+
+    const reason: TranslationTriggerReason = isFinal
+      ? (lockOnFinal ? "segment_finalize" : "stabilize_finalize")
+      : "polling";
+    const estimatedTokens = Math.max(1, Math.round(chars * EST_TOKENS_PER_CHAR));
+    const nowMs = Date.now();
+    const diag = translationDiagRef.current;
+    diag.callCount += 1;
+    diag.estimatedTokensTotal += estimatedTokens;
+    diag.callTimestampsMs.push(nowMs);
+    diag.perSegmentCalls.set(
+      state.segmentId,
+      (diag.perSegmentCalls.get(state.segmentId) ?? 0) + 1,
+    );
+    if (diag.lastInputMeta?.segmentId === state.segmentId) {
+      const cDiff = Math.abs(diag.lastInputMeta.chars - chars);
+      const wDiff = Math.abs(diag.lastInputMeta.words - words);
+      if (cDiff <= 8 && wDiff <= 2) {
+        diag.redundantCalls += 1;
+        console.info(
+          "[translation_redundant]",
+          `time=${new Date(nowMs).toISOString()}`,
+          `segment_id=${state.segmentId}`,
+          `chars_prev=${diag.lastInputMeta.chars}`,
+          `chars_now=${chars}`,
+          `words_prev=${diag.lastInputMeta.words}`,
+          `words_now=${words}`,
+        );
+      }
+    }
+    diag.lastInputMeta = { segmentId: state.segmentId, chars, words };
+    console.info(
+      "[translation_call]",
+      `time=${new Date(nowMs).toISOString()}`,
+      `segment_id=${state.segmentId}`,
+      `reason=${reason}`,
+      `is_final=${isFinal ? "true" : "false"}`,
+      `buffer_words=${words}`,
+      `buffer_chars=${chars}`,
+      `estimated_tokens=${estimatedTokens}`,
+    );
 
     if (!isFinal && state.streamInflight) return;
 
@@ -897,29 +972,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     })();
   }, [scrollPanel]);
 
-  // ── startTranslationInterval ───────────────────────────────────────────────
-  const startTranslationInterval = useCallback(() => {
-    if (translationIntervalRef.current !== null) return;
-    translationIntervalRef.current = setInterval(() => {
-      const buffer  = liveBufferRef.current;
-      // Use the per-segment locked language once Soniox has reported it;
-      // fall back to the global detected language immediately so translation
-      // starts streaming in real-time rather than waiting for a language tag.
-      const segLang = segmentDetectedLangRef.current ?? detectedLangRef.current;
-      const st      = activeBubbleStateRef.current;
-      if (!buffer || buffer.length < 3) return;
-      if (!st || st.translationLocked || st.finalizing || st.streamInflight) return;
-      if (buffer === st.streamCommittedSource) return;
-      dispatchTranslation(buffer, segLang, false);
-    }, TRANSLATION_POLL_MS);
-  }, [dispatchTranslation]);
-
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
-    if (translationIntervalRef.current !== null) {
-      clearInterval(translationIntervalRef.current);
-      translationIntervalRef.current = null;
-    }
     if (finalTranslationTimerRef.current !== null) {
       clearTimeout(finalTranslationTimerRef.current);
       finalTranslationTimerRef.current = null;
@@ -997,6 +1051,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // shown a newer result).
     activeBubbleNFRef.current      = nfSpan;
     activeBubbleStateRef.current   = {
+      segmentId: `seg-${++segmentSeqRef.current}`,
       transTextEl:  transTextP,
       seq:          0,
       lastShownSeq:      0,
@@ -1014,14 +1069,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // report the actual language before firing — prevents first-chunk wrong-direction.
     segmentDetectedLangRef.current = null;
 
-    // Restart the polling interval for this new segment. softFinalize stops
-    // the interval for the previous segment; we restart it here so live
-    // translation works during speech for each new segment.
-    startTranslationInterval();
-
     scrollPanel(true);
     return finalSpan;
-  }, [scrollPanel, startTranslationInterval]);
+  }, [scrollPanel]);
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -1118,6 +1168,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     segmentDetectedLangRef.current = null;
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
+    translationDiagRef.current = {
+      callCount: 0,
+      estimatedTokensTotal: 0,
+      perSegmentCalls: new Map(),
+      callTimestampsMs: [],
+      lastInputMeta: null,
+      redundantCalls: 0,
+    };
     if (containerRef.current) containerRef.current.innerHTML = "";
     setHasTranscript(false);
     setTranslationServiceError(null);
@@ -1195,6 +1253,39 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       sessionIdRef.current = null;
       setSessionId(null);
     }
+
+    const diag = translationDiagRef.current;
+    const nowMs = Date.now();
+    const sessionMinutes = Math.max(1 / 60, (nowMs - startTimeRef.current) / 60_000);
+    const callsPerMinute = diag.callCount / sessionMinutes;
+    const avgTokensPerRequest =
+      diag.callCount > 0 ? diag.estimatedTokensTotal / diag.callCount : 0;
+    const tokensPerMinute = diag.estimatedTokensTotal / sessionMinutes;
+    const estimatedHourlyCost =
+      (diag.estimatedTokensTotal * (OPENAI_INPUT_COST_PER_TOKEN + OPENAI_OUTPUT_COST_PER_TOKEN)) *
+      (60 / sessionMinutes);
+    const perSegment = [...diag.perSegmentCalls.entries()]
+      .map(([segmentId, calls]) => `${segmentId}:${calls}`)
+      .join(",");
+    console.info(
+      "[translation_diagnostic_summary]",
+      `calls_total=${diag.callCount}`,
+      `calls_per_min=${callsPerMinute.toFixed(2)}`,
+      `avg_tokens_per_request=${avgTokensPerRequest.toFixed(1)}`,
+      `tokens_per_min=${tokensPerMinute.toFixed(1)}`,
+      `estimated_tokens_total=${diag.estimatedTokensTotal}`,
+      `redundant_calls=${diag.redundantCalls}`,
+      `estimated_cost_per_hour_usd=${estimatedHourlyCost.toFixed(4)}`,
+      `calls_per_segment=${perSegment || "none"}`,
+    );
+    translationDiagRef.current = {
+      callCount: 0,
+      estimatedTokensTotal: 0,
+      perSegmentCalls: new Map(),
+      callTimestampsMs: [],
+      lastInputMeta: null,
+      redundantCalls: 0,
+    };
     // Clear snapshot accumulators — session is over.
     transcriptBufRef.current  = [];
     translationBufRef.current = [];
@@ -1529,8 +1620,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const ws = buildWs(tokenRes.apiKey);
       wsRef.current = ws;
 
-      startTranslationInterval();
-
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
       analyser.fftSize  = 256;
@@ -1637,7 +1726,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startInFlightRef.current = false;
       setStartBusy(false);
     }
-  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, startTranslationInterval]);
+  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
