@@ -36,7 +36,9 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
 const SHORT_PAUSE_MS = 700;
-const LONG_PAUSE_MS  = 900;
+const LONG_PAUSE_MS  = 750;
+const EARLY_HINT_MIN_WORDS = 8;
+const LIVE_PREVIEW_WORD_STEP = 6;
 // NF speaker changes wait this long before splitting; cancels if diarization reverts.
 const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
 // ── Speaker color palette ──────────────────────────────────────────────────────
@@ -593,6 +595,10 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
@@ -636,6 +642,8 @@ interface BubbleTransState {
   lastLiveSourceTs:      number;
   /** One-time early non-final translation hint for this segment. */
   earlyHintSent:         boolean;
+  /** Word count at the last non-final preview dispatch. */
+  lastPreviewWordsSent:  number;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1053,7 +1061,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     origRow.className = CLS.textRow;
 
     const p = document.createElement("p");
-    p.className = CLS.textLive;
+    p.className = CLS.textFin;
     applyTextStyle(p);
     const finalSpan = document.createElement("span");
     const nfSpan    = document.createElement("span");
@@ -1098,6 +1106,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
+      lastPreviewWordsSent:  0,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -1456,11 +1465,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!activeBubbleRef.current) continue;
         finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
       }
-      // Natural sentence boundary: close/finalize segment immediately on terminal punctuation.
-      const lastFinalTokenText = newFinals.length > 0 ? (newFinals[newFinals.length - 1]?.text ?? "") : "";
-      if (lastFinalTokenText && /[.?!]/.test(lastFinalTokenText)) {
-        closeActiveSegmentBoundary();
-      }
       scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
@@ -1489,9 +1493,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         setHasTranscript(true);
       }
 
-      if (activeBubbleNFRef.current) {
-        activeBubbleNFRef.current.textContent = nfText;
-      } else if (nfText && containerRef.current) {
+      if (!activeBubbleNFRef.current && nfText && containerRef.current) {
         if (!activeBubbleRef.current) {
           const spk =
             nfSpeaker ??
@@ -1505,7 +1507,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         const nfEl = activeBubbleNFRef.current as HTMLSpanElement | null;
         if (nfEl) {
-          nfEl.textContent = nfText;
+          nfEl.textContent = "";
         }
       }
 
@@ -1527,28 +1529,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         activeBubbleRef.current.textContent = liveBufferRef.current;
       }
 
-      // One-time early translation preview for this segment (no polling/timer).
+      // Non-final preview translation while the segment is open:
+      // first at EARLY_HINT_MIN_WORDS, then every LIVE_PREVIEW_WORD_STEP words.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
+      const wordsNow = countWords(hintSource);
       if (
         st &&
-        !st.earlyHintSent &&
         !st.translationLocked &&
         !st.finalizing &&
-        hintSource.length >= 20
+        wordsNow >= EARLY_HINT_MIN_WORDS &&
+        (
+          !st.earlyHintSent ||
+          wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP
+        )
       ) {
         const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false);
         st.earlyHintSent = true;
-      }
-
-      // When Soniox commits all text (NF gone), immediately finalize style.
-      if (nfText.length === 0 && finalText.trim().length > 2) {
-        if (!styleUpgradedRef.current) {
-          styleUpgradedRef.current = true;
-          const p = activeBubbleRef.current?.parentElement;
-          if (p) p.className = CLS.textFin;
-        }
+        st.lastPreviewWordsSent = wordsNow;
       }
     };
 
