@@ -3,6 +3,10 @@ import { useGetTranscriptionToken, useStartSession, useStopSession } from "@work
 import { fetchPublicFallbackTranslation } from "@/lib/public-translation-fallback";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { normalizeInterpreterTranscript } from "@/lib/interpreter-transcript-normalize";
+import {
+  getTranslationTypographyMeta,
+  wrapAsciiDigitRunsWithLtrSpans,
+} from "@/lib/wrap-ltr-numbers";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -581,17 +585,23 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
 }
 
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
-  const isArabic = /[\u0600-\u06FF]/.test(merged);
-  el.dir             = isArabic ? "rtl" : "ltr";
-  el.style.textAlign = isArabic ? "right" : "";
-  if (isArabic) {
-    el.lang      = "ar";
-    el.className = CLS.transText + " ts-arabic";
+  const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
+  el.dir             = rtl ? "rtl" : "ltr";
+  el.style.textAlign = rtl ? "right" : "";
+  if (rtl) {
+    if (arabicScript) {
+      el.lang      = "ar";
+      el.className = CLS.transText + " ts-arabic";
+    } else {
+      el.lang      = "he";
+      el.className = CLS.transText;
+    }
+    el.innerHTML = wrapAsciiDigitRunsWithLtrSpans(merged);
   } else {
     el.removeAttribute("lang");
     el.className = CLS.transText;
+    el.textContent = merged;
   }
-  el.textContent = merged;
 }
 
 // ── Per-bubble translation state ───────────────────────────────────────────────

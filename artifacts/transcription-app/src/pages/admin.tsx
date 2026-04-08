@@ -27,6 +27,7 @@ import {
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
 import { formatMinutes } from "@/lib/utils";
+import { TranslationDisplayParagraph } from "@/components/TranslationDisplayParagraph";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface AdminStats {
@@ -2353,7 +2354,7 @@ export default function Admin() {
                   {viewLoading ? (
                     <div className="text-sm text-muted-foreground italic">Loading…</div>
                   ) : sessionDetail?.snapshot?.translation ? (
-                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" dir="auto">{sessionDetail.snapshot.translation}</p>
+                    <TranslationDisplayParagraph text={sessionDetail.snapshot.translation} />
                   ) : (
                     <p className="text-sm text-muted-foreground italic">Translation will appear here as segments are finalized.</p>
                   )}
