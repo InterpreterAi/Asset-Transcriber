@@ -1,0 +1,41 @@
+{
+  "Medicaid": {
+    "translations": {
+      "ar": "ميديكيد",
+      "zh-CN": "医疗补助",
+      "zh-TW": "醫療補助",
+      "ru": "Медикейд"
+    }
+  },
+  "United Healthcare": {
+    "translations": {
+      "ar": "يونايتد هيلث كير",
+      "zh-CN": "联合健康",
+      "zh-TW": "聯合健康"
+    }
+  },
+  "SSI benefits": {
+    "translations": {
+      "ar": "منافع SSI",
+      "es": "beneficios del SSI",
+      "pt": "benefícios do SSI",
+      "zh-CN": "SSI 福利",
+      "zh-TW": "SSI 給付",
+      "fr": "prestations SSI",
+      "de": "SSI-Leistungen",
+      "ru": "выплаты SSI"
+    }
+  },
+  "Social Security": {
+    "translations": {
+      "ar": "الضمان الاجتماعي",
+      "es": "Seguro Social",
+      "pt": "Segurança Social",
+      "zh-CN": "社会保障",
+      "zh-TW": "社會安全",
+      "fr": "Sécurité sociale",
+      "de": "Sozialversicherung",
+      "ru": "социальное обеспечение"
+    }
+  }
+}

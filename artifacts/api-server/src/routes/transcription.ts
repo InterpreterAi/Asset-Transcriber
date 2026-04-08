@@ -784,11 +784,13 @@ router.post("/translate", requireAuth, async (req, res) => {
     (hadPlaceholders && glossaryMaxSlot > 0 ? glossaryPlaceholderPromptRule(glossaryMaxSlot) : "") +
     (numMask.hadPlaceholders && numMaxSlot > 0 ? numberPlaceholderPromptRule(numMaxSlot) : "");
 
+  const tgtLangResolved = tgtLang as string;
+
   function restoreTranslationOutput(raw: string): string {
     let t = raw;
     t = restoreNumberPlaceholders(t, numMask.slotToDigits);
-    t = restoreGlossaryPlaceholders(t, slotToEntryIndex, tgtLang);
-    t = restoreProtectedTermPlaceholders(t, prot.slotToEntryIndex, tgtLang);
+    t = restoreGlossaryPlaceholders(t, slotToEntryIndex, tgtLangResolved);
+    t = restoreProtectedTermPlaceholders(t, prot.slotToEntryIndex, tgtLangResolved);
     return t;
   }
 
