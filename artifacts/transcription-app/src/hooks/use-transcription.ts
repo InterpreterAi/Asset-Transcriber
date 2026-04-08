@@ -36,7 +36,7 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
 const SHORT_PAUSE_MS = 700;
-const LONG_PAUSE_MS  = 1600;
+const LONG_PAUSE_MS  = 900;
 // NF speaker changes wait this long before splitting; cancels if diarization reverts.
 const SPEAKER_CHANGE_DEBOUNCE_MS = 250;
 // ── Speaker color palette ──────────────────────────────────────────────────────
@@ -1455,6 +1455,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         if (!activeBubbleRef.current) continue;
         finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
+      }
+      // Natural sentence boundary: close/finalize segment immediately on terminal punctuation.
+      const lastFinalTokenText = newFinals.length > 0 ? (newFinals[newFinals.length - 1]?.text ?? "") : "";
+      if (lastFinalTokenText && /[.?!]/.test(lastFinalTokenText)) {
+        closeActiveSegmentBoundary();
       }
       scheduleFinalTextRenderFlush();
 
