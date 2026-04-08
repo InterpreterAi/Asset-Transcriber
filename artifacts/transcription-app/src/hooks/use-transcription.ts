@@ -1473,12 +1473,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
 
       for (const token of newFinals) {
-        if (!activeBubbleRef.current) {
+        const tokenHasText = hasVisibleText(token.text);
+        if (
+          activeBubbleRef.current &&
+          tokenHasText &&
+          !sameSpeaker(token.speaker, currentSpeakerRef.current)
+        ) {
+          closeActiveSegmentBoundary();
+          currentSpeakerRef.current =
+            token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
+          activeBubbleRef.current = createBubble(token.speaker);
+          setHasTranscript(true);
+        } else if (!activeBubbleRef.current) {
           currentSpeakerRef.current =
             token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           finalCountRef.current     = finals.length - newFinals.length +
             newFinals.indexOf(token);
-          if (hasVisibleText(token.text)) {
+          if (tokenHasText) {
             activeBubbleRef.current = createBubble(token.speaker);
             setHasTranscript(true);
           }
