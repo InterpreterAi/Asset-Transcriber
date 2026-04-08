@@ -584,6 +584,42 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   return `${prev} ${piece}`;
 }
 
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function phraseAtWordLimit(text: string, maxWords: number): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length < maxWords) return null;
+  return words.slice(0, maxWords).join(" ");
+}
+
+/**
+ * Returns the next phrase chunk that is stable enough to translate live.
+ * Boundaries:
+ *  1) punctuation (. , ? ! :)
+ *  2) >= 7 words
+ *  3) pause elapsed (>= 700 ms) with any pending words
+ */
+function nextLivePhraseChunk(uncommitted: string, pauseElapsed: boolean): string | null {
+  const text = uncommitted.trim();
+  if (!text) return null;
+
+  // Prefer explicit punctuation boundaries.
+  const punctMatch = text.match(/^([\s\S]*?[.,?!:])(?:\s|$)/);
+  if (punctMatch?.[1]) return punctMatch[1].trim();
+
+  // Otherwise keep chunks bounded in size while the speaker continues.
+  const longChunk = phraseAtWordLimit(text, 7);
+  if (longChunk) return longChunk;
+
+  // On short pause, flush whatever words we have.
+  if (pauseElapsed && wordCount(text) > 0) return text;
+  return null;
+}
+
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
   el.dir             = rtl ? "rtl" : "ltr";
@@ -619,6 +655,10 @@ interface BubbleTransState {
   streamCommittedSource: string;
   /** At most one in-flight primary translation per segment while polling (avoids overlapping deltas). */
   streamInflight:        boolean;
+  /** Last normalized live source seen (final + NF). */
+  lastLiveSource:        string;
+  /** Timestamp when lastLiveSource changed. */
+  lastLiveSourceTs:      number;
 }
 
 export type UseTranscriptionOptions = {
@@ -819,15 +859,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (isFinal) {
       apiText = text;
       useStreamingDelta = false;
-    } else if (text.startsWith(state.streamCommittedSource)) {
-      const delta = text.slice(state.streamCommittedSource.length).trimStart();
-      if (delta.length === 0) return;
-      apiText = delta;
-      useStreamingDelta = true;
     } else {
-      // Live transcript revised earlier words — retranslate full visible source once.
+      // Live mode now translates phrase chunks only (already boundary-selected by poller).
       apiText = text;
-      useStreamingDelta = false;
+      useStreamingDelta = true;
     }
 
     state.seq += 1;
@@ -864,12 +899,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.translationLocked = true;
           translationBufRef.current.push(translated);
           onAdminSnapshotBuffersUpdatedRef.current?.();
-        } else if (useStreamingDelta && !replaceStreamColumn) {
+        } else if (useStreamingDelta) {
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
           state.lastShownSeq = mySeq;
           state.lastShownLen = merged.length;
           applyTranslationTypography(transTextEl, merged);
-          state.streamCommittedSource = text;
+          const committed = state.streamCommittedSource.trim();
+          state.streamCommittedSource = committed ? `${committed} ${text}` : text;
         } else {
           state.lastShownSeq = mySeq;
           state.lastShownLen = translated.length;
@@ -898,8 +934,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st      = activeBubbleStateRef.current;
       if (!buffer || buffer.length < 3) return;
       if (!st || st.translationLocked || st.finalizing || st.streamInflight) return;
-      if (buffer === st.streamCommittedSource) return;
-      dispatchTranslation(buffer, segLang, false);
+      if (!buffer.startsWith(st.streamCommittedSource)) return;
+
+      const now = Date.now();
+      const pauseElapsed = now - st.lastLiveSourceTs >= TRANSLATION_POLL_MS;
+      const uncommitted = buffer.slice(st.streamCommittedSource.length);
+      const phrase = nextLivePhraseChunk(uncommitted, pauseElapsed);
+      if (!phrase || phrase.length < 2) return;
+      dispatchTranslation(phrase, segLang, false);
     }, TRANSLATION_POLL_MS);
   }, [dispatchTranslation]);
 
@@ -990,6 +1032,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       translationLocked: false,
       streamCommittedSource: "",
       streamInflight:        false,
+      lastLiveSource:        "",
+      lastLiveSourceTs:      Date.now(),
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -1352,6 +1396,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finalText = activeBubbleRef.current?.textContent ?? "";
       const rawLive   = (finalText + nfText).trim();
       liveBufferRef.current = normalizeInterpreterTranscript(rawLive, langPairRef.current);
+      if (activeBubbleStateRef.current) {
+        if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
+          activeBubbleStateRef.current.lastLiveSource = liveBufferRef.current;
+          activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
+        }
+      }
       if (
         nfText.length === 0 &&
         activeBubbleRef.current &&
