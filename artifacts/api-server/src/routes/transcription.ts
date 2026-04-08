@@ -11,6 +11,18 @@ import {
   restoreGlossaryPlaceholders,
   glossaryPlaceholderPromptRule,
 } from "../lib/interpreter-glossary.js";
+import {
+  initProtectedTerms,
+  applyProtectedTermPlaceholders,
+  restoreProtectedTermPlaceholders,
+  protectedPlaceholderPromptRule,
+} from "../lib/protected-terms.js";
+import {
+  applyNumberPlaceholders,
+  restoreNumberPlaceholders,
+  numberPlaceholderPromptRule,
+} from "../lib/number-placeholders.js";
+import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
@@ -743,18 +755,44 @@ router.post("/translate", requireAuth, async (req, res) => {
   // calling OpenAI. This is the hard backstop for any client-side direction
   // logic that slips through (e.g. wrong segment lock on a Latin-Latin pair).
   if (srcCode === tgtCode) {
-    res.json({ translated: text });
+    res.json({ translated: applyInterpreterPhrasePretranslate(text) });
     return;
   }
 
+  // Pipeline: phrase cleanup → protected brands → interpreter glossary → digit placeholders → OpenAI.
+  const phraseNormalized = applyInterpreterPhrasePretranslate(text);
+
+  initProtectedTerms();
+  const prot = applyProtectedTermPlaceholders(phraseNormalized);
+
   initInterpreterGlossaries();
-  const { masked: textForOpenAI, slotToEntryIndex, hadPlaceholders } = applyGlossaryPlaceholders(text);
+  const { masked: afterGlossary, slotToEntryIndex, hadPlaceholders } = applyGlossaryPlaceholders(
+    prot.masked,
+  );
+  const numMask = applyNumberPlaceholders(afterGlossary);
+  const textForOpenAI = numMask.masked;
+
+  const protMaxSlot =
+    prot.slotToEntryIndex.size === 0 ? 0 : Math.max(...prot.slotToEntryIndex.keys());
   const glossaryMaxSlot =
     slotToEntryIndex.size === 0 ? 0 : Math.max(...slotToEntryIndex.keys());
-  const glossarySlotRule =
-    hadPlaceholders && glossaryMaxSlot > 0 ? glossaryPlaceholderPromptRule(glossaryMaxSlot) : "";
+  const numMaxSlot =
+    numMask.slotToDigits.size === 0 ? 0 : Math.max(...numMask.slotToDigits.keys());
 
-  const termHints = findTermHints(text, srcLang, tgtLang);
+  const placeholderRules =
+    (prot.hadPlaceholders && protMaxSlot > 0 ? protectedPlaceholderPromptRule(protMaxSlot) : "") +
+    (hadPlaceholders && glossaryMaxSlot > 0 ? glossaryPlaceholderPromptRule(glossaryMaxSlot) : "") +
+    (numMask.hadPlaceholders && numMaxSlot > 0 ? numberPlaceholderPromptRule(numMaxSlot) : "");
+
+  function restoreTranslationOutput(raw: string): string {
+    let t = raw;
+    t = restoreNumberPlaceholders(t, numMask.slotToDigits);
+    t = restoreGlossaryPlaceholders(t, slotToEntryIndex, tgtLang);
+    t = restoreProtectedTermPlaceholders(t, prot.slotToEntryIndex, tgtLang);
+    return t;
+  }
+
+  const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
 
   // ── User personal glossary ─────────────────────────────────────────────────
   // Load the user's saved glossary entries and add any that match the current text
@@ -805,7 +843,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     .select()
     .from(glossaryEntriesTable)
     .where(eq(glossaryEntriesTable.userId, userId));
-  const lowerText = text.toLowerCase();
+  const lowerText = phraseNormalized.toLowerCase();
   for (const entry of userGlossary) {
     if (lowerText.includes(entry.term.toLowerCase())) {
       termHints.push(`"${entry.term}" → "${entry.translation}"`);
@@ -864,7 +902,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const systemPrompt =
     buildSystemPrompt(false, streamingDelta) +
-    glossarySlotRule +
+    placeholderRules +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 
@@ -887,7 +925,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- If the meaning is truly unknown, transliterate the letters phonetically and do not invent an expansion.\n\n` +
 
     `NUMBERS, DATES, DOSAGES, AND UNITS:\n` +
-    `- Preserve every digit and magnitude exactly: do not round, merge, or reformat unless the target language requires a standard script-specific numeral form.\n` +
+    `- If the input contains NUM_1, NUM_2, … tokens, those mark exact digit strings from speech — copy each token exactly in place; never spell them as words and never use localized digit shapes for them.\n` +
+    `- For all other numbers in plain text, preserve every digit and magnitude: do not round, merge, or reformat unless the target language requires a standard script-specific numeral form.\n` +
     `- Keep medical doses and measurement units accurate (e.g. "500 milligrams" must stay 500 mg equivalent in ${tgtName}, not an approximate amount).\n` +
     `- Reproduce IDs and codes exactly as spoken.\n\n` +
 
@@ -981,7 +1020,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let result = await callOpenAI(systemPrompt, textForOpenAI);
     result = {
       ...result,
-      text: restoreGlossaryPlaceholders(result.text, slotToEntryIndex, tgtLang),
+      text: restoreTranslationOutput(result.text),
     };
 
     // ── Output language validation ───────────────────────────────────────────
@@ -994,12 +1033,12 @@ router.post("/translate", requireAuth, async (req, res) => {
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",
       );
-      const retryPrompt = buildSystemPrompt(true, streamingDelta) + glossarySlotRule;
+      const retryPrompt = buildSystemPrompt(true, streamingDelta) + placeholderRules;
       const retry = await callOpenAI(retryPrompt, textForOpenAI);
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
 
-      const retryRestored = restoreGlossaryPlaceholders(retry.text, slotToEntryIndex, tgtLang);
+      const retryRestored = restoreTranslationOutput(retry.text);
 
       if (retryRestored && matchesTargetScript(retryRestored, tgtCode)) {
         result = { ...retry, text: retryRestored };
