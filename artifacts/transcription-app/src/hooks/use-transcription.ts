@@ -28,7 +28,8 @@ function getApiErrorMessage(err: unknown): string | undefined {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const TRANSLATION_POLL_MS = 700;
+const TRANSLATION_POLL_MS = 1200;
+const FINAL_TRANSLATION_DELAY_MS = 500;
 // Same-speaker silence window before auto-finalizing a segment.
 // Keep short pauses (<~3 s) in the same segment; split on longer pauses (~4–6 s).
 const SILENCE_TIMEOUT_MS  = 4500;
@@ -725,6 +726,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const liveBufferRef        = useRef<string>("");
   // setInterval handle.
   const translationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalTranslationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Silence / pause detection ──────────────────────────────────────────────
   // Reset every time tokens arrive. Fires softFinalize() + bubble reset after
@@ -788,13 +790,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Streaming (isFinal=false): sends only the new source tail to the API when
   //   possible and appends the returned fragment to the translation column.
   // Final (isFinal=true): sends the full segment source and replaces the column.
-  const dispatchTranslation = useCallback((text: string, lang: string, isFinal = false) => {
+  const dispatchTranslation = useCallback((
+    text: string,
+    lang: string,
+    isFinal = false,
+    options?: { lockOnFinal?: boolean },
+  ) => {
     const state = activeBubbleStateRef.current;
     if (!state || text.length < 3) return;
 
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
+    const lockOnFinal = options?.lockOnFinal ?? true;
 
     const pair = langPairRef.current;
 
@@ -814,7 +822,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         transTextEl.className       = CLS.transText;
         transTextEl.textContent     = text;
         state.streamCommittedSource = text;
-        if (isFinal) {
+        if (isFinal && lockOnFinal) {
           state.translationLocked = true;
           translationBufRef.current.push(text);
           onAdminSnapshotBuffersUpdatedRef.current?.();
@@ -896,9 +904,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownLen = translated.length;
           applyTranslationTypography(transTextEl, translated);
           state.streamCommittedSource = text;
-          state.translationLocked = true;
-          translationBufRef.current.push(translated);
-          onAdminSnapshotBuffersUpdatedRef.current?.();
+          if (lockOnFinal) {
+            state.translationLocked = true;
+            translationBufRef.current.push(translated);
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
         } else if (useStreamingDelta) {
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
           state.lastShownSeq = mySeq;
@@ -950,6 +960,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (translationIntervalRef.current !== null) {
       clearInterval(translationIntervalRef.current);
       translationIntervalRef.current = null;
+    }
+    if (finalTranslationTimerRef.current !== null) {
+      clearTimeout(finalTranslationTimerRef.current);
+      finalTranslationTimerRef.current = null;
     }
   }, []);
 
@@ -1125,6 +1139,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (finalTranslationTimerRef.current !== null) {
+      clearTimeout(finalTranslationTimerRef.current);
+      finalTranslationTimerRef.current = null;
+    }
     if (speakerChangeDebounceTimerRef.current !== null) {
       clearTimeout(speakerChangeDebounceTimerRef.current);
       speakerChangeDebounceTimerRef.current = null;
@@ -1156,6 +1174,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+    if (finalTranslationTimerRef.current !== null) {
+      clearTimeout(finalTranslationTimerRef.current);
+      finalTranslationTimerRef.current = null;
     }
     if (speakerChangeDebounceTimerRef.current !== null) {
       clearTimeout(speakerChangeDebounceTimerRef.current);
@@ -1354,6 +1376,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── NF (non-final) tokens ─────────────────────────────────────────────
       const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      if (finalTranslationTimerRef.current !== null && nfText.length > 0) {
+        clearTimeout(finalTranslationTimerRef.current);
+        finalTranslationTimerRef.current = null;
+      }
       // Latest unstable-token speaker in this message (exclude null — same as finals below).
       const nfSpeaker = [...tokens]
         .reverse()
@@ -1417,6 +1443,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const p = activeBubbleRef.current?.parentElement;
           if (p) p.className = CLS.textFin;
         }
+        if (finalTranslationTimerRef.current !== null) {
+          clearTimeout(finalTranslationTimerRef.current);
+        }
+        finalTranslationTimerRef.current = setTimeout(() => {
+          finalTranslationTimerRef.current = null;
+          const st = activeBubbleStateRef.current;
+          if (!st || st.translationLocked || st.finalizing) return;
+          const lang = segmentDetectedLangRef.current ?? detectedLangRef.current;
+          const latest = liveBufferRef.current.trim();
+          if (latest.length < 3) return;
+          // Fast "final so far" overwrite without locking the segment;
+          // true final lock still occurs in softFinalize().
+          dispatchTranslation(latest, lang, true, { lockOnFinal: false });
+        }, FINAL_TRANSLATION_DELAY_MS);
       }
     };
 
