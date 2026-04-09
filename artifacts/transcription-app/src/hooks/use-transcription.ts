@@ -1,6 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
-import { fetchPublicFallbackTranslation } from "@/lib/public-translation-fallback";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { normalizeInterpreterTranscript } from "@/lib/interpreter-transcript-normalize";
 import {
@@ -403,9 +402,8 @@ function validateLangByScript(
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
 //
 // Primary: POST /api/transcription/translate (OpenAI on API server).
-// Fallback: when the API is down, unreachable, or returns fatal 503 / exhausted
-// retries, uses browser → public MyMemory/Lingva (`fetchPublicFallbackTranslation`)
-// so translation can continue without Railway.
+// On primary API failure we now skip that update (no public fallback) to avoid
+// mixed-language corruption during live interpreter use.
 //
 // Retry policy (primary only):
 //   • Network errors / timeouts  → retry up to MAX_ATTEMPTS with back-off
@@ -429,7 +427,9 @@ async function translateViaPrimaryApi(
   targetLang: string,
   options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
-  const MAX_ATTEMPTS = options?.isFinal ? 3 : 1;
+  const isFinal = Boolean(options?.isFinal);
+  const MAX_ATTEMPTS = isFinal ? 2 : 1;
+  const REQUEST_TIMEOUT_MS = isFinal ? 9_000 : 2_200;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -440,7 +440,7 @@ async function translateViaPrimaryApi(
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 9_000);
+    const timeoutId  = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const r = await fetch("/api/transcription/translate", {
         method:      "POST",
@@ -556,28 +556,8 @@ async function fetchTranslation(
     return { text: primary.text, replaceStreamColumn: false };
   }
 
-  // For live/non-final updates, never switch to public fallback.
-  // Fallback quality and latency can corrupt streaming behavior.
-  if (!options?.isFinal) {
-    return { text: "", replaceStreamColumn: false };
-  }
-
-  const fallbackSource =
-    options?.streamingDelta && options.fullSegmentForFallback?.trim()
-      ? options.fullSegmentForFallback.trim()
-      : text;
-  const fallback = await fetchPublicFallbackTranslation(
-    fallbackSource,
-    sourceLang,
-    targetLang,
-  );
-  if (fallback) {
-    return {
-      text:               fallback,
-      replaceStreamColumn: Boolean(options?.streamingDelta),
-    };
-  }
-
+  // Public fallback can introduce mixed-language or delayed rewrites.
+  // Keep interpreter output stable: if primary fails, skip this update.
   if (primary.userMessage) onTranslationIssue?.(primary.userMessage);
   return { text: "", replaceStreamColumn: false };
 }
