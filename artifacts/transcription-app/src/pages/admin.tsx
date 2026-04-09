@@ -11,7 +11,6 @@ import {
   getGetMeQueryKey,
   getAdminListUsersQueryKey,
   getAdminListFeedbackQueryKey,
-  type AdminUser,
 } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format, differenceInDays } from "date-fns";
@@ -27,8 +26,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
-import { formatMinutes, isTrialLikePlanType } from "@/lib/utils";
-import { TranslationDisplayParagraph } from "@/components/TranslationDisplayParagraph";
+import { formatMinutes } from "@/lib/utils";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface AdminStats {
@@ -244,27 +242,22 @@ function lastSeen(date: string | null | undefined) {
 }
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
-  const pl = (plan ?? "").toLowerCase();
-  if (!isTrialLikePlanType(pl)) return (
+  if (plan !== "trial") return (
     <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full capitalize">{plan}</span>
   );
-  const label =
-    pl === "trial-openai" ? "Trial (OpenAI)"
-    : pl === "trial-libre" ? "Trial (Libre)"
-    : "Trial";
   if (!trialEndsAt) return (
-    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">{label} — expired</span>
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
   const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   if (daysLeft <= 0) return (
-    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">{label} — expired</span>
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
   if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{label} · {daysLeft}d left
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left
     </span>
   );
-  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{label} · {daysLeft}d left</span>;
+  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{daysLeft}d left</span>;
 }
 
 // ── Audio device type detector ────────────────────────────────────────────────
@@ -728,7 +721,7 @@ export default function Admin() {
   }
   if (!me?.isAdmin) return null;
 
-  const allUsers: AdminUser[] = usersData?.users ?? [];
+  const allUsers  = usersData?.users ?? [];
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
   const sessions  = stats?.activeSessions ?? [];
@@ -760,7 +753,7 @@ export default function Admin() {
   };
 
   // ── Edit user drawer helpers ───────────────────────────────────────────────
-  function openEditUser(u: AdminUser) {
+  function openEditUser(u: typeof allUsers[0]) {
     const userDefaultA = ((u as unknown as { defaultLangA?: string }).defaultLangA ?? defaultLangA ?? "en").trim();
     const userDefaultB = ((u as unknown as { defaultLangB?: string }).defaultLangB ?? defaultLangB ?? "ar").trim();
     setEditingUser({
@@ -815,7 +808,7 @@ export default function Admin() {
         defaultLangA:      editForm.defaultLangA,
         defaultLangB:      editForm.defaultLangB,
       };
-      if (isTrialLikePlanType(editForm.planType) && editForm.trialEndsAt) {
+      if (editForm.planType === "trial" && editForm.trialEndsAt) {
         body.trialEndsAt = new Date(editForm.trialEndsAt).toISOString();
       }
       const res = await fetch(`/api/admin/users/${editingUser.id}`, {
@@ -859,8 +852,8 @@ export default function Admin() {
 
   const filteredUsers = allUsers
     .filter(u => {
-      if (userFilter === "trial")    return isTrialLikePlanType(u.planType);
-      if (userFilter === "paying")   return !isTrialLikePlanType(u.planType);
+      if (userFilter === "trial")    return u.planType === "trial";
+      if (userFilter === "paying")   return u.planType !== "trial";
       if (userFilter === "inactive") return !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7;
       if (userFilter === "high")     return u.minutesUsedToday >= 60;
       return true;
@@ -903,8 +896,8 @@ export default function Admin() {
 
   const filterCounts = {
     all:      allUsers.length,
-    trial:    allUsers.filter(u => isTrialLikePlanType(u.planType)).length,
-    paying:   allUsers.filter(u => !isTrialLikePlanType(u.planType)).length,
+    trial:    allUsers.filter(u => u.planType === "trial").length,
+    paying:   allUsers.filter(u => u.planType !== "trial").length,
     inactive: allUsers.filter(u => !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7).length,
     high:     allUsers.filter(u => u.minutesUsedToday >= 60).length,
   };
@@ -1127,7 +1120,7 @@ export default function Admin() {
                         {!s.hasSnapshot && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">stale</span>
                         )}
-                        <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${isTrialLikePlanType(s.planType) ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
+                        <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${s.planType === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
                       </div>
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
@@ -1482,14 +1475,7 @@ export default function Admin() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredUsers.map(u => {
-                    const nearLimitEpsilonMin = 0.25; // 15s tolerance for float/clock drift
-                    const todayUsedRaw = Number(u.minutesUsedToday) || 0;
-                    const todayLimitRaw = Number(u.dailyLimitMinutes) || 0;
-                    const todayUsed =
-                      todayLimitRaw > 0 && todayUsedRaw >= (todayLimitRaw - nearLimitEpsilonMin)
-                        ? todayLimitRaw
-                        : todayUsedRaw;
-                    const todayPct = todayLimitRaw > 0 ? Math.min(100, (todayUsed / todayLimitRaw) * 100) : 0;
+                    const todayPct  = Math.min(100, (u.minutesUsedToday / u.dailyLimitMinutes) * 100);
                     return (
                       <tr
                         key={u.id}
@@ -1526,7 +1512,7 @@ export default function Admin() {
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
-                            {isTrialLikePlanType(u.planType) && u.trialEndsAt && (
+                            {u.planType === "trial" && u.trialEndsAt && (
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                                 ends {format(new Date(u.trialEndsAt), "MMM d")}
                               </span>
@@ -1541,7 +1527,7 @@ export default function Admin() {
                               <div className="h-full bg-primary rounded-full" style={{ width: `${todayPct}%` }} />
                             </div>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {formatMinutes(todayUsed)} / {formatMinutes(todayLimitRaw)}
+                              {formatMinutes(u.minutesUsedToday)} / {formatMinutes(u.dailyLimitMinutes)}
                             </span>
                           </div>
                         </td>
@@ -2360,7 +2346,7 @@ export default function Admin() {
                   {viewLoading ? (
                     <div className="text-sm text-muted-foreground italic">Loading…</div>
                   ) : sessionDetail?.snapshot?.translation ? (
-                    <TranslationDisplayParagraph text={sessionDetail.snapshot.translation} />
+                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" dir="auto">{sessionDetail.snapshot.translation}</p>
                   ) : (
                     <p className="text-sm text-muted-foreground italic">Translation will appear here as segments are finalized.</p>
                   )}
@@ -2592,18 +2578,15 @@ export default function Admin() {
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
-                    <option value="trial">Trial (default)</option>
-                    <option value="trial-openai">Trial (OpenAI)</option>
-                    <option value="trial-libre">Trial (Libre)</option>
+                    <option value="trial">Trial</option>
                     <option value="basic">Basic</option>
                     <option value="professional">Professional</option>
-                    <option value="platinum">Platinum</option>
-                    <option value="unlimited">Unlimited (legacy)</option>
+                    <option value="unlimited">Unlimited</option>
                   </select>
                 </div>
 
                 {/* Trial expiry — only when trial */}
-                {isTrialLikePlanType(editForm.planType) && (
+                {editForm.planType === "trial" && (
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-muted-foreground">Trial Ends On</label>
                     <input
