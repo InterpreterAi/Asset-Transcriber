@@ -429,7 +429,7 @@ async function translateViaPrimaryApi(
   targetLang: string,
   options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
-  const MAX_ATTEMPTS = 3;
+  const MAX_ATTEMPTS = options?.isFinal ? 3 : 1;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -556,6 +556,12 @@ async function fetchTranslation(
     return { text: primary.text, replaceStreamColumn: false };
   }
 
+  // For live/non-final updates, never switch to public fallback.
+  // Fallback quality and latency can corrupt streaming behavior.
+  if (!options?.isFinal) {
+    return { text: "", replaceStreamColumn: false };
+  }
+
   const fallbackSource =
     options?.streamingDelta && options.fullSegmentForFallback?.trim()
       ? options.fullSegmentForFallback.trim()
@@ -634,6 +640,8 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   if (!piece) return prevDisplayed.trim();
   const prev = prevDisplayed.trim();
   if (!prev || prev === "…") return piece;
+  // Keep contiguous number chunks together (e.g. "36" + "02" => "3602").
+  if (/\d$/.test(prev) && /^\d/.test(piece)) return `${prev}${piece}`;
   return `${prev} ${piece}`;
 }
 
@@ -645,7 +653,7 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-/** Returns the newly appended tail when `full` extends `prefix` (case-insensitive). */
+/** Returns the newly appended tail using prefix/overlap matching (case-insensitive). */
 function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: string; monotonic: boolean } {
   const full = fullRaw.trimStart();
   const prefix = prefixRaw.trimEnd();
@@ -654,6 +662,13 @@ function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: stri
   const f = full.toLowerCase();
   const p = prefix.toLowerCase();
   if (f.startsWith(p)) return { tail: full.slice(p.length).trimStart(), monotonic: true };
+  // Soniox interim hypotheses can revise a little. Accept append overlap:
+  // find the largest suffix of previous source that is a prefix of current.
+  const maxK = Math.min(prefix.length, full.length);
+  for (let k = maxK; k >= 1; k--) {
+    const sfx = p.slice(p.length - k);
+    if (f.startsWith(sfx)) return { tail: full.slice(k).trimStart(), monotonic: true };
+  }
   return { tail: "", monotonic: false };
 }
 
@@ -1045,11 +1060,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     const useLibre = useLibreTranslateRef.current;
+    let requestIsFinal = isFinal;
     let apiText: string;
     let useStreamingDelta = false;
     if (isFinal) {
-      apiText = text;
-      useStreamingDelta = false;
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      // Final pass should not rewrite the whole sentence after interpreters already spoke it.
+      // If we already translated all seen source, just lock; if there is a tail, translate tail only.
+      if (monotonic && !tail.trim()) {
+        state.translationLocked = true;
+        return;
+      }
+      if (monotonic && tail.trim()) {
+        apiText = tail;
+        useStreamingDelta = true;
+        requestIsFinal = false;
+      } else {
+        // Non-monotonic final rewrite is intentionally blocked for interpreter stability.
+        state.translationLocked = true;
+        return;
+      }
     } else if (!useLibre) {
       const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
       // OpenAI live mode: append-only preview to avoid rewriting the full sentence.
@@ -1076,9 +1106,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           myTargetLang,
           (m) => translationConfigReporterRef.current(m),
           {
-            streamingDelta:         useStreamingDelta && !isFinal,
-            fullSegmentForFallback: useStreamingDelta && !isFinal ? text : undefined,
-            isFinal,
+            streamingDelta:         useStreamingDelta && !requestIsFinal,
+            fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
+            isFinal: requestIsFinal,
           },
         );
         const responseSegmentId = requestSegmentId;
@@ -1093,7 +1123,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
 
-        if (isFinal) {
+        if (requestIsFinal) {
           state.lastShownSeq = mySeq;
           state.lastShownLen = translated.length;
           applyTranslationTypography(transTextEl, translated);
@@ -1116,12 +1146,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           state.streamCommittedSource = text;
           state.lastConfirmedSourceTranslated = text;
+          if (isFinal && lockOnFinal) {
+            // Final caller, but we intentionally handled it as delta append-only.
+            state.translationLocked = true;
+            translationBufRef.current.push(transTextEl.textContent ?? "");
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
         } else {
           state.lastShownSeq = mySeq;
           state.lastShownLen = translated.length;
           applyTranslationTypography(transTextEl, translated);
           state.streamCommittedSource = text;
-          if (!isFinal) state.lastConfirmedSourceTranslated = text;
+          if (!requestIsFinal) state.lastConfirmedSourceTranslated = text;
         }
 
         scrollPanel();
