@@ -618,15 +618,54 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** If the new fragment repeats the last word of the prior translation, drop that repeat (e.g. شكراً + شكراً لاتصالك). */
+function trimDuplicateBoundaryWord(prev: string, piece: string): string {
+  const p = piece.trim();
+  if (!p) return piece;
+  const prevLast = prev.trim().split(/\s+/).pop() ?? "";
+  const firstMatch = p.match(/^(\S+)/u);
+  const first = firstMatch?.[1] ?? "";
+  if (prevLast && first && prevLast === first) {
+    return p.slice(first.length).trimStart();
+  }
+  return piece;
+}
+
+/**
+ * Dedupe consecutive identical tokens, trim junk leading punctuation, collapse
+ * doubled marks, fix split "? … لليوم؟" from incremental errors.
+ */
+function polishArabicInterpreterTranslation(raw: string): string {
+  let t = collapseWs(raw);
+  const toks = t.split(/\s+/).filter(Boolean);
+  const deduped: string[] = [];
+  for (const w of toks) {
+    if (deduped.length && deduped[deduped.length - 1] === w) continue;
+    deduped.push(w);
+  }
+  t = deduped.join(" ");
+  t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
+  t = t.replace(/([.؟!?])\1+/g, "$1");
+  t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
+  return collapseWs(t);
+}
+
+function maybePolishTranslationForTarget(text: string, targetLang: string): string {
+  const base = targetLang.split("-")[0]?.toLowerCase() ?? "";
+  if (base === "ar") return polishArabicInterpreterTranslation(text);
+  return text;
+}
+
 /**
  * Append a streaming fragment. The model often re-echoes prior Arabic or returns an
  * overlapping continuation — merge by suffix/prefix overlap or prefer the longer
  * coherent run when it clearly supersedes what is already shown.
  */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = newPiece.trim();
-  if (!piece) return prevDisplayed.trim();
   const prev = prevDisplayed.trim();
+  let piece = trimDuplicateBoundaryWord(prev, newPiece);
+  piece = piece.trim();
+  if (!piece) return prev;
   if (!prev || prev === "…") return piece;
   if (prev === piece || prev.endsWith(piece)) return prev;
   const prevC = collapseWs(prev);
@@ -936,9 +975,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
   //   out-of-order arrivals while still showing every result in order.
   //
-  // Streaming (isFinal=false): sends only the new source tail to the API when
-  //   possible and appends the returned fragment to the translation column.
-  // Final (isFinal=true): sends the full segment source and replaces the column.
+  // Live OpenAI (isFinal=false): sends the full cumulative source each time and
+  //   replaces the translation column (avoids delta-merge duplication).
+  // Live Libre: full source per tick, replace. Final OpenAI tail-only may still merge.
+  // Final (isFinal=true): tail-only delta when monotonic, else lock rules apply.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1100,19 +1140,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         return;
       }
     } else if (!useLibre) {
-      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-      // OpenAI live: prefer append-only deltas. If Soniox revises earlier words so strictly
-      // monotonic extension fails, replace the column once from full source so the stream
-      // does not stall with English far ahead of Arabic.
-      if (!monotonic) {
-        apiText = text;
-        useStreamingDelta = false;
-      } else if (!tail.trim()) {
-        return;
-      } else {
-        apiText = tail;
-        useStreamingDelta = true;
-      }
+      // OpenAI live: always send the full cumulative transcript and replace the translation
+      // cell. Tail+delta+merge stacked overlapping model output (duplicate clauses, broken
+      // numbers); Soniox-style demos refresh the whole target string for the current source.
+      apiText = text;
+      useStreamingDelta = false;
     } else {
       // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
@@ -1149,25 +1181,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
 
         if (requestIsFinal) {
+          const out = maybePolishTranslationForTarget(translated, myTargetLang);
           state.lastShownSeq = mySeq;
-          state.lastShownLen = translated.length;
-          applyTranslationTypography(transTextEl, translated);
+          state.lastShownLen = out.length;
+          applyTranslationTypography(transTextEl, out);
           state.streamCommittedSource = text;
           if (lockOnFinal) {
             state.translationLocked = true;
-            translationBufRef.current.push(translated);
+            translationBufRef.current.push(out);
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         } else if (useStreamingDelta) {
           if (replaceStreamColumn) {
+            const out = maybePolishTranslationForTarget(translated, myTargetLang);
             state.lastShownSeq = mySeq;
-            state.lastShownLen = translated.length;
-            applyTranslationTypography(transTextEl, translated);
+            state.lastShownLen = out.length;
+            applyTranslationTypography(transTextEl, out);
           } else {
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
+            const out = maybePolishTranslationForTarget(merged, myTargetLang);
             state.lastShownSeq = mySeq;
-            state.lastShownLen = merged.length;
-            applyTranslationTypography(transTextEl, merged);
+            state.lastShownLen = out.length;
+            applyTranslationTypography(transTextEl, out);
           }
           state.streamCommittedSource = text;
           state.lastConfirmedSourceTranslated = text;
@@ -1178,9 +1213,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         } else {
+          const out = maybePolishTranslationForTarget(translated, myTargetLang);
           state.lastShownSeq = mySeq;
-          state.lastShownLen = translated.length;
-          applyTranslationTypography(transTextEl, translated);
+          state.lastShownLen = out.length;
+          applyTranslationTypography(transTextEl, out);
           state.streamCommittedSource = text;
           if (!requestIsFinal) state.lastConfirmedSourceTranslated = text;
         }

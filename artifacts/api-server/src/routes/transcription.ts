@@ -347,8 +347,23 @@ const STREAMING_FRAGMENT_RULES =
   `Translate ONLY that tail. Output ONLY the translation of the tail — no quotation marks, labels, or preamble.\n` +
   `Keep your output SHORT (typically well under one sentence): the UI already shows prior translation; never re-output earlier clauses.\n` +
   `Do NOT repeat, paraphrase, or restate content from earlier in the same utterance — zero duplication.\n` +
+  `Never output the same word twice in a row unless the speaker literally repeated it.\n` +
+  `Do not start the fragment with punctuation alone; use normal punctuation only at natural phrase boundaries.\n` +
   `Translate every English word in the tail (including modal verbs like "will", "would", "can") into the target language — never copy English words into the translation.\n` +
-  `If the tail is grammatically incomplete, translate it literally without inventing subjects, objects, or context the speaker did not say.\n\n`;
+  `If the tail is grammatically incomplete, translate it literally without inventing subjects, objects, or context the speaker did not say.\n` +
+  `If the tail is only a trailing piece (e.g. "for today") that belongs inside the previous clause, fold it in — do not add a second separate question mark or a new sentence.\n\n`;
+
+/** When source is English and target is Arabic: MSA + on-screen interpreter reading quality. */
+const ARABIC_EN_INTERPRETER_RULES =
+  `ARABIC OUTPUT (English → Arabic):\n` +
+  `- The translation appears in a column read aloud by a professional interpreter: use clear, natural Modern Standard Arabic (العربية الفصحى), not dialect.\n` +
+  `- Mirror the transcription faithfully in meaning; phrase so it sounds professional when read, without adding or omitting content.\n` +
+  `- Avoid broken literal calques: never leave a bare definite article (الـ) before nothing; use complete noun phrases (e.g. المترجم العربي / المترجمة العربية).\n` +
+  `- "My name is [Name]" → اسمي [Name] (or أنا اسمي [Name]). NEVER use هل before the name unless the English is a yes/no question.\n` +
+  `- "My number is …" → ورقمي هو … (or رقمي …). Do NOT use وخاصتي or awkward literal glosses.\n` +
+  `- Common phone/interpreter lines: use standard professional Arabic while preserving meaning, e.g. thank you for calling → شكراً لاتصالك; you are through to the Arabic interpreter → وصلت إلى المترجم العربي / المترجمة العربية as appropriate.\n` +
+  `- Punctuation: use Arabic comma ، where a short pause fits; end each sentence with a single . or ؟ as appropriate. No duplicate sentence marks; no punctuation-only starts.\n` +
+  `- Preserve every digit of IDs and numbers exactly as spoken.\n\n`;
 
 /** Full-segment finalize pass from the client — authoritative translation replacing earlier partials. */
 function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
@@ -368,7 +383,7 @@ const OUTPUT_REGISTER_ZH_TW =
   "Standard Mandarin in Traditional Chinese script (繁體), professional register — no regional slang.";
 
 const OUTPUT_REGISTER_BY_BASE: Record<string, string> = {
-  ar: "Modern Standard Arabic (MSA / فصحى). Do NOT use dialect particles such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه.",
+  ar: "Modern Standard Arabic (MSA / الفصحى), phrased for an interpreter reading the translation aloud — clear, professional, full clauses. Do NOT use dialect particles such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه.",
   bg: "Standard Bulgarian — professional medical/legal register, no regional slang.",
   hr: "Standard Croatian — professional medical/legal register.",
   cs: "Standard Czech — professional medical/legal register.",
@@ -544,6 +559,32 @@ function stripStrayLatinAuxiliaryTokens(text: string, sourceBase: string, target
   const leak =
     /\b(will|would|could|should|cannot|can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't)\b/gi;
   return text.replace(leak, " ").replace(/\s{2,}/g, " ").trim();
+}
+
+/** Client applies similar logic; server normalizes Arabic output before respond. */
+function polishArabicTranslationOutput(text: string): string {
+  let t = text.replace(/\s+/g, " ").trim();
+  const toks = t.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const w of toks) {
+    if (out.length && out[out.length - 1] === w) continue;
+    out.push(w);
+  }
+  t = out.join(" ");
+  t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
+  t = t.replace(/([.؟!?])\1+/g, "$1");
+  t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function postProcessTranslatedText(
+  text: string,
+  sourceBase: string,
+  targetBase: string,
+): string {
+  let t = stripStrayLatinAuxiliaryTokens(text, sourceBase, targetBase);
+  if (targetBase === "ar") t = polishArabicTranslationOutput(t);
+  return t;
 }
 
 // ── /session/start ─────────────────────────────────────────────────────────
@@ -1082,7 +1123,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         "TRANSCRIPTION_DIAG",
       );
       const raw = await callLibreTranslate(textForOpenAI, srcCode, tgtCode);
-      const translated = stripStrayLatinAuxiliaryTokens(
+      const translated = postProcessTranslatedText(
         restoreTranslationOutput(String(raw ?? "")),
         srcCode,
         tgtCode,
@@ -1144,6 +1185,9 @@ router.post("/translate", requireAuth, async (req, res) => {
   const finalSegmentBlock =
     isFinalSegment && !streamingDelta ? finalSegmentCorrectionPrompt(tgtName) : "";
 
+  const arabicEnTargetBlock =
+    srcCode === "en" && tgtCode === "ar" ? ARABIC_EN_INTERPRETER_RULES : "";
+
   // ── Build system prompt helper ─────────────────────────────────────────────
   // Accepts an optional forceOverride flag for the retry path; when true the
   // language-lock instruction is elevated to the very top of the prompt with
@@ -1187,6 +1231,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     buildSystemPrompt(false, streamingDelta) +
     placeholderRules +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
+    arabicEnTargetBlock +
     `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 
     `ROLE BOUNDARY (INTERPRETER ONLY):\n` +
@@ -1315,7 +1360,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let result = await callOpenAI(systemPrompt, textForOpenAI);
     result = {
       ...result,
-      text: stripStrayLatinAuxiliaryTokens(restoreTranslationOutput(result.text), srcCode, tgtCode),
+      text: postProcessTranslatedText(restoreTranslationOutput(result.text), srcCode, tgtCode),
     };
 
     // ── Output language validation ───────────────────────────────────────────
@@ -1329,12 +1374,12 @@ router.post("/translate", requireAuth, async (req, res) => {
         "Translation output failed script validation — retrying with force-override prompt",
       );
       const retryPrompt =
-        buildSystemPrompt(true, streamingDelta) + placeholderRules + finalSegmentBlock;
+        buildSystemPrompt(true, streamingDelta) + placeholderRules + arabicEnTargetBlock + finalSegmentBlock;
       const retry = await callOpenAI(retryPrompt, textForOpenAI);
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
 
-      const retryRestored = stripStrayLatinAuxiliaryTokens(
+      const retryRestored = postProcessTranslatedText(
         restoreTranslationOutput(retry.text),
         srcCode,
         tgtCode,
