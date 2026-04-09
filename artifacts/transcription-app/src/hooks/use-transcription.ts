@@ -456,7 +456,7 @@ async function translateViaPrimaryApi(
   // often — abort → empty response → translation column freezes at the last good snapshot.
   const REQUEST_TIMEOUT_MS = isFinal
     ? 9_000
-    : Math.min(16_000, 2_800 + text.length * 28);
+    : Math.min(22_000, 3_200 + text.length * 36);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -1409,7 +1409,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
 
         if (requestIsFinal) {
-          const out = maybePolishTranslationForTarget(translated, myTargetLang);
+          const prevT = (transTextEl.textContent ?? "").trim();
+          let out = maybePolishTranslationForTarget(translated, myTargetLang);
+          // If the model returns an abnormally short "final" vs what we already showed, merge instead of wiping.
+          if (
+            prevT.length > 28 &&
+            out.length > 0 &&
+            out.length < prevT.length * 0.35 &&
+            text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.85
+          ) {
+            out = mergeStreamingTranslation(prevT, out);
+            out = maybePolishTranslationForTarget(out, myTargetLang);
+          }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -1421,7 +1432,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         } else if (useStreamingDelta) {
           if (replaceStreamColumn) {
-            const out = maybePolishTranslationForTarget(translated, myTargetLang);
+            const prevT = (transTextEl.textContent ?? "").trim();
+            let out = maybePolishTranslationForTarget(translated, myTargetLang);
+            if (
+              !requestIsFinal &&
+              prevT.length > 16 &&
+              out.length > 0 &&
+              out.length < prevT.length * 0.4
+            ) {
+              out = prevT;
+            }
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
             applyTranslationTypography(transTextEl, out);
@@ -1441,7 +1461,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         } else {
-          const out = maybePolishTranslationForTarget(translated, myTargetLang);
+          const prevT = (transTextEl.textContent ?? "").trim();
+          let out = maybePolishTranslationForTarget(translated, myTargetLang);
+          // Live full-cell refresh: ignore truncated snapshots while the source is still growing (timeouts/partials).
+          if (
+            !requestIsFinal &&
+            prevT.length > 16 &&
+            out.length > 0 &&
+            out.length < prevT.length * 0.4 &&
+            text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.88
+          ) {
+            state.lastShownSeq = mySeq;
+            state.streamCommittedSource = text;
+            state.lastConfirmedSourceTranslated = text;
+            scrollPanel();
+            return;
+          }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -1601,7 +1636,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (activeBubbleRef.current) {
       const pre = activeBubbleRef.current.textContent ?? "";
       const norm = normalizeInterpreterTranscript(pre, langPairRef.current);
-      if (norm !== pre) activeBubbleRef.current.textContent = norm;
+      // Never shorten the original column: phrase fixes should preserve length; avoid wiping ASR text.
+      if (norm !== pre && norm.length >= pre.length - 3) {
+        activeBubbleRef.current.textContent = norm;
+      }
     }
 
     if (!styleUpgradedRef.current) {
