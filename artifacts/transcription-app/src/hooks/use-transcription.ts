@@ -429,7 +429,11 @@ async function translateViaPrimaryApi(
 ): Promise<PrimaryTranslationResult> {
   const isFinal = Boolean(options?.isFinal);
   const MAX_ATTEMPTS = isFinal ? 2 : 1;
-  const REQUEST_TIMEOUT_MS = isFinal ? 9_000 : 2_200;
+  // Live requests send the full cumulative transcript; long medical turns exceed a flat 2.2s
+  // often — abort → empty response → translation column freezes at the last good snapshot.
+  const REQUEST_TIMEOUT_MS = isFinal
+    ? 9_000
+    : Math.min(16_000, 2_800 + text.length * 28);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
