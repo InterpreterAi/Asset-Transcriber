@@ -570,3 +570,119 @@ export async function sendTranslationArchitectureUpdateEmailWithResult(
   const { subject, html, text } = buildTranslationArchitectureUpdateMail(opts);
   return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
 }
+
+/** Subject for the one-time stability / baseline product update (see send script). */
+export const STABILITY_BASELINE_UPDATE_EMAIL_SUBJECT =
+  "InterpreterAI — Important update: stability, accuracy & your new baseline";
+
+const STABILITY_BASELINE_UPDATE_PLAIN_TEXT = `Hi,
+
+We want to sincerely apologize again for the instability you may have experienced recently.
+
+Over the past few days, our development team was working on major improvements to both transcription and translation, which caused some inconsistency during live sessions. We understand how critical stability is during interpretation, and we truly appreciate your patience.
+
+As of now, a significant update has been fully deployed.
+
+Here's what has improved:
+
+• Much more stable real-time performance — no more flickering or constant changes
+• Improved accuracy during long sentences and fast speech
+• Better handling of numbers, abbreviations, and terminology (e.g. SSI, DHS, medical terms)
+• Cleaner and more consistent translation output during live calls
+
+We have also adjusted the system to behave more like a real interpreting assistant — helping you follow the conversation clearly without missing key details.
+
+Most importantly:
+
+→ The system is now stable and consistent
+→ The current version is not experimental — it is the new baseline going forward
+
+You should notice the difference immediately during your sessions.
+
+If you haven't tried it again recently, we invite you to test the updated version:
+
+https://app.interpreterai.org
+
+If your trial has ended:
+
+• You can subscribe to continue using it (starting from $39/month)
+• Or invite 3 interpreters to unlock additional usage time
+
+We're continuing to improve the system, but from this point forward, our focus is on stability, accuracy, and reliability during real calls.
+
+Your feedback is extremely valuable — and we're listening carefully.
+
+Thank you again for your patience and support.
+
+— InterpreterAI Team`;
+
+function buildStabilityBaselineUpdateMail(opts: { userId: number }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const base = appBaseUrl();
+  const appHref = "https://app.interpreterai.org";
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId: opts.userId,
+    heading: "Important update — now live",
+    bodyHtml: [
+      emailParagraph("Hi,"),
+      emailParagraph(
+        "We want to sincerely apologize again for the instability you may have experienced recently.",
+      ),
+      emailParagraph(
+        "Over the past few days, our development team was working on major improvements to both transcription and translation, which caused some inconsistency during live sessions. We understand how critical stability is during interpretation, and we truly appreciate your patience.",
+      ),
+      emailParagraph("As of now, a significant update has been fully deployed."),
+      emailParagraph("Here's what has improved:"),
+      emailBulletList([
+        "Much more stable real-time performance — no more flickering or constant changes",
+        "Improved accuracy during long sentences and fast speech",
+        "Better handling of numbers, abbreviations, and terminology (e.g. SSI, DHS, medical terms)",
+        "Cleaner and more consistent translation output during live calls",
+      ]),
+      emailParagraph(
+        "We have also adjusted the system to behave more like a real interpreting assistant — helping you follow the conversation clearly without missing key details.",
+      ),
+      emailSubheading("Most importantly"),
+      emailBulletList([
+        "The system is now stable and consistent",
+        "The current version is not experimental — it is the new baseline going forward",
+      ]),
+      emailParagraph("You should notice the difference immediately during your sessions."),
+      emailParagraph("If you haven't tried it again recently, we invite you to test the updated version:"),
+      emailParagraph(appHref),
+      emailParagraph("If your trial has ended:"),
+      emailBulletList([
+        "You can subscribe to continue using it (starting from $39/month)",
+        "Or invite 3 interpreters to unlock additional usage time",
+      ]),
+      emailParagraph(
+        "We're continuing to improve the system, but from this point forward, our focus is on stability, accuracy, and reliability during real calls.",
+      ),
+      emailParagraph("Your feedback is extremely valuable — and we're listening carefully."),
+      emailParagraph("Thank you again for your patience and support."),
+      emailParagraph("— InterpreterAI Team"),
+    ].join(""),
+    primaryButton: { href: appHref, label: "Open InterpreterAI" },
+  });
+  return {
+    subject: STABILITY_BASELINE_UPDATE_EMAIL_SUBJECT,
+    html,
+    text: STABILITY_BASELINE_UPDATE_PLAIN_TEXT,
+  };
+}
+
+/** One-time broadcast: stability / baseline announcement (script sets DB flag after success). */
+export async function sendStabilityBaselineUpdateEmailWithResult(
+  to: string,
+  opts: { userId: number },
+): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html, text } = buildStabilityBaselineUpdateMail(opts);
+  return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
+}

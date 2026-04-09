@@ -21,6 +21,8 @@ export const usersTable = pgTable("users", {
   trialActiveReminderSentAt: timestamp("trial_active_reminder_sent_at"),
   /** One-time product email: translation architecture update (manual script; idempotent per user). */
   translationArchitectureUpdateEmailSentAt: timestamp("translation_architecture_update_email_sent_at"),
+  /** One-time product email: stability / baseline announcement (manual script; idempotent per user). */
+  stabilityBaselineUpdateEmailSentAt: timestamp("stability_baseline_update_email_sent_at"),
   /** When false, skip trial reminder campaign emails (unsubscribe). Other transactional mail unchanged. */
   emailRemindersEnabled: boolean("email_reminders_enabled").notNull().default(true),
   /** Email/password signups must verify before login; OAuth signups stay false. */

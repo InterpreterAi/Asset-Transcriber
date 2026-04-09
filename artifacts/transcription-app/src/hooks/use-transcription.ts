@@ -162,6 +162,10 @@ function matchesLang(detected: string, selected: string): boolean {
   return d === s || d.split("-")[0] === s.split("-")[0];
 }
 
+function langInSelectedPair(lang: string, pair: { a: string; b: string }): boolean {
+  return matchesLang(lang, pair.a) || matchesLang(lang, pair.b);
+}
+
 // Given a detected language code and the selected {a, b} pair, return the
 // target language code: if detected is B → translate to A, otherwise → B.
 // This makes the translation always go to the OPPOSITE of what was spoken.
@@ -306,6 +310,25 @@ const UNICODE_SCRIPTS: {
     langs:  ["ml"],
   },
 ];
+
+function scriptEntryLangs(scriptName: string): string[] {
+  return UNICODE_SCRIPTS.find((s) => s.name === scriptName)?.langs ?? [];
+}
+
+/** BCP-47 bases using Latin script — shared polish with English/Portuguese/Spanish (any en↔X pair). */
+const LATIN_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Latin"));
+/** ar, fa, ur */
+const ARABIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Arabic"));
+const CYRILLIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Cyrillic"));
+const HEBREW_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Hebrew"));
+const GREEK_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Greek"));
+const HANGUL_TARGET_LANG_BASES = new Set(scriptEntryLangs("Hangul"));
+/** zh + ja (ideographic/kana output). */
+const CJK_TARGET_LANG_BASES = new Set<string>([
+  ...scriptEntryLangs("CJK"),
+  ...scriptEntryLangs("Hiragana"),
+  ...scriptEntryLangs("Katakana"),
+]);
 
 // Returns true when `lang` (BCP-47, e.g. "zh-CN") is listed in `langs`.
 // Matching is base-code prefix: "zh-CN" matches "zh".
@@ -635,46 +658,158 @@ function trimDuplicateBoundaryWord(prev: string, piece: string): string {
   return piece;
 }
 
-/**
- * Dedupe consecutive identical tokens, trim junk leading punctuation, collapse
- * doubled marks, fix split "? … لليوم؟" from incremental errors.
- */
-function polishArabicInterpreterTranslation(raw: string): string {
-  let t = collapseWs(raw);
+/** Consecutive duplicate tokens (all targets — matches Arabic/English hygiene). */
+function dedupeConsecutiveTranslationTokens(raw: string): string {
+  const t = collapseWs(raw);
   const toks = t.split(/\s+/).filter(Boolean);
   const deduped: string[] = [];
   for (const w of toks) {
     if (deduped.length && deduped[deduped.length - 1] === w) continue;
     deduped.push(w);
   }
-  t = deduped.join(" ");
+  return deduped.join(" ");
+}
+
+function tokenOverlapRatio(a: string, b: string): number {
+  const ta = a.toLowerCase().split(/\s+/).filter(Boolean);
+  const tb = b.toLowerCase().split(/\s+/).filter(Boolean);
+  if (ta.length < 2 || tb.length < 2) return 0;
+  const setA = new Set(ta);
+  let hit = 0;
+  for (const w of tb) if (setA.has(w)) hit++;
+  return hit / Math.max(ta.length, tb.length);
+}
+
+/**
+ * Dedupe consecutive identical tokens, trim junk leading punctuation, collapse
+ * doubled marks, fix split "? … لليوم؟" from incremental errors.
+ */
+function polishArabicInterpreterTranslation(raw: string): string {
+  let t = dedupeConsecutiveTranslationTokens(raw);
   t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.؟!?])\1+/g, "$1");
   t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
   return collapseWs(t);
 }
 
-/** When English is the translation column (any source language): dedupe tokens + trim redundant tag echoes. */
-function polishEnglishInterpreterTranslation(raw: string): string {
-  let t = collapseWs(raw);
-  const toks = t.split(/\s+/).filter(Boolean);
-  const deduped: string[] = [];
-  for (const w of toks) {
-    if (deduped.length && deduped[deduped.length - 1] === w) continue;
-    deduped.push(w);
+/** Hebrew translation column: same token hygiene + ?-tail dedupe as Latin/Cyrillic. */
+function polishHebrewInterpreterTranslation(raw: string): string {
+  let t = dedupeConsecutiveTranslationTokens(raw);
+  t = t.replace(/^[.?!،。'"“”\s\u0590-\u05FF\u200c\u200f\u200e]+/u, "").trim();
+  t = t.replace(/([.?!?])\1+/g, "$1");
+  t = trimOverlappingDuplicateQuestionTail(t);
+  const sents = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+  if (sents.length >= 2) {
+    const last = sents[sents.length - 1]!;
+    const prev = sents[sents.length - 2]!;
+    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.48) {
+      return collapseWs(sents.slice(0, -1).join(" "));
+    }
   }
-  t = deduped.join(" ");
-  t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
-  t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
-  t = t.replace(/\bokay\?\s+Complete confidentiality, right\?$/i, "okay?");
   return collapseWs(t);
 }
 
+/**
+ * Latin-script targets (en, fr, de, es, pt, it, nl, …): English-only phrase cleanup +
+ * duplicate question/sentence tails (same family of fixes as en↔ar live output).
+ */
+function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string): string {
+  let t = dedupeConsecutiveTranslationTokens(raw);
+  if (targetBase === "en") {
+    t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
+    t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
+    t = t.replace(/\bokay\?\s+Complete confidentiality, right\?$/i, "okay?");
+  }
+  t = trimOverlappingDuplicateQuestionTail(t);
+  const sents = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+  if (sents.length >= 2) {
+    const last = sents[sents.length - 1]!;
+    const prev = sents[sents.length - 2]!;
+    if (last.length >= 14 && prev.length >= 14) {
+      const r = tokenOverlapRatio(prev, last);
+      if (r >= 0.48) return collapseWs(sents.slice(0, -1).join(" "));
+    }
+  }
+  return collapseWs(t);
+}
+
+/** Cyrillic, Greek, and similar: ?/. ! tail echoes without English-specific regexes. */
+function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
+  let t = dedupeConsecutiveTranslationTokens(raw);
+  t = trimOverlappingDuplicateQuestionTail(t);
+  const sents = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+  if (sents.length >= 2) {
+    const last = sents[sents.length - 1]!;
+    const prev = sents[sents.length - 2]!;
+    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.48) {
+      return collapseWs(sents.slice(0, -1).join(" "));
+    }
+  }
+  return collapseWs(t);
+}
+
+function polishCjkTargetTranslation(raw: string): string {
+  let t = dedupeConsecutiveTranslationTokens(raw);
+  t = t.replace(/([。！？?!])\1+/gu, "$1");
+  return collapseWs(t);
+}
+
+/** Remaining scripts (th, hi, …): token dedupe + generic doubled sentence punctuation. */
+function polishGenericTargetTranslation(raw: string): string {
+  let t = dedupeConsecutiveTranslationTokens(raw);
+  t = t.replace(/([.!?。！？؟])\1+/gu, "$1");
+  return collapseWs(t);
+}
+
+/** Drop a trailing clause that repeats the previous question segment (live PT/ES often echoes the closing). */
+function trimOverlappingDuplicateQuestionTail(raw: string): string {
+  let t = collapseWs(raw);
+  for (let pass = 0; pass < 2; pass++) {
+    const positions: number[] = [];
+    for (let i = 0; i < t.length; i++) if (t[i] === "?") positions.push(i);
+    if (positions.length < 2) break;
+    const i2 = positions[positions.length - 1];
+    const i1 = positions[positions.length - 2];
+    const between = t.slice(i1 + 1, i2).trim();
+    const after = t.slice(i2 + 1).trim().replace(/\?+$/u, "").trim();
+    if (between.length >= 4 && after.length >= 8) {
+      const r = tokenOverlapRatio(between, after);
+      const bl = between.toLowerCase();
+      const al = after.toLowerCase();
+      if (r >= 0.38 || al.includes(bl) || bl.includes(al)) {
+        t = collapseWs(t.slice(0, i2 + 1));
+        continue;
+      }
+    }
+    if (after.length <= 1 && between.length >= 3 && positions.length >= 3) {
+      const i0 = positions[positions.length - 3];
+      const earlier = t.slice(i0 + 1, i1).trim();
+      if (tokenOverlapRatio(earlier, between) >= 0.45) {
+        t = collapseWs(t.slice(0, i1 + 1));
+        continue;
+      }
+    }
+    break;
+  }
+  return t;
+}
+
+/**
+ * Post-process live translation for the *target* column by script family so every
+ * language pair (e.g. en↔de, en↔hi, ar↔fr) gets the same class of fixes as en↔ar.
+ */
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
   const base = targetLang.split("-")[0]?.toLowerCase() ?? "";
-  if (base === "ar") return polishArabicInterpreterTranslation(text);
-  if (base === "en") return polishEnglishInterpreterTranslation(text);
-  return text;
+  if (!base) return text;
+  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) return polishArabicInterpreterTranslation(text);
+  if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) return polishHebrewInterpreterTranslation(text);
+  if (LATIN_SCRIPT_TARGET_LANGS.has(base)) return polishLatinScriptInterpreterTranslation(text, base);
+  if (CYRILLIC_SCRIPT_TARGET_LANGS.has(base) || GREEK_SCRIPT_TARGET_LANGS.has(base)) {
+    return polishQuestionMarkFamilyTargetTranslation(text);
+  }
+  if (CJK_TARGET_LANG_BASES.has(base)) return polishCjkTargetTranslation(text);
+  if (HANGUL_TARGET_LANG_BASES.has(base)) return polishQuestionMarkFamilyTargetTranslation(text);
+  return polishGenericTargetTranslation(text);
 }
 
 /**
@@ -1046,12 +1181,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const chars = text.length;
 
     const pair = langPairRef.current;
-    const langForPair = state.segmentSourceLang ?? lang;
+    const detectedLive = detectedLangRef.current;
+    const dom = detectDominantScript(text);
+    const outOfPairByScript =
+      dom !== null &&
+      !scriptSupportsLang(dom.langs, pair.a) &&
+      !scriptSupportsLang(dom.langs, pair.b);
+    const dispatchLang = validateLangByScript(detectedLive, text, pair);
 
-    // Guard: only translate if the detected language belongs to the selected pair.
-    // If the speaker uses a third language (e.g. "es" when pair is en↔ar),
-    // copy the original text verbatim into the translation column — no API call.
-    if (!matchesLang(langForPair, pair.a) && !matchesLang(langForPair, pair.b)) {
+    // Third language (not A or B): mirror transcript in the translation column — no API.
+    // Use live Soniox detection + dominant script so a locked "English" segment does not
+    // keep translating after the speaker switches to Arabic (or any script outside the pair).
+    if (
+      !langInSelectedPair(detectedLive, pair) ||
+      outOfPairByScript ||
+      !langInSelectedPair(dispatchLang, pair)
+    ) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
@@ -1068,11 +1213,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
-        transTextEl.dir             = "";
-        transTextEl.style.textAlign = "";
-        transTextEl.removeAttribute("lang");
-        transTextEl.className       = CLS.transText;
-        transTextEl.textContent     = text;
+        applyTranslationTypography(transTextEl, text);
         state.streamCommittedSource = text;
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
@@ -1084,15 +1225,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // ── Source/target: locked for entire segment after first visible token w/ language ──
-    const dispatchLang =
-      state.segmentSourceLang !== null
-        ? state.segmentSourceLang
-        : validateLangByScript(lang, text, pair);
-    const myTargetLang =
-      state.segmentTargetLang !== null
-        ? state.segmentTargetLang
-        : resolveTarget(dispatchLang, pair);
+    // Source/target follow the current in-pair language (updates when speaker switches A↔B mid-segment).
+    const myTargetLang = resolveTarget(dispatchLang, pair);
+    state.segmentSourceLang = dispatchLang;
+    state.segmentTargetLang = myTargetLang;
     const { transTextEl } = state;
 
     // ── Same-language guard (Rule 5/6) ────────────────────────────────────────
@@ -1322,7 +1458,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const pending = state.pendingLiveSource.trim();
           state.pendingLiveSource = "";
           if (pending && pending !== state.lastConfirmedSourceTranslated && !state.finalizing && !state.translationLocked) {
-            const langRetry = state.segmentSourceLang ?? lang;
+            const langRetry = detectedLangRef.current;
             dispatchTranslation(pending, langRetry, false, { skipOpenAiLiveDebounce: true }, state.segmentId);
           }
         }
@@ -1672,10 +1808,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce,
   ]);
 
-  /** Lock segment translation direction from the first visible token that carries a language tag (Soniox order). */
+  /** Keep segment A/B direction in sync with Soniox when the speaker stays within the selected pair (switching A↔B mid-row). */
   const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
     const st = activeBubbleStateRef.current;
-    if (!st || st.segmentSourceLang !== null) return;
+    if (!st) return;
     const first = tokens.find(
       t =>
         hasVisibleText(t.text) &&
@@ -1687,6 +1823,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const pair = langPairRef.current;
     const allTokenText = tokens.map(t => t.text).join("");
     const validated = validateLangByScript(first.language, allTokenText, pair);
+    if (!langInSelectedPair(validated, pair)) return;
     st.segmentSourceLang = validated;
     st.segmentTargetLang = resolveTarget(validated, pair);
   }, []);

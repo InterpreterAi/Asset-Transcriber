@@ -12,7 +12,8 @@
     "glossary:generate": "node ./scripts/generate-interpreter-glossaries.mjs",
     "glossary:verify": "tsx ./scripts/verify-interpreter-glossary.ts",
     "email:send-account-active-reminder-now": "tsx ./src/lib/send-account-active-reminder-now.ts",
-    "email:send-translation-architecture-update-now": "tsx ./src/lib/send-translation-architecture-update-now.ts"
+    "email:send-translation-architecture-update-now": "tsx ./src/lib/send-translation-architecture-update-now.ts",
+    "email:send-stability-baseline-update-now": "tsx ./src/lib/send-stability-baseline-update-now.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
