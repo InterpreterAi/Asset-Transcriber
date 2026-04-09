@@ -433,6 +433,7 @@ async function translateViaPrimaryApi(
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",
+    "OPENAI_WRONG_LANGUAGE",
   ]);
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

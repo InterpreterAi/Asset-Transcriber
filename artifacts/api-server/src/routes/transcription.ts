@@ -457,6 +457,58 @@ function matchesTargetScript(text: string, tgtCode: string): boolean {
   return inRange.length / nonAscii.length >= 0.50;
 }
 
+function normalizedWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+}
+
+function latinPairLooksUntranslated(source: string, translated: string): boolean {
+  const srcWords = normalizedWords(source);
+  const outWords = normalizedWords(translated);
+  if (srcWords.length === 0 || outWords.length === 0) return false;
+
+  const srcNorm = srcWords.join(" ");
+  const outNorm = outWords.join(" ");
+  if (srcNorm && outNorm && srcNorm === outNorm) return true;
+
+  const srcSet = new Set(srcWords.filter((w) => w.length >= 4));
+  const outSet = new Set(outWords.filter((w) => w.length >= 4));
+  if (srcSet.size === 0 || outSet.size === 0) return false;
+
+  let overlap = 0;
+  for (const w of outSet) {
+    if (srcSet.has(w)) overlap += 1;
+  }
+  const overlapRatio = overlap / Math.max(1, outSet.size);
+
+  // Conservative thresholds to avoid rejecting valid translations that share
+  // proper nouns or unavoidable cognates.
+  if (outWords.length >= 6) return overlapRatio >= 0.78;
+  if (outWords.length >= 3) return overlapRatio >= 0.9;
+  return false;
+}
+
+function matchesExpectedTargetLanguage(
+  translated: string,
+  targetBase: string,
+  sourceBase: string,
+  sourceText: string,
+): boolean {
+  if (!matchesTargetScript(translated, targetBase)) return false;
+
+  // For non-Latin scripts the script validator is the primary guard.
+  if (SCRIPT_RANGES[targetBase]) return true;
+
+  // Latin-script pair: reject clearly untranslated outputs.
+  if (targetBase !== sourceBase && latinPairLooksUntranslated(sourceText, translated)) {
+    return false;
+  }
+  return true;
+}
+
 // ── /session/start ─────────────────────────────────────────────────────────
 router.post("/session/start", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
@@ -1226,7 +1278,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     // target is Hindi), discard the bad output and retry once with the minimal
     // force-override prompt that has the language lock at the very top.
     // Restore placeholders before validation so TERM_n tokens do not skew script checks.
-    if (result.text && !matchesTargetScript(result.text, tgtCode)) {
+    if (result.text && !matchesExpectedTargetLanguage(result.text, tgtCode, srcCode, text)) {
       logger.warn(
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",
@@ -1239,14 +1291,18 @@ router.post("/translate", requireAuth, async (req, res) => {
 
       const retryRestored = restoreTranslationOutput(retry.text);
 
-      if (retryRestored && matchesTargetScript(retryRestored, tgtCode)) {
+      if (retryRestored && matchesExpectedTargetLanguage(retryRestored, tgtCode, srcCode, text)) {
         result = { ...retry, text: retryRestored };
       } else if (retryRestored) {
         logger.warn(
           { srcLang, tgtLang, tgtCode, textLen: text.length },
-          "Force-override retry also failed script validation — using retry output",
+          "Force-override retry also failed script validation — rejecting output",
         );
-        result = { ...retry, text: retryRestored };
+        res.status(503).json({
+          code: "OPENAI_WRONG_LANGUAGE",
+          error: `Translation output was not in ${tgtName}. Retrying with fallback provider.`,
+        });
+        return;
       }
     }
 
