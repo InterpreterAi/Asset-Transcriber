@@ -538,8 +538,9 @@ function matchesExpectedTargetLanguage(
 }
 
 /** Remove English modals/auxiliaries often leaked into Arabic-script streaming output (e.g. "will" mid-sentence). */
-function stripStrayLatinAuxiliaryTokens(text: string, targetBase: string): string {
-  if (!text.trim() || !SCRIPT_RANGES[targetBase]) return text;
+function stripStrayLatinAuxiliaryTokens(text: string, sourceBase: string, targetBase: string): string {
+  if (!text.trim()) return text;
+  if (sourceBase !== "en" || targetBase === "en") return text;
   const leak =
     /\b(will|would|could|should|cannot|can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't)\b/gi;
   return text.replace(leak, " ").replace(/\s{2,}/g, " ").trim();
@@ -1083,6 +1084,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       const raw = await callLibreTranslate(textForOpenAI, srcCode, tgtCode);
       const translated = stripStrayLatinAuxiliaryTokens(
         restoreTranslationOutput(String(raw ?? "")),
+        srcCode,
         tgtCode,
       );
       diagCounter.translationSegments += 1;
@@ -1313,7 +1315,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let result = await callOpenAI(systemPrompt, textForOpenAI);
     result = {
       ...result,
-      text: stripStrayLatinAuxiliaryTokens(restoreTranslationOutput(result.text), tgtCode),
+      text: stripStrayLatinAuxiliaryTokens(restoreTranslationOutput(result.text), srcCode, tgtCode),
     };
 
     // ── Output language validation ───────────────────────────────────────────
@@ -1334,6 +1336,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
       const retryRestored = stripStrayLatinAuxiliaryTokens(
         restoreTranslationOutput(retry.text),
+        srcCode,
         tgtCode,
       );
 
