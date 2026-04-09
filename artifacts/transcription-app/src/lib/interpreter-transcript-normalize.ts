@@ -99,7 +99,7 @@ function buildRules(pair: LangPair): Rule[] {
     {
       pattern:
         /\bmy\s+name\s+is\s+([A-Za-z][A-Za-z\s.'-]{0,48}?)\s+and\s+my\s+number\s+is\b/gi,
-      replace: (_sub, name) => `my name is ${String(name).trim()} and my ID number is`,
+      replace: (_sub, name) => `my name is ${String(name).trim()} and my number is`,
     },
   );
 

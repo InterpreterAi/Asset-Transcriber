@@ -710,6 +710,8 @@ interface BubbleTransState {
   lastConfirmedSource:   string;
   /** Last confirmed source already dispatched for live translation. */
   lastConfirmedSourceTranslated: string;
+  /** Latest live source queued while a non-final request is in-flight. */
+  pendingLiveSource: string;
   /** Locked source language for this segment (set once from first visible token with a language tag). */
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
@@ -916,6 +918,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (requestSegmentId !== state.segmentId) return;
 
     if (!translationEnabledRef.current) return;
+    if (!isFinal && text === state.lastConfirmedSourceTranslated) return;
 
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
@@ -1036,7 +1039,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       `estimated_tokens=${estimatedTokens}`,
     );
 
-    if (!isFinal && state.streamInflight) return;
+    if (!isFinal && state.streamInflight) {
+      state.pendingLiveSource = text;
+      return;
+    }
 
     const useLibre = useLibreTranslateRef.current;
     let apiText: string;
@@ -1109,18 +1115,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             applyTranslationTypography(transTextEl, merged);
           }
           state.streamCommittedSource = text;
+          state.lastConfirmedSourceTranslated = text;
         } else {
           state.lastShownSeq = mySeq;
           state.lastShownLen = translated.length;
           applyTranslationTypography(transTextEl, translated);
           state.streamCommittedSource = text;
+          if (!isFinal) state.lastConfirmedSourceTranslated = text;
         }
 
         scrollPanel();
       } catch {
         /* HIPAA — never log speech context */
       } finally {
-        if (!isFinal) state.streamInflight = false;
+        if (!isFinal) {
+          state.streamInflight = false;
+          const pending = state.pendingLiveSource.trim();
+          state.pendingLiveSource = "";
+          if (pending && pending !== state.lastConfirmedSourceTranslated && !state.finalizing && !state.translationLocked) {
+            const langRetry = state.segmentSourceLang ?? lang;
+            dispatchTranslation(pending, langRetry, false, undefined, state.segmentId);
+          }
+        }
       }
     })();
   }, [scrollPanel]);
@@ -1218,6 +1234,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastNfRawText:         "",
       lastConfirmedSource:   "",
       lastConfirmedSourceTranslated: "",
+      pendingLiveSource: "",
       segmentSourceLang:     null,
       segmentTargetLang:     null,
     };
@@ -1529,14 +1546,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         flushFinalTextRenderQueue();
         const st = activeBubbleStateRef.current;
         if (!st || st.translationLocked || st.finalizing) return;
-        const source = st.lastConfirmedSource.trim();
-        if (source.length < 3) return;
+        const source = liveBufferRef.current.trim();
+        if (source.length < 1) return;
         if (source === st.lastConfirmedSourceTranslated) return;
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(source, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = countWords(source);
-        st.lastConfirmedSourceTranslated = source;
       }, shortPauseMs);
       // Reset finalization timer only while speech is still active (NF tokens).
       // Soniox may continue emitting final-only stabilization updates after
@@ -1647,8 +1663,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
       const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
-      liveBufferRef.current = normalizeInterpreterTranscript(rawLive, langPairRef.current);
-      const confirmedSource = normalizeInterpreterTranscript(finalText.trim(), langPairRef.current);
+      liveBufferRef.current = rawLive;
+      const confirmedSource = finalText.trim();
       if (activeBubbleStateRef.current) {
         activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
       }
@@ -1666,20 +1682,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Non-final preview translation while the segment is open:
       // dispatch on each newly confirmed source extension (no batching).
       const st = activeBubbleStateRef.current;
-      const hintSource = st?.lastConfirmedSource.trim() ?? "";
+      const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        hintSource.length >= 3 &&
+        hintSource.length >= 1 &&
         hintSource !== st.lastConfirmedSourceTranslated
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
-        st.lastConfirmedSourceTranslated = hintSource;
       }
     };
 
