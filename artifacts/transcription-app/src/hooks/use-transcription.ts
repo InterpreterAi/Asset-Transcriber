@@ -25,6 +25,28 @@ function getApiErrorMessage(err: unknown): string | undefined {
   return typeof msg === "string" ? msg : undefined;
 }
 
+/**
+ * Soniox often sends a non-final hypothesis that repeats the tail already committed
+ * as finals (e.g. after a question). Concatenating final + NF verbatim duplicates
+ * that phrase in `liveBufferRef` and then bakes it into the transcript when NF clears.
+ */
+function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string {
+  const n = nf.trim();
+  if (!n) return finalPart;
+  const fTrim = finalPart.trimEnd();
+  if (!fTrim) return n;
+  if (fTrim.endsWith(n)) return fTrim;
+  const fLow = fTrim.toLowerCase();
+  const nLow = n.toLowerCase();
+  if (fLow.endsWith(nLow)) return fTrim;
+  if (n.startsWith(fTrim) || nLow.startsWith(fLow)) return n;
+  const maxLen = Math.min(fTrim.length, n.length);
+  for (let k = maxLen; k >= 1; k--) {
+    if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
+  }
+  return fTrim + n;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -1580,7 +1602,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
-      const rawLive   = (finalText + nfText).trim();
+      const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
       liveBufferRef.current = normalizeInterpreterTranscript(rawLive, langPairRef.current);
       if (activeBubbleStateRef.current) {
         if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
