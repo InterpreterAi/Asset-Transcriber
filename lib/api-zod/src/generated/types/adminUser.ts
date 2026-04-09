@@ -9,10 +9,13 @@
 export interface AdminUser {
   id: number;
   username: string;
+  email?: string | null;
   isAdmin: boolean;
   isActive: boolean;
+  planType?: string;
   trialStartedAt?: Date;
   trialEndsAt?: Date;
+  trialDaysRemaining?: number;
   dailyLimitMinutes: number;
   minutesUsedToday: number;
   totalMinutesUsed: number;

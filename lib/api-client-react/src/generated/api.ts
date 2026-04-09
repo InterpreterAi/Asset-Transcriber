@@ -24,6 +24,7 @@ import type {
   AdminUserListResponse,
   ErrorResponse,
   FeedbackRequest,
+  GetTranscriptionTokenBody,
   HealthStatus,
   LoginRequest,
   LoginResponse,
@@ -358,17 +359,16 @@ export const getGetTranscriptionTokenUrl = () => {
 };
 
 export const getTranscriptionToken = async (
+  getTranscriptionTokenBody?: GetTranscriptionTokenBody,
   options?: RequestInit,
 ): Promise<TranscriptionTokenResponse> => {
-  // Transcription router applies requireJsonObjectBody: Express only parses JSON when
-  // Content-Type is application/json and body is present — send `{}` so req.body is an object.
   return customFetch<TranscriptionTokenResponse>(
     getGetTranscriptionTokenUrl(),
     {
       ...options,
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json", ...options?.headers },
-      body:    JSON.stringify({}),
+      body: JSON.stringify(getTranscriptionTokenBody),
     },
   );
 };
@@ -380,14 +380,14 @@ export const getGetTranscriptionTokenMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof getTranscriptionToken>>,
     TError,
-    void,
+    { data: BodyType<GetTranscriptionTokenBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof getTranscriptionToken>>,
   TError,
-  void,
+  { data: BodyType<GetTranscriptionTokenBody> },
   TContext
 > => {
   const mutationKey = ["getTranscriptionToken"];
@@ -401,9 +401,11 @@ export const getGetTranscriptionTokenMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof getTranscriptionToken>>,
-    void
-  > = () => {
-    return getTranscriptionToken(requestOptions);
+    { data: BodyType<GetTranscriptionTokenBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return getTranscriptionToken(data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -412,7 +414,8 @@ export const getGetTranscriptionTokenMutationOptions = <
 export type GetTranscriptionTokenMutationResult = NonNullable<
   Awaited<ReturnType<typeof getTranscriptionToken>>
 >;
-
+export type GetTranscriptionTokenMutationBody =
+  BodyType<GetTranscriptionTokenBody>;
 export type GetTranscriptionTokenMutationError = ErrorType<ErrorResponse>;
 
 /**
@@ -425,14 +428,14 @@ export const useGetTranscriptionToken = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof getTranscriptionToken>>,
     TError,
-    void,
+    { data: BodyType<GetTranscriptionTokenBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof getTranscriptionToken>>,
   TError,
-  void,
+  { data: BodyType<GetTranscriptionTokenBody> },
   TContext
 > => {
   return useMutation(getGetTranscriptionTokenMutationOptions(options));
@@ -733,9 +736,7 @@ export const getSubmitFeedbackMutationOptions = <
     { data: BodyType<FeedbackRequest> }
   > = (props) => {
     const { data } = props ?? {};
-    if (!data || typeof data.rating !== "number" || data.rating < 1 || data.rating > 5) {
-      return Promise.reject(new Error("Invalid feedback: rating 1–5 required"));
-    }
+
     return submitFeedback(data, requestOptions);
   };
 

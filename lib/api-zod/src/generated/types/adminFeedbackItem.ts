@@ -5,12 +5,16 @@
  * AI Transcription & Translation App API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminFeedbackItemRecommend } from "./adminFeedbackItemRecommend";
 
 export interface AdminFeedbackItem {
   id: number;
   userId: number;
   username: string;
+  email?: string | null;
   rating: number;
   comment?: string;
+  recommend?: AdminFeedbackItemRecommend;
+  source?: string;
   createdAt: Date;
 }

@@ -26,8 +26,12 @@ export const LoginResponse = zod.object({
   user: zod.object({
     id: zod.number(),
     username: zod.string(),
+    email: zod.string().nullish(),
     isAdmin: zod.boolean(),
     isActive: zod.boolean(),
+    planType: zod.string().optional(),
+    translationEnabled: zod.boolean(),
+    emailVerified: zod.boolean().optional(),
     trialStartedAt: zod.coerce.date().optional(),
     trialEndsAt: zod.coerce.date().optional(),
     trialDaysRemaining: zod.number(),
@@ -53,8 +57,12 @@ export const LogoutResponse = zod.object({
 export const GetMeResponse = zod.object({
   id: zod.number(),
   username: zod.string(),
+  email: zod.string().nullish(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  planType: zod.string().optional(),
+  translationEnabled: zod.boolean(),
+  emailVerified: zod.boolean().optional(),
   trialStartedAt: zod.coerce.date().optional(),
   trialEndsAt: zod.coerce.date().optional(),
   trialDaysRemaining: zod.number(),
@@ -69,6 +77,8 @@ export const GetMeResponse = zod.object({
 /**
  * @summary Get a short-lived Soniox API token for transcription
  */
+export const GetTranscriptionTokenBody = zod.object({});
+
 export const GetTranscriptionTokenResponse = zod.object({
   apiKey: zod.string(),
   expiresIn: zod.number(),
@@ -134,10 +144,13 @@ export const AdminListUsersResponse = zod.object({
     zod.object({
       id: zod.number(),
       username: zod.string(),
+      email: zod.string().nullish(),
       isAdmin: zod.boolean(),
       isActive: zod.boolean(),
+      planType: zod.string().optional(),
       trialStartedAt: zod.coerce.date().optional(),
       trialEndsAt: zod.coerce.date().optional(),
+      trialDaysRemaining: zod.number().optional(),
       dailyLimitMinutes: zod.number(),
       minutesUsedToday: zod.number(),
       totalMinutesUsed: zod.number(),
@@ -176,10 +189,13 @@ export const AdminUpdateUserBody = zod.object({
 export const AdminUpdateUserResponse = zod.object({
   id: zod.number(),
   username: zod.string(),
+  email: zod.string().nullish(),
   isAdmin: zod.boolean(),
   isActive: zod.boolean(),
+  planType: zod.string().optional(),
   trialStartedAt: zod.coerce.date().optional(),
   trialEndsAt: zod.coerce.date().optional(),
+  trialDaysRemaining: zod.number().optional(),
   dailyLimitMinutes: zod.number(),
   minutesUsedToday: zod.number(),
   totalMinutesUsed: zod.number(),
@@ -220,8 +236,11 @@ export const AdminListFeedbackResponse = zod.object({
       id: zod.number(),
       userId: zod.number(),
       username: zod.string(),
+      email: zod.string().nullish(),
       rating: zod.number(),
       comment: zod.string().optional(),
+      recommend: zod.enum(["yes", "no", "maybe"]).optional(),
+      source: zod.string().optional(),
       createdAt: zod.coerce.date(),
     }),
   ),

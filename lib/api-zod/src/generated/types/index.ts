@@ -8,12 +8,14 @@
 
 export * from "./adminCreateUserRequest";
 export * from "./adminFeedbackItem";
+export * from "./adminFeedbackItemRecommend";
 export * from "./adminFeedbackListResponse";
 export * from "./adminUpdateUserRequest";
 export * from "./adminUser";
 export * from "./adminUserListResponse";
 export * from "./errorResponse";
 export * from "./feedbackRequest";
+export * from "./getTranscriptionTokenBody";
 export * from "./healthStatus";
 export * from "./loginRequest";
 export * from "./loginResponse";

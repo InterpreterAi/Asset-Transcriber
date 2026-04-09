@@ -29,6 +29,8 @@ export interface UserInfo {
   isAdmin: boolean;
   isActive: boolean;
   planType?: string;
+  translationEnabled: boolean;
+  emailVerified?: boolean;
   trialStartedAt?: string;
   trialEndsAt?: string;
   trialDaysRemaining: number;
@@ -115,6 +117,15 @@ export interface AdminUpdateUserRequest {
   password?: string;
 }
 
+export type AdminFeedbackItemRecommend =
+  (typeof AdminFeedbackItemRecommend)[keyof typeof AdminFeedbackItemRecommend];
+
+export const AdminFeedbackItemRecommend = {
+  yes: "yes",
+  no: "no",
+  maybe: "maybe",
+} as const;
+
 export interface AdminFeedbackItem {
   id: number;
   userId: number;
@@ -122,7 +133,7 @@ export interface AdminFeedbackItem {
   email?: string | null;
   rating: number;
   comment?: string;
-  recommend?: "yes" | "no" | "unsure";
+  recommend?: AdminFeedbackItemRecommend;
   source?: string;
   createdAt: string;
 }
@@ -130,6 +141,8 @@ export interface AdminFeedbackItem {
 export interface AdminFeedbackListResponse {
   feedback: AdminFeedbackItem[];
 }
+
+export type GetTranscriptionTokenBody = { [key: string]: unknown };
 
 export type StartSessionBody = {
   srcLang?: string;
