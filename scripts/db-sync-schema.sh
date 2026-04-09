@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Apply the repo's Drizzle schema to the Postgres instance your API uses.
-# Run from the monorepo root with the SAME connection string as production API.
 #
-# Railway (recommended — injects DATABASE_URL from the linked service):
+# Production (recommended): do NOT paste DATABASE_URL on your Mac (internal hostnames
+# like postgres.railway.internal only work inside Railway). Use:
+#   pnpm db:push:railway
+#
+# Or from the monorepo root with Railway injecting env:
+#   unset DATABASE_URL DATABASE_PRIVATE_URL
+#   railway run pnpm db:push:force
+#
+# Legacy: run from the monorepo root with the SAME connection string as production API:
 #   railway run ./scripts/db-sync-schema.sh
 #
 # Local (paste private URL from Railway Postgres → Connect):
