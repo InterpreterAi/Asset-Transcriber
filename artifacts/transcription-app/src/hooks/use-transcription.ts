@@ -1192,21 +1192,40 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let apiText: string;
     let useStreamingDelta = false;
     if (isFinal) {
-      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-      // Final pass should not rewrite the whole sentence after interpreters already spoke it.
-      // If we already translated all seen source, just lock; if there is a tail, translate tail only.
-      if (monotonic && !tail.trim()) {
-        state.translationLocked = true;
-        return;
-      }
-      if (monotonic && tail.trim()) {
-        apiText = tail;
-        useStreamingDelta = true;
-        requestIsFinal = false;
+      const committed = collapseWs(state.streamCommittedSource);
+      const finalSrc = collapseWs(text);
+      const cl = committed.toLowerCase();
+      const fl = finalSrc.toLowerCase();
+      // Diarization often shortens the segment: live preview had another speaker's words in the
+      // buffer, then the finalized transcript is only the first speaker's line. `streamCommittedSource`
+      // still holds the longer string — tail-only logic would be non-monotonic and used to lock
+      // without updating, leaving Arabic/English for removed text on the wrong row.
+      const finalizedIsPrefixTruncation =
+        finalSrc.length >= 1 &&
+        committed.length > finalSrc.length &&
+        (committed.startsWith(finalSrc) || cl.startsWith(fl));
+
+      if (finalizedIsPrefixTruncation) {
+        apiText = text;
+        useStreamingDelta = false;
+        requestIsFinal = true;
       } else {
-        // Non-monotonic final rewrite is intentionally blocked for interpreter stability.
-        state.translationLocked = true;
-        return;
+        const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+        // Final pass: if we already translated all seen source, just lock; if there is a tail, translate tail only.
+        if (monotonic && !tail.trim()) {
+          state.translationLocked = true;
+          return;
+        }
+        if (monotonic && tail.trim()) {
+          apiText = tail;
+          useStreamingDelta = true;
+          requestIsFinal = false;
+        } else {
+          // Any other non-monotonic finalize (revision, punctuation, etc.) — full replace from authoritative text.
+          apiText = text;
+          useStreamingDelta = false;
+          requestIsFinal = true;
+        }
       }
     } else if (!useLibre) {
       // OpenAI live: always send the full cumulative transcript and replace the translation
