@@ -645,6 +645,18 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+/** Returns the newly appended tail when `full` extends `prefix` (case-insensitive). */
+function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: string; monotonic: boolean } {
+  const full = fullRaw.trimStart();
+  const prefix = prefixRaw.trimEnd();
+  if (!prefix) return { tail: full, monotonic: true };
+  if (full.startsWith(prefix)) return { tail: full.slice(prefix.length).trimStart(), monotonic: true };
+  const f = full.toLowerCase();
+  const p = prefix.toLowerCase();
+  if (f.startsWith(p)) return { tail: full.slice(p.length).trimStart(), monotonic: true };
+  return { tail: "", monotonic: false };
+}
+
 
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
@@ -1022,11 +1034,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (!isFinal && state.streamInflight) return;
 
+    const useLibre = useLibreTranslateRef.current;
     let apiText: string;
     let useStreamingDelta = false;
     if (isFinal) {
       apiText = text;
       useStreamingDelta = false;
+    } else if (!useLibre) {
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      // OpenAI live mode: append-only preview to avoid rewriting the full sentence.
+      // If hypothesis revises previous words, wait for the finalized pass on pause.
+      if (!monotonic) return;
+      if (!tail.trim()) return;
+      apiText = tail;
+      useStreamingDelta = true;
     } else {
       // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
@@ -1073,10 +1094,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         } else if (useStreamingDelta) {
-          const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
-          state.lastShownSeq = mySeq;
-          state.lastShownLen = merged.length;
-          applyTranslationTypography(transTextEl, merged);
+          if (replaceStreamColumn) {
+            state.lastShownSeq = mySeq;
+            state.lastShownLen = translated.length;
+            applyTranslationTypography(transTextEl, translated);
+          } else {
+            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
+            state.lastShownSeq = mySeq;
+            state.lastShownLen = merged.length;
+            applyTranslationTypography(transTextEl, merged);
+          }
           state.streamCommittedSource = text;
         } else {
           state.lastShownSeq = mySeq;
