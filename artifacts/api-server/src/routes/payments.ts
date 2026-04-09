@@ -22,7 +22,14 @@ function requireAuth(req: any, res: any, next: any) {
 }
 
 function isBillingPlanType(v: unknown): v is BillingPlanType {
-  return v === "basic" || v === "professional" || v === "unlimited";
+  return v === "basic" || v === "professional" || v === "platinum";
+}
+
+/** PayPal `custom_id` historically used `unlimited`; map to platinum. */
+function billingPlanFromCustomIdSegment(raw: string): BillingPlanType | null {
+  const s = raw.trim();
+  if (s === "unlimited") return "platinum";
+  return isBillingPlanType(s) ? s : null;
 }
 
 router.post("/create-subscription", requireAuth, async (req: any, res) => {
@@ -154,9 +161,8 @@ router.post("/paypal-webhook", async (req, res) => {
     const parsedUserId = Number(customId.split(":")[0] ?? "");
     const parsedPlanTypeFromCustom = customId.split(":")[1] ?? "";
     const parsedPlanType =
-      isBillingPlanType(parsedPlanTypeFromCustom)
-        ? parsedPlanTypeFromCustom
-        : inferPlanTypeFromPayPalPlanId(resource.plan_id ?? "");
+      billingPlanFromCustomIdSegment(parsedPlanTypeFromCustom) ??
+      inferPlanTypeFromPayPalPlanId(resource.plan_id ?? "");
 
     let userId = Number.isFinite(parsedUserId) ? parsedUserId : NaN;
     if (!Number.isFinite(userId) && resource.id) {
@@ -217,6 +223,44 @@ router.post("/paypal-webhook", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "POST /api/payments/paypal-webhook failed");
     res.status(400).json({ error: "Webhook processing failed" });
+  }
+});
+
+const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
+
+router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
+  try {
+    const { planType } = req.body as { planType?: string };
+    if (!isBillingPlanType(planType)) {
+      res.status(400).json({ error: "planType must be basic, professional, or platinum" });
+      return;
+    }
+    const userId = Number(req.session.userId);
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const email = (user.email ?? "").trim().toLowerCase();
+    if (email !== TEST_PLAN_ACTIVATION_EMAIL) {
+      res.status(403).json({ error: "Not allowed" });
+      return;
+    }
+    const plan = paypalPlanConfig(planType);
+    await db
+      .update(usersTable)
+      .set({
+        planType,
+        dailyLimitMinutes: plan.dailyLimitMinutes,
+        subscriptionStatus: "active",
+        subscriptionPlan: planType,
+        subscriptionStartedAt: new Date(),
+      })
+      .where(eq(usersTable.id, userId));
+    res.json({ ok: true, planType, dailyLimitMinutes: plan.dailyLimitMinutes });
+  } catch (err) {
+    logger.error({ err }, "POST /api/payments/test-activate-plan failed");
+    res.status(500).json({ error: "Failed to activate plan" });
   }
 });
 

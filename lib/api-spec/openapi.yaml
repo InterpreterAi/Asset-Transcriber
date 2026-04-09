@@ -435,9 +435,18 @@ components:
           type: integer
         username:
           type: string
+        email:
+          type: string
+          nullable: true
         isAdmin:
           type: boolean
         isActive:
+          type: boolean
+        planType:
+          type: string
+        translationEnabled:
+          type: boolean
+        emailVerified:
           type: boolean
         trialStartedAt:
           type: string
@@ -464,6 +473,7 @@ components:
         - username
         - isAdmin
         - isActive
+        - translationEnabled
         - trialDaysRemaining
         - trialExpired
         - dailyLimitMinutes
@@ -550,16 +560,23 @@ components:
           type: integer
         username:
           type: string
+        email:
+          type: string
+          nullable: true
         isAdmin:
           type: boolean
         isActive:
           type: boolean
+        planType:
+          type: string
         trialStartedAt:
           type: string
           format: date-time
         trialEndsAt:
           type: string
           format: date-time
+        trialDaysRemaining:
+          type: integer
         dailyLimitMinutes:
           type: integer
         minutesUsedToday:

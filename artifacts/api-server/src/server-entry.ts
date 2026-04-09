@@ -289,6 +289,13 @@ async function migrateSchema() {
         `ALTER TABLE users ALTER COLUMN daily_limit_minutes SET DEFAULT ${TRIAL_DAILY_LIMIT_MINUTES}`,
       );
 
+      await client.query(
+        `UPDATE users SET plan_type = 'platinum' WHERE plan_type = 'unlimited'`,
+      );
+      await client.query(
+        `UPDATE users SET subscription_plan = 'platinum' WHERE subscription_plan = 'unlimited'`,
+      );
+
       await client.query("COMMIT");
       logger.info("Startup schema migration complete");
     } catch (err) {
@@ -423,7 +430,7 @@ async function ensureAdminUser() {
         isAdmin: true,
         isActive: true,
         emailVerified: true,
-        planType: "unlimited",
+        planType: "platinum",
         trialStartedAt: now,
         trialEndsAt: new Date("2099-12-31"),
         dailyLimitMinutes: 9999,
@@ -443,7 +450,7 @@ async function ensureAdminUser() {
         .set({
           passwordHash,
           isActive: true,
-          planType: "unlimited",
+          planType: "platinum",
           dailyLimitMinutes: 9999,
           trialEndsAt: new Date("2099-12-31"),
         })
@@ -464,33 +471,21 @@ async function ensureAdminUser() {
       .limit(1);
     if (!named) return;
 
-    if (named.planType !== "unlimited" || named.dailyLimitMinutes < 9999) {
+    if (named.planType !== "platinum" || named.dailyLimitMinutes < 9999) {
       await db
         .update(usersTable)
         .set({
-          planType: "unlimited",
+          planType: "platinum",
           dailyLimitMinutes: 9999,
           trialEndsAt: new Date("2099-12-31"),
           isAdmin: true,
           isActive: true,
         })
         .where(eq(usersTable.username, "admin"));
-      logger.info("Admin user upgraded to unlimited plan (no ADMIN_PASSWORD in env)");
+      logger.info("Admin user upgraded to platinum plan (no ADMIN_PASSWORD in env)");
     }
   } catch (err) {
     logger.error({ err }, "Failed to ensure admin user");
-  }
-}
-
-/** Active trials use the current trial daily cap — keeps existing users in sync with signup defaults. */
-async function syncActiveTrialDailyLimits(): Promise<void> {
-  const r = await pool.query(
-    `UPDATE users SET daily_limit_minutes = $1 WHERE plan_type = 'trial' AND trial_ends_at > NOW()`,
-    [TRIAL_DAILY_LIMIT_MINUTES],
-  );
-  const n = r.rowCount ?? 0;
-  if (n > 0) {
-    logger.info({ updatedRows: n }, "Applied TRIAL_DAILY_LIMIT_MINUTES to active trial users");
   }
 }
 
@@ -500,7 +495,9 @@ async function main() {
   initProtectedTerms();
   await migrateSchema();
   await requireDatabaseReadyForApi();
-  await syncActiveTrialDailyLimits();
+  // Do not run a startup UPDATE that touches trial users' daily_limit_minutes or trial dates.
+  // Existing accounts keep whatever `trial_started_at` / `trial_ends_at` / limits are already stored
+  // (e.g. 7- vs 14-day cohorts). New trials are set only in auth/signup paths.
   await logSessionAndDatabaseStartupStatus();
   await clearStaleSessions();
   await ensureAdminUser();

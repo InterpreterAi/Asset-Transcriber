@@ -1,6 +1,6 @@
 import { logger } from "./logger.js";
 
-export type BillingPlanType = "basic" | "professional" | "unlimited";
+export type BillingPlanType = "basic" | "professional" | "platinum";
 
 export class PayPalApiError extends Error {
   statusCode: number;
@@ -32,19 +32,20 @@ function paypalBaseUrl(): string {
 export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
   const basicPlanId = envTrim("PAYPAL_PLAN_ID_BASIC");
   const professionalPlanId = envTrim("PAYPAL_PLAN_ID_PROFESSIONAL");
-  const unlimitedPlanId = envTrim("PAYPAL_PLAN_ID_UNLIMITED");
+  const platinumPlanId =
+    envTrim("PAYPAL_PLAN_ID_PLATINUM") ?? envTrim("PAYPAL_PLAN_ID_UNLIMITED");
   const table: Record<BillingPlanType, PlanConfig> = {
     basic: {
       paypalPlanId: basicPlanId ?? "",
-      dailyLimitMinutes: 500,
+      dailyLimitMinutes: 300,
     },
     professional: {
       paypalPlanId: professionalPlanId ?? "",
-      dailyLimitMinutes: 1500,
+      dailyLimitMinutes: 540,
     },
-    unlimited: {
-      paypalPlanId: unlimitedPlanId ?? "",
-      dailyLimitMinutes: 99999,
+    platinum: {
+      paypalPlanId: platinumPlanId ?? "",
+      dailyLimitMinutes: 540,
     },
   };
   return table[planType];
@@ -53,12 +54,14 @@ export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
 export function paypalPlanEnvDiagnostics(): {
   PAYPAL_PLAN_ID_BASIC: boolean;
   PAYPAL_PLAN_ID_PROFESSIONAL: boolean;
-  PAYPAL_PLAN_ID_UNLIMITED: boolean;
+  PAYPAL_PLAN_ID_PLATINUM_OR_UNLIMITED: boolean;
 } {
+  const platinumOrLegacy =
+    Boolean(envTrim("PAYPAL_PLAN_ID_PLATINUM")) || Boolean(envTrim("PAYPAL_PLAN_ID_UNLIMITED"));
   return {
     PAYPAL_PLAN_ID_BASIC: Boolean(envTrim("PAYPAL_PLAN_ID_BASIC")),
     PAYPAL_PLAN_ID_PROFESSIONAL: Boolean(envTrim("PAYPAL_PLAN_ID_PROFESSIONAL")),
-    PAYPAL_PLAN_ID_UNLIMITED: Boolean(envTrim("PAYPAL_PLAN_ID_UNLIMITED")),
+    PAYPAL_PLAN_ID_PLATINUM_OR_UNLIMITED: platinumOrLegacy,
   };
 }
 
@@ -74,7 +77,8 @@ export function inferPlanTypeFromPayPalPlanId(planId: string): BillingPlanType |
   if (!normalized) return null;
   if (normalized === envTrim("PAYPAL_PLAN_ID_BASIC")) return "basic";
   if (normalized === envTrim("PAYPAL_PLAN_ID_PROFESSIONAL")) return "professional";
-  if (normalized === envTrim("PAYPAL_PLAN_ID_UNLIMITED")) return "unlimited";
+  if (normalized === envTrim("PAYPAL_PLAN_ID_PLATINUM")) return "platinum";
+  if (normalized === envTrim("PAYPAL_PLAN_ID_UNLIMITED")) return "platinum";
   return null;
 }
 

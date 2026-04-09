@@ -64,7 +64,11 @@ const CLS = {
   nf:          "text-muted-foreground/60 italic",
   transText:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transPend:   "ts-text text-muted-foreground/30 italic flex-1 min-w-0",
+  transDisabled: "ts-text text-muted-foreground/55 italic flex-1 min-w-0 text-[0.92em] leading-snug",
 } as const;
+
+const TRANSLATION_PLATINUM_PLACEHOLDER =
+  "InterpreterAI Translation is available on the Platinum plan.";
 
 // ── Soniox v4 types ────────────────────────────────────────────────────────────
 interface SonioxToken {
@@ -451,7 +455,23 @@ async function translateViaPrimaryApi(
         }
       }
 
-      if (r.status === 401 || r.status === 403) {
+      if (r.status === 403) {
+        const raw403 = await r.text();
+        try {
+          const j403 = JSON.parse(raw403) as { code?: string };
+          if (j403.code === "TRANSLATION_PLAN_REQUIRED") {
+            return { outcome: "ok", text: "" };
+          }
+        } catch {
+          /* fall through */
+        }
+        return {
+          outcome:     "try_fallback",
+          userMessage: "Session expired or access denied — refresh the page and sign in again.",
+        };
+      }
+
+      if (r.status === 401) {
         return {
           outcome:     "try_fallback",
           userMessage: "Session expired or access denied — refresh the page and sign in again.",
@@ -670,6 +690,8 @@ type TranslationDiag = {
 export type UseTranscriptionOptions = {
   /** Fired when finalized transcript/translation lines are appended for admin live view (debounce in parent). */
   onAdminSnapshotBuffersUpdated?: () => void;
+  /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
+  translationEnabled?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -679,6 +701,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const onAdminSnapshotBuffersUpdatedRef = useRef<(() => void) | undefined>(undefined);
   onAdminSnapshotBuffersUpdatedRef.current = options?.onAdminSnapshotBuffersUpdated;
+
+  const translationEnabledRef = useRef(options?.translationEnabled ?? true);
+  useEffect(() => {
+    translationEnabledRef.current = options?.translationEnabled ?? true;
+  }, [options?.translationEnabled]);
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -840,6 +867,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!state || text.length < 3) return;
     const requestSegmentId = segmentIdLock ?? state.segmentId;
     if (requestSegmentId !== state.segmentId) return;
+
+    if (!translationEnabledRef.current && !isAdminRef.current) return;
 
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
@@ -1092,8 +1121,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transRow.className = CLS.textRow;
 
     const transTextP = document.createElement("p");
-    transTextP.className   = CLS.transPend;
-    transTextP.textContent = "…";
+    const translationOn = translationEnabledRef.current || isAdminRef.current;
+    transTextP.className   = translationOn ? CLS.transPend : CLS.transDisabled;
+    transTextP.textContent = translationOn ? "…" : TRANSLATION_PLATINUM_PLACEHOLDER;
     applyTextStyle(transTextP);
     transRow.appendChild(transTextP);
     transRow.appendChild(makeCopyBtn(() => transTextP.textContent ?? ""));
@@ -1676,10 +1706,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           method:      "POST",
           headers:     { "Content-Type": "application/json" },
           credentials: "include",
-          body:        JSON.stringify({ sessionId: sid }),
+          body:        JSON.stringify({
+            sessionId: sid,
+            audioSecondsProcessed: Math.floor(audioPcmSecondsRef.current),
+          }),
         }).catch(() => { /* best-effort — ignore network errors */ });
       };
       heartbeatIntervalRef.current = setInterval(sendHeartbeat, 30_000);
+      sendHeartbeat();
 
       const AudioContextCtor =
         window.AudioContext ||

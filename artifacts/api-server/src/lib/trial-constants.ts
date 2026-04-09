@@ -4,14 +4,17 @@
  */
 export const TRIAL_DAILY_LIMIT_MINUTES = 180;
 
-/** Length of free trial granted to accounts created from now on. */
+/**
+ * Calendar length for **new** signups only (`auth` / admin-created trial users).
+ * Never use this to rewrite `trial_ends_at` for existing rows — the DB may hold 7- or 14-day (or other) cohorts.
+ */
 export const TRIAL_DAYS_NEW_USERS = 7;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
- * `trial_ends_at` stored on the user row and shown in emails.
- * Existing users keep their already stored value; this is only for new account creation.
+ * Sets `trial_ends_at` when **inserting** a new user. Does not run in migrations or startup sync.
+ * Existing users keep whatever `trial_started_at` / `trial_ends_at` is already stored.
  */
 export function computeTrialEndsAt(trialStartedAt: Date): Date {
   return new Date(trialStartedAt.getTime() + TRIAL_DAYS_NEW_USERS * MS_PER_DAY);

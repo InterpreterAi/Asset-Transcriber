@@ -30,9 +30,10 @@ const router = Router();
 const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
 
 const PLAN_PRICES: Record<string, number> = {
-  basic:        40,
-  professional: 80,
-  unlimited:    120,
+  basic:         59,
+  professional:  99,
+  platinum:      179,
+  unlimited:     179,
 };
 
 // ── List users ───────────────────────────────────────────────────────────────

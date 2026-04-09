@@ -87,7 +87,10 @@ function getClientIp(req: import("express").Request): string {
   );
 }
 
-/** Every new account gets the current trial length and 180 min/day cap (aligned with `created_at`). */
+/**
+ * New signups only: `TRIAL_DAYS_NEW_USERS` window and daily cap from constants.
+ * Never applied to existing users; their stored trial dates stay as in the database.
+ */
 function defaultTrialFieldsForNewAccount(accountCreatedAt: Date) {
   return {
     trialStartedAt:    accountCreatedAt,

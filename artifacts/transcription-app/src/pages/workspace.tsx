@@ -112,6 +112,7 @@ export default function Workspace() {
   }>({ transcription: null, debounce: null });
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
+    translationEnabled: user?.translationEnabled ?? true,
     onAdminSnapshotBuffersUpdated: () => {
       if (snapshotCtxRef.current.debounce != null) return;
       snapshotCtxRef.current.debounce = setTimeout(() => {
@@ -249,7 +250,8 @@ export default function Workspace() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<"basic" | "professional" | "unlimited" | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<"basic" | "professional" | "platinum" | null>(null);
+  const [testPlanLoading, setTestPlanLoading] = useState<string | null>(null);
 
   const handleOpenUpgrade = () => {
     setShowUpgrade(true);
@@ -257,7 +259,7 @@ export default function Workspace() {
     setSelectedPlan(null);
   };
 
-  const handlePayPalCheckout = async (planType: "basic" | "professional" | "unlimited") => {
+  const handlePayPalCheckout = async (planType: "basic" | "professional" | "platinum") => {
     setUpgradeLoading(planType);
     setUpgradeError(null);
     try {
@@ -274,6 +276,28 @@ export default function Workspace() {
       setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setUpgradeLoading(null);
+    }
+  };
+
+  const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
+
+  const handleTestActivatePlan = async (planType: "basic" | "professional" | "platinum") => {
+    setTestPlanLoading(planType);
+    setUpgradeError(null);
+    try {
+      const res = await fetch("/api/payments/test-activate-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ planType }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Plan switch failed");
+      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    } catch (err: unknown) {
+      setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setTestPlanLoading(null);
     }
   };
 
@@ -577,6 +601,8 @@ export default function Workspace() {
   }
   if (!user) return null;
 
+  const usageShowsUnlimitedCap = user.dailyLimitMinutes >= 9000;
+
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
   const isBlocked      = user.trialExpired || isLimitReached;
@@ -874,7 +900,7 @@ export default function Workspace() {
                 {user.planType === "trial" ? "Free Trial"
                   : user.planType === "basic" ? "Basic"
                   : user.planType === "professional" ? "Professional"
-                  : "Unlimited"}
+                  : "Platinum"}
               </span>
               {user.planType === "trial" && (
                 <span className="text-[11px] text-muted-foreground">
@@ -921,7 +947,7 @@ export default function Workspace() {
                   return h > 0 ? `${h}h ${m}m used` : `${m}m used`;
                 })()}
               </span>
-              {user.planType === "unlimited"
+              {usageShowsUnlimitedCap
                 ? <span className="text-emerald-600 font-semibold">Unlimited</span>
                 : <span className="text-muted-foreground">
                     / {Math.floor(user.dailyLimitMinutes / 60) > 0
@@ -930,7 +956,7 @@ export default function Workspace() {
                   </span>
               }
             </div>
-            {user.planType !== "unlimited" && (
+            {!usageShowsUnlimitedCap && (
               <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-2">
                 <div
                   className={`h-full rounded-full transition-all ${
@@ -945,6 +971,26 @@ export default function Workspace() {
               <span className="font-semibold text-foreground">{(user as unknown as { sessionsToday?: number }).sessionsToday ?? 0}</span>
             </div>
           </div>
+
+          {(user.email ?? "").trim().toLowerCase() === TEST_PLAN_ACTIVATION_EMAIL && (
+            <div className="px-4 pb-4 border-b border-border/60">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Plan testing</p>
+              <p className="text-[11px] text-muted-foreground mb-2">Switch plan instantly (no checkout).</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(["basic", "professional", "platinum"] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={testPlanLoading !== null}
+                    onClick={() => void handleTestActivatePlan(p)}
+                    className="px-2.5 py-1 rounded-md text-[10px] font-semibold border border-border bg-white hover:bg-muted transition-colors disabled:opacity-50 capitalize"
+                  >
+                    {testPlanLoading === p ? "…" : p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Change password */}
           <div className="p-4 flex-1">
@@ -1313,7 +1359,7 @@ export default function Workspace() {
             </button>
             <div className="bg-muted px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1 sm:gap-1.5 border border-border/50">
               <Clock className="w-3 h-3 shrink-0" />
-              {user.planType === "unlimited"
+              {usageShowsUnlimitedCap
                 ? <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} today · Unlimited</span>
                 : <>
                     <span className="sm:hidden">{formatMinutes(user.minutesRemainingToday)}</span>

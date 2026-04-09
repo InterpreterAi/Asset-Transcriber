@@ -11,6 +11,7 @@ import {
   getGetMeQueryKey,
   getAdminListUsersQueryKey,
   getAdminListFeedbackQueryKey,
+  type AdminUser,
 } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format, differenceInDays } from "date-fns";
@@ -722,7 +723,7 @@ export default function Admin() {
   }
   if (!me?.isAdmin) return null;
 
-  const allUsers  = usersData?.users ?? [];
+  const allUsers: AdminUser[] = usersData?.users ?? [];
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
   const sessions  = stats?.activeSessions ?? [];
@@ -754,7 +755,7 @@ export default function Admin() {
   };
 
   // ── Edit user drawer helpers ───────────────────────────────────────────────
-  function openEditUser(u: typeof allUsers[0]) {
+  function openEditUser(u: AdminUser) {
     const userDefaultA = ((u as unknown as { defaultLangA?: string }).defaultLangA ?? defaultLangA ?? "en").trim();
     const userDefaultB = ((u as unknown as { defaultLangB?: string }).defaultLangB ?? defaultLangB ?? "ar").trim();
     setEditingUser({
@@ -2589,7 +2590,8 @@ export default function Admin() {
                     <option value="trial">Trial</option>
                     <option value="basic">Basic</option>
                     <option value="professional">Professional</option>
-                    <option value="unlimited">Unlimited</option>
+                    <option value="platinum">Platinum</option>
+                    <option value="unlimited">Unlimited (legacy)</option>
                   </select>
                 </div>
 

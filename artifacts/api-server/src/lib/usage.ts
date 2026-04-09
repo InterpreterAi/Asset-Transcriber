@@ -43,6 +43,22 @@ export function isTrialExpired(user: User): boolean {
   return new Date() > end;
 }
 
+/**
+ * OpenAI InterpreterAI translation (POST /translate).
+ * - Active trial: enabled (same full product as today until `trial_ends_at`).
+ * - Expired trial (still `plan_type = trial`): disabled until they subscribe to Platinum.
+ * - Platinum / legacy unlimited: enabled.
+ * - Basic / Professional: disabled.
+ * - Admins: enabled.
+ */
+export function translationEnabledForUser(user: User): boolean {
+  if (user.isAdmin) return true;
+  const p = (user.planType ?? "trial").toLowerCase();
+  if (p === "platinum" || p === "unlimited") return true;
+  if (p === "trial") return !isTrialExpired(user);
+  return false;
+}
+
 export async function getUserWithResetCheck(userId: number): Promise<User | undefined> {
   const users = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   const user = users[0];
@@ -81,6 +97,7 @@ export function buildUserInfo(user: User) {
     isAdmin: user.isAdmin,
     isActive: user.isActive,
     planType: user.planType ?? "trial",
+    translationEnabled: translationEnabledForUser(user),
     emailVerified: user.emailVerified ?? false,
     trialStartedAt: user.trialStartedAt,
     trialEndsAt: user.trialEndsAt,

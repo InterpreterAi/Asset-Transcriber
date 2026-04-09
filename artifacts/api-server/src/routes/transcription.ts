@@ -3,7 +3,12 @@ import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } f
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
-import { getUserWithResetCheck, isTrialExpired, touchActivity } from "../lib/usage.js";
+import {
+  getUserWithResetCheck,
+  isTrialExpired,
+  touchActivity,
+  translationEnabledForUser,
+} from "../lib/usage.js";
 import { findTermHints } from "../data/terminology.js";
 import {
   initInterpreterGlossaries,
@@ -56,6 +61,56 @@ const SONIOX_COST_PER_MIN = 0.0025;
 //   Output $0.60 / 1M tokens → $6.0e-7 per token
 const OPENAI_INPUT_COST_PER_TOKEN  = 0.00000015;
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060;
+
+const MAX_SESSION_AUDIO_SECONDS = 3 * 60 * 60;
+
+/** Minimum window (~1 s) so we never divide by zero for “per wall-hour” rates. */
+function elapsedWallHoursSince(startedAt: Date): number {
+  const sec = (Date.now() - startedAt.getTime()) / 1000;
+  return Math.max(sec / 3600, 1 / 3600);
+}
+
+/**
+ * Structured log for cost verification: OpenAI translation tokens vs Soniox billable audio.
+ * Soniox STT is billed per audio minute — there is no transcription “token” count in our stack.
+ */
+function logInterpretationSessionHourlyRates(opts: {
+  source: "heartbeat" | "session_stop";
+  sessionId: number;
+  userId: number;
+  startedAt: Date;
+  audioSecondsProcessed: number;
+  translationTokens: number;
+  translationCostUsd: number;
+}): void {
+  const wallH = elapsedWallHoursSince(opts.startedAt);
+  const audioMin = opts.audioSecondsProcessed / 60;
+  const sonioxUsdTotal = audioMin * SONIOX_COST_PER_MIN;
+  const translationTokensPerWallHour = opts.translationTokens / wallH;
+  const transcriptionBillableAudioMinutesPerWallHour = audioMin / wallH;
+  const estimatedSonioxUsdPerWallHour = sonioxUsdTotal / wallH;
+  const estimatedOpenAiTranslationUsdPerWallHour = opts.translationCostUsd / wallH;
+  const estimatedCombinedProviderUsdPerWallHour =
+    estimatedSonioxUsdPerWallHour + estimatedOpenAiTranslationUsdPerWallHour;
+
+  logger.info(
+    {
+      metric: "interpretation_session_hourly_rates",
+      source: opts.source,
+      sessionId: opts.sessionId,
+      userId: opts.userId,
+      elapsedWallHours: +wallH.toFixed(4),
+      translationTokensCumulative: opts.translationTokens,
+      translationTokensPerWallHour: Math.round(translationTokensPerWallHour),
+      transcriptionBillableAudioMinutesCumulative: +audioMin.toFixed(4),
+      transcriptionBillableAudioMinutesPerWallHour: +transcriptionBillableAudioMinutesPerWallHour.toFixed(4),
+      estimatedOpenAiTranslationUsdPerWallHour: +estimatedOpenAiTranslationUsdPerWallHour.toFixed(6),
+      estimatedSonioxUsdPerWallHour: +estimatedSonioxUsdPerWallHour.toFixed(6),
+      estimatedCombinedProviderUsdPerWallHour: +estimatedCombinedProviderUsdPerWallHour.toFixed(6),
+    },
+    "Interpretation session rates: translation tokens/hour (wall) + transcription billable audio min/hour (Soniox has no tokens)",
+  );
+}
 
 // ── Global system safety cap ───────────────────────────────────────────────
 // In-memory cache to avoid querying DB on every /token request.
@@ -491,7 +546,11 @@ router.post("/session/start", requireAuth, async (req, res) => {
 // Frontend calls this every 30 s while recording to keep the session alive.
 // Without a heartbeat the session is considered stale after STALE_SESSION_MS.
 router.post("/session/heartbeat", requireAuth, async (req, res) => {
-  const { sessionId } = req.body as { sessionId?: number };
+  const { sessionId, audioSecondsProcessed: rawAudio } = (req.body ?? {}) as {
+    sessionId?: number;
+    /** Cumulative PCM seconds sent to Soniox this session (client-measured). */
+    audioSecondsProcessed?: number;
+  };
   if (!sessionId) { res.status(400).json({ error: "sessionId required" }); return; }
 
   const rows = await db
@@ -511,12 +570,43 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     return;
   }
 
+  const audioSeconds =
+    rawAudio !== undefined && Number.isFinite(Number(rawAudio))
+      ? Math.min(Math.max(0, Math.floor(Number(rawAudio))), MAX_SESSION_AUDIO_SECONDS)
+      : undefined;
+
   await db
     .update(sessionsTable)
-    .set({ lastActivityAt: new Date() })
+    .set({
+      lastActivityAt: new Date(),
+      ...(audioSeconds !== undefined ? { audioSecondsProcessed: audioSeconds } : {}),
+    })
     .where(eq(sessionsTable.id, sessionId));
 
   void touchActivity(req.session.userId!);
+
+  const [metricRow] = await db
+    .select({
+      startedAt:               sessionsTable.startedAt,
+      audioSecondsProcessed:   sessionsTable.audioSecondsProcessed,
+      translationTokens:       sessionsTable.translationTokens,
+      translationCost:         sessionsTable.translationCost,
+    })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .limit(1);
+
+  if (metricRow) {
+    logInterpretationSessionHourlyRates({
+      source: "heartbeat",
+      sessionId,
+      userId: req.session.userId!,
+      startedAt: metricRow.startedAt,
+      audioSecondsProcessed: Number(metricRow.audioSecondsProcessed ?? 0),
+      translationTokens: Number(metricRow.translationTokens ?? 0),
+      translationCostUsd: Number(metricRow.translationCost ?? 0),
+    });
+  }
 
   res.json({ ok: true });
 });
@@ -544,6 +634,27 @@ router.post("/session/stop", requireAuth, async (req, res) => {
       totalSessionCost: sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
     })
     .where(eq(sessionsTable.id, sessionId));
+
+  const [stoppedRow] = await db
+    .select({
+      startedAt:         sessionsTable.startedAt,
+      translationTokens: sessionsTable.translationTokens,
+      translationCost:   sessionsTable.translationCost,
+    })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .limit(1);
+  if (stoppedRow) {
+    logInterpretationSessionHourlyRates({
+      source: "session_stop",
+      sessionId,
+      userId: req.session.userId!,
+      startedAt: stoppedRow.startedAt,
+      audioSecondsProcessed: audioSeconds,
+      translationTokens: Number(stoppedRow.translationTokens ?? 0),
+      translationCostUsd: Number(stoppedRow.translationCost ?? 0),
+    });
+  }
 
   // Remove in-memory snapshot — session is over.
   sessionStore.delete(sessionId);
@@ -755,6 +866,15 @@ router.post("/translate", requireAuth, async (req, res) => {
       error:
         "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
       code: "TRANSLATION_NOT_CONFIGURED",
+    });
+    return;
+  }
+
+  const translateUser = await getUserWithResetCheck(req.session.userId!);
+  if (!translateUser || !translationEnabledForUser(translateUser)) {
+    res.status(403).json({
+      error: "InterpreterAI Translation is available on the Platinum plan.",
+      code: "TRANSLATION_PLAN_REQUIRED",
     });
     return;
   }
