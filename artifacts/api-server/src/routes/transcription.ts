@@ -491,6 +491,26 @@ function latinPairLooksUntranslated(source: string, translated: string): boolean
   return false;
 }
 
+function extractLatinWordSet(text: string, minLen = 5): Set<string> {
+  const words = text.match(/[A-Za-z][A-Za-z'-]*/g) ?? [];
+  const out = new Set<string>();
+  for (const w of words) {
+    const cleaned = w.toLowerCase().replace(/[^a-z']/g, "");
+    if (cleaned.length >= minLen) out.add(cleaned);
+  }
+  return out;
+}
+
+function nonLatinTargetHasSourceTermLeak(source: string, translated: string): boolean {
+  const src = extractLatinWordSet(source, 5);
+  const out = extractLatinWordSet(translated, 5);
+  if (src.size === 0 || out.size === 0) return false;
+  for (const w of out) {
+    if (src.has(w)) return true;
+  }
+  return false;
+}
+
 function matchesExpectedTargetLanguage(
   translated: string,
   targetBase: string,
@@ -499,8 +519,14 @@ function matchesExpectedTargetLanguage(
 ): boolean {
   if (!matchesTargetScript(translated, targetBase)) return false;
 
-  // For non-Latin scripts the script validator is the primary guard.
-  if (SCRIPT_RANGES[targetBase]) return true;
+  // Non-Latin target: reject if source-language Latin terms leaked through
+  // unchanged (common on medical/legal terminology when model is uncertain).
+  if (SCRIPT_RANGES[targetBase]) {
+    if (targetBase !== sourceBase && nonLatinTargetHasSourceTermLeak(sourceText, translated)) {
+      return false;
+    }
+    return true;
+  }
 
   // Latin-script pair: reject clearly untranslated outputs.
   if (targetBase !== sourceBase && latinPairLooksUntranslated(sourceText, translated)) {
@@ -1195,6 +1221,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Medical: use precise clinical or lay equivalents in ${tgtName} matching the register the speaker used.\n` +
     `- Legal: use precise legal equivalents in ${tgtName} when the speaker uses legal language.\n` +
     `- Insurance/accident: use standard terms (collision, liability, claim, deductible, at-fault) only when the speaker uses them.\n` +
+    `- Do NOT leave medical/legal source terms untranslated in their original language unless the term is a proper name or brand.\n` +
     arabicSourceRule +
     termRule +
     finalSegmentBlock +
