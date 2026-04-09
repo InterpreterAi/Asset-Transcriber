@@ -945,6 +945,12 @@ interface BubbleTransState {
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
   segmentTargetLang:     string | null;
+  /**
+   * Live path skipped a truncated API response but still advanced `streamCommittedSource`.
+   * Finalize must run a full translate — otherwise `sourceTailAfterPrefix` sees no tail and locks
+   * with a partial translation still on screen.
+   */
+  needsFullFinalTranslation: boolean;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1353,8 +1359,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
         // Final pass: if we already translated all seen source, just lock; if there is a tail, translate tail only.
         if (monotonic && !tail.trim()) {
-          state.translationLocked = true;
-          return;
+          if (state.needsFullFinalTranslation) {
+            apiText = text;
+            useStreamingDelta = false;
+            requestIsFinal = true;
+          } else {
+            state.translationLocked = true;
+            return;
+          }
         }
         if (monotonic && tail.trim()) {
           apiText = tail;
@@ -1425,6 +1437,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
           state.streamCommittedSource = text;
+          state.needsFullFinalTranslation = false;
           if (lockOnFinal) {
             state.translationLocked = true;
             translationBufRef.current.push(out);
@@ -1441,6 +1454,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               out.length < prevT.length * 0.4
             ) {
               out = prevT;
+              state.needsFullFinalTranslation = true;
+            } else {
+              state.needsFullFinalTranslation = false;
             }
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
@@ -1451,6 +1467,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
             applyTranslationTypography(transTextEl, out);
+            state.needsFullFinalTranslation = false;
           }
           state.streamCommittedSource = text;
           state.lastConfirmedSourceTranslated = text;
@@ -1471,6 +1488,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             out.length < prevT.length * 0.4 &&
             text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.88
           ) {
+            state.needsFullFinalTranslation = true;
             state.lastShownSeq = mySeq;
             state.streamCommittedSource = text;
             state.lastConfirmedSourceTranslated = text;
@@ -1481,6 +1499,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
           state.streamCommittedSource = text;
+          state.needsFullFinalTranslation = false;
           if (!requestIsFinal) state.lastConfirmedSourceTranslated = text;
         }
 
@@ -1601,6 +1620,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       pendingLiveSource: "",
       segmentSourceLang:     null,
       segmentTargetLang:     null,
+      needsFullFinalTranslation: false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
