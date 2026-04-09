@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useLogin } from "@workspace/api-client-react";
+import { ApiError, useLogin } from "@workspace/api-client-react";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -76,21 +76,27 @@ export default function Login() {
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation("/workspace");
     } catch (err: unknown) {
-      const data = (err as { response?: { data?: unknown; status?: number } })?.response?.data as
-        | { error?: unknown; code?: string }
-        | undefined;
+      // customFetch throws ApiError with JSON on `.data` (not axios `.response.data`).
+      let status: number | undefined;
+      let payload: { error?: unknown; code?: string } | undefined;
+      if (err instanceof ApiError) {
+        status = err.status;
+        const d = err.data;
+        payload = d && typeof d === "object" ? (d as { error?: unknown; code?: string }) : undefined;
+      } else {
+        const ax = err as { response?: { status?: number; data?: { error?: unknown; code?: string } } };
+        status = ax.response?.status;
+        payload = ax.response?.data;
+      }
       const apiMsg =
-        typeof data?.error === "string" && data.error.length <= 800 ? data.error.trim() : "";
-      if (
-        (err as { response?: { status?: number } })?.response?.status === 403 &&
-        data?.code === "email_not_verified"
-      ) {
+        typeof payload?.error === "string" && payload.error.length <= 800 ? payload.error.trim() : "";
+      if (status === 403 && payload?.code === "email_not_verified") {
         setShowResend(true);
         setError(apiMsg || "Please verify your email before signing in.");
         return;
       }
       setShowResend(false);
-      // Never show err.message: ApiError can embed long server text; only whitelisted API strings.
+      // Never show err.message: ApiError.message can embed long server text; only API `error` string.
       setError(apiMsg || "Invalid credentials");
     }
   };

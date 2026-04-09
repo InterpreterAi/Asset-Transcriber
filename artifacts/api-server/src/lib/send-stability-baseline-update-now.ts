@@ -24,16 +24,27 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
  * Sends the stability / baseline product update email once per user (DB flag).
  * Safe to re-run: skips users who already have stabilityBaselineUpdateEmailSentAt set.
  *
- * Prerequisite: apply schema — from repo root, e.g. `pnpm --filter @workspace/db push`
- * so column `stability_baseline_update_email_sent_at` exists.
+ * Prerequisite: column `stability_baseline_update_email_sent_at` on `users`.
+ * If `pnpm --filter @workspace/db push` hangs, run instead:
+ *   artifacts/api-server/scripts/add-stability-baseline-email-sent-at-column.sql
+ * in your host’s SQL console, or: `cd lib/db && node run-drizzle-kit.cjs push --force`
+ * (from repo root, with DATABASE_URL set).
  */
 export async function runSendStabilityBaselineUpdateNow(): Promise<void> {
   if (!isPostgresEnvConfigured()) {
-    logger.error("STABILITY BASELINE EMAIL: Database URL not configured; aborting.");
+    const msg =
+      "STABILITY BASELINE EMAIL: No database URL in env (set DATABASE_URL). Aborting.";
+    console.error(msg);
+    logger.error(msg);
+    process.exitCode = 1;
     return;
   }
   if (!isResendConfigured()) {
-    logger.error("STABILITY BASELINE EMAIL: RESEND_API_KEY not configured; aborting.");
+    const msg =
+      "STABILITY BASELINE EMAIL: RESEND_API_KEY (or RESEND_KEY / RESEND_TOKEN) not set. Aborting.";
+    console.error(msg);
+    logger.error(msg);
+    process.exitCode = 1;
     return;
   }
 
@@ -142,6 +153,16 @@ export async function runSendStabilityBaselineUpdateNow(): Promise<void> {
 }
 
 void runSendStabilityBaselineUpdateNow().catch((err) => {
+  const hint =
+    err instanceof Error &&
+    /column|stability_baseline|does not exist/i.test(err.message)
+      ? " Hint: run artifacts/api-server/scripts/add-stability-baseline-email-sent-at-column.sql on your database, then retry."
+      : "";
+  console.error(
+    "STABILITY BASELINE EMAIL: execution failed:",
+    err instanceof Error ? err.message : err,
+    hint,
+  );
   logger.error({ err }, "STABILITY BASELINE EMAIL: execution failed");
   process.exitCode = 1;
 });
