@@ -61,6 +61,8 @@ const SHORT_PAUSE_MS_FAST = 120;
 const LONG_PAUSE_MS  = 1200;
 const EARLY_HINT_MIN_WORDS = 8;
 const LIVE_PREVIEW_WORD_STEP = 8;
+/** Min NF words before splitting on a new `speaker` tag — low for Soniox-like latency; avoids 1-token flicker. */
+const NF_SPEAKER_SWITCH_MIN_WORDS = 2;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -1847,6 +1849,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleRef.current = createBubble(spk);
           setHasTranscript(true);
         }
+      }
+
+      // Early segment boundary when diarization attributes NF to another speaker (Soniox does this before finals).
+      // Final-token speaker change still runs as a backstop; this only reduces “stuck on previous row” delay.
+      if (
+        nfText.trim().length > 0 &&
+        activeBubbleRef.current &&
+        nfSpeaker !== undefined &&
+        nfSpeaker !== null &&
+        currentSpeakerRef.current !== undefined &&
+        !sameSpeaker(nfSpeaker, currentSpeakerRef.current) &&
+        countWords(nfText.trim()) >= NF_SPEAKER_SWITCH_MIN_WORDS
+      ) {
+        closeActiveSegmentBoundary("speaker_change");
+        currentSpeakerRef.current = String(nfSpeaker);
+        activeBubbleRef.current = createBubble(nfSpeaker);
+        setHasTranscript(true);
       }
 
       const nfEl = activeBubbleNFRef.current;
