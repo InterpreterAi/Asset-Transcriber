@@ -58,6 +58,7 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
 const SHORT_PAUSE_MS = 650;
+const SHORT_PAUSE_MS_FAST = 120;
 const LONG_PAUSE_MS  = 1200;
 const EARLY_HINT_MIN_WORDS = 8;
 const LIVE_PREVIEW_WORD_STEP = 8;
@@ -715,6 +716,8 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
+  /** True for Basic/Professional/Trial-Libre plans that use LibreTranslate. */
+  useLibreTranslate?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -729,6 +732,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
+
+  const useLibreTranslateRef = useRef(options?.useLibreTranslate ?? false);
+  useEffect(() => {
+    useLibreTranslateRef.current = options?.useLibreTranslate ?? false;
+  }, [options?.useLibreTranslate]);
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1481,6 +1489,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Also reset the 5-min inactivity auto-stop timer on every speech event.
       resetInactivityRef.current?.();
       if (shortPauseTimerRef.current !== null) clearTimeout(shortPauseTimerRef.current);
+      const shortPauseMs = useLibreTranslateRef.current ? SHORT_PAUSE_MS : SHORT_PAUSE_MS_FAST;
       shortPauseTimerRef.current = setTimeout(() => {
         shortPauseTimerRef.current = null;
         if (!activeBubbleRef.current) return;
@@ -1493,7 +1502,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         dispatchTranslation(source, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = countWords(source);
-      }, SHORT_PAUSE_MS);
+      }, shortPauseMs);
       // Reset finalization timer only while speech is still active (NF tokens).
       // Soniox may continue emitting final-only stabilization updates after
       // speech stops; those must not postpone segment closure.
@@ -1627,16 +1636,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
+      const minWordsForEarlyHint = useLibreTranslateRef.current ? EARLY_HINT_MIN_WORDS : 1;
+      const previewWordStep = useLibreTranslateRef.current ? LIVE_PREVIEW_WORD_STEP : 1;
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
         st.finalTokensSeen >= 3 &&
         hintSource.length >= 25 &&
-        wordsNow >= EARLY_HINT_MIN_WORDS &&
+        wordsNow >= minWordsForEarlyHint &&
         (
           !st.earlyHintSent ||
-          wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP
+          wordsNow - st.lastPreviewWordsSent >= previewWordStep
         )
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
