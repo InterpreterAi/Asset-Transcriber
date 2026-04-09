@@ -115,6 +115,92 @@ function isPostgresUniqueViolation(err: unknown): boolean {
   return e?.code === "23505" || e?.cause?.code === "23505";
 }
 
+/** Walk drizzle/node-pg error.cause chains for stable codes/messages (never returned to the client). */
+function unwrapDriverError(err: unknown): { code?: string; message: string } {
+  let cur: unknown = err;
+  const seen = new Set<unknown>();
+  let code: string | undefined;
+  let message = "";
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    const o = cur as { code?: string; message?: string; cause?: unknown };
+    if (typeof o.code === "string" && !code) code = o.code;
+    if (typeof o.message === "string") message = o.message;
+    if (o.cause == null) break;
+    cur = o.cause;
+  }
+  if (!message) message = err instanceof Error ? err.message : String(err);
+  return { code, message };
+}
+
+/**
+ * Map common Postgres / network failures to safe JSON (no raw driver text).
+ * Helps operators fix DATABASE_URL / migrations without reading logs first.
+ */
+function classifyAuthDatabaseFailure(err: unknown): { error: string; hint: string; code: string } | null {
+  const { code, message } = unwrapDriverError(err);
+  const msg = message;
+
+  if (code === "42P01" || /relation "([^"]+)" does not exist/i.test(msg)) {
+    const rel = msg.match(/relation "([^"]+)" does not exist/i)?.[1];
+    if (rel === "user_sessions") {
+      return {
+        error: "Session storage table is missing.",
+        hint:
+          "Set SESSION_STORE=memory on a single API instance, or ensure the user_sessions table exists and the DB user can write to it.",
+        code: "db_user_sessions_missing",
+      };
+    }
+    return {
+      error: "Database schema is missing a required table.",
+      hint: rel
+        ? `Relation "${rel}" is missing — run migrations (Drizzle push/migrate) against the DATABASE_URL used by this API.`
+        : "Run database migrations for this deployment.",
+      code: "db_relation_missing",
+    };
+  }
+
+  if (code === "42703" || /column "([^"]+)" does not exist/i.test(msg)) {
+    return {
+      error: "Database schema is out of date.",
+      hint: "Apply migrations to the database backing this API (schema/columns do not match the code).",
+      code: "db_column_missing",
+    };
+  }
+
+  if (
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    code === "57P03"
+  ) {
+    return {
+      error: "Cannot connect to the database.",
+      hint:
+        "Check DATABASE_URL on the API service, that Postgres is running, and use the private/internal URL on Railway if required.",
+      code: "db_connection_failed",
+    };
+  }
+
+  if (code === "28P01" || /password authentication failed/i.test(msg)) {
+    return {
+      error: "Database rejected the connection.",
+      hint: "DATABASE_URL credentials are wrong or were rotated — update the variable and redeploy.",
+      code: "db_auth_failed",
+    };
+  }
+
+  if (code === "3D000" || /database "[^"]+" does not exist/i.test(msg)) {
+    return {
+      error: "The database in DATABASE_URL does not exist.",
+      hint: "Create the database or fix the database name in the connection string.",
+      code: "db_database_missing",
+    };
+  }
+
+  return null;
+}
+
 // ── Login ──────────────────────────────────────────────────────────────────
 router.post("/login", async (req, res) => {
   try {
@@ -246,7 +332,31 @@ router.post("/login", async (req, res) => {
       userPayload = { ...buildUserInfo(freshUser), sessionsToday };
     } catch (enrichErr) {
       logger.warn({ err: enrichErr, userId: user.id }, "Login: profile enrichment failed; returning minimal user");
-      userPayload = { ...buildUserInfo(user), sessionsToday: 0 };
+      try {
+        userPayload = { ...buildUserInfo(user), sessionsToday: 0 };
+      } catch (fallbackBuildErr) {
+        safeAuthLoggerError("Login: buildUserInfo(fallback) failed", fallbackBuildErr);
+        userPayload = {
+          id: user.id,
+          username: user.username,
+          email: user.email ?? undefined,
+          isAdmin: Boolean(user.isAdmin),
+          isActive: user.isActive,
+          planType: user.planType ?? "trial",
+          translationEnabled: false,
+          emailVerified: Boolean(user.emailVerified),
+          trialStartedAt: user.trialStartedAt,
+          trialEndsAt: user.trialEndsAt,
+          trialDaysRemaining: 0,
+          trialExpired: false,
+          dailyLimitMinutes: Number(user.dailyLimitMinutes) || 0,
+          minutesUsedToday: Number(user.minutesUsedToday) || 0,
+          minutesRemainingToday: 0,
+          totalMinutesUsed: Number(user.totalMinutesUsed) || 0,
+          totalSessions: Number(user.totalSessions) || 0,
+          sessionsToday: 0,
+        };
+      }
     }
 
     try {
@@ -261,14 +371,25 @@ router.post("/login", async (req, res) => {
     }
   } catch (err) {
     safeAuthLoggerError("POST /api/auth/login failed — full stack (not necessarily session-related)", err);
-    const pgCode = (err as { code?: string })?.code;
-    logger.error(
-      {
-        ...errMeta(err),
-        pgCode: typeof pgCode === "string" ? pgCode : undefined,
-      },
-      "POST /api/auth/login uncaught — details server-side only",
-    );
+    try {
+      const pgCode = unwrapDriverError(err).code;
+      logger.error(
+        {
+          ...errMeta(err),
+          pgCode: typeof pgCode === "string" ? pgCode : undefined,
+        },
+        "POST /api/auth/login uncaught — details server-side only",
+      );
+    } catch {
+      /* pino serialization must not block the HTTP response */
+    }
+
+    const classified = classifyAuthDatabaseFailure(err);
+    if (classified) {
+      res.status(500).json(classified);
+      return;
+    }
+
     res.status(500).json({
       error: SAFE_INTERNAL_AUTH_ERROR,
       code: "login_uncaught_exception",

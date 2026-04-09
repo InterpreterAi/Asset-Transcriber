@@ -6,5 +6,6 @@ declare module "express-session" {
     isAdmin:         boolean;
     oauthState:      string;
     pending2faUserId?: number;
+    oauthReferralUserId?: number;
   }
 }
