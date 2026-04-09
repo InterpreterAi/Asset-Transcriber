@@ -161,9 +161,14 @@ function classifyAuthDatabaseFailure(err: unknown): { error: string; hint: strin
   }
 
   if (code === "42703" || /column "([^"]+)" does not exist/i.test(msg)) {
+    const m = msg.match(/column "([^"]+)"(?: of relation "([^"]+)")? does not exist/i);
+    const col = m?.[1];
+    const rel = m?.[2];
     return {
       error: "Database schema is out of date.",
-      hint: "Apply migrations to the database backing this API (schema/columns do not match the code).",
+      hint: col
+        ? `Missing column "${col}"${rel ? ` on table "${rel}"` : ""}. In Railway → your Postgres → Query, paste and run artifacts/api-server/scripts/ensure-users-columns.sql (repo), or from the repo run pnpm db:push:railway.`
+        : "Apply migrations: pnpm db:push:railway, or run ensure-users-columns.sql against production Postgres.",
       code: "db_column_missing",
     };
   }
