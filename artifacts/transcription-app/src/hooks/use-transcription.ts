@@ -57,10 +57,9 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // Silence segmentation thresholds.
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
-const SHORT_PAUSE_MS = 650;
+const SHORT_PAUSE_MS = 120;
 const LONG_PAUSE_MS  = 1200;
 const EARLY_HINT_MIN_WORDS = 8;
-const LIVE_PREVIEW_WORD_STEP = 8;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -643,6 +642,18 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+/** New source tail after an already-translated prefix (for Libre streaming deltas). */
+function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: string; monotonic: boolean } {
+  const full = fullRaw.trimStart();
+  const prefix = prefixRaw.trimEnd();
+  if (!prefix) return { tail: full, monotonic: true };
+  if (full.startsWith(prefix)) return { tail: full.slice(prefix.length).trimStart(), monotonic: true };
+  const f = full.toLowerCase();
+  const p = prefix.toLowerCase();
+  if (f.startsWith(p)) return { tail: full.slice(p.length).trimStart(), monotonic: true };
+  return { tail: full.trim(), monotonic: false };
+}
+
 
 function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
@@ -688,6 +699,8 @@ interface BubbleTransState {
   earlyHintSent:         boolean;
   /** Word count at the last non-final preview dispatch. */
   lastPreviewWordsSent:  number;
+  /** Last full source string sent for a Libre non-final preview (skip duplicate dispatches). */
+  lastLibreNonFinalDispatchSource: string;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -714,6 +727,8 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
+  /** When true, non-final translation uses streaming deltas (LibreTranslate path on the API). */
+  useLibreTranslate?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -728,6 +743,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
+
+  const useLibreTranslateRef = useRef(options?.useLibreTranslate ?? false);
+  useEffect(() => {
+    useLibreTranslateRef.current = options?.useLibreTranslate ?? false;
+  }, [options?.useLibreTranslate]);
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1011,17 +1031,34 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       `estimated_tokens=${estimatedTokens}`,
     );
 
-    if (!isFinal && state.streamInflight) return;
+    const useLibre = useLibreTranslateRef.current;
+    if (!isFinal && state.streamInflight && !useLibre) return;
+
+    if (!isFinal && useLibre && text === state.lastLibreNonFinalDispatchSource) return;
 
     let apiText: string;
     let useStreamingDelta = false;
     if (isFinal) {
       apiText = text;
       useStreamingDelta = false;
+    } else if (useLibre) {
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      if (!monotonic) {
+        apiText = text.trim();
+        useStreamingDelta = false;
+      } else if (!tail.trim()) {
+        return;
+      } else {
+        apiText = tail;
+        useStreamingDelta = true;
+      }
     } else {
-      // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
       useStreamingDelta = false;
+    }
+
+    if (!isFinal && useLibre) {
+      state.lastLibreNonFinalDispatchSource = text;
     }
 
     state.seq += 1;
@@ -1068,8 +1105,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = merged.length;
           applyTranslationTypography(transTextEl, merged);
-          const committed = state.streamCommittedSource.trim();
-          state.streamCommittedSource = committed ? `${committed} ${text}` : text;
+          state.streamCommittedSource = text;
         } else {
           state.lastShownSeq = mySeq;
           state.lastShownLen = translated.length;
@@ -1175,6 +1211,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
       lastPreviewWordsSent:  0,
+      lastLibreNonFinalDispatchSource: "",
       finalTokensSeen:       0,
       lastNfRawText:         "",
       segmentSourceLang:     null,
@@ -1623,7 +1660,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       flushFinalTextRenderQueue();
 
       // Non-final preview translation while the segment is open:
-      // first after enough stable final evidence, then every LIVE_PREVIEW_WORD_STEP words.
+      // first after enough stable final evidence, then on every new finalized word (step 1).
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
@@ -1636,7 +1673,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (
           !st.earlyHintSent ||
-          wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP
+          wordsNow - st.lastPreviewWordsSent >= 1
         )
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;

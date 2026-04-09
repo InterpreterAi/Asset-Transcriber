@@ -23,7 +23,7 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName } from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType, planUsesLibreTranslate, workspacePlanDisplayName } from "@/lib/utils";
 import {
   PRICING_PLANS,
   PRICING_SHARED_FEATURES,
@@ -113,6 +113,7 @@ export default function Workspace() {
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
+    useLibreTranslate: planUsesLibreTranslate(user?.planType),
     onAdminSnapshotBuffersUpdated: () => {
       if (snapshotCtxRef.current.debounce != null) return;
       snapshotCtxRef.current.debounce = setTimeout(() => {
