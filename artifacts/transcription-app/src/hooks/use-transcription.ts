@@ -1232,8 +1232,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
-          translationBufRef.current.push(text);
-          onAdminSnapshotBuffersUpdatedRef.current?.();
+          if (translationBufRef.current.length > 0) {
+            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
         }
         scrollPanel();
       }
@@ -1261,8 +1263,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
-          translationBufRef.current.push(text);
-          onAdminSnapshotBuffersUpdatedRef.current?.();
+          if (translationBufRef.current.length > 0) {
+            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
         }
         scrollPanel();
       }
@@ -1451,8 +1455,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.needsFullFinalTranslation = false;
           if (lockOnFinal) {
             state.translationLocked = true;
-            translationBufRef.current.push(out);
-            onAdminSnapshotBuffersUpdatedRef.current?.();
+            if (translationBufRef.current.length > 0) {
+              translationBufRef.current[translationBufRef.current.length - 1] = out.trim();
+              onAdminSnapshotBuffersUpdatedRef.current?.();
+            }
           }
         } else if (useStreamingDelta) {
           if (replaceStreamColumn) {
@@ -1485,8 +1491,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (isFinal && lockOnFinal) {
             // Final caller, but we intentionally handled it as delta append-only.
             state.translationLocked = true;
-            translationBufRef.current.push(transTextEl.textContent ?? "");
-            onAdminSnapshotBuffersUpdatedRef.current?.();
+            if (translationBufRef.current.length > 0) {
+              translationBufRef.current[translationBufRef.current.length - 1] = (
+                transTextEl.textContent ?? ""
+              ).trim();
+              onAdminSnapshotBuffersUpdatedRef.current?.();
+            }
           }
         } else {
           const prevT = (transTextEl.textContent ?? "").trim();
@@ -1690,8 +1700,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         ? domFinal
         : liveBufferRef.current.trim() || domFinal;
     if (finalText.length > 2) {
-      // Accumulate for admin snapshot.
+      // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
+      // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
+      // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
       transcriptBufRef.current.push(finalText);
+      const stSnap = activeBubbleStateRef.current;
+      translationBufRef.current.push((stSnap?.transTextEl.textContent ?? "").trim());
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.

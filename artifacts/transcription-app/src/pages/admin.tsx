@@ -2315,42 +2315,66 @@ export default function Admin() {
               </div>
             ) : null}
 
-            {/* Transcript / Translation columns — single shared scroll container */}
+            {/* One table row per finalized segment (paired buffers from client — matches user workspace lines). */}
             <div className="flex-1 overflow-y-auto">
-              <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-border min-h-full">
-                <div className="p-4 sm:p-5 border-b sm:border-b-0 border-border">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Transcript</p>
-                  {viewLoading ? (
-                    <div className="text-sm text-muted-foreground italic">Loading…</div>
-                  ) : sessionDetail?.snapshot?.transcript ? (
-                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sessionDetail.snapshot.transcript}</p>
-                  ) : sessionDetail?.snapshot ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
-                      <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Mic className="w-4 h-4 text-primary" />
-                        <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
+              <div className="px-4 sm:px-5 pt-2 pb-1">
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Same segment pairing as the user sees in Practice Output (one row per finalized line). Speaker tags live only in their session UI; this view is for diagnosing transcript ↔ translation alignment.
+                </p>
+              </div>
+              <div className="p-4 sm:p-5 pt-2">
+                {viewLoading ? (
+                  <div className="text-sm text-muted-foreground italic">Loading…</div>
+                ) : sessionDetail?.snapshot?.transcript ? (
+                  (() => {
+                    const tLines = sessionDetail.snapshot.transcript.split("\n");
+                    const trLines = (sessionDetail.snapshot.translation ?? "").split("\n");
+                    const n = Math.max(tLines.length, trLines.length);
+                    return (
+                      <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
+                        <div className="grid grid-cols-2 gap-0 bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          <div className="px-3 py-2 border-r border-border">Transcript</div>
+                          <div className="px-3 py-2">Translation</div>
+                        </div>
+                        {Array.from({ length: n }, (_, i) => (
+                          <div
+                            key={i}
+                            className="grid grid-cols-2 gap-0 items-start bg-white hover:bg-muted/10"
+                          >
+                            <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 border-r border-border min-h-[2.5rem]">
+                              {tLines[i]?.trim() ? tLines[i] : "—"}
+                            </div>
+                            <div
+                              className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 min-h-[2.5rem]"
+                              dir="auto"
+                            >
+                              {trLines[i]?.trim() ? (
+                                trLines[i]
+                              ) : (
+                                <span className="text-muted-foreground italic">—</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
-                      <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
+                    );
+                  })()
+                ) : sessionDetail?.snapshot ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                    <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Mic className="w-4 h-4 text-primary" />
+                      <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
-                      <AlertCircle className="w-8 h-8 text-amber-400" />
-                      <p className="text-sm text-muted-foreground">No live data available</p>
-                      <p className="text-xs text-muted-foreground/60">The user may have closed the app or lost connection. This session will be auto-closed shortly.</p>
-                    </div>
-                  )}
-                </div>
-                <div className="p-4 sm:p-5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Translation</p>
-                  {viewLoading ? (
-                    <div className="text-sm text-muted-foreground italic">Loading…</div>
-                  ) : sessionDetail?.snapshot?.translation ? (
-                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap" dir="auto">{sessionDetail.snapshot.translation}</p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">Translation will appear here as segments are finalized.</p>
-                  )}
-                </div>
+                    <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
+                    <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                    <AlertCircle className="w-8 h-8 text-amber-400" />
+                    <p className="text-sm text-muted-foreground">No live data available</p>
+                    <p className="text-xs text-muted-foreground/60">The user may have closed the app or lost connection. This session will be auto-closed shortly.</p>
+                  </div>
+                )}
               </div>
             </div>
 
