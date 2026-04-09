@@ -650,9 +650,26 @@ function polishArabicInterpreterTranslation(raw: string): string {
   return collapseWs(t);
 }
 
+/** When English is the translation column (any source language): dedupe tokens + trim redundant tag echoes. */
+function polishEnglishInterpreterTranslation(raw: string): string {
+  let t = collapseWs(raw);
+  const toks = t.split(/\s+/).filter(Boolean);
+  const deduped: string[] = [];
+  for (const w of toks) {
+    if (deduped.length && deduped[deduped.length - 1] === w) continue;
+    deduped.push(w);
+  }
+  t = deduped.join(" ");
+  t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
+  t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
+  t = t.replace(/\bokay\?\s+Complete confidentiality, right\?$/i, "okay?");
+  return collapseWs(t);
+}
+
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
   const base = targetLang.split("-")[0]?.toLowerCase() ?? "";
   if (base === "ar") return polishArabicInterpreterTranslation(text);
+  if (base === "en") return polishEnglishInterpreterTranslation(text);
   return text;
 }
 
@@ -873,6 +890,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
+  /** Batch OpenAI live full-buffer replaces so the target column does not rephrase every token tick. */
+  const OPENAI_LIVE_DEBOUNCE_MS = 160;
+  const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
+    null,
+  );
+  const dispatchTranslationRef = useRef<
+    (
+      text: string,
+      lang: string,
+      isFinal?: boolean,
+      options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean },
+      segmentIdLock?: string,
+    ) => void
+  >(() => {});
   // setInterval handle.
   const finalRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string }>>([]);
@@ -885,6 +917,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lastInputMeta: null,
     redundantCalls: 0,
   });
+
+  const cancelOpenAiLiveDebounce = useCallback(() => {
+    if (openaiLiveDebounceTimerRef.current !== null) {
+      clearTimeout(openaiLiveDebounceTimerRef.current);
+      openaiLiveDebounceTimerRef.current = null;
+    }
+    openaiLiveDebouncePayloadRef.current = null;
+  }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
     if (finalRenderTimerRef.current !== null) {
@@ -975,15 +1015,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
   //   out-of-order arrivals while still showing every result in order.
   //
-  // Live OpenAI (isFinal=false): sends the full cumulative source each time and
-  //   replaces the translation column (avoids delta-merge duplication).
+  // Live OpenAI (isFinal=false): full cumulative source + replace column; requests are
+  //   debounced ~160ms to limit mid-stream rephrasing. Pause/final/pending use skip debounce.
   // Live Libre: full source per tick, replace. Final OpenAI tail-only may still merge.
   // Final (isFinal=true): tail-only delta when monotonic, else lock rules apply.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
     isFinal = false,
-    options?: { lockOnFinal?: boolean },
+    options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean },
     segmentIdLock?: string,
   ) => {
     const state = activeBubbleStateRef.current;
@@ -1113,6 +1153,35 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       `estimated_tokens=${estimatedTokens}`,
     );
 
+    if (
+      !isFinal &&
+      !useLibreTranslateRef.current &&
+      !options?.skipOpenAiLiveDebounce
+    ) {
+      openaiLiveDebouncePayloadRef.current = { text, lang, segmentId: requestSegmentId };
+      if (openaiLiveDebounceTimerRef.current !== null) {
+        clearTimeout(openaiLiveDebounceTimerRef.current);
+      }
+      openaiLiveDebounceTimerRef.current = setTimeout(() => {
+        openaiLiveDebounceTimerRef.current = null;
+        const p = openaiLiveDebouncePayloadRef.current;
+        openaiLiveDebouncePayloadRef.current = null;
+        if (!p) return;
+        if (!isRecRef.current) return;
+        const stNow = activeBubbleStateRef.current;
+        if (!stNow || stNow.segmentId !== p.segmentId) return;
+        if (stNow.translationLocked || stNow.finalizing) return;
+        dispatchTranslationRef.current(
+          p.text,
+          p.lang,
+          false,
+          { skipOpenAiLiveDebounce: true },
+          p.segmentId,
+        );
+      }, OPENAI_LIVE_DEBOUNCE_MS);
+      return;
+    }
+
     if (!isFinal && state.streamInflight) {
       state.pendingLiveSource = text;
       return;
@@ -1231,12 +1300,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.pendingLiveSource = "";
           if (pending && pending !== state.lastConfirmedSourceTranslated && !state.finalizing && !state.translationLocked) {
             const langRetry = state.segmentSourceLang ?? lang;
-            dispatchTranslation(pending, langRetry, false, undefined, state.segmentId);
+            dispatchTranslation(pending, langRetry, false, { skipOpenAiLiveDebounce: true }, state.segmentId);
           }
         }
       }
     })();
   }, [scrollPanel]);
+
+  useEffect(() => {
+    dispatchTranslationRef.current = dispatchTranslation;
+  }, [dispatchTranslation]);
 
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
@@ -1348,6 +1421,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Stops the polling interval FIRST so no in-flight poll requests can race
   // against the final fetch and overwrite the locked translation.
   const softFinalize = useCallback(() => {
+    cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
 
@@ -1389,7 +1463,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Always run a final full-source pass so the model can correct the whole utterance.
       dispatchTranslation(finalText, lang, true, undefined, segId);
     }
-  }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue]);
+  }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   const finalizeLiveBubble = useCallback(() => {
@@ -1414,6 +1488,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ref. Used by the exported `clear` (manual Clear button) and by the
   // inactivity / max-session auto-stop for non-admin users.
   const doClear = useCallback(() => {
+    cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
@@ -1445,9 +1520,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setHasTranscript(false);
     setTranslationServiceError(null);
     resetSpeakerMap();
-  }, [stopTranslationInterval, flushFinalTextRenderQueue]);
+  }, [stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
   const stop = useCallback(async () => {
+    cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!isRecRef.current) return;
     isRecRef.current = false;
@@ -1554,7 +1630,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // Clear columns for regular users when they manually stop a session.
     if (!isAdminRef.current) doClear();
     setTranslationServiceError(null);
-  }, [stopSessionMut, finalizeLiveBubble, stopTranslationInterval, doClear, flushFinalTextRenderQueue]);
+  }, [
+    stopSessionMut,
+    finalizeLiveBubble,
+    stopTranslationInterval,
+    doClear,
+    flushFinalTextRenderQueue,
+    cancelOpenAiLiveDebounce,
+  ]);
 
   /** Lock segment translation direction from the first visible token that carries a language tag (Soniox order). */
   const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
@@ -1647,7 +1730,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (source.length < 1) return;
         if (source === st.lastConfirmedSourceTranslated) return;
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        dispatchTranslation(source, lang, false, undefined, st.segmentId);
+        dispatchTranslation(source, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = countWords(source);
       }, shortPauseMs);

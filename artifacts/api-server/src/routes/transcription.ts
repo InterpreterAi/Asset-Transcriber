@@ -365,6 +365,14 @@ const ARABIC_EN_INTERPRETER_RULES =
   `- Punctuation: use Arabic comma ، where a short pause fits; end each sentence with a single . or ؟ as appropriate. No duplicate sentence marks; no punctuation-only starts.\n` +
   `- Preserve every digit of IDs and numbers exactly as spoken.\n\n`;
 
+/** Any non-English source → English target (en is always one side of the pair in your product). */
+const NON_EN_TO_EN_INTERPRETER_RULES =
+  `ENGLISH TARGET OUTPUT (any source language → English):\n` +
+  `- The translation is read aloud by an interpreter from the screen: use clear, standard professional international English.\n` +
+  `- Mirror the source faithfully — same facts, questions, and tone. Do not add sentences or confirmations the speaker did not say.\n` +
+  `- If the source ends with one closing question or tag (e.g. Arabic تمام؟ or similar), use one English question only — do not append a second tag line such as "Complete confidentiality, right?" or "Is that okay?" that repeats the same idea.\n` +
+  `- Never output the same English word twice in a row unless the speaker literally repeated it.\n\n`;
+
 /** Full-segment finalize pass from the client — authoritative translation replacing earlier partials. */
 function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
   return (
@@ -577,6 +585,21 @@ function polishArabicTranslationOutput(text: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
+function polishEnglishInterpreterOutput(text: string): string {
+  let t = text.replace(/\s+/g, " ").trim();
+  const toks = t.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const w of toks) {
+    if (out.length && out[out.length - 1] === w) continue;
+    out.push(w);
+  }
+  t = out.join(" ");
+  t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
+  t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
+  t = t.replace(/\bokay\?\s+Complete confidentiality, right\?$/i, "okay?");
+  return t.replace(/\s+/g, " ").trim();
+}
+
 function postProcessTranslatedText(
   text: string,
   sourceBase: string,
@@ -584,6 +607,7 @@ function postProcessTranslatedText(
 ): string {
   let t = stripStrayLatinAuxiliaryTokens(text, sourceBase, targetBase);
   if (targetBase === "ar") t = polishArabicTranslationOutput(t);
+  if (targetBase === "en") t = polishEnglishInterpreterOutput(t);
   return t;
 }
 
@@ -1187,6 +1211,8 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const arabicEnTargetBlock =
     srcCode === "en" && tgtCode === "ar" ? ARABIC_EN_INTERPRETER_RULES : "";
+  const englishTargetBlock =
+    srcCode !== "en" && tgtCode === "en" ? NON_EN_TO_EN_INTERPRETER_RULES : "";
 
   // ── Build system prompt helper ─────────────────────────────────────────────
   // Accepts an optional forceOverride flag for the retry path; when true the
@@ -1232,6 +1258,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     placeholderRules +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     arabicEnTargetBlock +
+    englishTargetBlock +
     `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 
     `ROLE BOUNDARY (INTERPRETER ONLY):\n` +
@@ -1374,7 +1401,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         "Translation output failed script validation — retrying with force-override prompt",
       );
       const retryPrompt =
-        buildSystemPrompt(true, streamingDelta) + placeholderRules + arabicEnTargetBlock + finalSegmentBlock;
+        buildSystemPrompt(true, streamingDelta) +
+        placeholderRules +
+        arabicEnTargetBlock +
+        englishTargetBlock +
+        finalSegmentBlock;
       const retry = await callOpenAI(retryPrompt, textForOpenAI);
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
