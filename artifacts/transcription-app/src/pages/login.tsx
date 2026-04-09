@@ -65,6 +65,10 @@ export default function Login() {
   // ── Step 1: email + password ────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // OAuth failures put ?error= in the URL; that is unrelated to email/password — drop it so the banner matches this attempt.
+    if (oauthError) {
+      setLocation("/login");
+    }
     setError("");
     try {
       const data = await loginMut.mutateAsync({ data: { username, password } }) as any;
@@ -78,26 +82,39 @@ export default function Login() {
     } catch (err: unknown) {
       // customFetch throws ApiError with JSON on `.data` (not axios `.response.data`).
       let status: number | undefined;
-      let payload: { error?: unknown; code?: string } | undefined;
+      let payload: { error?: unknown; code?: string; hint?: unknown } | undefined;
       if (err instanceof ApiError) {
         status = err.status;
         const d = err.data;
-        payload = d && typeof d === "object" ? (d as { error?: unknown; code?: string }) : undefined;
+        payload =
+          d && typeof d === "object" ? (d as { error?: unknown; code?: string; hint?: unknown }) : undefined;
       } else {
-        const ax = err as { response?: { status?: number; data?: { error?: unknown; code?: string } } };
+        const ax = err as {
+          response?: { status?: number; data?: { error?: unknown; code?: string; hint?: unknown } };
+        };
         status = ax.response?.status;
         payload = ax.response?.data;
       }
       const apiMsg =
         typeof payload?.error === "string" && payload.error.length <= 800 ? payload.error.trim() : "";
+      const apiHint =
+        typeof payload?.hint === "string" && payload.hint.length <= 600 ? payload.hint.trim() : "";
       if (status === 403 && payload?.code === "email_not_verified") {
         setShowResend(true);
         setError(apiMsg || "Please verify your email before signing in.");
         return;
       }
       setShowResend(false);
-      // Never show err.message: ApiError.message can embed long server text; only API `error` string.
-      setError(apiMsg || "Invalid credentials");
+      // Never show err.message: ApiError.message can embed long server text; only API `error` / `hint`.
+      const uncaughtTip =
+        payload?.code === "login_uncaught_exception"
+          ? " Check your API host logs for POST /api/auth/login failed (often database URL, migrations, or session store)."
+          : "";
+      const combined = [apiMsg, apiHint, uncaughtTip].filter(Boolean).join(" ").trim();
+      setError(
+        combined ||
+          (status === 401 || status === 400 ? "Invalid credentials" : "Something went wrong. Please try again."),
+      );
     }
   };
 
