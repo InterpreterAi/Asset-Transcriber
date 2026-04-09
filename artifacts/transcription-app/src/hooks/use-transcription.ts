@@ -689,6 +689,15 @@ function polishArabicInterpreterTranslation(raw: string): string {
   t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.؟!?])\1+/g, "$1");
   t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
+  // Live + final often append two paraphrases of the same closing (e.g. "…وأشعر…" + "كانت هذه واحدة أخرى…").
+  const sents = t.split(/(?<=[.!?؟])\s+/u).map(s => s.trim()).filter(Boolean);
+  if (sents.length >= 2) {
+    const last = sents[sents.length - 1]!;
+    const prev = sents[sents.length - 2]!;
+    if (last.length >= 12 && prev.length >= 12 && tokenOverlapRatio(prev, last) >= 0.4) {
+      return collapseWs(sents.slice(0, -1).join(" "));
+    }
+  }
   return collapseWs(t);
 }
 
@@ -1423,11 +1432,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (requestIsFinal) {
           const prevT = (transTextEl.textContent ?? "").trim();
           let out = maybePolishTranslationForTarget(translated, myTargetLang);
-          // If the model returns an abnormally short "final" vs what we already showed, merge instead of wiping.
+          // Only merge *tiny* final fragments onto live text. Larger finals are full rewrites — merging
+          // concatenates a second paraphrase of the same ending (duplicate Arabic closure).
           if (
             prevT.length > 28 &&
             out.length > 0 &&
-            out.length < prevT.length * 0.35 &&
+            out.length <= 56 &&
+            out.length < prevT.length * 0.28 &&
             text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.85
           ) {
             out = mergeStreamingTranslation(prevT, out);
