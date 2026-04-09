@@ -78,6 +78,10 @@ const SESSION_PERSIST_FAILED_JSON = {
     "Multiple instances: use SESSION_STORE=postgres and ensure the user_sessions table exists and is writable.",
 } as const;
 
+/** Never forward DB/driver/stack messages to the browser — they can leak rows, SQL, or user data. */
+const SAFE_INTERNAL_AUTH_ERROR =
+  "Something went wrong on our end. Please try again in a moment.";
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function getClientIp(req: import("express").Request): string {
   return (
@@ -258,11 +262,16 @@ router.post("/login", async (req, res) => {
   } catch (err) {
     safeAuthLoggerError("POST /api/auth/login failed — full stack (not necessarily session-related)", err);
     const pgCode = (err as { code?: string })?.code;
-    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(
+      {
+        ...errMeta(err),
+        pgCode: typeof pgCode === "string" ? pgCode : undefined,
+      },
+      "POST /api/auth/login uncaught — details server-side only",
+    );
     res.status(500).json({
-      error: msg || "Login failed",
+      error: SAFE_INTERNAL_AUTH_ERROR,
       code: "login_uncaught_exception",
-      pgCode: typeof pgCode === "string" && /^\d{5}$/.test(pgCode) ? pgCode : undefined,
     });
   }
 });
@@ -349,9 +358,9 @@ router.post("/2fa/verify", async (req, res) => {
     res.json({ user: userPayload });
   } catch (err) {
     safeAuthLoggerError("POST /api/auth/2fa/verify failed — full stack", err);
-    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(errMeta(err), "POST /api/auth/2fa/verify uncaught — details server-side only");
     res.status(500).json({
-      error: msg || "Verification failed",
+      error: SAFE_INTERNAL_AUTH_ERROR,
       code: "two_factor_verify_failed",
     });
   }
@@ -870,9 +879,9 @@ router.get("/google", async (req, res) => {
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
   } catch (err) {
     safeAuthLoggerError("GET /api/auth/google: failed — full stack for Railway", err);
-    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(errMeta(err), "GET /api/auth/google uncaught — details server-side only");
     res.status(500).json({
-      error: msg || "Could not start Google login",
+      error: SAFE_INTERNAL_AUTH_ERROR,
       code: "google_oauth_start_failed",
       hint: SESSION_PERSIST_FAILED_JSON.hint,
     });

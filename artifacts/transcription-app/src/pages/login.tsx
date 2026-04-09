@@ -75,15 +75,23 @@ export default function Login() {
       }
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation("/workspace");
-    } catch (err: any) {
-      const data = err?.response?.data;
-      if (err?.response?.status === 403 && data?.code === "email_not_verified") {
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: unknown; status?: number } })?.response?.data as
+        | { error?: unknown; code?: string }
+        | undefined;
+      const apiMsg =
+        typeof data?.error === "string" && data.error.length <= 800 ? data.error.trim() : "";
+      if (
+        (err as { response?: { status?: number } })?.response?.status === 403 &&
+        data?.code === "email_not_verified"
+      ) {
         setShowResend(true);
-        setError(data?.error || "Please verify your email before signing in.");
+        setError(apiMsg || "Please verify your email before signing in.");
         return;
       }
       setShowResend(false);
-      setError(data?.error || err?.message || "Invalid credentials");
+      // Never show err.message: ApiError can embed long server text; only whitelisted API strings.
+      setError(apiMsg || "Invalid credentials");
     }
   };
 

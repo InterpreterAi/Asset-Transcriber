@@ -14,7 +14,7 @@ export function writeUnhandledExceptionJson(err: unknown, req: Request, res: Res
   const anyErr = err as Error & { status?: number; statusCode?: number; code?: string };
   const status = anyErr.statusCode ?? anyErr.status ?? 500;
   const safeStatus = status >= 400 && status < 600 ? status : 500;
-  const message =
+  const internalMessage =
     err instanceof Error && err.message
       ? err.message
       : typeof err === "string"
@@ -25,7 +25,7 @@ export function writeUnhandledExceptionJson(err: unknown, req: Request, res: Res
   const pgCode = rawCode && /^\d{5}$/.test(rawCode) ? rawCode : undefined;
   const pathStr = fullRequestPath(req);
 
-  console.error(`[globalErrorHandler] ${req.method} ${pathStr} → ${safeStatus} ${message}`);
+  console.error(`[globalErrorHandler] ${req.method} ${pathStr} → ${safeStatus} ${internalMessage}`);
   if (stack) {
     console.error(stack);
   }
@@ -37,10 +37,22 @@ export function writeUnhandledExceptionJson(err: unknown, req: Request, res: Res
   const exposeStack =
     process.env.EXPOSE_API_ERRORS === "1" || process.env.EXPOSE_API_ERRORS === "true";
 
+  // Never send driver/DB/SQL text to browsers by default (can leak rows, queries, or PII).
+  const clientError =
+    exposeStack
+      ? internalMessage.length > 2000
+        ? `${internalMessage.slice(0, 1999)}…`
+        : internalMessage
+      : safeStatus >= 500
+        ? "Something went wrong. Please try again."
+        : internalMessage.length > 500
+          ? `${internalMessage.slice(0, 499)}…`
+          : internalMessage;
+
   const payload = {
-    error: message,
+    error: clientError,
     code: "unhandled_exception" as const,
-    pgCode: pgCode ?? undefined,
+    pgCode: exposeStack && pgCode ? pgCode : undefined,
     path: pathStr,
     ...(exposeStack && stack ? { stack } : {}),
   };

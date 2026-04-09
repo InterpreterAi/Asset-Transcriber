@@ -141,6 +141,15 @@ function getStringField(value: unknown, key: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/** API `error` must be a string (never objects/arrays) and bounded for safe UI display. */
+function getSafeApiErrorString(value: unknown): string | undefined {
+  const s = getStringField(value, "error");
+  if (!s) return undefined;
+  // Cap length so a mistaken server payload cannot flood the UI or logs in Error#message.
+  const max = 600;
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
 function truncate(text: string, maxLength = 300): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
@@ -158,7 +167,7 @@ function buildErrorMessage(response: Response, data: unknown): string {
   const message =
     getStringField(data, "message") ??
     getStringField(data, "error_description") ??
-    getStringField(data, "error");
+    getSafeApiErrorString(data);
 
   if (title && detail) return `${prefix}: ${title} — ${detail}`;
   if (detail) return `${prefix}: ${detail}`;
