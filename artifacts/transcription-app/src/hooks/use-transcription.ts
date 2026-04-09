@@ -1434,12 +1434,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     return finalSpan;
   }, [scrollPanel]);
 
+  type SegmentCloseKind = "silence" | "speaker_change";
+
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
   // final translation. isFinal=true bypasses the stabilization check.
   // Stops the polling interval FIRST so no in-flight poll requests can race
   // against the final fetch and overwrite the locked translation.
-  const softFinalize = useCallback(() => {
+  const softFinalize = useCallback((closeKind: SegmentCloseKind = "silence") => {
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
@@ -1468,9 +1470,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (p) p.className = CLS.textFin;
     }
 
-    // Use the latest normalized live buffer (final + NF) as translation source.
-    // This preserves any trailing NF words when a segment closes unexpectedly.
-    const finalText = liveBufferRef.current.trim() || (activeBubbleRef.current.textContent?.trim() ?? "");
+    // Translation source for the final API call:
+    // - silence: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
+    // - speaker_change: use DOM finals only. liveBufferRef is still from the *previous* WS frame at
+    //   this point (this message updates it after the finals loop), so it often still contains the
+    //   next speaker's NF tail — locking that onto the closing row duplicates Arabic on Speaker 1.
+    const domFinal = (activeBubbleRef.current.textContent?.trim() ?? "");
+    const finalText =
+      closeKind === "speaker_change"
+        ? domFinal
+        : liveBufferRef.current.trim() || domFinal;
     if (finalText.length > 2) {
       // Accumulate for admin snapshot.
       transcriptBufRef.current.push(finalText);
@@ -1485,20 +1494,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
-  const finalizeLiveBubble = useCallback(() => {
+  const finalizeLiveBubble = useCallback((closeKind: SegmentCloseKind = "silence") => {
     if (!activeBubbleRef.current) return;
-    softFinalize();
+    softFinalize(closeKind);
   }, [softFinalize]);
 
   // Finalize and hard-close the active segment boundary so no later partial text
   // can continue writing into that finalized segment.
-  const closeActiveSegmentBoundary = useCallback(() => {
+  const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "silence") => {
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
-    finalizeLiveBubble();
+    finalizeLiveBubble(closeKind);
     currentSpeakerRef.current = undefined;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
+    activeBubbleStateRef.current = null;
     styleUpgradedRef.current  = false;
   }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
 
@@ -1793,7 +1803,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           tokenHasText &&
           !sameSpeaker(token.speaker, currentSpeakerRef.current)
         ) {
-          closeActiveSegmentBoundary();
+          closeActiveSegmentBoundary("speaker_change");
           currentSpeakerRef.current =
             token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           activeBubbleRef.current = createBubble(token.speaker);
