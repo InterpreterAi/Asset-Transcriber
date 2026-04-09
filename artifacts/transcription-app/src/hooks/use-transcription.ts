@@ -868,7 +868,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const requestSegmentId = segmentIdLock ?? state.segmentId;
     if (requestSegmentId !== state.segmentId) return;
 
-    if (!translationEnabledRef.current && !isAdminRef.current) return;
+    if (!translationEnabledRef.current) return;
 
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
@@ -1121,7 +1121,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transRow.className = CLS.textRow;
 
     const transTextP = document.createElement("p");
-    const translationOn = translationEnabledRef.current || isAdminRef.current;
+    const translationOn = translationEnabledRef.current;
     transTextP.className   = translationOn ? CLS.transPend : CLS.transDisabled;
     transTextP.textContent = translationOn ? "…" : TRANSLATION_PLATINUM_PLACEHOLDER;
     applyTextStyle(transTextP);

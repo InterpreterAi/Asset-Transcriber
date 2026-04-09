@@ -281,7 +281,7 @@ export default function Workspace() {
 
   const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
-  const handleTestActivatePlan = async (planType: "basic" | "professional" | "platinum") => {
+  const handleTestActivatePlan = async (planType: "trial" | "basic" | "professional" | "platinum") => {
     setTestPlanLoading(planType);
     setUpgradeError(null);
     try {
@@ -972,12 +972,16 @@ export default function Workspace() {
             </div>
           </div>
 
-          {(user.email ?? "").trim().toLowerCase() === TEST_PLAN_ACTIVATION_EMAIL && (
+          {(user.isAdmin || (user.email ?? "").trim().toLowerCase() === TEST_PLAN_ACTIVATION_EMAIL) && (
             <div className="px-4 pb-4 border-b border-border/60">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Plan testing</p>
-              <p className="text-[11px] text-muted-foreground mb-2">Switch plan instantly (no checkout).</p>
+              <p className="text-[11px] text-muted-foreground mb-2">
+                {user.isAdmin
+                  ? "Switch plan instantly (no checkout). Trial applies a fresh window from now for testing."
+                  : "Switch plan instantly (no checkout)."}
+              </p>
               <div className="flex flex-wrap gap-1.5">
-                {(["basic", "professional", "platinum"] as const).map((p) => (
+                {(["trial", "basic", "professional", "platinum"] as const).map((p) => (
                   <button
                     key={p}
                     type="button"

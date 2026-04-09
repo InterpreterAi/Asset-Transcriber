@@ -45,14 +45,13 @@ export function isTrialExpired(user: User): boolean {
 
 /**
  * OpenAI InterpreterAI translation (POST /translate).
- * - Active trial: enabled (same full product as today until `trial_ends_at`).
- * - Expired trial (still `plan_type = trial`): disabled until they subscribe to Platinum.
+ * Plan rules apply to everyone (including admins) so workspace plan testing matches customer behavior.
+ * - Active trial: enabled until `trial_ends_at`.
+ * - Expired trial: disabled until Platinum.
  * - Platinum / legacy unlimited: enabled.
  * - Basic / Professional: disabled.
- * - Admins: enabled.
  */
 export function translationEnabledForUser(user: User): boolean {
-  if (user.isAdmin) return true;
   const p = (user.planType ?? "trial").toLowerCase();
   if (p === "platinum" || p === "unlimited") return true;
   if (p === "trial") return !isTrialExpired(user);

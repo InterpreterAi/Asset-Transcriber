@@ -11,6 +11,7 @@ import {
   type BillingPlanType,
   verifyPayPalWebhookSignature,
 } from "../lib/paypal.js";
+import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 
 const router: IRouter = Router();
 
@@ -228,11 +229,15 @@ router.post("/paypal-webhook", async (req, res) => {
 
 const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
+function isDevPlanSwitchType(v: unknown): v is BillingPlanType | "trial" {
+  return v === "basic" || v === "professional" || v === "platinum" || v === "trial";
+}
+
 router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
   try {
     const { planType } = req.body as { planType?: string };
-    if (!isBillingPlanType(planType)) {
-      res.status(400).json({ error: "planType must be basic, professional, or platinum" });
+    if (!isDevPlanSwitchType(planType)) {
+      res.status(400).json({ error: "planType must be trial, basic, professional, or platinum" });
       return;
     }
     const userId = Number(req.session.userId);
@@ -242,10 +247,37 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
       return;
     }
     const email = (user.email ?? "").trim().toLowerCase();
-    if (email !== TEST_PLAN_ACTIVATION_EMAIL) {
+    const allowed = Boolean(user.isAdmin) || email === TEST_PLAN_ACTIVATION_EMAIL;
+    if (!allowed) {
       res.status(403).json({ error: "Not allowed" });
       return;
     }
+
+    if (planType === "trial") {
+      const now = new Date();
+      const trialEndsAt = computeTrialEndsAt(now);
+      await db
+        .update(usersTable)
+        .set({
+          planType: "trial",
+          trialStartedAt: now,
+          trialEndsAt,
+          dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+          subscriptionStatus: "trial",
+          subscriptionPlan: null,
+          subscriptionStartedAt: null,
+          paypalSubscriptionId: null,
+        })
+        .where(eq(usersTable.id, userId));
+      res.json({
+        ok: true,
+        planType: "trial",
+        dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+        trialEndsAt: trialEndsAt.toISOString(),
+      });
+      return;
+    }
+
     const plan = paypalPlanConfig(planType);
     await db
       .update(usersTable)
