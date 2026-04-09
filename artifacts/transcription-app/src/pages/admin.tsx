@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
-import { formatMinutes } from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType } from "@/lib/utils";
 import { TranslationDisplayParagraph } from "@/components/TranslationDisplayParagraph";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -244,22 +244,27 @@ function lastSeen(date: string | null | undefined) {
 }
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
-  if (plan !== "trial") return (
+  const pl = (plan ?? "").toLowerCase();
+  if (!isTrialLikePlanType(pl)) return (
     <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full capitalize">{plan}</span>
   );
+  const label =
+    pl === "trial-openai" ? "Trial (OpenAI)"
+    : pl === "trial-libre" ? "Trial (Libre)"
+    : "Trial";
   if (!trialEndsAt) return (
-    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">{label} — expired</span>
   );
   const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   if (daysLeft <= 0) return (
-    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">{label} — expired</span>
   );
   if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left
+      <AlertTriangle className="w-3 h-3" />{label} · {daysLeft}d left
     </span>
   );
-  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{daysLeft}d left</span>;
+  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{label} · {daysLeft}d left</span>;
 }
 
 // ── Audio device type detector ────────────────────────────────────────────────
@@ -810,7 +815,7 @@ export default function Admin() {
         defaultLangA:      editForm.defaultLangA,
         defaultLangB:      editForm.defaultLangB,
       };
-      if (editForm.planType === "trial" && editForm.trialEndsAt) {
+      if (isTrialLikePlanType(editForm.planType) && editForm.trialEndsAt) {
         body.trialEndsAt = new Date(editForm.trialEndsAt).toISOString();
       }
       const res = await fetch(`/api/admin/users/${editingUser.id}`, {
@@ -854,8 +859,8 @@ export default function Admin() {
 
   const filteredUsers = allUsers
     .filter(u => {
-      if (userFilter === "trial")    return u.planType === "trial";
-      if (userFilter === "paying")   return u.planType !== "trial";
+      if (userFilter === "trial")    return isTrialLikePlanType(u.planType);
+      if (userFilter === "paying")   return !isTrialLikePlanType(u.planType);
       if (userFilter === "inactive") return !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7;
       if (userFilter === "high")     return u.minutesUsedToday >= 60;
       return true;
@@ -898,8 +903,8 @@ export default function Admin() {
 
   const filterCounts = {
     all:      allUsers.length,
-    trial:    allUsers.filter(u => u.planType === "trial").length,
-    paying:   allUsers.filter(u => u.planType !== "trial").length,
+    trial:    allUsers.filter(u => isTrialLikePlanType(u.planType)).length,
+    paying:   allUsers.filter(u => !isTrialLikePlanType(u.planType)).length,
     inactive: allUsers.filter(u => !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7).length,
     high:     allUsers.filter(u => u.minutesUsedToday >= 60).length,
   };
@@ -1122,7 +1127,7 @@ export default function Admin() {
                         {!s.hasSnapshot && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">stale</span>
                         )}
-                        <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${s.planType === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
+                        <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${isTrialLikePlanType(s.planType) ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
                       </div>
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
@@ -1521,7 +1526,7 @@ export default function Admin() {
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
-                            {u.planType === "trial" && u.trialEndsAt && (
+                            {isTrialLikePlanType(u.planType) && u.trialEndsAt && (
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                                 ends {format(new Date(u.trialEndsAt), "MMM d")}
                               </span>
@@ -2587,7 +2592,9 @@ export default function Admin() {
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
-                    <option value="trial">Trial</option>
+                    <option value="trial">Trial (default)</option>
+                    <option value="trial-openai">Trial (OpenAI)</option>
+                    <option value="trial-libre">Trial (Libre)</option>
                     <option value="basic">Basic</option>
                     <option value="professional">Professional</option>
                     <option value="platinum">Platinum</option>
@@ -2596,7 +2603,7 @@ export default function Admin() {
                 </div>
 
                 {/* Trial expiry — only when trial */}
-                {editForm.planType === "trial" && (
+                {isTrialLikePlanType(editForm.planType) && (
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-muted-foreground">Trial Ends On</label>
                     <input

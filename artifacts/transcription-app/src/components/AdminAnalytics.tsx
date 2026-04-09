@@ -10,6 +10,7 @@ import {
   Mic, Monitor, ChevronDown, Calendar,
 } from "lucide-react";
 import { Card } from "@/components/ui-components";
+import { isTrialLikePlanType } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -634,7 +635,7 @@ export default function AdminAnalytics() {
                       <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
                       <td className="px-4 py-2.5 font-medium text-sm">{u.username}</td>
                       <td className="px-4 py-2.5">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${u.planType === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${isTrialLikePlanType(u.planType) ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>
                           {u.planType}
                         </span>
                       </td>

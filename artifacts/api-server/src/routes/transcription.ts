@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { isAxiosError } from "axios";
+import { callLibreTranslate } from "../lib/libretranslate";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -6,6 +8,7 @@ import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
   getUserWithResetCheck,
   isTrialExpired,
+  isTrialLikePlanType,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -44,7 +47,7 @@ import { hasSubmittedMandatoryFeedbackToday, isMandatoryFeedbackRequiredByUsage 
 //
 // Data flow:
 //   Audio  → browser mic → Soniox WebSocket (never touches this server)
-//   Text   → /api/transcription/translate → OpenAI → response → discarded
+//   Text   → /api/transcription/translate → OpenAI or LibreTranslate (by plan) → response → discarded
 //   DB     → sessions table stores metadata ONLY: id, userId, duration, timestamps
 //
 // Translation cache was INTENTIONALLY REMOVED.
@@ -223,7 +226,7 @@ router.post("/token", requireAuth, async (req, res) => {
     if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
     // Only block on trial expiry when the user is still on the trial plan
-    if (user.planType === "trial" && isTrialExpired(user)) {
+    if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
       res.status(403).json({ error: "Trial expired — please upgrade." });
       return;
     }
@@ -231,7 +234,7 @@ router.post("/token", requireAuth, async (req, res) => {
     if (isDailyTranscriptionCapReached(user)) {
       res.status(403).json({
         error:
-          user.planType === "trial"
+          isTrialLikePlanType(user.planType)
             ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
             : "Daily usage limit reached. Try again tomorrow.",
       });
@@ -460,7 +463,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
   if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
   if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
-  if (user.planType === "trial" && isTrialExpired(user)) {
+  if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
     res.status(403).json({ error: "Trial expired — please upgrade." });
     return;
   }
@@ -468,7 +471,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
   if (isDailyTranscriptionCapReached(user)) {
     res.status(403).json({
       error:
-        user.planType === "trial"
+        isTrialLikePlanType(user.planType)
           ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
           : "Daily usage limit reached. Try again tomorrow.",
     });
@@ -861,20 +864,26 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  if (!isOpenAiConfigured()) {
-    res.status(503).json({
-      error:
-        "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
-      code: "TRANSLATION_NOT_CONFIGURED",
-    });
-    return;
-  }
-
   const translateUser = await getUserWithResetCheck(req.session.userId!);
   if (!translateUser || !translationEnabledForUser(translateUser)) {
     res.status(403).json({
       error: "InterpreterAI Translation is available on the Platinum plan.",
       code: "TRANSLATION_PLAN_REQUIRED",
+    });
+    return;
+  }
+
+  const planLower = (translateUser.planType ?? "trial").toLowerCase();
+  const useLibreTranslate =
+    planLower === "basic" ||
+    planLower === "professional" ||
+    planLower === "trial-libre";
+
+  if (!useLibreTranslate && !isOpenAiConfigured()) {
+    res.status(503).json({
+      error:
+        "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
+      code: "TRANSLATION_NOT_CONFIGURED",
     });
     return;
   }
@@ -929,10 +938,6 @@ router.post("/translate", requireAuth, async (req, res) => {
     return t;
   }
 
-  const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
-
-  // ── User personal glossary ─────────────────────────────────────────────────
-  // Load the user's saved glossary entries and add any that match the current text
   const userId = req.session.userId!;
 
   // Diagnostics only: resolve active session and segment IDs, then count stage events.
@@ -976,6 +981,51 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
+  if (useLibreTranslate) {
+    try {
+      logger.info(
+        {
+          ts: diagNowIso(),
+          stage: "translation_request_sent",
+          sessionId: diagSid,
+          segmentId: diagSegId,
+        },
+        "TRANSCRIPTION_DIAG",
+      );
+      const raw = await callLibreTranslate(textForOpenAI, srcCode, tgtCode);
+      const translated = restoreTranslationOutput(String(raw ?? ""));
+      diagCounter.translationSegments += 1;
+      diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated });
+      logger.info(
+        {
+          ts: diagNowIso(),
+          stage: "translation_response_received",
+          sessionId: diagSid,
+          segmentId: diagSegId,
+          translatedLength: translated.length,
+          counters: diagCounter,
+        },
+        "TRANSCRIPTION_DIAG",
+      );
+      res.json({ translated });
+    } catch (err: unknown) {
+      const status = isAxiosError(err) ? err.response?.status : undefined;
+      logger.error(
+        { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
+        "LibreTranslate request failed",
+      );
+      res.status(503).json({
+        error: "Translation is temporarily unavailable (LibreTranslate). Try again in a moment.",
+        code: "LIBRETRANSLATE_FAILED",
+      });
+    }
+    return;
+  }
+
+  const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
+
+  // ── User personal glossary ─────────────────────────────────────────────────
+  // Load the user's saved glossary entries and add any that match the current text
   const userGlossary = await db
     .select()
     .from(glossaryEntriesTable)

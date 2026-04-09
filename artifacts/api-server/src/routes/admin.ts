@@ -236,7 +236,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(and(
-        sql`${usersTable.planType} != 'trial'`,
+        sql`${usersTable.planType} NOT IN ('trial', 'trial-openai', 'trial-libre')`,
         sql`${usersTable.isAdmin} = false`,
       )),
 
@@ -244,7 +244,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(and(
-        sql`${usersTable.planType} = 'trial'`,
+        sql`${usersTable.planType} IN ('trial', 'trial-openai', 'trial-libre')`,
         sql`${usersTable.isAdmin} = false`,
       )),
 
@@ -599,7 +599,7 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       .where(and(
         sql`s.started_at >= ${new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))}`,
         sql`${usersTable.isAdmin} = false`,
-        sql`${usersTable.planType} = 'trial'`,
+        sql`${usersTable.planType} IN ('trial', 'trial-openai', 'trial-libre')`,
       ))
       .groupBy(usersTable.id, usersTable.username, usersTable.dailyLimitMinutes)
       .having(sql`COALESCE(
@@ -912,11 +912,25 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
+  const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
+    "trial",
+    "trial-openai",
+    "trial-libre",
+    "basic",
+    "professional",
+    "platinum",
+    "unlimited",
+  ]);
+  if (planType && !ADMIN_ASSIGNABLE_PLAN_TYPES.has(planType.toLowerCase())) {
+    res.status(400).json({ error: "Invalid plan type" });
+    return;
+  }
+
   const updates: Partial<typeof usersTable.$inferSelect> = {};
   if (isActive !== undefined)             updates.isActive = isActive;
   if (isAdmin !== undefined)              updates.isAdmin = isAdmin;
   if (dailyLimitMinutes !== undefined)    updates.dailyLimitMinutes = dailyLimitMinutes;
-  if (planType)                           updates.planType = planType;
+  if (planType)                           updates.planType = planType.toLowerCase();
   if (password)                           updates.passwordHash = await hashPassword(password);
   if (trialEndsAt !== undefined && trialEndsAt) updates.trialEndsAt = new Date(trialEndsAt);
   if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;

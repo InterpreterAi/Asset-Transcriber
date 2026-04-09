@@ -33,9 +33,15 @@ export function getTrialDaysRemaining(user: User): number {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
-/** True only when the user is on the trial plan, was granted a real trial window, and that window has ended. */
+/** Trial-like plans: default signup `trial`, or admin-assigned `trial-openai` / `trial-libre`. */
+export function isTrialLikePlanType(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").toLowerCase();
+  return p === "trial" || p === "trial-openai" || p === "trial-libre";
+}
+
+/** True only when the user is on a trial-like plan, was granted a real trial window, and that window has ended. */
 export function isTrialExpired(user: User): boolean {
-  if (user.planType !== "trial") return false;
+  if (!isTrialLikePlanType(user.planType)) return false;
   const daily = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(daily) || daily <= 0) return false;
   const end = new Date(user.trialEndsAt);
@@ -44,17 +50,17 @@ export function isTrialExpired(user: User): boolean {
 }
 
 /**
- * OpenAI InterpreterAI translation (POST /translate).
- * Plan rules apply to everyone (including admins) so workspace plan testing matches customer behavior.
- * - Active trial: enabled until `trial_ends_at`.
- * - Expired trial: disabled until Platinum.
- * - Platinum / legacy unlimited: enabled.
- * - Basic / Professional: disabled.
+ * Translation (POST /translate): which plans may call the translation endpoint.
+ * Engine (OpenAI vs LibreTranslate) is chosen in the route from `planType`.
+ * - Platinum / legacy unlimited: yes (OpenAI).
+ * - Basic / Professional: yes (LibreTranslate).
+ * - Trial-like (`trial`, `trial-openai`, `trial-libre`): yes while not expired; OpenAI vs Libre per plan id.
  */
 export function translationEnabledForUser(user: User): boolean {
   const p = (user.planType ?? "trial").toLowerCase();
   if (p === "platinum" || p === "unlimited") return true;
-  if (p === "trial") return !isTrialExpired(user);
+  if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
+  if (p === "basic" || p === "professional") return true;
   return false;
 }
 

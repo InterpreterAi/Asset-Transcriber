@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Star, CheckCircle, AlertCircle } from "lucide-react";
+import { isTrialLikePlanType } from "@/lib/utils";
 
 type Props = {
   planType?: string;
@@ -33,7 +34,7 @@ export function EarlyTrialFeedbackPrompt({
   const [submittedByServer, setSubmittedByServer] = useState(false);
 
   const onTrial =
-    (planType ?? "trial") === "trial" && !trialExpired && dailyLimitMinutes >= 60;
+    isTrialLikePlanType(planType) && !trialExpired && dailyLimitMinutes >= 60;
   const halfThreshold = dailyLimitMinutes / 2;
   const halfUsageReached = effectiveMinutesUsedToday >= halfThreshold - 1e-6;
 

@@ -23,7 +23,7 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { formatMinutes } from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName } from "@/lib/utils";
 import {
   PRICING_PLANS,
   PRICING_SHARED_FEATURES,
@@ -630,7 +630,7 @@ export default function Workspace() {
         effectiveMinutesUsedToday={effectiveMinutesUsedToday}
         dailyLimitMinutes={user.dailyLimitMinutes}
       />
-      {!(user.planType === "trial" && !user.trialExpired) && (
+      {!(isTrialLikePlanType(user.planType) && !user.trialExpired) && (
         <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
       )}
       {showInviteModal && (
@@ -889,7 +889,7 @@ export default function Workspace() {
             </div>
             <div className="flex items-center gap-2 mt-1">
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                user.planType === "trial"
+                isTrialLikePlanType(user.planType)
                   ? "bg-violet-50 text-violet-700 border-violet-200"
                   : user.planType === "basic"
                   ? "bg-blue-50 text-blue-700 border-blue-200"
@@ -897,12 +897,9 @@ export default function Workspace() {
                   ? "bg-indigo-50 text-indigo-700 border-indigo-200"
                   : "bg-emerald-50 text-emerald-700 border-emerald-200"
               }`}>
-                {user.planType === "trial" ? "Free Trial"
-                  : user.planType === "basic" ? "Basic"
-                  : user.planType === "professional" ? "Professional"
-                  : "Platinum"}
+                {workspacePlanDisplayName(user.planType)}
               </span>
-              {user.planType === "trial" && (
+              {isTrialLikePlanType(user.planType) && (
                 <span className="text-[11px] text-muted-foreground">
                   {user.trialExpired
                     ? "Expired"
@@ -912,7 +909,7 @@ export default function Workspace() {
             </div>
 
             {/* Upgrade / Manage billing button */}
-            {user.planType === "trial" ? (
+            {isTrialLikePlanType(user.planType) ? (
               <button
                 onClick={handleOpenUpgrade}
                 className="w-full mt-2 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
@@ -1371,7 +1368,7 @@ export default function Workspace() {
                   </>
               }
             </div>
-            {user.planType === "trial" && (
+            {isTrialLikePlanType(user.planType) && (
               <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
                 user.trialExpired
                   ? "bg-destructive/10 text-destructive border-destructive/20"

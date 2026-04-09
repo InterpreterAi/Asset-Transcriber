@@ -1,6 +1,6 @@
 import { db, feedbackTable, type User } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { isTrialExpired } from "./usage.js";
+import { isTrialExpired, isTrialLikePlanType } from "./usage.js";
 
 export const MANDATORY_FEEDBACK_SOURCE = "trial-half-daily-mandatory";
 const MIN_TRIAL_DAILY_LIMIT_MINUTES = 60;
@@ -15,7 +15,7 @@ export function getMandatoryFeedbackThresholdMinutes(dailyLimitMinutes: number):
 export function isMandatoryTrialFeedbackEligible(user: User): boolean {
   const dailyLimit = Number(user.dailyLimitMinutes);
   return (
-    user.planType === "trial" &&
+    isTrialLikePlanType(user.planType) &&
     !isTrialExpired(user) &&
     Number.isFinite(dailyLimit) &&
     dailyLimit >= MIN_TRIAL_DAILY_LIMIT_MINUTES
