@@ -345,7 +345,9 @@ const STREAMING_FRAGMENT_RULES =
   `STREAMING FRAGMENT MODE:\n` +
   `The user message is ONLY a newly appended tail of a longer live utterance (not the full sentence).\n` +
   `Translate ONLY that tail. Output ONLY the translation of the tail — no quotation marks, labels, or preamble.\n` +
-  `Do NOT repeat or restate text that would duplicate translations already shown for earlier words.\n` +
+  `Keep your output SHORT (typically well under one sentence): the UI already shows prior translation; never re-output earlier clauses.\n` +
+  `Do NOT repeat, paraphrase, or restate content from earlier in the same utterance — zero duplication.\n` +
+  `Translate every English word in the tail (including modal verbs like "will", "would", "can") into the target language — never copy English words into the translation.\n` +
   `If the tail is grammatically incomplete, translate it literally without inventing subjects, objects, or context the speaker did not say.\n\n`;
 
 /** Full-segment finalize pass from the client — authoritative translation replacing earlier partials. */
@@ -533,6 +535,14 @@ function matchesExpectedTargetLanguage(
     return false;
   }
   return true;
+}
+
+/** Remove English modals/auxiliaries often leaked into Arabic-script streaming output (e.g. "will" mid-sentence). */
+function stripStrayLatinAuxiliaryTokens(text: string, targetBase: string): string {
+  if (!text.trim() || !SCRIPT_RANGES[targetBase]) return text;
+  const leak =
+    /\b(will|would|could|should|cannot|can't|won't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't)\b/gi;
+  return text.replace(leak, " ").replace(/\s{2,}/g, " ").trim();
 }
 
 // ── /session/start ─────────────────────────────────────────────────────────
@@ -1071,7 +1081,10 @@ router.post("/translate", requireAuth, async (req, res) => {
         "TRANSCRIPTION_DIAG",
       );
       const raw = await callLibreTranslate(textForOpenAI, srcCode, tgtCode);
-      const translated = restoreTranslationOutput(String(raw ?? ""));
+      const translated = stripStrayLatinAuxiliaryTokens(
+        restoreTranslationOutput(String(raw ?? "")),
+        tgtCode,
+      );
       diagCounter.translationSegments += 1;
       diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated });
       logger.info(
@@ -1300,7 +1313,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let result = await callOpenAI(systemPrompt, textForOpenAI);
     result = {
       ...result,
-      text: restoreTranslationOutput(result.text),
+      text: stripStrayLatinAuxiliaryTokens(restoreTranslationOutput(result.text), tgtCode),
     };
 
     // ── Output language validation ───────────────────────────────────────────
@@ -1319,7 +1332,10 @@ router.post("/translate", requireAuth, async (req, res) => {
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
 
-      const retryRestored = restoreTranslationOutput(retry.text);
+      const retryRestored = stripStrayLatinAuxiliaryTokens(
+        restoreTranslationOutput(retry.text),
+        tgtCode,
+      );
 
       if (retryRestored && matchesExpectedTargetLanguage(retryRestored, tgtCode, srcCode, text)) {
         result = { ...retry, text: retryRestored };

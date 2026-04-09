@@ -614,16 +614,39 @@ function applyTextStyle(el: HTMLElement) {
   el.style.lineHeight = "var(--ts-line-height, 1.625)";
 }
 
-/** Append a new streaming fragment to what is already shown (placeholder … counts as empty). */
+function collapseWs(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Append a streaming fragment. The model often re-echoes prior Arabic or returns an
+ * overlapping continuation — merge by suffix/prefix overlap or prefer the longer
+ * coherent run when it clearly supersedes what is already shown.
+ */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
   const piece = newPiece.trim();
   if (!piece) return prevDisplayed.trim();
   const prev = prevDisplayed.trim();
   if (!prev || prev === "…") return piece;
   if (prev === piece || prev.endsWith(piece)) return prev;
+  const prevC = collapseWs(prev);
+  const pieceC = collapseWs(piece);
+  if (pieceC === prevC) return prev;
+  if (pieceC.startsWith(prevC)) return piece;
+  if (prevC.startsWith(pieceC)) return prev;
   // Keep contiguous number chunks together (e.g. "36" + "02" => "3602").
   if (/\d$/.test(prev) && /^\d/.test(piece)) return `${prev}${piece}`;
-  return `${prev} ${piece}`;
+
+  const pl = prev.toLowerCase();
+  const pil = piece.toLowerCase();
+  const maxOverlap = Math.min(prev.length, piece.length, 160);
+  for (let len = maxOverlap; len >= 4; len--) {
+    if (pl.slice(-len) === pil.slice(0, len)) {
+      return collapseWs(prev + piece.slice(len));
+    }
+  }
+
+  return collapseWs(`${prev} ${piece}`);
 }
 
 function hasVisibleText(text: string | null | undefined): boolean {
