@@ -1212,6 +1212,8 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     `WHEN IN DOUBT:\n` +
     `- Prefer faithful literal rendering over creative paraphrase.\n` +
+    `- Translate literally. Do NOT paraphrase, infer unstated meaning, or expand abbreviations unless explicitly spoken.\n` +
+    `- Do NOT add filler or connective words that are not present in the source utterance.\n` +
     `- For full-sentence input, translate the complete utterance; in STREAMING FRAGMENT MODE, only the tail is provided — follow that mode strictly.\n\n` +
 
     `CONSISTENCY:\n` +

@@ -83,10 +83,10 @@ const CLS = {
   // font-size is controlled via --ts-font-size CSS variable (set by workspace)
   textLive:    "ts-text leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
   textFin:     "ts-text leading-relaxed text-foreground font-medium flex-1 min-w-0",
-  /** Non-final / live hypothesis tail — grey so finalized tokens in the sibling span read as primary text. */
-  nf:          "text-muted-foreground/60 italic",
+  /** Non-final / live hypothesis tail — render with normal style (no grey preview). */
+  nf:          "",
   transText:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
-  transPend:   "ts-text text-muted-foreground/30 italic flex-1 min-w-0",
+  transPend:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transDisabled: "ts-text text-muted-foreground/55 italic flex-1 min-w-0 text-[0.92em] leading-snug",
 } as const;
 
@@ -706,6 +706,10 @@ interface BubbleTransState {
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
   lastNfRawText:         string;
+  /** Latest normalized, confirmed (final-only) source text for this segment. */
+  lastConfirmedSource:   string;
+  /** Last confirmed source already dispatched for live translation. */
+  lastConfirmedSourceTranslated: string;
   /** Locked source language for this segment (set once from first visible token with a language tag). */
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
@@ -1180,7 +1184,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const transTextP = document.createElement("p");
     const translationOn = translationEnabledRef.current;
     transTextP.className   = translationOn ? CLS.transPend : CLS.transDisabled;
-    transTextP.textContent = translationOn ? "…" : TRANSLATION_PLATINUM_PLACEHOLDER;
+    transTextP.textContent = translationOn ? "" : TRANSLATION_PLATINUM_PLACEHOLDER;
     applyTextStyle(transTextP);
     transRow.appendChild(transTextP);
     transRow.appendChild(makeCopyBtn(() => transTextP.textContent ?? ""));
@@ -1212,6 +1216,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastPreviewWordsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
+      lastConfirmedSource:   "",
+      lastConfirmedSourceTranslated: "",
       segmentSourceLang:     null,
       segmentTargetLang:     null,
     };
@@ -1523,12 +1529,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         flushFinalTextRenderQueue();
         const st = activeBubbleStateRef.current;
         if (!st || st.translationLocked || st.finalizing) return;
-        const source = liveBufferRef.current.trim();
+        const source = st.lastConfirmedSource.trim();
         if (source.length < 3) return;
+        if (source === st.lastConfirmedSourceTranslated) return;
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(source, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = countWords(source);
+        st.lastConfirmedSourceTranslated = source;
       }, shortPauseMs);
       // Reset finalization timer only while speech is still active (NF tokens).
       // Soniox may continue emitting final-only stabilization updates after
@@ -1640,18 +1648,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
       const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
       liveBufferRef.current = normalizeInterpreterTranscript(rawLive, langPairRef.current);
+      const confirmedSource = normalizeInterpreterTranscript(finalText.trim(), langPairRef.current);
+      if (activeBubbleStateRef.current) {
+        activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
+      }
       if (activeBubbleStateRef.current) {
         if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
           activeBubbleStateRef.current.lastLiveSource = liveBufferRef.current;
           activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
         }
-      }
-      if (
-        nfText.length === 0 &&
-        activeBubbleRef.current &&
-        liveBufferRef.current !== finalText.trim()
-      ) {
-        activeBubbleRef.current.textContent = liveBufferRef.current;
       }
 
       tryLockSegmentDirectionFromTokens(tokens);
@@ -1659,28 +1664,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       flushFinalTextRenderQueue();
 
       // Non-final preview translation while the segment is open:
-      // first after enough stable final evidence, then every LIVE_PREVIEW_WORD_STEP words.
+      // dispatch on each newly confirmed source extension (no batching).
       const st = activeBubbleStateRef.current;
-      const hintSource = liveBufferRef.current.trim();
+      const hintSource = st?.lastConfirmedSource.trim() ?? "";
       const wordsNow = countWords(hintSource);
-      const minWordsForEarlyHint = useLibreTranslateRef.current ? EARLY_HINT_MIN_WORDS : 1;
-      const previewWordStep = useLibreTranslateRef.current ? LIVE_PREVIEW_WORD_STEP : 1;
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        st.finalTokensSeen >= 3 &&
-        hintSource.length >= 25 &&
-        wordsNow >= minWordsForEarlyHint &&
-        (
-          !st.earlyHintSent ||
-          wordsNow - st.lastPreviewWordsSent >= previewWordStep
-        )
+        hintSource.length >= 3 &&
+        hintSource !== st.lastConfirmedSourceTranslated
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false, undefined, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
+        st.lastConfirmedSourceTranslated = hintSource;
       }
     };
 
