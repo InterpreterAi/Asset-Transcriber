@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# Run Drizzle schema sync using ONLY Railway-injected database env (production-safe).
+# Production schema sync: Drizzle push with Railway-injected DATABASE_URL (command runs on your
+# machine; DB URL comes from the linked Railway service, not laptop exports).
 #
-# Prerequisites:
-#   - railway CLI installed and logged in (`railway login`)
-#   - `railway link` from this repo to the correct Railway project
-#   - Select the API service that owns production DATABASE_URL:
-#       railway service   # pick the web/API service, not Postgres-only
+# Prerequisites: railway CLI, `railway link`, API service selected: `railway service`
 #
-# Why unset? A laptop export of DATABASE_URL (especially postgres.railway.internal
-# or a stale URL) will break pushes or target the wrong host. Railway injects the right URL.
-#
-# Uses push --force so drizzle-kit does not stop for interactive rename prompts
-# (e.g. referrals). Take a DB snapshot/backup in Railway before running if unsure.
+# After a successful push, redeploys the linked service (skip with SKIP_RAILWAY_REDEPLOY=1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -19,6 +12,19 @@ cd "$ROOT"
 unset DATABASE_URL DATABASE_PRIVATE_URL DATABASE_URL_UNPOOLED POSTGRES_URL PG_URL POSTGRESQL_URL || true
 unset PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB || true
 
-echo ">>> Cleared local DB env overrides. Using variables from: railway run"
-echo ">>> If the wrong service is linked, run: railway service"
-railway run pnpm db:push:force
+echo ">>> Cleared local Postgres env overrides (DATABASE_URL must not come from your laptop)."
+echo ">>> Using Railway service variables via: railway run"
+echo ">>> Linked service should be your API (web). Check with: railway service"
+
+# Inner bash gets Railway-injected DATABASE_URL; exports satisfy run-drizzle-kit remote-host guard + --force.
+railway run bash -lc "export DRIZZLE_PUSH_FROM_RAILWAY_CLI=1 DRIZZLE_PUSH_NONINTERACTIVE=1; cd \"$ROOT\" && pnpm db:push:force"
+
+if [[ "${SKIP_RAILWAY_REDEPLOY:-}" == "1" ]]; then
+  echo ">>> SKIP_RAILWAY_REDEPLOY=1 — not redeploying."
+  exit 0
+fi
+
+echo ">>> Redeploying linked Railway service (API)…"
+railway redeploy -y
+
+echo ">>> Done. Check /api/healthz or /health, then load the site."
