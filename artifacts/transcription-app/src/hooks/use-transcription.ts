@@ -620,6 +620,7 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   if (!piece) return prevDisplayed.trim();
   const prev = prevDisplayed.trim();
   if (!prev || prev === "…") return piece;
+  if (prev === piece || prev.endsWith(piece)) return prev;
   // Keep contiguous number chunks together (e.g. "36" + "02" => "3602").
   if (/\d$/.test(prev) && /^\d/.test(piece)) return `${prev}${piece}`;
   return `${prev} ${piece}`;
@@ -631,6 +632,14 @@ function hasVisibleText(text: string | null | undefined): boolean {
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/** Longest common prefix length between two strings (case-insensitive, per code unit). */
+function lcpLenInsensitive(a: string, b: string): number {
+  let i = 0;
+  const n = Math.min(a.length, b.length);
+  while (i < n && a[i].toLowerCase() === b[i].toLowerCase()) i++;
+  return i;
 }
 
 /** Returns the newly appended tail using prefix/overlap matching (case-insensitive). */
@@ -648,6 +657,13 @@ function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: stri
   for (let k = maxK; k >= 1; k--) {
     const sfx = p.slice(p.length - k);
     if (f.startsWith(sfx)) return { tail: full.slice(k).trimStart(), monotonic: true };
+  }
+  // Mid-string edits (e.g. punctuation inserted) break strict prefix but share a long LCP.
+  const lcp = lcpLenInsensitive(full, prefix);
+  const minRecover = Math.max(4, Math.min(32, Math.floor(prefix.length * 0.12) || 8));
+  if (lcp >= minRecover && lcp < full.length) {
+    const tail = full.slice(lcp).trimStart();
+    if (tail.length > 0) return { tail, monotonic: true };
   }
   return { tail: "", monotonic: false };
 }
@@ -1062,12 +1078,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
     } else if (!useLibre) {
       const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-      // OpenAI live mode: append-only preview to avoid rewriting the full sentence.
-      // If hypothesis revises previous words, wait for the finalized pass on pause.
-      if (!monotonic) return;
-      if (!tail.trim()) return;
-      apiText = tail;
-      useStreamingDelta = true;
+      // OpenAI live: prefer append-only deltas. If Soniox revises earlier words so strictly
+      // monotonic extension fails, replace the column once from full source so the stream
+      // does not stall with English far ahead of Arabic.
+      if (!monotonic) {
+        apiText = text;
+        useStreamingDelta = false;
+      } else if (!tail.trim()) {
+        return;
+      } else {
+        apiText = tail;
+        useStreamingDelta = true;
+      }
     } else {
       // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
