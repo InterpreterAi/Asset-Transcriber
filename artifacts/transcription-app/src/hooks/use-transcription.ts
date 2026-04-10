@@ -451,7 +451,9 @@ async function translateViaPrimaryApi(
   options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
   const isFinal = Boolean(options?.isFinal);
-  const MAX_ATTEMPTS = isFinal ? 2 : 1;
+  // Live path also needs one retry: transient timeout spikes were causing
+  // "partial then freeze" until much later updates.
+  const MAX_ATTEMPTS = isFinal ? 2 : 2;
   // Live requests send the full cumulative transcript; long medical turns exceed a flat 2.2s
   // often — abort → empty response → translation column freezes at the last good snapshot.
   const REQUEST_TIMEOUT_MS = isFinal
@@ -2012,11 +2014,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (source.length < 1) return;
         if (source === st.lastConfirmedSourceTranslated) return;
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
+        // On brief pause, run a non-locking final-quality pass so the interpreter
+        // gets a complete phrase quickly (without waiting for segment close).
         dispatchTranslation(
           source,
           lang,
-          false,
-          { skipOpenAiLiveDebounce: true, forceCommitDisplay: true },
+          true,
+          { lockOnFinal: false, skipOpenAiLiveDebounce: true, forceCommitDisplay: true },
           st.segmentId,
         );
         st.earlyHintSent = true;
