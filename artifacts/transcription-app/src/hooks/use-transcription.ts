@@ -1224,12 +1224,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       !scriptSupportsLang(dom.langs, pair.a) &&
       !scriptSupportsLang(dom.langs, pair.b);
     const validatedDispatchLang = validateLangByScript(detectedLive, text, pair);
-    // Keep direction stable per segment: once we have an in-pair source language,
-    // don't let noisy live detection flip the target side mid-utterance.
-    if (!state.segmentSourceLang && langInSelectedPair(validatedDispatchLang, pair)) {
+    // Hard guard for bilingual pairs: if dominant script maps unambiguously to one side
+    // of the selected pair, force that side as source for this segment.
+    const dominantNow = detectDominantScript(text);
+    const aFitsNow = dominantNow ? scriptSupportsLang(dominantNow.langs, pair.a) : false;
+    const bFitsNow = dominantNow ? scriptSupportsLang(dominantNow.langs, pair.b) : false;
+    let dispatchLang = validatedDispatchLang;
+    if (dominantNow && aFitsNow !== bFitsNow) {
+      dispatchLang = aFitsNow ? pair.a : pair.b;
+      state.segmentSourceLang = dispatchLang;
+    } else if (state.segmentSourceLang) {
+      // Keep direction stable per segment once established.
+      dispatchLang = state.segmentSourceLang;
+    } else if (langInSelectedPair(validatedDispatchLang, pair)) {
+      // Soft lock only when still unresolved by script.
       state.segmentSourceLang = validatedDispatchLang;
+      dispatchLang = validatedDispatchLang;
     }
-    const dispatchLang = state.segmentSourceLang ?? validatedDispatchLang;
 
     // Third language (not A or B): mirror transcript in the translation column — no API.
     // Use live Soniox detection + dominant script so a locked "English" segment does not
