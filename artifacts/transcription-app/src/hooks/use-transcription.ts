@@ -456,7 +456,7 @@ async function translateViaPrimaryApi(
   // often — abort → empty response → translation column freezes at the last good snapshot.
   const REQUEST_TIMEOUT_MS = isFinal
     ? 9_000
-    : Math.min(16_000, 2_800 + text.length * 28);
+    : Math.min(22_000, 3_200 + text.length * 36);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -1207,7 +1207,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // Third language (not A or B): mirror transcript in the translation column — no API.
     // Use live Soniox detection + dominant script so a locked "English" segment does not
     // keep translating after the speaker switches to Arabic (or any script outside the pair).
-    if (outOfPairByScript || !langInSelectedPair(dispatchLang, pair)) {
+    if (
+      !langInSelectedPair(detectedLive, pair) ||
+      outOfPairByScript ||
+      !langInSelectedPair(dispatchLang, pair)
+    ) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
@@ -1705,8 +1709,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Use the per-segment locked language. Fall back to the global detected
       // language only if Soniox never reported one for this segment at all.
-      const langFromState = activeBubbleStateRef.current?.segmentSourceLang ?? detectedLangRef.current;
-      const lang = validateLangByScript(langFromState, finalText, langPairRef.current);
+      const lang = activeBubbleStateRef.current?.segmentSourceLang ?? detectedLangRef.current;
       const segId = activeBubbleStateRef.current?.segmentId;
       // Always run a final full-source pass so the model can correct the whole utterance.
       dispatchTranslation(finalText, lang, true, undefined, segId);
