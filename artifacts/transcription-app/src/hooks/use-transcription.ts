@@ -57,7 +57,7 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 // - pause < SHORT_PAUSE_MS: keep writing in current segment
 // - pause >= LONG_PAUSE_MS: close/finalize current segment
 const SHORT_PAUSE_MS = 650;
-const SHORT_PAUSE_MS_FAST = 120;
+const SHORT_PAUSE_MS_FAST = 60;
 const LONG_PAUSE_MS  = 1200;
 const EARLY_HINT_MIN_WORDS = 8;
 const LIVE_PREVIEW_WORD_STEP = 8;
@@ -456,7 +456,7 @@ async function translateViaPrimaryApi(
   // often — abort → empty response → translation column freezes at the last good snapshot.
   const REQUEST_TIMEOUT_MS = isFinal
     ? 9_000
-    : Math.min(6_500, 1_900 + text.length * 14);
+    : Math.min(3_500, 1_500 + text.length * 6);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -1045,7 +1045,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   /** Batch OpenAI live full-buffer replaces so the target column does not rephrase every token tick. */
-  const OPENAI_LIVE_DEBOUNCE_MS = 90;
+  const OPENAI_LIVE_DEBOUNCE_MS = 40;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,
