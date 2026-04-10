@@ -684,7 +684,7 @@ function tokenOverlapRatio(a: string, b: string): number {
  * Generic trailing sentence dedupe for all languages.
  * Some models emit a paraphrased re-close right after the real final sentence.
  */
-function dropTrailingRepeatedSentence(raw: string): string {
+export function dropTrailingRepeatedSentence(raw: string): string {
   const t = collapseWs(raw);
   const sents = t.split(/(?<=[.!?؟。！？])\s+/u).map((s) => s.trim()).filter(Boolean);
   if (sents.length < 2) return t;
@@ -843,7 +843,7 @@ function maybePolishTranslationForTarget(text: string, targetLang: string): stri
  * overlapping continuation — merge by suffix/prefix overlap or prefer the longer
  * coherent run when it clearly supersedes what is already shown.
  */
-function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
+export function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
   const prev = prevDisplayed.trim();
   let piece = trimDuplicateBoundaryWord(prev, newPiece);
   piece = piece.trim();
