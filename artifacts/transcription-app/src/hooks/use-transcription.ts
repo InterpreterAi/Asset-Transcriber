@@ -451,9 +451,8 @@ async function translateViaPrimaryApi(
   const isFinal = Boolean(options?.isFinal);
   // Live: one retry on transient errors; timeouts scale with length so long turns are not cut off mid-stream.
   const MAX_ATTEMPTS = isFinal ? 2 : 2;
-  const REQUEST_TIMEOUT_MS = isFinal
-    ? 14_000
-    : Math.min(16_000, 3_500 + text.length * 16);
+  // Long cumulative live strings — allow full 30s per attempt (product: coverage over cost).
+  const REQUEST_TIMEOUT_MS = 30_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -642,10 +641,6 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-function wordCount(s: string): number {
-  return collapseWs(s).split(/\s+/).filter(Boolean).length;
-}
-
 /** Which side of the language pair matches this script set (exactly one). */
 function pairLangMatchingScript(
   langs: string[],
@@ -691,19 +686,6 @@ function endsWithPhraseBoundary(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
   return /[.!?؟،。！？:;]\s*$/u.test(t);
-}
-
-/**
- * Detect when visible translation is probably truncated for the current cumulative source.
- * Without this, we set lastConfirmedSourceTranslated to the full source after a partial API
- * response and never dispatch again until the source text changes.
- */
-function liveTranslationLooksTruncatedVsSource(source: string, visibleTranslation: string): boolean {
-  const s = collapseWs(source);
-  const t = collapseWs(visibleTranslation);
-  if (s.length < 36 || t.length < 8) return false;
-  // Arabic often shorter in characters than English; values below ~0.7 still usually mean “stopped mid-utterance”.
-  return t.length < s.length * 0.72;
 }
 
 /** Consecutive duplicate tokens (all targets — matches Arabic/English hygiene). */
@@ -909,6 +891,7 @@ function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: stri
 }
 
 
+/** Live + final: always replace the whole translation cell (innerHTML), never append tokens. */
 function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
   el.dir             = rtl ? "rtl" : "ltr";
@@ -1004,10 +987,8 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** 0 = always re-dispatch live when the hint fires; no same-string cooldown (long segments must not stall). */
+  /** 0 = live mirror can hit API every frame; no same-string cooldown. */
   const SAME_LIVE_SOURCE_RETRY_MS = 0;
-  /** When hint bookkeeping matches source but the translation &lt;p&gt; is empty, retry at this interval (not every WS frame). */
-  const EMPTY_CELL_LIVE_HINT_COOLDOWN_MS = 350;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -2079,50 +2060,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Live translation: source growth, empty cell, or likely-truncated target vs source (partial model output with full source).
+      // Live mirror: full cumulative hintSource re-translated every Soniox frame while the row is unlocked.
+      // No "completion" gating — lastConfirmedSourceTranslated does not suppress new requests here.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
-      const transStillEmpty = (st?.transTextEl.textContent?.trim().length ?? 0) === 0;
-      const sourceChanged = st ? hintSource !== st.lastConfirmedSourceTranslated : false;
-      const wordsGrew =
-        st != null && wordCount(hintSource) > wordCount(st.lastConfirmedSourceTranslated);
-      const charsGrew =
-        st != null && hintSource.length > st.lastConfirmedSourceTranslated.length;
-      const stuckEmptyBookkeeping = Boolean(st && transStillEmpty && !sourceChanged);
-      const emptyHintCooldownActive =
-        !!st &&
-        stuckEmptyBookkeeping &&
-        Date.now() - st.lastEmptyCellHintDispatchAtMs < EMPTY_CELL_LIVE_HINT_COOLDOWN_MS;
-      const truncRetryDue =
-        st != null &&
-        liveTranslationLooksTruncatedVsSource(hintSource, st.transTextEl.textContent ?? "");
-      const truncCooldownOk =
-        st == null ||
-        !truncRetryDue ||
-        Date.now() - st.lastTruncationRetryHintAtMs >= 280;
-      if (
-        st &&
-        !st.translationLocked &&
-        hintSource.length > 0 &&
-        (sourceChanged ||
-          wordsGrew ||
-          charsGrew ||
-          transStillEmpty ||
-          (truncRetryDue && truncCooldownOk)) &&
-        !emptyHintCooldownActive
-      ) {
-        if (stuckEmptyBookkeeping) st.lastEmptyCellHintDispatchAtMs = Date.now();
-        if (truncRetryDue && truncCooldownOk) st.lastTruncationRetryHintAtMs = Date.now();
+      if (st && !st.translationLocked && hintSource.length > 0) {
         const lang = inferDispatchLangForUtterance(hintSource, detectedLangRef.current, langPairRef.current);
-        const mustRefreshLive =
-          sourceChanged || wordsGrew || charsGrew || (truncRetryDue && truncCooldownOk);
         dispatchTranslation(
           hintSource,
           lang,
           false,
           {
             skipOpenAiLiveDebounce: true,
-            bypassLiveSourceThrottle: mustRefreshLive,
+            bypassLiveSourceThrottle: true,
           },
           st.segmentId,
         );

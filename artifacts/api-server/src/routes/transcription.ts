@@ -1283,6 +1283,14 @@ router.post("/translate", requireAuth, async (req, res) => {
   const englishTargetBlock =
     srcCode !== "en" && tgtCode === "en" ? NON_EN_TO_EN_INTERPRETER_RULES : "";
 
+  /** Client may flip src/tgt per frame from dominant script; transcript may still mix both in one block. */
+  const bidirectionalLiveMirrorBlock =
+    `LIVE BIDIRECTIONAL MIRROR:\n` +
+    `- The marked transcript may contain both ${srcName} and ${tgtName} in one utterance.\n` +
+    `- Each request is the FULL cumulative transcript (single continuous block).\n` +
+    `- Output must be one coherent ${tgtName} column for the entire block from first word to last — translate all ${srcName} material into ${tgtName}; keep ${tgtName} stretches natural in ${tgtName}.\n` +
+    `- Do not treat an early clause as complete while later words remain untranslated.\n\n`;
+
   // ── Build system prompt helper ─────────────────────────────────────────────
   // Accepts an optional forceOverride flag for the retry path; when true the
   // language-lock instruction is elevated to the very top of the prompt with
@@ -1334,6 +1342,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     arabicEnTargetBlock +
     englishTargetBlock +
+    bidirectionalLiveMirrorBlock +
     `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 
     `ROLE BOUNDARY (INTERPRETER ONLY):\n` +
