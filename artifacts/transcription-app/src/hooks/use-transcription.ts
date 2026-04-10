@@ -1066,7 +1066,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   /** Batch OpenAI live full-buffer replaces so the target column does not rephrase every token tick. */
-  const OPENAI_LIVE_DEBOUNCE_MS = 160;
+  const OPENAI_LIVE_DEBOUNCE_MS = 90;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,
@@ -1223,20 +1223,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dom !== null &&
       !scriptSupportsLang(dom.langs, pair.a) &&
       !scriptSupportsLang(dom.langs, pair.b);
-    const dispatchLangRaw = validateLangByScript(detectedLive, text, pair);
-    if (!state.segmentSourceLang && langInSelectedPair(dispatchLangRaw, pair)) {
-      state.segmentSourceLang = dispatchLangRaw;
+    const validatedDispatchLang = validateLangByScript(detectedLive, text, pair);
+    // Hard guard for bilingual pairs: if dominant script maps unambiguously to one side
+    // of the selected pair, force that side as source for this segment.
+    const dominantNow = detectDominantScript(text);
+    const aFitsNow = dominantNow ? scriptSupportsLang(dominantNow.langs, pair.a) : false;
+    const bFitsNow = dominantNow ? scriptSupportsLang(dominantNow.langs, pair.b) : false;
+    let dispatchLang = validatedDispatchLang;
+    if (dominantNow && aFitsNow !== bFitsNow) {
+      dispatchLang = aFitsNow ? pair.a : pair.b;
+      state.segmentSourceLang = dispatchLang;
+    } else if (state.segmentSourceLang) {
+      // Keep direction stable per segment once established.
+      dispatchLang = state.segmentSourceLang;
+    } else if (langInSelectedPair(validatedDispatchLang, pair)) {
+      // Soft lock only when still unresolved by script.
+      state.segmentSourceLang = validatedDispatchLang;
+      dispatchLang = validatedDispatchLang;
     }
-    const dispatchLang = state.segmentSourceLang ?? dispatchLangRaw;
 
     // Third language (not A or B): mirror transcript in the translation column — no API.
     // Use live Soniox detection + dominant script so a locked "English" segment does not
     // keep translating after the speaker switches to Arabic (or any script outside the pair).
-    if (
-      !langInSelectedPair(detectedLive, pair) ||
-      outOfPairByScript ||
-      !langInSelectedPair(dispatchLang, pair)
-    ) {
+    if (outOfPairByScript || !langInSelectedPair(dispatchLang, pair)) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
@@ -1267,9 +1276,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // Source/target follow the current in-pair language (stable per segment once locked).
+    // Source/target for this segment (locked after first reliable in-pair detection).
     const myTargetLang = resolveTarget(dispatchLang, pair);
-    state.segmentSourceLang = dispatchLang;
     state.segmentTargetLang = myTargetLang;
     const { transTextEl } = state;
 
@@ -1422,9 +1430,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
     } else if (!useLibre) {
-      // OpenAI live: send full cumulative source and replace the translation cell.
-      apiText = text;
-      useStreamingDelta = false;
+      // OpenAI live: send only the newly appended source tail to keep latency low on long
+      // utterances. Full cumulative requests become slow and look like "translated first lines,
+      // then stopped". If monotonic tail cannot be derived, fall back to full replace.
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      if (monotonic && tail.trim()) {
+        apiText = tail;
+        useStreamingDelta = true;
+      } else if (monotonic && !tail.trim()) {
+        return;
+      } else {
+        apiText = text;
+        useStreamingDelta = false;
+      }
     } else {
       // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
