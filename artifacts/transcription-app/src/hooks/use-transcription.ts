@@ -452,8 +452,8 @@ async function translateViaPrimaryApi(
   // Live: one retry on transient errors; timeouts scale with length so long turns are not cut off mid-stream.
   const MAX_ATTEMPTS = isFinal ? 2 : 2;
   const REQUEST_TIMEOUT_MS = isFinal
-    ? 9_000
-    : Math.min(9_000, 2_000 + text.length * 12);
+    ? 14_000
+    : Math.min(16_000, 3_500 + text.length * 16);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -656,8 +656,9 @@ function endsWithPhraseBoundary(s: string): boolean {
 function liveTranslationLooksTruncatedVsSource(source: string, visibleTranslation: string): boolean {
   const s = collapseWs(source);
   const t = collapseWs(visibleTranslation);
-  if (s.length < 48 || t.length < 8) return false;
-  return t.length < s.length * 0.52;
+  if (s.length < 36 || t.length < 8) return false;
+  // Arabic often shorter in characters than English; values below ~0.7 still usually mean “stopped mid-utterance”.
+  return t.length < s.length * 0.72;
 }
 
 /** Consecutive duplicate tokens (all targets — matches Arabic/English hygiene). */
@@ -1160,6 +1161,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       suppressEarlyHardFinal?: boolean;
       /** Skip tail-delta / lock-shortcut — full source to model (Soniox &lt;end&gt; / polish pass). */
       forceFullSegmentFinal?: boolean;
+      /** Same cumulative source but prior output likely truncated — bypass 420ms live throttle. */
+      bypassLiveSourceThrottle?: boolean;
     },
     segmentIdLock?: string,
   ) => {
@@ -1171,6 +1174,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!translationEnabledRef.current) return;
     if (
       !isFinal &&
+      !options?.bypassLiveSourceThrottle &&
       text === state.lastRequestedLiveSource &&
       Date.now() - state.lastRequestedLiveAtMs < SAME_LIVE_SOURCE_RETRY_MS
     ) {
@@ -2040,7 +2044,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const truncCooldownOk =
         st == null ||
         !truncRetryDue ||
-        Date.now() - st.lastTruncationRetryHintAtMs >= 550;
+        Date.now() - st.lastTruncationRetryHintAtMs >= 280;
       if (
         st &&
         !st.translationLocked &&
@@ -2051,7 +2055,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (stuckEmptyBookkeeping) st.lastEmptyCellHintDispatchAtMs = Date.now();
         if (truncRetryDue && truncCooldownOk) st.lastTruncationRetryHintAtMs = Date.now();
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
+        dispatchTranslation(
+          hintSource,
+          lang,
+          false,
+          {
+            skipOpenAiLiveDebounce: true,
+            bypassLiveSourceThrottle: Boolean(truncRetryDue && truncCooldownOk),
+          },
+          st.segmentId,
+        );
         st.earlyHintSent = true;
       }
 

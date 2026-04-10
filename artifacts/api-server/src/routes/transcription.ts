@@ -608,6 +608,45 @@ function postProcessTranslatedText(
   return t;
 }
 
+function wsCollapse(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/** Rough sentence count for “did we get the full utterance?” heuristics (not linguistic precision). */
+function roughSentenceCountUniversal(s: string): number {
+  const t = wsCollapse(s);
+  if (!t) return 0;
+  const chunks = t.split(/(?<=[.!?؟。！])\s+/u).filter((c) => {
+    const core = c.replace(/[.!?؟。！]+$/u, "").trim();
+    return core.length >= 5;
+  });
+  return Math.max(1, chunks.length);
+}
+
+/**
+ * Detect model cutting off mid-paragraph (common on long interpreter intros).
+ * Skipped for streaming-delta (tail-only) requests.
+ */
+function translationProbablyIncomplete(
+  sourcePlain: string,
+  translated: string,
+  srcBase: string,
+  streamingDelta: boolean,
+): boolean {
+  if (streamingDelta) return false;
+  const s = wsCollapse(sourcePlain);
+  const t = wsCollapse(translated);
+  if (s.length < 48 || t.length < 14) return false;
+  if (t.length < s.length * 0.58) return true;
+  const srcSents = roughSentenceCountUniversal(s);
+  const outSents = roughSentenceCountUniversal(t);
+  if (s.length > 90 && srcSents >= 3 && outSents < Math.max(2, Math.ceil(srcSents * 0.72))) {
+    return true;
+  }
+  if (srcBase === "en" && s.length > 140 && outSents < srcSents) return true;
+  return false;
+}
+
 /** Frame transcript so the model does not treat product/AI/marketing lines as end-user prompts. */
 function wrapTranscriptForTranslationUserMessage(
   srcDisplayName: string,
@@ -1369,18 +1408,22 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Validation: after receiving the translation we check that the output
   // script matches the expected target language.  If it doesn't, we retry
   // once with a maximally-explicit override prompt.
-  interface CallResult { text: string; promptTokens: number; completionTokens: number }
+  interface CallResult {
+    text: string;
+    promptTokens: number;
+    completionTokens: number;
+    finishReason: string | null;
+  }
 
   async function callOpenAI(prompt: string, userContent: string): Promise<CallResult> {
     const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 12_000);
+    const timeoutId  = setTimeout(() => controller.abort(), 30_000);
     try {
       const resp = await openai.chat.completions.create(
         {
           model:       "gpt-4o-mini",
           temperature: 0,
-          // Explicit cap so long interpreter turns are not cut off at a low default.
-          max_tokens:  4096,
+          max_tokens:  8192,
           messages: [
             { role: "system", content: prompt },
             { role: "user",   content: userContent },
@@ -1389,10 +1432,12 @@ router.post("/translate", requireAuth, async (req, res) => {
         { signal: controller.signal },
       );
       clearTimeout(timeoutId);
+      const choice = resp.choices[0];
       return {
-        text:             resp.choices[0]?.message?.content?.trim() ?? "",
+        text:             choice?.message?.content?.trim() ?? "",
         promptTokens:     resp.usage?.prompt_tokens     ?? 0,
         completionTokens: resp.usage?.completion_tokens ?? 0,
+        finishReason:     choice?.finish_reason ?? null,
       };
     } catch (err) {
       clearTimeout(timeoutId);
@@ -1437,6 +1482,45 @@ router.post("/translate", requireAuth, async (req, res) => {
       ...result,
       text: postProcessTranslatedText(restoreTranslationOutput(result.text), srcCode, tgtCode),
     };
+
+    // Model often stops after the first clause on long turns — one automatic full retry.
+    const needIncompleteRetry =
+      !streamingDelta &&
+      result.text.length > 0 &&
+      (result.finishReason === "length" ||
+        translationProbablyIncomplete(phraseNormalized, result.text, srcCode, streamingDelta));
+    if (needIncompleteRetry) {
+      logger.warn(
+        {
+          srcLang,
+          tgtLang,
+          textLen: phraseNormalized.length,
+          outLen:  result.text.length,
+          finish:  result.finishReason,
+        },
+        "Translation looks truncated or hit length limit — retrying for full coverage",
+      );
+      const incompleteBlock =
+        `\n\n═══ MANDATORY FULL COVERAGE ═══\n` +
+        `The previous attempt was incomplete. Translate the ENTIRE transcript between the markers — ` +
+        `every sentence and clause from the opening word to the last word. ` +
+        `Do not stop after the first part. Output ONLY the complete ${tgtName} translation.\n`;
+      const second = await callOpenAI(systemPrompt + incompleteBlock, userMessageForModel);
+      const secondText = postProcessTranslatedText(
+        restoreTranslationOutput(second.text),
+        srcCode,
+        tgtCode,
+      );
+      const preferSecond =
+        secondText.length > 0 &&
+        (secondText.length > result.text.length + 15 ||
+          (result.finishReason === "length" && secondText.length >= result.text.length - 8) ||
+          (translationProbablyIncomplete(phraseNormalized, result.text, srcCode, streamingDelta) &&
+            secondText.length >= result.text.length));
+      if (preferSecond) {
+        result = { ...second, text: secondText };
+      }
+    }
 
     // Models sometimes treat product/AI marketing lines as end-user prompts and return refusals.
     if (result.text && translationLooksLikeAssistantRefusal(result.text, text)) {
