@@ -324,6 +324,14 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
   ...scriptEntryLangs("Katakana"),
 ]);
 
+/**
+ * Interpreter translation pipeline (“final boss”): live calls are debounced and superseded with
+ * AbortController per bubble; every target language gets the same token + adjacent-paraphrase
+ * dedupe on live output. Finals run shared prep in {@link maybePolishTranslationForTarget}, then
+ * script-family polish. Finalization never skips a full translate when the column is still empty
+ * or clearly too short vs source length (fixes missing en↔es and other pairs after streaming).
+ */
+
 // Returns true when `lang` (BCP-47, e.g. "zh-CN") is listed in `langs`.
 // Matching is base-code prefix: "zh-CN" matches "zh".
 function scriptSupportsLang(langs: string[], lang: string): boolean {
@@ -695,17 +703,54 @@ function tokenOverlapRatio(a: string, b: string): number {
   return hit / Math.max(ta.length, tb.length);
 }
 
+/** Split on closing sentence punctuation (Latin, Arabic, CJK full-width) for paraphrase dedupe. */
+const INTERPRETER_SENTENCE_SPLIT_RE = /(?<=[.!?؟。！？])\s+/u;
+
+/**
+ * When live / tail-merge re-translates cumulative source, the model often echoes the same clause
+ * twice in different wording (fast NF revisions + debounced requests). Drop adjacent near-duplicate
+ * sentences; prefer the longer / later span so we do not lose trailing words.
+ */
+function dedupeAdjacentParaphraseSentences(raw: string): string {
+  let t = collapseWs(raw);
+  for (let pass = 0; pass < 4; pass++) {
+    const sents = t.split(INTERPRETER_SENTENCE_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+    if (sents.length < 2) return t;
+    const out: string[] = [sents[0]!];
+    for (let i = 1; i < sents.length; i++) {
+      const cur = sents[i]!;
+      const prev = out[out.length - 1]!;
+      if (prev.length < 18 || cur.length < 18) {
+        out.push(cur);
+        continue;
+      }
+      const r = Math.max(tokenOverlapRatio(prev, cur), tokenOverlapRatio(cur, prev));
+      if (r >= 0.52) {
+        if (cur.length >= prev.length) {
+          out[out.length - 1] = cur;
+        }
+        continue;
+      }
+      out.push(cur);
+    }
+    const joined = collapseWs(out.join(" "));
+    if (joined === t) break;
+    t = joined;
+  }
+  return t;
+}
+
 /**
  * Dedupe consecutive identical tokens, trim junk leading punctuation, collapse
  * doubled marks, fix split "? … لليوم؟" from incremental errors.
  */
 function polishArabicInterpreterTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.؟!?])\1+/g, "$1");
   t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
   // Live + final often append two paraphrases of the same closing (e.g. "…وأشعر…" + "كانت هذه واحدة أخرى…").
-  const sents = t.split(/(?<=[.!?؟])\s+/u).map(s => s.trim()).filter(Boolean);
+  const sents = t.split(INTERPRETER_SENTENCE_SPLIT_RE).map(s => s.trim()).filter(Boolean);
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
@@ -719,11 +764,11 @@ function polishArabicInterpreterTranslation(raw: string): string {
 
 /** Hebrew translation column: same token hygiene + ?-tail dedupe as Latin/Cyrillic. */
 function polishHebrewInterpreterTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/^[.?!،。'"“”\s\u0590-\u05FF\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.?!?])\1+/g, "$1");
   t = trimOverlappingDuplicateQuestionTail(t);
-  const sents = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+  const sents = t.split(INTERPRETER_SENTENCE_SPLIT_RE).map(s => s.trim()).filter(Boolean);
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
@@ -739,14 +784,14 @@ function polishHebrewInterpreterTranslation(raw: string): string {
  * duplicate question/sentence tails (same family of fixes as en↔ar live output).
  */
 function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   if (targetBase === "en") {
     t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
     t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
     t = t.replace(/\bokay\?\s+Complete confidentiality, right\?$/i, "okay?");
   }
   t = trimOverlappingDuplicateQuestionTail(t);
-  const sents = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+  const sents = t.split(INTERPRETER_SENTENCE_SPLIT_RE).map(s => s.trim()).filter(Boolean);
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
@@ -760,9 +805,9 @@ function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string
 
 /** Cyrillic, Greek, and similar: ?/. ! tail echoes without English-specific regexes. */
 function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = trimOverlappingDuplicateQuestionTail(t);
-  const sents = t.split(/(?<=[.?!])\s+/u).map(s => s.trim()).filter(Boolean);
+  const sents = t.split(INTERPRETER_SENTENCE_SPLIT_RE).map(s => s.trim()).filter(Boolean);
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
@@ -774,14 +819,14 @@ function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
 }
 
 function polishCjkTargetTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/([。！？?!])\1+/gu, "$1");
   return collapseWs(t);
 }
 
 /** Remaining scripts (th, hi, …): token dedupe + generic doubled sentence punctuation. */
 function polishGenericTargetTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/([.!?。！？؟])\1+/gu, "$1");
   return collapseWs(t);
 }
@@ -826,15 +871,16 @@ function trimOverlappingDuplicateQuestionTail(raw: string): string {
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
   const base = targetLang.split("-")[0]?.toLowerCase() ?? "";
   if (!base) return text;
-  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) return polishArabicInterpreterTranslation(text);
-  if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) return polishHebrewInterpreterTranslation(text);
-  if (LATIN_SCRIPT_TARGET_LANGS.has(base)) return polishLatinScriptInterpreterTranslation(text, base);
+  const prepped = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(text));
+  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) return polishArabicInterpreterTranslation(prepped);
+  if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) return polishHebrewInterpreterTranslation(prepped);
+  if (LATIN_SCRIPT_TARGET_LANGS.has(base)) return polishLatinScriptInterpreterTranslation(prepped, base);
   if (CYRILLIC_SCRIPT_TARGET_LANGS.has(base) || GREEK_SCRIPT_TARGET_LANGS.has(base)) {
-    return polishQuestionMarkFamilyTargetTranslation(text);
+    return polishQuestionMarkFamilyTargetTranslation(prepped);
   }
-  if (CJK_TARGET_LANG_BASES.has(base)) return polishCjkTargetTranslation(text);
-  if (HANGUL_TARGET_LANG_BASES.has(base)) return polishQuestionMarkFamilyTargetTranslation(text);
-  return polishGenericTargetTranslation(text);
+  if (CJK_TARGET_LANG_BASES.has(base)) return polishCjkTargetTranslation(prepped);
+  if (HANGUL_TARGET_LANG_BASES.has(base)) return polishQuestionMarkFamilyTargetTranslation(prepped);
+  return polishGenericTargetTranslation(prepped);
 }
 
 function hasVisibleText(text: string | null | undefined): boolean {
@@ -979,6 +1025,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** Slower live path: first dispatch after enough finals + words, then every N words (not every WS frame). */
   const EARLY_HINT_MIN_WORDS = 8;
   const LIVE_PREVIEW_WORD_STEP = 8;
+  /** Require fewer finals before first live translate so short en↔es (etc.) rows still get previews. */
+  const LIVE_HINT_MIN_FINAL_TOKENS = 2;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1188,9 +1236,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
-  // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Live: WS uses ~80ms trailing debounce + AbortController per segment; new live/final aborts prior.
-  // Final path unchanged (tail/prefix, polish). Seq gate drops stale responses.
+  // ── dispatchTranslation (“final boss”) ─────────────────────────────────────
+  // Live: WS ~80ms debounce + per-bubble abort; token + adjacent paraphrase dedupe on all targets.
+  // Final: tail/prefix merge, shared prep inside maybePolish, never lock on “empty tail” if column still thin.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1378,11 +1426,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
           const visiblyTranslated = visibleLen > 0;
           const sourceLen = text.trim().length;
-          if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (sourceLen > 24 && visibleLen < 8) {
+          const translationColumnTooThin =
+            !visiblyTranslated && sourceLen > 0
+            || (sourceLen > 20 && visibleLen < 8)
+            || (sourceLen > 45 && visibleLen < Math.max(16, Math.floor(sourceLen * 0.14)));
+          if (state.needsFullFinalTranslation || translationColumnTooThin) {
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
@@ -1450,7 +1498,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const rawFinal = translated.trim();
           let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
           if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
-            out = dedupeConsecutiveTranslationTokens(rawFinal);
+            out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
           }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
@@ -1471,16 +1519,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         } else if (useStreamingDelta) {
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
+          const outDelta = dedupeAdjacentParaphraseSentences(
+            dedupeConsecutiveTranslationTokens(merged.trim()),
+          );
+          if (!outDelta.trim()) {
+            return;
+          }
           state.lastShownSeq = mySeq;
-          state.lastShownLen = merged.length;
-          applyTranslationTypography(transTextEl, merged);
+          state.lastShownLen = outDelta.length;
+          applyTranslationTypography(transTextEl, outDelta);
           state.pendingDisplayTranslation = "";
           const committed = state.streamCommittedSource.trim();
           state.streamCommittedSource = committed ? `${committed} ${text}` : text;
           state.needsFullFinalTranslation = false;
           state.lastConfirmedSourceTranslated = text;
         } else {
-          const out = dedupeConsecutiveTranslationTokens(translated.trim());
+          const out = dedupeAdjacentParaphraseSentences(
+            dedupeConsecutiveTranslationTokens(translated.trim()),
+          );
           if (!out.trim()) {
             return;
           }
@@ -2066,7 +2122,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        st.finalTokensSeen >= 3 &&
+        st.finalTokensSeen >= LIVE_HINT_MIN_FINAL_TOKENS &&
         hintSource.length >= 25 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
