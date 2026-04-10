@@ -526,14 +526,15 @@ function snapSourceLanguageToPair(
   text: string,
   pair: { a: string; b: string },
 ): string {
-  const vCand = validateLangByScript(candidate, text, pair);
-  const u0 = uniquePairMemberForLang(vCand, pair);
-  if (u0 !== null) return u0;
+  // Prefer live Soniox (validated) over segment lock so a wrong first-token lock does not force tgt = same language.
   const vSon = validateLangByScript(sonioxHint, text, pair);
-  const u1 = uniquePairMemberForLang(vSon, pair);
-  if (u1 !== null) return u1;
-  const u2 = uniquePairMemberForLang(sonioxHint, pair);
-  if (u2 !== null) return u2;
+  const uSon = uniquePairMemberForLang(vSon, pair);
+  if (uSon !== null) return uSon;
+  const vCand = validateLangByScript(candidate, text, pair);
+  const uCand = uniquePairMemberForLang(vCand, pair);
+  if (uCand !== null) return uCand;
+  const uRaw = uniquePairMemberForLang(sonioxHint, pair);
+  if (uRaw !== null) return uRaw;
   const ba = pair.a.split("-")[0]!.toLowerCase();
   const bb = pair.b.split("-")[0]!.toLowerCase();
   const bs = sonioxHint.split("-")[0]!.toLowerCase();
