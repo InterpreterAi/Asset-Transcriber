@@ -456,7 +456,7 @@ async function translateViaPrimaryApi(
   // often — abort → empty response → translation column freezes at the last good snapshot.
   const REQUEST_TIMEOUT_MS = isFinal
     ? 9_000
-    : Math.min(22_000, 3_200 + text.length * 36);
+    : Math.min(6_500, 1_900 + text.length * 14);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -1045,7 +1045,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   /** Batch OpenAI live full-buffer replaces so the target column does not rephrase every token tick. */
-  const OPENAI_LIVE_DEBOUNCE_MS = 160;
+  const OPENAI_LIVE_DEBOUNCE_MS = 90;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,
@@ -1509,12 +1509,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             out.length < prevT.length * 0.4 &&
             text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.88
           ) {
-            state.needsFullFinalTranslation = true;
-            state.lastShownSeq = mySeq;
-            state.streamCommittedSource = text;
-            state.lastConfirmedSourceTranslated = text;
-            scrollPanel();
-            return;
+            // Keep real-time continuity: merge short live snapshots instead of skipping frames.
+            out = maybePolishTranslationForTarget(
+              mergeStreamingTranslation(prevT, out),
+              myTargetLang,
+            );
+            state.needsFullFinalTranslation = false;
           }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
