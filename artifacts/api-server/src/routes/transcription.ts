@@ -343,15 +343,12 @@ function langName(code: string): string {
 /** When true, the client sends only a newly appended source tail; model must return only that fragment's translation. */
 const STREAMING_FRAGMENT_RULES =
   `STREAMING FRAGMENT MODE:\n` +
+  `You are a real-time medical interpreter. Translate the following NEW text.\n` +
+  `Do NOT restate or change previous context.\n` +
+  `Provide ONLY the translation for the new segment.\n` +
   `The user message is ONLY a newly appended tail of a longer live utterance (not the full sentence).\n` +
   `Translate ONLY that tail. Output ONLY the translation of the tail — no quotation marks, labels, or preamble.\n` +
-  `Keep your output SHORT (typically well under one sentence): the UI already shows prior translation; never re-output earlier clauses.\n` +
-  `Do NOT repeat, paraphrase, or restate content from earlier in the same utterance — zero duplication.\n` +
-  `Never output the same word twice in a row unless the speaker literally repeated it.\n` +
-  `Do not start the fragment with punctuation alone; use normal punctuation only at natural phrase boundaries.\n` +
-  `Translate every English word in the tail (including modal verbs like "will", "would", "can") into the target language — never copy English words into the translation.\n` +
-  `If the tail is grammatically incomplete, translate it literally without inventing subjects, objects, or context the speaker did not say.\n` +
-  `If the tail is only a trailing piece (e.g. "for today") that belongs inside the previous clause, fold it in — do not add a second separate question mark or a new sentence.\n\n`;
+  `Do NOT repeat, paraphrase, or restate content from earlier in the same utterance.\n\n`;
 
 /** When source is English and target is Arabic: MSA + on-screen interpreter reading quality. */
 const ARABIC_EN_INTERPRETER_RULES =

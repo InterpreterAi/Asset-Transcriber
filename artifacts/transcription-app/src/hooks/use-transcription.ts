@@ -666,6 +666,15 @@ function trimDuplicateBoundaryWord(prev: string, piece: string): string {
   return piece;
 }
 
+function appendTranslationChunk(prevDisplayed: string, newPiece: string): string {
+  const prev = collapseWs(prevDisplayed);
+  let piece = collapseWs(newPiece);
+  if (!piece) return prev;
+  piece = trimDuplicateBoundaryWord(prev, piece);
+  if (!piece) return prev;
+  return prev ? collapseWs(`${prev} ${piece}`) : piece;
+}
+
 /** Consecutive duplicate tokens (all targets — matches Arabic/English hygiene). */
 function dedupeConsecutiveTranslationTokens(raw: string): string {
   const t = collapseWs(raw);
@@ -1420,11 +1429,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
     } else if (!useLibre) {
-      // OpenAI live: always send the full cumulative transcript and replace the translation
-      // cell. Tail+delta+merge stacked overlapping model output (duplicate clauses, broken
-      // numbers); Soniox-style demos refresh the whole target string for the current source.
-      apiText = text;
-      useStreamingDelta = false;
+      // Commit-and-append live mode: send only newly appended source text.
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      if (monotonic && tail.trim()) {
+        apiText = tail;
+        useStreamingDelta = true;
+      } else if (monotonic) {
+        return;
+      } else {
+        // Interim revised earlier words; wait for final pass for authoritative correction.
+        state.needsFullFinalTranslation = true;
+        return;
+      }
     } else {
       // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
@@ -1502,17 +1518,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
             if (commitLive) {
+              if (!requestIsFinal && out.length < prevT.length) return;
               applyTranslationTypography(transTextEl, out);
               state.pendingDisplayTranslation = "";
             } else {
               state.pendingDisplayTranslation = out;
             }
           } else {
-            const out = maybePolishTranslationForTarget(translated, myTargetLang);
+            const prevT = (transTextEl.textContent ?? "").trim();
+            const appended = appendTranslationChunk(prevT, translated);
+            const out = maybePolishTranslationForTarget(appended, myTargetLang);
             const commitLive = true;
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
             if (commitLive) {
+              if (!requestIsFinal && out.length < prevT.length) return;
               applyTranslationTypography(transTextEl, out);
               state.pendingDisplayTranslation = "";
             } else {
@@ -1551,6 +1571,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           if (commitLive) {
+            if (!requestIsFinal && out.length < prevT.length) return;
             applyTranslationTypography(transTextEl, out);
             state.pendingDisplayTranslation = "";
           } else {
@@ -2006,6 +2027,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (tokens.length === 0) return;
       const hasNonFinalTokens = tokens.some(t => !t.is_final);
 
+      // Instant diarization pivot: switch segments as soon as speaker id changes in incoming tokens.
+      const liveSpeaker = [...tokens]
+        .reverse()
+        .find(t => hasVisibleText(t.text) && t.speaker !== undefined && t.speaker !== null)?.speaker;
+      if (
+        liveSpeaker !== undefined &&
+        liveSpeaker !== null &&
+        activeBubbleRef.current &&
+        !sameSpeaker(liveSpeaker, currentSpeakerRef.current)
+      ) {
+        closeActiveSegmentBoundary("speaker_change");
+        currentSpeakerRef.current = String(liveSpeaker);
+        activeBubbleRef.current = createBubble(liveSpeaker);
+        setHasTranscript(true);
+      }
+
       // ── Silence / pause-based timers ───────────────────────────────────────
       // Every message with tokens resets both pause timers:
       // - SHORT_PAUSE_MS: dispatch non-final translation preview (no close)
@@ -2024,13 +2061,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (source.length < 1) return;
         if (source === st.lastConfirmedSourceTranslated) return;
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        // On brief pause, run a non-locking final-quality pass so the interpreter
-        // gets a complete phrase quickly (without waiting for segment close).
+        // Brief pause: keep live append flow; final polish runs only at segment finalization.
         dispatchTranslation(
           source,
           lang,
-          true,
-          { lockOnFinal: false, skipOpenAiLiveDebounce: false, forceCommitDisplay: true },
+          false,
+          { skipOpenAiLiveDebounce: false, forceCommitDisplay: true },
           st.segmentId,
         );
         st.earlyHintSent = true;
