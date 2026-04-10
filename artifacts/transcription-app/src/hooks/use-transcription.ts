@@ -1223,7 +1223,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dom !== null &&
       !scriptSupportsLang(dom.langs, pair.a) &&
       !scriptSupportsLang(dom.langs, pair.b);
-    const dispatchLangRaw = validateLangByScript(detectedLive, text, pair);
+    let dispatchLangRaw = validateLangByScript(detectedLive, text, pair);
+    if (!langInSelectedPair(dispatchLangRaw, pair)) {
+      const domNow = detectDominantScript(text);
+      if (domNow) {
+        const aFits = scriptSupportsLang(domNow.langs, pair.a);
+        const bFits = scriptSupportsLang(domNow.langs, pair.b);
+        if (aFits !== bFits) dispatchLangRaw = aFits ? pair.a : pair.b;
+      }
+    }
     if (!state.segmentSourceLang && langInSelectedPair(dispatchLangRaw, pair)) {
       state.segmentSourceLang = dispatchLangRaw;
     }
@@ -1909,25 +1917,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce,
   ]);
 
-  /** Keep segment A/B direction in sync with Soniox when the speaker stays within the selected pair (switching A↔B mid-row). */
+  /** Keep segment A/B direction in sync with Soniox for the CURRENT active segment only. */
   const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
     const st = activeBubbleStateRef.current;
     if (!st) return;
-    const first = tokens.find(
+    const last = [...tokens].reverse().find(
       t =>
         hasVisibleText(t.text) &&
         t.language !== undefined &&
         t.language !== null &&
         String(t.language).trim() !== "",
     );
-    if (!first?.language) return;
     const pair = langPairRef.current;
-    const allTokenText = tokens.map(t => t.text).join("");
-    const validated = validateLangByScript(first.language, allTokenText, pair);
+    const sourceNow = (
+      (activeBubbleRef.current?.textContent ?? "") +
+      getBufferedFinalTextForActiveBubble() +
+      (activeBubbleNFRef.current?.textContent ?? "")
+    ).trim();
+    const baseLang = (last?.language ?? detectedLangRef.current ?? "").trim();
+    if (!baseLang) return;
+    const validated = validateLangByScript(baseLang, sourceNow || tokens.map(t => t.text).join(""), pair);
     if (!langInSelectedPair(validated, pair)) return;
     st.segmentSourceLang = validated;
     st.segmentTargetLang = resolveTarget(validated, pair);
-  }, []);
+  }, [getBufferedFinalTextForActiveBubble]);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
