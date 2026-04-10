@@ -1,7 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
-import { normalizeInterpreterTranscript } from "@/lib/interpreter-transcript-normalize";
 import {
   getTranslationTypographyMeta,
   wrapAsciiDigitRunsWithLtrSpans,
@@ -1830,14 +1829,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleNFRef.current.textContent = "";
     }
 
-    if (activeBubbleRef.current) {
-      const pre = activeBubbleRef.current.textContent ?? "";
-      const norm = normalizeInterpreterTranscript(pre, langPairRef.current);
-      // Never shorten the original column: phrase fixes should preserve length; avoid wiping ASR text.
-      if (norm !== pre && norm.length >= pre.length - 3) {
-        activeBubbleRef.current.textContent = norm;
-      }
-    }
+    // Original column: exact ASR mirror only — no phrase rewrites or “corrections” to similar wording.
 
     if (!styleUpgradedRef.current) {
       styleUpgradedRef.current = true;
