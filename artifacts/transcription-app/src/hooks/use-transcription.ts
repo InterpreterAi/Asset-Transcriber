@@ -1420,8 +1420,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
           }
         } else {
-          // Live: always full replace with latest model output (no merge / anti-flicker shrink guards).
-          const out = maybePolishTranslationForTarget(translated, myTargetLang);
+          // Live: do NOT run maybePolish* — those sentence/overlap rules assume complete utterances
+          // and strip trailing clauses from valid streaming Arabic (looks like "duplicate" partials).
+          const out = dedupeConsecutiveTranslationTokens(translated.trim());
+          const prevShown = transTextEl.textContent?.trim() ?? "";
+          const srcThis = collapseWs(text);
+          const srcCommitted = collapseWs(state.streamCommittedSource);
+          // Reject a newer response that is much shorter while source is still growing (bad/timeout reply).
+          if (
+            prevShown.length >= 16 &&
+            out.length > 0 &&
+            out.length < prevShown.length * 0.82 &&
+            srcThis.length + 4 >= srcCommitted.length
+          ) {
+            return;
+          }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
