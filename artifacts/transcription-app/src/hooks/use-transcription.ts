@@ -1364,16 +1364,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const useLibre = useLibreTranslateRef.current;
-    // Only gate on in-flight for Libre mode. OpenAI live requests can be slow for long
-    // utterances; waiting for one slow response causes "first lines then late catch-up".
-    // Allow overlapping OpenAI live calls and rely on per-segment seq ordering to keep
-    // only the newest coherent result visible.
-    if (!isFinal && useLibre && state.streamInflight) {
+    if (!isFinal && state.streamInflight) {
       state.pendingLiveSource = text;
       return;
     }
 
+    const useLibre = useLibreTranslateRef.current;
     let requestIsFinal = isFinal;
     let apiText: string;
     let useStreamingDelta = false;
@@ -1433,8 +1429,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     state.seq += 1;
     const mySeq = state.seq;
-    const trackInflight = !isFinal && useLibre;
-    if (trackInflight) state.streamInflight = true;
+    if (!isFinal) state.streamInflight = true;
 
     void (async () => {
       try {
@@ -1556,7 +1551,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       } catch {
         /* HIPAA — never log speech context */
       } finally {
-        if (trackInflight) {
+        if (!isFinal) {
           state.streamInflight = false;
           const pending = state.pendingLiveSource.trim();
           state.pendingLiveSource = "";
