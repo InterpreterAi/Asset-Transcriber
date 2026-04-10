@@ -873,15 +873,6 @@ function firstNWords(text: string, n: number): string {
   return parts.slice(0, n).join(" ");
 }
 
-function hasMeaningfulLiveGrowth(prevShown: string, nextOut: string): boolean {
-  const prev = prevShown.trim();
-  const next = nextOut.trim();
-  if (!prev || !next || next.length <= prev.length) return false;
-  const charGrowth = next.length - prev.length;
-  const wordGrowth = countWords(next) - countWords(prev);
-  return charGrowth >= 14 || wordGrowth >= 3;
-}
-
 /** Longest common prefix length between two strings (case-insensitive, per code unit). */
 function lcpLenInsensitive(a: string, b: string): number {
   let i = 0;
@@ -1502,12 +1493,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             } else {
               state.needsFullFinalTranslation = false;
             }
-            const shownNow = (transTextEl.textContent ?? "").trim();
             const commitLive =
               forceCommitDisplay ||
               endsWithPhraseBoundary(text) ||
               endsWithPhraseBoundary(out) ||
-              (state.earlyLeadCommitted && hasMeaningfulLiveGrowth(shownNow, out));
+              state.earlyLeadCommitted;
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
             const shouldEmitEarlyLead =
@@ -1523,12 +1513,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           } else {
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
             const out = maybePolishTranslationForTarget(merged, myTargetLang);
-            const shownNow = (transTextEl.textContent ?? "").trim();
             const commitLive =
               forceCommitDisplay ||
               endsWithPhraseBoundary(text) ||
               endsWithPhraseBoundary(out) ||
-              (state.earlyLeadCommitted && hasMeaningfulLiveGrowth(shownNow, out));
+              state.earlyLeadCommitted;
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
             const shouldEmitEarlyLead =
@@ -1573,12 +1562,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             );
             state.needsFullFinalTranslation = false;
           }
-          const shownNow = (transTextEl.textContent ?? "").trim();
           const commitLive =
             forceCommitDisplay ||
             endsWithPhraseBoundary(text) ||
             endsWithPhraseBoundary(out) ||
-            (state.earlyLeadCommitted && hasMeaningfulLiveGrowth(shownNow, out));
+            state.earlyLeadCommitted;
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           const shouldEmitEarlyLead =
