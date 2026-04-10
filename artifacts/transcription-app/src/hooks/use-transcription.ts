@@ -1153,7 +1153,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (requestSegmentId !== state.segmentId) return;
 
     if (!translationEnabledRef.current) return;
-    if (!isFinal && text === state.lastConfirmedSourceTranslated) return;
+    // Only skip duplicate live source if we already have visible translation (avoid "synced" with empty cell).
+    if (
+      !isFinal &&
+      text === state.lastConfirmedSourceTranslated &&
+      (state.transTextEl.textContent?.trim().length ?? 0) > 0
+    ) {
+      return;
+    }
     if (
       !isFinal &&
       text === state.lastRequestedLiveSource &&
@@ -1411,6 +1418,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
+          if (!lockOnFinal) {
+            state.lastConfirmedSourceTranslated = text;
+          }
           if (lockOnFinal) {
             state.hardFinalRequested = true;
             state.translationLocked = true;
@@ -1423,6 +1433,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           // Live: do NOT run maybePolish* — those sentence/overlap rules assume complete utterances
           // and strip trailing clauses from valid streaming Arabic (looks like "duplicate" partials).
           const out = dedupeConsecutiveTranslationTokens(translated.trim());
+          if (!out.trim()) {
+            return;
+          }
           const prevShown = transTextEl.textContent?.trim() ?? "";
           const srcThis = collapseWs(text);
           const srcCommitted = collapseWs(state.streamCommittedSource);
@@ -1430,17 +1443,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (mySeq <= state.lastShownSeq) {
             // Slower request with a longer source + richer translation (common right after speaker change).
             if (srcThis.length <= srcCommitted.length + 2) return;
-            if (out.length < prevShown.length + 5) return;
+            // If the cell is still empty, always paint a non-empty result (don't require +5 chars vs blank).
+            if (prevShown.length > 0 && out.length < prevShown.length + 5) return;
           } else {
-            // Newer seq: reject a short reply while source is still growing (bad/timeout).
-            if (
-              prevShown.length >= 16 &&
-              out.length > 0 &&
-              out.length < prevShown.length * 0.82 &&
-              srcThis.length + 4 >= srcCommitted.length
-            ) {
-              return;
-            }
             state.lastShownSeq = mySeq;
           }
 
