@@ -895,12 +895,16 @@ interface BubbleTransState {
   translationLocked: boolean;  // true after first finalized translation — no further updates
   /** Source prefix already reflected in the translation column (streaming); final pass replaces all. */
   streamCommittedSource: string;
+  /** At most one in-flight primary live translation per segment (slower, steadier live path). */
+  streamInflight:        boolean;
   /** Last normalized live source seen (final + NF). */
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
   lastLiveSourceTs:      number;
   /** One-time early non-final translation hint for this segment. */
   earlyHintSent:         boolean;
+  /** Word count at the last non-final preview dispatch (LIVE_PREVIEW_WORD_STEP gating). */
+  lastPreviewWordsSent:  number;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -955,8 +959,9 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** 0 = live path can request every Soniox frame (pre-revert “live mirror” speed). */
-  const SAME_LIVE_SOURCE_RETRY_MS = 0;
+  /** Slower live path: first dispatch after enough finals + words, then every N words (not every WS frame). */
+  const EARLY_HINT_MIN_WORDS = 8;
+  const LIVE_PREVIEW_WORD_STEP = 8;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1033,7 +1038,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         skipOpenAiLiveDebounce?: boolean;
         suppressEarlyHardFinal?: boolean;
         forceFullSegmentFinal?: boolean;
-        bypassLiveSourceThrottle?: boolean;
       },
       segmentIdLock?: string,
     ) => void
@@ -1132,8 +1136,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Live: full cumulative source each Soniox frame when WS passes bypassLiveSourceThrottle (pre-revert
-  // speed). Final path unchanged (tail/prefix, polish). Passthrough / tryLock / validateLang unchanged.
+  // Live: word-step + single in-flight (steady). Final path unchanged (tail/prefix, polish).
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1143,7 +1146,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       skipOpenAiLiveDebounce?: boolean;
       suppressEarlyHardFinal?: boolean;
       forceFullSegmentFinal?: boolean;
-      bypassLiveSourceThrottle?: boolean;
     },
     segmentIdLock?: string,
   ) => {
@@ -1153,14 +1155,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (requestSegmentId !== state.segmentId) return;
 
     if (!translationEnabledRef.current) return;
-    if (
-      !isFinal &&
-      !options?.bypassLiveSourceThrottle &&
-      text === state.lastRequestedLiveSource &&
-      Date.now() - state.lastRequestedLiveAtMs < SAME_LIVE_SOURCE_RETRY_MS
-    ) {
-      return;
-    }
 
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
@@ -1302,6 +1296,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
+    if (!isFinal && state.streamInflight) return;
+
     const useLibre = useLibreTranslateRef.current;
     let requestIsFinal = isFinal;
     let apiText: string;
@@ -1360,10 +1356,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     state.seq += 1;
     const mySeq = state.seq;
-    if (!isFinal) {
-      state.lastRequestedLiveSource = text;
-      state.lastRequestedLiveAtMs = Date.now();
-    }
+    if (!isFinal) state.streamInflight = true;
 
     void (async () => {
       try {
@@ -1441,6 +1434,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         scrollPanel();
       } catch {
         /* HIPAA — never log speech context */
+      } finally {
+        if (!isFinal) state.streamInflight = false;
       }
     })();
   }, [scrollPanel]);
@@ -1533,9 +1528,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalizing:        false,
       translationLocked: false,
       streamCommittedSource: "",
+      streamInflight:        false,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
+      lastPreviewWordsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
       lastConfirmedSource:   "",
@@ -1990,19 +1987,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Live mirror: re-translate full cumulative line every Soniox frame (pre-revert responsiveness).
+      // Word-step live preview (not every Soniox frame): steadier than full mirror.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
-      if (st && !st.translationLocked && !st.finalizing && hintSource.length > 0) {
+      const wordsNow = countWords(hintSource);
+      if (
+        st &&
+        !st.translationLocked &&
+        !st.finalizing &&
+        st.finalTokensSeen >= 3 &&
+        hintSource.length >= 25 &&
+        wordsNow >= EARLY_HINT_MIN_WORDS &&
+        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
+      ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        dispatchTranslation(
-          hintSource,
-          lang,
-          false,
-          { skipOpenAiLiveDebounce: true, bypassLiveSourceThrottle: true },
-          st.segmentId,
-        );
+        dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
+        st.lastPreviewWordsSent = wordsNow;
       }
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
