@@ -11,6 +11,7 @@ import {
   sessionStoreMode,
   getSessionStoreResolution,
 } from "./middlewares/session.js";
+import { globalAccessBlockMiddleware } from "./middlewares/globalAccessBlock.js";
 import { trialLoginBlockMiddleware } from "./middlewares/trialLoginBlock.js";
 import { touchActivity } from "./lib/usage.js";
 import { errorLoggerMiddleware } from "./middlewares/errorLogger.js";
@@ -293,6 +294,8 @@ app.use(cookieParser());
 // Session MUST be registered before any route that uses req.session (e.g. /api/auth/*).
 // Order: json/urlencoded → cookieParser → sessionMiddleware → /api rate limits → app.use("/api", router).
 app.use(sessionMiddleware);
+// Hard global maintenance lock for all API access (including auth/login).
+app.use("/api", globalAccessBlockMiddleware);
 // When TRIAL_LOGIN_BLOCKED=1, trial-like sessions are destroyed here (before other /api work).
 app.use("/api", trialLoginBlockMiddleware);
 

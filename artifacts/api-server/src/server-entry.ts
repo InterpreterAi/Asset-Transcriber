@@ -16,6 +16,7 @@ import { scheduleTrialActiveReminderJob } from "./lib/trial-active-reminder-job.
 import { initInterpreterGlossaries } from "./lib/interpreter-glossary.js";
 import { initProtectedTerms } from "./lib/protected-terms.js";
 import { isTrialLoginBlocked } from "./lib/trial-login-block.js";
+import { isGlobalAccessBlocked } from "./lib/global-access-block.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -508,6 +509,11 @@ async function main() {
     logger.warn(
       "TRIAL_LOGIN_BLOCKED is enabled: trial-like users cannot sign in or sign up; " +
         "existing trial sessions are cleared on the next API request. Paid plans and admins are not blocked.",
+    );
+  }
+  if (isGlobalAccessBlocked()) {
+    logger.warn(
+      "GLOBAL_ACCESS_BLOCKED is enabled: all /api routes are blocked and active sessions are dropped.",
     );
   }
 
