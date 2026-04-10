@@ -929,7 +929,7 @@ type TranslationDiag = {
   estimatedTokensTotal: number;
   perSegmentCalls: Map<string, number>;
   callTimestampsMs: number[];
-  lastInputMeta: { segmentId: string; chars: number; words: number } | null;
+  lastInputMeta: { segmentId: string; chars: number } | null;
   redundantCalls: number;
 };
 
@@ -1170,7 +1170,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       state.hardFinalRequested = true;
     }
     const forceCommitDisplay = Boolean(options?.forceCommitDisplay);
-    const words = text.trim().split(/\s+/).filter(Boolean).length;
     const chars = text.length;
 
     const pair = langPairRef.current;
@@ -1196,7 +1195,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         `segment_id=${state.segmentId}`,
         "reason=language_passthrough",
         `is_final=${isFinal ? "true" : "false"}`,
-        `buffer_words=${words}`,
         `buffer_chars=${chars}`,
         "estimated_tokens=0",
       );
@@ -1260,8 +1258,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
     if (diag.lastInputMeta?.segmentId === state.segmentId) {
       const cDiff = Math.abs(diag.lastInputMeta.chars - chars);
-      const wDiff = Math.abs(diag.lastInputMeta.words - words);
-      if (cDiff <= 8 && wDiff <= 2) {
+      if (cDiff <= 8) {
         diag.redundantCalls += 1;
         console.info(
           "[translation_redundant]",
@@ -1269,19 +1266,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           `segment_id=${state.segmentId}`,
           `chars_prev=${diag.lastInputMeta.chars}`,
           `chars_now=${chars}`,
-          `words_prev=${diag.lastInputMeta.words}`,
-          `words_now=${words}`,
         );
       }
     }
-    diag.lastInputMeta = { segmentId: state.segmentId, chars, words };
+    diag.lastInputMeta = { segmentId: state.segmentId, chars };
     console.info(
       "[translation_call]",
       `time=${new Date(nowMs).toISOString()}`,
       `segment_id=${state.segmentId}`,
       `reason=${reason}`,
       `is_final=${isFinal ? "true" : "false"}`,
-      `buffer_words=${words}`,
       `buffer_chars=${chars}`,
       `estimated_tokens=${estimatedTokens}`,
     );
@@ -1554,14 +1548,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     return finalSpan;
   }, [scrollPanel]);
 
-  type SegmentCloseKind = "silence" | "speaker_change";
+  /** session_end = user pressed Stop (not silence timers — those are removed). */
+  type SegmentCloseKind = "session_end" | "speaker_change";
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
   // final translation. isFinal=true bypasses the stabilization check.
   // Stops the polling interval FIRST so no in-flight poll requests can race
   // against the final fetch and overwrite the locked translation.
-  const softFinalize = useCallback((closeKind: SegmentCloseKind = "silence") => {
+  const softFinalize = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
@@ -1596,7 +1591,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     // Translation source for the final API call:
-    // - silence: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
+    // - session_end: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
     // - speaker_change: use DOM finals only. liveBufferRef is still from the *previous* WS frame at
     //   this point (this message updates it after the finals loop), so it often still contains the
     //   next speaker's NF tail — locking that onto the closing row duplicates Arabic on Speaker 1.
@@ -1633,14 +1628,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
-  const finalizeLiveBubble = useCallback((closeKind: SegmentCloseKind = "silence") => {
+  const finalizeLiveBubble = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     if (!activeBubbleRef.current) return;
     softFinalize(closeKind);
   }, [softFinalize]);
 
   // Finalize and hard-close the active segment boundary so no later partial text
   // can continue writing into that finalized segment.
-  const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "silence") => {
+  const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
@@ -1979,13 +1974,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Live translation: dispatch on every source change from first non-empty token (no word/length gates).
+      // Live translation: first non-empty source only; new bubble only on speaker_id change (no word-count / silence gates).
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       if (
         st &&
         !st.translationLocked &&
-        !st.finalizing &&
         hintSource.length > 0 &&
         hintSource !== st.lastConfirmedSourceTranslated
       ) {
