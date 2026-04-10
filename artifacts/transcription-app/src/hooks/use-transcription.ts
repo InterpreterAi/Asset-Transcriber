@@ -449,14 +449,11 @@ async function translateViaPrimaryApi(
   options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
   const isFinal = Boolean(options?.isFinal);
-  // Live path must fail fast to avoid a blank translation column while one slow
-  // request blocks subsequent updates.
-  const MAX_ATTEMPTS = isFinal ? 2 : 1;
-  // Live requests send the full cumulative transcript; long medical turns exceed a flat 2.2s
-  // often — abort → empty response → translation column freezes at the last good snapshot.
+  // Live: one retry on transient errors; timeouts scale with length so long turns are not cut off mid-stream.
+  const MAX_ATTEMPTS = isFinal ? 2 : 2;
   const REQUEST_TIMEOUT_MS = isFinal
     ? 9_000
-    : Math.min(4_800, 1_500 + text.length * 10);
+    : Math.min(9_000, 2_000 + text.length * 12);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
@@ -687,7 +684,8 @@ function polishArabicInterpreterTranslation(raw: string): string {
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
-    if (last.length >= 12 && prev.length >= 12 && tokenOverlapRatio(prev, last) >= 0.4) {
+    // High threshold only: low values dropped whole closing sentences on valid multi-sentence medical turns.
+    if (last.length >= 12 && prev.length >= 12 && tokenOverlapRatio(prev, last) >= 0.82) {
       return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
@@ -704,7 +702,7 @@ function polishHebrewInterpreterTranslation(raw: string): string {
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
-    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.48) {
+    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.82) {
       return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
@@ -729,7 +727,7 @@ function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string
     const prev = sents[sents.length - 2]!;
     if (last.length >= 14 && prev.length >= 14) {
       const r = tokenOverlapRatio(prev, last);
-      if (r >= 0.48) return collapseWs(sents.slice(0, -1).join(" "));
+      if (r >= 0.82) return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
   return collapseWs(t);
@@ -743,7 +741,7 @@ function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
-    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.48) {
+    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.82) {
       return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
@@ -1415,7 +1413,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         if (requestIsFinal) {
           if (mySeq <= state.lastShownSeq) return;
-          const out = maybePolishTranslationForTarget(translated, myTargetLang);
+          const rawFinal = translated.trim();
+          let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
+          // Polish can drop whole sentences on partial token overlap; keep the model output when it shortens a lot.
+          if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
+            out = dedupeConsecutiveTranslationTokens(rawFinal);
+          }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -1443,13 +1446,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const prevShown = transTextEl.textContent?.trim() ?? "";
           const srcThis = collapseWs(text);
           const srcCommitted = collapseWs(state.streamCommittedSource);
+          const sourceShrinking = srcThis.length < srcCommitted.length - 5;
 
           if (mySeq <= state.lastShownSeq) {
-            // Slower request with a longer source + richer translation (common right after speaker change).
             if (srcThis.length <= srcCommitted.length + 2) return;
-            // If the cell is still empty, always paint a non-empty result (don't require +5 chars vs blank).
-            if (prevShown.length > 0 && out.length < prevShown.length + 5) return;
+            // Reject stale shorter Arabic/English when the transcript is still growing (out-of-order live).
+            if (
+              !sourceShrinking &&
+              prevShown.length > 0 &&
+              out.length < prevShown.length &&
+              srcThis.length >= srcCommitted.length - 2
+            ) {
+              return;
+            }
           } else {
+            if (
+              !sourceShrinking &&
+              prevShown.length > 0 &&
+              out.length + 20 < prevShown.length &&
+              srcThis.length >= srcCommitted.length - 1
+            ) {
+              return;
+            }
             state.lastShownSeq = mySeq;
           }
 
