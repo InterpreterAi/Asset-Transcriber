@@ -408,12 +408,13 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
 ]);
 
 /**
- * THE FINAL BOSS — canonical InterpreterAI translation pipeline for this product generation.
- * Treat the git tag `final-boss` as the rollback point for this behavior (`git checkout final-boss`).
- * Pipeline summary: live debounce + per-bubble abort; token dedupe on live; speaker-change full final;
- * finals: shared token + adjacent-paraphrase dedupe then script-family polish (all target languages).
- * Segments: stabilized Soniox speaker ids so fast bilingual talk does not open a row per diarization flicker.
- * Direction: snapSourceLanguageToPair + targetOppositeInPair so tgt is always the other selected language.
+ * THE FINAL BOSS — the one canonical InterpreterAI release (no other “final boss”; earlier baseline is `legacy-final-boss`).
+ * Rollback: `git checkout final-boss`. Older pipeline snapshot: `git checkout legacy-final-boss` (superseded; had transcript phrase rewrites).
+ * Original column: exact ASR mirror — no client-side rephrasing or “similar meaning” fixes.
+ * Translation: live debounce + per-bubble abort; token dedupe on live; speaker-change full final;
+ * finals: token + adjacent-paraphrase dedupe then script-family polish (all target languages).
+ * Segments: stabilized Soniox speaker ids (fewer spurious rows on fast bilingual turns).
+ * Direction: snapSourceLanguageToPair + targetOppositeInPair (target is always the other selected language).
  */
 
 // Returns true when `lang` (BCP-47, e.g. "zh-CN") is listed in `langs`.
@@ -991,7 +992,7 @@ function trimOverlappingDuplicateQuestionTail(raw: string): string {
 }
 
 /**
- * THE FINAL BOSS · final-column polish: shared token + adjacent-paraphrase dedupe, then script-family
+ * THE FINAL BOSS (canonical) · final-column polish: shared token + adjacent-paraphrase dedupe, then script-family
  * fixes (same baseline for every target language, e.g. en↔es, en↔ar, ar↔fr).
  */
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
@@ -1360,7 +1361,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
-  // ── THE FINAL BOSS · dispatchTranslation ───────────────────────────────────
+  // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
   // Live: WS ~80ms debounce + per-bubble abort; token dedupe only (adjacent paraphrase dedupe runs in
   // maybePolish on finals for every target — avoids mangling streaming merges on fast speaker changes).
   // Speaker change: softFinalize passes forceFullSegmentFinal so the closing row gets one replace, not tail-append.
