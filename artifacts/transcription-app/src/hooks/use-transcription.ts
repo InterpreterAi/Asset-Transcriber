@@ -324,6 +324,13 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
   ...scriptEntryLangs("Katakana"),
 ]);
 
+/**
+ * THE FINAL BOSS — canonical InterpreterAI translation pipeline for this product generation.
+ * Treat the git tag `final-boss` as the rollback point for this behavior (`git checkout final-boss`).
+ * Pipeline summary: live debounce + per-bubble abort; token dedupe on live; speaker-change full final;
+ * finals: shared token + adjacent-paraphrase dedupe then script-family polish (all target languages).
+ */
+
 // Returns true when `lang` (BCP-47, e.g. "zh-CN") is listed in `langs`.
 // Matching is base-code prefix: "zh-CN" matches "zh".
 function scriptSupportsLang(langs: string[], lang: string): boolean {
@@ -699,8 +706,8 @@ function tokenOverlapRatio(a: string, b: string): number {
 const INTERPRETER_SENTENCE_SPLIT_RE = /(?<=[.!?؟。！？])\s+/u;
 
 /**
- * Arabic (and similar) finals: model sometimes echoes the same clause in two wordings. Not used on
- * live streaming output — that path merges fragments and sentence-level dedupe caused false merges.
+ * Final translation only (via {@link maybePolishTranslationForTarget}): drop adjacent sentences that
+ * paraphrase the same clause (common after rapid NF revisions). Not applied on live streaming merges.
  */
 function dedupeAdjacentParaphraseSentences(raw: string): string {
   let t = collapseWs(raw);
@@ -736,8 +743,7 @@ function dedupeAdjacentParaphraseSentences(raw: string): string {
  * doubled marks, fix split "? … لليوم؟" from incremental errors.
  */
 function polishArabicInterpreterTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
-  t = dedupeAdjacentParaphraseSentences(t);
+  let t = collapseWs(raw);
   t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.؟!?])\1+/g, "$1");
   t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
@@ -756,7 +762,7 @@ function polishArabicInterpreterTranslation(raw: string): string {
 
 /** Hebrew translation column: same token hygiene + ?-tail dedupe as Latin/Cyrillic. */
 function polishHebrewInterpreterTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/^[.?!،。'"“”\s\u0590-\u05FF\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.?!?])\1+/g, "$1");
   t = trimOverlappingDuplicateQuestionTail(t);
@@ -776,7 +782,7 @@ function polishHebrewInterpreterTranslation(raw: string): string {
  * duplicate question/sentence tails (same family of fixes as en↔ar live output).
  */
 function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   if (targetBase === "en") {
     t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
     t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
@@ -797,7 +803,7 @@ function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string
 
 /** Cyrillic, Greek, and similar: ?/. ! tail echoes without English-specific regexes. */
 function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = trimOverlappingDuplicateQuestionTail(t);
   const sents = t.split(INTERPRETER_SENTENCE_SPLIT_RE).map(s => s.trim()).filter(Boolean);
   if (sents.length >= 2) {
@@ -811,14 +817,14 @@ function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
 }
 
 function polishCjkTargetTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/([。！？?!])\1+/gu, "$1");
   return collapseWs(t);
 }
 
 /** Remaining scripts (th, hi, …): token dedupe + generic doubled sentence punctuation. */
 function polishGenericTargetTranslation(raw: string): string {
-  let t = dedupeConsecutiveTranslationTokens(raw);
+  let t = collapseWs(raw);
   t = t.replace(/([.!?。！？؟])\1+/gu, "$1");
   return collapseWs(t);
 }
@@ -857,21 +863,22 @@ function trimOverlappingDuplicateQuestionTail(raw: string): string {
 }
 
 /**
- * Post-process live translation for the *target* column by script family so every
- * language pair (e.g. en↔de, en↔hi, ar↔fr) gets the same class of fixes as en↔ar.
+ * THE FINAL BOSS · final-column polish: shared token + adjacent-paraphrase dedupe, then script-family
+ * fixes (same baseline for every target language, e.g. en↔es, en↔ar, ar↔fr).
  */
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
   const base = targetLang.split("-")[0]?.toLowerCase() ?? "";
   if (!base) return text;
-  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) return polishArabicInterpreterTranslation(text);
-  if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) return polishHebrewInterpreterTranslation(text);
-  if (LATIN_SCRIPT_TARGET_LANGS.has(base)) return polishLatinScriptInterpreterTranslation(text, base);
+  const prepped = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(text));
+  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) return polishArabicInterpreterTranslation(prepped);
+  if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) return polishHebrewInterpreterTranslation(prepped);
+  if (LATIN_SCRIPT_TARGET_LANGS.has(base)) return polishLatinScriptInterpreterTranslation(prepped, base);
   if (CYRILLIC_SCRIPT_TARGET_LANGS.has(base) || GREEK_SCRIPT_TARGET_LANGS.has(base)) {
-    return polishQuestionMarkFamilyTargetTranslation(text);
+    return polishQuestionMarkFamilyTargetTranslation(prepped);
   }
-  if (CJK_TARGET_LANG_BASES.has(base)) return polishCjkTargetTranslation(text);
-  if (HANGUL_TARGET_LANG_BASES.has(base)) return polishQuestionMarkFamilyTargetTranslation(text);
-  return polishGenericTargetTranslation(text);
+  if (CJK_TARGET_LANG_BASES.has(base)) return polishCjkTargetTranslation(prepped);
+  if (HANGUL_TARGET_LANG_BASES.has(base)) return polishQuestionMarkFamilyTargetTranslation(prepped);
+  return polishGenericTargetTranslation(prepped);
 }
 
 function hasVisibleText(text: string | null | undefined): boolean {
@@ -1225,9 +1232,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
-  // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Live: WS ~80ms debounce + per-bubble abort; token dedupe only (adjacent paraphrase dedupe on finals
-  // for Arabic polish only — avoids mangling streaming merges on fast speaker changes).
+  // ── THE FINAL BOSS · dispatchTranslation ───────────────────────────────────
+  // Live: WS ~80ms debounce + per-bubble abort; token dedupe only (adjacent paraphrase dedupe runs in
+  // maybePolish on finals for every target — avoids mangling streaming merges on fast speaker changes).
   // Speaker change: softFinalize passes forceFullSegmentFinal so the closing row gets one replace, not tail-append.
   const dispatchTranslation = useCallback((
     text: string,
@@ -1488,7 +1495,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const rawFinal = translated.trim();
           let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
           if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
-            out = dedupeConsecutiveTranslationTokens(rawFinal);
+            out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
           }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
