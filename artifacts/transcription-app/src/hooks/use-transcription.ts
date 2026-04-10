@@ -160,10 +160,6 @@ function matchesLang(detected: string, selected: string): boolean {
   return d === s || d.split("-")[0] === s.split("-")[0];
 }
 
-function langInSelectedPair(lang: string, pair: { a: string; b: string }): boolean {
-  return matchesLang(lang, pair.a) || matchesLang(lang, pair.b);
-}
-
 // Given a detected language code and the selected {a, b} pair, return the
 // target language code: if detected is B → translate to A, otherwise → B.
 // This makes the translation always go to the OPPOSITE of what was spoken.
@@ -641,47 +637,17 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-/** Which side of the language pair matches this script set (exactly one). */
-function pairLangMatchingScript(
-  langs: string[],
-  pair: { a: string; b: string },
-): string | null {
-  const aFits = scriptSupportsLang(langs, pair.a);
-  const bFits = scriptSupportsLang(langs, pair.b);
-  if (aFits && !bFits) return pair.a;
-  if (bFits && !aFits) return pair.b;
-  return null;
+/** Append a streaming fragment to what is already shown (placeholder … counts as empty). */
+function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
+  const piece = newPiece.trim();
+  if (!piece) return prevDisplayed.trim();
+  const prev = prevDisplayed.trim();
+  if (!prev || prev === "…") return piece;
+  return `${prev} ${piece}`;
 }
 
-/**
- * Source side of the selected pair from how the segment *began* (prefix of cumulative transcript).
- * Once locked per bubble, mid-utterance codeswitching must not flip direction — the pair still maps
- * "first spoken in-pair language → other side of the pair" for the whole row.
- */
-function inferDispatchLangFromUtteranceStart(
-  text: string,
-  detectedLive: string,
-  pair: { a: string; b: string },
-): string {
-  const collapsed = collapseWs(text);
-  if (!collapsed) return validateLangByScript(detectedLive, "", pair);
-
-  const headLen = Math.min(160, collapsed.length);
-  const head = collapsed.slice(0, headLen);
-  const headDom = detectDominantScript(head);
-  if (headDom) {
-    const pick = pairLangMatchingScript(headDom.langs, pair);
-    if (pick) return pick;
-  }
-  if (headLen < collapsed.length || collapsed.length > 160) {
-    const head2 = collapsed.slice(0, Math.min(280, collapsed.length));
-    const h2Dom = detectDominantScript(head2);
-    if (h2Dom) {
-      const pick = pairLangMatchingScript(h2Dom.langs, pair);
-      if (pick) return pick;
-    }
-  }
-  return validateLangByScript(detectedLive, collapsed, pair);
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
 function endsWithPhraseBoundary(s: string): boolean {
@@ -929,12 +895,16 @@ interface BubbleTransState {
   translationLocked: boolean;  // true after first finalized translation — no further updates
   /** Source prefix already reflected in the translation column (streaming); final pass replaces all. */
   streamCommittedSource: string;
+  /** At most one in-flight primary live translation per segment (Apr 8 pacing — avoids piling requests). */
+  streamInflight:        boolean;
   /** Last normalized live source seen (final + NF). */
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
   lastLiveSourceTs:      number;
   /** One-time early non-final translation hint for this segment. */
   earlyHintSent:         boolean;
+  /** Word count at the last non-final preview dispatch (Apr 8 LIVE_PREVIEW_WORD_STEP gating). */
+  lastPreviewWordsSent:  number;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -974,7 +944,7 @@ type TranslationDiag = {
   estimatedTokensTotal: number;
   perSegmentCalls: Map<string, number>;
   callTimestampsMs: number[];
-  lastInputMeta: { segmentId: string; chars: number } | null;
+  lastInputMeta: { segmentId: string; chars: number; words: number } | null;
   redundantCalls: number;
 };
 
@@ -989,10 +959,9 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** 0 = live mirror can hit API every frame; no same-string cooldown. */
-  const SAME_LIVE_SOURCE_RETRY_MS = 0;
-  /** Min cumulative source length before we freeze segment source/target for the whole bubble. */
-  const MIN_SEGMENT_DIRECTION_LOCK_CHARS = 5;
+  /** Apr 8 live preview: first dispatch after enough finals + words, then every N words (not every WS frame). */
+  const EARLY_HINT_MIN_WORDS = 8;
+  const LIVE_PREVIEW_WORD_STEP = 8;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1067,7 +1036,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       options?: {
         lockOnFinal?: boolean;
         skipOpenAiLiveDebounce?: boolean;
-        forceCommitDisplay?: boolean;
         suppressEarlyHardFinal?: boolean;
         forceFullSegmentFinal?: boolean;
       },
@@ -1168,18 +1136,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Fires a translation request for the active bubble's text.
-  //
-  // Isolation: captures `state` (per-bubble object) at call time — old requests
-  //   always write to the correct bubble's DOM element even after speaker switch.
-  //
-  // Monotonic gate (per-bubble): a result is accepted only if its seq number
-  //   is greater than the last seq already shown FOR THIS BUBBLE. This handles
-  //   out-of-order arrivals while still showing every result in order.
-  //
-  // Live OpenAI (isFinal=false): full cumulative source + replace column; debounced unless
-  //   skipOpenAiLiveDebounce (ws hint path uses skip for low latency).
-  // Live Libre: full source per tick, replace. Final: tail-only delta when monotonic, else full.
+  // Restored Apr 8 (~2-day) translation contract: simple pair passthrough, locked direction from
+  // Soniox tokens (tryLockSegmentDirectionFromTokens), one live request in flight at a time, strict
+  // seq monotonicity. Final path keeps current tail/prefix fixes (speaker/diarization). Fetch timeout,
+  // polish, and no public fallback remain as today (speed/accuracy).
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1187,87 +1147,37 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     options?: {
       lockOnFinal?: boolean;
       skipOpenAiLiveDebounce?: boolean;
-      forceCommitDisplay?: boolean;
       suppressEarlyHardFinal?: boolean;
-      /** Skip tail-delta / lock-shortcut — full source to model (Soniox &lt;end&gt; / polish pass). */
       forceFullSegmentFinal?: boolean;
-      /** Same cumulative source but prior output likely truncated — bypass 420ms live throttle. */
-      bypassLiveSourceThrottle?: boolean;
     },
     segmentIdLock?: string,
   ) => {
     const state = activeBubbleStateRef.current;
-    if (!state || !text.trim()) return;
+    if (!state || text.trim().length < 3) return;
     const requestSegmentId = segmentIdLock ?? state.segmentId;
     if (requestSegmentId !== state.segmentId) return;
 
     if (!translationEnabledRef.current) return;
-    if (
-      !isFinal &&
-      !options?.bypassLiveSourceThrottle &&
-      text === state.lastRequestedLiveSource &&
-      Date.now() - state.lastRequestedLiveAtMs < SAME_LIVE_SOURCE_RETRY_MS
-    ) {
-      return;
-    }
 
-    // Lock guard: once a finalized translation has been written for this
-    // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
     if (isFinal && lockOnFinal && !options?.suppressEarlyHardFinal) {
       state.hardFinalRequested = true;
     }
-    const forceCommitDisplay = Boolean(options?.forceCommitDisplay);
+    const words = countWords(text);
     const chars = text.length;
 
     const pair = langPairRef.current;
-    const detectedLive = detectedLangRef.current;
-    const dom = detectDominantScript(text);
-    const outOfPairByScript =
-      dom !== null &&
-      !scriptSupportsLang(dom.langs, pair.a) &&
-      !scriptSupportsLang(dom.langs, pair.b);
+    const langForPair = state.segmentSourceLang ?? lang;
 
-    const collapsedForLock = collapseWs(text);
-    let dispatchLang: string;
-    if (state.segmentSourceLang != null) {
-      dispatchLang = state.segmentSourceLang;
-    } else {
-      dispatchLang = inferDispatchLangFromUtteranceStart(text, detectedLive, pair);
-      if (
-        langInSelectedPair(dispatchLang, pair) &&
-        collapsedForLock.length >= MIN_SEGMENT_DIRECTION_LOCK_CHARS
-      ) {
-        state.segmentSourceLang = dispatchLang;
-        state.segmentTargetLang = resolveTarget(dispatchLang, pair);
-      }
-    }
-    const myTargetLang =
-      state.segmentTargetLang != null
-        ? state.segmentTargetLang
-        : resolveTarget(dispatchLang, pair);
-
-    // Third language (not A or B): mirror transcript in the translation column — no API.
-    // Do NOT passthrough on a single-frame Soniox `detectedLive` glitch when the transcript
-    // and inferred dispatch direction are clearly still inside the selected pair — that used
-    // to replace a good Arabic cell with a raw English copy ("translation disappeared").
-    const detectedInPair = langInSelectedPair(detectedLive, pair);
-    const dispatchInPair = langInSelectedPair(dispatchLang, pair);
-    const longEnoughToTrustDispatch =
-      collapsedForLock.length >= 12 && dispatchInPair && !outOfPairByScript;
-    const shouldPassthroughThirdLang =
-      outOfPairByScript ||
-      !dispatchInPair ||
-      (!detectedInPair && !longEnoughToTrustDispatch);
-
-    if (shouldPassthroughThirdLang) {
+    if (!matchesLang(langForPair, pair.a) && !matchesLang(langForPair, pair.b)) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
         `segment_id=${state.segmentId}`,
         "reason=language_passthrough",
         `is_final=${isFinal ? "true" : "false"}`,
+        `buffer_words=${words}`,
         `buffer_chars=${chars}`,
         "estimated_tokens=0",
       );
@@ -1291,9 +1201,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
+    const dispatchLang =
+      state.segmentSourceLang !== null
+        ? state.segmentSourceLang
+        : validateLangByScript(lang, text, pair);
+    const myTargetLang =
+      state.segmentTargetLang !== null
+        ? state.segmentTargetLang
+        : resolveTarget(dispatchLang, pair);
     const { transTextEl } = state;
 
-    // ── Same-language guard (Rule 5/6) ────────────────────────────────────────
     if (matchesLang(dispatchLang, myTargetLang)) {
       state.seq += 1;
       const mySeq = state.seq;
@@ -1327,7 +1244,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
     if (diag.lastInputMeta?.segmentId === state.segmentId) {
       const cDiff = Math.abs(diag.lastInputMeta.chars - chars);
-      if (cDiff <= 8) {
+      const wDiff = Math.abs(diag.lastInputMeta.words - words);
+      if (cDiff <= 8 && wDiff <= 2) {
         diag.redundantCalls += 1;
         console.info(
           "[translation_redundant]",
@@ -1335,16 +1253,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           `segment_id=${state.segmentId}`,
           `chars_prev=${diag.lastInputMeta.chars}`,
           `chars_now=${chars}`,
+          `words_prev=${diag.lastInputMeta.words}`,
+          `words_now=${words}`,
         );
       }
     }
-    diag.lastInputMeta = { segmentId: state.segmentId, chars };
+    diag.lastInputMeta = { segmentId: state.segmentId, chars, words };
     console.info(
       "[translation_call]",
       `time=${new Date(nowMs).toISOString()}`,
       `segment_id=${state.segmentId}`,
       `reason=${reason}`,
       `is_final=${isFinal ? "true" : "false"}`,
+      `buffer_words=${words}`,
       `buffer_chars=${chars}`,
       `estimated_tokens=${estimatedTokens}`,
     );
@@ -1378,6 +1299,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
+    if (!isFinal && state.streamInflight) return;
+
     const useLibre = useLibreTranslateRef.current;
     let requestIsFinal = isFinal;
     let apiText: string;
@@ -1391,10 +1314,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finalSrc = collapseWs(text);
       const cl = committed.toLowerCase();
       const fl = finalSrc.toLowerCase();
-      // Diarization often shortens the segment: live preview had another speaker's words in the
-      // buffer, then the finalized transcript is only the first speaker's line. `streamCommittedSource`
-      // still holds the longer string — tail-only logic would be non-monotonic and used to lock
-      // without updating, leaving Arabic/English for removed text on the wrong row.
       const finalizedIsPrefixTruncation =
         finalSrc.length >= 1 &&
         committed.length > finalSrc.length &&
@@ -1406,7 +1325,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         requestIsFinal = true;
       } else {
         const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-        // Final pass: if we already translated all seen source, just lock; if there is a tail, translate tail only.
         if (monotonic && !tail.trim()) {
           const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
           const visiblyTranslated = visibleLen > 0;
@@ -1416,7 +1334,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             useStreamingDelta = false;
             requestIsFinal = true;
           } else if (sourceLen > 24 && visibleLen < 8) {
-            // Live never painted (dropped responses / races) — do not lock an empty-looking cell.
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
@@ -1430,28 +1347,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           useStreamingDelta = true;
           requestIsFinal = false;
         } else {
-          // Any other non-monotonic finalize (revision, punctuation, etc.) — full replace from authoritative text.
           apiText = text;
           useStreamingDelta = false;
           requestIsFinal = true;
         }
       }
-    } else if (!useLibre) {
-      // Live OpenAI: full cumulative source each tick — API returns full translation; UI replaces (no merge).
-      apiText = text;
-      useStreamingDelta = false;
     } else {
-      // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
       useStreamingDelta = false;
     }
 
     state.seq += 1;
     const mySeq = state.seq;
-    if (!isFinal) {
-      state.lastRequestedLiveSource = text;
-      state.lastRequestedLiveAtMs = Date.now();
-    }
+    if (!isFinal) state.streamInflight = true;
 
     void (async () => {
       try {
@@ -1466,8 +1374,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             isFinal: requestIsFinal,
           },
         );
-        const responseSegmentId = requestSegmentId;
-        if (responseSegmentId !== state.segmentId) return;
+        if (requestSegmentId !== state.segmentId) return;
 
         if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
@@ -1478,11 +1385,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
 
+        if (mySeq <= state.lastShownSeq) return;
+
         if (requestIsFinal) {
-          if (mySeq <= state.lastShownSeq) return;
           const rawFinal = translated.trim();
           let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
-          // Polish can drop whole sentences on partial token overlap; keep the model output when it shortens a lot.
           if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
             out = dedupeConsecutiveTranslationTokens(rawFinal);
           }
@@ -1503,46 +1410,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               onAdminSnapshotBuffersUpdatedRef.current?.();
             }
           }
+        } else if (useStreamingDelta) {
+          const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
+          state.lastShownSeq = mySeq;
+          state.lastShownLen = merged.length;
+          applyTranslationTypography(transTextEl, merged);
+          state.pendingDisplayTranslation = "";
+          const committed = state.streamCommittedSource.trim();
+          state.streamCommittedSource = committed ? `${committed} ${text}` : text;
+          state.needsFullFinalTranslation = false;
+          state.lastConfirmedSourceTranslated = text;
         } else {
-          // Live: do NOT run maybePolish* — those sentence/overlap rules assume complete utterances
-          // and strip trailing clauses from valid streaming Arabic (looks like "duplicate" partials).
           const out = dedupeConsecutiveTranslationTokens(translated.trim());
           if (!out.trim()) {
             return;
           }
-          const prevShown = transTextEl.textContent?.trim() ?? "";
-          const srcThis = collapseWs(text);
-          const srcCommitted = collapseWs(state.streamCommittedSource);
-          const sourceShrinking = srcThis.length < srcCommitted.length - 5;
-          const srcGrewOrStable = srcThis.length >= srcCommitted.length - 5;
-
-          if (mySeq <= state.lastShownSeq) {
-            if (srcThis.length <= srcCommitted.length + 2) return;
-            // Out-of-order live: drop a stale response that is strictly shorter than what we already
-            // showed while the transcript is still growing (do not apply this to the newest seq — that
-            // blocked normal streaming updates and left Arabic stuck until segment-final).
-            if (
-              !sourceShrinking &&
-              prevShown.length > 0 &&
-              out.length < prevShown.length &&
-              srcThis.length >= srcCommitted.length - 2
-            ) {
-              return;
-            }
-          } else {
-            // Newer seq wins, but avoid replacing a full mirror with an obvious truncated/partial
-            // response when the source did not shrink (load / ordering: long Arabic then short junk).
-            if (
-              srcGrewOrStable &&
-              prevShown.length > 40 &&
-              out.length + 16 < prevShown.length &&
-              out.length < Math.floor(prevShown.length * 0.36)
-            ) {
-              return;
-            }
-            state.lastShownSeq = mySeq;
-          }
-
+          state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
           state.pendingDisplayTranslation = "";
@@ -1554,6 +1437,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         scrollPanel();
       } catch {
         /* HIPAA — never log speech context */
+      } finally {
+        if (!isFinal) state.streamInflight = false;
       }
     })();
   }, [scrollPanel]);
@@ -1646,9 +1531,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalizing:        false,
       translationLocked: false,
       streamCommittedSource: "",
+      streamInflight:        false,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
+      lastPreviewWordsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
       lastConfirmedSource:   "",
@@ -1735,9 +1622,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const lang =
         stSnap?.segmentSourceLang != null
           ? stSnap.segmentSourceLang
-          : inferDispatchLangFromUtteranceStart(
-              finalText.trim(),
+          : validateLangByScript(
               detectedLangRef.current,
+              finalText.trim(),
               langPairRef.current,
             );
       const segId = activeBubbleStateRef.current?.segmentId;
@@ -1915,6 +1802,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce,
   ]);
 
+  /** Lock segment translation direction from the first visible token that carries a language tag. */
+  const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
+    const st = activeBubbleStateRef.current;
+    if (!st || st.segmentSourceLang !== null) return;
+    const first = tokens.find(
+      t =>
+        hasVisibleText(t.text) &&
+        !isSonioxEndpointToken(t) &&
+        t.language !== undefined &&
+        t.language !== null &&
+        String(t.language).trim() !== "",
+    );
+    if (!first?.language) return;
+    const pair = langPairRef.current;
+    const allTokenText = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
+    const validated = validateLangByScript(first.language, allTokenText, pair);
+    if (!matchesLang(validated, pair.a) && !matchesLang(validated, pair.b)) return;
+    st.segmentSourceLang = validated;
+    st.segmentTargetLang = resolveTarget(validated, pair);
+  }, []);
+
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
   const buildWs = useCallback((apiKey: string): WebSocket => {
@@ -2078,24 +1986,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
 
+      tryLockSegmentDirectionFromTokens(tokens);
+
       flushFinalTextRenderQueue();
 
-      // Live mirror: full cumulative hintSource re-translated every Soniox frame while the row is unlocked.
-      // No "completion" gating — lastConfirmedSourceTranslated does not suppress new requests here.
+      // Apr 8 live preview cadence (unchanged speaker/segment pipeline above): after enough finals,
+      // first hint at EARLY_HINT_MIN_WORDS then every LIVE_PREVIEW_WORD_STEP words — not every frame.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
-      if (st && !st.translationLocked && hintSource.length > 0) {
-        dispatchTranslation(
-          hintSource,
-          detectedLangRef.current,
-          false,
-          {
-            skipOpenAiLiveDebounce: true,
-            bypassLiveSourceThrottle: true,
-          },
-          st.segmentId,
-        );
+      const wordsNow = countWords(hintSource);
+      if (
+        st &&
+        !st.translationLocked &&
+        !st.finalizing &&
+        st.finalTokensSeen >= 3 &&
+        hintSource.length >= 25 &&
+        wordsNow >= EARLY_HINT_MIN_WORDS &&
+        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
+      ) {
+        const lang = st.segmentSourceLang ?? detectedLangRef.current;
+        dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
+        st.lastPreviewWordsSent = wordsNow;
       }
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
@@ -2137,6 +2049,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
+    tryLockSegmentDirectionFromTokens,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
