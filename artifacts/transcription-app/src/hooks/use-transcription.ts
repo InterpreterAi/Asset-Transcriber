@@ -645,6 +645,12 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+function endsWithPhraseBoundary(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  return /[.!?؟،。！？:;]\s*$/u.test(t);
+}
+
 /** If the new fragment repeats the last word of the prior translation, drop that repeat (e.g. شكراً + شكراً لاتصالك). */
 function trimDuplicateBoundaryWord(prev: string, piece: string): string {
   const p = piece.trim();
@@ -861,6 +867,12 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+function firstNWords(text: string, n: number): string {
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= n) return text.trim();
+  return parts.slice(0, n).join(" ");
+}
+
 /** Longest common prefix length between two strings (case-insensitive, per code unit). */
 function lcpLenInsensitive(a: string, b: string): number {
   let i = 0;
@@ -950,6 +962,10 @@ interface BubbleTransState {
   lastConfirmedSourceTranslated: string;
   /** Latest live source queued while a non-final request is in-flight. */
   pendingLiveSource: string;
+  /** Latest computed live translation candidate not yet committed to visible UI. */
+  pendingDisplayTranslation: string;
+  /** One-time early starter shown for this segment (first words to help interpreter begin). */
+  earlyLeadCommitted: boolean;
   /** Locked source language for this segment (set once from first visible token with a language tag). */
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
@@ -1055,7 +1071,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       text: string,
       lang: string,
       isFinal?: boolean,
-      options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean },
+      options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean; forceCommitDisplay?: boolean },
       segmentIdLock?: string,
     ) => void
   >(() => {});
@@ -1177,7 +1193,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     text: string,
     lang: string,
     isFinal = false,
-    options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean },
+    options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean; forceCommitDisplay?: boolean },
     segmentIdLock?: string,
   ) => {
     const state = activeBubbleStateRef.current;
@@ -1192,6 +1208,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
+    const forceCommitDisplay = Boolean(options?.forceCommitDisplay);
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     const chars = text.length;
 
@@ -1451,6 +1468,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
+          state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
           if (lockOnFinal) {
@@ -1475,15 +1493,37 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             } else {
               state.needsFullFinalTranslation = false;
             }
+            const commitLive =
+              forceCommitDisplay || endsWithPhraseBoundary(text) || endsWithPhraseBoundary(out);
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
-            applyTranslationTypography(transTextEl, out);
+            const shouldEmitEarlyLead =
+              !requestIsFinal && !state.earlyLeadCommitted && countWords(out) >= 6;
+            if (commitLive || shouldEmitEarlyLead) {
+              const toShow = shouldEmitEarlyLead ? firstNWords(out, 6) : out;
+              applyTranslationTypography(transTextEl, toShow);
+              state.pendingDisplayTranslation = "";
+              if (shouldEmitEarlyLead) state.earlyLeadCommitted = true;
+            } else {
+              state.pendingDisplayTranslation = out;
+            }
           } else {
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
             const out = maybePolishTranslationForTarget(merged, myTargetLang);
+            const commitLive =
+              forceCommitDisplay || endsWithPhraseBoundary(text) || endsWithPhraseBoundary(out);
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
-            applyTranslationTypography(transTextEl, out);
+            const shouldEmitEarlyLead =
+              !requestIsFinal && !state.earlyLeadCommitted && countWords(out) >= 6;
+            if (commitLive || shouldEmitEarlyLead) {
+              const toShow = shouldEmitEarlyLead ? firstNWords(out, 6) : out;
+              applyTranslationTypography(transTextEl, toShow);
+              state.pendingDisplayTranslation = "";
+              if (shouldEmitEarlyLead) state.earlyLeadCommitted = true;
+            } else {
+              state.pendingDisplayTranslation = out;
+            }
             state.needsFullFinalTranslation = false;
           }
           state.streamCommittedSource = text;
@@ -1516,9 +1556,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             );
             state.needsFullFinalTranslation = false;
           }
+          const commitLive =
+            forceCommitDisplay || endsWithPhraseBoundary(text) || endsWithPhraseBoundary(out);
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
-          applyTranslationTypography(transTextEl, out);
+          const shouldEmitEarlyLead =
+            !requestIsFinal && !state.earlyLeadCommitted && countWords(out) >= 6;
+          if (commitLive || shouldEmitEarlyLead) {
+            const toShow = shouldEmitEarlyLead ? firstNWords(out, 6) : out;
+            applyTranslationTypography(transTextEl, toShow);
+            state.pendingDisplayTranslation = "";
+            if (shouldEmitEarlyLead) state.earlyLeadCommitted = true;
+          } else {
+            state.pendingDisplayTranslation = out;
+          }
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
           if (!requestIsFinal) state.lastConfirmedSourceTranslated = text;
@@ -1639,6 +1690,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastConfirmedSource:   "",
       lastConfirmedSourceTranslated: "",
       pendingLiveSource: "",
+      pendingDisplayTranslation: "",
+      earlyLeadCommitted: false,
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
@@ -1983,7 +2036,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (source.length < 1) return;
         if (source === st.lastConfirmedSourceTranslated) return;
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        dispatchTranslation(source, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
+        dispatchTranslation(
+          source,
+          lang,
+          false,
+          { skipOpenAiLiveDebounce: true, forceCommitDisplay: true },
+          st.segmentId,
+        );
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = countWords(source);
       }, shortPauseMs);
