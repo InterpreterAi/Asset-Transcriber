@@ -436,6 +436,8 @@ type TranslateApiOptions = {
   streamingDelta?: boolean;
   /** Server adds final-segment correction instructions (full utterance after finalize). */
   isFinal?: boolean;
+  /** Abort stops this request (superseded live translate or segment teardown). */
+  signal?: AbortSignal;
 };
 
 async function translateViaPrimaryApi(
@@ -457,9 +459,18 @@ async function translateViaPrimaryApi(
     "OPENAI_WRONG_LANGUAGE",
   ]);
 
+  const externalSignal = options?.signal;
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (externalSignal?.aborted) {
+      return { outcome: "ok", text: "" };
+    }
+
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    if (externalSignal) {
+      externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
     try {
       const r = await fetch("/api/transcription/translate", {
         method:      "POST",
@@ -534,6 +545,9 @@ async function translateViaPrimaryApi(
       }
     } catch {
       clearTimeout(timeoutId);
+      if (externalSignal?.aborted) {
+        return { outcome: "ok", text: "" };
+      }
       if (attempt === MAX_ATTEMPTS) {
         return {
           outcome:     "try_fallback",
@@ -543,6 +557,9 @@ async function translateViaPrimaryApi(
       }
     }
     if (attempt < MAX_ATTEMPTS) {
+      if (externalSignal?.aborted) {
+        return { outcome: "ok", text: "" };
+      }
       await new Promise<void>(res => setTimeout(res, 700 * attempt));
     }
   }
@@ -895,8 +912,8 @@ interface BubbleTransState {
   translationLocked: boolean;  // true after first finalized translation — no further updates
   /** Source prefix already reflected in the translation column (streaming); final pass replaces all. */
   streamCommittedSource: string;
-  /** At most one in-flight primary live translation per segment (slower, steadier live path). */
-  streamInflight:        boolean;
+  /** Abort current live translate when superseded (debounced dispatch / final / close). */
+  liveTranslationAbort: AbortController | null;
   /** Last normalized live source seen (final + NF). */
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
@@ -1055,12 +1072,48 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
+  /** Trailing debounce for live translate API (coalesces WS-driven triggers; not per-frame requests). */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 80;
+  const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveTranslationDebouncePayloadRef = useRef<{
+    text: string;
+    lang: string;
+    segmentId: string;
+  } | null>(null);
+
   const cancelOpenAiLiveDebounce = useCallback(() => {
     if (openaiLiveDebounceTimerRef.current !== null) {
       clearTimeout(openaiLiveDebounceTimerRef.current);
       openaiLiveDebounceTimerRef.current = null;
     }
     openaiLiveDebouncePayloadRef.current = null;
+    if (liveTranslationDebounceTimerRef.current !== null) {
+      clearTimeout(liveTranslationDebounceTimerRef.current);
+      liveTranslationDebounceTimerRef.current = null;
+    }
+    liveTranslationDebouncePayloadRef.current = null;
+  }, []);
+
+  const scheduleDebouncedLiveTranslation = useCallback((text: string, lang: string, segmentId: string) => {
+    liveTranslationDebouncePayloadRef.current = { text, lang, segmentId };
+    if (liveTranslationDebounceTimerRef.current !== null) {
+      clearTimeout(liveTranslationDebounceTimerRef.current);
+    }
+    liveTranslationDebounceTimerRef.current = setTimeout(() => {
+      liveTranslationDebounceTimerRef.current = null;
+      const p = liveTranslationDebouncePayloadRef.current;
+      if (!p) return;
+      if (!isRecRef.current) return;
+      const st = activeBubbleStateRef.current;
+      if (!st || st.segmentId !== p.segmentId || st.translationLocked || st.finalizing) return;
+      dispatchTranslationRef.current(
+        p.text.trim(),
+        p.lang,
+        false,
+        { skipOpenAiLiveDebounce: true },
+        p.segmentId,
+      );
+    }, LIVE_TRANSLATION_DEBOUNCE_MS);
   }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
@@ -1136,7 +1189,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── dispatchTranslation ────────────────────────────────────────────────────
-  // Live: word-step + single in-flight (steady). Final path unchanged (tail/prefix, polish).
+  // Live: WS uses ~80ms trailing debounce + AbortController per segment; new live/final aborts prior.
+  // Final path unchanged (tail/prefix, polish). Seq gate drops stale responses.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1296,8 +1350,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    if (!isFinal && state.streamInflight) return;
-
     const useLibre = useLibreTranslateRef.current;
     let requestIsFinal = isFinal;
     let apiText: string;
@@ -1354,9 +1406,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       useStreamingDelta = false;
     }
 
+    let liveAbortForThisRequest: AbortController | undefined;
+    if (isFinal) {
+      state.liveTranslationAbort?.abort();
+      state.liveTranslationAbort = null;
+    } else {
+      state.liveTranslationAbort?.abort();
+      state.liveTranslationAbort = new AbortController();
+      liveAbortForThisRequest = state.liveTranslationAbort;
+    }
+
     state.seq += 1;
     const mySeq = state.seq;
-    if (!isFinal) state.streamInflight = true;
 
     void (async () => {
       try {
@@ -1369,6 +1430,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             streamingDelta:         useStreamingDelta && !requestIsFinal,
             fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
             isFinal: requestIsFinal,
+            signal:   liveAbortForThisRequest?.signal,
           },
         );
         if (requestSegmentId !== state.segmentId) return;
@@ -1435,7 +1497,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       } catch {
         /* HIPAA — never log speech context */
       } finally {
-        if (!isFinal) state.streamInflight = false;
+        if (
+          !isFinal &&
+          liveAbortForThisRequest &&
+          state.liveTranslationAbort === liveAbortForThisRequest
+        ) {
+          state.liveTranslationAbort = null;
+        }
       }
     })();
   }, [scrollPanel]);
@@ -1528,7 +1596,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalizing:        false,
       translationLocked: false,
       streamCommittedSource: "",
-      streamInflight:        false,
+      liveTranslationAbort:  null,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
@@ -1652,6 +1720,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
+    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current = undefined;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
@@ -1667,6 +1736,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     stopTranslationInterval();
+    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
     activeBubbleRef.current        = null;
@@ -1713,6 +1783,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stopTranslationInterval();
     finalizeLiveBubble();
 
+    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
@@ -2001,7 +2072,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
+        scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
       }
@@ -2046,6 +2117,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
     tryLockSegmentDirectionFromTokens,
+    scheduleDebouncedLiveTranslation,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
