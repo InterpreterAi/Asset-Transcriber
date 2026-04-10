@@ -1360,6 +1360,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     finalSegmentBlock +
     `OUTPUT:\n` +
     `- Return ONLY the translated text.\n` +
+    `- Translate the COMPLETE input from start to finish — do not stop after the first clause, summarize, or omit trailing sentences.\n` +
     `- No explanations, notes, alternatives, or the original source text.`;
 
   // ── OpenAI call with output-language validation + single retry ────────────
@@ -1378,6 +1379,8 @@ router.post("/translate", requireAuth, async (req, res) => {
         {
           model:       "gpt-4o-mini",
           temperature: 0,
+          // Explicit cap so long interpreter turns are not cut off at a low default.
+          max_tokens:  4096,
           messages: [
             { role: "system", content: prompt },
             { role: "user",   content: userContent },

@@ -648,6 +648,18 @@ function endsWithPhraseBoundary(s: string): boolean {
   return /[.!?؟،。！？:;]\s*$/u.test(t);
 }
 
+/**
+ * Detect when visible translation is probably truncated for the current cumulative source.
+ * Without this, we set lastConfirmedSourceTranslated to the full source after a partial API
+ * response and never dispatch again until the source text changes.
+ */
+function liveTranslationLooksTruncatedVsSource(source: string, visibleTranslation: string): boolean {
+  const s = collapseWs(source);
+  const t = collapseWs(visibleTranslation);
+  if (s.length < 48 || t.length < 8) return false;
+  return t.length < s.length * 0.52;
+}
+
 /** Consecutive duplicate tokens (all targets — matches Arabic/English hygiene). */
 function dedupeConsecutiveTranslationTokens(raw: string): string {
   const t = collapseWs(raw);
@@ -906,6 +918,8 @@ interface BubbleTransState {
   lastRequestedLiveAtMs: number;
   /** Throttle WS hint retries when source matches bookkeeping but translation cell is still empty. */
   lastEmptyCellHintDispatchAtMs: number;
+  /** Throttle hint retries when translation may be truncated vs source (same source string). */
+  lastTruncationRetryHintAtMs: number;
   /** Latest computed live translation candidate not yet committed to visible UI. */
   pendingDisplayTranslation: string;
   /** Once true, ignore any late interim responses for this segment. */
@@ -944,8 +958,8 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Same-buffer dedupe only; 0 = translate on every distinct Soniox frame. */
-  const SAME_LIVE_SOURCE_RETRY_MS = 0;
+  /** Throttle identical live source so we can re-try after partial model output without WS spam. */
+  const SAME_LIVE_SOURCE_RETRY_MS = 420;
   /** When hint bookkeeping matches source but the translation &lt;p&gt; is empty, retry at this interval (not every WS frame). */
   const EMPTY_CELL_LIVE_HINT_COOLDOWN_MS = 350;
   const isAdminRef = useRef(isAdmin);
@@ -1155,14 +1169,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (requestSegmentId !== state.segmentId) return;
 
     if (!translationEnabledRef.current) return;
-    // Only skip duplicate live source if we already have visible translation (avoid "synced" with empty cell).
-    if (
-      !isFinal &&
-      text === state.lastConfirmedSourceTranslated &&
-      (state.transTextEl.textContent?.trim().length ?? 0) > 0
-    ) {
-      return;
-    }
     if (
       !isFinal &&
       text === state.lastRequestedLiveSource &&
@@ -1578,6 +1584,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastRequestedLiveSource: "",
       lastRequestedLiveAtMs: 0,
       lastEmptyCellHintDispatchAtMs: 0,
+      lastTruncationRetryHintAtMs: 0,
       pendingDisplayTranslation: "",
       hardFinalRequested: false,
       segmentSourceLang:     null,
@@ -2017,7 +2024,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Live translation: dispatch on source change; if bookkeeping already matches but the cell is empty, retry on a cooldown (not every WS frame).
+      // Live translation: source growth, empty cell, or likely-truncated target vs source (partial model output with full source).
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const transStillEmpty = (st?.transTextEl.textContent?.trim().length ?? 0) === 0;
@@ -2027,14 +2034,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !!st &&
         stuckEmptyBookkeeping &&
         Date.now() - st.lastEmptyCellHintDispatchAtMs < EMPTY_CELL_LIVE_HINT_COOLDOWN_MS;
+      const truncRetryDue =
+        st != null &&
+        liveTranslationLooksTruncatedVsSource(hintSource, st.transTextEl.textContent ?? "");
+      const truncCooldownOk =
+        st == null ||
+        !truncRetryDue ||
+        Date.now() - st.lastTruncationRetryHintAtMs >= 550;
       if (
         st &&
         !st.translationLocked &&
         hintSource.length > 0 &&
-        (sourceChanged || transStillEmpty) &&
+        (sourceChanged || transStillEmpty || (truncRetryDue && truncCooldownOk)) &&
         !emptyHintCooldownActive
       ) {
         if (stuckEmptyBookkeeping) st.lastEmptyCellHintDispatchAtMs = Date.now();
+        if (truncRetryDue && truncCooldownOk) st.lastTruncationRetryHintAtMs = Date.now();
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
