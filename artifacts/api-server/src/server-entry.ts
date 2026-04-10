@@ -15,6 +15,7 @@ import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
 import { scheduleTrialActiveReminderJob } from "./lib/trial-active-reminder-job.js";
 import { initInterpreterGlossaries } from "./lib/interpreter-glossary.js";
 import { initProtectedTerms } from "./lib/protected-terms.js";
+import { isTrialLoginBlocked } from "./lib/trial-login-block.js";
 
 const rawPort =
   process.env["PORT"] ??
@@ -502,6 +503,13 @@ async function main() {
   await clearStaleSessions();
   await ensureAdminUser();
   await initStripe();
+
+  if (isTrialLoginBlocked()) {
+    logger.warn(
+      "TRIAL_LOGIN_BLOCKED is enabled: trial-like users cannot sign in or sign up; " +
+        "existing trial sessions are cleared on the next API request. Paid plans and admins are not blocked.",
+    );
+  }
 
   app.listen(port, (err) => {
     if (err) {

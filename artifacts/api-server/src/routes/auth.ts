@@ -11,7 +11,12 @@ import {
 import { and, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
-import { getUserWithResetCheck, buildUserInfo, touchActivity } from "../lib/usage.js";
+import {
+  getUserWithResetCheck,
+  buildUserInfo,
+  touchActivity,
+  isTrialLikePlanType,
+} from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import { sendPasswordResetEmail } from "../lib/email.js";
@@ -37,6 +42,7 @@ import {
   getGoogleOAuthRedirectUri,
 } from "../lib/authEnv.js";
 import { commitSession } from "../lib/commitSession.js";
+import { isTrialLoginBlocked, TRIAL_LOGIN_BLOCKED_JSON } from "../lib/trial-login-block.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import crypto from "node:crypto";
 
@@ -101,6 +107,10 @@ function defaultTrialFieldsForNewAccount(accountCreatedAt: Date) {
     trialEndsAt:       computeTrialEndsAt(accountCreatedAt),
     dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
   } as const;
+}
+
+function trialAccessBlockedForUser(user: User): boolean {
+  return isTrialLoginBlocked() && !user.isAdmin && isTrialLikePlanType(user.planType);
 }
 
 function parseDevice(ua: string | undefined): string {
@@ -276,6 +286,19 @@ router.post("/login", async (req, res) => {
       return;
     }
 
+    if (trialAccessBlockedForUser(user)) {
+      void logLoginEvent({
+        userId:        user.id,
+        email:         user.email,
+        ipAddress:     ip,
+        userAgent,
+        success:       false,
+        failureReason: "trial_login_blocked",
+      });
+      res.status(403).json(TRIAL_LOGIN_BLOCKED_JSON);
+      return;
+    }
+
     // ── 2FA check ────────────────────────────────────────────────────────────
     if (user.twoFactorEnabled && user.twoFactorSecret) {
       req.session.pending2faUserId = user.id;
@@ -433,6 +456,26 @@ router.post("/2fa/verify", async (req, res) => {
       return;
     }
 
+    if (trialAccessBlockedForUser(user)) {
+      void logLoginEvent({
+        userId:        user.id,
+        email:         user.email,
+        ipAddress:     ip,
+        userAgent,
+        success:       false,
+        failureReason: "trial_login_blocked",
+        is2fa:         true,
+      });
+      delete req.session.pending2faUserId;
+      try {
+        await commitSession(req);
+      } catch {
+        /* best-effort */
+      }
+      res.status(403).json(TRIAL_LOGIN_BLOCKED_JSON);
+      return;
+    }
+
     req.session.userId  = user.id;
     req.session.isAdmin = Boolean(user.isAdmin);
     delete req.session.pending2faUserId;
@@ -584,6 +627,11 @@ router.post("/signup", async (req, res) => {
   const turnstile = await verifyTurnstileForSignup(turnstileToken, getClientIp(req));
   if (!turnstile.ok) {
     res.status(400).json({ error: turnstile.error ?? "Verification failed." });
+    return;
+  }
+
+  if (isTrialLoginBlocked()) {
+    res.status(403).json(TRIAL_LOGIN_BLOCKED_JSON);
     return;
   }
 
@@ -1123,6 +1171,11 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         }
       }
     } else {
+      if (isTrialLoginBlocked()) {
+        const base = getStaticPublicBaseUrl();
+        res.redirect(`${base}/login?oauthError=${encodeURIComponent(TRIAL_LOGIN_BLOCKED_JSON.error)}`);
+        return;
+      }
       isNewUser = true;
       if (isDisposableEmailDomain(googleEmail)) {
         res.redirect("/login?error=disposable_email");
@@ -1207,6 +1260,12 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
     void touchActivity(user!.id).catch((touchErr) => {
       logger.warn({ err: touchErr, userId: user!.id }, "touchActivity after Google login failed");
     });
+
+    if (trialAccessBlockedForUser(user!)) {
+      const base = getStaticPublicBaseUrl();
+      res.redirect(`${base}/login?oauthError=${encodeURIComponent(TRIAL_LOGIN_BLOCKED_JSON.error)}`);
+      return;
+    }
 
     req.session.userId  = user!.id;
     req.session.isAdmin = Boolean(user!.isAdmin);
