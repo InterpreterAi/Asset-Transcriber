@@ -681,6 +681,22 @@ function tokenOverlapRatio(a: string, b: string): number {
 }
 
 /**
+ * Generic trailing sentence dedupe for all languages.
+ * Some models emit a paraphrased re-close right after the real final sentence.
+ */
+function dropTrailingRepeatedSentence(raw: string): string {
+  const t = collapseWs(raw);
+  const sents = t.split(/(?<=[.!?؟。！？])\s+/u).map((s) => s.trim()).filter(Boolean);
+  if (sents.length < 2) return t;
+  const last = sents[sents.length - 1]!;
+  const prev = sents[sents.length - 2]!;
+  if (last.length < 16 || prev.length < 16) return t;
+  const r = tokenOverlapRatio(prev, last);
+  if (r >= 0.52) return collapseWs(sents.slice(0, -1).join(" "));
+  return t;
+}
+
+/**
  * Dedupe consecutive identical tokens, trim junk leading punctuation, collapse
  * doubled marks, fix split "? … لليوم؟" from incremental errors.
  */
@@ -809,16 +825,17 @@ function trimOverlappingDuplicateQuestionTail(raw: string): string {
  */
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
   const base = targetLang.split("-")[0]?.toLowerCase() ?? "";
-  if (!base) return text;
-  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) return polishArabicInterpreterTranslation(text);
-  if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) return polishHebrewInterpreterTranslation(text);
-  if (LATIN_SCRIPT_TARGET_LANGS.has(base)) return polishLatinScriptInterpreterTranslation(text, base);
-  if (CYRILLIC_SCRIPT_TARGET_LANGS.has(base) || GREEK_SCRIPT_TARGET_LANGS.has(base)) {
-    return polishQuestionMarkFamilyTargetTranslation(text);
-  }
-  if (CJK_TARGET_LANG_BASES.has(base)) return polishCjkTargetTranslation(text);
-  if (HANGUL_TARGET_LANG_BASES.has(base)) return polishQuestionMarkFamilyTargetTranslation(text);
-  return polishGenericTargetTranslation(text);
+  if (!base) return dropTrailingRepeatedSentence(text);
+  let out: string;
+  if (ARABIC_SCRIPT_TARGET_LANGS.has(base)) out = polishArabicInterpreterTranslation(text);
+  else if (HEBREW_SCRIPT_TARGET_LANGS.has(base)) out = polishHebrewInterpreterTranslation(text);
+  else if (LATIN_SCRIPT_TARGET_LANGS.has(base)) out = polishLatinScriptInterpreterTranslation(text, base);
+  else if (CYRILLIC_SCRIPT_TARGET_LANGS.has(base) || GREEK_SCRIPT_TARGET_LANGS.has(base)) {
+    out = polishQuestionMarkFamilyTargetTranslation(text);
+  } else if (CJK_TARGET_LANG_BASES.has(base)) out = polishCjkTargetTranslation(text);
+  else if (HANGUL_TARGET_LANG_BASES.has(base)) out = polishQuestionMarkFamilyTargetTranslation(text);
+  else out = polishGenericTargetTranslation(text);
+  return dropTrailingRepeatedSentence(out);
 }
 
 /**
@@ -836,6 +853,11 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   const prevC = collapseWs(prev);
   const pieceC = collapseWs(piece);
   if (pieceC === prevC) return prev;
+  // Full/near-full model rewrites: prefer the newer coherent run instead of appending
+  // another copy of the same idea (common in English↔Spanish live turns).
+  if (tokenOverlapRatio(prevC, pieceC) >= 0.72 && pieceC.length >= prevC.length * 0.85) {
+    return pieceC;
+  }
   if (pieceC.startsWith(prevC)) return piece;
   if (prevC.startsWith(pieceC)) return prev;
   // Keep contiguous number chunks together (e.g. "36" + "02" => "3602").
