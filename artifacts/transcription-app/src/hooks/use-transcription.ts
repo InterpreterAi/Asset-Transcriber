@@ -1420,11 +1420,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
     } else if (!useLibre) {
-      // OpenAI live: always send the full cumulative transcript and replace the translation
-      // cell. Tail+delta+merge stacked overlapping model output (duplicate clauses, broken
-      // numbers); Soniox-style demos refresh the whole target string for the current source.
-      apiText = text;
-      useStreamingDelta = false;
+      // OpenAI live: send only the newly appended source tail to keep latency low on long
+      // utterances. Full cumulative requests become slow and look like "translated first lines,
+      // then stopped". If monotonic tail cannot be derived, fall back to full replace.
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      if (monotonic && tail.trim()) {
+        apiText = tail;
+        useStreamingDelta = true;
+      } else if (monotonic && !tail.trim()) {
+        return;
+      } else {
+        apiText = text;
+        useStreamingDelta = false;
+      }
     } else {
       // Live mode translates the full current partial transcript every poll tick.
       apiText = text;
