@@ -1393,7 +1393,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const responseSegmentId = requestSegmentId;
         if (responseSegmentId !== state.segmentId) return;
 
-        if (mySeq <= state.lastShownSeq) return;
         if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
         if (!requestIsFinal && state.hardFinalRequested) return;
@@ -1404,6 +1403,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
 
         if (requestIsFinal) {
+          if (mySeq <= state.lastShownSeq) return;
           const out = maybePolishTranslationForTarget(translated, myTargetLang);
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
@@ -1426,16 +1426,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const prevShown = transTextEl.textContent?.trim() ?? "";
           const srcThis = collapseWs(text);
           const srcCommitted = collapseWs(state.streamCommittedSource);
-          // Reject a newer response that is much shorter while source is still growing (bad/timeout reply).
-          if (
-            prevShown.length >= 16 &&
-            out.length > 0 &&
-            out.length < prevShown.length * 0.82 &&
-            srcThis.length + 4 >= srcCommitted.length
-          ) {
-            return;
+
+          if (mySeq <= state.lastShownSeq) {
+            // Slower request with a longer source + richer translation (common right after speaker change).
+            if (srcThis.length <= srcCommitted.length + 2) return;
+            if (out.length < prevShown.length + 5) return;
+          } else {
+            // Newer seq: reject a short reply while source is still growing (bad/timeout).
+            if (
+              prevShown.length >= 16 &&
+              out.length > 0 &&
+              out.length < prevShown.length * 0.82 &&
+              srcThis.length + 4 >= srcCommitted.length
+            ) {
+              return;
+            }
+            state.lastShownSeq = mySeq;
           }
-          state.lastShownSeq = mySeq;
+
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
           state.pendingDisplayTranslation = "";
