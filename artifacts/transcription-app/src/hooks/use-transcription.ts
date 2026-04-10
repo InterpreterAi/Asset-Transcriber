@@ -1450,7 +1450,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
           if (mySeq <= state.lastShownSeq) {
             if (srcThis.length <= srcCommitted.length + 2) return;
-            // Reject stale shorter Arabic/English when the transcript is still growing (out-of-order live).
+            // Out-of-order live: drop a stale response that is strictly shorter than what we already
+            // showed while the transcript is still growing (do not apply this to the newest seq — that
+            // blocked normal streaming updates and left Arabic stuck until segment-final).
             if (
               !sourceShrinking &&
               prevShown.length > 0 &&
@@ -1460,14 +1462,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               return;
             }
           } else {
-            if (
-              !sourceShrinking &&
-              prevShown.length > 0 &&
-              out.length + 20 < prevShown.length &&
-              srcThis.length >= srcCommitted.length - 1
-            ) {
-              return;
-            }
             state.lastShownSeq = mySeq;
           }
 
