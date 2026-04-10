@@ -1498,8 +1498,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               out.length > 0 &&
               out.length < prevT.length * 0.4
             ) {
-              out = prevT;
-              state.needsFullFinalTranslation = true;
+              // Don't freeze on short live snapshots; merge into what's already shown.
+              out = maybePolishTranslationForTarget(
+                mergeStreamingTranslation(prevT, out),
+                myTargetLang,
+              );
+              state.needsFullFinalTranslation = false;
             } else {
               state.needsFullFinalTranslation = false;
             }
@@ -1537,12 +1541,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             out.length < prevT.length * 0.4 &&
             text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.88
           ) {
-            state.needsFullFinalTranslation = true;
-            state.lastShownSeq = mySeq;
-            state.streamCommittedSource = text;
-            state.lastConfirmedSourceTranslated = text;
-            scrollPanel();
-            return;
+            // Keep real-time flow: merge short snapshot instead of skipping updates.
+            out = maybePolishTranslationForTarget(
+              mergeStreamingTranslation(prevT, out),
+              myTargetLang,
+            );
+            state.needsFullFinalTranslation = false;
           }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
