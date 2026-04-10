@@ -53,12 +53,7 @@ const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
-// Silence segmentation thresholds.
-// - pause < SHORT_PAUSE_MS: keep writing in current segment
-// - pause >= LONG_PAUSE_MS: close/finalize current segment
-const SHORT_PAUSE_MS = 650;
-const SHORT_PAUSE_MS_FAST = 100;
-const LONG_PAUSE_MS  = 1200;
+// Segments close only on explicit speaker_id change (see ws.onmessage). No silence-based close.
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -96,6 +91,11 @@ interface SonioxToken {
   is_final:  boolean;
   speaker?:  number | string;
   language?: string;
+}
+
+/** Soniox semantic endpoint token (requires `enable_endpoint_detection` in start config). */
+function isSonioxEndpointToken(t: SonioxToken): boolean {
+  return t.text.trim().toLowerCase() === "<end>";
 }
 
 interface SonioxMessage {
@@ -857,6 +857,7 @@ function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: st
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
   el.dir             = rtl ? "rtl" : "ltr";
   el.style.textAlign = rtl ? "right" : "";
+  const html = wrapAsciiDigitRunsWithLtrSpans(newTranslation);
   if (rtl) {
     if (arabicScript) {
       el.lang      = "ar";
@@ -865,12 +866,11 @@ function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: st
       el.lang      = "he";
       el.className = CLS.transText;
     }
-    // Final-overwrite strategy: always replace whole text for this segment.
-    el.innerText = newTranslation;
+    el.innerHTML = html;
   } else {
     el.removeAttribute("lang");
     el.className = CLS.transText;
-    el.innerText = newTranslation;
+    el.innerHTML = html;
   }
 }
 
@@ -888,8 +888,6 @@ interface BubbleTransState {
   translationLocked: boolean;  // true after first finalized translation — no further updates
   /** Source prefix already reflected in the translation column (streaming); final pass replaces all. */
   streamCommittedSource: string;
-  /** At most one in-flight primary translation per segment while polling (avoids overlapping deltas). */
-  streamInflight:        boolean;
   /** Last normalized live source seen (final + NF). */
   lastLiveSource:        string;
   /** Timestamp when lastLiveSource changed. */
@@ -904,8 +902,6 @@ interface BubbleTransState {
   lastConfirmedSource:   string;
   /** Last confirmed source already dispatched for live translation. */
   lastConfirmedSourceTranslated: string;
-  /** Latest live source queued while a non-final request is in-flight. */
-  pendingLiveSource: string;
   /** Last live source sent to translator (prevents tight same-text loops). */
   lastRequestedLiveSource: string;
   /** When last live source request was sent. */
@@ -948,8 +944,8 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Minimal coalesce only — must not block token-by-token live translation. */
-  const SAME_LIVE_SOURCE_RETRY_MS = 45;
+  /** Same-buffer dedupe only; 0 = translate on every distinct Soniox frame. */
+  const SAME_LIVE_SOURCE_RETRY_MS = 0;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1010,8 +1006,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
-  /** Live debounce (ms); ws hint uses skipOpenAiLiveDebounce for lowest latency. */
-  const OPENAI_LIVE_DEBOUNCE_MS = 90;
+  /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
+  const OPENAI_LIVE_DEBOUNCE_MS = 0;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,
@@ -1021,7 +1017,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       text: string,
       lang: string,
       isFinal?: boolean,
-      options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean; forceCommitDisplay?: boolean },
+      options?: {
+        lockOnFinal?: boolean;
+        skipOpenAiLiveDebounce?: boolean;
+        forceCommitDisplay?: boolean;
+        suppressEarlyHardFinal?: boolean;
+        forceFullSegmentFinal?: boolean;
+      },
       segmentIdLock?: string,
     ) => void
   >(() => {});
@@ -1077,13 +1079,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     return pending;
   }, []);
-
-  // ── Silence / pause detection ──────────────────────────────────────────────
-  // Reset every time tokens arrive. Fires softFinalize() + bubble reset only after
-  // LONG_PAUSE_MS of no Soniox activity closes/finalizes current segment.
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // SHORT_PAUSE_MS of no tokens triggers non-final translation preview only.
-  const shortPauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
@@ -1142,7 +1137,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     text: string,
     lang: string,
     isFinal = false,
-    options?: { lockOnFinal?: boolean; skipOpenAiLiveDebounce?: boolean; forceCommitDisplay?: boolean },
+    options?: {
+      lockOnFinal?: boolean;
+      skipOpenAiLiveDebounce?: boolean;
+      forceCommitDisplay?: boolean;
+      suppressEarlyHardFinal?: boolean;
+      /** Skip tail-delta / lock-shortcut — full source to model (Soniox &lt;end&gt; / polish pass). */
+      forceFullSegmentFinal?: boolean;
+    },
     segmentIdLock?: string,
   ) => {
     const state = activeBubbleStateRef.current;
@@ -1164,7 +1166,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
-    if (isFinal && lockOnFinal) state.hardFinalRequested = true;
+    if (isFinal && lockOnFinal && !options?.suppressEarlyHardFinal) {
+      state.hardFinalRequested = true;
+    }
     const forceCommitDisplay = Boolean(options?.forceCommitDisplay);
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     const chars = text.length;
@@ -1311,16 +1315,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    if (!isFinal && state.streamInflight) {
-      state.pendingLiveSource = text;
-      return;
-    }
-
     const useLibre = useLibreTranslateRef.current;
     let requestIsFinal = isFinal;
     let apiText: string;
     let useStreamingDelta = false;
-    if (isFinal) {
+    if (isFinal && options?.forceFullSegmentFinal) {
+      apiText = text;
+      useStreamingDelta = false;
+      requestIsFinal = true;
+    } else if (isFinal) {
       const committed = collapseWs(state.streamCommittedSource);
       const finalSrc = collapseWs(text);
       const cl = committed.toLowerCase();
@@ -1342,7 +1345,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
         // Final pass: if we already translated all seen source, just lock; if there is a tail, translate tail only.
         if (monotonic && !tail.trim()) {
-          if (state.needsFullFinalTranslation) {
+          const visiblyTranslated = (state.transTextEl.textContent?.trim() ?? "").length > 0;
+          if (state.needsFullFinalTranslation || (!visiblyTranslated && text.trim().length > 0)) {
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
@@ -1375,7 +1379,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     state.seq += 1;
     const mySeq = state.seq;
     if (!isFinal) {
-      state.streamInflight = true;
       state.lastRequestedLiveSource = text;
       state.lastRequestedLiveAtMs = Date.now();
     }
@@ -1415,6 +1418,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
           if (lockOnFinal) {
+            state.hardFinalRequested = true;
             state.translationLocked = true;
             if (translationBufRef.current.length > 0) {
               translationBufRef.current[translationBufRef.current.length - 1] = out.trim();
@@ -1436,16 +1440,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         scrollPanel();
       } catch {
         /* HIPAA — never log speech context */
-      } finally {
-        if (!isFinal) {
-          state.streamInflight = false;
-          const pending = state.pendingLiveSource.trim();
-          state.pendingLiveSource = "";
-          if (pending && pending !== state.lastConfirmedSourceTranslated && !state.finalizing && !state.translationLocked) {
-            const langRetry = state.segmentSourceLang ?? detectedLangRef.current;
-            dispatchTranslation(pending, langRetry, false, { skipOpenAiLiveDebounce: true }, state.segmentId);
-          }
-        }
       }
     })();
   }, [scrollPanel]);
@@ -1538,7 +1532,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalizing:        false,
       translationLocked: false,
       streamCommittedSource: "",
-      streamInflight:        false,
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
@@ -1546,7 +1539,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastNfRawText:         "",
       lastConfirmedSource:   "",
       lastConfirmedSourceTranslated: "",
-      pendingLiveSource: "",
       lastRequestedLiveSource: "",
       lastRequestedLiveAtMs: 0,
       pendingDisplayTranslation: "",
@@ -1578,7 +1570,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // dispatch below. This ensures any poll fetch already in-flight will be
     // rejected by the post-fetch `finalizing` guard when it returns.
     stopTranslationInterval();
-    if (activeBubbleStateRef.current) {
+    // Speaker change: keep finalizing false so in-flight live responses can still paint this row
+    // before the closing final request returns (hardFinalRequested stays off until final succeeds).
+    if (activeBubbleStateRef.current && closeKind !== "speaker_change") {
       activeBubbleStateRef.current.finalizing = true;
     }
 
@@ -1623,8 +1617,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // language only if Soniox never reported one for this segment at all.
       const lang = activeBubbleStateRef.current?.segmentSourceLang ?? detectedLangRef.current;
       const segId = activeBubbleStateRef.current?.segmentId;
-      // Always run a final full-source pass so the model can correct the whole utterance.
-      dispatchTranslation(finalText, lang, true, undefined, segId);
+      // Final pass: on speaker_change, defer hardFinal until response so live in-flight is not dropped.
+      dispatchTranslation(
+        finalText,
+        lang,
+        true,
+        {
+          lockOnFinal: true,
+          suppressEarlyHardFinal: closeKind === "speaker_change",
+          skipOpenAiLiveDebounce: true,
+        },
+        segId,
+      );
     }
   }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
@@ -1654,14 +1658,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const doClear = useCallback(() => {
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
-    if (silenceTimerRef.current !== null) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    if (shortPauseTimerRef.current !== null) {
-      clearTimeout(shortPauseTimerRef.current);
-      shortPauseTimerRef.current = null;
-    }
     stopTranslationInterval();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
@@ -1694,14 +1690,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setIsRecording(false);
 
     // Cancel all pending timers before finalizing.
-    if (silenceTimerRef.current !== null) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    if (shortPauseTimerRef.current !== null) {
-      clearTimeout(shortPauseTimerRef.current);
-      shortPauseTimerRef.current = null;
-    }
     if (inactivityTimerRef.current !== null) {
       clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = null;
@@ -1810,13 +1798,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const first = tokens.find(
       t =>
         hasVisibleText(t.text) &&
+        !isSonioxEndpointToken(t) &&
         t.language !== undefined &&
         t.language !== null &&
         String(t.language).trim() !== "",
     );
     if (!first?.language) return;
     const pair = langPairRef.current;
-    const allTokenText = tokens.map(t => t.text).join("");
+    const allTokenText = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
     const validated = validateLangByScript(first.language, allTokenText, pair);
     if (!langInSelectedPair(validated, pair)) return;
     st.segmentSourceLang = validated;
@@ -1843,6 +1832,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         context:                        interpreterCtx,
         enable_language_identification: true,
         enable_speaker_diarization:     true,
+        enable_endpoint_detection:      true,
+        max_endpoint_delay_ms:          800,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
@@ -1876,15 +1867,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      // ── Silence / pause timers disabled (speaker-id only segmentation) ────
-      // Keep clearing any previously armed timers, but do not arm new ones.
-      // Segment boundaries are driven strictly by explicit speaker-id changes.
+      const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
-      if (shortPauseTimerRef.current !== null) { clearTimeout(shortPauseTimerRef.current); shortPauseTimerRef.current = null; }
-      if (silenceTimerRef.current !== null) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
 
-      // ── FINAL tokens ─────────────────────────────────────────────────────
-      const finals    = tokens.filter(t => t.is_final);
+      // ── FINAL tokens (exclude Soniox &lt;end&gt; marker from transcript + counts) ──
+      const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals.slice(finalCountRef.current);
       const newFinalSet = new Set(newFinals);
 
@@ -1905,6 +1892,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
         if (!activeBubbleRef.current) continue;
+        if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
           finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
           if (activeBubbleStateRef.current) {
@@ -1917,9 +1905,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Checking NF tokens too is critical: Soniox often reports language on the
       // first NF chunk, well before any final tokens arrive. Using only finals
       // meant we started translation before the language was known.
-      const langToken = tokens.find(t => t.language);
+      const langToken = tokens.find(t => t.language && !isSonioxEndpointToken(t));
       if (langToken?.language) {
-        const allTokenText  = tokens.map(t => t.text).join("");
+        const allTokenText  = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
         const validatedLang = validateLangByScript(
           langToken.language,
           allTokenText,
@@ -1945,12 +1933,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (tailSpk !== undefined) {
         for (let i = 0; i < tokens.length; i++) {
           const t = tokens[i]!;
-          if (t.is_final) continue;
+          if (t.is_final || isSonioxEndpointToken(t)) continue;
           if (effSpk[i] !== tailSpk) continue;
           nfText += t.text;
         }
       } else {
-        nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+        nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
       const nfEl = activeBubbleNFRef.current;
       if (nfText) {
@@ -2005,6 +1993,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
       }
+
+      // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
+      if (sawSonioxEndpoint) {
+        const stEnd = activeBubbleStateRef.current;
+        const srcEnd = liveBufferRef.current.trim();
+        if (stEnd && srcEnd && !stEnd.translationLocked) {
+          const langEnd = stEnd.segmentSourceLang ?? detectedLangRef.current;
+          dispatchTranslation(
+            srcEnd,
+            langEnd,
+            true,
+            {
+              lockOnFinal: false,
+              suppressEarlyHardFinal: true,
+              forceFullSegmentFinal: true,
+              skipOpenAiLiveDebounce: true,
+            },
+            stEnd.segmentId,
+          );
+        }
+      }
     };
 
     ws.onerror = () => { setError("WebSocket error"); void stop(); };
@@ -2040,14 +2049,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setError(null);
       setTranslationServiceError(null);
       setAudioInfo("");
-      if (silenceTimerRef.current !== null) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
-      if (shortPauseTimerRef.current !== null) {
-        clearTimeout(shortPauseTimerRef.current);
-        shortPauseTimerRef.current = null;
-      }
       currentSpeakerRef.current      = undefined;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
