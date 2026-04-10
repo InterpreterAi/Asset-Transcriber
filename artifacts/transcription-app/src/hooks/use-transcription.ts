@@ -1224,7 +1224,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dom !== null &&
       !scriptSupportsLang(dom.langs, pair.a) &&
       !scriptSupportsLang(dom.langs, pair.b);
-    const dispatchLang = validateLangByScript(detectedLive, text, pair);
+    const validatedDispatchLang = validateLangByScript(detectedLive, text, pair);
+    // Keep direction stable per segment: once we have an in-pair source language,
+    // don't let noisy live detection flip the target side mid-utterance.
+    if (!state.segmentSourceLang && langInSelectedPair(validatedDispatchLang, pair)) {
+      state.segmentSourceLang = validatedDispatchLang;
+    }
+    const dispatchLang = state.segmentSourceLang ?? validatedDispatchLang;
 
     // Third language (not A or B): mirror transcript in the translation column — no API.
     // Use live Soniox detection + dominant script so a locked "English" segment does not
@@ -1260,9 +1266,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // Source/target follow the current in-pair language (updates when speaker switches A↔B mid-segment).
+    // Source/target for this segment (locked after first reliable in-pair detection).
     const myTargetLang = resolveTarget(dispatchLang, pair);
-    state.segmentSourceLang = dispatchLang;
     state.segmentTargetLang = myTargetLang;
     const { transTextEl } = state;
 
