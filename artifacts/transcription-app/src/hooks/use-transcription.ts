@@ -451,14 +451,14 @@ async function translateViaPrimaryApi(
   options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
   const isFinal = Boolean(options?.isFinal);
-  // Live path also needs one retry: transient timeout spikes were causing
-  // "partial then freeze" until much later updates.
-  const MAX_ATTEMPTS = isFinal ? 2 : 2;
+  // Live path must fail fast to avoid a blank translation column while one slow
+  // request blocks subsequent updates.
+  const MAX_ATTEMPTS = isFinal ? 2 : 1;
   // Live requests send the full cumulative transcript; long medical turns exceed a flat 2.2s
   // often — abort → empty response → translation column freezes at the last good snapshot.
   const REQUEST_TIMEOUT_MS = isFinal
     ? 9_000
-    : Math.min(9_500, 2_400 + text.length * 18);
+    : Math.min(4_800, 1_500 + text.length * 10);
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "OPENAI_AUTH_FAILED",
