@@ -654,11 +654,11 @@ function pairLangMatchingScript(
 }
 
 /**
- * Pick source language for translation from cumulative utterance text (codeswitching in one row).
- * Uses dominant script on the full buffer, then the last ~140 chars (what the speaker is saying now),
- * then Soniox's tag — so English after Arabic (or the reverse) still targets the correct column.
+ * Source side of the selected pair from how the segment *began* (prefix of cumulative transcript).
+ * Once locked per bubble, mid-utterance codeswitching must not flip direction — the pair still maps
+ * "first spoken in-pair language → other side of the pair" for the whole row.
  */
-function inferDispatchLangForUtterance(
+function inferDispatchLangFromUtteranceStart(
   text: string,
   detectedLive: string,
   pair: { a: string; b: string },
@@ -666,16 +666,18 @@ function inferDispatchLangForUtterance(
   const collapsed = collapseWs(text);
   if (!collapsed) return validateLangByScript(detectedLive, "", pair);
 
-  const dom = detectDominantScript(collapsed);
-  if (dom) {
-    const pick = pairLangMatchingScript(dom.langs, pair);
+  const headLen = Math.min(160, collapsed.length);
+  const head = collapsed.slice(0, headLen);
+  const headDom = detectDominantScript(head);
+  if (headDom) {
+    const pick = pairLangMatchingScript(headDom.langs, pair);
     if (pick) return pick;
   }
-  const tail = collapsed.slice(-Math.min(140, collapsed.length));
-  if (tail.length >= 6) {
-    const tailDom = detectDominantScript(tail);
-    if (tailDom) {
-      const pick = pairLangMatchingScript(tailDom.langs, pair);
+  if (headLen < collapsed.length || collapsed.length > 160) {
+    const head2 = collapsed.slice(0, Math.min(280, collapsed.length));
+    const h2Dom = detectDominantScript(head2);
+    if (h2Dom) {
+      const pick = pairLangMatchingScript(h2Dom.langs, pair);
       if (pick) return pick;
     }
   }
@@ -989,6 +991,8 @@ export type UseTranscriptionOptions = {
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   /** 0 = live mirror can hit API every frame; no same-string cooldown. */
   const SAME_LIVE_SOURCE_RETRY_MS = 0;
+  /** Min cumulative source length before we freeze segment source/target for the whole bubble. */
+  const MIN_SEGMENT_DIRECTION_LOCK_CHARS = 5;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1224,16 +1228,40 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dom !== null &&
       !scriptSupportsLang(dom.langs, pair.a) &&
       !scriptSupportsLang(dom.langs, pair.b);
-    const dispatchLang = inferDispatchLangForUtterance(text, detectedLive, pair);
+
+    const collapsedForLock = collapseWs(text);
+    let dispatchLang: string;
+    if (state.segmentSourceLang != null) {
+      dispatchLang = state.segmentSourceLang;
+    } else {
+      dispatchLang = inferDispatchLangFromUtteranceStart(text, detectedLive, pair);
+      if (
+        langInSelectedPair(dispatchLang, pair) &&
+        collapsedForLock.length >= MIN_SEGMENT_DIRECTION_LOCK_CHARS
+      ) {
+        state.segmentSourceLang = dispatchLang;
+        state.segmentTargetLang = resolveTarget(dispatchLang, pair);
+      }
+    }
+    const myTargetLang =
+      state.segmentTargetLang != null
+        ? state.segmentTargetLang
+        : resolveTarget(dispatchLang, pair);
 
     // Third language (not A or B): mirror transcript in the translation column — no API.
-    // Use live Soniox detection + dominant script so a locked "English" segment does not
-    // keep translating after the speaker switches to Arabic (or any script outside the pair).
-    if (
-      !langInSelectedPair(detectedLive, pair) ||
+    // Do NOT passthrough on a single-frame Soniox `detectedLive` glitch when the transcript
+    // and inferred dispatch direction are clearly still inside the selected pair — that used
+    // to replace a good Arabic cell with a raw English copy ("translation disappeared").
+    const detectedInPair = langInSelectedPair(detectedLive, pair);
+    const dispatchInPair = langInSelectedPair(dispatchLang, pair);
+    const longEnoughToTrustDispatch =
+      collapsedForLock.length >= 12 && dispatchInPair && !outOfPairByScript;
+    const shouldPassthroughThirdLang =
       outOfPairByScript ||
-      !langInSelectedPair(dispatchLang, pair)
-    ) {
+      !dispatchInPair ||
+      (!detectedInPair && !longEnoughToTrustDispatch);
+
+    if (shouldPassthroughThirdLang) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
@@ -1263,10 +1291,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // Source/target follow the current in-pair language (updates when speaker switches A↔B mid-segment).
-    const myTargetLang = resolveTarget(dispatchLang, pair);
-    state.segmentSourceLang = dispatchLang;
-    state.segmentTargetLang = myTargetLang;
     const { transTextEl } = state;
 
     // ── Same-language guard (Rule 5/6) ────────────────────────────────────────
@@ -1384,8 +1408,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
         // Final pass: if we already translated all seen source, just lock; if there is a tail, translate tail only.
         if (monotonic && !tail.trim()) {
-          const visiblyTranslated = (state.transTextEl.textContent?.trim() ?? "").length > 0;
-          if (state.needsFullFinalTranslation || (!visiblyTranslated && text.trim().length > 0)) {
+          const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
+          const visiblyTranslated = visibleLen > 0;
+          const sourceLen = text.trim().length;
+          if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
+            apiText = text;
+            useStreamingDelta = false;
+            requestIsFinal = true;
+          } else if (sourceLen > 24 && visibleLen < 8) {
+            // Live never painted (dropped responses / races) — do not lock an empty-looking cell.
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
@@ -1483,6 +1514,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const srcThis = collapseWs(text);
           const srcCommitted = collapseWs(state.streamCommittedSource);
           const sourceShrinking = srcThis.length < srcCommitted.length - 5;
+          const srcGrewOrStable = srcThis.length >= srcCommitted.length - 5;
 
           if (mySeq <= state.lastShownSeq) {
             if (srcThis.length <= srcCommitted.length + 2) return;
@@ -1498,6 +1530,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               return;
             }
           } else {
+            // Newer seq wins, but avoid replacing a full mirror with an obvious truncated/partial
+            // response when the source did not shrink (load / ordering: long Arabic then short junk).
+            if (
+              srcGrewOrStable &&
+              prevShown.length > 40 &&
+              out.length + 16 < prevShown.length &&
+              out.length < Math.floor(prevShown.length * 0.36)
+            ) {
+              return;
+            }
             state.lastShownSeq = mySeq;
           }
 
@@ -1688,12 +1730,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const stSnap = activeBubbleStateRef.current;
       translationBufRef.current.push((stSnap?.transTextEl.textContent ?? "").trim());
       onAdminSnapshotBuffersUpdatedRef.current?.();
-      // Infer direction from full finalized text so mixed ar+en rows finalize to the correct target.
-      const lang = inferDispatchLangForUtterance(
-        finalText.trim(),
-        detectedLangRef.current,
-        langPairRef.current,
-      );
+      // Direction follows the first in-pair language spoken in the segment (locked during live);
+      // if the row was too short to lock, infer from the start of the finalized text.
+      const lang =
+        stSnap?.segmentSourceLang != null
+          ? stSnap.segmentSourceLang
+          : inferDispatchLangFromUtteranceStart(
+              finalText.trim(),
+              detectedLangRef.current,
+              langPairRef.current,
+            );
       const segId = activeBubbleStateRef.current?.segmentId;
       // Final pass: on speaker_change, defer hardFinal until response so live in-flight is not dropped.
       dispatchTranslation(
@@ -1869,30 +1915,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce,
   ]);
 
-  /** Keep segment A/B direction in sync with Soniox when the speaker stays within the selected pair (switching A↔B mid-row). */
-  const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
-    const st = activeBubbleStateRef.current;
-    if (!st) return;
-    // Lock once per bubble from the first tagged token — do not reset every WebSocket frame
-    // (that made codeswitched rows follow the wrong Soniox tag and confused finalize).
-    if (st.segmentSourceLang != null) return;
-    const first = tokens.find(
-      t =>
-        hasVisibleText(t.text) &&
-        !isSonioxEndpointToken(t) &&
-        t.language !== undefined &&
-        t.language !== null &&
-        String(t.language).trim() !== "",
-    );
-    if (!first?.language) return;
-    const pair = langPairRef.current;
-    const allTokenText = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
-    const validated = validateLangByScript(first.language, allTokenText, pair);
-    if (!langInSelectedPair(validated, pair)) return;
-    st.segmentSourceLang = validated;
-    st.segmentTargetLang = resolveTarget(validated, pair);
-  }, []);
-
   // ── buildWs ───────────────────────────────────────────────────────────────
   // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
   const buildWs = useCallback((apiKey: string): WebSocket => {
@@ -2056,8 +2078,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
 
-      tryLockSegmentDirectionFromTokens(tokens);
-
       flushFinalTextRenderQueue();
 
       // Live mirror: full cumulative hintSource re-translated every Soniox frame while the row is unlocked.
@@ -2065,10 +2085,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       if (st && !st.translationLocked && hintSource.length > 0) {
-        const lang = inferDispatchLangForUtterance(hintSource, detectedLangRef.current, langPairRef.current);
         dispatchTranslation(
           hintSource,
-          lang,
+          detectedLangRef.current,
           false,
           {
             skipOpenAiLiveDebounce: true,
@@ -2084,10 +2103,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stEnd = activeBubbleStateRef.current;
         const srcEnd = liveBufferRef.current.trim();
         if (stEnd && srcEnd && !stEnd.translationLocked) {
-          const langEnd = inferDispatchLangForUtterance(srcEnd, detectedLangRef.current, langPairRef.current);
           dispatchTranslation(
             srcEnd,
-            langEnd,
+            detectedLangRef.current,
             true,
             {
               lockOnFinal: false,
@@ -2119,7 +2137,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
-    tryLockSegmentDirectionFromTokens,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
