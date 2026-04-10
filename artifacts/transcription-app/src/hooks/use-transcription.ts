@@ -1209,6 +1209,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   ) => {
     const state = activeBubbleStateRef.current;
     if (!state || text.length < 3) return;
+    if (!isFinal && countWords(text) < 3) return;
     const requestSegmentId = segmentIdLock ?? state.segmentId;
     if (requestSegmentId !== state.segmentId) return;
 
@@ -2043,48 +2044,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         setHasTranscript(true);
       }
 
-      // ── Silence / pause-based timers ───────────────────────────────────────
-      // Every message with tokens resets both pause timers:
-      // - SHORT_PAUSE_MS: dispatch non-final translation preview (no close)
-      // - LONG_PAUSE_MS: finalize/close current segment
-      // Also reset the 5-min inactivity auto-stop timer on every speech event.
+      // ── Silence / pause timers disabled (speaker-id only segmentation) ────
+      // Keep clearing any previously armed timers, but do not arm new ones.
+      // Segment boundaries are driven strictly by explicit speaker-id changes.
       resetInactivityRef.current?.();
-      if (shortPauseTimerRef.current !== null) clearTimeout(shortPauseTimerRef.current);
-      const shortPauseMs = useLibreTranslateRef.current ? SHORT_PAUSE_MS : SHORT_PAUSE_MS_FAST;
-      shortPauseTimerRef.current = setTimeout(() => {
-        shortPauseTimerRef.current = null;
-        if (!activeBubbleRef.current) return;
-        flushFinalTextRenderQueue();
-        const st = activeBubbleStateRef.current;
-        if (!st || st.translationLocked || st.finalizing) return;
-        const source = liveBufferRef.current.trim();
-        if (source.length < 1) return;
-        if (source === st.lastConfirmedSourceTranslated) return;
-        const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        // Brief pause: keep live append flow; final polish runs only at segment finalization.
-        dispatchTranslation(
-          source,
-          lang,
-          false,
-          { skipOpenAiLiveDebounce: false, forceCommitDisplay: true },
-          st.segmentId,
-        );
-        st.earlyHintSent = true;
-        st.lastPreviewWordsSent = countWords(source);
-      }, shortPauseMs);
-      // Reset finalization timer only while speech is still active (NF tokens).
-      // Soniox may continue emitting final-only stabilization updates after
-      // speech stops; those must not postpone segment closure.
-      if (hasNonFinalTokens) {
-        if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          silenceTimerRef.current = null;
-          if (!activeBubbleRef.current) return;  // nothing open — nothing to do
-          closeActiveSegmentBoundary();
-          // NOTE: finalCountRef stays as-is; the Soniox stream is cumulative,
-          // so slicing from the current count will correctly pick up only new finals.
-        }, LONG_PAUSE_MS);
-      }
+      if (shortPauseTimerRef.current !== null) { clearTimeout(shortPauseTimerRef.current); shortPauseTimerRef.current = null; }
+      if (silenceTimerRef.current !== null) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
 
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
@@ -2107,17 +2072,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       for (const token of newFinals) {
         const tokenHasText = hasVisibleText(token.text);
-        if (
-          activeBubbleRef.current &&
-          tokenHasText &&
-          !sameSpeaker(token.speaker, currentSpeakerRef.current)
-        ) {
-          closeActiveSegmentBoundary("speaker_change");
-          currentSpeakerRef.current =
-            token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
-          activeBubbleRef.current = createBubble(token.speaker);
-          setHasTranscript(true);
-        } else if (!activeBubbleRef.current) {
+        if (!activeBubbleRef.current) {
           currentSpeakerRef.current =
             token.speaker !== undefined && token.speaker !== null ? String(token.speaker) : undefined;
           finalCountRef.current     = finals.length - newFinals.length +
@@ -2207,6 +2162,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !st.translationLocked &&
         !st.finalizing &&
         hintSource.length >= 1 &&
+        wordsNow >= 3 &&
         hintSource !== st.lastConfirmedSourceTranslated
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
