@@ -642,6 +642,10 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+function wordCount(s: string): number {
+  return collapseWs(s).split(/\s+/).filter(Boolean).length;
+}
+
 /** Which side of the language pair matches this script set (exactly one). */
 function pairLangMatchingScript(
   langs: string[],
@@ -1000,8 +1004,8 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Throttle identical live source so we can re-try after partial model output without WS spam. */
-  const SAME_LIVE_SOURCE_RETRY_MS = 420;
+  /** 0 = always re-dispatch live when the hint fires; no same-string cooldown (long segments must not stall). */
+  const SAME_LIVE_SOURCE_RETRY_MS = 0;
   /** When hint bookkeeping matches source but the translation &lt;p&gt; is empty, retry at this interval (not every WS frame). */
   const EMPTY_CELL_LIVE_HINT_COOLDOWN_MS = 350;
   const isAdminRef = useRef(isAdmin);
@@ -2080,6 +2084,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const hintSource = liveBufferRef.current.trim();
       const transStillEmpty = (st?.transTextEl.textContent?.trim().length ?? 0) === 0;
       const sourceChanged = st ? hintSource !== st.lastConfirmedSourceTranslated : false;
+      const wordsGrew =
+        st != null && wordCount(hintSource) > wordCount(st.lastConfirmedSourceTranslated);
+      const charsGrew =
+        st != null && hintSource.length > st.lastConfirmedSourceTranslated.length;
       const stuckEmptyBookkeeping = Boolean(st && transStillEmpty && !sourceChanged);
       const emptyHintCooldownActive =
         !!st &&
@@ -2096,19 +2104,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st &&
         !st.translationLocked &&
         hintSource.length > 0 &&
-        (sourceChanged || transStillEmpty || (truncRetryDue && truncCooldownOk)) &&
+        (sourceChanged ||
+          wordsGrew ||
+          charsGrew ||
+          transStillEmpty ||
+          (truncRetryDue && truncCooldownOk)) &&
         !emptyHintCooldownActive
       ) {
         if (stuckEmptyBookkeeping) st.lastEmptyCellHintDispatchAtMs = Date.now();
         if (truncRetryDue && truncCooldownOk) st.lastTruncationRetryHintAtMs = Date.now();
         const lang = inferDispatchLangForUtterance(hintSource, detectedLangRef.current, langPairRef.current);
+        const mustRefreshLive =
+          sourceChanged || wordsGrew || charsGrew || (truncRetryDue && truncCooldownOk);
         dispatchTranslation(
           hintSource,
           lang,
           false,
           {
             skipOpenAiLiveDebounce: true,
-            bypassLiveSourceThrottle: Boolean(truncRetryDue && truncCooldownOk),
+            bypassLiveSourceThrottle: mustRefreshLive,
           },
           st.segmentId,
         );

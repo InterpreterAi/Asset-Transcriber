@@ -340,15 +340,7 @@ function langName(code: string): string {
   return LANG_NAMES[code] ?? code;
 }
 
-/** When true, the client sends only a newly appended source tail; model must return only that fragment's translation. */
-const STREAMING_FRAGMENT_RULES =
-  `STREAMING FRAGMENT MODE:\n` +
-  `You are a real-time medical interpreter. Translate the following NEW text.\n` +
-  `Do NOT restate or change previous context.\n` +
-  `Provide ONLY the translation for the new segment.\n` +
-  `The user message is ONLY a newly appended tail of a longer live utterance (not the full sentence).\n` +
-  `Translate ONLY that tail. Output ONLY the translation of the tail — no quotation marks, labels, or preamble.\n` +
-  `Do NOT repeat, paraphrase, or restate content from earlier in the same utterance.\n\n`;
+// STREAMING_FRAGMENT_RULES removed — this route always treats the user message as one continuous transcript block.
 
 /** When source is English and target is Arabic: MSA + on-screen interpreter reading quality. */
 const ARABIC_EN_INTERPRETER_RULES =
@@ -1296,8 +1288,9 @@ router.post("/translate", requireAuth, async (req, res) => {
   // language-lock instruction is elevated to the very top of the prompt with
   // even stronger wording, and all domain-specific rules are stripped to keep
   // the model focused solely on getting the target language right.
-  const buildSystemPrompt = (forceOverride: boolean, forStreamingDelta: boolean): string => {
-    const frag = forStreamingDelta ? STREAMING_FRAGMENT_RULES : "";
+  const buildSystemPrompt = (forceOverride: boolean, _forStreamingDelta: boolean): string => {
+    // Fragment / tail-only rules disabled: client always sends full cumulative transcript for this route;
+    const frag = "";
     // Hard target-language lock — placed at the very start so it cannot be
     // overridden by anything later in the prompt.
     const langLock =
@@ -1384,7 +1377,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Prefer faithful literal rendering over creative paraphrase.\n` +
     `- Translate literally. Do NOT paraphrase, infer unstated meaning, or expand abbreviations unless explicitly spoken.\n` +
     `- Do NOT add filler or connective words that are not present in the source utterance.\n` +
-    `- For full-sentence input, translate the complete utterance; in STREAMING FRAGMENT MODE, only the tail is provided — follow that mode strictly.\n\n` +
+    `- Every request contains the full current transcript block — translate it completely from start to finish.\n\n` +
 
     `CONSISTENCY:\n` +
     `- Use the SAME word choice every time for the same term within the segment. Never swap synonyms mid-utterance without cause.\n\n` +
@@ -1423,7 +1416,8 @@ router.post("/translate", requireAuth, async (req, res) => {
         {
           model:       "gpt-4o-mini",
           temperature: 0,
-          max_tokens:  8192,
+          // Floor 1000+ per product contract; 16k avoids mid-sentence cutoffs on long interpreter turns.
+          max_tokens:  16_384,
           messages: [
             { role: "system", content: prompt },
             { role: "user",   content: userContent },
