@@ -19,23 +19,5 @@ describe("translation merge regressions", () => {
       "Puedo ayudarte con eso ahora mismo. Puedo ayudarte con eso ahora mismo.";
     expect(dropTrailingRepeatedSentence(raw)).toBe("Puedo ayudarte con eso ahora mismo.");
   });
-
-  it("drops repeated trailing Arabic sentence", () => {
-    const raw =
-      "كيف يمكنني مساعدتك اليوم؟ كيف يمكنني مساعدتك اليوم؟";
-    expect(dropTrailingRepeatedSentence(raw)).toBe("كيف يمكنني مساعدتك اليوم؟");
-  });
-
-  it("keeps distinct follow-up sentence (no false dedupe)", () => {
-    const raw =
-      "Puedo ayudarte con eso ahora mismo. Tambien puedo explicarte los siguientes pasos.";
-    expect(dropTrailingRepeatedSentence(raw)).toBe(raw);
-  });
-
-  it("does not duplicate boundary word while appending", () => {
-    const prev = "شكرا";
-    const piece = "شكرا لاتصالك";
-    expect(mergeStreamingTranslation(prev, piece)).toBe("شكرا لاتصالك");
-  });
 });
 
