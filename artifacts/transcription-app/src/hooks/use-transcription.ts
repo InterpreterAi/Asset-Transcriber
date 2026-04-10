@@ -904,8 +904,8 @@ function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: stri
 }
 
 
-function applyTranslationTypography(el: HTMLParagraphElement, merged: string): void {
-  const { rtl, arabicScript } = getTranslationTypographyMeta(merged);
+function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
+  const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
   el.dir             = rtl ? "rtl" : "ltr";
   el.style.textAlign = rtl ? "right" : "";
   if (rtl) {
@@ -916,11 +916,12 @@ function applyTranslationTypography(el: HTMLParagraphElement, merged: string): v
       el.lang      = "he";
       el.className = CLS.transText;
     }
-    el.innerHTML = wrapAsciiDigitRunsWithLtrSpans(merged);
+    // Final-overwrite strategy: always replace whole text for this segment.
+    el.innerText = newTranslation;
   } else {
     el.removeAttribute("lang");
     el.className = CLS.transText;
-    el.textContent = merged;
+    el.innerText = newTranslation;
   }
 }
 
@@ -964,6 +965,8 @@ interface BubbleTransState {
   lastRequestedLiveAtMs: number;
   /** Latest computed live translation candidate not yet committed to visible UI. */
   pendingDisplayTranslation: string;
+  /** Once true, ignore any late interim responses for this segment. */
+  hardFinalRequested: boolean;
   /** Locked source language for this segment (set once from first visible token with a language tag). */
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
@@ -1060,7 +1063,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   /** Batch OpenAI live full-buffer replaces so the target column does not rephrase every token tick. */
-  const OPENAI_LIVE_DEBOUNCE_MS = 90;
+  const OPENAI_LIVE_DEBOUNCE_MS = 800;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,
@@ -1214,6 +1217,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // segment, never overwrite it — not from polling, not from re-finalization.
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
+    if (isFinal && lockOnFinal) state.hardFinalRequested = true;
     const forceCommitDisplay = Boolean(options?.forceCommitDisplay);
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     const chars = text.length;
@@ -1454,6 +1458,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (mySeq <= state.lastShownSeq) return;
         if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
+        if (!requestIsFinal && state.hardFinalRequested) return;
         if (!isFinal && state.finalizing) return;
 
         if (!translated) {
@@ -1465,16 +1470,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           let out = maybePolishTranslationForTarget(translated, myTargetLang);
           // Only merge *tiny* final fragments onto live text. Larger finals are full rewrites — merging
           // concatenates a second paraphrase of the same ending (duplicate Arabic closure).
-          if (
-            prevT.length > 28 &&
-            out.length > 0 &&
-            out.length <= 56 &&
-            out.length < prevT.length * 0.28 &&
-            text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.85
-          ) {
-            out = mergeStreamingTranslation(prevT, out);
-            out = maybePolishTranslationForTarget(out, myTargetLang);
-          }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -1513,8 +1508,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               state.pendingDisplayTranslation = out;
             }
           } else {
-            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated);
-            const out = maybePolishTranslationForTarget(merged, myTargetLang);
+            const out = maybePolishTranslationForTarget(translated, myTargetLang);
             const commitLive = true;
             state.lastShownSeq = mySeq;
             state.lastShownLen = out.length;
@@ -1550,10 +1544,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             text.trim().length >= (state.streamCommittedSource ?? "").trim().length * 0.88
           ) {
             // Keep real-time continuity: merge short live snapshots instead of skipping frames.
-            out = maybePolishTranslationForTarget(
-              mergeStreamingTranslation(prevT, out),
-              myTargetLang,
-            );
+            out = prevT;
             state.needsFullFinalTranslation = false;
           }
           const commitLive = true;
@@ -1580,7 +1571,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.pendingLiveSource = "";
           if (pending && pending !== state.lastConfirmedSourceTranslated && !state.finalizing && !state.translationLocked) {
             const langRetry = state.segmentSourceLang ?? detectedLangRef.current;
-            dispatchTranslation(pending, langRetry, false, { skipOpenAiLiveDebounce: true }, state.segmentId);
+            dispatchTranslation(pending, langRetry, false, { skipOpenAiLiveDebounce: false }, state.segmentId);
           }
         }
       }
@@ -1688,6 +1679,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastRequestedLiveSource: "",
       lastRequestedLiveAtMs: 0,
       pendingDisplayTranslation: "",
+      hardFinalRequested: false,
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
@@ -2038,7 +2030,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           source,
           lang,
           true,
-          { lockOnFinal: false, skipOpenAiLiveDebounce: true, forceCommitDisplay: true },
+          { lockOnFinal: false, skipOpenAiLiveDebounce: false, forceCommitDisplay: true },
           st.segmentId,
         );
         st.earlyHintSent = true;
