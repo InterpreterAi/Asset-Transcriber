@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
+import { normalizeInterpreterTranscript } from "@/lib/interpreter-transcript-normalize";
 import {
   getTranslationTypographyMeta,
   wrapAsciiDigitRunsWithLtrSpans,
@@ -1713,8 +1714,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleNFRef.current.textContent = "";
     }
 
-    // Keep source transcript as pure Soniox output across all languages/dialects.
-    // Do not rewrite/normalize user speech text at finalize.
+    if (activeBubbleRef.current) {
+      const pre = activeBubbleRef.current.textContent ?? "";
+      const norm = normalizeInterpreterTranscript(pre, langPairRef.current);
+      // Never shorten the original column: phrase fixes should preserve length; avoid wiping ASR text.
+      if (norm !== pre && norm.length >= pre.length - 3) {
+        activeBubbleRef.current.textContent = norm;
+      }
+    }
 
     if (!styleUpgradedRef.current) {
       styleUpgradedRef.current = true;
