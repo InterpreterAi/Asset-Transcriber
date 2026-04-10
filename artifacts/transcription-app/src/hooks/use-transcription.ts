@@ -818,10 +818,6 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
 /** Longest common prefix length between two strings (case-insensitive, per code unit). */
 function lcpLenInsensitive(a: string, b: string): number {
   let i = 0;
@@ -900,8 +896,6 @@ interface BubbleTransState {
   lastLiveSourceTs:      number;
   /** One-time early non-final translation hint for this segment. */
   earlyHintSent:         boolean;
-  /** Word count at the last non-final preview dispatch. */
-  lastPreviewWordsSent:  number;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -954,7 +948,8 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  const SAME_LIVE_SOURCE_RETRY_MS = 1400;
+  /** Minimal coalesce only — must not block token-by-token live translation. */
+  const SAME_LIVE_SOURCE_RETRY_MS = 45;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1547,7 +1542,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSource:        "",
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
-      lastPreviewWordsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
       lastConfirmedSource:   "",
@@ -1617,7 +1611,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       closeKind === "speaker_change"
         ? domFinal
         : liveBufferRef.current.trim() || domFinal;
-    if (finalText.length > 2) {
+    if (finalText.trim().length > 0) {
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
       // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
@@ -1882,25 +1876,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      // Forward-only speaker pivot: first speaker_id in this message vs current row — before any text lands in DOM.
-      let firstSpeaker: string | undefined;
-      for (let i = 0; i < tokens.length; i++) {
-        const t = tokens[i]!;
-        if (t.speaker === undefined || t.speaker === null) continue;
-        firstSpeaker = String(t.speaker);
-        break;
-      }
-      if (firstSpeaker !== undefined) {
-        if (activeBubbleRef.current && !sameSpeaker(firstSpeaker, currentSpeakerRef.current)) {
-          closeActiveSegmentBoundary("speaker_change");
-        }
-        if (!activeBubbleRef.current) {
-          currentSpeakerRef.current = firstSpeaker;
-          activeBubbleRef.current = createBubble(firstSpeaker);
-          setHasTranscript(true);
-        }
-      }
-
       // ── Silence / pause timers disabled (speaker-id only segmentation) ────
       // Keep clearing any previously armed timers, but do not arm new ones.
       // Segment boundaries are driven strictly by explicit speaker-id changes.
@@ -1911,6 +1886,32 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // ── FINAL tokens ─────────────────────────────────────────────────────
       const finals    = tokens.filter(t => t.is_final);
       const newFinals = finals.slice(finalCountRef.current);
+      const newFinalSet = new Set(newFinals);
+
+      // Per-token forward pivot: the instant `speaker` changes inside this frame, close the row
+      // before any later token (final or NF) is applied — stops cross-speaker bleed in one message.
+      for (const t of tokens) {
+        if (t.speaker !== undefined && t.speaker !== null) {
+          const sid = String(t.speaker);
+          if (!activeBubbleRef.current) {
+            currentSpeakerRef.current = sid;
+            activeBubbleRef.current = createBubble(sid);
+            setHasTranscript(true);
+          } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            closeActiveSegmentBoundary("speaker_change");
+            currentSpeakerRef.current = sid;
+            activeBubbleRef.current = createBubble(sid);
+            setHasTranscript(true);
+          }
+        }
+        if (!activeBubbleRef.current) continue;
+        if (t.is_final && newFinalSet.has(t)) {
+          finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
+          if (activeBubbleStateRef.current) {
+            activeBubbleStateRef.current.finalTokensSeen += 1;
+          }
+        }
+      }
 
       // Detect language from ANY token in this message — final OR non-final.
       // Checking NF tokens too is critical: Soniox often reports language on the
@@ -1927,20 +1928,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         detectedLangRef.current = validatedLang;
       }
 
-      for (const token of newFinals) {
-        if (!activeBubbleRef.current) continue;
-        finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: token.text });
-        if (activeBubbleStateRef.current) {
-          activeBubbleStateRef.current.finalTokensSeen += 1;
-        }
-      }
       scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
       scrollPanel();
 
-      // ── NF (non-final) tokens — transcript UI only (does not call dispatchTranslation) ──
-      const nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      // ── NF (non-final) — only the tail speaker's hypothesis (avoids mixing NF from two speakers in one frame)
+      const effSpk: (string | undefined)[] = [];
+      let fillSpk: string | undefined;
+      for (const t of tokens) {
+        if (t.speaker !== undefined && t.speaker !== null) fillSpk = String(t.speaker);
+        effSpk.push(fillSpk);
+      }
+      const tailSpk = effSpk.length ? effSpk[effSpk.length - 1] : undefined;
+      let nfText = "";
+      if (tailSpk !== undefined) {
+        for (let i = 0; i < tokens.length; i++) {
+          const t = tokens[i]!;
+          if (t.is_final) continue;
+          if (effSpk[i] !== tailSpk) continue;
+          nfText += t.text;
+        }
+      } else {
+        nfText = tokens.filter(t => !t.is_final).map(t => t.text).join("");
+      }
       const nfEl = activeBubbleNFRef.current;
       if (nfText) {
         const stNf = activeBubbleStateRef.current;
@@ -1980,21 +1991,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Non-final preview translation while the segment is open:
-      // dispatch on each newly confirmed source extension (no batching).
+      // Live translation: dispatch on every source change from first non-empty token (no word/length gates).
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        hintSource.length >= 1 &&
+        hintSource.length > 0 &&
         hintSource !== st.lastConfirmedSourceTranslated
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
-        st.lastPreviewWordsSent = countWords(hintSource);
       }
     };
 
