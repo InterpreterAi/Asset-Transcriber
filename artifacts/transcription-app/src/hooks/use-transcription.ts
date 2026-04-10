@@ -53,7 +53,7 @@ const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
-// Segments close only on explicit speaker_id change (see ws.onmessage). No silence-based close.
+// Segments close on stabilized speaker_id change (see effectiveSpeakersForTokenBoundaries + ws.onmessage).
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -152,19 +152,103 @@ function sameSpeaker(a: unknown, b: unknown): boolean {
   return String(a) === String(b);
 }
 
+/** One contiguous span of forward-filled speaker id. */
+type _SpeakerRun = { start: number; end: number; sp: string };
+
+function _coalesceAdjacentSpeakerRuns(runs: _SpeakerRun[]): _SpeakerRun[] {
+  const out: _SpeakerRun[] = [];
+  for (const r of runs) {
+    const last = out[out.length - 1];
+    if (last && last.sp === r.sp) last.end = r.end;
+    else out.push({ start: r.start, end: r.end, sp: r.sp });
+  }
+  return out;
+}
+
+function _runsFromForwardSpeakers(forward: (string | undefined)[]): _SpeakerRun[] {
+  const runs: _SpeakerRun[] = [];
+  let i = 0;
+  const n = forward.length;
+  while (i < n) {
+    while (i < n && forward[i] === undefined) i++;
+    if (i >= n) break;
+    const sp = forward[i]!;
+    const start = i;
+    while (i < n && forward[i] === sp) i++;
+    runs.push({ start, end: i, sp });
+  }
+  return runs;
+}
+
+/**
+ * Soniox diarization often assigns a different speaker_id for a handful of tokens during fast
+ * code-switching or overlap noise. That used to open a new segment per flicker. Collapse *short*
+ * runs sandwiched between the same speaker (A→B→A), tiny leading runs, and tiny trailing runs so
+ * boundaries match stable speaker changes only — same rule as “real” speaker, fewer spurious rows.
+ */
+function effectiveSpeakersForTokenBoundaries(tokens: SonioxToken[]): (string | undefined)[] {
+  const n = tokens.length;
+  if (n === 0) return [];
+  const forward: (string | undefined)[] = new Array(n).fill(undefined);
+  let carry: string | undefined;
+  for (let i = 0; i < n; i++) {
+    const sp = tokens[i]!.speaker;
+    if (sp !== undefined && sp !== null) carry = String(sp);
+    forward[i] = carry;
+  }
+  let runs = _runsFromForwardSpeakers(forward);
+  const runChars = (r: _SpeakerRun): number => {
+    let c = 0;
+    for (let i = r.start; i < r.end; i++) c += (tokens[i]!.text ?? "").length;
+    return c;
+  };
+  const isEphemeralRun = (r: _SpeakerRun): boolean => {
+    const tokLen = r.end - r.start;
+    const chars = runChars(r);
+    return tokLen < 3 && chars < 28;
+  };
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let k = 0; k < runs.length; k++) {
+      const r = runs[k]!;
+      if (!isEphemeralRun(r)) continue;
+      if (k > 0 && k < runs.length - 1) {
+        const prev = runs[k - 1]!;
+        const next = runs[k + 1]!;
+        if (prev.sp === next.sp && r.sp !== prev.sp) {
+          r.sp = prev.sp;
+          changed = true;
+        }
+      } else if (k === 0 && runs.length > 1) {
+        const next = runs[1]!;
+        if (r.sp !== next.sp) {
+          r.sp = next.sp;
+          changed = true;
+        }
+      } else if (k === runs.length - 1 && k > 0) {
+        const prev = runs[k - 1]!;
+        if (r.sp !== prev.sp) {
+          r.sp = prev.sp;
+          changed = true;
+        }
+      }
+    }
+    runs = _coalesceAdjacentSpeakerRuns(runs);
+    if (!changed) break;
+  }
+  const out: (string | undefined)[] = new Array(n).fill(undefined);
+  for (const r of runs) {
+    for (let i = r.start; i < r.end; i++) out[i] = r.sp;
+  }
+  return out;
+}
+
 // ── Language-pair helpers ──────────────────────────────────────────────────────
 // Compare two BCP-47 codes loosely (e.g. "zh-CN" matches "zh").
 function matchesLang(detected: string, selected: string): boolean {
   const d = detected.toLowerCase();
   const s = selected.toLowerCase();
   return d === s || d.split("-")[0] === s.split("-")[0];
-}
-
-// Given a detected language code and the selected {a, b} pair, return the
-// target language code: if detected is B → translate to A, otherwise → B.
-// This makes the translation always go to the OPPOSITE of what was spoken.
-function resolveTarget(detectedLang: string, pair: { a: string; b: string }): string {
-  return matchesLang(detectedLang, pair.b) ? pair.a : pair.b;
 }
 
 // ── Multi-script Unicode validation ───────────────────────────────────────────
@@ -329,6 +413,8 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
  * Treat the git tag `final-boss` as the rollback point for this behavior (`git checkout final-boss`).
  * Pipeline summary: live debounce + per-bubble abort; token dedupe on live; speaker-change full final;
  * finals: shared token + adjacent-paraphrase dedupe then script-family polish (all target languages).
+ * Segments: stabilized Soniox speaker ids so fast bilingual talk does not open a row per diarization flicker.
+ * Direction: snapSourceLanguageToPair + targetOppositeInPair so tgt is always the other selected language.
  */
 
 // Returns true when `lang` (BCP-47, e.g. "zh-CN") is listed in `langs`.
@@ -419,6 +505,48 @@ function validateLangByScript(
 
   // Both or neither pair language uses this script — cannot safely override.
   return sonioxLang;
+}
+
+/** If `code` matches exactly one side of the pair, return that member's tag; otherwise null. */
+function uniquePairMemberForLang(code: string, pair: { a: string; b: string }): string | null {
+  const ma = matchesLang(code, pair.a);
+  const mb = matchesLang(code, pair.b);
+  if (ma && !mb) return pair.a;
+  if (mb && !ma) return pair.b;
+  return null;
+}
+
+/**
+ * Map any detected/locked tag onto exactly one of the user's two languages so src/tgt are never wrong-way.
+ * Fixes Latin/Latin pairs (e.g. en↔es) when Soniox tags the wrong language but later tokens are correct.
+ */
+function snapSourceLanguageToPair(
+  candidate: string,
+  sonioxHint: string,
+  text: string,
+  pair: { a: string; b: string },
+): string {
+  const vCand = validateLangByScript(candidate, text, pair);
+  const u0 = uniquePairMemberForLang(vCand, pair);
+  if (u0 !== null) return u0;
+  const vSon = validateLangByScript(sonioxHint, text, pair);
+  const u1 = uniquePairMemberForLang(vSon, pair);
+  if (u1 !== null) return u1;
+  const u2 = uniquePairMemberForLang(sonioxHint, pair);
+  if (u2 !== null) return u2;
+  const ba = pair.a.split("-")[0]!.toLowerCase();
+  const bb = pair.b.split("-")[0]!.toLowerCase();
+  const bs = sonioxHint.split("-")[0]!.toLowerCase();
+  if (bs === ba && bs !== bb) return pair.a;
+  if (bs === bb && bs !== ba) return pair.b;
+  return pair.a;
+}
+
+/** Always the other pair member — translation column must never stay in the spoken language. */
+function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string }): string {
+  if (matchesLang(sourceMember, pair.a) && !matchesLang(sourceMember, pair.b)) return pair.b;
+  if (matchesLang(sourceMember, pair.b) && !matchesLang(sourceMember, pair.a)) return pair.a;
+  return matchesLang(sourceMember, pair.a) ? pair.b : pair.a;
 }
 
 // ── Translation fetch ──────────────────────────────────────────────────────────
@@ -1264,9 +1392,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const chars = text.length;
 
     const pair = langPairRef.current;
-    const langForPair = state.segmentSourceLang ?? lang;
-
-    if (!matchesLang(langForPair, pair.a) && !matchesLang(langForPair, pair.b)) {
+    const sonioxHint = lang;
+    const rawCandidate =
+      state.segmentSourceLang !== null
+        ? state.segmentSourceLang
+        : validateLangByScript(sonioxHint, text, pair);
+    const vRaw = validateLangByScript(rawCandidate, text, pair);
+    const vSon = validateLangByScript(sonioxHint, text, pair);
+    if (
+      uniquePairMemberForLang(vRaw, pair) === null &&
+      uniquePairMemberForLang(vSon, pair) === null &&
+      uniquePairMemberForLang(sonioxHint, pair) === null
+    ) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
@@ -1297,14 +1434,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const dispatchLang =
-      state.segmentSourceLang !== null
-        ? state.segmentSourceLang
-        : validateLangByScript(lang, text, pair);
-    const myTargetLang =
-      state.segmentTargetLang !== null
-        ? state.segmentTargetLang
-        : resolveTarget(dispatchLang, pair);
+    const dispatchLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
+    const myTargetLang = targetOppositeInPair(dispatchLang, pair);
+    if (!state.translationLocked) {
+      state.segmentSourceLang = dispatchLang;
+      state.segmentTargetLang = myTargetLang;
+    }
     const { transTextEl } = state;
 
     if (matchesLang(dispatchLang, myTargetLang)) {
@@ -1728,21 +1863,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const stSnap = activeBubbleStateRef.current;
       translationBufRef.current.push((stSnap?.transTextEl.textContent ?? "").trim());
       onAdminSnapshotBuffersUpdatedRef.current?.();
-      // Direction follows the first in-pair language spoken in the segment (locked during live);
-      // if the row was too short to lock, infer from the start of the finalized text.
-      const lang =
-        stSnap?.segmentSourceLang != null
-          ? stSnap.segmentSourceLang
-          : validateLangByScript(
-              detectedLangRef.current,
-              finalText.trim(),
-              langPairRef.current,
-            );
+      // Always pass live Soniox hint; dispatch snaps to the pair + opposite target (never same-lang tgt).
       const segId = activeBubbleStateRef.current?.segmentId;
       // Final pass: on speaker_change, defer hardFinal until response so live in-flight is not dropped.
       dispatchTranslation(
         finalText,
-        lang,
+        detectedLangRef.current,
         true,
         {
           lockOnFinal: true,
@@ -1933,13 +2059,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const pair = langPairRef.current;
     const allTokenText = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
     const validated = validateLangByScript(first.language, allTokenText, pair);
-    if (!matchesLang(validated, pair.a) && !matchesLang(validated, pair.b)) return;
-    st.segmentSourceLang = validated;
-    st.segmentTargetLang = resolveTarget(validated, pair);
+    const snapped = snapSourceLanguageToPair(validated, first.language, allTokenText, pair);
+    st.segmentSourceLang = snapped;
+    st.segmentTargetLang = targetOppositeInPair(snapped, pair);
   }, []);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
-  // !! Soniox pipeline — do NOT modify the streaming / segmentation logic !!
+  // Soniox streaming: speaker boundaries use effectiveSpeakersForTokenBoundaries() to ignore
+  // diarization flicker during fast bilingual turns (short A→B→A runs stay one segment).
   const buildWs = useCallback((apiKey: string): WebSocket => {
     const ws = new WebSocket(SONIOX_WS_URL);
 
@@ -1993,6 +2120,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
+      const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
+
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
 
@@ -2001,11 +2130,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const newFinals = finals.slice(finalCountRef.current);
       const newFinalSet = new Set(newFinals);
 
-      // Per-token forward pivot: the instant `speaker` changes inside this frame, close the row
-      // before any later token (final or NF) is applied — stops cross-speaker bleed in one message.
-      for (const t of tokens) {
-        if (t.speaker !== undefined && t.speaker !== null) {
-          const sid = String(t.speaker);
+      // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
+      for (let ti = 0; ti < tokens.length; ti++) {
+        const t = tokens[ti]!;
+        const sid = effSpk[ti];
+        if (sid !== undefined) {
           if (!activeBubbleRef.current) {
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
@@ -2047,14 +2176,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalCountRef.current = finals.length;
       scrollPanel();
 
-      // ── NF (non-final) — only the tail speaker's hypothesis (avoids mixing NF from two speakers in one frame)
-      const effSpk: (string | undefined)[] = [];
-      let fillSpk: string | undefined;
-      for (const t of tokens) {
-        if (t.speaker !== undefined && t.speaker !== null) fillSpk = String(t.speaker);
-        effSpk.push(fillSpk);
+      // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
+      let tailSpk: string | undefined;
+      for (let i = effSpk.length - 1; i >= 0; i--) {
+        if (effSpk[i]) {
+          tailSpk = effSpk[i];
+          break;
+        }
       }
-      const tailSpk = effSpk.length ? effSpk[effSpk.length - 1] : undefined;
       let nfText = "";
       if (tailSpk !== undefined) {
         for (let i = 0; i < tokens.length; i++) {
