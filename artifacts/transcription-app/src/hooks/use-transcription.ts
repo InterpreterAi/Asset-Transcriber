@@ -906,6 +906,8 @@ interface BubbleTransState {
   lastRequestedLiveSource: string;
   /** When last live source request was sent. */
   lastRequestedLiveAtMs: number;
+  /** Throttle WS hint retries when source matches bookkeeping but translation cell is still empty. */
+  lastEmptyCellHintDispatchAtMs: number;
   /** Latest computed live translation candidate not yet committed to visible UI. */
   pendingDisplayTranslation: string;
   /** Once true, ignore any late interim responses for this segment. */
@@ -946,6 +948,8 @@ export type UseTranscriptionOptions = {
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   /** Same-buffer dedupe only; 0 = translate on every distinct Soniox frame. */
   const SAME_LIVE_SOURCE_RETRY_MS = 0;
+  /** When hint bookkeeping matches source but the translation &lt;p&gt; is empty, retry at this interval (not every WS frame). */
+  const EMPTY_CELL_LIVE_HINT_COOLDOWN_MS = 350;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1561,6 +1565,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastConfirmedSourceTranslated: "",
       lastRequestedLiveSource: "",
       lastRequestedLiveAtMs: 0,
+      lastEmptyCellHintDispatchAtMs: 0,
       pendingDisplayTranslation: "",
       hardFinalRequested: false,
       segmentSourceLang:     null,
@@ -2000,15 +2005,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Live translation: first non-empty source only; new bubble only on speaker_id change (no word-count / silence gates).
+      // Live translation: dispatch on source change; if bookkeeping already matches but the cell is empty, retry on a cooldown (not every WS frame).
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
+      const transStillEmpty = (st?.transTextEl.textContent?.trim().length ?? 0) === 0;
+      const sourceChanged = st ? hintSource !== st.lastConfirmedSourceTranslated : false;
+      const stuckEmptyBookkeeping = Boolean(st && transStillEmpty && !sourceChanged);
+      const emptyHintCooldownActive =
+        !!st &&
+        stuckEmptyBookkeeping &&
+        Date.now() - st.lastEmptyCellHintDispatchAtMs < EMPTY_CELL_LIVE_HINT_COOLDOWN_MS;
       if (
         st &&
         !st.translationLocked &&
         hintSource.length > 0 &&
-        hintSource !== st.lastConfirmedSourceTranslated
+        (sourceChanged || transStillEmpty) &&
+        !emptyHintCooldownActive
       ) {
+        if (stuckEmptyBookkeeping) st.lastEmptyCellHintDispatchAtMs = Date.now();
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslation(hintSource, lang, false, { skipOpenAiLiveDebounce: true }, st.segmentId);
         st.earlyHintSent = true;
