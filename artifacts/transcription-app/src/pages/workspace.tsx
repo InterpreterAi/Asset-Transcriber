@@ -1777,14 +1777,6 @@ export default function Workspace() {
               </div>
             </div>
           )}
-          {transcription.translationServiceError && (
-            <div className="px-4 pb-3">
-              <div className="bg-amber-500/10 border border-amber-500/25 rounded-lg p-2.5 flex items-center gap-2 text-xs text-amber-950 dark:text-amber-100">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                {transcription.translationServiceError}
-              </div>
-            </div>
-          )}
         </div>
       </main>
     </div>
