@@ -958,6 +958,10 @@ interface BubbleTransState {
   lastConfirmedSourceTranslated: string;
   /** Latest live source queued while a non-final request is in-flight. */
   pendingLiveSource: string;
+  /** Last live source sent to translator (prevents tight same-text loops). */
+  lastRequestedLiveSource: string;
+  /** When last live source request was sent. */
+  lastRequestedLiveAtMs: number;
   /** Latest computed live translation candidate not yet committed to visible UI. */
   pendingDisplayTranslation: string;
   /** Locked source language for this segment (set once from first visible token with a language tag). */
@@ -994,6 +998,7 @@ export type UseTranscriptionOptions = {
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
+  const SAME_LIVE_SOURCE_RETRY_MS = 1400;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1197,6 +1202,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (!translationEnabledRef.current) return;
     if (!isFinal && text === state.lastConfirmedSourceTranslated) return;
+    if (
+      !isFinal &&
+      text === state.lastRequestedLiveSource &&
+      Date.now() - state.lastRequestedLiveAtMs < SAME_LIVE_SOURCE_RETRY_MS
+    ) {
+      return;
+    }
 
     // Lock guard: once a finalized translation has been written for this
     // segment, never overwrite it — not from polling, not from re-finalization.
@@ -1417,7 +1429,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     state.seq += 1;
     const mySeq = state.seq;
-    if (!isFinal) state.streamInflight = true;
+    if (!isFinal) {
+      state.streamInflight = true;
+      state.lastRequestedLiveSource = text;
+      state.lastRequestedLiveAtMs = Date.now();
+    }
 
     void (async () => {
       try {
@@ -1669,6 +1685,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastConfirmedSource:   "",
       lastConfirmedSourceTranslated: "",
       pendingLiveSource: "",
+      lastRequestedLiveSource: "",
+      lastRequestedLiveAtMs: 0,
       pendingDisplayTranslation: "",
       segmentSourceLang:     null,
       segmentTargetLang:     null,
