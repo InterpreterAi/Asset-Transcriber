@@ -1067,7 +1067,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   /** Batch OpenAI live full-buffer replaces so the target column does not rephrase every token tick. */
-  const OPENAI_LIVE_DEBOUNCE_MS = 160;
+  const OPENAI_LIVE_DEBOUNCE_MS = 90;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,
@@ -1722,15 +1722,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     // Translation source for the final API call:
-    // - silence: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
-    // - speaker_change: use DOM finals only. liveBufferRef is still from the *previous* WS frame at
-    //   this point (this message updates it after the finals loop), so it often still contains the
-    //   next speaker's NF tail — locking that onto the closing row duplicates Arabic on Speaker 1.
+    // Always use DOM finals only. Using liveBuffer at boundaries can leak the next utterance
+    // into the previous segment, then it appears again on the next segment (duplicate question).
     const domFinal = (activeBubbleRef.current.textContent?.trim() ?? "");
-    const finalText =
-      closeKind === "speaker_change"
-        ? domFinal
-        : liveBufferRef.current.trim() || domFinal;
+    const finalText = domFinal;
     if (finalText.length > 2) {
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
