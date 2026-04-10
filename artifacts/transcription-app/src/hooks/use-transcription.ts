@@ -1232,7 +1232,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // Third language (not A or B): mirror transcript in the translation column — no API.
     // Use live Soniox detection + dominant script so a locked "English" segment does not
     // keep translating after the speaker switches to Arabic (or any script outside the pair).
-    if (outOfPairByScript || !langInSelectedPair(dispatchLang, pair)) {
+    if (
+      !langInSelectedPair(detectedLive, pair) ||
+      outOfPairByScript ||
+      !langInSelectedPair(dispatchLang, pair)
+    ) {
       console.info(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
