@@ -1151,8 +1151,6 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
-  /** True for Basic/Professional/Trial-Libre plans that use LibreTranslate. */
-  useLibreTranslate?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1170,11 +1168,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
-
-  const useLibreTranslateRef = useRef(options?.useLibreTranslate ?? false);
-  useEffect(() => {
-    useLibreTranslateRef.current = options?.useLibreTranslate ?? false;
-  }, [options?.useLibreTranslate]);
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1512,7 +1505,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (
       !isFinal &&
-      !useLibreTranslateRef.current &&
       !options?.skipOpenAiLiveDebounce
     ) {
       openaiLiveDebouncePayloadRef.current = { text, lang, segmentId: requestSegmentId };
@@ -1539,8 +1531,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const useLibre = useLibreTranslateRef.current;
-    let requestIsFinal = isFinal;
+       let requestIsFinal = isFinal;
     let apiText: string;
     let useStreamingDelta = false;
     if (isFinal && options?.forceFullSegmentFinal) {

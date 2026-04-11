@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
-import { callLibreTranslate } from "../lib/libretranslate";
+import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -47,7 +47,7 @@ import { hasSubmittedMandatoryFeedbackToday, isMandatoryFeedbackRequiredByUsage 
 //
 // Data flow:
 //   Audio  → browser mic → Soniox WebSocket (never touches this server)
-//   Text   → /api/transcription/translate → OpenAI or LibreTranslate (by plan) → response → discarded
+//   Text   → /api/transcription/translate → OpenAI (Platinum) or Google/Libre (Basic/Pro) → response → discarded
 //   DB     → sessions table stores metadata ONLY: id, userId, duration, timestamps
 //
 // Translation cache was INTENTIONALLY REMOVED.
@@ -1097,12 +1097,12 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const planLower = (translateUser.planType ?? "trial").toLowerCase();
-  const useLibreTranslate =
+  const useMachineTranslation =
     planLower === "basic" ||
     planLower === "professional" ||
     planLower === "trial-libre";
 
-  if (!useLibreTranslate && !isOpenAiConfigured()) {
+  if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({
       error:
         "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
@@ -1204,7 +1204,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  if (useLibreTranslate) {
+  if (useMachineTranslation) {
     try {
       logger.info(
         {
@@ -1215,7 +1215,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      const raw = await callLibreTranslate(textForOpenAI, srcCode, tgtCode);
+      const raw = await translateBasicProfessional(textForOpenAI, srcCode, tgtCode);
       const translated = postProcessTranslatedText(
         restoreTranslationOutput(String(raw ?? "")),
         srcCode,
@@ -1239,10 +1239,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "LibreTranslate request failed",
+        "Basic/Professional translation (Google or LibreTranslate) failed",
       );
       res.status(503).json({
-        error: "Translation is temporarily unavailable (LibreTranslate). Try again in a moment.",
+        error:
+          "Translation is temporarily unavailable (machine translation). Try again in a moment.",
         code: "LIBRETRANSLATE_FAILED",
       });
     }

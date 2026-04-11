@@ -18,12 +18,6 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
   return p === "trial" || p === "trial-openai" || p === "trial-libre";
 }
 
-/** Matches server LibreTranslate plan routing (basic / professional / trial-libre). */
-export function planUsesLibreTranslate(planType: string | undefined | null): boolean {
-  const p = (planType ?? "").toLowerCase();
-  return p === "basic" || p === "professional" || p === "trial-libre";
-}
-
 export function workspacePlanDisplayName(planType: string | undefined | null): string {
   const p = (planType ?? "").toLowerCase();
   if (p === "trial") return "Free Trial";
