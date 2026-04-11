@@ -790,6 +790,14 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** True when the translation cell already shows text we should treat as a real translation (not blank / placeholder-only). */
+function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
+  const t = (el.textContent ?? "").trim();
+  if (!t) return false;
+  if (t === "…") return false;
+  return true;
+}
+
 /** Append a streaming fragment to what is already shown (placeholder … counts as empty). */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
   const piece = newPiece.trim();
@@ -1557,13 +1565,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
         if (monotonic && !tail.trim()) {
           const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
-          const visiblyTranslated = visibleLen > 0;
+          const visiblyTranslated = translationCellLooksFilled(state.transTextEl);
           const sourceLen = text.trim().length;
           if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
           } else if (sourceLen > 24 && visibleLen < 8) {
+            apiText = text;
+            useStreamingDelta = false;
+            requestIsFinal = true;
+          } else if (!visiblyTranslated) {
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
@@ -1602,18 +1614,34 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
-        const { text: translated } = await fetchTranslation(
-          apiText,
-          dispatchLang,
-          myTargetLang,
-          (m) => translationConfigReporterRef.current(m),
-          {
-            streamingDelta:         useStreamingDelta && !requestIsFinal,
-            fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
-            isFinal: requestIsFinal,
-            signal:   liveAbortForThisRequest?.signal,
-          },
-        );
+        const maxFetchAttempts = requestIsFinal ? 3 : 1;
+        let translated = "";
+        for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
+          if (fetchAttempt > 0) {
+            await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
+          }
+          if (requestSegmentId !== state.segmentId) return;
+          if (!transTextEl.isConnected) return;
+          if (state.translationLocked) return;
+          if (!requestIsFinal && state.hardFinalRequested) return;
+          if (!isFinal && state.finalizing) return;
+          if (liveAbortForThisRequest?.signal.aborted) return;
+
+          const { text: t } = await fetchTranslation(
+            apiText,
+            dispatchLang,
+            myTargetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              streamingDelta:         useStreamingDelta && !requestIsFinal,
+              fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
+              isFinal: requestIsFinal,
+              signal:   liveAbortForThisRequest?.signal,
+            },
+          );
+          translated = t;
+          if (translated?.trim()) break;
+        }
         if (requestSegmentId !== state.segmentId) return;
 
         if (!transTextEl.isConnected) return;
@@ -1621,7 +1649,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!requestIsFinal && state.hardFinalRequested) return;
         if (!isFinal && state.finalizing) return;
 
-        if (!translated) {
+        if (!translated?.trim()) {
           return;
         }
 

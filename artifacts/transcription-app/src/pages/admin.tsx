@@ -95,6 +95,31 @@ interface SessionDetail {
   snapshot:        SessionSnapshot | null;
 }
 
+/** Admin poll merge: translation often fills a line after transcript (worse on Latin/Latin pairs like en/es). Prefer each non-empty translation line from the newest tick; keep prior line if the new one is still empty. Total-string-length merge wrongly dropped those updates when the new blob was shorter. */
+function mergeLiveSessionSnapshots(prev: SessionSnapshot, next: SessionSnapshot): SessionSnapshot {
+  const pt = prev.transcript.split("\n");
+  const nt = next.transcript.split("\n");
+  const ptr = prev.translation.split("\n");
+  const ntr = next.translation.split("\n");
+  const nRows = Math.max(pt.length, nt.length, ptr.length, ntr.length);
+  const outT: string[] = [];
+  const outTr: string[] = [];
+  for (let i = 0; i < nRows; i++) {
+    const pl = pt[i] ?? "";
+    const nl = nt[i] ?? "";
+    outT.push(nl.length >= pl.length ? (nl || pl) : (pl || nl));
+    const pTr = ptr[i] ?? "";
+    const nTr = ntr[i] ?? "";
+    outTr.push(nTr.trim() ? nTr : pTr);
+  }
+  return {
+    ...next,
+    transcript: outT.join("\n"),
+    translation: outTr.join("\n"),
+    updatedAt: Math.max(prev.updatedAt, next.updatedAt),
+  };
+}
+
 interface LangOption { value: string; label: string; }
 interface LangConfigResp {
   allLanguages:     LangOption[];
@@ -615,9 +640,9 @@ export default function Admin() {
       const res = await fetch(`/api/admin/session/${sessionId}`, { credentials: "include" });
       if (!res.ok) return;
       const next = await res.json() as SessionDetail;
-      // Live view: translation lines often land after transcript on the client; a poll can
-      // see shorter `translation` than a previous tick. Merge monotonically so admin UI
-      // does not flicker or drop text between refreshes.
+      // Live view: translation lines often land after transcript; Latin/Latin (e.g. en/es) is
+      // slower / noisier than mixed-script pairs (e.g. en/ar). Merge line-by-line so a shorter
+      // but more complete `translation` payload is not discarded (see mergeLiveSessionSnapshots).
       setSessionDetail((prev) => {
         if (!next.isLive || !prev?.isLive || prev.sessionId !== next.sessionId) return next;
         if (!next.snapshot) return next;
@@ -625,18 +650,9 @@ export default function Admin() {
         const ps = prev.snapshot;
         const ns = next.snapshot;
         if (!ns.transcript.trim() && !ns.translation.trim()) return next;
-        const mergedTranscript =
-          ns.transcript.length >= ps.transcript.length ? ns.transcript : ps.transcript;
-        const mergedTranslation =
-          ns.translation.length >= ps.translation.length ? ns.translation : ps.translation;
         return {
           ...next,
-          snapshot: {
-            ...ns,
-            transcript: mergedTranscript,
-            translation: mergedTranslation,
-            updatedAt: Math.max(ns.updatedAt, ps.updatedAt),
-          },
+          snapshot: mergeLiveSessionSnapshots(ps, ns),
         };
       });
     } catch { /* ignore */ }
