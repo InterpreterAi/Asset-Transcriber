@@ -662,9 +662,15 @@ async function translateViaPrimaryApi(
       if (r.status === 403) {
         const raw403 = await r.text();
         try {
-          const j403 = JSON.parse(raw403) as { code?: string };
+          const j403 = JSON.parse(raw403) as { code?: string; error?: string };
           if (j403.code === "TRANSLATION_PLAN_REQUIRED") {
-            return { outcome: "ok", text: "" };
+            // Do not swallow: Basic/Pro should never hit this — if they do, the banner explains the mismatch.
+            return {
+              outcome:     "try_fallback",
+              userMessage:
+                j403.error ??
+                "Translation is not enabled for this account. Refresh the page or contact support if you have an active paid plan.",
+            };
           }
         } catch {
           /* fall through */

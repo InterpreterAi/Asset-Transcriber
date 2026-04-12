@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
-import { callLibreTranslate } from "../lib/libretranslate.js";
+import { translatePlainMachine } from "../lib/basic-pro-translate.js";
 
 const router = Router();
 router.use(requireJsonObjectBody);
@@ -37,11 +37,14 @@ router.post("/", requireAuth, async (req, res) => {
     return;
   }
 
+  const srcTag = sourceLang?.trim() || src;
+  const tgtTag = targetLang?.trim() || tgt;
+
   try {
-    const translated = await callLibreTranslate(body, src, tgt);
+    const translated = await translatePlainMachine(body, srcTag, tgtTag);
     res.json({ translatedText: translated });
   } catch (err) {
-    req.log.warn({ err }, "LibreTranslate failed");
+    req.log.warn({ err }, "Machine translation failed");
     res.status(502).json({ error: "Translation service unavailable" });
   }
 });

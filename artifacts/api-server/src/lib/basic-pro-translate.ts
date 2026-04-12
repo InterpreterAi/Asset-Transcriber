@@ -1,9 +1,14 @@
 import { callLibreTranslate } from "./libretranslate.js";
+import { callGoogleTranslate, isGoogleTranslateConfigured } from "./google-translate.js";
+import { callMyMemoryTranslate } from "./mymemory-translate.js";
+import { logger } from "./logger.js";
 
 /**
  * Basic / Professional / trial-libre: same masking pipeline as Platinum on `/translate`,
- * but the engine is public LibreTranslate only (no OpenAI). One request per segment — same
- * shape as the OpenAI call (full `text` from client, masked digits expanded for Libre).
+ * but the engine is machine translation (never OpenAI). Order:
+ *   1. Google Cloud Translation API when GOOGLE_TRANSLATE_API_KEY (or GOOGLE_CLOUD_TRANSLATION_API_KEY) is set
+ *   2. LibreTranslate (self-hosted or public free instances)
+ *   3. MyMemory free API (last resort; strict limits)
  */
 
 function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, string>): string {
@@ -16,13 +21,42 @@ function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, s
   return out;
 }
 
+/**
+ * Plain segment: Google → Libre → MyMemory. At least one must succeed or throws.
+ * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en) for best engine support.
+ */
+export async function translatePlainMachine(
+  plain: string,
+  sourceLang: string,
+  targetLang: string,
+): Promise<string> {
+  const t = plain.trim();
+  if (!t) return "";
+
+  if (isGoogleTranslateConfigured()) {
+    try {
+      return await callGoogleTranslate(t, sourceLang, targetLang);
+    } catch (err) {
+      logger.warn({ err }, "Google Cloud Translate failed; falling back to LibreTranslate");
+    }
+  }
+
+  try {
+    return await callLibreTranslate(t, sourceLang, targetLang);
+  } catch (err) {
+    logger.warn({ err }, "LibreTranslate failed; falling back to MyMemory");
+  }
+
+  return callMyMemoryTranslate(t, sourceLang, targetLang);
+}
+
 export async function translateBasicProfessional(
   text: string,
-  source: string,
-  target: string,
+  sourceLang: string,
+  targetLang: string,
   slotToDigits: Map<number, string>,
 ): Promise<string> {
   const hasNums = slotToDigits.size > 0;
   const plain = hasNums ? expandNumPlaceholdersToDigits(text, slotToDigits) : text;
-  return callLibreTranslate(plain, source, target);
+  return translatePlainMachine(plain, sourceLang, targetLang);
 }

@@ -1225,7 +1225,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Basic / Professional / trial-libre: same mask + restore + postProcess as OpenAI; engine is LibreTranslate only.
+  // Basic / Professional / trial-libre: same mask + restore + postProcess as OpenAI; engines: Google (if key) → Libre → MyMemory.
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1237,7 +1237,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      let raw = await translateBasicProfessional(textForOpenAI, srcCode, tgtCode, numMask.slotToDigits);
+      let raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
       let translated = postProcessTranslatedText(
         restoreTranslationOutput(String(raw ?? "")),
         srcCode,
@@ -1247,9 +1247,9 @@ router.post("/translate", requireAuth, async (req, res) => {
       if (!translated.trim() && phraseNormalized.trim().length >= 2) {
         logger.warn(
           { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "LibreTranslate empty after mask/restore; retrying unmasked phrase",
+          "Machine translation empty after mask/restore; retrying unmasked phrase",
         );
-        raw = await translateBasicProfessional(phraseNormalized, srcCode, tgtCode, new Map());
+        raw = await translateBasicProfessional(phraseNormalized, srcLang, tgtLang, new Map());
         translated = postProcessTranslatedText(
           restoreTranslationOutput(String(raw ?? "")),
           srcCode,
@@ -1259,11 +1259,12 @@ router.post("/translate", requireAuth, async (req, res) => {
       if (!translated.trim() && text.trim().length >= 1) {
         logger.warn(
           { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "LibreTranslate returned empty translation after retry",
+          "Machine translation returned empty after retry",
         );
         res.status(503).json({
           error:
-            "Translation is temporarily unavailable (machine translation). Try again in a moment.",
+            "Translation is temporarily unavailable (machine translation). Try again in a moment. " +
+            "On the server, set GOOGLE_TRANSLATE_API_KEY (Cloud Translation API) for reliable Basic/Professional output.",
           code: "LIBRETRANSLATE_FAILED",
         });
         return;
@@ -1290,7 +1291,8 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       res.status(503).json({
         error:
-          "Translation is temporarily unavailable (machine translation). Try again in a moment.",
+          "Translation is temporarily unavailable (machine translation). Try again in a moment. " +
+          "Set GOOGLE_TRANSLATE_API_KEY on the API server for Google Translate, or LIBRETRANSLATE_URL for self-hosted Libre.",
         code: "LIBRETRANSLATE_FAILED",
       });
     }
