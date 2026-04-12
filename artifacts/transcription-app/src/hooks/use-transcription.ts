@@ -411,8 +411,8 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
  * THE FINAL BOSS — the one canonical InterpreterAI release (no other “final boss”; earlier baseline is `legacy-final-boss`).
  * Rollback: `git checkout final-boss`. Older pipeline snapshot: `git checkout legacy-final-boss` (superseded; had transcript phrase rewrites).
  * Original column: exact ASR mirror — no client-side rephrasing or “similar meaning” fixes.
- * Translation: live debounce + per-bubble abort; token dedupe on live; speaker-change full final;
- * finals: token + adjacent-paraphrase dedupe then script-family polish (all target languages).
+ * Translation: live debounce + per-bubble abort; speaker-change full final;
+ * finals: adjacent *paraphrase* merge only (verbatim repeats preserved) + script-family polish (all targets).
  * Segments: stabilized Soniox speaker ids (fewer spurious rows on fast bilingual turns).
  * Direction: snapSourceLanguageToPair + targetOppositeInPair (target is always the other selected language).
  */
@@ -830,16 +830,9 @@ function endsWithPhraseBoundary(s: string): boolean {
   return /[.!?؟،。！？:;]\s*$/u.test(t);
 }
 
-/** Consecutive duplicate tokens (all targets — matches Arabic/English hygiene). */
+/** Whitespace normalize only — do NOT drop consecutive identical tokens (faithful interpreting when the speaker repeats words). */
 function dedupeConsecutiveTranslationTokens(raw: string): string {
-  const t = collapseWs(raw);
-  const toks = t.split(/\s+/).filter(Boolean);
-  const deduped: string[] = [];
-  for (const w of toks) {
-    if (deduped.length && deduped[deduped.length - 1] === w) continue;
-    deduped.push(w);
-  }
-  return deduped.join(" ");
+  return collapseWs(raw);
 }
 
 function tokenOverlapRatio(a: string, b: string): number {
@@ -874,6 +867,11 @@ function dedupeAdjacentParaphraseSentences(raw: string): string {
       }
       const r = Math.max(tokenOverlapRatio(prev, cur), tokenOverlapRatio(cur, prev));
       if (r >= 0.52) {
+        // Identical / verbatim repeated sentence — keep both (speaker emphasis, stuttering, or deliberate repeat).
+        if (collapseWs(prev) === collapseWs(cur)) {
+          out.push(cur);
+          continue;
+        }
         if (cur.length >= prev.length) {
           out[out.length - 1] = cur;
         }
@@ -903,7 +901,12 @@ function polishArabicInterpreterTranslation(raw: string): string {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
     // High threshold only: low values dropped whole closing sentences on valid multi-sentence medical turns.
-    if (last.length >= 12 && prev.length >= 12 && tokenOverlapRatio(prev, last) >= 0.82) {
+    if (
+      last.length >= 12 &&
+      prev.length >= 12 &&
+      tokenOverlapRatio(prev, last) >= 0.82 &&
+      collapseWs(prev) !== collapseWs(last)
+    ) {
       return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
@@ -920,7 +923,12 @@ function polishHebrewInterpreterTranslation(raw: string): string {
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
-    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.82) {
+    if (
+      last.length >= 14 &&
+      prev.length >= 14 &&
+      tokenOverlapRatio(prev, last) >= 0.82 &&
+      collapseWs(prev) !== collapseWs(last)
+    ) {
       return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
@@ -945,7 +953,9 @@ function polishLatinScriptInterpreterTranslation(raw: string, targetBase: string
     const prev = sents[sents.length - 2]!;
     if (last.length >= 14 && prev.length >= 14) {
       const r = tokenOverlapRatio(prev, last);
-      if (r >= 0.82) return collapseWs(sents.slice(0, -1).join(" "));
+      if (r >= 0.82 && collapseWs(prev) !== collapseWs(last)) {
+        return collapseWs(sents.slice(0, -1).join(" "));
+      }
     }
   }
   return collapseWs(t);
@@ -959,7 +969,12 @@ function polishQuestionMarkFamilyTargetTranslation(raw: string): string {
   if (sents.length >= 2) {
     const last = sents[sents.length - 1]!;
     const prev = sents[sents.length - 2]!;
-    if (last.length >= 14 && prev.length >= 14 && tokenOverlapRatio(prev, last) >= 0.82) {
+    if (
+      last.length >= 14 &&
+      prev.length >= 14 &&
+      tokenOverlapRatio(prev, last) >= 0.82 &&
+      collapseWs(prev) !== collapseWs(last)
+    ) {
       return collapseWs(sents.slice(0, -1).join(" "));
     }
   }
@@ -1013,8 +1028,8 @@ function trimOverlappingDuplicateQuestionTail(raw: string): string {
 }
 
 /**
- * THE FINAL BOSS (canonical) · final-column polish: shared token + adjacent-paraphrase dedupe, then script-family
- * fixes (same baseline for every target language, e.g. en↔es, en↔ar, ar↔fr).
+ * THE FINAL BOSS (canonical) · final-column polish: whitespace + adjacent paraphrase merge (verbatim repeats kept), then script-family
+ * fixes (same baseline for every target language).
  */
 function maybePolishTranslationForTarget(text: string, targetLang: string): string {
   const base = targetLang.split("-")[0]?.toLowerCase() ?? "";

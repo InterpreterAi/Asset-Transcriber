@@ -569,13 +569,7 @@ function stripStrayLatinAuxiliaryTokens(text: string, sourceBase: string, target
 /** Client applies similar logic; server normalizes Arabic output before respond. */
 function polishArabicTranslationOutput(text: string): string {
   let t = text.replace(/\s+/g, " ").trim();
-  const toks = t.split(/\s+/).filter(Boolean);
-  const out: string[] = [];
-  for (const w of toks) {
-    if (out.length && out[out.length - 1] === w) continue;
-    out.push(w);
-  }
-  t = out.join(" ");
+  // Keep consecutive identical tokens — speakers repeat for emphasis; do not collapse.
   t = t.replace(/^[.؟!،。'"“”\s\u200c\u200f\u200e]+/u, "").trim();
   t = t.replace(/([.؟!?])\1+/g, "$1");
   t = t.replace(/([^؟?\n]+)[؟?]\s*لليوم[؟?]\s*$/u, "$1 اليوم؟");
@@ -584,13 +578,7 @@ function polishArabicTranslationOutput(text: string): string {
 
 function polishEnglishInterpreterOutput(text: string): string {
   let t = text.replace(/\s+/g, " ").trim();
-  const toks = t.split(/\s+/).filter(Boolean);
-  const out: string[] = [];
-  for (const w of toks) {
-    if (out.length && out[out.length - 1] === w) continue;
-    out.push(w);
-  }
-  t = out.join(" ");
+  // Keep consecutive identical tokens when the speaker repeated (faithful output).
   t = t.replace(/\?\s*Complete confidentiality, right\?$/i, "?");
   t = t.replace(/,\s*okay\?\s+Complete confidentiality, right\?$/i, ", okay?");
   t = t.replace(/\bokay\?\s+Complete confidentiality, right\?$/i, "okay?");
