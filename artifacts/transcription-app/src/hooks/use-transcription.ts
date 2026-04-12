@@ -1164,11 +1164,6 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
-  /**
-   * Basic / Professional / trial-libre (LibreTranslate): always send the full segment on finalize — no
-   * tail-only delta merge (avoids dropped clauses). Does not apply to OpenAI / Platinum.
-   */
-  machineTranslationFullSegmentFinals?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1186,13 +1181,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
-
-  const machineTranslationFullSegmentFinalsRef = useRef(
-    Boolean(options?.machineTranslationFullSegmentFinals),
-  );
-  useEffect(() => {
-    machineTranslationFullSegmentFinalsRef.current = Boolean(options?.machineTranslationFullSegmentFinals);
-  }, [options?.machineTranslationFullSegmentFinals]);
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1563,11 +1551,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       apiText = text;
       useStreamingDelta = false;
       requestIsFinal = true;
-    } else if (isFinal && machineTranslationFullSegmentFinalsRef.current) {
-      // LibreTranslate plans only (workspace sets this flag). Do not duplicate with planType — keeps Platinum/OpenAI finalize path unchanged.
-      apiText = text;
-      useStreamingDelta = false;
-      requestIsFinal = true;
     } else if (isFinal) {
       const committed = collapseWs(state.streamCommittedSource);
       const finalSrc = collapseWs(text);
@@ -1597,11 +1580,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             useStreamingDelta = false;
             requestIsFinal = true;
           } else if (!visiblyTranslated) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (machineTranslationFullSegmentFinalsRef.current) {
-            // LibreTranslate only: never lock without a final full-segment API call (live preview can look "filled" with junk).
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
@@ -1640,10 +1618,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
-        // Extra retries only for Libre MT (longer cold starts / public hosts). Platinum & OpenAI: unchanged 3.
-        const maxFetchAttempts = requestIsFinal
-          ? (machineTranslationFullSegmentFinalsRef.current ? 5 : 3)
-          : 1;
+        const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {

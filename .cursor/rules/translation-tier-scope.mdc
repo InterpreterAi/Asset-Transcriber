@@ -12,9 +12,9 @@ alwaysApply: true
 
 ## Allowed to change (Libre / machine translation only)
 
-- **`basic`**, **`professional`**, and **`trial-libre`** only: LibreTranslate, `machineTranslationFullSegmentFinals`, `basic-pro-translate`, `libretranslate.ts`, and any UI/server branches gated on those plan types.
+- **`basic`**, **`professional`**, and **`trial-libre`** only: server Libre path (`useMachineTranslation` in `transcription.ts`), `basic-pro-translate.ts`, `libretranslate.ts`. **Client translation dispatch must stay identical to Platinum** — engine swap is server-side only.
 
 ## Implementation discipline
 
-- When editing shared files (e.g. `transcription.ts`, `use-transcription.ts`), **gate** new behavior with `planType` / `useMachineTranslation` / `machineTranslationFullSegmentFinals` (or equivalent) so **Platinum and OpenAI trials stay bit-identical in behavior** unless the user explicitly asks otherwise.
+- When editing shared files (e.g. `transcription.ts`), **gate** new behavior with `useMachineTranslation` (or equivalent) so **Platinum and OpenAI trials stay unchanged** unless the user explicitly asks otherwise. **Do not** add Basic/Professional-only branches in `use-transcription.ts` — same client flow for all plans.
 - After completing requested work, **commit and push** to `main` unless the user says not to.

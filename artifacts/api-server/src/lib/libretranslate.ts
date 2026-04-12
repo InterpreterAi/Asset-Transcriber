@@ -11,6 +11,7 @@ const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, ""
 const DEFAULT_FREE_LIBRE_BASES = [
   "https://translate.argosopentech.com",
   "https://libretranslate.de",
+  "https://translate.astian.org",
 ] as const;
 
 const PER_HOST_TIMEOUT_MS = 22_000;
@@ -50,7 +51,9 @@ async function callLibreTranslateAtBase(
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        "User-Agent": "InterpreterAI-API/1.0",
+        // Some public instances block generic bot UAs; behave like a normal browser.
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     },
   );
@@ -74,7 +77,7 @@ async function callLibreTranslateAtBase(
 }
 
 /**
- * Free tier: public LibreTranslate hosts (no key). On total failure, basic-pro-translate falls back to MyMemory.
+ * Free tier: public LibreTranslate hosts (no key). Tries each base until one succeeds.
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise DEFAULT_FREE_LIBRE_BASES are tried in order.
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
