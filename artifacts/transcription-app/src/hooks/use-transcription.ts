@@ -587,9 +587,10 @@ async function translateViaPrimaryApi(
   const MAX_ATTEMPTS = isFinal ? 4 : 2;
   // Long cumulative live strings — allow full 30s per attempt (product: coverage over cost).
   const REQUEST_TIMEOUT_MS = 30_000;
+  // Note: LIBRETRANSLATE_FAILED is intentionally not fatal here — public Libre endpoints are flaky;
+  // allow MAX_ATTEMPTS backoff retries (Basic / Professional / trial-libre).
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
-    "LIBRETRANSLATE_FAILED",
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",

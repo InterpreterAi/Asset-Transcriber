@@ -32,7 +32,7 @@ export function getTrialDaysRemaining(user: User): number {
 
 /** Trial-like plans: default signup `trial`, or admin-assigned `trial-openai` / `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
-  const p = (planType ?? "").toLowerCase();
+  const p = (planType ?? "").trim().toLowerCase();
   return p === "trial" || p === "trial-openai" || p === "trial-libre";
 }
 
@@ -52,10 +52,10 @@ export function isTrialExpired(user: User): boolean {
  * `platinum`, `unlimited`, `trial`, `trial-openai` → OpenAI (`gpt-4o-mini`) with full interpreter prompts.
  */
 export function translationEnabledForUser(user: User): boolean {
-  const p = (user.planType ?? "trial").toLowerCase();
+  const p = (user.planType ?? "trial").trim().toLowerCase();
   if (p === "platinum" || p === "unlimited") return true;
-  if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   if (p === "basic" || p === "professional") return true;
+  if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   return false;
 }
 

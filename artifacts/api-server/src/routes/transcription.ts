@@ -1115,7 +1115,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  const planLower = (translateUser.planType ?? "trial").toLowerCase();
+  const planLower = (translateUser.planType ?? "trial").trim().toLowerCase();
   // LibreTranslate: basic / professional / trial-libre only. Platinum & unlimited use the OpenAI block below unchanged — never add them here.
   const useMachineTranslation =
     planLower === "basic" ||
@@ -1237,12 +1237,37 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      const raw = await translateBasicProfessional(textForOpenAI, srcCode, tgtCode, numMask.slotToDigits);
-      const translated = postProcessTranslatedText(
+      let raw = await translateBasicProfessional(textForOpenAI, srcCode, tgtCode, numMask.slotToDigits);
+      let translated = postProcessTranslatedText(
         restoreTranslationOutput(String(raw ?? "")),
         srcCode,
         tgtCode,
       );
+      // Masking/restore or aggressive post-process can rarely yield empty while source had text — retry plain phrase.
+      if (!translated.trim() && phraseNormalized.trim().length >= 2) {
+        logger.warn(
+          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
+          "LibreTranslate empty after mask/restore; retrying unmasked phrase",
+        );
+        raw = await translateBasicProfessional(phraseNormalized, srcCode, tgtCode, new Map());
+        translated = postProcessTranslatedText(
+          restoreTranslationOutput(String(raw ?? "")),
+          srcCode,
+          tgtCode,
+        );
+      }
+      if (!translated.trim() && text.trim().length >= 1) {
+        logger.warn(
+          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
+          "LibreTranslate returned empty translation after retry",
+        );
+        res.status(503).json({
+          error:
+            "Translation is temporarily unavailable (machine translation). Try again in a moment.",
+          code: "LIBRETRANSLATE_FAILED",
+        });
+        return;
+      }
       diagCounter.translationSegments += 1;
       diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated });
       logger.info(
