@@ -1584,8 +1584,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             useStreamingDelta = false;
             requestIsFinal = true;
           } else {
-            state.translationLocked = true;
-            return;
+            // Never lock without an API pass — preview can look “filled” while the final source still needs a real translate.
+            apiText = text;
+            useStreamingDelta = false;
+            requestIsFinal = true;
           }
         }
         if (monotonic && tail.trim()) {
@@ -1645,6 +1647,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           );
           translated = t;
           if (translated?.trim()) break;
+        }
+        if (!translated?.trim() && isFinal && text.trim().length >= 3) {
+          await new Promise<void>(res => setTimeout(res, 450));
+          if (requestSegmentId !== state.segmentId) return;
+          if (!transTextEl.isConnected) return;
+          if (state.translationLocked) return;
+          const { text: tRetry } = await fetchTranslation(
+            text,
+            dispatchLang,
+            myTargetLang,
+            (m) => translationConfigReporterRef.current(m),
+            { streamingDelta: false, isFinal: true },
+          );
+          translated = tRetry;
         }
         if (requestSegmentId !== state.segmentId) return;
 
