@@ -1167,6 +1167,10 @@ export type UseTranscriptionOptions = {
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
+/**
+ * One browser tab/mount = one hook instance: refs and DOM rows are not shared across users or sessions.
+ * Translation engine (OpenAI vs machine) is chosen server-side per authenticated user on each request.
+ */
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   /** Slower live path: first dispatch after enough finals + words, then every N words (not every WS frame). */
   const EARLY_HINT_MIN_WORDS = 8;

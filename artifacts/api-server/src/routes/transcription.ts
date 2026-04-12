@@ -1116,6 +1116,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const planLower = (translateUser.planType ?? "trial").trim().toLowerCase();
+  // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
   // LibreTranslate: basic / professional / trial-libre only. Platinum & unlimited use the OpenAI block below unchanged — never add them here.
   const useMachineTranslation =
     planLower === "basic" ||
@@ -1187,6 +1188,16 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Diagnostics only: resolve active session and segment IDs, then count stage events.
   let diagSessionId: number | null =
     typeof incomingSessionId === "number" && Number.isFinite(incomingSessionId) ? incomingSessionId : null;
+  if (diagSessionId != null) {
+    const [sessionOwned] = await db
+      .select({ id: sessionsTable.id })
+      .from(sessionsTable)
+      .where(and(eq(sessionsTable.id, diagSessionId), eq(sessionsTable.userId, userId)))
+      .limit(1);
+    if (!sessionOwned) {
+      diagSessionId = null;
+    }
+  }
   if (diagSessionId == null) {
     const [openSession] = await db
       .select({ id: sessionsTable.id })
