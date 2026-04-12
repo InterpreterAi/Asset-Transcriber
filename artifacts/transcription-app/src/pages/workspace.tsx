@@ -119,6 +119,7 @@ export default function Workspace() {
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
     machineTranslationFullSegmentFinals: machineTranslationLibrePlan,
+    planType: user?.planType ?? null,
     onAdminSnapshotBuffersUpdated: () => {
       if (snapshotCtxRef.current.debounce != null) return;
       snapshotCtxRef.current.debounce = setTimeout(() => {

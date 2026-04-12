@@ -9,11 +9,21 @@ const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, ""
  * Tried in order when LIBRETRANSLATE_URL is unset; next host is used if one is down or rate-limited.
  */
 const DEFAULT_FREE_LIBRE_BASES = [
-  "https://libretranslate.de",
   "https://translate.argosopentech.com",
+  "https://libretranslate.de",
 ] as const;
 
 const PER_HOST_TIMEOUT_MS = 22_000;
+
+/** Map common BCP-47 tags to LibreTranslate API language codes. */
+function normalizeLibreLang(code: string): string {
+  const raw = code.trim().toLowerCase();
+  const base = raw.split("-")[0] ?? raw;
+  if (base === "iw") return "he";
+  if (raw === "zh-tw" || raw === "zh-hant") return "zh";
+  if (raw === "zh-cn" || raw === "zh-hans") return "zh";
+  return base;
+}
 
 async function callLibreTranslateAtBase(
   baseUrl: string,
@@ -21,10 +31,12 @@ async function callLibreTranslateAtBase(
   source: string,
   target: string,
 ): Promise<string> {
+  const src = normalizeLibreLang(source);
+  const tgt = normalizeLibreLang(target);
   const body: Record<string, unknown> = {
     q: text,
-    source,
-    target,
+    source: src,
+    target: tgt,
     format: "text",
   };
   if (LIBRE_API_KEY) body.api_key = LIBRE_API_KEY;
@@ -53,6 +65,10 @@ async function callLibreTranslateAtBase(
   const out = res.data?.translatedText;
   if (typeof out !== "string") {
     throw new Error("LibreTranslate returned no translatedText");
+  }
+  const trimmed = out.trim();
+  if (!trimmed) {
+    throw new Error("LibreTranslate returned empty translatedText");
   }
   return out;
 }
