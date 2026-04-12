@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
+import { normalizeEnglishClinicalLeaksForArabicScript } from "../lib/en-to-arabic-script-clinical-leaks.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -602,6 +603,10 @@ function postProcessTranslatedText(
   targetBase: string,
 ): string {
   let t = stripStrayLatinAuxiliaryTokens(text, sourceBase, targetBase);
+  // Prompts alone often fail: model leaves English clinical/legal terms in Arabic output.
+  if (sourceBase === "en" && targetBase === "ar") {
+    t = normalizeEnglishClinicalLeaksForArabicScript(t);
+  }
   if (targetBase === "ar") t = polishArabicTranslationOutput(t);
   if (targetBase === "en") t = polishEnglishInterpreterOutput(t);
   return t;
