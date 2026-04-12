@@ -111,8 +111,14 @@ export default function Workspace() {
     debounce: ReturnType<typeof setTimeout> | null;
   }>({ transcription: null, debounce: null });
 
+  const planLower = (user?.planType ?? "").toLowerCase();
+  // Libre-only UX tweaks (full-segment finals). Platinum / unlimited / default trial / trial-openai stay on the canonical OpenAI path — do not add them here.
+  const machineTranslationLibrePlan =
+    planLower === "basic" || planLower === "professional" || planLower === "trial-libre";
+
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
+    machineTranslationFullSegmentFinals: machineTranslationLibrePlan,
     onAdminSnapshotBuffersUpdated: () => {
       if (snapshotCtxRef.current.debounce != null) return;
       snapshotCtxRef.current.debounce = setTimeout(() => {

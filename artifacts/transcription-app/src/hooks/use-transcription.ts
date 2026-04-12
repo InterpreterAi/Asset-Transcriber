@@ -1164,6 +1164,11 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
+  /**
+   * Basic / Professional / trial-libre (LibreTranslate): always send the full segment on finalize — no
+   * tail-only delta merge (avoids dropped clauses). Does not apply to OpenAI / Platinum.
+   */
+  machineTranslationFullSegmentFinals?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1181,6 +1186,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
+
+  const machineTranslationFullSegmentFinalsRef = useRef(
+    Boolean(options?.machineTranslationFullSegmentFinals),
+  );
+  useEffect(() => {
+    machineTranslationFullSegmentFinalsRef.current = Boolean(options?.machineTranslationFullSegmentFinals);
+  }, [options?.machineTranslationFullSegmentFinals]);
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1548,6 +1560,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let apiText: string;
     let useStreamingDelta = false;
     if (isFinal && options?.forceFullSegmentFinal) {
+      apiText = text;
+      useStreamingDelta = false;
+      requestIsFinal = true;
+    } else if (isFinal && machineTranslationFullSegmentFinalsRef.current) {
       apiText = text;
       useStreamingDelta = false;
       requestIsFinal = true;
