@@ -1172,9 +1172,9 @@ export type UseTranscriptionOptions = {
  * Translation engine (OpenAI vs machine) is chosen server-side per authenticated user on each request.
  */
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Slower live path: first dispatch after enough finals + words, then every N words (not every WS frame). */
+  /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Tuned for earlier first paint without extra final polish passes. */
   const EARLY_HINT_MIN_WORDS = 8;
-  const LIVE_PREVIEW_WORD_STEP = 8;
+  const LIVE_PREVIEW_WORD_STEP = 6;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1263,8 +1263,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS-driven triggers; not per-frame requests). */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 80;
+  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -2288,8 +2288,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        st.finalTokensSeen >= 3 &&
-        hintSource.length >= 25 &&
+        st.finalTokensSeen >= 2 &&
+        hintSource.length >= 20 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {

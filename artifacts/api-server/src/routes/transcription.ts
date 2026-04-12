@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
-import { normalizeEnglishClinicalLeaksForArabicScript } from "../lib/en-to-arabic-script-clinical-leaks.js";
+import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -603,12 +603,20 @@ function postProcessTranslatedText(
   targetBase: string,
 ): string {
   let t = stripStrayLatinAuxiliaryTokens(text, sourceBase, targetBase);
-  // Prompts alone often fail: model leaves English clinical/legal terms in Arabic output.
-  if (sourceBase === "en" && targetBase === "ar") {
-    t = normalizeEnglishClinicalLeaksForArabicScript(t);
-  }
-  if (targetBase === "ar") t = polishArabicTranslationOutput(t);
   if (targetBase === "en") t = polishEnglishInterpreterOutput(t);
+  return t;
+}
+
+/** Shared by OpenAI and machine translation: strip/polish, then repair embedded English domain leaks into target language. */
+async function finalizeTranslationOutput(
+  restoredRaw: string,
+  srcCode: string,
+  tgtCode: string,
+  tgtLangBcp47: string,
+): Promise<string> {
+  let t = postProcessTranslatedText(restoredRaw, srcCode, tgtCode);
+  t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47);
+  if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t;
 }
 
@@ -1315,10 +1323,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         "TRANSCRIPTION_DIAG",
       );
       let raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
-      let translated = postProcessTranslatedText(
+      let translated = await finalizeTranslationOutput(
         restoreTranslationOutput(String(raw ?? "")),
         srcCode,
         tgtCode,
+        tgtLangResolved,
       );
       // Masking/restore or aggressive post-process can rarely yield empty while source had text — retry plain phrase.
       if (!translated.trim() && phraseNormalized.trim().length >= 2) {
@@ -1327,10 +1336,11 @@ router.post("/translate", requireAuth, async (req, res) => {
           "Machine translation empty after mask/restore; retrying unmasked phrase",
         );
         raw = await translateBasicProfessional(phraseNormalized, srcLang, tgtLang, new Map());
-        translated = postProcessTranslatedText(
+        translated = await finalizeTranslationOutput(
           restoreTranslationOutput(String(raw ?? "")),
           srcCode,
           tgtCode,
+          tgtLangResolved,
         );
       }
       if (!translated.trim() && text.trim().length >= 1) {
@@ -1641,7 +1651,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let result = await callOpenAI(systemPrompt, userMessageForModel);
     result = {
       ...result,
-      text: postProcessTranslatedText(restoreTranslationOutput(result.text), srcCode, tgtCode),
+      text: await finalizeTranslationOutput(restoreTranslationOutput(result.text), srcCode, tgtCode, tgtLangResolved),
     };
 
     // Model often stops after the first clause on long turns — one automatic full retry.
@@ -1667,10 +1677,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         `every sentence and clause from the opening word to the last word. ` +
         `Do not stop after the first part. Output ONLY the complete ${tgtName} translation.\n`;
       const second = await callOpenAI(systemPrompt + incompleteBlock, userMessageForModel);
-      const secondText = postProcessTranslatedText(
+      const secondText = await finalizeTranslationOutput(
         restoreTranslationOutput(second.text),
         srcCode,
         tgtCode,
+        tgtLangResolved,
       );
       const incompleteFirst = translationProbablyIncomplete(
         phraseNormalized,
@@ -1708,10 +1719,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         englishTargetBlock +
         finalSegmentBlock;
       const refusalRetry = await callOpenAI(refusalRetryPrompt, userMessageForModel);
-      const refusalRetryRestored = postProcessTranslatedText(
+      const refusalRetryRestored = await finalizeTranslationOutput(
         restoreTranslationOutput(refusalRetry.text),
         srcCode,
         tgtCode,
+        tgtLangResolved,
       );
       if (refusalRetryRestored && !translationNeedsStrictInterpreterRetry(refusalRetryRestored, text)) {
         result = { ...refusalRetry, text: refusalRetryRestored };
@@ -1730,10 +1742,11 @@ router.post("/translate", requireAuth, async (req, res) => {
           englishTargetBlock +
           finalSegmentBlock;
         const refusalRetry2 = await callOpenAI(refusalRetry2Prompt, userMessageForModel);
-        const refusalRetry2Restored = postProcessTranslatedText(
+        const refusalRetry2Restored = await finalizeTranslationOutput(
           restoreTranslationOutput(refusalRetry2.text),
           srcCode,
           tgtCode,
+          tgtLangResolved,
         );
         if (refusalRetry2Restored && !translationNeedsStrictInterpreterRetry(refusalRetry2Restored, text)) {
           result = { ...refusalRetry2, text: refusalRetry2Restored };
@@ -1761,10 +1774,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       // Accumulate cost for the retry attempt regardless of its output quality.
       accumulateCost(retry.promptTokens, retry.completionTokens);
 
-      const retryRestored = postProcessTranslatedText(
+      const retryRestored = await finalizeTranslationOutput(
         restoreTranslationOutput(retry.text),
         srcCode,
         tgtCode,
+        tgtLangResolved,
       );
 
       if (retryRestored && matchesExpectedTargetLanguage(retryRestored, tgtCode, srcCode, text)) {

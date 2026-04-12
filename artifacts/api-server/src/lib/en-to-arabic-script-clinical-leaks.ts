@@ -1,13 +1,13 @@
 /**
- * Models often leave English medical/legal terms in Latin letters inside Arabic output * despite system prompts. Replace known high-frequency leaks with MSA equivalents.
- * Only for English → Arabic (interpreter column must not read English procedure names aloud).
+ * High-frequency English medical/legal/insurance terms models leave in Latin letters inside Arabic output.
+ * Static MSA replacements (fast, no extra API). Phrase list is also used to drive MT repair for other targets.
  */
 
-function escapeRegExp(s: string): string {
+export function escapeRegExpForLeaks(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Longer phrases first so "ct scan" wins over "ct" if both existed. */
+/** Longer phrases first so "ct scan" wins over shorter keys. */
 const ENGLISH_TO_ARABIC_REPLACEMENTS_RAW: [string, string][] = [
   ["heart attack", "نوبة قلبية"],
   ["blood pressure", "ضغط الدم"],
@@ -72,15 +72,18 @@ const ENGLISH_TO_ARABIC_REPLACEMENTS: [string, string][] = [...ENGLISH_TO_ARABIC
   (a, b) => b[0].length - a[0].length,
 );
 
-export function normalizeEnglishClinicalLeaksForArabicScript(translated: string): string {
+/** English phrases (longest first) for leak detection + non-Arabic MT repair. */
+export function getEnglishDomainLeakPhrasesSorted(): string[] {
+  return ENGLISH_TO_ARABIC_REPLACEMENTS.map(([en]) => en);
+}
+
+export function applyArabicStaticLeakReplacements(translated: string): string {
   let t = translated;
   if (!t || !/[A-Za-z]{3,}/.test(t)) return t;
 
   for (const [en, ar] of ENGLISH_TO_ARABIC_REPLACEMENTS) {
-    const re = new RegExp(`(?<![A-Za-z])${escapeRegExp(en)}(?![A-Za-z])`, "gi");
-    if (re.test(t)) {
-      t = t.replace(re, ar);
-    }
+    const re = new RegExp(`(?<![A-Za-z])${escapeRegExpForLeaks(en)}(?![A-Za-z])`, "gi");
+    t = t.replace(re, ar);
   }
   return t.replace(/\s{2,}/g, " ").trim();
 }
