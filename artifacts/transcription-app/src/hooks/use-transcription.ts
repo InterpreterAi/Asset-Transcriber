@@ -589,6 +589,7 @@ async function translateViaPrimaryApi(
   const REQUEST_TIMEOUT_MS = 30_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
+    "LIBRETRANSLATE_FAILED",
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",
@@ -629,20 +630,32 @@ async function translateViaPrimaryApi(
 
       if (r.status === 503) {
         const raw = await r.text();
+        let j: { code?: string; error?: string } | null = null;
         try {
-          const j = JSON.parse(raw) as { code?: string; error?: string };
-          if (j.code && fatal503Codes.has(j.code)) {
-            return {
-              outcome:     "try_fallback",
-              userMessage: j.error ??
-                (j.code === "TRANSLATION_NOT_CONFIGURED"
-                  ? "Translation is unavailable: configure OpenAI on the API server."
-                  : "Translation is temporarily unavailable."),
-            };
-          }
+          j = JSON.parse(raw) as { code?: string; error?: string };
         } catch {
-          /* fall through to retry */
+          /* ignore */
         }
+        if (j?.code && fatal503Codes.has(j.code)) {
+          return {
+            outcome:     "try_fallback",
+            userMessage: j.error ??
+              (j.code === "TRANSLATION_NOT_CONFIGURED"
+                ? "Translation is unavailable: configure OpenAI on the API server."
+                : "Translation is temporarily unavailable."),
+          };
+        }
+        // Never treat 503 as success with empty text (breaks Basic/Pro machine translation).
+        if (attempt === MAX_ATTEMPTS) {
+          return {
+            outcome:     "try_fallback",
+            userMessage:
+              j?.error ??
+              "Translation is temporarily unavailable. On Basic or Professional, set GOOGLE_TRANSLATE_API_KEY or a working LIBRETRANSLATE_URL on the API server.",
+          };
+        }
+        await new Promise<void>(res => setTimeout(res, 700 * attempt));
+        continue;
       }
 
       if (r.status === 403) {
@@ -668,7 +681,7 @@ async function translateViaPrimaryApi(
         };
       }
 
-      if (r.status >= 400 && r.status < 500 && r.status !== 429) {
+      if (r.status >= 400 && r.status < 500 && r.status !== 429 && r.status !== 503) {
         return { outcome: "ok", text: "" };
       }
 

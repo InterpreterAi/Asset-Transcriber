@@ -1097,6 +1097,8 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const planLower = (translateUser.planType ?? "trial").toLowerCase();
+  // Machine translation (Google → Libre fallback): Basic, Professional, trial-libre only.
+  // OpenAI path (unchanged): platinum, unlimited, trial, trial-openai — full InterpreterAI prompts + model.
   const useMachineTranslation =
     planLower === "basic" ||
     planLower === "professional" ||
@@ -1126,7 +1128,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  // Pipeline: phrase cleanup → protected brands → interpreter glossary → digit placeholders → OpenAI.
+  // Shared pipeline for ALL plans (same languages, same masking — not English/Arabic-specific):
+  // phrase → protected brands → interpreter glossary placeholders → digit placeholders → engine.
   const phraseNormalized = applyInterpreterPhrasePretranslate(text);
 
   initProtectedTerms();
@@ -1204,6 +1207,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
+  // Basic / Professional / trial-libre: same mask + restore + postProcess as OpenAI route; engine is Google/Libre only (no prompt stack below).
   if (useMachineTranslation) {
     try {
       logger.info(

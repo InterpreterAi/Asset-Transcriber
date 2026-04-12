@@ -36,15 +36,26 @@ export async function callGoogleTranslate(text: string, source: string, target: 
   );
 
   if (res.status !== 200) {
+    const errBody = res.data as { error?: { message?: string; code?: number } } | undefined;
     logger.warn(
-      { status: res.status, dataSnippet: typeof res.data === "object" ? Object.keys(res.data ?? {}) : "non-object" },
+      {
+        status: res.status,
+        googleMessage: errBody?.error?.message,
+        googleCode: errBody?.error?.code,
+      },
       "Google Translate HTTP error",
     );
     throw new Error(`Google Translate failed: HTTP ${res.status}`);
   }
 
+  const errInBody = (res.data as { error?: { message?: string } } | undefined)?.error;
+  if (errInBody?.message) {
+    logger.warn({ message: errInBody.message }, "Google Translate error in response body");
+    throw new Error("Google Translate API returned an error");
+  }
+
   const out = res.data?.data?.translations?.[0]?.translatedText;
-  if (typeof out !== "string") {
+  if (typeof out !== "string" || !out.trim()) {
     throw new Error("Google Translate returned no translatedText");
   }
   return out;
