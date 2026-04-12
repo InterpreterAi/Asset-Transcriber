@@ -48,10 +48,8 @@ export function isTrialExpired(user: User): boolean {
 
 /**
  * Translation (POST /translate): which plans may call the translation endpoint.
- * Engine is chosen in the route from `planType`.
- * - Platinum / legacy unlimited: yes (OpenAI).
- * - Basic / Professional: yes (Google Cloud Translation when configured, else LibreTranslate).
- * - Trial-like (`trial`, `trial-openai`, `trial-libre`): yes while not expired; OpenAI vs machine translation per plan id.
+ * Engine: `basic`, `professional`, `trial-libre` → LibreTranslate only; otherwise
+ * `platinum`, `unlimited`, `trial`, `trial-openai` → OpenAI (`gpt-4o-mini`) with full interpreter prompts.
  */
 export function translationEnabledForUser(user: User): boolean {
   const p = (user.planType ?? "trial").toLowerCase();

@@ -48,7 +48,7 @@ import { startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspa
 //
 // Data flow:
 //   Audio  → browser mic → Soniox WebSocket (never touches this server)
-//   Text   → /api/transcription/translate → OpenAI (Platinum) or Google/Libre (Basic/Pro) → response → discarded
+//   Text   → /api/transcription/translate → OpenAI (Platinum, trial, trial-openai) or LibreTranslate (Basic, Pro, trial-libre) → discarded
 //   DB     → sessions table stores metadata ONLY: id, userId, duration, timestamps
 //
 // Translation cache was INTENTIONALLY REMOVED.
@@ -1097,8 +1097,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const planLower = (translateUser.planType ?? "trial").toLowerCase();
-  // Machine translation (Google → Libre fallback): Basic, Professional, trial-libre only.
-  // OpenAI path (unchanged): platinum, unlimited, trial, trial-openai — full InterpreterAI prompts + model.
+  // LibreTranslate only (no OpenAI): Basic, Professional, trial-libre. OpenAI: platinum, unlimited, trial, trial-openai.
   const useMachineTranslation =
     planLower === "basic" ||
     planLower === "professional" ||
@@ -1207,7 +1206,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Basic / Professional / trial-libre: same mask + restore + postProcess as OpenAI route; engine is Google/Libre only (no prompt stack below).
+  // Basic / Professional / trial-libre: same mask + restore + postProcess as OpenAI; engine is LibreTranslate only.
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1219,7 +1218,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      const raw = await translateBasicProfessional(textForOpenAI, srcCode, tgtCode);
+      const raw = await translateBasicProfessional(textForOpenAI, srcCode, tgtCode, numMask.slotToDigits);
       const translated = postProcessTranslatedText(
         restoreTranslationOutput(String(raw ?? "")),
         srcCode,
@@ -1243,7 +1242,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "Basic/Professional translation (Google or LibreTranslate) failed",
+        "Basic/Professional machine translation failed",
       );
       res.status(503).json({
         error:

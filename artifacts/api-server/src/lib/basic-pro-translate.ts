@@ -1,26 +1,28 @@
-import { logger } from "./logger.js";
-import { callGoogleTranslate, isGoogleTranslateConfigured } from "./google-translate.js";
 import { callLibreTranslate } from "./libretranslate.js";
-import { callMyMemoryTranslate } from "./mymemory-translate.js";
 
 /**
- * Basic / Professional / trial-libre: same masking pipeline as Platinum, then machine translation.
- * Free stack (no paid keys): LibreTranslate public mirrors → MyMemory (last resort; strict size/quota limits).
- * Optional GOOGLE_TRANSLATE_API_KEY: Google first, then the free stack.
+ * Basic / Professional / trial-libre: LibreTranslate only — public mirrors when
+ * `LIBRETRANSLATE_URL` is unset, or your self-hosted instance when set.
+ * Same upstream masking as Platinum (phrases, glossary, protected terms; digits expanded for Libre).
  */
-export async function translateBasicProfessional(text: string, source: string, target: string): Promise<string> {
-  if (isGoogleTranslateConfigured()) {
-    try {
-      const g = await callGoogleTranslate(text, source, target);
-      if (g.trim()) return g;
-    } catch (err) {
-      logger.warn({ err }, "Google Translation failed; falling back to free MT stack");
-    }
+
+function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, string>): string {
+  if (slotToDigits.size === 0) return text;
+  let out = text;
+  const slots = [...slotToDigits.entries()].sort((a, b) => b[0] - a[0]);
+  for (const [n, digits] of slots) {
+    out = out.replace(new RegExp(`NUM_${n}(?!\\d)`, "g"), () => digits);
   }
-  try {
-    return await callLibreTranslate(text, source, target);
-  } catch (err) {
-    logger.warn({ err }, "LibreTranslate hosts failed; trying MyMemory free API");
-    return callMyMemoryTranslate(text, source, target);
-  }
+  return out;
+}
+
+export async function translateBasicProfessional(
+  text: string,
+  source: string,
+  target: string,
+  slotToDigits: Map<number, string>,
+): Promise<string> {
+  const hasNums = slotToDigits.size > 0;
+  const plain = hasNums ? expandNumPlaceholdersToDigits(text, slotToDigits) : text;
+  return callLibreTranslate(plain, source, target);
 }

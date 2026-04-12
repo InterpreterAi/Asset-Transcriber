@@ -645,13 +645,13 @@ async function translateViaPrimaryApi(
                 : "Translation is temporarily unavailable."),
           };
         }
-        // Never treat 503 as success with empty text (breaks Basic/Pro machine translation).
+        // Never treat 503 as success with empty text.
         if (attempt === MAX_ATTEMPTS) {
           return {
             outcome:     "try_fallback",
             userMessage:
               j?.error ??
-              "Translation is temporarily unavailable. On Basic or Professional, set GOOGLE_TRANSLATE_API_KEY or a working LIBRETRANSLATE_URL on the API server.",
+              "Translation is temporarily unavailable. Basic/Professional use LibreTranslate — check network or LIBRETRANSLATE_URL on the API server.",
           };
         }
         await new Promise<void>(res => setTimeout(res, 700 * attempt));

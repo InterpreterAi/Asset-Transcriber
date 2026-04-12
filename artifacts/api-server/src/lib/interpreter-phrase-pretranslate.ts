@@ -6,6 +6,15 @@
 type PhraseRule = { pattern: RegExp; replacement: string };
 
 const RULES: PhraseRule[] = [
+  // Interpreter ID (not phone): MT often turns "my number" into "phone number" in Arabic, etc.
+  {
+    pattern: /\bmy\s+number\s+is\s+(\d{4,})\b/gi,
+    replacement: "my interpreter ID is $1",
+  },
+  {
+    pattern: /\band\s+my\s+number\s+is\s+(\d{4,})\b/gi,
+    replacement: "and my interpreter ID is $1",
+  },
   {
     pattern: /\bfollowing\s+you\s+are\s+through\s+to\b/gi,
     replacement: "You are through to",
