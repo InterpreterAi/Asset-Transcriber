@@ -1,0 +1,20 @@
+---
+description: Scope product changes to Basic/Professional/trial-libre only; never alter Platinum or OpenAI trial paths; commit and push after work.
+alwaysApply: true
+---
+
+# Translation & billing tier scope (InterpreterAI)
+
+## Do not change (final boss / OpenAI)
+
+- **Platinum** and **`unlimited`** translation, prompts, finalize behavior, retries, or client paths tied to those plans.
+- **OpenAI trial tiers:** default **`trial`** and **`trial-openai`** (same OpenAI `/translate` stack as Platinum). Do not modify their behavior, prompts, or shared OpenAI-only code paths except to fix unrelated bugs with explicit user approval.
+
+## Allowed to change (Libre / machine translation only)
+
+- **`basic`**, **`professional`**, and **`trial-libre`** only: LibreTranslate, `machineTranslationFullSegmentFinals`, `basic-pro-translate`, `libretranslate.ts`, and any UI/server branches gated on those plan types.
+
+## Implementation discipline
+
+- When editing shared files (e.g. `transcription.ts`, `use-transcription.ts`), **gate** new behavior with `planType` / `useMachineTranslation` / `machineTranslationFullSegmentFinals` (or equivalent) so **Platinum and OpenAI trials stay bit-identical in behavior** unless the user explicitly asks otherwise.
+- After completing requested work, **commit and push** to `main` unless the user says not to.
