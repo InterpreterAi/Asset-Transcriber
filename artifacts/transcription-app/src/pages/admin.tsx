@@ -27,6 +27,7 @@ import {
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
 import { formatMinutes } from "@/lib/utils";
+import { startOfAppDayMs } from "@workspace/app-timezone";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface AdminStats {
@@ -864,7 +865,7 @@ export default function Admin() {
     setEditingUser(null);
   }
 
-  const startOfTodayMs = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+  const startOfTodayMs = startOfAppDayMs();
 
   const filteredUsers = allUsers
     .filter(u => {

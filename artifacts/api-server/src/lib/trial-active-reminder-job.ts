@@ -1,10 +1,21 @@
 import { db, usersTable } from "@workspace/db";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { appCalendarDateAndHour } from "@workspace/app-timezone";
 import { isResendConfigured } from "./resend-mail.js";
 import { logger } from "./logger.js";
 import { sendTrialActiveReminderEmail } from "./transactional-email.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseScheduledHour(raw: string | undefined, defaultHour: number, envKey: string): number {
+  const trimmed = raw?.trim();
+  const n = trimmed === undefined || trimmed === "" ? defaultHour : Number(trimmed);
+  if (!Number.isFinite(n) || n < 0 || n > 23) {
+    logger.warn({ [envKey]: raw }, `Trial active reminder: invalid ${envKey} — using hour ${defaultHour}`);
+    return defaultHour;
+  }
+  return n;
+}
 
 /**
  * One-time “your trial is still active” campaign via Resend.
@@ -12,33 +23,42 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * **Not used for “send immediately”** — for that, run the manual script
  * `send-trial-users-reminder-now.ts` (or equivalent); it does not read these env vars.
  *
- * **Opt-in (UTC only):** `TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=YYYY-MM-DD` must match **today’s date in UTC**
- * (`toISOString().slice(0,10)` on the server), not your local or Egypt calendar day if that day differs.
- * `TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=0-23` is the **UTC hour** (sends only during that hour, e.g. `10` = 10:00–10:59 UTC).
+ * **Primary (America/New_York):** `TRIAL_ACTIVE_REMINDER_SEND_ON_APP_DATE=YYYY-MM-DD` must match
+ * today’s calendar date in the product timezone. `TRIAL_ACTIVE_REMINDER_SEND_AFTER_APP_HOUR=0-23`
+ * is the clock hour in America/New_York (sends only during that hour, e.g. `10` = 10:00–10:59 NY).
  *
- * Example — 12:00 PM Egypt (UTC+2, no DST) on 8 Apr 2026:
- *   TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE=2026-04-08
- *   TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR=10
+ * **Legacy (UTC):** if `TRIAL_ACTIVE_REMINDER_SEND_ON_APP_DATE` is unset, the job still accepts
+ * `TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE` and `TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR` with
+ * UTC semantics (for existing deployments).
  *
  * Each eligible user is emailed at most once (`users.trial_active_reminder_sent_at`). Does not modify trial dates or limits.
  */
 export function isTrialActiveReminderSendWindow(): boolean {
-  const date = process.env.TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE?.trim();
+  const appDate = process.env.TRIAL_ACTIVE_REMINDER_SEND_ON_APP_DATE?.trim();
+  const legacyUtcDate = process.env.TRIAL_ACTIVE_REMINDER_SEND_ON_UTC_DATE?.trim();
+  const date = appDate || legacyUtcDate;
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
 
   const now = new Date();
+
+  if (appDate) {
+    const { dateIso, hour } = appCalendarDateAndHour(now);
+    if (dateIso !== date) return false;
+    const scheduledHour = parseScheduledHour(
+      process.env.TRIAL_ACTIVE_REMINDER_SEND_AFTER_APP_HOUR,
+      12,
+      "TRIAL_ACTIVE_REMINDER_SEND_AFTER_APP_HOUR",
+    );
+    return hour === scheduledHour;
+  }
+
   const todayUtc = now.toISOString().slice(0, 10);
   if (todayUtc !== date) return false;
-
-  const rawHour = process.env.TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR?.trim();
-  const scheduledUtcHour = rawHour === undefined || rawHour === "" ? 12 : Number(rawHour);
-  if (!Number.isFinite(scheduledUtcHour) || scheduledUtcHour < 0 || scheduledUtcHour > 23) {
-    logger.warn(
-      { TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR: rawHour },
-      "Trial active reminder: invalid TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR — using UTC hour 12",
-    );
-    return now.getUTCHours() === 12;
-  }
+  const scheduledUtcHour = parseScheduledHour(
+    process.env.TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR,
+    12,
+    "TRIAL_ACTIVE_REMINDER_SEND_AFTER_UTC_HOUR",
+  );
   return now.getUTCHours() === scheduledUtcHour;
 }
 
@@ -48,7 +68,7 @@ export async function runTrialActiveReminderJob(): Promise<void> {
 
   logger.info(
     { campaign: "trial_active_reminder" },
-    "Trial active reminder job: execution started (scheduled UTC date/hour window active)",
+    "Trial active reminder job: execution started (scheduled date/hour window active)",
   );
 
   try {
@@ -105,7 +125,7 @@ export async function runTrialActiveReminderJob(): Promise<void> {
         emailsFailed++;
         logger.warn(
           { userId: row.id, email: to, campaign: "trial_active_reminder" },
-          "Trial active reminder email not sent (Resend returned failure — will retry next run in this UTC hour if still eligible)",
+          "Trial active reminder email not sent (Resend returned failure — will retry next run in this hour if still eligible)",
         );
       }
     }
@@ -127,10 +147,10 @@ export async function runTrialActiveReminderJob(): Promise<void> {
   }
 }
 
-/** Shorter than other mail jobs so a deploy shortly before the scheduled UTC hour still ticks inside that hour. */
+/** Shorter than other mail jobs so a deploy shortly before the scheduled hour still ticks inside that hour. */
 const REMINDER_TICK_MS = 5 * 60 * 1000;
 
-/** Run once at boot, again after 1 minute, then every 5 minutes (only the matching UTC date/hour sends). */
+/** Run once at boot, again after 1 minute, then every 5 minutes (only the matching date/hour sends). */
 export function scheduleTrialActiveReminderJob(): void {
   const run = () => void runTrialActiveReminderJob();
   void runTrialActiveReminderJob();

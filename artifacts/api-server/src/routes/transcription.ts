@@ -38,6 +38,7 @@ import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import { hasSubmittedMandatoryFeedbackToday, isMandatoryFeedbackRequiredByUsage } from "../lib/feedback-gate.js";
+import { startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -986,10 +987,9 @@ router.get("/sessions", requireAuth, async (req, res) => {
   const now    = new Date();
 
   function periodStart(p: string): Date | null {
-    const utcToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    if (p === "today") return utcToday;
-    if (p === "week")  { const d = new Date(utcToday); d.setUTCDate(d.getUTCDate() - 6); return d; }
-    if (p === "month") return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    if (p === "today") return startOfAppDay(now);
+    if (p === "week") return startOfAppDayMinusDays(now, 6);
+    if (p === "month") return startOfAppMonth(now);
     return null; // "all"
   }
 
@@ -1014,8 +1014,8 @@ router.get("/sessions", requireAuth, async (req, res) => {
     .limit(limit);
 
   // Aggregate stats for the selected period (+ always compute today & week for sidebar widgets)
-  const todayUTC   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const weekAgoUTC = new Date(todayUTC); weekAgoUTC.setUTCDate(weekAgoUTC.getUTCDate() - 6);
+  const todayStartNy = startOfAppDay(now);
+  const weekAgoNy = startOfAppDayMinusDays(now, 6);
 
   const aggCols = {
     count:        sql<number>`count(*)::int`,
@@ -1027,8 +1027,8 @@ router.get("/sessions", requireAuth, async (req, res) => {
       ? db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate)))
       : db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
     db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
-    db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayUTC))),
-    db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, weekAgoUTC))),
+    db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayStartNy))),
+    db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, weekAgoNy))),
   ]);
 
   const periodCount   = periodAgg?.count       ?? 0;

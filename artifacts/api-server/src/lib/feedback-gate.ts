@@ -1,5 +1,6 @@
 import { db, feedbackTable, type User } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
+import { startOfAppDay } from "@workspace/app-timezone";
 import { isTrialExpired, isTrialLikePlanType } from "./usage.js";
 
 export const MANDATORY_FEEDBACK_SOURCE = "trial-half-daily-mandatory";
@@ -30,10 +31,6 @@ export function isMandatoryFeedbackRequiredByUsage(user: User): boolean {
   return used >= threshold - 1e-6;
 }
 
-function utcDayStart(d = new Date()): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
 export async function hasSubmittedMandatoryFeedbackToday(userId: number): Promise<boolean> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -42,7 +39,7 @@ export async function hasSubmittedMandatoryFeedbackToday(userId: number): Promis
       and(
         eq(feedbackTable.userId, userId),
         eq(feedbackTable.source, MANDATORY_FEEDBACK_SOURCE),
-        gte(feedbackTable.createdAt, utcDayStart()),
+        gte(feedbackTable.createdAt, startOfAppDay()),
       ),
     );
   return Number(row?.count ?? 0) > 0;

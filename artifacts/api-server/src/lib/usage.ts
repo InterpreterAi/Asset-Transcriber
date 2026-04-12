@@ -1,6 +1,7 @@
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import type { User } from "@workspace/db";
+import { appCalendarDayChanged } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 
 export async function touchActivity(userId: number): Promise<void> {
@@ -14,12 +15,8 @@ export function resetDailyUsageIfNeeded(user: User): boolean {
   const now = new Date();
   const lastReset = new Date(user.lastUsageResetAt);
   if (!Number.isFinite(lastReset.getTime())) return false;
-  // Always compare UTC calendar dates so "today" is consistent regardless of server timezone
-  const isNewDay =
-    now.getUTCFullYear() !== lastReset.getUTCFullYear() ||
-    now.getUTCMonth()    !== lastReset.getUTCMonth()    ||
-    now.getUTCDate()     !== lastReset.getUTCDate();
-  return isNewDay;
+  // Calendar day in America/New_York (product timezone for daily limits)
+  return appCalendarDayChanged(lastReset, now);
 }
 
 export function getTrialDaysRemaining(user: User): number {

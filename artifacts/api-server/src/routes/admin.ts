@@ -20,6 +20,7 @@ import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
 
@@ -38,14 +39,14 @@ const PLAN_PRICES: Record<string, number> = {
 
 // ── List users ───────────────────────────────────────────────────────────────
 router.get("/users", requireAdmin, async (_req, res) => {
-  // Batch-reset daily usage for any user whose lastUsageResetAt is before today's UTC midnight.
-  // This ensures inactive users (who never trigger getUserWithResetCheck) show 0 after midnight.
+  // Batch-reset daily usage for anyone whose lastUsageResetAt is before today's midnight (America/New_York).
+  // This ensures inactive users (who never trigger getUserWithResetCheck) show 0 after the day rolls over in app TZ.
   const now = new Date();
-  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const todayStartNy = startOfAppDay(now);
   await db
     .update(usersTable)
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
-    .where(lt(usersTable.lastUsageResetAt, todayUTC));
+    .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
   const [users, shareCounts, todayUsageRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
@@ -68,7 +69,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
         ) / 60.0`,
     })
       .from(sessionsTable)
-      .where(gte(sessionsTable.startedAt, todayUTC))
+      .where(gte(sessionsTable.startedAt, todayStartNy))
       .groupBy(sessionsTable.userId),
   ]);
 
@@ -104,9 +105,8 @@ router.get("/users", requireAdmin, async (_req, res) => {
 router.get("/stats", requireAdmin, async (_req, res) => {
   const now            = new Date();
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  // Use UTC midnight so "today" always means calendar-day today, never a rolling window.
-  // A rolling 24-hour window causes the number to DECREASE as yesterday's sessions age out.
-  const startOfToday   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // Midnight America/New_York so "today" is a calendar day in app time, not a rolling 24h window.
+  const startOfToday   = startOfAppDay(now);
   const sevenDaysAgo   = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo  = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
@@ -137,12 +137,12 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       .from(usersTable)
       .where(sql`${usersTable.isAdmin} = false`),
 
-    // Daily active users (all roles): last_activity since midnight UTC today
+    // Daily active users (all roles): last_activity since midnight (America/New_York) today
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(gt(usersTable.lastActivity, startOfToday)),
 
-    // Minutes used today — non-admin users only (since midnight UTC).
+    // Minutes used today — non-admin users only (since midnight America/New_York).
     // Includes live sessions by using elapsed time when duration_seconds is not yet set.
     db.select({ total: sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0` })
       .from(sql`sessions s`)
@@ -170,7 +170,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Real API cost breakdown today — non-admin users only (since midnight UTC).
+    // Real API cost breakdown today — non-admin users only (since midnight America/New_York).
     // Completed sessions: use real stored soniox_cost and translation_cost.
     // Live sessions: real translation_cost so far + Soniox estimate from elapsed time.
     db.select({
@@ -223,7 +223,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
       )),
 
-    // Session count today — all users (since midnight UTC).
+    // Session count today — all users (since midnight America/New_York).
     db.select({ count: sql<number>`COUNT(*)` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -330,11 +330,11 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
 // ── Analytics endpoint ────────────────────────────────────────────────────────
 router.get("/analytics", requireAdmin, async (_req, res) => {
-  const now         = new Date();
-  const todayUTC    = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const thirtyAgo   = new Date(todayUTC.getTime() - 29 * 24 * 60 * 60 * 1000);
-  const fourteenAgo = new Date(todayUTC.getTime() - 13 * 24 * 60 * 60 * 1000);
-  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const now          = new Date();
+  const todayStartNy = startOfAppDay(now);
+  const thirtyAgo    = startOfAppDayMinusDays(now, 29);
+  const fourteenAgo  = startOfAppDayMinusDays(now, 13);
+  const startOfMonthNy = startOfAppMonth(now);
 
   const [
     growthRows,
@@ -346,17 +346,17 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
   ] = await Promise.all([
     // New signups per day — last 30 days
     db.select({
-      day:   sql<string>`TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
+      day:   sql<string>`TO_CHAR(DATE_TRUNC('day', timezone('America/New_York', ${usersTable.createdAt})), 'YYYY-MM-DD')`,
       count: sql<number>`COUNT(*)`,
     })
       .from(usersTable)
       .where(and(gte(usersTable.createdAt, thirtyAgo), sql`${usersTable.isAdmin} = false`))
-      .groupBy(sql`DATE_TRUNC('day', created_at AT TIME ZONE 'UTC')`)
-      .orderBy(sql`DATE_TRUNC('day', created_at AT TIME ZONE 'UTC')`),
+      .groupBy(sql`DATE_TRUNC('day', timezone('America/New_York', ${usersTable.createdAt}))`)
+      .orderBy(sql`DATE_TRUNC('day', timezone('America/New_York', ${usersTable.createdAt}))`),
 
     // Daily active users — unique users with a real session each day, last 14 days
     db.select({
-      day:   sql<string>`TO_CHAR(DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
+      day:   sql<string>`TO_CHAR(DATE_TRUNC('day', timezone('America/New_York', s.started_at)), 'YYYY-MM-DD')`,
       count: sql<number>`COUNT(DISTINCT s.user_id)`,
     })
       .from(sql`sessions s`)
@@ -366,8 +366,8 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
         sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       ))
-      .groupBy(sql`DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC')`)
-      .orderBy(sql`DATE_TRUNC('day', s.started_at AT TIME ZONE 'UTC')`),
+      .groupBy(sql`DATE_TRUNC('day', timezone('America/New_York', s.started_at))`)
+      .orderBy(sql`DATE_TRUNC('day', timezone('America/New_York', s.started_at))`),
 
     // Minutes and real cost today
     db.select({
@@ -385,7 +385,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        sql`s.started_at >= ${todayUTC}`,
+        sql`s.started_at >= ${todayStartNy}`,
         sql`${usersTable.isAdmin} = false`,
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
@@ -397,7 +397,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        sql`s.started_at >= ${startOfMonth}`,
+        sql`s.started_at >= ${startOfMonthNy}`,
         sql`${usersTable.isAdmin} = false`,
         sql`s.duration_seconds >= 30`,
       )),
@@ -431,7 +431,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        sql`s.started_at >= ${todayUTC}`,
+        sql`s.started_at >= ${todayStartNy}`,
         sql`${usersTable.isAdmin} = false`,
       ))
       .groupBy(usersTable.id, usersTable.username, usersTable.totalMinutesUsed, usersTable.planType)
@@ -462,8 +462,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
   const growthMap = new Map(growthRows.map(r => [r.day, Number(r.count)]));
   const growthChart: { day: string; users: number }[] = [];
   for (let i = 29; i >= 0; i--) {
-    const d = new Date(todayUTC.getTime() - i * 24 * 60 * 60 * 1000);
-    const key = d.toISOString().slice(0, 10);
+    const key = appCalendarDayIsoKeyForDaysAgo(now, i);
     growthChart.push({ day: key, users: growthMap.get(key) ?? 0 });
   }
 
@@ -471,8 +470,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
   const dauMap = new Map(dauRows.map(r => [r.day, Number(r.count)]));
   const dauChart: { day: string; users: number }[] = [];
   for (let i = 13; i >= 0; i--) {
-    const d = new Date(todayUTC.getTime() - i * 24 * 60 * 60 * 1000);
-    const key = d.toISOString().slice(0, 10);
+    const key = appCalendarDayIsoKeyForDaysAgo(now, i);
     dauChart.push({ day: key, users: dauMap.get(key) ?? 0 });
   }
 
@@ -597,7 +595,7 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
-        sql`s.started_at >= ${new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))}`,
+        sql`s.started_at >= ${startOfAppDay(now)}`,
         sql`${usersTable.isAdmin} = false`,
         sql`${usersTable.planType} IN ('trial', 'trial-openai', 'trial-libre')`,
       ))
@@ -1297,7 +1295,7 @@ router.get("/login-events", requireAdmin, async (req, res) => {
 // ── System Monitor — health stats ────────────────────────────────────────────
 router.get("/system-monitor", requireAdmin, async (_req, res) => {
   const now          = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfToday = startOfAppDay(now);
   const since5min    = new Date(Date.now() - 5 * 60 * 1000);
 
   const [

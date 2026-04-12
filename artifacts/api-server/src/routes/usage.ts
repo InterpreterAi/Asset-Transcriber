@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, sessionsTable } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
+import { startOfAppDay } from "@workspace/app-timezone";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { getUserWithResetCheck, getTrialDaysRemaining, isTrialExpired } from "../lib/usage.js";
 
@@ -13,8 +14,7 @@ router.get("/me", requireAuth, async (req, res) => {
     return;
   }
 
-  const now = new Date();
-  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const todayStart = startOfAppDay();
   const [todayUsage] = await db
     .select({
       minutesToday: sql<number>`
@@ -32,7 +32,7 @@ router.get("/me", requireAuth, async (req, res) => {
     .from(sessionsTable)
     .where(and(
       eq(sessionsTable.userId, user.id),
-      gte(sessionsTable.startedAt, todayUTC),
+      gte(sessionsTable.startedAt, todayStart),
     ));
 
   const minutesUsedToday = Number(todayUsage?.minutesToday ?? user.minutesUsedToday ?? 0);

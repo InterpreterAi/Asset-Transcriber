@@ -117,6 +117,9 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/app-timezone':
+        specifier: workspace:*
+        version: link:../../lib/app-timezone
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -409,6 +412,9 @@ importers:
       '@marsidev/react-turnstile':
         specifier: ^1.3.1
         version: 1.5.0(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@workspace/app-timezone':
+        specifier: workspace:*
+        version: link:../../lib/app-timezone
       zustand:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.2.14)(react@19.1.0)(use-sync-external-store@1.6.0(react@19.1.0))
@@ -620,6 +626,19 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 3.25.76
+
+  lib/app-timezone:
+    dependencies:
+      luxon:
+        specifier: ^3.7.2
+        version: 3.7.2
+    devDependencies:
+      '@types/luxon':
+        specifier: ^3.7.1
+        version: 3.7.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.3.5
 
   lib/db:
     dependencies:
@@ -2464,6 +2483,9 @@ packages:
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
+  '@types/luxon@3.7.1':
+    resolution: {integrity: sha512-H3iskjFIAn5SlJU7OuxUmTEpebK6TKB8rxZShDslBMZJ5u9S//KM1sbdAisiSrqwLQncVjnpi2OK2J51h+4lsg==}
+
   '@types/node-fetch@2.6.13':
     resolution: {integrity: sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==}
 
@@ -3434,6 +3456,10 @@ packages:
 
   lunr@2.3.9:
     resolution: {integrity: sha512-zTU3DaZaF3Rt9rhN3uBMGQD3dD2/vFQqnvZCDv4dl5iOzq2IZQqTxu90r4E5J+nP70J3ilqVCrbho2eWaeW8Ow==}
+
+  luxon@3.7.2:
+    resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
+    engines: {node: '>=12'}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -6047,6 +6073,8 @@ snapshots:
 
   '@types/http-errors@2.0.5': {}
 
+  '@types/luxon@3.7.1': {}
+
   '@types/node-fetch@2.6.13':
     dependencies:
       '@types/node': 25.3.5
@@ -6947,6 +6975,8 @@ snapshots:
       react: 19.1.0
 
   lunr@2.3.9: {}
+
+  luxon@3.7.2: {}
 
   magic-string@0.30.21:
     dependencies:
