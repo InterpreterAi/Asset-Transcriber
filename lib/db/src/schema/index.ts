@@ -5,6 +5,7 @@ export * from "./user-sessions";
 export * from "./feedback";
 export * from "./support";
 export * from "./glossary";
+export * from "./global-interpreter-term-memory";
 export * from "./error-logs";
 export * from "./login-events";
 export * from "./referrals";

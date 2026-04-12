@@ -2,6 +2,7 @@ import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
+import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -1375,6 +1376,10 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
+  const globalMemoryHints = await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode);
+  for (const h of globalMemoryHints) {
+    if (!termHints.includes(h)) termHints.push(h);
+  }
 
   // ── User personal glossary ─────────────────────────────────────────────────
   // Load the user's saved glossary entries and add any that match the current text
