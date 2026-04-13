@@ -158,6 +158,8 @@ export const AdminListUsersResponse = zod.object({
       totalShares: zod.number(),
       lastActivityAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
+      sharedLoginIpMaxAccounts: zod.number(),
+      sharedLoginIps: zod.array(zod.string()),
     }),
   ),
 });
@@ -203,6 +205,8 @@ export const AdminUpdateUserResponse = zod.object({
   totalShares: zod.number(),
   lastActivityAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
+  sharedLoginIpMaxAccounts: zod.number(),
+  sharedLoginIps: zod.array(zod.string()),
 });
 
 /**

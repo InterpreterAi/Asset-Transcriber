@@ -568,7 +568,7 @@ export default function Admin() {
   };
 
   // ── Users tab state ───────────────────────────────────────────────────────
-  const [userFilter,     setUserFilter]     = useState<"all" | "trial" | "paying" | "inactive" | "high">("all");
+  const [userFilter,     setUserFilter]     = useState<"all" | "trial" | "paying" | "inactive" | "high" | "dupIp">("all");
   const [userSearch,     setUserSearch]     = useState("");
   const [lastSeenFilter, setLastSeenFilter] = useState("");
   const [newUsersFilter, setNewUsersFilter] = useState("");
@@ -873,6 +873,7 @@ export default function Admin() {
       if (userFilter === "paying")   return u.planType !== "trial";
       if (userFilter === "inactive") return !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7;
       if (userFilter === "high")     return u.minutesUsedToday >= 60;
+      if (userFilter === "dupIp")    return (u.sharedLoginIpMaxAccounts ?? 1) >= 2;
       return true;
     })
     .filter(u => {
@@ -917,6 +918,7 @@ export default function Admin() {
     paying:   allUsers.filter(u => u.planType !== "trial").length,
     inactive: allUsers.filter(u => !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7).length,
     high:     allUsers.filter(u => u.minutesUsedToday >= 60).length,
+    dupIp:    allUsers.filter(u => (u.sharedLoginIpMaxAccounts ?? 1) >= 2).length,
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1349,15 +1351,16 @@ export default function Admin() {
               {/* Row 1: plan filter pills + New User button */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap gap-1.5">
-                  {(["all", "trial", "paying", "inactive", "high"] as const).map(f => (
+                  {(["all", "trial", "paying", "inactive", "high", "dupIp"] as const).map(f => (
                     <button key={f} onClick={() => setUserFilter(f)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : f === "dupIp" && filterCounts.dupIp > 0 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/60" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}
                     >
                       {f === "all"      && `All (${filterCounts.all})`}
                       {f === "trial"    && `Trial (${filterCounts.trial})`}
                       {f === "paying"   && `Paying (${filterCounts.paying})`}
                       {f === "inactive" && `Inactive (${filterCounts.inactive})`}
                       {f === "high"     && `High Usage (${filterCounts.high})`}
+                      {f === "dupIp"    && `Shared IP (${filterCounts.dupIp})`}
                     </button>
                   ))}
                 </div>
@@ -1434,9 +1437,9 @@ export default function Admin() {
                 </button>
 
                 {/* Clear all filters */}
-                {(userSearch || lastSeenFilter || newUsersFilter || sortBy) && (
+                {(userSearch || lastSeenFilter || newUsersFilter || sortBy || userFilter !== "all") && (
                   <button
-                    onClick={() => { setUserSearch(""); setLastSeenFilter(""); setNewUsersFilter(""); setSortBy("lastSeen"); }}
+                    onClick={() => { setUserSearch(""); setLastSeenFilter(""); setNewUsersFilter(""); setSortBy("lastSeen"); setUserFilter("all"); }}
                     className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
                   >
                     Reset
@@ -1477,10 +1480,11 @@ export default function Admin() {
 
             {/* Table */}
             <div className="overflow-x-auto bg-white">
-              <table className="w-full text-sm text-left min-w-[860px]">
+              <table className="w-full text-sm text-left min-w-[960px]">
                 <thead className="bg-gray-50/80 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
                   <tr>
                     <th className="px-4 py-3 font-semibold">User</th>
+                    <th className="px-4 py-3 font-semibold">Shared IP</th>
                     <th className="px-4 py-3 font-semibold">Session</th>
                     <th className="px-4 py-3 font-semibold">Account</th>
                     <th className="px-4 py-3 font-semibold">Plan</th>
@@ -1510,6 +1514,24 @@ export default function Admin() {
                           </div>
                           {u.email && <div className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[180px]">{u.email}</div>}
                           <div className="text-[10px] text-muted-foreground">Joined {format(new Date(u.createdAt), "MMM d, yyyy · HH:mm")}</div>
+                        </td>
+
+                        <td className="px-4 py-3 align-top text-xs">
+                          {(u.sharedLoginIpMaxAccounts ?? 1) >= 2 ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900" title="Distinct accounts seen on at least one successful-login IP shared with this user">
+                                {u.sharedLoginIpMaxAccounts} accounts / same IP
+                              </span>
+                              {u.sharedLoginIps && u.sharedLoginIps.length > 0 && (
+                                <div className="text-[10px] text-muted-foreground font-mono break-all max-w-[140px]" title="Sample IPs (login history)">
+                                  {u.sharedLoginIps.slice(0, 3).join(", ")}
+                                  {u.sharedLoginIps.length > 3 ? "…" : ""}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-[11px]">—</span>
+                          )}
                         </td>
 
                         {/* Session Status — uses fast-polling live data when available */}
@@ -1588,7 +1610,7 @@ export default function Admin() {
                   })}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-6 py-12 text-center text-muted-foreground bg-white">
+                      <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground bg-white">
                         No users match this filter.
                       </td>
                     </tr>
@@ -1596,8 +1618,11 @@ export default function Admin() {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 bg-gray-50/50 border-t border-border text-[11px] text-muted-foreground">
-              Click a row to view session history
+            <div className="px-4 py-2 bg-gray-50/50 border-t border-border text-[11px] text-muted-foreground space-y-0.5">
+              <div>Click a row to view session history.</div>
+              <div>
+                <strong className="text-foreground">Shared IP</strong> uses successful sign-in IPs only (from login history). Same office or VPN can look like duplicates; accounts that never logged in are not linked.
+              </div>
             </div>
           </Card>
         )}

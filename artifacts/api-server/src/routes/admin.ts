@@ -12,7 +12,7 @@ import {
   shareEventsTable,
   adminActivityEventsTable,
 } from "@workspace/db";
-import { eq, sql, gt, isNull, and, desc, gte, lt } from "drizzle-orm";
+import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import { getTrialDaysRemaining } from "../lib/usage.js";
@@ -48,7 +48,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
-  const [users, shareCounts, todayUsageRows] = await Promise.all([
+  const [users, shareCounts, todayUsageRows, loginIpStats, userLoginIps] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
@@ -71,33 +71,102 @@ router.get("/users", requireAdmin, async (_req, res) => {
       .from(sessionsTable)
       .where(gte(sessionsTable.startedAt, todayStartNy))
       .groupBy(sessionsTable.userId),
+    // IPs where 2+ distinct users have had at least one successful login (same person, multiple accounts).
+    db
+      .select({
+        ip: loginEventsTable.ipAddress,
+        accountCount: sql<number>`count(distinct ${loginEventsTable.userId})::int`,
+      })
+      .from(loginEventsTable)
+      .where(
+        and(
+          eq(loginEventsTable.success, true),
+          isNotNull(loginEventsTable.userId),
+          isNotNull(loginEventsTable.ipAddress),
+          sql`trim(${loginEventsTable.ipAddress}) <> ''`,
+        ),
+      )
+      .groupBy(loginEventsTable.ipAddress)
+      .having(sql`count(distinct ${loginEventsTable.userId}) >= 2`),
+    db
+      .selectDistinct({
+        userId: loginEventsTable.userId,
+        ip: loginEventsTable.ipAddress,
+      })
+      .from(loginEventsTable)
+      .where(
+        and(
+          eq(loginEventsTable.success, true),
+          isNotNull(loginEventsTable.userId),
+          isNotNull(loginEventsTable.ipAddress),
+          sql`trim(${loginEventsTable.ipAddress}) <> ''`,
+        ),
+      ),
   ]);
 
   const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
   const todayUsageMap = new Map(todayUsageRows.map((r) => [r.userId, Number(r.minutesToday)]));
 
+  const ipAccountCount = new Map<string, number>();
+  for (const row of loginIpStats) {
+    const ip = row.ip?.trim();
+    if (ip) ipAccountCount.set(ip, Number(row.accountCount));
+  }
+
+  const userToIps = new Map<number, string[]>();
+  for (const row of userLoginIps) {
+    const uid = row.userId;
+    const ip = row.ip?.trim();
+    if (uid == null || !ip) continue;
+    const list = userToIps.get(uid);
+    if (list) {
+      if (!list.includes(ip)) list.push(ip);
+    } else {
+      userToIps.set(uid, [ip]);
+    }
+  }
+
+  function loginIpDupMetrics(userId: number): { sharedLoginIpMaxAccounts: number; sharedLoginIps: string[] } {
+    const ips = userToIps.get(userId) ?? [];
+    let maxAc = 1;
+    const flagged: string[] = [];
+    for (const ip of ips) {
+      const c = ipAccountCount.get(ip) ?? 1;
+      if (c > maxAc) maxAc = c;
+      if (c >= 2) flagged.push(ip);
+    }
+    return { sharedLoginIpMaxAccounts: maxAc, sharedLoginIps: flagged.slice(0, 8) };
+  }
+
   res.json({
-    users: users.map((u) => ({
-      id:                 u.id,
-      username:           u.username,
-      email:              u.email ?? null,
-      isAdmin:            u.isAdmin,
-      isActive:           u.isActive,
-      planType:           u.planType,
-      trialStartedAt:     u.trialStartedAt,
-      trialEndsAt:        u.trialEndsAt,
-      trialDaysRemaining: getTrialDaysRemaining(u),
-      dailyLimitMinutes:  u.dailyLimitMinutes,
-      // Live-accurate "today" usage for admin table/pills.
-      minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
-      totalMinutesUsed:   u.totalMinutesUsed,
-      totalSessions:      u.totalSessions,
-      totalShares:        shareMap.get(u.id) ?? 0,
-      defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
-      defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
-      lastActivityAt:     u.lastActivity ?? null,
-      createdAt:          u.createdAt,
-    })),
+    users: users.map((u) => {
+      const dup = loginIpDupMetrics(u.id);
+      return {
+        id:                 u.id,
+        username:           u.username,
+        email:              u.email ?? null,
+        isAdmin:            u.isAdmin,
+        isActive:           u.isActive,
+        planType:           u.planType,
+        trialStartedAt:     u.trialStartedAt,
+        trialEndsAt:        u.trialEndsAt,
+        trialDaysRemaining: getTrialDaysRemaining(u),
+        dailyLimitMinutes:  u.dailyLimitMinutes,
+        // Live-accurate "today" usage for admin table/pills.
+        minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
+        totalMinutesUsed:   u.totalMinutesUsed,
+        totalSessions:      u.totalSessions,
+        totalShares:        shareMap.get(u.id) ?? 0,
+        defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
+        defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
+        lastActivityAt:     u.lastActivity ?? null,
+        createdAt:          u.createdAt,
+        /** Max distinct accounts seen on any single login IP for this user (1 = no sharing detected). */
+        sharedLoginIpMaxAccounts: dup.sharedLoginIpMaxAccounts,
+        /** Login IPs (successful) that also appear for other accounts — sample for review. */
+        sharedLoginIps:           dup.sharedLoginIps,
+      };
+    }),
   });
 });
 
@@ -874,19 +943,26 @@ router.post("/users", requireAdmin, async (req, res) => {
 
   const user = result[0]!;
   res.status(201).json({
-    id:                user.id,
-    username:          user.username,
-    email:             user.email ?? null,
-    isAdmin:           user.isAdmin,
-    isActive:          user.isActive,
-    planType:          user.planType,
-    trialStartedAt:    user.trialStartedAt,
-    trialEndsAt:       user.trialEndsAt,
-    dailyLimitMinutes: user.dailyLimitMinutes,
-    minutesUsedToday:  user.minutesUsedToday,
-    totalMinutesUsed:  user.totalMinutesUsed,
-    totalSessions:     user.totalSessions,
-    createdAt:         user.createdAt,
+    id:                 user.id,
+    username:           user.username,
+    email:              user.email ?? null,
+    isAdmin:            user.isAdmin,
+    isActive:           user.isActive,
+    planType:           user.planType,
+    trialStartedAt:     user.trialStartedAt,
+    trialEndsAt:        user.trialEndsAt,
+    trialDaysRemaining: getTrialDaysRemaining(user),
+    dailyLimitMinutes:  user.dailyLimitMinutes,
+    minutesUsedToday:   user.minutesUsedToday,
+    totalMinutesUsed:   user.totalMinutesUsed,
+    totalSessions:      user.totalSessions,
+    totalShares:        0,
+    defaultLangA:       (user as { defaultLangA?: string }).defaultLangA ?? "en",
+    defaultLangB:       (user as { defaultLangB?: string }).defaultLangB ?? "ar",
+    lastActivityAt:     user.lastActivity ?? null,
+    createdAt:          user.createdAt,
+    sharedLoginIpMaxAccounts: 1,
+    sharedLoginIps:           [],
   });
 });
 
@@ -951,22 +1027,31 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   }
 
   const user = result[0]!;
+  const [shareAgg] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(shareEventsTable)
+    .where(eq(shareEventsTable.userId, userId));
   res.json({
-    id:                user.id,
-    username:          user.username,
-    email:             user.email ?? null,
-    isAdmin:           user.isAdmin,
-    isActive:          user.isActive,
-    planType:          user.planType,
-    trialStartedAt:    user.trialStartedAt,
-    trialEndsAt:       user.trialEndsAt,
-    dailyLimitMinutes: user.dailyLimitMinutes,
-    minutesUsedToday:  user.minutesUsedToday,
-    totalMinutesUsed:  user.totalMinutesUsed,
-    totalSessions:     user.totalSessions,
-    defaultLangA:      (user as { defaultLangA?: string }).defaultLangA ?? "en",
-    defaultLangB:      (user as { defaultLangB?: string }).defaultLangB ?? "ar",
-    createdAt:         user.createdAt,
+    id:                 user.id,
+    username:           user.username,
+    email:              user.email ?? null,
+    isAdmin:            user.isAdmin,
+    isActive:           user.isActive,
+    planType:           user.planType,
+    trialStartedAt:     user.trialStartedAt,
+    trialEndsAt:        user.trialEndsAt,
+    trialDaysRemaining: getTrialDaysRemaining(user),
+    dailyLimitMinutes:  user.dailyLimitMinutes,
+    minutesUsedToday:   user.minutesUsedToday,
+    totalMinutesUsed:   user.totalMinutesUsed,
+    totalSessions:      user.totalSessions,
+    totalShares:        Number(shareAgg?.count ?? 0),
+    defaultLangA:       (user as { defaultLangA?: string }).defaultLangA ?? "en",
+    defaultLangB:       (user as { defaultLangB?: string }).defaultLangB ?? "ar",
+    lastActivityAt:     user.lastActivity ?? null,
+    createdAt:          user.createdAt,
+    sharedLoginIpMaxAccounts: 1,
+    sharedLoginIps:           [],
   });
 });
 

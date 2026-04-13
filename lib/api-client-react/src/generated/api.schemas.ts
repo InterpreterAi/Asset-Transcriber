@@ -97,6 +97,10 @@ export interface AdminUser {
   totalShares: number;
   lastActivityAt?: string | null;
   createdAt: string;
+  /** Largest count of distinct accounts sharing any of this user's successful-login IPs (1 = none). */
+  sharedLoginIpMaxAccounts: number;
+  /** IPs (sample) that appear under multiple accounts. */
+  sharedLoginIps: string[];
 }
 
 export interface AdminUserListResponse {

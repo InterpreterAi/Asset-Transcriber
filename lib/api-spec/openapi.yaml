@@ -594,6 +594,16 @@ components:
         createdAt:
           type: string
           format: date-time
+        sharedLoginIpMaxAccounts:
+          type: integer
+          description: >
+            Largest number of distinct accounts that share a successful-login IP with this user
+            (1 = no other account on the same IP in login history).
+        sharedLoginIps:
+          type: array
+          items:
+            type: string
+          description: Sample of login IPs tied to multiple accounts (for admin review).
       required:
         - id
         - username
@@ -605,6 +615,8 @@ components:
         - totalSessions
         - totalShares
         - createdAt
+        - sharedLoginIpMaxAccounts
+        - sharedLoginIps
 
     AdminUserListResponse:
       type: object
