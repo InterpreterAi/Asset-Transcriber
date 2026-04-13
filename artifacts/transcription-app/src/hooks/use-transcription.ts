@@ -962,8 +962,8 @@ function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
 }
 
 /**
- * Append a streaming tail fragment (streamingDelta). Handles cumulative tail replies and
- * overlap at chunk boundaries so Latin targets grow visibly instead of flashing one replaced line.
+ * Streaming tail (streamingDelta). Prefer **replace** when the model is rewriting the same
+ * utterance; only **append** when overlap stays low (genuinely new tail).
  */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
   const piece = collapseWs(newPiece);
@@ -974,48 +974,55 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   const pl = prev.toLowerCase();
   const ql = piece.toLowerCase();
 
-  if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
   if (ql === pl) return prev;
 
-  // New chunk already appears verbatim in the cell — do not append again.
-  if (ql.length >= 8 && pl.includes(ql)) return prev;
-  // Model resent the same trailing phrase.
-  if (ql.length >= 6 && pl.endsWith(ql)) return prev;
+  // Extension: new text continues from displayed prefix (or near-equal refresh).
+  if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
 
-  const pShare = lcpPrefixRatio(prev, piece);
-  if (pShare >= 0.7) {
-    if (piece.length <= prev.length && pl.startsWith(ql)) return prev;
-    return piece;
+  // New piece is a prefix of what we already show — resend / rewrite; never append.
+  if (pl.startsWith(ql) && ql.length >= 4) return prev;
+
+  if (ql.length >= 6) {
+    if (pl.includes(ql)) return prev;
+    if (pl.endsWith(ql)) return prev;
   }
 
-  const pw = prev.split(/\s+/).filter(Boolean);
-  const qw = piece.split(/\s+/).filter(Boolean);
-  const maxW = Math.min(pw.length, qw.length, 40);
-  for (let w = maxW; w >= 1; w--) {
-    const suff = pw.slice(-w).join(" ");
-    const pref = qw.slice(0, w).join(" ");
-    if (suff.toLowerCase() !== pref.toLowerCase()) continue;
-    if (w === 1 && suff.length < 8) continue;
-    return collapseWs([...pw.slice(0, -w), ...qw].join(" "));
-  }
-
-  const maxK = Math.min(prev.length, piece.length, 240);
-  for (let k = maxK; k >= 8; k--) {
-    if (pl.slice(-k) === ql.slice(0, k)) {
-      return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
-    }
-  }
-
-  const ovr = Math.max(tokenOverlapRatio(prev, piece), tokenOverlapRatio(piece, prev));
-  if (ovr >= 0.82 && piece.length >= prev.length - 4) {
+  const pPrefix = lcpPrefixRatio(prev, piece);
+  const qPrefix = lcpPrefixRatio(piece, prev);
+  if (pPrefix >= 0.7 || qPrefix >= 0.7) {
+    if (pl.startsWith(ql)) return prev;
+    if (ql.startsWith(pl)) return piece.length >= prev.length ? piece : prev;
     return piece.length >= prev.length ? piece : prev;
   }
 
-  if (ql.length >= 8 && pl.includes(ql)) return prev;
-  if (pl.endsWith(ql) && ql.length >= 6) return prev;
+  const ovr = Math.max(tokenOverlapRatio(prev, piece), tokenOverlapRatio(piece, prev));
+  if (ovr >= 0.7) {
+    return piece.length >= prev.length ? piece : prev;
+  }
 
-  const revShare = lcpPrefixRatio(piece, prev);
-  if (revShare >= 0.7 && piece.length >= prev.length) return piece;
+  if (pPrefix < 0.55 && qPrefix < 0.55 && ovr < 0.55) {
+    const pw = prev.split(/\s+/).filter(Boolean);
+    const qw = piece.split(/\s+/).filter(Boolean);
+    const maxW = Math.min(pw.length, qw.length, 40);
+    for (let w = maxW; w >= 1; w--) {
+      const suff = pw.slice(-w).join(" ");
+      const pref = qw.slice(0, w).join(" ");
+      if (suff.toLowerCase() !== pref.toLowerCase()) continue;
+      if (w === 1 && suff.length < 8) continue;
+      return collapseWs([...pw.slice(0, -w), ...qw].join(" "));
+    }
+
+    const maxK = Math.min(prev.length, piece.length, 240);
+    for (let k = maxK; k >= 8; k--) {
+      if (pl.slice(-k) === ql.slice(0, k)) {
+        return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
+      }
+    }
+  }
+
+  if (pPrefix >= 0.55 || qPrefix >= 0.55 || ovr >= 0.55) {
+    return piece.length >= prev.length ? piece : prev;
+  }
 
   return collapseWs(`${prev} ${piece}`);
 }
@@ -1059,42 +1066,53 @@ function mergeLiveFullBufferTranslation(prevDisplayed: string, newFull: string):
   const pl = p.toLowerCase();
   const fl = f.toLowerCase();
 
+  if (fl === pl) return p;
+
   if (fl.startsWith(pl) && f.length + 2 >= p.length) return f;
-  if (pl.startsWith(fl) && p.length > f.length + 8) return p;
 
-  if (fl.length >= 8 && pl.includes(fl) && f.length <= p.length + 2) return p;
-  if (fl.length >= 6 && pl.endsWith(fl)) return p;
+  if (pl.startsWith(fl) && fl.length >= 4) return p;
 
-  const pShare = lcpPrefixRatio(p, f);
-  if (pShare >= 0.7) {
-    if (f.length <= p.length && pl.startsWith(fl)) return p;
-    return f;
+  if (fl.length >= 6) {
+    if (pl.includes(fl) && f.length <= p.length + 2) return p;
+    if (pl.endsWith(fl)) return p;
   }
 
-  const ovrEarly = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
-  if (ovrEarly >= 0.82 && f.length + 8 >= p.length) return f;
-
-  const pw = p.split(/\s+/).filter(Boolean);
-  const fw = f.split(/\s+/).filter(Boolean);
-  const maxW = Math.min(pw.length, fw.length, 48);
-  for (let w = maxW; w >= 1; w--) {
-    const suff = pw.slice(-w).join(" ");
-    const pref = fw.slice(0, w).join(" ");
-    if (suff.toLowerCase() !== pref.toLowerCase()) continue;
-    if (w === 1 && suff.length < 10) continue;
-    return collapseWs([...pw.slice(0, -w), ...fw].join(" "));
+  const pPrefix = lcpPrefixRatio(p, f);
+  const fPrefix = lcpPrefixRatio(f, p);
+  if (pPrefix >= 0.7 || fPrefix >= 0.7) {
+    if (pl.startsWith(fl)) return p;
+    if (fl.startsWith(pl)) return f.length >= p.length ? f : p;
+    return f.length >= p.length ? f : p;
   }
 
-  const maxK = Math.min(p.length, f.length, 200);
-  for (let k = maxK; k >= 12; k--) {
-    if (pl.slice(-k) === fl.slice(0, k)) {
-      return collapseWs(`${p.slice(0, p.length - k)} ${f}`);
+  const ovr = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
+  if (ovr >= 0.7) {
+    return f.length >= p.length ? f : p;
+  }
+
+  if (pPrefix < 0.55 && fPrefix < 0.55 && ovr < 0.55) {
+    const pw = p.split(/\s+/).filter(Boolean);
+    const fw = f.split(/\s+/).filter(Boolean);
+    const maxW = Math.min(pw.length, fw.length, 48);
+    for (let w = maxW; w >= 1; w--) {
+      const suff = pw.slice(-w).join(" ");
+      const pref = fw.slice(0, w).join(" ");
+      if (suff.toLowerCase() !== pref.toLowerCase()) continue;
+      if (w === 1 && suff.length < 10) continue;
+      return collapseWs([...pw.slice(0, -w), ...fw].join(" "));
+    }
+
+    const maxK = Math.min(p.length, f.length, 200);
+    for (let k = maxK; k >= 12; k--) {
+      if (pl.slice(-k) === fl.slice(0, k)) {
+        return collapseWs(`${p.slice(0, p.length - k)} ${f}`);
+      }
     }
   }
 
-  const overlap = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
-  if (overlap >= 0.55 && f.length > p.length + 4) return f;
-  if (overlap >= 0.82) return f.length >= p.length ? f : p;
+  if (pPrefix >= 0.55 || fPrefix >= 0.55 || ovr >= 0.55) {
+    return f.length >= p.length ? f : p;
+  }
 
   return f;
 }
