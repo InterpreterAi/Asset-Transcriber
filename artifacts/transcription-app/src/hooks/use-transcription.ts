@@ -1433,7 +1433,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         : validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
+    // Soniox often tags Latin speech with a third language (e.g. fr, pt, und) that is
+    // not one of the user's two languages. For English plus Hindi, Devanagari vs Latin
+    // disambiguates and tags still map to exactly one pair member. For English plus Spanish,
+    // both sides are Latin: the tag may match neither side, all three uniquePairMemberForLang
+    // checks are null, and we used to "passthrough" (mirror transcript into the translation
+    // column with no API call). That left rows without a real translation. Only passthrough
+    // when the pair is effectively same-language (duplicate bases), which is almost always a mistake.
+    const pairBasesDistinct =
+      pair.a.split("-")[0]!.toLowerCase() !== pair.b.split("-")[0]!.toLowerCase();
     if (
+      !pairBasesDistinct &&
       uniquePairMemberForLang(vRaw, pair) === null &&
       uniquePairMemberForLang(vSon, pair) === null &&
       uniquePairMemberForLang(sonioxHint, pair) === null
