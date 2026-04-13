@@ -1,6 +1,7 @@
 import { getStaticPublicBaseUrl } from "./authEnv.js";
 import {
   emailBulletList,
+  escapeHtmlAttr,
   formatEmailDate,
   emailGettingStartedGreeting,
   emailOrderedList,
@@ -241,6 +242,53 @@ export async function sendTrialExpiredEmail(
       ),
     ].join(""),
     primaryButton: { href: billingUrl(), label: "Reactivate Account" },
+  });
+
+  return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
+}
+
+/** When a metered user hits their daily transcription cap (session stop). At most once per app calendar day. */
+export async function sendDailyLimitReachedEmail(
+  to: string,
+  displayName: string | null | undefined,
+  recipientUserId: number,
+  opts?: { dailyLimitMinutes?: number; catchUpNotice?: boolean },
+): Promise<boolean> {
+  if (!isResendConfigured()) return false;
+  const base = appBaseUrl();
+  const inviteHref = `${base}/invite`;
+  const limit = opts?.dailyLimitMinutes;
+  const limitLine =
+    Number.isFinite(limit) && Number(limit) > 0
+      ? `You've used your full InterpreterAI allowance for today (${Math.round(Number(limit))} minutes).`
+      : "You've used your full InterpreterAI allowance for today.";
+  const inviteLink = `<p style="margin:0 0 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.65;color:#374151;"><a href="${escapeHtmlAttr(inviteHref)}" style="color:#5B8CFF;text-decoration:underline;">Refer interpreters (invite link)</a></p>`;
+  const subject = "You've reached today's limit — subscribe or refer for more time";
+  const catchUp =
+    opts?.catchUpNotice === true
+      ? emailParagraph(
+          "We're sending this now because your account is already at today's limit. After this, you'll receive the same note automatically when a session ends and you've used your full daily allowance.",
+        )
+      : "";
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId,
+    heading: "Daily limit reached",
+    bodyHtml: [
+      emailStandardGreeting(to, displayName),
+      catchUp,
+      emailParagraph(limitLine),
+      emailParagraph(
+        "Your daily minutes reset at the start of the next calendar day (US Eastern time). To get more hours before then, you can subscribe to a paid plan or invite other interpreters.",
+      ),
+      emailBulletList([
+        "Subscribe — choose a plan with a higher daily allowance.",
+        "Refer interpreters — your invite link can unlock additional trial time when referrals qualify.",
+      ]),
+      inviteLink,
+      emailParagraph("Thank you for using InterpreterAI."),
+    ].join(""),
+    primaryButton: { href: billingUrl(), label: "Subscribe or view plans" },
   });
 
   return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
@@ -684,5 +732,114 @@ export async function sendStabilityBaselineUpdateEmailWithResult(
     return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
   }
   const { subject, html, text } = buildStabilityBaselineUpdateMail(opts);
+  return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
+}
+
+// ── Product fix / stability apology broadcast (all users; run via send script) ───────────────
+
+export const PRODUCT_FIX_ANNOUNCEMENT_EMAIL_SUBJECT = "We fixed it — and here's what changed";
+
+const PRODUCT_FIX_SECTION_RULE = `<div style="margin:22px 0;border-top:1px solid #e5e7eb;line-height:0;font-size:0;">&nbsp;</div>`;
+
+const PRODUCT_FIX_ANNOUNCEMENT_PLAIN_TEXT = `Hi,
+
+Last week wasn't up to our standard.
+
+Some of you experienced interruptions during live calls — especially unexpected logouts while using the app. This happened while we were actively fixing core issues, and it affected stability.
+
+That's on us.
+
+Now, it's fixed.
+
+Here's what actually improved:
+
+- No more random logouts during sessions
+You can now stay in your calls without interruptions.
+
+- Instant speaker detection (no delay, no confusion)
+Before: speakers could appear in the same segment, then get reorganized after a delay.
+Now: each speaker is detected immediately and placed in a clean, separate segment in real time.
+
+- Cleaner transcripts — no duplicates, no missing words
+What you see is exactly what's being said, structured properly from the start.
+
+- More stable, more accurate translation
+We optimized for accuracy and stability over speed.
+Translations may appear slightly after speech, but they are clear, complete, and reliable without disrupting your flow.
+
+---
+
+We know some of you were disrupted during real work.
+
+So we're adding this to your account:
+
++1 week free
+5 hours/day access
+
+---
+
+We're confident in saying: the core issues are resolved.
+
+InterpreterAI is built for real calls — and now it performs like it should have from the start.
+
+Send feedback in the app (opens your workspace with the feedback form):
+PLACEHOLDER_FEEDBACK_URL`;
+
+function buildProductFixAnnouncementMail(): { subject: string; html: string; text: string } {
+  const base = appBaseUrl();
+  const feedbackHref = `${base}/workspace?feedback=1`;
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId: null,
+    appendReferralAndUnsubscribe: false,
+    footerMode: "legal-only",
+    heading: PRODUCT_FIX_ANNOUNCEMENT_EMAIL_SUBJECT,
+    bodyHtml: [
+      emailParagraph("Hi,"),
+      emailParagraph("Last week wasn't up to our standard."),
+      emailParagraph(
+        "Some of you experienced interruptions during live calls — especially unexpected logouts while using the app. This happened while we were actively fixing core issues, and it affected stability.",
+      ),
+      emailParagraph("That's on us."),
+      emailParagraph("Now, it's fixed."),
+      emailParagraph("Here's what actually improved:"),
+      emailBulletList([
+        "No more random logouts during sessions — You can now stay in your calls without interruptions.",
+        "Instant speaker detection (no delay, no confusion). Before: speakers could appear in the same segment, then get reorganized after a delay. Now: each speaker is detected immediately and placed in a clean, separate segment in real time.",
+        "Cleaner transcripts — no duplicates, no missing words — What you see is exactly what's being said, structured properly from the start.",
+        "More stable, more accurate translation — We optimized for accuracy and stability over speed. Translations may appear slightly after speech, but they are clear, complete, and reliable without disrupting your flow.",
+      ]),
+      PRODUCT_FIX_SECTION_RULE,
+      emailParagraph("We know some of you were disrupted during real work."),
+      emailParagraph("So we're adding this to your account:"),
+      emailTrialInformationBlock(
+        `<p style="margin:0 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.65;color:#374151;"><strong>+1 week free</strong></p><p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:15px;line-height:1.65;color:#374151;"><strong>5 hours/day access</strong></p>`,
+      ),
+      PRODUCT_FIX_SECTION_RULE,
+      emailParagraph("We're confident in saying: the core issues are resolved."),
+      emailParagraph(
+        "InterpreterAI is built for real calls — and now it performs like it should have from the start.",
+      ),
+    ].join(""),
+    primaryButton: { href: feedbackHref, label: "Send feedback in the app" },
+    noteHtml: `<p style="margin:0;">Please use the button above to open your workspace and submit feedback in the app. This message is not monitored for email replies.</p>`,
+  });
+  const text = PRODUCT_FIX_ANNOUNCEMENT_PLAIN_TEXT.replace(
+    "PLACEHOLDER_FEEDBACK_URL",
+    feedbackHref,
+  );
+  return {
+    subject: PRODUCT_FIX_ANNOUNCEMENT_EMAIL_SUBJECT,
+    html,
+    text,
+  };
+}
+
+/** Broadcast: product stability fixes + in-app feedback CTA (no billing side effects). */
+export async function sendProductFixAnnouncementEmailWithResult(to: string): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html, text } = buildProductFixAnnouncementMail();
   return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
 }

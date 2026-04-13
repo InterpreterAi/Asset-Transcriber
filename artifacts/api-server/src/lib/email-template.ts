@@ -113,6 +113,22 @@ export function emailFooterBlockHtml(appBaseUrl: string): string {
 </div>`;
 }
 
+/** Terms, Privacy, and account tagline only — for messages that should not invite email replies. */
+export function emailFooterLegalOnlyHtml(appBaseUrl: string): string {
+  const b = normalizeBaseUrl(appBaseUrl);
+  const terms = escapeHtmlAttr(`${b}/terms`);
+  const privacy = escapeHtmlAttr(`${b}/privacy`);
+  const tag = escapeHtml(FOOTER_TAGLINE);
+  return `<div style="margin-top:32px;padding-top:24px;border-top:1px solid ${BORDER};font-family:${FONT};font-size:13px;line-height:1.65;color:${FOOTER_COLOR};">
+<p style="margin:0 0 10px;">
+<a href="${terms}" style="color:${FOOTER_COLOR};text-decoration:underline;">Terms of Service</a>
+<span style="color:${FOOTER_COLOR};">&nbsp;•&nbsp;</span>
+<a href="${privacy}" style="color:${FOOTER_COLOR};text-decoration:underline;">Privacy Policy</a>
+</p>
+<p style="margin:0;">${tag}</p>
+</div>`;
+}
+
 /** Trial / billing callout — light panel per brand spec. */
 export function emailTrialInformationBlock(innerHtmlSafe: string): string {
   return `<div style="background-color:#f5f6fb;border-radius:8px;padding:16px;margin:20px 0;font-family:${FONT};font-size:15px;line-height:1.65;color:${TEXT};">${innerHtmlSafe}</div>`;
@@ -142,6 +158,10 @@ export type InterpreterAiEmailOptions = {
   appBaseUrl: string;
   /** When set, appended promo + one-click unsubscribe (sets email_reminders_enabled) appear above the standard footer. */
   recipientUserId?: number | null;
+  /** When `false`, omits referral promo + unsubscribe strip (default: true). */
+  appendReferralAndUnsubscribe?: boolean;
+  /** `legal-only` = Terms, Privacy, tagline only (no Support mailto). Default: standard footer with Support link. */
+  footerMode?: "standard" | "legal-only";
   heading?: string;
   bodyHtml: string;
   primaryButton?: { href: string; label: string };
@@ -186,9 +206,13 @@ export function renderInterpreterAiEmail(opts: InterpreterAiEmailOptions): strin
     ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid ${BORDER};font-family:${FONT};font-size:13px;line-height:1.55;color:${FOOTER_COLOR};">${opts.noteHtml}</div>`
     : "";
 
-  const referralFooterAppend = emailReferralPromoAndUnsubscribeBeforeStandardFooter(base, opts.recipientUserId ?? null);
+  const appendReferral = opts.appendReferralAndUnsubscribe !== false;
+  const referralFooterAppend = appendReferral
+    ? emailReferralPromoAndUnsubscribeBeforeStandardFooter(base, opts.recipientUserId ?? null)
+    : "";
 
-  const footer = emailFooterBlockHtml(base);
+  const footer =
+    opts.footerMode === "legal-only" ? emailFooterLegalOnlyHtml(base) : emailFooterBlockHtml(base);
 
   return renderEmailBaseTemplate({
     title: opts.heading ? escapeHtml(opts.heading) : "InterpreterAI",

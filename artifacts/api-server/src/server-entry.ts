@@ -159,6 +159,9 @@ async function migrateSchema() {
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_receipt_last_invoice_id TEXT`,
       );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_limit_reached_email_app_date TEXT`,
+      );
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT`);

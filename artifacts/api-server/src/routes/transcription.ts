@@ -39,8 +39,13 @@ import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
-import { hasSubmittedMandatoryFeedbackToday, isMandatoryFeedbackRequiredByUsage } from "../lib/feedback-gate.js";
-import { startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
+import {
+  hasSubmittedMandatoryFeedbackToday,
+  isMandatoryFeedbackRequiredByUsage,
+  UNLIMITED_DAILY_CAP_MINUTES,
+} from "../lib/feedback-gate.js";
+import { appCalendarDateAndHour, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
+import { sendDailyLimitReachedEmail } from "../lib/transactional-email.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -981,6 +986,42 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 
   // Invalidate global cap cache after a session stops
   globalCapCache.lastChecked = 0;
+
+  const newMinutesUsedToday = Number(user.minutesUsedToday) + minutesUsed;
+  const dailyCap = Number(user.dailyLimitMinutes);
+  const hitDailyCap =
+    Number.isFinite(dailyCap) &&
+    dailyCap > 0 &&
+    dailyCap < UNLIMITED_DAILY_CAP_MINUTES &&
+    newMinutesUsedToday + 1e-6 >= dailyCap;
+  const todayIso = appCalendarDateAndHour().dateIso;
+  const alreadySentToday = user.dailyLimitReachedEmailAppDate === todayIso;
+  const toEmail = user.email?.trim().toLowerCase() ?? "";
+  const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (
+    hitDailyCap &&
+    !alreadySentToday &&
+    user.emailRemindersEnabled !== false &&
+    toEmail &&
+    EMAIL_OK.test(toEmail)
+  ) {
+    void (async () => {
+      try {
+        const ok = await sendDailyLimitReachedEmail(toEmail, user.username, user.id, {
+          dailyLimitMinutes: dailyCap,
+        });
+        if (ok) {
+          await db
+            .update(usersTable)
+            .set({ dailyLimitReachedEmailAppDate: todayIso })
+            .where(eq(usersTable.id, user.id));
+          logger.info({ userId: user.id, email: toEmail }, "Daily limit reached email sent");
+        }
+      } catch (err) {
+        logger.warn({ err, userId: user.id }, "Daily limit reached email failed");
+      }
+    })();
+  }
 
   res.json({ message: "Session stopped", minutesUsed });
 });

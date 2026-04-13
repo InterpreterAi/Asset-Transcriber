@@ -165,6 +165,17 @@ export default function Workspace() {
   const [tabStream, setTabStream]               = useState<MediaStream | null>(null);
 
   useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("feedback") !== "1") return;
+    setShowUserFeedback(true);
+    params.delete("feedback");
+    const qs = params.toString();
+    const path = window.location.pathname;
+    window.history.replaceState(null, "", qs ? `${path}?${qs}` : path);
+  }, [user]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
