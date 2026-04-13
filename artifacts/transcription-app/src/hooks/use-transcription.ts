@@ -1152,6 +1152,8 @@ interface BubbleTransState {
   earlyHintSent:         boolean;
   /** Word count at the last non-final preview dispatch (LIVE_PREVIEW_WORD_STEP gating). */
   lastPreviewWordsSent:  number;
+  /** Source char length at last live preview dispatch (fires when words are flat but ASR keeps extending). */
+  lastPreviewCharsSent:  number;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -1211,6 +1213,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Same gates for all pairs so translation tracks interim transcription like en–ar / en–hi. */
   const EARLY_HINT_MIN_WORDS = 1;
   const LIVE_PREVIEW_WORD_STEP = 2;
+  /** Also dispatch when the live buffer grew by this many chars (helps Latin streaming when word count is unchanged). */
+  const LIVE_PREVIEW_CHAR_STEP = 28;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1299,8 +1303,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Single value for all pairs — incremental translation while transcribing. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 12;
+  /**
+   * Trailing debounce for live translate API. Without abort-on-supersede, this mainly batches WS bursts.
+   * (Previously each new frame aborted the prior HTTP call; Latin ASR never let a response finish, so the
+   * column stayed empty until a long pause — then one big translation appeared.)
+   */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 40;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1672,11 +1680,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let liveAbortForThisRequest: AbortController | undefined;
     if (isFinal) {
       state.liveTranslationAbort?.abort();
-      state.liveTranslationAbort = null;
-    } else {
-      state.liveTranslationAbort?.abort();
       state.liveTranslationAbort = new AbortController();
       liveAbortForThisRequest = state.liveTranslationAbort;
+    } else {
+      // Live: do NOT abort the previous in-flight request. Rapid Latin revisions were canceling every
+      // fetch before completion; `mySeq` / `lastShownSeq` already drop stale responses.
+      liveAbortForThisRequest = undefined;
     }
 
     state.seq += 1;
@@ -1797,7 +1806,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         /* HIPAA — never log speech context */
       } finally {
         if (
-          !isFinal &&
           liveAbortForThisRequest &&
           state.liveTranslationAbort === liveAbortForThisRequest
         ) {
@@ -1900,6 +1908,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
       lastPreviewWordsSent:  0,
+      lastPreviewCharsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
       lastConfirmedSource:   "",
@@ -2355,6 +2364,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const liveHintSourceReady =
         st !== null &&
         (st.finalTokensSeen >= 1 || (wordsNow >= 2 && hintSource.length >= 8));
+      let stepReached = false;
+      if (st) {
+        const wordDelta = wordsNow - st.lastPreviewWordsSent;
+        const charDelta = hintSource.length - st.lastPreviewCharsSent;
+        stepReached =
+          !st.earlyHintSent ||
+          wordDelta >= LIVE_PREVIEW_WORD_STEP ||
+          charDelta >= LIVE_PREVIEW_CHAR_STEP;
+      }
       if (
         st &&
         !st.translationLocked &&
@@ -2362,12 +2380,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveHintSourceReady &&
         hintSource.length >= 6 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
-        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
+        stepReached
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
+        st.lastPreviewCharsSent = hintSource.length;
       }
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
