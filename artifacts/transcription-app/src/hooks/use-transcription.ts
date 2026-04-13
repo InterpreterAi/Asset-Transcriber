@@ -945,6 +945,14 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** Share of the shorter string that matches the other from the start (case-insensitive). Rewrite vs append. */
+function lcpPrefixRatio(a: string, b: string): number {
+  let i = 0;
+  const n = Math.min(a.length, b.length);
+  while (i < n && a[i]!.toLowerCase() === b[i]!.toLowerCase()) i++;
+  return i / Math.max(1, Math.min(a.length, b.length));
+}
+
 /** True when the translation cell already shows text we should treat as a real translation (not blank / placeholder-only). */
 function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   const t = (el.textContent ?? "").trim();
@@ -969,6 +977,17 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
   if (ql === pl) return prev;
 
+  // New chunk already appears verbatim in the cell — do not append again.
+  if (ql.length >= 8 && pl.includes(ql)) return prev;
+  // Model resent the same trailing phrase.
+  if (ql.length >= 6 && pl.endsWith(ql)) return prev;
+
+  const pShare = lcpPrefixRatio(prev, piece);
+  if (pShare >= 0.7) {
+    if (piece.length <= prev.length && pl.startsWith(ql)) return prev;
+    return piece;
+  }
+
   const pw = prev.split(/\s+/).filter(Boolean);
   const qw = piece.split(/\s+/).filter(Boolean);
   const maxW = Math.min(pw.length, qw.length, 40);
@@ -986,6 +1005,17 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
       return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
     }
   }
+
+  const ovr = Math.max(tokenOverlapRatio(prev, piece), tokenOverlapRatio(piece, prev));
+  if (ovr >= 0.82 && piece.length >= prev.length - 4) {
+    return piece.length >= prev.length ? piece : prev;
+  }
+
+  if (ql.length >= 8 && pl.includes(ql)) return prev;
+  if (pl.endsWith(ql) && ql.length >= 6) return prev;
+
+  const revShare = lcpPrefixRatio(piece, prev);
+  if (revShare >= 0.7 && piece.length >= prev.length) return piece;
 
   return collapseWs(`${prev} ${piece}`);
 }
@@ -1032,6 +1062,18 @@ function mergeLiveFullBufferTranslation(prevDisplayed: string, newFull: string):
   if (fl.startsWith(pl) && f.length + 2 >= p.length) return f;
   if (pl.startsWith(fl) && p.length > f.length + 8) return p;
 
+  if (fl.length >= 8 && pl.includes(fl) && f.length <= p.length + 2) return p;
+  if (fl.length >= 6 && pl.endsWith(fl)) return p;
+
+  const pShare = lcpPrefixRatio(p, f);
+  if (pShare >= 0.7) {
+    if (f.length <= p.length && pl.startsWith(fl)) return p;
+    return f;
+  }
+
+  const ovrEarly = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
+  if (ovrEarly >= 0.82 && f.length + 8 >= p.length) return f;
+
   const pw = p.split(/\s+/).filter(Boolean);
   const fw = f.split(/\s+/).filter(Boolean);
   const maxW = Math.min(pw.length, fw.length, 48);
@@ -1052,6 +1094,7 @@ function mergeLiveFullBufferTranslation(prevDisplayed: string, newFull: string):
 
   const overlap = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
   if (overlap >= 0.55 && f.length > p.length + 4) return f;
+  if (overlap >= 0.82) return f.length >= p.length ? f : p;
 
   return f;
 }
