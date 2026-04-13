@@ -1188,8 +1188,8 @@ export type UseTranscriptionOptions = {
  */
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Lower gates = earlier phrase-by-phrase updates for every language pair. */
-  const EARLY_HINT_MIN_WORDS = 3;
-  const LIVE_PREVIEW_WORD_STEP = 4;
+  const EARLY_HINT_MIN_WORDS = 2;
+  const LIVE_PREVIEW_WORD_STEP = 3;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1279,7 +1279,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   });
 
   /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier phrase updates; too low = redundant aborted requests. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 38;
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 28;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1620,8 +1620,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
     } else {
-      apiText = text;
-      useStreamingDelta = false;
+      // Live preview: translate only the new tail vs streaming-committed source, then merge.
+      // Full-buffer re-translate every frame caused long blanks (waiting on huge requests) and churn
+      // (model rewrote earlier phrases — English leaks, flicker).
+      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      if (monotonic && !tail.trim()) {
+        if (translationCellLooksFilled(state.transTextEl)) return;
+        apiText = text;
+        useStreamingDelta = false;
+      } else if (monotonic && tail.trim()) {
+        apiText = tail;
+        useStreamingDelta = true;
+      } else {
+        apiText = text;
+        useStreamingDelta = false;
+      }
+      requestIsFinal = false;
     }
 
     let liveAbortForThisRequest: AbortController | undefined;
@@ -1726,8 +1740,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownLen = safeMerged.length;
           applyTranslationTypography(transTextEl, safeMerged);
           state.pendingDisplayTranslation = "";
-          const committed = state.streamCommittedSource.trim();
-          state.streamCommittedSource = committed ? `${committed} ${text}` : text;
+          state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
           state.lastConfirmedSourceTranslated = text;
         } else {
@@ -2306,12 +2319,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
+      // Start live translate from interim text, not only after Soniox final tokens — finals often lag,
+      // which left the translation column blank for a long time while ORIGINAL filled up.
+      const liveHintSourceReady =
+        st !== null &&
+        (st.finalTokensSeen >= 1 || (wordsNow >= 3 && hintSource.length >= 12));
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        st.finalTokensSeen >= 1 &&
-        hintSource.length >= 10 &&
+        liveHintSourceReady &&
+        hintSource.length >= 8 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {

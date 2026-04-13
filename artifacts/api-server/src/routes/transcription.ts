@@ -1454,13 +1454,29 @@ router.post("/translate", requireAuth, async (req, res) => {
   const englishTargetBlock =
     srcCode !== "en" && tgtCode === "en" ? NON_EN_TO_EN_INTERPRETER_RULES : "";
 
-  /** Client may flip src/tgt per frame from dominant script; transcript may still mix both in one block. */
-  const bidirectionalLiveMirrorBlock =
-    `LIVE BIDIRECTIONAL MIRROR:\n` +
-    `- The marked transcript may contain both ${srcName} and ${tgtName} in one utterance.\n` +
-    `- Each request is the FULL cumulative transcript (single continuous block).\n` +
-    `- Output must be one coherent ${tgtName} column for the entire block from first word to last — translate all ${srcName} material into ${tgtName}; keep ${tgtName} stretches natural in ${tgtName}.\n` +
-    `- Do not treat an early clause as complete while later words remain untranslated.\n\n`;
+  /** Full cumulative buffer vs tail-only (streamingDelta): prompts must match what the client sends. */
+  const liveStreamingTailBlock =
+    `LIVE STREAMING TAIL (NEW WORDS ONLY):\n` +
+    `- The transcript between the markers is ONLY the **new tail** appended since the previous live request — not the full utterance from the start.\n` +
+    `- Output ONLY the ${tgtName} translation of **this fragment**. Do NOT restate or re-translate earlier material; the client appends your output after prior text.\n` +
+    `- No preambles or assistant phrases ("Sure", "I can help", "Here is the translation") — output only ${tgtName} interpreter lines.\n` +
+    `- Translate every word in the fragment; an unfinished clause at the end is normal until the next fragment.\n\n`;
+
+  const bidirectionalLiveMirrorBlock = streamingDelta
+    ? liveStreamingTailBlock
+    : `LIVE BIDIRECTIONAL MIRROR:\n` +
+      `- The marked transcript may contain both ${srcName} and ${tgtName} in one utterance.\n` +
+      `- Each request is the FULL cumulative transcript (single continuous block).\n` +
+      `- Output must be one coherent ${tgtName} column for the entire block from first word to last — translate all ${srcName} material into ${tgtName}; keep ${tgtName} stretches natural in ${tgtName}.\n` +
+      `- Do not treat an early clause as complete while later words remain untranslated.\n\n`;
+
+  const whenInDoubtTranscriptScope = streamingDelta
+    ? `- The marked block is one streaming fragment — translate it fully; do not invent or repeat text outside the markers.\n\n`
+    : `- Every request contains the full current transcript block — translate it completely from start to finish.\n\n`;
+
+  const outputCoverageBullet = streamingDelta
+    ? `- Translate every word inside THIS fragment only — no omissions; do not add words from outside the markers.\n`
+    : `- Translate the COMPLETE input from start to finish — do not stop after the first clause, summarize, or omit trailing sentences.\n`;
 
   /** English is the primary source language for interpretation into every supported target. */
   const englishSourceDomainBridge =
@@ -1588,7 +1604,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Prefer faithful literal rendering over creative paraphrase.\n` +
     `- Translate literally. Do NOT paraphrase, infer unstated meaning, or expand abbreviations unless explicitly spoken.\n` +
     `- Do NOT add filler or connective words that are not present in the source utterance.\n` +
-    `- Every request contains the full current transcript block — translate it completely from start to finish.\n\n` +
+    whenInDoubtTranscriptScope +
 
     `CONSISTENCY:\n` +
     `- Use the SAME word choice every time for the same term within the segment. Never swap synonyms mid-utterance without cause.\n\n` +
@@ -1603,7 +1619,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     finalSegmentBlock +
     `OUTPUT:\n` +
     `- Return ONLY the translated text.\n` +
-    `- Translate the COMPLETE input from start to finish — do not stop after the first clause, summarize, or omit trailing sentences.\n` +
+    outputCoverageBullet +
     `- No explanations, notes, alternatives, or the original source text.`;
 
   // ── OpenAI call with output-language validation + single retry ────────────
