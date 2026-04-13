@@ -1077,7 +1077,11 @@ function lcpLenInsensitive(a: string, b: string): number {
 }
 
 /** Returns the newly appended tail using prefix/overlap matching (case-insensitive). */
-function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: string; monotonic: boolean } {
+function sourceTailAfterPrefix(
+  fullRaw: string,
+  prefixRaw: string,
+  opts?: { relaxLcp?: boolean },
+): { tail: string; monotonic: boolean } {
   const full = fullRaw.trimStart();
   const prefix = prefixRaw.trimEnd();
   if (!prefix) return { tail: full, monotonic: true };
@@ -1094,7 +1098,12 @@ function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: stri
   }
   // Mid-string edits (e.g. punctuation inserted) break strict prefix but share a long LCP.
   const lcp = lcpLenInsensitive(full, prefix);
-  const minRecover = Math.max(4, Math.min(32, Math.floor(prefix.length * 0.12) || 8));
+  // Latin–Latin pairs (en–es, etc.) get more aggressive revision of the same English line; without
+  // relaxLcp we often fall back to full-buffer live translates that abort each other and feel slower
+  // than en–ar / en–hi where tails stay monotonic more often.
+  const minRecover = opts?.relaxLcp
+    ? Math.max(2, Math.min(20, Math.floor(prefix.length * 0.05) || 4))
+    : Math.max(4, Math.min(32, Math.floor(prefix.length * 0.12) || 8));
   if (lcp >= minRecover && lcp < full.length) {
     const tail = full.slice(lcp).trimStart();
     if (tail.length > 0) return { tail, monotonic: true };
@@ -1298,6 +1307,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier phrase updates; too low = redundant aborted requests. */
   const LIVE_TRANSLATION_DEBOUNCE_MS = 28;
+  /** Latin–Latin pairs: snappier coalescing so streaming tail translates fire closer to en–ar / en–hi feel. */
+  const LATIN_LATIN_LIVE_DEBOUNCE_MS = 12;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1323,6 +1334,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (liveTranslationDebounceTimerRef.current !== null) {
       clearTimeout(liveTranslationDebounceTimerRef.current);
     }
+    const debounceMs = pairIsLatinLatinOnly(langPairRef.current)
+      ? LATIN_LATIN_LIVE_DEBOUNCE_MS
+      : LIVE_TRANSLATION_DEBOUNCE_MS;
     liveTranslationDebounceTimerRef.current = setTimeout(() => {
       liveTranslationDebounceTimerRef.current = null;
       const p = liveTranslationDebouncePayloadRef.current;
@@ -1337,7 +1351,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         { skipOpenAiLiveDebounce: true },
         p.segmentId,
       );
-    }, LIVE_TRANSLATION_DEBOUNCE_MS);
+    }, debounceMs);
   }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
@@ -1444,6 +1458,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const chars = text.length;
 
     const pair = langPairRef.current;
+    const streamTailOpts = pairIsLatinLatinOnly(pair) ? { relaxLcp: true as const } : undefined;
     const sonioxHint = lang;
     const rawCandidate =
       state.segmentSourceLang !== null
@@ -1613,7 +1628,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         useStreamingDelta = false;
         requestIsFinal = true;
       } else {
-        const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+        const { tail, monotonic } = sourceTailAfterPrefix(
+          text,
+          state.streamCommittedSource,
+          streamTailOpts,
+        );
         if (monotonic && !tail.trim()) {
           const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
           const visiblyTranslated = translationCellLooksFilled(state.transTextEl);
@@ -1651,7 +1670,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Live preview: translate only the new tail vs streaming-committed source, then merge.
       // Full-buffer re-translate every frame caused long blanks (waiting on huge requests) and churn
       // (model rewrote earlier phrases — English leaks, flicker).
-      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+      const { tail, monotonic } = sourceTailAfterPrefix(
+        text,
+        state.streamCommittedSource,
+        streamTailOpts,
+      );
       if (monotonic && !tail.trim()) {
         if (translationCellLooksFilled(state.transTextEl)) return;
         apiText = text;
@@ -2347,19 +2370,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
+      const latinLatPair = pairIsLatinLatinOnly(langPairRef.current);
       // Start live translate from interim text, not only after Soniox final tokens — finals often lag,
       // which left the translation column blank for a long time while ORIGINAL filled up.
+      // Latin–Latin (en–es): start a bit sooner and step more often — same class of snappiness as mixed-script pairs.
       const liveHintSourceReady =
         st !== null &&
-        (st.finalTokensSeen >= 1 || (wordsNow >= 3 && hintSource.length >= 12));
+        (st.finalTokensSeen >= 1 ||
+          (latinLatPair
+            ? wordsNow >= 2 && hintSource.length >= 8
+            : wordsNow >= 3 && hintSource.length >= 12));
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
         liveHintSourceReady &&
-        hintSource.length >= 8 &&
-        wordsNow >= EARLY_HINT_MIN_WORDS &&
-        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
+        hintSource.length >= (latinLatPair ? 6 : 8) &&
+        wordsNow >= (latinLatPair ? 1 : EARLY_HINT_MIN_WORDS) &&
+        (!st.earlyHintSent ||
+          wordsNow - st.lastPreviewWordsSent >= (latinLatPair ? 2 : LIVE_PREVIEW_WORD_STEP))
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
