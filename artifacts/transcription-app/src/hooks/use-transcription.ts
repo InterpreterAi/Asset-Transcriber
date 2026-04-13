@@ -52,6 +52,17 @@ const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
+
+/** Dev-only diagnosis: browser console. Text snippets truncated (PHI). */
+const TRANS_DIAG_SNIP = 120;
+function transDiagLog(stream: "asr" | "translate", payload: Record<string, unknown>): void {
+  console.info("[trans_diag]", stream, {
+    wallTs: new Date().toISOString(),
+    perfMs: Math.round(performance.now() * 100) / 100,
+    ...payload,
+  });
+}
+
 // Segments close on stabilized speaker_id change (see effectiveSpeakersForTokenBoundaries + ws.onmessage).
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
@@ -617,7 +628,20 @@ async function translateViaPrimaryApi(
   const externalSignal = options?.signal;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const inputLen = text.length;
+    const streamingDelta = Boolean(options?.streamingDelta);
+
     if (externalSignal?.aborted) {
+      transDiagLog("translate", {
+        phase: "skipped",
+        reason: "external_aborted_before_attempt",
+        inputLen,
+        attempt,
+        streamingDelta,
+        isFinal,
+        srcLang: sourceLang,
+        tgtLang: targetLang,
+      });
       return { outcome: "ok", text: "" };
     }
 
@@ -626,6 +650,34 @@ async function translateViaPrimaryApi(
     if (externalSignal) {
       externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
     }
+
+    const t0 = performance.now();
+    transDiagLog("translate", {
+      phase: "request_start",
+      inputLen,
+      attempt,
+      streamingDelta,
+      isFinal,
+      srcLang: sourceLang,
+      tgtLang: targetLang,
+    });
+
+    const logResponse = (fields: Record<string, unknown>) => {
+      const durationMs = Math.round(performance.now() - t0);
+      const extAb = Boolean(externalSignal?.aborted);
+      const intAb = controller.signal.aborted;
+      transDiagLog("translate", {
+        phase: "response",
+        inputLen,
+        attempt,
+        durationMs,
+        externalAborted: extAb,
+        internalAbortOrTimeout: intAb && !extAb,
+        canceled: Boolean(fields.canceled ?? (extAb || intAb)),
+        ...fields,
+      });
+    };
+
     try {
       const r = await fetch("/api/transcription/translate", {
         method:      "POST",
@@ -636,14 +688,21 @@ async function translateViaPrimaryApi(
           text,
           srcLang:        sourceLang,
           tgtLang:        targetLang,
-          streamingDelta: Boolean(options?.streamingDelta),
+          streamingDelta,
           isFinal:        Boolean(options?.isFinal),
         }),
       });
       clearTimeout(timeoutId);
       if (r.ok) {
         const d = await r.json() as { translated?: string };
-        return { outcome: "ok", text: d.translated?.trim() ?? "" };
+        const out = d.translated?.trim() ?? "";
+        logResponse({
+          canceled: false,
+          httpStatus: r.status,
+          outcome: "ok",
+          responseCharLen: out.length,
+        });
+        return { outcome: "ok", text: out };
       }
 
       if (r.status === 503) {
@@ -655,6 +714,12 @@ async function translateViaPrimaryApi(
           /* ignore */
         }
         if (j?.code && fatal503Codes.has(j.code)) {
+          logResponse({
+            canceled: false,
+            httpStatus: 503,
+            outcome: "fatal_503",
+            code: j.code,
+          });
           return {
             outcome:     "try_fallback",
             userMessage: j.error ??
@@ -665,6 +730,11 @@ async function translateViaPrimaryApi(
         }
         // Never treat 503 as success with empty text.
         if (attempt === MAX_ATTEMPTS) {
+          logResponse({
+            canceled: false,
+            httpStatus: 503,
+            outcome: "http_503_exhausted",
+          });
           return {
             outcome:     "try_fallback",
             userMessage:
@@ -672,6 +742,11 @@ async function translateViaPrimaryApi(
               "Translation is temporarily unavailable. Basic/Professional use LibreTranslate — check network or LIBRETRANSLATE_URL on the API server.",
           };
         }
+        logResponse({
+          canceled: false,
+          httpStatus: 503,
+          outcome: "http_503_retry",
+        });
         await new Promise<void>(res => setTimeout(res, 700 * attempt));
         continue;
       }
@@ -681,11 +756,21 @@ async function translateViaPrimaryApi(
         try {
           const j403 = JSON.parse(raw403) as { code?: string };
           if (j403.code === "TRANSLATION_PLAN_REQUIRED") {
+            logResponse({
+              canceled: false,
+              httpStatus: 403,
+              outcome: "plan_required_empty",
+            });
             return { outcome: "ok", text: "" };
           }
         } catch {
           /* fall through */
         }
+        logResponse({
+          canceled: false,
+          httpStatus: 403,
+          outcome: "http_403",
+        });
         return {
           outcome:     "try_fallback",
           userMessage: "Session expired or access denied — refresh the page and sign in again.",
@@ -693,6 +778,11 @@ async function translateViaPrimaryApi(
       }
 
       if (r.status === 401) {
+        logResponse({
+          canceled: false,
+          httpStatus: 401,
+          outcome: "http_401",
+        });
         return {
           outcome:     "try_fallback",
           userMessage: "Session expired or access denied — refresh the page and sign in again.",
@@ -700,18 +790,39 @@ async function translateViaPrimaryApi(
       }
 
       if (r.status >= 400 && r.status < 500 && r.status !== 429 && r.status !== 503) {
+        logResponse({
+          canceled: false,
+          httpStatus: r.status,
+          outcome: "http_4xx_empty",
+        });
         return { outcome: "ok", text: "" };
       }
 
       if (attempt === MAX_ATTEMPTS) {
+        logResponse({
+          canceled: false,
+          httpStatus: r.status,
+          outcome: "http_error_exhausted",
+        });
         return {
           outcome:     "try_fallback",
           userMessage:
             "Translation service returned an error — try again. If it persists, check API logs and OpenAI key/billing.",
         };
       }
+      logResponse({
+        canceled: false,
+        httpStatus: r.status,
+        outcome: "http_will_retry",
+      });
     } catch {
       clearTimeout(timeoutId);
+      const extAb = Boolean(externalSignal?.aborted);
+      const intAb = controller.signal.aborted;
+      logResponse({
+        outcome: extAb ? "fetch_aborted_external" : intAb ? "fetch_aborted_timeout_or_internal" : "fetch_error",
+        canceled: extAb || intAb,
+      });
       if (externalSignal?.aborted) {
         return { outcome: "ok", text: "" };
       }
@@ -725,11 +836,24 @@ async function translateViaPrimaryApi(
     }
     if (attempt < MAX_ATTEMPTS) {
       if (externalSignal?.aborted) {
+        transDiagLog("translate", {
+          phase: "skipped",
+          reason: "external_aborted_before_retry_delay",
+          inputLen,
+          attempt,
+        });
         return { outcome: "ok", text: "" };
       }
       await new Promise<void>(res => setTimeout(res, 700 * attempt));
     }
   }
+  transDiagLog("translate", {
+    phase: "response",
+    outcome: "loop_exhausted",
+    inputLen: text.length,
+    isFinal,
+    note: "no_successful_http_in_attempts",
+  });
   return {
     outcome:     "try_fallback",
     userMessage: "Translation service unavailable.",
@@ -829,13 +953,41 @@ function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   return true;
 }
 
-/** Append a streaming fragment to what is already shown (placeholder … counts as empty). */
+/**
+ * Append a streaming tail fragment (streamingDelta). Handles cumulative tail replies and
+ * overlap at chunk boundaries so Latin targets grow visibly instead of flashing one replaced line.
+ */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = newPiece.trim();
-  if (!piece) return prevDisplayed.trim();
-  const prev = prevDisplayed.trim();
+  const piece = collapseWs(newPiece);
+  if (!piece) return collapseWs(prevDisplayed);
+  const prev = collapseWs(prevDisplayed);
   if (!prev || prev === "…") return piece;
-  return `${prev} ${piece}`;
+
+  const pl = prev.toLowerCase();
+  const ql = piece.toLowerCase();
+
+  if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
+  if (ql === pl) return prev;
+
+  const pw = prev.split(/\s+/).filter(Boolean);
+  const qw = piece.split(/\s+/).filter(Boolean);
+  const maxW = Math.min(pw.length, qw.length, 40);
+  for (let w = maxW; w >= 1; w--) {
+    const suff = pw.slice(-w).join(" ");
+    const pref = qw.slice(0, w).join(" ");
+    if (suff.toLowerCase() !== pref.toLowerCase()) continue;
+    if (w === 1 && suff.length < 8) continue;
+    return collapseWs([...pw.slice(0, -w), ...qw].join(" "));
+  }
+
+  const maxK = Math.min(prev.length, piece.length, 240);
+  for (let k = maxK; k >= 8; k--) {
+    if (pl.slice(-k) === ql.slice(0, k)) {
+      return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
+    }
+  }
+
+  return collapseWs(`${prev} ${piece}`);
 }
 
 function countWords(text: string): number {
@@ -861,6 +1013,47 @@ function tokenOverlapRatio(a: string, b: string): number {
   let hit = 0;
   for (const w of tb) if (setA.has(w)) hit++;
   return hit / Math.max(ta.length, tb.length);
+}
+
+/**
+ * Live preview when the API returned a full-buffer translation (streamingDelta false) while the
+ * source hypothesis is revising. Weld with the visible cell so interim passes extend phrase-by-phrase
+ * instead of replacing the same sentence on every revision (common for Latin/Latin pairs).
+ */
+function mergeLiveFullBufferTranslation(prevDisplayed: string, newFull: string): string {
+  const f = collapseWs(newFull);
+  if (!f) return collapseWs(prevDisplayed);
+  const p = collapseWs(prevDisplayed);
+  if (!p || p === "…") return f;
+
+  const pl = p.toLowerCase();
+  const fl = f.toLowerCase();
+
+  if (fl.startsWith(pl) && f.length + 2 >= p.length) return f;
+  if (pl.startsWith(fl) && p.length > f.length + 8) return p;
+
+  const pw = p.split(/\s+/).filter(Boolean);
+  const fw = f.split(/\s+/).filter(Boolean);
+  const maxW = Math.min(pw.length, fw.length, 48);
+  for (let w = maxW; w >= 1; w--) {
+    const suff = pw.slice(-w).join(" ");
+    const pref = fw.slice(0, w).join(" ");
+    if (suff.toLowerCase() !== pref.toLowerCase()) continue;
+    if (w === 1 && suff.length < 10) continue;
+    return collapseWs([...pw.slice(0, -w), ...fw].join(" "));
+  }
+
+  const maxK = Math.min(p.length, f.length, 200);
+  for (let k = maxK; k >= 12; k--) {
+    if (pl.slice(-k) === fl.slice(0, k)) {
+      return collapseWs(`${p.slice(0, p.length - k)} ${f}`);
+    }
+  }
+
+  const overlap = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
+  if (overlap >= 0.55 && f.length > p.length + 4) return f;
+
+  return f;
 }
 
 /** Split on closing sentence punctuation (Latin, Arabic, CJK full-width) for paraphrase dedupe. */
@@ -1780,9 +1973,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             return;
           }
           const prevShown = (transTextEl.textContent ?? "").trim();
-          // Live preview: never shrink the cell (avoids “deleted” text when a stale/shorter model reply wins).
-          const out =
-            !requestIsFinal && prevShown && outRaw.length < prevShown.length ? prevShown : outRaw;
+          const merged = mergeLiveFullBufferTranslation(prevShown, outRaw);
+          let out = merged;
+          if (!requestIsFinal && prevShown && merged.length < prevShown.length) {
+            const ovr = Math.max(tokenOverlapRatio(prevShown, merged), tokenOverlapRatio(merged, prevShown));
+            if (ovr >= 0.4) out = prevShown;
+          }
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -2231,6 +2427,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
+
+      const pairStr = `${langPairRef.current.a}/${langPairRef.current.b}`;
+      for (let ti = 0; ti < tokens.length; ti++) {
+        const tok = tokens[ti]!;
+        if (isSonioxEndpointToken(tok)) continue;
+        const raw = tok.text ?? "";
+        transDiagLog("asr", {
+          pair: pairStr,
+          msgTokenIndex: ti,
+          text: raw.slice(0, TRANS_DIAG_SNIP),
+          textLen: raw.length,
+          is_final: tok.is_final,
+        });
+      }
 
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens, langPairRef.current);
 
