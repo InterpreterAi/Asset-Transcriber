@@ -3,8 +3,12 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { startOfAppDay } from "@workspace/app-timezone";
 import { isTrialExpired, isTrialLikePlanType } from "./usage.js";
 
+/** Stored on feedback rows; name kept for backwards compatibility with existing DB rows. */
 export const MANDATORY_FEEDBACK_SOURCE = "trial-half-daily-mandatory";
-const MIN_TRIAL_DAILY_LIMIT_MINUTES = 60;
+
+/** Same threshold as workspace UI: accounts at or above this daily cap are treated as unlimited. */
+export const UNLIMITED_DAILY_CAP_MINUTES = 9000;
+
 const REQUIRED_USAGE_RATIO = 0.5;
 
 export function getMandatoryFeedbackThresholdMinutes(dailyLimitMinutes: number): number {
@@ -13,18 +17,20 @@ export function getMandatoryFeedbackThresholdMinutes(dailyLimitMinutes: number):
   return limit * REQUIRED_USAGE_RATIO;
 }
 
-export function isMandatoryTrialFeedbackEligible(user: User): boolean {
+/**
+ * Half-daily mandatory feedback applies to every account with a real daily meter,
+ * except expired trials (cannot use the app) and “unlimited” caps.
+ */
+export function isMandatoryFeedbackEligible(user: User): boolean {
+  if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) return false;
   const dailyLimit = Number(user.dailyLimitMinutes);
-  return (
-    isTrialLikePlanType(user.planType) &&
-    !isTrialExpired(user) &&
-    Number.isFinite(dailyLimit) &&
-    dailyLimit >= MIN_TRIAL_DAILY_LIMIT_MINUTES
-  );
+  if (!Number.isFinite(dailyLimit) || dailyLimit <= 0) return false;
+  if (dailyLimit >= UNLIMITED_DAILY_CAP_MINUTES) return false;
+  return true;
 }
 
 export function isMandatoryFeedbackRequiredByUsage(user: User): boolean {
-  if (!isMandatoryTrialFeedbackEligible(user)) return false;
+  if (!isMandatoryFeedbackEligible(user)) return false;
   const used = Number(user.minutesUsedToday);
   const threshold = getMandatoryFeedbackThresholdMinutes(Number(user.dailyLimitMinutes));
   if (!Number.isFinite(used) || !Number.isFinite(threshold)) return false;

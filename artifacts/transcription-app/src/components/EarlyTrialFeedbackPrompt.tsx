@@ -12,9 +12,13 @@ type Props = {
 
 const MIN_COMMENT_LENGTH = 10;
 
+/** Align with api-server `UNLIMITED_DAILY_CAP_MINUTES` — no half-daily gate for “unlimited” plans. */
+const UNLIMITED_DAILY_CAP_MINUTES = 9000;
+
 /**
- * Trial only: once per calendar day, after the user has used ≥ half of their daily
- * allowance, blocks the workspace until they submit a star rating and a written comment.
+ * Once per app day, after the user has used ≥ half of their daily allowance (any metered plan),
+ * blocks the workspace until they submit a star rating and a written comment. Same rules as
+ * POST /transcription/token and /session/start (`FEEDBACK_REQUIRED`).
  */
 export function EarlyTrialFeedbackPrompt({
   planType,
@@ -33,8 +37,11 @@ export function EarlyTrialFeedbackPrompt({
   const [requiredByServer, setRequiredByServer] = useState(false);
   const [submittedByServer, setSubmittedByServer] = useState(false);
 
-  const onTrial =
-    isTrialLikePlanType(planType) && !trialExpired && dailyLimitMinutes >= 60;
+  const gateApplies =
+    !(isTrialLikePlanType(planType) && trialExpired) &&
+    Number.isFinite(dailyLimitMinutes) &&
+    dailyLimitMinutes > 0 &&
+    dailyLimitMinutes < UNLIMITED_DAILY_CAP_MINUTES;
   const halfThreshold = dailyLimitMinutes / 2;
   const halfUsageReached = effectiveMinutesUsedToday >= halfThreshold - 1e-6;
 
@@ -54,12 +61,12 @@ export function EarlyTrialFeedbackPrompt({
   }, []);
 
   useEffect(() => {
-    if (!onTrial || !halfUsageReached) return;
+    if (!gateApplies || !halfUsageReached) return;
     void refreshStatus();
-  }, [onTrial, halfUsageReached, effectiveMinutesUsedToday, dailyLimitMinutes, refreshStatus]);
+  }, [gateApplies, halfUsageReached, effectiveMinutesUsedToday, dailyLimitMinutes, refreshStatus]);
 
   useEffect(() => {
-    const shouldShow = requiredByServer && !submittedByServer && onTrial && halfUsageReached;
+    const shouldShow = requiredByServer && !submittedByServer && gateApplies && halfUsageReached;
     if (!shouldShow) {
       setAnimate(false);
       setVisible(false);
@@ -70,7 +77,7 @@ export function EarlyTrialFeedbackPrompt({
       setTimeout(() => setAnimate(true), 30);
     }, 300);
     return () => clearTimeout(t);
-  }, [requiredByServer, submittedByServer, onTrial, halfUsageReached]);
+  }, [requiredByServer, submittedByServer, gateApplies, halfUsageReached]);
 
   const canSubmit = rating >= 1 && comment.trim().length >= MIN_COMMENT_LENGTH;
 
@@ -140,13 +147,13 @@ export function EarlyTrialFeedbackPrompt({
                   Daily feedback required
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  You&apos;ve used about half of today&apos;s trial time. Please rate your experience and leave a short comment to continue.
+                  You&apos;ve used about half of today&apos;s allowance. Please rate your experience and leave a short comment to continue.
                 </p>
               </div>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-xs text-muted-foreground">
-                Stars and a comment (at least {MIN_COMMENT_LENGTH} characters) are required. This appears once per day during your free trial.
+                Stars and a comment (at least {MIN_COMMENT_LENGTH} characters) are required. This appears at most once per day when you reach half of your daily limit.
               </p>
               <div className="flex justify-center gap-1" onMouseLeave={() => setHovered(0)}>
                 {[1, 2, 3, 4, 5].map((s) => (
