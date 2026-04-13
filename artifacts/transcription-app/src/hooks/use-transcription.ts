@@ -1187,9 +1187,9 @@ export type UseTranscriptionOptions = {
  * Translation engine (OpenAI vs machine) is chosen server-side per authenticated user on each request.
  */
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Tuned for earlier first paint without extra final polish passes. */
-  const EARLY_HINT_MIN_WORDS = 8;
-  const LIVE_PREVIEW_WORD_STEP = 6;
+  /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Lower gates = earlier phrase-by-phrase updates for every language pair. */
+  const EARLY_HINT_MIN_WORDS = 3;
+  const LIVE_PREVIEW_WORD_STEP = 4;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1278,8 +1278,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
+  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier phrase updates; too low = redundant aborted requests. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 38;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1718,20 +1718,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
           }
         } else if (useStreamingDelta) {
+          const prevShown = (transTextEl.textContent ?? "").trim();
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
+          const safeMerged =
+            prevShown && merged.length < prevShown.length ? prevShown : merged;
           state.lastShownSeq = mySeq;
-          state.lastShownLen = merged.length;
-          applyTranslationTypography(transTextEl, merged);
+          state.lastShownLen = safeMerged.length;
+          applyTranslationTypography(transTextEl, safeMerged);
           state.pendingDisplayTranslation = "";
           const committed = state.streamCommittedSource.trim();
           state.streamCommittedSource = committed ? `${committed} ${text}` : text;
           state.needsFullFinalTranslation = false;
           state.lastConfirmedSourceTranslated = text;
         } else {
-          const out = dedupeConsecutiveTranslationTokens(translated.trim());
-          if (!out.trim()) {
+          const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
+          if (!outRaw.trim()) {
             return;
           }
+          const prevShown = (transTextEl.textContent ?? "").trim();
+          // Live preview: never shrink the cell (avoids “deleted” text when a stale/shorter model reply wins).
+          const out =
+            !requestIsFinal && prevShown && outRaw.length < prevShown.length ? prevShown : outRaw;
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -2303,8 +2310,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        st.finalTokensSeen >= 2 &&
-        hintSource.length >= 20 &&
+        st.finalTokensSeen >= 1 &&
+        hintSource.length >= 10 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {
