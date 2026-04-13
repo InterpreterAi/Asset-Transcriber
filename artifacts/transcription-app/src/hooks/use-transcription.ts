@@ -184,8 +184,16 @@ function _runsFromForwardSpeakers(forward: (string | undefined)[]): _SpeakerRun[
  * code-switching or overlap noise. That used to open a new segment per flicker. Collapse *short*
  * runs sandwiched between the same speaker (A→B→A), tiny leading runs, and tiny trailing runs so
  * boundaries match stable speaker changes only — same rule as “real” speaker, fewer spurious rows.
+ *
+ * For Latin-only pairs (e.g. English plus Spanish), use looser “ephemeral” limits: solo practice
+ * often gets a short clause mis-tagged as the other speaker, which opened a new row and reset
+ * translation state. English plus Arabic often sees fewer such splits because the pair mixes Latin
+ * with Arabic script. Pairs that combine Latin with a non-Latin script keep the tighter limits.
  */
-function effectiveSpeakersForTokenBoundaries(tokens: SonioxToken[]): (string | undefined)[] {
+function effectiveSpeakersForTokenBoundaries(
+  tokens: SonioxToken[],
+  pair?: { a: string; b: string },
+): (string | undefined)[] {
   const n = tokens.length;
   if (n === 0) return [];
   const forward: (string | undefined)[] = new Array(n).fill(undefined);
@@ -201,10 +209,13 @@ function effectiveSpeakersForTokenBoundaries(tokens: SonioxToken[]): (string | u
     for (let i = r.start; i < r.end; i++) c += (tokens[i]!.text ?? "").length;
     return c;
   };
+  const latinLatin = pair != null && pairIsLatinLatinOnly(pair);
+  const maxEphemeralTokens = latinLatin ? 14 : 3;
+  const maxEphemeralChars  = latinLatin ? 120 : 28;
   const isEphemeralRun = (r: _SpeakerRun): boolean => {
     const tokLen = r.end - r.start;
     const chars = runChars(r);
-    return tokLen < 3 && chars < 28;
+    return tokLen < maxEphemeralTokens && chars < maxEphemeralChars;
   };
   for (let pass = 0; pass < 4; pass++) {
     let changed = false;
@@ -394,6 +405,13 @@ function scriptEntryLangs(scriptName: string): string[] {
 
 /** BCP-47 bases using Latin script — shared polish with English/Portuguese/Spanish (any en↔X pair). */
 const LATIN_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Latin"));
+
+function pairIsLatinLatinOnly(pair: { a: string; b: string }): boolean {
+  const ba = pair.a.split("-")[0]!.toLowerCase();
+  const bb = pair.b.split("-")[0]!.toLowerCase();
+  return LATIN_SCRIPT_TARGET_LANGS.has(ba) && LATIN_SCRIPT_TARGET_LANGS.has(bb);
+}
+
 /** ar, fa, ur */
 const ARABIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Arabic"));
 const CYRILLIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Cyrillic"));
@@ -2211,7 +2229,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
+      const effSpk = effectiveSpeakersForTokenBoundaries(tokens, langPairRef.current);
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
