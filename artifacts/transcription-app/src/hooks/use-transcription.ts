@@ -185,10 +185,10 @@ function _runsFromForwardSpeakers(forward: (string | undefined)[]): _SpeakerRun[
  * runs sandwiched between the same speaker (A→B→A), tiny leading runs, and tiny trailing runs so
  * boundaries match stable speaker changes only — same rule as “real” speaker, fewer spurious rows.
  *
- * For Latin-only pairs (e.g. English plus Spanish), use looser “ephemeral” limits: solo practice
- * often gets a short clause mis-tagged as the other speaker, which opened a new row and reset
- * translation state. English plus Arabic often sees fewer such splits because the pair mixes Latin
- * with Arabic script. Pairs that combine Latin with a non-Latin script keep the tighter limits.
+ * For most Latin-only pairs (e.g. French plus German), use looser “ephemeral” limits: solo practice
+ * often gets a short clause mis-tagged as the other speaker. English plus Arabic keeps tighter limits
+ * because script disambiguates. English plus Spanish intentionally uses those same tighter limits so
+ * live segments and translation track like en–ar / en–hi — not the looser Latin/Latin path.
  */
 function effectiveSpeakersForTokenBoundaries(
   tokens: SonioxToken[],
@@ -209,9 +209,12 @@ function effectiveSpeakersForTokenBoundaries(
     for (let i = r.start; i < r.end; i++) c += (tokens[i]!.text ?? "").length;
     return c;
   };
-  const latinLatin = pair != null && pairIsLatinLatinOnly(pair);
-  const maxEphemeralTokens = latinLatin ? 14 : 3;
-  const maxEphemeralChars  = latinLatin ? 120 : 28;
+  const latinLatinLoose =
+    pair != null &&
+    pairIsLatinLatinOnly(pair) &&
+    !pairIsEnglishSpanish(pair);
+  const maxEphemeralTokens = latinLatinLoose ? 14 : 3;
+  const maxEphemeralChars  = latinLatinLoose ? 120 : 28;
   const isEphemeralRun = (r: _SpeakerRun): boolean => {
     const tokLen = r.end - r.start;
     const chars = runChars(r);
@@ -410,6 +413,15 @@ function pairIsLatinLatinOnly(pair: { a: string; b: string }): boolean {
   const ba = pair.a.split("-")[0]!.toLowerCase();
   const bb = pair.b.split("-")[0]!.toLowerCase();
   return LATIN_SCRIPT_TARGET_LANGS.has(ba) && LATIN_SCRIPT_TARGET_LANGS.has(bb);
+}
+
+/** English ↔ Spanish (either order): use the same speaker-boundary thresholds as mixed-script pairs (e.g. en–ar). */
+function pairIsEnglishSpanish(pair: { a: string; b: string }): boolean {
+  const bases = new Set([
+    pair.a.split("-")[0]!.toLowerCase(),
+    pair.b.split("-")[0]!.toLowerCase(),
+  ]);
+  return bases.has("en") && bases.has("es");
 }
 
 /** ar, fa, ur */
