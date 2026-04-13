@@ -829,46 +829,13 @@ function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   return true;
 }
 
-/**
- * Append a streaming fragment to what is already shown (placeholder … counts as empty).
- * Tolerates models that return a cumulative translation instead of tail-only, or repeat a boundary
- * overlap — same merge semantics for every target (en→es, en→ar, en→hi, …).
- */
+/** Append a streaming fragment to what is already shown (placeholder … counts as empty). */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = collapseWs(newPiece);
-  if (!piece) return collapseWs(prevDisplayed);
-  const prev = collapseWs(prevDisplayed);
+  const piece = newPiece.trim();
+  if (!piece) return prevDisplayed.trim();
+  const prev = prevDisplayed.trim();
   if (!prev || prev === "…") return piece;
-
-  const pl = prev.toLowerCase();
-  const ql = piece.toLowerCase();
-
-  // Cumulative refresh: fragment is the full translation so far (tail-only instruction ignored).
-  if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
-
-  if (ql === pl) return prev;
-
-  // Word-overlap join: last words of prev match first words of piece (repeated clause at chunk boundary).
-  const pw = prev.split(/\s+/).filter(Boolean);
-  const qw = piece.split(/\s+/).filter(Boolean);
-  const maxW = Math.min(pw.length, qw.length, 40);
-  for (let w = maxW; w >= 1; w--) {
-    const suff = pw.slice(-w).join(" ");
-    const pref = qw.slice(0, w).join(" ");
-    if (suff.toLowerCase() !== pref.toLowerCase()) continue;
-    if (w === 1 && suff.length < 8) continue;
-    return collapseWs([...pw.slice(0, -w), ...qw].join(" "));
-  }
-
-  // Character-overlap join (longer shared boundary than a single short token).
-  const maxK = Math.min(prev.length, piece.length, 240);
-  for (let k = maxK; k >= 8; k--) {
-    if (pl.slice(-k) === ql.slice(0, k)) {
-      return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
-    }
-  }
-
-  return collapseWs(`${prev} ${piece}`);
+  return `${prev} ${piece}`;
 }
 
 function countWords(text: string): number {
@@ -1185,8 +1152,6 @@ interface BubbleTransState {
   earlyHintSent:         boolean;
   /** Word count at the last non-final preview dispatch (LIVE_PREVIEW_WORD_STEP gating). */
   lastPreviewWordsSent:  number;
-  /** Source char length at last live preview dispatch (fires when words are flat but ASR keeps extending). */
-  lastPreviewCharsSent:  number;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -1246,8 +1211,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Same gates for all pairs so translation tracks interim transcription like en–ar / en–hi. */
   const EARLY_HINT_MIN_WORDS = 1;
   const LIVE_PREVIEW_WORD_STEP = 2;
-  /** Also dispatch when the live buffer grew by this many chars (helps Latin streaming when word count is unchanged). */
-  const LIVE_PREVIEW_CHAR_STEP = 28;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1336,12 +1299,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /**
-   * Trailing debounce for live translate API. Without abort-on-supersede, this mainly batches WS bursts.
-   * (Previously each new frame aborted the prior HTTP call; Latin ASR never let a response finish, so the
-   * column stayed empty until a long pause — then one big translation appeared.)
-   */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 40;
+  /** Trailing debounce for live translate API (coalesces WS bursts). Single value for all pairs — incremental translation while transcribing. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 12;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1713,12 +1672,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let liveAbortForThisRequest: AbortController | undefined;
     if (isFinal) {
       state.liveTranslationAbort?.abort();
+      state.liveTranslationAbort = null;
+    } else {
+      state.liveTranslationAbort?.abort();
       state.liveTranslationAbort = new AbortController();
       liveAbortForThisRequest = state.liveTranslationAbort;
-    } else {
-      // Live: do NOT abort the previous in-flight request. Rapid Latin revisions were canceling every
-      // fetch before completion; `mySeq` / `lastShownSeq` already drop stale responses.
-      liveAbortForThisRequest = undefined;
     }
 
     state.seq += 1;
@@ -1809,10 +1767,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
           const safeMerged =
             prevShown && merged.length < prevShown.length ? prevShown : merged;
-          const tidied = trimOverlappingDuplicateQuestionTail(safeMerged);
           state.lastShownSeq = mySeq;
-          state.lastShownLen = tidied.length;
-          applyTranslationTypography(transTextEl, tidied);
+          state.lastShownLen = safeMerged.length;
+          applyTranslationTypography(transTextEl, safeMerged);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
@@ -1840,6 +1797,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         /* HIPAA — never log speech context */
       } finally {
         if (
+          !isFinal &&
           liveAbortForThisRequest &&
           state.liveTranslationAbort === liveAbortForThisRequest
         ) {
@@ -1942,7 +1900,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
       lastPreviewWordsSent:  0,
-      lastPreviewCharsSent:  0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
       lastConfirmedSource:   "",
@@ -2398,15 +2355,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const liveHintSourceReady =
         st !== null &&
         (st.finalTokensSeen >= 1 || (wordsNow >= 2 && hintSource.length >= 8));
-      let stepReached = false;
-      if (st) {
-        const wordDelta = wordsNow - st.lastPreviewWordsSent;
-        const charDelta = hintSource.length - st.lastPreviewCharsSent;
-        stepReached =
-          !st.earlyHintSent ||
-          wordDelta >= LIVE_PREVIEW_WORD_STEP ||
-          charDelta >= LIVE_PREVIEW_CHAR_STEP;
-      }
       if (
         st &&
         !st.translationLocked &&
@@ -2414,13 +2362,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveHintSourceReady &&
         hintSource.length >= 6 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
-        stepReached
+        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
-        st.lastPreviewCharsSent = hintSource.length;
       }
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
