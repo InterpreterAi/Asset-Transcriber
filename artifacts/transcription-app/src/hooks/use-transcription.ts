@@ -185,10 +185,10 @@ function _runsFromForwardSpeakers(forward: (string | undefined)[]): _SpeakerRun[
  * runs sandwiched between the same speaker (A→B→A), tiny leading runs, and tiny trailing runs so
  * boundaries match stable speaker changes only — same rule as “real” speaker, fewer spurious rows.
  *
- * For most Latin-only pairs (e.g. French plus German), use looser “ephemeral” limits: solo practice
- * often gets a short clause mis-tagged as the other speaker. English plus Arabic keeps tighter limits
- * because script disambiguates. English plus Spanish intentionally uses those same tighter limits so
- * live segments and translation track like en–ar / en–hi — not the looser Latin/Latin path.
+ * For Latin-only pairs (e.g. English plus Spanish), use looser “ephemeral” limits: solo practice
+ * often gets a short clause mis-tagged as the other speaker, which opened a new row and reset
+ * translation state. English plus Arabic often sees fewer such splits because the pair mixes Latin
+ * with Arabic script. Pairs that combine Latin with a non-Latin script keep the tighter limits.
  */
 function effectiveSpeakersForTokenBoundaries(
   tokens: SonioxToken[],
@@ -209,12 +209,9 @@ function effectiveSpeakersForTokenBoundaries(
     for (let i = r.start; i < r.end; i++) c += (tokens[i]!.text ?? "").length;
     return c;
   };
-  const latinLatinLoose =
-    pair != null &&
-    pairIsLatinLatinOnly(pair) &&
-    !pairIsEnglishSpanish(pair);
-  const maxEphemeralTokens = latinLatinLoose ? 14 : 3;
-  const maxEphemeralChars  = latinLatinLoose ? 120 : 28;
+  const latinLatin = pair != null && pairIsLatinLatinOnly(pair);
+  const maxEphemeralTokens = latinLatin ? 14 : 3;
+  const maxEphemeralChars  = latinLatin ? 120 : 28;
   const isEphemeralRun = (r: _SpeakerRun): boolean => {
     const tokLen = r.end - r.start;
     const chars = runChars(r);
@@ -413,15 +410,6 @@ function pairIsLatinLatinOnly(pair: { a: string; b: string }): boolean {
   const ba = pair.a.split("-")[0]!.toLowerCase();
   const bb = pair.b.split("-")[0]!.toLowerCase();
   return LATIN_SCRIPT_TARGET_LANGS.has(ba) && LATIN_SCRIPT_TARGET_LANGS.has(bb);
-}
-
-/** English ↔ Spanish (either order): use the same speaker-boundary thresholds as mixed-script pairs (e.g. en–ar). */
-function pairIsEnglishSpanish(pair: { a: string; b: string }): boolean {
-  const bases = new Set([
-    pair.a.split("-")[0]!.toLowerCase(),
-    pair.b.split("-")[0]!.toLowerCase(),
-  ]);
-  return bases.has("en") && bases.has("es");
 }
 
 /** ar, fa, ur */
@@ -841,13 +829,46 @@ function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   return true;
 }
 
-/** Append a streaming fragment to what is already shown (placeholder … counts as empty). */
+/**
+ * Append a streaming fragment to what is already shown (placeholder … counts as empty).
+ * Tolerates models that return a cumulative translation instead of tail-only, or repeat a boundary
+ * overlap — same merge semantics for every target (en→es, en→ar, en→hi, …).
+ */
 function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = newPiece.trim();
-  if (!piece) return prevDisplayed.trim();
-  const prev = prevDisplayed.trim();
+  const piece = collapseWs(newPiece);
+  if (!piece) return collapseWs(prevDisplayed);
+  const prev = collapseWs(prevDisplayed);
   if (!prev || prev === "…") return piece;
-  return `${prev} ${piece}`;
+
+  const pl = prev.toLowerCase();
+  const ql = piece.toLowerCase();
+
+  // Cumulative refresh: fragment is the full translation so far (tail-only instruction ignored).
+  if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
+
+  if (ql === pl) return prev;
+
+  // Word-overlap join: last words of prev match first words of piece (repeated clause at chunk boundary).
+  const pw = prev.split(/\s+/).filter(Boolean);
+  const qw = piece.split(/\s+/).filter(Boolean);
+  const maxW = Math.min(pw.length, qw.length, 40);
+  for (let w = maxW; w >= 1; w--) {
+    const suff = pw.slice(-w).join(" ");
+    const pref = qw.slice(0, w).join(" ");
+    if (suff.toLowerCase() !== pref.toLowerCase()) continue;
+    if (w === 1 && suff.length < 8) continue;
+    return collapseWs([...pw.slice(0, -w), ...qw].join(" "));
+  }
+
+  // Character-overlap join (longer shared boundary than a single short token).
+  const maxK = Math.min(prev.length, piece.length, 240);
+  for (let k = maxK; k >= 8; k--) {
+    if (pl.slice(-k) === ql.slice(0, k)) {
+      return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
+    }
+  }
+
+  return collapseWs(`${prev} ${piece}`);
 }
 
 function countWords(text: string): number {
@@ -1788,9 +1809,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
           const safeMerged =
             prevShown && merged.length < prevShown.length ? prevShown : merged;
+          const tidied = trimOverlappingDuplicateQuestionTail(safeMerged);
           state.lastShownSeq = mySeq;
-          state.lastShownLen = safeMerged.length;
-          applyTranslationTypography(transTextEl, safeMerged);
+          state.lastShownLen = tidied.length;
+          applyTranslationTypography(transTextEl, tidied);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
