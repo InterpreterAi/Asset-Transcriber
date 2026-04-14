@@ -267,17 +267,26 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-const ADMIN_PLAN_OPTIONS: { value: string; label: string }[] = [
-  { value: "trial", label: "Trial · OpenAI (plan id: trial)" },
-  { value: "trial-openai", label: "Trial · OpenAI (plan id: trial-openai)" },
-  { value: "trial-libre", label: "Trial · Libre / machine" },
+/** Paid: exactly 3 products × OpenAI vs Libre (6 rows). End users only see Basic / Professional / Platinum. */
+const ADMIN_PLAN_OPTIONS_PAID: { value: string; label: string }[] = [
+  { value: "basic-openai", label: "Basic · OpenAI (interpreter stack)" },
+  { value: "professional-openai", label: "Professional · OpenAI (interpreter stack)" },
+  { value: "platinum", label: "Platinum · OpenAI (interpreter stack)" },
   { value: "basic", label: "Basic · Libre / machine" },
-  { value: "basic-openai", label: "Basic · OpenAI" },
   { value: "professional", label: "Professional · Libre / machine" },
-  { value: "professional-openai", label: "Professional · OpenAI" },
-  { value: "platinum", label: "Platinum · OpenAI (top tier)" },
   { value: "platinum-libre", label: "Platinum · Libre / machine" },
 ];
+
+const ADMIN_PLAN_OPTIONS_TRIAL: { value: string; label: string }[] = [
+  { value: "trial-openai", label: "Trial · OpenAI" },
+  { value: "trial-libre", label: "Trial · Libre / machine" },
+  { value: "trial", label: "Trial · OpenAI (legacy id: trial)" },
+];
+
+const ADMIN_PLAN_VALUE_SET = new Set([
+  ...ADMIN_PLAN_OPTIONS_PAID.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_TRIAL.map(o => o.value),
+]);
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
@@ -2695,26 +2704,33 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan type (admin: tier + engine) */}
+                {/* Plan: 6 paid choices (3 tiers × 2 engines) + trial group; customers only see tier name */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Plan (admin — tier + translation engine)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Plan (admin — 6 paid options + trials)</label>
                   <select
                     value={editForm.planType}
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
-                    {!ADMIN_PLAN_OPTIONS.some(o => o.value === editForm.planType) && (
+                    {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (
                       <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
                     )}
-                    {ADMIN_PLAN_OPTIONS.map(o => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
+                    <optgroup label="Paid — Basic, Professional, Platinum (OpenAI then Libre)">
+                      {ADMIN_PLAN_OPTIONS_PAID.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Trial">
+                      {ADMIN_PLAN_OPTIONS_TRIAL.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </optgroup>
                   </select>
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
                     <span className="font-medium text-foreground/80">Customer sees:</span>{" "}
-                    {workspacePlanDisplayName(editForm.planType)} ·{" "}
-                    <span className="font-medium text-foreground/80">Engine:</span>{" "}
-                    {planUsesLibreEngine(editForm.planType) ? "Libre / machine stack" : "OpenAI"} ·{" "}
+                    {workspacePlanDisplayName(editForm.planType)} only ·{" "}
+                    <span className="font-medium text-foreground/80">You assign:</span>{" "}
+                    {planUsesLibreEngine(editForm.planType) ? "Libre / machine" : "OpenAI interpreter"} ·{" "}
                     <span className="font-mono text-[9px] opacity-80">{editForm.planType}</span>
                   </p>
                 </div>
