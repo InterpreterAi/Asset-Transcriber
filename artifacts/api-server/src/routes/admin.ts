@@ -1049,15 +1049,26 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
       updates.subscriptionPeriodEndsAt = null;
     } else {
       const key = billingProductKeyFromPlanType(pt);
-      const subSt = (existing.subscriptionStatus ?? "").trim().toLowerCase();
-      if (key && subSt === "active") {
+      if (key) {
+        // Keep billing tier aligned with admin plan row (Basic / Pro / Platinum product key).
         updates.subscriptionPlan = key;
+
+        // Backfill calendar dates whenever they're missing — many rows have webhook plan/status
+        // but never got PayPal start/next_billing_time written; trials still excluded above.
         if (!existing.subscriptionStartedAt) {
-          const now = new Date();
-          updates.subscriptionStartedAt = now;
-          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(now);
+          const created = existing.createdAt ? new Date(existing.createdAt) : null;
+          const start =
+            created &&
+            Number.isFinite(created.getTime()) &&
+            created.getTime() <= Date.now() + 60_000
+              ? created
+              : new Date();
+          updates.subscriptionStartedAt = start;
+          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(start);
         } else if (!existing.subscriptionPeriodEndsAt) {
-          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(new Date(existing.subscriptionStartedAt));
+          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(
+            new Date(existing.subscriptionStartedAt),
+          );
         }
       }
     }

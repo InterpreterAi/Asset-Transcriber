@@ -288,6 +288,26 @@ const ADMIN_PLAN_VALUE_SET = new Set([
   ...ADMIN_PLAN_OPTIONS_TRIAL.map(o => o.value),
 ]);
 
+/** Matches server `SUBSCRIPTION_PERIOD_MS` when PayPal omits next_billing_time. */
+const BILLING_FALLBACK_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
+
+function addBillingFallbackPeriod(start: Date): Date {
+  return new Date(start.getTime() + BILLING_FALLBACK_PERIOD_MS);
+}
+
+/** Paid row in admin but DB may lack PayPal timestamps — still show helpful estimates. */
+function subscriberRowHasBillingHints(u: {
+  planType?: string;
+  subscriptionStatus?: string | null;
+  subscriptionPlan?: string | null;
+}): boolean {
+  if (isTrialLikePlanType(u.planType ?? "")) return false;
+  const st = String(u.subscriptionStatus ?? "").trim().toLowerCase();
+  if (st === "active" || st === "trialing") return true;
+  if (String(u.subscriptionPlan ?? "").trim()) return true;
+  return false;
+}
+
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
     const engine = planUsesLibreEngine(plan) ? "Libre" : "OpenAI";
@@ -1607,6 +1627,18 @@ export default function Admin() {
                               const paidFrom = (u as unknown as { subscriptionStartedAt?: string | null }).subscriptionStartedAt;
                               const periodEnd = (u as unknown as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt;
                               const subSt = String((u as { subscriptionStatus?: string | null }).subscriptionStatus ?? "").trim();
+                              const hints = subscriberRowHasBillingHints(u);
+                              const created = u.createdAt;
+                              const displayStartIso =
+                                paidFrom ??
+                                (hints && created ? created : null);
+                              const startIsProxy = Boolean(!paidFrom && displayStartIso);
+                              const displayEndDate = periodEnd
+                                ? new Date(periodEnd)
+                                : displayStartIso
+                                  ? addBillingFallbackPeriod(new Date(displayStartIso))
+                                  : null;
+                              const endIsEstimate = Boolean(!periodEnd && displayStartIso);
                               const dateFmt = "MMM d, yyyy · HH:mm";
                               return (
                                 <div className="mt-0.5 space-y-0.5 text-[10px] leading-tight">
@@ -1619,16 +1651,26 @@ export default function Admin() {
                                   )}
                                   <div className="text-muted-foreground whitespace-nowrap">
                                     Subscribed:{" "}
-                                    {paidFrom ? (
-                                      <span className="font-medium text-foreground tabular-nums">{format(new Date(paidFrom), dateFmt)}</span>
+                                    {displayStartIso ? (
+                                      <span className="font-medium text-foreground tabular-nums">
+                                        {format(new Date(displayStartIso), dateFmt)}
+                                        {startIsProxy ? (
+                                          <span className="font-normal italic text-muted-foreground"> (signup)</span>
+                                        ) : null}
+                                      </span>
                                     ) : (
                                       <span className="text-amber-700 font-medium">—</span>
                                     )}
                                   </div>
                                   <div className="text-muted-foreground whitespace-nowrap">
                                     Period ends:{" "}
-                                    {periodEnd ? (
-                                      <span className="font-medium text-foreground tabular-nums">{format(new Date(periodEnd), dateFmt)}</span>
+                                    {displayEndDate ? (
+                                      <span className="font-medium text-foreground tabular-nums">
+                                        {format(displayEndDate, dateFmt)}
+                                        {endIsEstimate ? (
+                                          <span className="font-normal italic text-muted-foreground"> (est.)</span>
+                                        ) : null}
+                                      </span>
                                     ) : (
                                       <span className="text-amber-700 font-medium">—</span>
                                     )}
@@ -2755,8 +2797,8 @@ export default function Admin() {
                   {!isTrialLikePlanType(editForm.planType) &&
                     (!editingUser.subscriptionStartedAt || !editingUser.subscriptionPeriodEndsAt) && (
                       <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200/80 rounded-md px-2.5 py-2 leading-snug">
-                        <span className="font-semibold">Dates not in the database yet.</span> They fill when PayPal/Stripe webhooks run with billing times, or use{" "}
-                        <span className="font-medium">Save</span> on an active paid plan to backfill from subscription start + period rules.
+                        <span className="font-semibold">Exact PayPal dates not stored yet.</span> The table shows estimates from signup + 30 days where needed. Click{" "}
+                        <span className="font-medium">Save</span> to write real calendar fields (start defaults to account created time when missing, then period +30 days).
                       </p>
                     )}
                   <div className="grid grid-cols-1 gap-1.5 text-[11px]">
@@ -2771,17 +2813,51 @@ export default function Admin() {
                     <div className="flex justify-between gap-2 items-baseline border-t border-border/50 pt-1.5 mt-0.5">
                       <span className="text-muted-foreground shrink-0">Subscription started</span>
                       <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
-                        {editingUser.subscriptionStartedAt
-                          ? format(new Date(editingUser.subscriptionStartedAt), "MMM d, yyyy · HH:mm")
-                          : "—"}
+                        {(() => {
+                          const hints = subscriberRowHasBillingHints({
+                            planType: editForm.planType,
+                            subscriptionStatus: editingUser.subscriptionStatus,
+                            subscriptionPlan: editingUser.subscriptionPlan,
+                          });
+                          const iso =
+                            editingUser.subscriptionStartedAt ??
+                            (hints && editingUser.createdAt ? editingUser.createdAt : null);
+                          if (!iso) return "—";
+                          const proxy = !editingUser.subscriptionStartedAt && Boolean(hints && editingUser.createdAt);
+                          return (
+                            <>
+                              {format(new Date(iso), "MMM d, yyyy · HH:mm")}
+                              {proxy ? (
+                                <span className="text-xs font-normal italic text-muted-foreground block">from account created (estimate)</span>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </span>
                     </div>
                     <div className="flex justify-between gap-2 items-baseline">
                       <span className="text-muted-foreground shrink-0">Current period ends</span>
                       <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
-                        {editingUser.subscriptionPeriodEndsAt
-                          ? format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy · HH:mm")
-                          : "—"}
+                        {(() => {
+                          if (editingUser.subscriptionPeriodEndsAt) {
+                            return format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy · HH:mm");
+                          }
+                          const hints = subscriberRowHasBillingHints({
+                            planType: editForm.planType,
+                            subscriptionStatus: editingUser.subscriptionStatus,
+                            subscriptionPlan: editingUser.subscriptionPlan,
+                          });
+                          const startIso =
+                            editingUser.subscriptionStartedAt ??
+                            (hints && editingUser.createdAt ? editingUser.createdAt : null);
+                          if (!startIso) return "—";
+                          return (
+                            <>
+                              {format(addBillingFallbackPeriod(new Date(startIso)), "MMM d, yyyy · HH:mm")}
+                              <span className="text-xs font-normal italic text-muted-foreground block">start + 30 days (estimate)</span>
+                            </>
+                          );
+                        })()}
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
@@ -2794,7 +2870,7 @@ export default function Admin() {
                     </div>
                   </div>
                   <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/60">
-                    Period end uses PayPal next billing time when the webhook includes it; otherwise subscription start plus 30 days. Saving a paid plan while status is active syncs the billed tier to your selection and backfills missing dates. Trial dates below apply only to trial-like plans.
+                    Period end uses PayPal next billing time when the webhook includes it; otherwise start + 30 days. Saving applies your plan choice, syncs billed tier, and writes missing start/end to the database (start falls back to account created time when PayPal never sent one). Trial dates below apply only to trial-like plans.
                   </p>
                 </div>
 
