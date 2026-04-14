@@ -965,6 +965,14 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+/** Last `n` whitespace-separated tokens; shorter inputs unchanged (normalized spacing). */
+function clipToLastNWords(raw: string, n: number): string {
+  if (n < 1) return raw.trim();
+  const words = raw.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= n) return words.join(" ");
+  return words.slice(-n).join(" ");
+}
+
 function endsWithPhraseBoundary(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
@@ -1402,6 +1410,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const LIVE_PREVIEW_WORD_STEP = 2;
   /** Latin/Latin only: dispatch live translate when buffer grows by this many chars (word count often flat). */
   const LIVE_PREVIEW_CHAR_STEP_LATIN = 24;
+  /** Latin/Latin live only: cap source sent to the translator (full segment still on final / endpoint). */
+  const LIVE_TRANSLATION_WINDOW_WORDS = 20;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1606,7 +1616,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
-  // Live: full cumulative source per request; translation cell is replaced (no delta append/merge).
+  // Live: cell replaced each response (no delta merge). Latin/Latin sends last N words only to cut tokens;
+  // mixed-script pairs still send full cumulative source. Final / endpoint always full segment.
   // Final: full-segment replace + lock; adjacent paraphrase dedupe runs in maybePolish on finals only.
   const dispatchTranslation = useCallback((
     text: string,
@@ -1787,8 +1798,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // Live: full cumulative source on every request; UI replaces the whole cell (single active buffer).
-    // Final: always full-segment translate + replace — never tail + streamingDelta (avoids client-side append/merge duplication).
     let requestIsFinal = isFinal;
     let apiText: string;
     if (isFinal) {
@@ -1801,7 +1810,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
       }
-      apiText = text;
+      apiText = latinLatinPair
+        ? clipToLastNWords(text, LIVE_TRANSLATION_WINDOW_WORDS)
+        : text;
       requestIsFinal = false;
     }
 
