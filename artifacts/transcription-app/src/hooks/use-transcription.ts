@@ -1277,25 +1277,7 @@ function liveSourceWarrantsTranslate(
   return true;
 }
 
-/** Skip repainting when the new live translation is effectively the same as what is already shown. */
-function translationOutputTooSimilarToDisplay(prevDisplayed: string, incoming: string): boolean {
-  const p = collapseWs(prevDisplayed);
-  const n = collapseWs(incoming);
-  if (!p || !n || p === "…") return false;
-  if (p === n) return true;
-  const ovr = Math.max(tokenOverlapRatio(p, n), tokenOverlapRatio(n, p));
-  if (ovr >= 0.93) return true;
-  const lim = Math.min(p.length, n.length);
-  if (lim === 0) return false;
-  if (p.length <= 48 && n.length <= 48) {
-    let i = 0;
-    while (i < lim && p[i]!.toLowerCase() === n[i]!.toLowerCase()) i++;
-    if (i / lim >= 0.94 && Math.abs(p.length - n.length) <= 4) return true;
-  }
-  return false;
-}
-
-/** Replace the whole translation cell (innerHTML). Live builds cumulative text client-side; final replaces with full pass. */
+/** Live + final: replace the whole translation cell (innerHTML). */
 function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
   el.dir             = rtl ? "rtl" : "ltr";
@@ -1498,9 +1480,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   });
 
   /** Trailing debounce for live translate API (coalesces WS + post-pause NF noise; ms). */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 420;
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 700;
   /** Latin/Latin: allow a bit more coalescing when char-step preview fires often. */
-  const LIVE_TRANSLATION_DEBOUNCE_LATIN_MS = 580;
+  const LIVE_TRANSLATION_DEBOUNCE_LATIN_MS = 900;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1616,10 +1598,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
-  // Live: full cumulative source, one in-flight /translate per row (abort superseded). Stale responses
-  // ignored via translateRequestNonce. Hard 2s per HTTP attempt; live = no retries. Final = one retry max.
-  // Final: full-segment replace + lock; paraphrase dedupe in maybePolish on finals only. At most one
-  // successful final per segment (finalResolved); later final events and late HTTP are no-ops.
+  // Live: optional streamingDelta (source tail) + append fragment to the cell; else full-buffer replace.
+  // Stale responses ignored via translateRequestNonce. Hard 2s per HTTP attempt; live = no retries; final = one retry max.
+  // Final: full-segment replace + lock; finalResolved blocks duplicate finals only (not live).
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1804,8 +1785,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    // Live: send incremental source tail + streamingDelta when monotonic growth; otherwise full cumulative + replace.
-    // Final: always full-segment translate + replace (streamingDelta off).
+  // Live: monotonic tail → delta request + append target fragment; else full source + replace cell.
+  // Final: full source, streamingDelta false, replace cell (unchanged).
     let requestIsFinal = isFinal;
     let apiText: string;
     const latinLatinPair = pairIsLatinLatinOnly(pair);
@@ -1874,8 +1855,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (requestSegmentId !== state.segmentId) return;
         if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
-        if (!requestIsFinal && state.hardFinalRequested) return;
-        if (!isFinal && state.finalizing) return;
         if (liveAbortForThisRequest.signal.aborted) return;
         if (requestIsFinal && state.finalResolved) return;
 
@@ -1895,8 +1874,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (requestSegmentId !== state.segmentId) return;
         if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
-        if (!requestIsFinal && state.hardFinalRequested) return;
-        if (!isFinal && state.finalizing) return;
         if (myRequestId !== state.translateRequestNonce) return;
         if (requestIsFinal && state.finalResolved) return;
 
@@ -1909,8 +1886,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           return;
         }
-
-        if (myRequestId !== state.translateRequestNonce) return;
 
         if (requestIsFinal) {
           if (state.finalResolved) return;
@@ -1940,26 +1915,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           state.finalResolved = true;
         } else {
-          if (myRequestId !== state.translateRequestNonce) return;
           const fragment = translated.trim();
           if (!fragment) {
             return;
           }
           const prevTr = (transTextEl.textContent ?? "").trim();
-          const mergedLive = usedStreamingDelta
+          const merged = usedStreamingDelta
             ? (prevTr ? collapseWs(`${prevTr} ${fragment}`) : fragment)
             : fragment;
-          const outRaw = dedupeConsecutiveTranslationTokens(mergedLive);
+          const outRaw = dedupeConsecutiveTranslationTokens(merged);
           if (!outRaw.trim()) {
-            return;
-          }
-          if (translationOutputTooSimilarToDisplay(prevTr, outRaw)) {
-            state.lastShownSeq = mySeq;
-            state.streamCommittedSource = text;
-            state.needsFullFinalTranslation = false;
-            state.lastConfirmedSourceTranslated = text;
-            state.pendingDisplayTranslation = "";
-            scrollPanel();
             return;
           }
           state.lastShownSeq = mySeq;
@@ -2191,7 +2156,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
-    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    // Do not abort: softFinalize just dispatched the closing segment's final translate; abort would
+    // cancel that request while refs are dropped. The async closure keeps the prior BubbleTransState +
+    // transTextEl so the final can still complete and set finalResolved on the orphaned state object.
     currentSpeakerRef.current = undefined;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
@@ -2254,7 +2221,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stopTranslationInterval();
     finalizeLiveBubble();
 
-    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    // Same as speaker_change: allow the last segment's final /translate to finish (closure retains state + DOM).
     currentSpeakerRef.current     = undefined;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
