@@ -1261,7 +1261,7 @@ function liveSourceWarrantsTranslate(
     if (!tailT) return false;
     const wC = countWords(committed);
     const wN = countWords(incoming);
-    if (tailT.length < 6 && wN === wC) return false;
+    if (tailT.length < 3 && wN === wC) return false;
     if (tailT.length < 4 && !/\p{L}|\p{N}/u.test(tailT)) return false;
     return true;
   }
@@ -1491,8 +1491,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   /** Trailing debounce for live translate API (coalesces WS + post-pause NF noise; ms). */
   const LIVE_TRANSLATION_DEBOUNCE_MS = 700;
-  /** Latin/Latin: allow a bit more coalescing when char-step preview fires often. */
-  const LIVE_TRANSLATION_DEBOUNCE_LATIN_MS = 900;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1532,7 +1530,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         { skipOpenAiLiveDebounce: true },
         p.segmentId,
       );
-    }, pairIsLatinLatinOnly(langPairRef.current) ? LIVE_TRANSLATION_DEBOUNCE_LATIN_MS : LIVE_TRANSLATION_DEBOUNCE_MS);
+    }, LIVE_TRANSLATION_DEBOUNCE_MS);
   }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
@@ -1811,10 +1809,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (isFinal) {
       state.liveTranslationAbort?.abort();
       state.liveTranslationAbort = null;
-    } else if (pairIsLatinLatinOnly(pair)) {
-      // Latin/Latin: let in-flight live requests finish (seq drops stale). Supersede-abort here
-      // cancels HTTP before any reply during rapid ASR revision — no visible growth until pause.
-      liveAbortForThisRequest = undefined;
     } else {
       state.liveTranslationAbort?.abort();
       state.liveTranslationAbort = new AbortController();
