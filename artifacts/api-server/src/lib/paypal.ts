@@ -82,6 +82,23 @@ export function inferPlanTypeFromPayPalPlanId(planId: string): BillingPlanType |
   return null;
 }
 
+/** Maps app `plan_type` (incl. basic-openai) to PayPal billing product key. Trials → null. */
+export function billingProductKeyFromPlanType(planType: string): BillingPlanType | null {
+  const p = planType.trim().toLowerCase();
+  if (p === "trial" || p === "trial-openai" || p === "trial-libre") return null;
+  if (p === "basic" || p === "basic-openai") return "basic";
+  if (p === "professional" || p === "professional-openai") return "professional";
+  if (p === "platinum" || p === "platinum-libre" || p === "unlimited") return "platinum";
+  return null;
+}
+
+/** Default paid period length when PayPal does not send next_billing_time (product: 30-day window). */
+export const SUBSCRIPTION_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function subscriptionPeriodEndFallback(start: Date): Date {
+  return new Date(start.getTime() + SUBSCRIPTION_PERIOD_MS);
+}
+
 export async function getPayPalAccessToken(): Promise<string> {
   const clientId = envTrim("PAYPAL_CLIENT_ID");
   // Accept both names to match existing Railway variable conventions.

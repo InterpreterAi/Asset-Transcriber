@@ -587,6 +587,11 @@ components:
           type: string
           format: date-time
           nullable: true
+        subscriptionPeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: End of current paid period (PayPal next_billing_time or start + 30 days).
         paypalSubscriptionId:
           type: string
           nullable: true

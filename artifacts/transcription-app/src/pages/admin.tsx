@@ -275,9 +275,8 @@ const ADMIN_PLAN_OPTIONS: { value: string; label: string }[] = [
   { value: "basic-openai", label: "Basic · OpenAI" },
   { value: "professional", label: "Professional · Libre / machine" },
   { value: "professional-openai", label: "Professional · OpenAI" },
-  { value: "platinum", label: "Platinum · OpenAI" },
+  { value: "platinum", label: "Platinum · OpenAI (top tier)" },
   { value: "platinum-libre", label: "Platinum · Libre / machine" },
-  { value: "unlimited", label: "Unlimited · OpenAI" },
 ];
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
@@ -428,6 +427,7 @@ export default function Admin() {
     subscriptionStatus: string | null;
     subscriptionPlan: string | null;
     subscriptionStartedAt: string | null;
+    subscriptionPeriodEndsAt: string | null;
     paypalSubscriptionId: string | null;
     stripeSubscriptionId: string | null;
     dailyLimitMinutes: number; minutesUsedToday: number;
@@ -816,6 +816,7 @@ export default function Admin() {
       subscriptionStatus: (u as { subscriptionStatus?: string | null }).subscriptionStatus ?? null,
       subscriptionPlan:   (u as { subscriptionPlan?: string | null }).subscriptionPlan ?? null,
       subscriptionStartedAt: (u as { subscriptionStartedAt?: string | null }).subscriptionStartedAt ?? null,
+      subscriptionPeriodEndsAt: (u as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt ?? null,
       paypalSubscriptionId: (u as { paypalSubscriptionId?: string | null }).paypalSubscriptionId ?? null,
       stripeSubscriptionId: (u as { stripeSubscriptionId?: string | null }).stripeSubscriptionId ?? null,
       dailyLimitMinutes: u.dailyLimitMinutes,
@@ -1593,6 +1594,27 @@ export default function Admin() {
                                 ends {format(new Date(u.trialEndsAt), "MMM d")}
                               </span>
                             )}
+                            {!isTrialLikePlanType(u.planType) &&
+                              String((u as { subscriptionStatus?: string | null }).subscriptionStatus ?? "").toLowerCase() === "active" && (
+                                <>
+                                  {(() => {
+                                    const paidFrom = (u as unknown as { subscriptionStartedAt?: string | null }).subscriptionStartedAt;
+                                    return paidFrom ? (
+                                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                        paid from {format(new Date(paidFrom), "MMM d, yyyy")}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                  {(() => {
+                                    const periodEnd = (u as unknown as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt;
+                                    return periodEnd ? (
+                                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                        period ends {format(new Date(periodEnd), "MMM d, yyyy")}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </>
+                              )}
                           </div>
                         </td>
 
@@ -2720,6 +2742,14 @@ export default function Admin() {
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Current period ends</span>
+                      <span className="font-medium text-right truncate">
+                        {editingUser.subscriptionPeriodEndsAt
+                          ? format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy HH:mm")
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">PayPal sub. ID</span>
                       <span className="font-mono text-[10px] text-right break-all">{editingUser.paypalSubscriptionId ?? "—"}</span>
                     </div>
@@ -2729,7 +2759,7 @@ export default function Admin() {
                     </div>
                   </div>
                   <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/60">
-                    Next renewal date is managed by PayPal/Stripe; use their dashboards for billing period end. Trial dates below apply only to trial-like plans.
+                    Period end uses PayPal next billing time when the webhook includes it; otherwise subscription start plus 30 days. Saving a paid plan while status is active syncs the billed tier to your selection and backfills missing dates. Trial dates below apply only to trial-like plans.
                   </p>
                 </div>
 

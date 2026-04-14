@@ -8,6 +8,7 @@ import {
   paypalPlanEnvDiagnostics,
   paypalPlanConfig,
   PayPalApiError,
+  subscriptionPeriodEndFallback,
   type BillingPlanType,
   verifyPayPalWebhookSignature,
 } from "../lib/paypal.js";
@@ -43,6 +44,28 @@ function paypalResourceSubscriberEmail(resource: unknown): string | undefined {
   const email = (sub as Record<string, unknown>).email_address;
   if (typeof email !== "string" || !email.includes("@")) return undefined;
   return email.trim().toLowerCase();
+}
+
+function paypalResourceStartTime(resource: unknown): Date | null {
+  if (!resource || typeof resource !== "object") return null;
+  const o = resource as Record<string, unknown>;
+  const st = o.start_time ?? o.startTime;
+  if (typeof st !== "string") return null;
+  const d = new Date(st);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function paypalResourceNextBillingTime(resource: unknown): Date | null {
+  if (!resource || typeof resource !== "object") return null;
+  const o = resource as Record<string, unknown>;
+  const bi = o.billing_info ?? o.billingInfo;
+  if (!bi || typeof bi !== "object") return null;
+  const nbt =
+    (bi as Record<string, unknown>).next_billing_time ??
+    (bi as Record<string, unknown>).nextBillingTime;
+  if (typeof nbt !== "string") return null;
+  const d = new Date(nbt);
+  return Number.isFinite(d.getTime()) ? d : null;
 }
 
 function billingPlanDisplayName(plan: BillingPlanType): string {
@@ -240,36 +263,49 @@ router.post("/paypal-webhook", async (req, res) => {
     }
 
     if (eventType === "BILLING.SUBSCRIPTION.ACTIVATED") {
-      if (!parsedPlanType || !isBillingPlanType(parsedPlanType)) {
+      const startAt = paypalResourceStartTime(resource) ?? new Date();
+      const periodEnd =
+        paypalResourceNextBillingTime(resource) ?? subscriptionPeriodEndFallback(startAt);
+
+      const sharedSubscription = {
+        paypalSubscriptionId: paypalSubId || null,
+        subscriptionStatus: "active",
+        subscriptionStartedAt: startAt,
+        subscriptionPeriodEndsAt: periodEnd,
+        subscriptionCanceledEmailSentAt: null as null,
+      };
+
+      if (parsedPlanType && isBillingPlanType(parsedPlanType)) {
+        const plan = paypalPlanConfig(parsedPlanType);
+        await db
+          .update(usersTable)
+          .set({
+            ...sharedSubscription,
+            planType: parsedPlanType,
+            dailyLimitMinutes: plan.dailyLimitMinutes,
+            subscriptionPlan: parsedPlanType,
+          })
+          .where(eq(usersTable.id, userId));
+        logger.info({ eventType, userId, planType: parsedPlanType }, "PayPal subscription activated");
+      } else {
+        await db
+          .update(usersTable)
+          .set(sharedSubscription)
+          .where(eq(usersTable.id, userId));
         logger.warn(
-          { eventType, userId, planIdStr, customId },
-          "PayPal webhook: unknown plan — set PAYPAL_PLAN_ID_BASIC/PROFESSIONAL/PLATINUM to match the Plan ID in PayPal (live vs sandbox)",
+          { eventType, userId, planIdStr, customId, paypalSubscriptionId: paypalSubId },
+          "PayPal subscription activated but plan_id did not match PAYPAL_PLAN_ID_* — subscription dates and PayPal ID stored; fix env or assign plan in admin",
         );
-        res.json({ received: true });
-        return;
       }
-      const plan = paypalPlanConfig(parsedPlanType);
-      await db
-        .update(usersTable)
-        .set({
-          planType: parsedPlanType,
-          dailyLimitMinutes: plan.dailyLimitMinutes,
-          paypalSubscriptionId: paypalSubId || null,
-          subscriptionStatus: "active",
-          subscriptionPlan: parsedPlanType,
-          subscriptionStartedAt: new Date(),
-          subscriptionCanceledEmailSentAt: null,
-        })
-        .where(eq(usersTable.id, userId));
-      logger.info({ eventType, userId, planType: parsedPlanType }, "PayPal subscription activated");
 
       try {
         const [activatedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
         const em = activatedUser?.email?.trim().toLowerCase();
-        if (em && !activatedUser.subscriptionConfirmationSentAt) {
+        const confirmPlan = parsedPlanType && isBillingPlanType(parsedPlanType) ? parsedPlanType : null;
+        if (em && !activatedUser.subscriptionConfirmationSentAt && confirmPlan) {
           const ok = await sendSubscriptionConfirmationEmail(
             em,
-            billingPlanDisplayName(parsedPlanType),
+            billingPlanDisplayName(confirmPlan),
             "Your next billing date is available in your PayPal account",
             activatedUser.username,
             activatedUser.id,
@@ -289,6 +325,18 @@ router.post("/paypal-webhook", async (req, res) => {
       }
     }
 
+    if (eventType === "BILLING.SUBSCRIPTION.UPDATED") {
+      const next = paypalResourceNextBillingTime(resource);
+      const startAt = paypalResourceStartTime(resource);
+      if (next || startAt) {
+        const patch: Partial<typeof usersTable.$inferSelect> = {};
+        if (next) patch.subscriptionPeriodEndsAt = next;
+        if (startAt) patch.subscriptionStartedAt = startAt;
+        await db.update(usersTable).set(patch).where(eq(usersTable.id, userId));
+        logger.info({ eventType, userId, next, startAt }, "PayPal subscription updated (billing dates)");
+      }
+    }
+
     if (
       eventType === "BILLING.SUBSCRIPTION.SUSPENDED" ||
       eventType === "BILLING.SUBSCRIPTION.CANCELLED" ||
@@ -301,6 +349,7 @@ router.post("/paypal-webhook", async (req, res) => {
           planType: "trial",
           dailyLimitMinutes: 180,
           subscriptionStatus: "inactive",
+          subscriptionPeriodEndsAt: null,
         })
         .where(eq(usersTable.id, userId));
       logger.info({ eventType, userId }, "PayPal subscription deactivated; user downgraded");
@@ -352,6 +401,7 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
           subscriptionStatus: "trial",
           subscriptionPlan: null,
           subscriptionStartedAt: null,
+          subscriptionPeriodEndsAt: null,
           paypalSubscriptionId: null,
         })
         .where(eq(usersTable.id, userId));
@@ -365,6 +415,7 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
     }
 
     const plan = paypalPlanConfig(planType);
+    const now = new Date();
     await db
       .update(usersTable)
       .set({
@@ -372,7 +423,8 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
         dailyLimitMinutes: plan.dailyLimitMinutes,
         subscriptionStatus: "active",
         subscriptionPlan: planType,
-        subscriptionStartedAt: new Date(),
+        subscriptionStartedAt: now,
+        subscriptionPeriodEndsAt: subscriptionPeriodEndFallback(now),
       })
       .where(eq(usersTable.id, userId));
     res.json({ ok: true, planType, dailyLimitMinutes: plan.dailyLimitMinutes });

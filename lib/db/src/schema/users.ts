@@ -48,6 +48,8 @@ export const usersTable = pgTable("users", {
   subscriptionStatus: text("subscription_status"),
   subscriptionPlan: text("subscription_plan"),
   subscriptionStartedAt: timestamp("subscription_started_at"),
+  /** Next renewal / end of current paid period (PayPal next_billing_time or start + 30 days). */
+  subscriptionPeriodEndsAt: timestamp("subscription_period_ends_at"),
   googleAccountId: text("google_account_id").unique(),
   lastActivity: timestamp("last_activity"),
   twoFactorSecret: text("two_factor_secret"),

@@ -15,7 +15,8 @@ import {
 import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt, inArray, notInArray } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
-import { getTrialDaysRemaining, TRIAL_LIKE_PLAN_TYPES } from "../lib/usage.js";
+import { getTrialDaysRemaining, isTrialLikePlanType, TRIAL_LIKE_PLAN_TYPES } from "../lib/usage.js";
+import { billingProductKeyFromPlanType, subscriptionPeriodEndFallback } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
@@ -159,6 +160,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
         subscriptionStatus: u.subscriptionStatus ?? null,
         subscriptionPlan:   u.subscriptionPlan ?? null,
         subscriptionStartedAt: u.subscriptionStartedAt ?? null,
+        subscriptionPeriodEndsAt: u.subscriptionPeriodEndsAt ?? null,
         paypalSubscriptionId: u.paypalSubscriptionId ?? null,
         stripeSubscriptionId: u.stripeSubscriptionId ?? null,
         trialDaysRemaining: getTrialDaysRemaining(u),
@@ -1014,6 +1016,12 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
+  const [existing] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
   const updates: Partial<typeof usersTable.$inferSelect> = {};
   if (isActive !== undefined)             updates.isActive = isActive;
   if (isAdmin !== undefined)              updates.isAdmin = isAdmin;
@@ -1032,6 +1040,27 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   ) {
     res.status(400).json({ error: "Default language pair must use two different languages" });
     return;
+  }
+
+  if (planType) {
+    const pt = planType.toLowerCase();
+    if (isTrialLikePlanType(pt)) {
+      updates.subscriptionPlan = null;
+      updates.subscriptionPeriodEndsAt = null;
+    } else {
+      const key = billingProductKeyFromPlanType(pt);
+      const subSt = (existing.subscriptionStatus ?? "").trim().toLowerCase();
+      if (key && subSt === "active") {
+        updates.subscriptionPlan = key;
+        if (!existing.subscriptionStartedAt) {
+          const now = new Date();
+          updates.subscriptionStartedAt = now;
+          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(now);
+        } else if (!existing.subscriptionPeriodEndsAt) {
+          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(new Date(existing.subscriptionStartedAt));
+        }
+      }
+    }
   }
 
   const result = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
@@ -1057,6 +1086,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     subscriptionStatus: user.subscriptionStatus ?? null,
     subscriptionPlan:   user.subscriptionPlan ?? null,
     subscriptionStartedAt: user.subscriptionStartedAt ?? null,
+    subscriptionPeriodEndsAt: user.subscriptionPeriodEndsAt ?? null,
     paypalSubscriptionId: user.paypalSubscriptionId ?? null,
     stripeSubscriptionId: user.stripeSubscriptionId ?? null,
     trialDaysRemaining: getTrialDaysRemaining(user),
