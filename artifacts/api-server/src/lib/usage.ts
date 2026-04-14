@@ -30,10 +30,37 @@ export function getTrialDaysRemaining(user: User): number {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+/** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
+export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre"] as const;
+
 /** Trial-like plans: default signup `trial`, or admin-assigned `trial-openai` / `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial" || p === "trial-openai" || p === "trial-libre";
+  return (TRIAL_LIKE_PLAN_TYPES as readonly string[]).includes(p);
+}
+
+/** True when `/translate` uses the machine stack (Libre / Google / MyMemory), not OpenAI. */
+export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  return (
+    p === "basic" ||
+    p === "professional" ||
+    p === "trial-libre" ||
+    p === "platinum-libre"
+  );
+}
+
+function isPaidTranslationPlan(eff: string): boolean {
+  const e = eff.trim().toLowerCase();
+  return (
+    e === "basic" ||
+    e === "basic-openai" ||
+    e === "professional" ||
+    e === "professional-openai" ||
+    e === "platinum" ||
+    e === "platinum-libre" ||
+    e === "unlimited"
+  );
 }
 
 /** True only when the user is on a trial-like plan, was granted a real trial window, and that window has ended. */
@@ -67,13 +94,11 @@ export function effectivePlanTypeForTranslation(user: User): string {
 
 /**
  * Translation (POST /translate): which plans may call the translation endpoint.
- * Engine: `basic`, `professional`, `trial-libre` → machine translation; otherwise
- * `platinum`, `unlimited`, `trial`, `trial-openai` → OpenAI (`gpt-4o-mini`) with full interpreter prompts.
+ * Engine: `planUsesMachineTranslationStack(effectivePlanType)` vs OpenAI — see `transcription.ts`.
  */
 export function translationEnabledForUser(user: User): boolean {
   const eff = effectivePlanTypeForTranslation(user);
-  if (eff === "platinum" || eff === "unlimited") return true;
-  if (eff === "basic" || eff === "professional") return true;
+  if (isPaidTranslationPlan(eff)) return true;
   if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   return false;
 }

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
-import { formatMinutes } from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, planUsesLibreEngine } from "@/lib/utils";
 import { startOfAppDayMs } from "@workspace/app-timezone";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -267,10 +267,30 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
+const ADMIN_PLAN_OPTIONS: { value: string; label: string }[] = [
+  { value: "trial", label: "Trial · OpenAI (plan id: trial)" },
+  { value: "trial-openai", label: "Trial · OpenAI (plan id: trial-openai)" },
+  { value: "trial-libre", label: "Trial · Libre / machine" },
+  { value: "basic", label: "Basic · Libre / machine" },
+  { value: "basic-openai", label: "Basic · OpenAI" },
+  { value: "professional", label: "Professional · Libre / machine" },
+  { value: "professional-openai", label: "Professional · OpenAI" },
+  { value: "platinum", label: "Platinum · OpenAI" },
+  { value: "platinum-libre", label: "Platinum · Libre / machine" },
+  { value: "unlimited", label: "Unlimited · OpenAI" },
+];
+
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
-  if (plan !== "trial") return (
-    <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full capitalize">{plan}</span>
-  );
+  if (!isTrialLikePlanType(plan)) {
+    const engine = planUsesLibreEngine(plan) ? "Libre" : "OpenAI";
+    return (
+      <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap">
+        <span>{workspacePlanDisplayName(plan)}</span>
+        <span className="text-[9px] font-normal opacity-80">· {engine}</span>
+        <span className="text-[9px] font-mono opacity-60">({plan})</span>
+      </span>
+    );
+  }
   if (!trialEndsAt) return (
     <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
@@ -280,10 +300,14 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   );
   if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Libre" : "OpenAI"}
     </span>
   );
-  return <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">{daysLeft}d left</span>;
+  return (
+    <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">
+      {daysLeft}d left · {planUsesLibreEngine(plan) ? "Libre" : "OpenAI"}
+    </span>
+  );
 }
 
 // ── Audio device type detector ────────────────────────────────────────────────
@@ -398,7 +422,14 @@ export default function Admin() {
   // ── Edit user drawer ───────────────────────────────────────────────────────
   const [editingUser, setEditingUser] = useState<{
     id: number; username: string; email: string | null; isAdmin: boolean;
-    planType: string; trialEndsAt: string | null; trialDaysRemaining: number | null;
+    planType: string;
+    trialStartedAt: string | null;
+    trialEndsAt: string | null; trialDaysRemaining: number | null;
+    subscriptionStatus: string | null;
+    subscriptionPlan: string | null;
+    subscriptionStartedAt: string | null;
+    paypalSubscriptionId: string | null;
+    stripeSubscriptionId: string | null;
     dailyLimitMinutes: number; minutesUsedToday: number;
     defaultLangA: string; defaultLangB: string;
     totalMinutesUsed: number; totalSessions: number; createdAt: string;
@@ -779,8 +810,14 @@ export default function Admin() {
       email:             u.email ?? null,
       isAdmin:           u.isAdmin,
       planType:          u.planType ?? "trial",
+      trialStartedAt:    (u as { trialStartedAt?: string }).trialStartedAt ?? null,
       trialEndsAt:       u.trialEndsAt ?? null,
       trialDaysRemaining: (u.trialDaysRemaining as number | null | undefined) ?? null,
+      subscriptionStatus: (u as { subscriptionStatus?: string | null }).subscriptionStatus ?? null,
+      subscriptionPlan:   (u as { subscriptionPlan?: string | null }).subscriptionPlan ?? null,
+      subscriptionStartedAt: (u as { subscriptionStartedAt?: string | null }).subscriptionStartedAt ?? null,
+      paypalSubscriptionId: (u as { paypalSubscriptionId?: string | null }).paypalSubscriptionId ?? null,
+      stripeSubscriptionId: (u as { stripeSubscriptionId?: string | null }).stripeSubscriptionId ?? null,
       dailyLimitMinutes: u.dailyLimitMinutes,
       minutesUsedToday:  u.minutesUsedToday,
       defaultLangA:      userDefaultA || "en",
@@ -825,7 +862,7 @@ export default function Admin() {
         defaultLangA:      editForm.defaultLangA,
         defaultLangB:      editForm.defaultLangB,
       };
-      if (editForm.planType === "trial" && editForm.trialEndsAt) {
+      if (isTrialLikePlanType(editForm.planType) && editForm.trialEndsAt) {
         body.trialEndsAt = new Date(editForm.trialEndsAt).toISOString();
       }
       const res = await fetch(`/api/admin/users/${editingUser.id}`, {
@@ -869,8 +906,8 @@ export default function Admin() {
 
   const filteredUsers = allUsers
     .filter(u => {
-      if (userFilter === "trial")    return u.planType === "trial";
-      if (userFilter === "paying")   return u.planType !== "trial";
+      if (userFilter === "trial")    return isTrialLikePlanType(u.planType);
+      if (userFilter === "paying")   return !isTrialLikePlanType(u.planType);
       if (userFilter === "inactive") return !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7;
       if (userFilter === "high")     return u.minutesUsedToday >= 60;
       if (userFilter === "dupIp")    return (u.sharedLoginIpMaxAccounts ?? 1) >= 2;
@@ -914,8 +951,8 @@ export default function Admin() {
 
   const filterCounts = {
     all:      allUsers.length,
-    trial:    allUsers.filter(u => u.planType === "trial").length,
-    paying:   allUsers.filter(u => u.planType !== "trial").length,
+    trial:    allUsers.filter(u => isTrialLikePlanType(u.planType)).length,
+    paying:   allUsers.filter(u => !isTrialLikePlanType(u.planType)).length,
     inactive: allUsers.filter(u => !u.lastActivityAt || differenceInDays(new Date(), new Date(u.lastActivityAt)) >= 7).length,
     high:     allUsers.filter(u => u.minutesUsedToday >= 60).length,
     dupIp:    allUsers.filter(u => (u.sharedLoginIpMaxAccounts ?? 1) >= 2).length,
@@ -1551,7 +1588,7 @@ export default function Admin() {
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
-                            {u.planType === "trial" && u.trialEndsAt && (
+                            {isTrialLikePlanType(u.planType) && u.trialEndsAt && (
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                                 ends {format(new Date(u.trialEndsAt), "MMM d")}
                               </span>
@@ -2636,25 +2673,76 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan type */}
+                {/* Plan type (admin: tier + engine) */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Plan Type</label>
+                  <label className="text-xs font-medium text-muted-foreground">Plan (admin — tier + translation engine)</label>
                   <select
                     value={editForm.planType}
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
-                    <option value="trial">Trial</option>
-                    <option value="basic">Basic</option>
-                    <option value="professional">Professional</option>
-                    <option value="unlimited">Unlimited</option>
+                    {!ADMIN_PLAN_OPTIONS.some(o => o.value === editForm.planType) && (
+                      <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
+                    )}
+                    {ADMIN_PLAN_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    <span className="font-medium text-foreground/80">Customer sees:</span>{" "}
+                    {workspacePlanDisplayName(editForm.planType)} ·{" "}
+                    <span className="font-medium text-foreground/80">Engine:</span>{" "}
+                    {planUsesLibreEngine(editForm.planType) ? "Libre / machine stack" : "OpenAI"} ·{" "}
+                    <span className="font-mono text-[9px] opacity-80">{editForm.planType}</span>
+                  </p>
                 </div>
 
-                {/* Trial expiry — only when trial */}
-                {editForm.planType === "trial" && (
+                {/* Subscription / billing (read-only; trial expiry does not apply) */}
+                <div className="rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5 space-y-1.5">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> Subscription &amp; billing (admin)
+                  </p>
+                  <div className="grid grid-cols-1 gap-1 text-[11px]">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Subscription status</span>
+                      <span className="font-medium text-right truncate">{editingUser.subscriptionStatus ?? "—"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Billed plan (webhook)</span>
+                      <span className="font-medium text-right truncate">{editingUser.subscriptionPlan ?? "—"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Subscription started</span>
+                      <span className="font-medium text-right truncate">
+                        {editingUser.subscriptionStartedAt
+                          ? format(new Date(editingUser.subscriptionStartedAt), "MMM d, yyyy HH:mm")
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">PayPal sub. ID</span>
+                      <span className="font-mono text-[10px] text-right break-all">{editingUser.paypalSubscriptionId ?? "—"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Stripe sub. ID</span>
+                      <span className="font-mono text-[10px] text-right break-all">{editingUser.stripeSubscriptionId ?? "—"}</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/60">
+                    Next renewal date is managed by PayPal/Stripe; use their dashboards for billing period end. Trial dates below apply only to trial-like plans.
+                  </p>
+                </div>
+
+                {/* Trial window — all trial-like plan types */}
+                {isTrialLikePlanType(editForm.planType) && (
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">Trial Ends On</label>
+                    <label className="text-xs font-medium text-muted-foreground">Trial window</label>
+                    {editingUser.trialStartedAt && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Started: {format(new Date(editingUser.trialStartedAt), "MMM d, yyyy HH:mm")}
+                      </p>
+                    )}
+                    <label className="text-[10px] text-muted-foreground">Trial ends on (calendar)</label>
                     <input
                       type="date"
                       value={editForm.trialEndsAt}
@@ -2665,6 +2753,7 @@ export default function Admin() {
                       {[7, 14, 30].map(d => (
                         <button
                           key={d}
+                          type="button"
                           onClick={() => extendTrial(d)}
                           className="flex-1 h-7 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 transition-colors flex items-center justify-center gap-1"
                         >
@@ -2676,7 +2765,7 @@ export default function Admin() {
                       <p className="text-[10px] text-muted-foreground">
                         {new Date(editForm.trialEndsAt) > new Date()
                           ? `Expires in ${Math.ceil((new Date(editForm.trialEndsAt).getTime() - Date.now()) / 86_400_000)} day(s)`
-                          : "Trial has already expired"}
+                          : "Trial end date is in the past (access follows server trial rules)."}
                       </p>
                     )}
                   </div>

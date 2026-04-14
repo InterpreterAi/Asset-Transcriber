@@ -12,10 +12,10 @@ import {
   shareEventsTable,
   adminActivityEventsTable,
 } from "@workspace/db";
-import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt } from "drizzle-orm";
+import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt, inArray, notInArray } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
-import { getTrialDaysRemaining } from "../lib/usage.js";
+import { getTrialDaysRemaining, TRIAL_LIKE_PLAN_TYPES } from "../lib/usage.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
@@ -31,10 +31,16 @@ const router = Router();
 const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
 
 const PLAN_PRICES: Record<string, number> = {
-  basic:         59,
-  professional:  99,
-  platinum:      179,
-  unlimited:     179,
+  basic: 59,
+  "basic-openai":      59,
+  professional:        99,
+  "professional-openai": 99,
+  platinum:            179,
+  "platinum-libre":    179,
+  unlimited:           179,
+  trial:               0,
+  "trial-openai":      0,
+  "trial-libre":       0,
 };
 
 // ── List users ───────────────────────────────────────────────────────────────
@@ -150,6 +156,11 @@ router.get("/users", requireAdmin, async (_req, res) => {
         planType:           u.planType,
         trialStartedAt:     u.trialStartedAt,
         trialEndsAt:        u.trialEndsAt,
+        subscriptionStatus: u.subscriptionStatus ?? null,
+        subscriptionPlan:   u.subscriptionPlan ?? null,
+        subscriptionStartedAt: u.subscriptionStartedAt ?? null,
+        paypalSubscriptionId: u.paypalSubscriptionId ?? null,
+        stripeSubscriptionId: u.stripeSubscriptionId ?? null,
         trialDaysRemaining: getTrialDaysRemaining(u),
         dailyLimitMinutes:  u.dailyLimitMinutes,
         // Live-accurate "today" usage for admin table/pills.
@@ -305,7 +316,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(and(
-        sql`${usersTable.planType} NOT IN ('trial', 'trial-openai', 'trial-libre')`,
+        notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
         sql`${usersTable.isAdmin} = false`,
       )),
 
@@ -313,7 +324,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     db.select({ count: sql<number>`COUNT(*)` })
       .from(usersTable)
       .where(and(
-        sql`${usersTable.planType} IN ('trial', 'trial-openai', 'trial-libre')`,
+        inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
         sql`${usersTable.isAdmin} = false`,
       )),
 
@@ -666,7 +677,7 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       .where(and(
         sql`s.started_at >= ${startOfAppDay(now)}`,
         sql`${usersTable.isAdmin} = false`,
-        sql`${usersTable.planType} IN ('trial', 'trial-openai', 'trial-libre')`,
+        inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
       ))
       .groupBy(usersTable.id, usersTable.username, usersTable.dailyLimitMinutes)
       .having(sql`COALESCE(
@@ -991,8 +1002,11 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     "trial-openai",
     "trial-libre",
     "basic",
+    "basic-openai",
     "professional",
+    "professional-openai",
     "platinum",
+    "platinum-libre",
     "unlimited",
   ]);
   if (planType && !ADMIN_ASSIGNABLE_PLAN_TYPES.has(planType.toLowerCase())) {
@@ -1040,6 +1054,11 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     planType:           user.planType,
     trialStartedAt:     user.trialStartedAt,
     trialEndsAt:        user.trialEndsAt,
+    subscriptionStatus: user.subscriptionStatus ?? null,
+    subscriptionPlan:   user.subscriptionPlan ?? null,
+    subscriptionStartedAt: user.subscriptionStartedAt ?? null,
+    paypalSubscriptionId: user.paypalSubscriptionId ?? null,
+    stripeSubscriptionId: user.stripeSubscriptionId ?? null,
     trialDaysRemaining: getTrialDaysRemaining(user),
     dailyLimitMinutes:  user.dailyLimitMinutes,
     minutesUsedToday:   user.minutesUsedToday,

@@ -12,6 +12,7 @@ import {
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
+  planUsesMachineTranslationStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -1224,11 +1225,8 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
-  // LibreTranslate: basic / professional / trial-libre only. Platinum & unlimited use the OpenAI block below unchanged — never add them here.
-  const useMachineTranslation =
-    planLower === "basic" ||
-    planLower === "professional" ||
-    planLower === "trial-libre";
+  // Machine stack: basic / professional / trial-libre / platinum-libre (admin comp). OpenAI: all other entitled plans.
+  const useMachineTranslation = planUsesMachineTranslationStack(planLower);
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({

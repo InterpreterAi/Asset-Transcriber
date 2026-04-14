@@ -23,7 +23,7 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName } from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, workspacePlanTierKey } from "@/lib/utils";
 import {
   PRICING_PLANS,
   PRICING_SHARED_FEATURES,
@@ -900,13 +900,13 @@ export default function Workspace() {
             </div>
             <div className="flex items-center gap-2 mt-1">
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                isTrialLikePlanType(user.planType)
-                  ? "bg-violet-50 text-violet-700 border-violet-200"
-                  : user.planType === "basic"
-                  ? "bg-blue-50 text-blue-700 border-blue-200"
-                  : user.planType === "professional"
-                  ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                (() => {
+                  const tier = workspacePlanTierKey(user.planType);
+                  if (tier === "trial") return "bg-violet-50 text-violet-700 border-violet-200";
+                  if (tier === "basic") return "bg-blue-50 text-blue-700 border-blue-200";
+                  if (tier === "professional") return "bg-indigo-50 text-indigo-700 border-indigo-200";
+                  return "bg-emerald-50 text-emerald-700 border-emerald-200";
+                })()
               }`}>
                 {workspacePlanDisplayName(user.planType)}
               </span>

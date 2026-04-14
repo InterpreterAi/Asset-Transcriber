@@ -1,5 +1,6 @@
 import { db, usersTable } from "@workspace/db";
-import { and, eq, gt, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { TRIAL_LIKE_PLAN_TYPES } from "./usage.js";
 import { logger } from "./logger.js";
 import { isResendConfigured } from "./resend-mail.js";
 import { sendTrialAvailabilityReminderEmailWithResult } from "./transactional-email.js";
@@ -71,7 +72,7 @@ export async function runSendTrialUsersReminderNow(): Promise<void> {
   );
 
   const blastCore = and(
-    or(eq(usersTable.planType, "trial"), eq(usersTable.subscriptionStatus, "trial")),
+    or(inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]), eq(usersTable.subscriptionStatus, "trial")),
     isNotNull(usersTable.email),
     gt(usersTable.trialEndsAt, new Date(0)),
     sql`${usersTable.dailyLimitMinutes} > 0`,

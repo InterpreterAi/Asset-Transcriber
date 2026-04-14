@@ -1,5 +1,6 @@
 import { db, usersTable } from "@workspace/db";
-import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { TRIAL_LIKE_PLAN_TYPES } from "./usage.js";
 import { appCalendarDateAndHour } from "@workspace/app-timezone";
 import { isResendConfigured } from "./resend-mail.js";
 import { logger } from "./logger.js";
@@ -73,7 +74,7 @@ export async function runTrialActiveReminderJob(): Promise<void> {
 
   try {
     const eligibilityCore = and(
-      eq(usersTable.planType, "trial"),
+      inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
       eq(usersTable.isActive, true),
       eq(usersTable.emailVerified, true),
       isNull(usersTable.trialActiveReminderSentAt),

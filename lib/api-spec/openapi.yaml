@@ -575,6 +575,24 @@ components:
         trialEndsAt:
           type: string
           format: date-time
+        subscriptionStatus:
+          type: string
+          nullable: true
+          description: PayPal/Stripe subscription status when present (e.g. active).
+        subscriptionPlan:
+          type: string
+          nullable: true
+          description: Billed product tier from webhook (basic, professional, platinum, etc.).
+        subscriptionStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        paypalSubscriptionId:
+          type: string
+          nullable: true
+        stripeSubscriptionId:
+          type: string
+          nullable: true
         trialDaysRemaining:
           type: integer
         dailyLimitMinutes:

@@ -1,6 +1,7 @@
 import { db, usersTable } from "@workspace/db";
-import { count, eq, or } from "drizzle-orm";
+import { count, eq, inArray, or } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { TRIAL_LIKE_PLAN_TYPES } from "./usage.js";
 
 /**
  * Prints user counts and every trial-related row (for manual review before a reminder blast).
@@ -8,7 +9,7 @@ import { logger } from "./logger.js";
 export async function printTrialReminderDbReport(): Promise<void> {
   const [[{ totalUsers }], [{ planTrialCount }], [{ subscriptionTrialCount }]] = await Promise.all([
     db.select({ totalUsers: count() }).from(usersTable),
-    db.select({ planTrialCount: count() }).from(usersTable).where(eq(usersTable.planType, "trial")),
+    db.select({ planTrialCount: count() }).from(usersTable).where(inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES])),
     db
       .select({ subscriptionTrialCount: count() })
       .from(usersTable)
@@ -24,13 +25,13 @@ export async function printTrialReminderDbReport(): Promise<void> {
       trialEndsAt:        usersTable.trialEndsAt,
     })
     .from(usersTable)
-    .where(or(eq(usersTable.planType, "trial"), eq(usersTable.subscriptionStatus, "trial")))
+    .where(or(inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]), eq(usersTable.subscriptionStatus, "trial")))
     .orderBy(usersTable.id);
 
   const lines = [
     "=== Trial reminder — database preview ===",
     `Total users (all rows):           ${totalUsers}`,
-    `Users with plan_type = "trial":   ${planTrialCount}`,
+    `Users with trial-like plan_type: ${planTrialCount}`,
     `Users with subscription_status = "trial": ${subscriptionTrialCount}`,
     "",
     "--- Each user with plan OR subscription trial (may overlap counts above) ---",

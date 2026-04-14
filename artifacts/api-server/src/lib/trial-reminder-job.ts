@@ -1,5 +1,6 @@
 import { db, usersTable } from "@workspace/db";
-import { and, eq, gt, isNull, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, isNotNull, sql } from "drizzle-orm";
+import { TRIAL_LIKE_PLAN_TYPES } from "./usage.js";
 import { isResendConfigured } from "./resend-mail.js";
 import { logger } from "./logger.js";
 import { sendTrialReminder12hEmail, sendTrialReminder48hEmail } from "./transactional-email.js";
@@ -20,7 +21,7 @@ export async function runTrialReminderJob(): Promise<void> {
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.planType, "trial"),
+          inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
           isNull(usersTable.trialReminderSentAt),
           gt(usersTable.trialEndsAt, new Date()),
           sql`${usersTable.trialEndsAt} <= NOW() + INTERVAL '48 hours'`,
@@ -52,7 +53,7 @@ export async function runTrialReminderJob(): Promise<void> {
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.planType, "trial"),
+          inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
           isNull(usersTable.trialReminder12hSentAt),
           gt(usersTable.trialEndsAt, new Date()),
           sql`${usersTable.trialEndsAt} <= NOW() + INTERVAL '12 hours'`,

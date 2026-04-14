@@ -1,5 +1,6 @@
 import { db, usersTable } from "@workspace/db";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { TRIAL_LIKE_PLAN_TYPES } from "./usage.js";
 import { isResendConfigured } from "./resend-mail.js";
 import { logger } from "./logger.js";
 import { sendGettingStartedEmail, sendTrialExpiredEmail } from "./transactional-email.js";
@@ -52,7 +53,7 @@ export async function runOnboardingEmailJob(): Promise<void> {
       .from(usersTable)
       .where(
         and(
-          eq(usersTable.planType, "trial"),
+          inArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
           isNull(usersTable.trialExpiredEmailSentAt),
           sql`${usersTable.dailyLimitMinutes} > 0`,
           sql`${usersTable.trialEndsAt} > TIMESTAMP '1970-01-02'`,
