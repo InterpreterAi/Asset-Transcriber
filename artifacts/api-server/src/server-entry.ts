@@ -308,6 +308,27 @@ async function migrateSchema() {
         `UPDATE users SET subscription_plan = 'platinum' WHERE subscription_plan = 'unlimited'`,
       );
 
+      // Paid tiers: repair missing billing calendar fields (webhooks often omit timestamps).
+      await client.query(`
+        UPDATE users
+        SET subscription_started_at = created_at
+        WHERE subscription_started_at IS NULL
+          AND plan_type NOT IN ('trial', 'trial-openai', 'trial-libre')
+          AND (
+            LOWER(TRIM(COALESCE(subscription_status, ''))) IN ('active', 'trialing')
+            OR (subscription_plan IS NOT NULL AND TRIM(subscription_plan) <> '')
+            OR (paypal_subscription_id IS NOT NULL AND TRIM(paypal_subscription_id) <> '')
+            OR (stripe_subscription_id IS NOT NULL AND TRIM(stripe_subscription_id) <> '')
+          )
+      `);
+      await client.query(`
+        UPDATE users
+        SET subscription_period_ends_at = subscription_started_at + INTERVAL '30 days'
+        WHERE subscription_period_ends_at IS NULL
+          AND subscription_started_at IS NOT NULL
+          AND plan_type NOT IN ('trial', 'trial-openai', 'trial-libre')
+      `);
+
       await client.query("COMMIT");
       logger.info("Startup schema migration complete");
     } catch (err) {

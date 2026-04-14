@@ -89,6 +89,15 @@ export interface AdminUser {
   planType?: string;
   trialStartedAt?: string;
   trialEndsAt?: string;
+  /** PayPal/Stripe subscription status when present (e.g. active). */
+  subscriptionStatus?: string | null;
+  /** Billed product tier from webhook (basic, professional, platinum, etc.). */
+  subscriptionPlan?: string | null;
+  subscriptionStartedAt?: string | null;
+  /** End of current paid period (PayPal next_billing_time or start + 30 days). */
+  subscriptionPeriodEndsAt?: string | null;
+  paypalSubscriptionId?: string | null;
+  stripeSubscriptionId?: string | null;
   trialDaysRemaining?: number;
   dailyLimitMinutes: number;
   minutesUsedToday: number;

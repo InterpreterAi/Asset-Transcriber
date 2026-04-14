@@ -295,19 +295,6 @@ function addBillingFallbackPeriod(start: Date): Date {
   return new Date(start.getTime() + BILLING_FALLBACK_PERIOD_MS);
 }
 
-/** Paid row in admin but DB may lack PayPal timestamps — still show helpful estimates. */
-function subscriberRowHasBillingHints(u: {
-  planType?: string;
-  subscriptionStatus?: string | null;
-  subscriptionPlan?: string | null;
-}): boolean {
-  if (isTrialLikePlanType(u.planType ?? "")) return false;
-  const st = String(u.subscriptionStatus ?? "").trim().toLowerCase();
-  if (st === "active" || st === "trialing") return true;
-  if (String(u.subscriptionPlan ?? "").trim()) return true;
-  return false;
-}
-
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
     const engine = planUsesLibreEngine(plan) ? "Libre" : "OpenAI";
@@ -1627,11 +1614,12 @@ export default function Admin() {
                               const paidFrom = (u as unknown as { subscriptionStartedAt?: string | null }).subscriptionStartedAt;
                               const periodEnd = (u as unknown as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt;
                               const subSt = String((u as { subscriptionStatus?: string | null }).subscriptionStatus ?? "").trim();
-                              const hints = subscriberRowHasBillingHints(u);
                               const created = u.createdAt;
+                              // Any paid plan row: estimate from account created when PayPal never wrote timestamps.
+                              const showPaidEstimates = !isTrialLikePlanType(u.planType ?? "");
                               const displayStartIso =
                                 paidFrom ??
-                                (hints && created ? created : null);
+                                (showPaidEstimates && created ? created : null);
                               const startIsProxy = Boolean(!paidFrom && displayStartIso);
                               const displayEndDate = periodEnd
                                 ? new Date(periodEnd)
@@ -2814,16 +2802,12 @@ export default function Admin() {
                       <span className="text-muted-foreground shrink-0">Subscription started</span>
                       <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
                         {(() => {
-                          const hints = subscriberRowHasBillingHints({
-                            planType: editForm.planType,
-                            subscriptionStatus: editingUser.subscriptionStatus,
-                            subscriptionPlan: editingUser.subscriptionPlan,
-                          });
+                          const showPaidEstimates = !isTrialLikePlanType(editForm.planType);
                           const iso =
                             editingUser.subscriptionStartedAt ??
-                            (hints && editingUser.createdAt ? editingUser.createdAt : null);
+                            (showPaidEstimates && editingUser.createdAt ? editingUser.createdAt : null);
                           if (!iso) return "—";
-                          const proxy = !editingUser.subscriptionStartedAt && Boolean(hints && editingUser.createdAt);
+                          const proxy = !editingUser.subscriptionStartedAt && Boolean(showPaidEstimates && editingUser.createdAt);
                           return (
                             <>
                               {format(new Date(iso), "MMM d, yyyy · HH:mm")}
@@ -2842,14 +2826,10 @@ export default function Admin() {
                           if (editingUser.subscriptionPeriodEndsAt) {
                             return format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy · HH:mm");
                           }
-                          const hints = subscriberRowHasBillingHints({
-                            planType: editForm.planType,
-                            subscriptionStatus: editingUser.subscriptionStatus,
-                            subscriptionPlan: editingUser.subscriptionPlan,
-                          });
+                          const showPaidEstimates = !isTrialLikePlanType(editForm.planType);
                           const startIso =
                             editingUser.subscriptionStartedAt ??
-                            (hints && editingUser.createdAt ? editingUser.createdAt : null);
+                            (showPaidEstimates && editingUser.createdAt ? editingUser.createdAt : null);
                           if (!startIso) return "—";
                           return (
                             <>
