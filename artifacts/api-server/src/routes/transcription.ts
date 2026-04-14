@@ -146,11 +146,164 @@ async function isGlobalCapReached(): Promise<boolean> {
 const router = Router();
 router.use(requireJsonObjectBody);
 
-/** Daily cap applies only when the account has a positive per-day limit (trial/paid). `dailyLimitMinutes <= 0` must not block (avoids legacy bad rows where `used >= 0` always). */
-function isDailyTranscriptionCapReached(user: { minutesUsedToday: number; dailyLimitMinutes: number }): boolean {
+/** Sum billable minutes from all open sessions (PCM seconds / 60) — `minutes_used_today` excludes until close. */
+async function sumOpenSessionsBillableMinutes(userId: number): Promise<number> {
+  const rows = await db
+    .select({ sec: sessionsTable.audioSecondsProcessed })
+    .from(sessionsTable)
+    .where(and(eq(sessionsTable.userId, userId), isNull(sessionsTable.endedAt)));
+  let totalSec = 0;
+  for (const r of rows) {
+    totalSec += Math.max(0, Number(r.sec ?? 0));
+  }
+  return totalSec / 60;
+}
+
+/**
+ * Daily cap: stored usage plus in-flight billable minutes (current open session(s)).
+ * `dailyLimitMinutes <= 0` or unlimited cap → never block.
+ */
+function isDailyCapReachedWithLiveExtra(
+  user: { minutesUsedToday: number; dailyLimitMinutes: number },
+  liveBillableMinutes: number,
+): boolean {
   const cap = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(cap) || cap <= 0) return false;
-  return Number(user.minutesUsedToday) >= cap;
+  if (cap >= UNLIMITED_DAILY_CAP_MINUTES) return false;
+  const used = Number(user.minutesUsedToday);
+  const live = Math.max(0, Number(liveBillableMinutes));
+  return used + live >= cap - 1e-6;
+}
+
+/** Daily cap from DB row only (no live session audio). */
+function isDailyTranscriptionCapReached(user: { minutesUsedToday: number; dailyLimitMinutes: number }): boolean {
+  return isDailyCapReachedWithLiveExtra(user, 0);
+}
+
+async function maybeSendDailyLimitReachedEmail(
+  user: {
+    id: number;
+    email: string | null;
+    username: string;
+    emailRemindersEnabled: boolean | null;
+    dailyLimitReachedEmailAppDate: string | null;
+    dailyLimitMinutes: number;
+  },
+  newMinutesUsedToday: number,
+): Promise<void> {
+  const dailyCap = Number(user.dailyLimitMinutes);
+  const hitDailyCap =
+    Number.isFinite(dailyCap) &&
+    dailyCap > 0 &&
+    dailyCap < UNLIMITED_DAILY_CAP_MINUTES &&
+    newMinutesUsedToday + 1e-6 >= dailyCap;
+  const todayIso = appCalendarDateAndHour().dateIso;
+  const alreadySentToday = user.dailyLimitReachedEmailAppDate === todayIso;
+  const toEmail = user.email?.trim().toLowerCase() ?? "";
+  const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (
+    !hitDailyCap ||
+    alreadySentToday ||
+    user.emailRemindersEnabled === false ||
+    !toEmail ||
+    !EMAIL_OK.test(toEmail)
+  ) {
+    return;
+  }
+  try {
+    const ok = await sendDailyLimitReachedEmail(toEmail, user.username, user.id, {
+      dailyLimitMinutes: dailyCap,
+    });
+    if (ok) {
+      await db
+        .update(usersTable)
+        .set({ dailyLimitReachedEmailAppDate: todayIso })
+        .where(eq(usersTable.id, user.id));
+      logger.info({ userId: user.id, email: toEmail }, "Daily limit reached email sent");
+    }
+  } catch (err) {
+    logger.warn({ err, userId: user.id }, "Daily limit reached email failed");
+  }
+}
+
+/**
+ * Close one session and bill Soniox minutes to the user (same rules as POST /session/stop).
+ * Idempotent: if already ended, returns closed: false and does not double-bill.
+ */
+async function closeOpenSessionWithBillingIfNeeded(
+  sessionId: number,
+  userId: number,
+  durationSecondsRaw: number,
+): Promise<{ closed: boolean; minutesUsed: number }> {
+  const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSecondsRaw) || 0)), MAX_SESSION_AUDIO_SECONDS);
+  const minutesUsed = audioSeconds / 60;
+  const sonioxCost = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
+
+  const updated = await db
+    .update(sessionsTable)
+    .set({
+      endedAt:               new Date(),
+      durationSeconds:       audioSeconds,
+      audioSecondsProcessed: audioSeconds,
+      sonioxCost:            String(sonioxCost),
+      totalSessionCost:      sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+    })
+    .where(
+      and(
+        eq(sessionsTable.id, sessionId),
+        eq(sessionsTable.userId, userId),
+        isNull(sessionsTable.endedAt),
+      ),
+    )
+    .returning({ id: sessionsTable.id });
+
+  if (!updated.length) {
+    return { closed: false, minutesUsed: 0 };
+  }
+
+  const [stoppedRow] = await db
+    .select({
+      startedAt:         sessionsTable.startedAt,
+      translationTokens: sessionsTable.translationTokens,
+      translationCost:   sessionsTable.translationCost,
+    })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .limit(1);
+  if (stoppedRow) {
+    logInterpretationSessionHourlyRates({
+      source: "session_stop",
+      sessionId,
+      userId,
+      startedAt: stoppedRow.startedAt,
+      audioSecondsProcessed: audioSeconds,
+      translationTokens: Number(stoppedRow.translationTokens ?? 0),
+      translationCostUsd: Number(stoppedRow.translationCost ?? 0),
+    });
+  }
+
+  sessionStore.delete(sessionId);
+
+  const user = await getUserWithResetCheck(userId);
+  if (!user) {
+    return { closed: true, minutesUsed };
+  }
+
+  await db
+    .update(usersTable)
+    .set({
+      minutesUsedToday: user.minutesUsedToday + minutesUsed,
+      totalMinutesUsed: user.totalMinutesUsed + minutesUsed,
+      totalSessions:    user.totalSessions + 1,
+    })
+    .where(eq(usersTable.id, userId));
+
+  globalCapCache.lastChecked = 0;
+
+  const newMinutesUsedToday = Number(user.minutesUsedToday) + minutesUsed;
+  void maybeSendDailyLimitReachedEmail(user, newMinutesUsedToday);
+
+  return { closed: true, minutesUsed };
 }
 
 type SessionDiagCounters = {
@@ -241,12 +394,14 @@ router.post("/token", requireAuth, async (req, res) => {
       return;
     }
 
-    if (isDailyTranscriptionCapReached(user)) {
+    const liveBillable = await sumOpenSessionsBillableMinutes(user.id);
+    if (isDailyCapReachedWithLiveExtra(user, liveBillable)) {
       res.status(403).json({
         error:
           isTrialLikePlanType(user.planType)
             ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
             : "Daily usage limit reached. Try again tomorrow.",
+        code: "DAILY_LIMIT_REACHED",
       });
       return;
     }
@@ -782,17 +937,32 @@ router.post("/session/start", requireAuth, async (req, res) => {
     return;
   }
 
-  if (isDailyTranscriptionCapReached(user)) {
+  const openSessions = await db
+    .select()
+    .from(sessionsTable)
+    .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)));
+
+  for (const orphan of openSessions) {
+    await closeOpenSessionWithBillingIfNeeded(
+      orphan.id,
+      user.id,
+      Number(orphan.audioSecondsProcessed ?? 0),
+    );
+  }
+
+  const userForCap = (await getUserWithResetCheck(user.id)) ?? user;
+  if (isDailyTranscriptionCapReached(userForCap)) {
     res.status(403).json({
       error:
-        isTrialLikePlanType(user.planType)
+        isTrialLikePlanType(userForCap.planType)
           ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
           : "Daily usage limit reached. Try again tomorrow.",
+      code: "DAILY_LIMIT_REACHED",
     });
     return;
   }
-  if (isMandatoryFeedbackRequiredByUsage(user)) {
-    const submitted = await hasSubmittedMandatoryFeedbackToday(user.id);
+  if (isMandatoryFeedbackRequiredByUsage(userForCap)) {
+    const submitted = await hasSubmittedMandatoryFeedbackToday(userForCap.id);
     if (!submitted) {
       res.status(403).json({
         error: "Daily feedback required before starting another session.",
@@ -808,41 +978,12 @@ router.post("/session/start", requireAuth, async (req, res) => {
     ? `${langName(srcLang)} → ${langName(tgtLang)}`
     : null;
 
-  // Close any open sessions left behind by a page refresh, tab close,
-  // network drop, or a start() that failed after the DB row was created.
-  // We never 409: there is no valid reason for a user to have two open
-  // sessions, and the old "recent heartbeat = 409" logic caused false
-  // positives whenever stop() failed silently before a new attempt.
-  const openSessions = await db
-    .select()
-    .from(sessionsTable)
-    .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)));
-
-  if (openSessions.length > 0) {
-    const now = new Date();
-    // Close orphaned rows (refresh / lost stop) without billing wall-clock time — only
-    // POST /session/stop with client-reported audio seconds updates daily usage.
-    for (const orphan of openSessions) {
-      await db
-        .update(sessionsTable)
-        .set({
-          endedAt:               now,
-          durationSeconds:        0,
-          audioSecondsProcessed: 0,
-          sonioxCost:            "0",
-          totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
-        })
-        .where(eq(sessionsTable.id, orphan.id));
-      sessionStore.delete(orphan.id);
-    }
-  }
-
   const result = await db
     .insert(sessionsTable)
-    .values({ userId: user.id, startedAt: new Date(), lastActivityAt: new Date(), langPair })
+    .values({ userId: userForCap.id, startedAt: new Date(), lastActivityAt: new Date(), langPair })
     .returning();
 
-  void touchActivity(user.id);
+  void touchActivity(userForCap.id);
 
   void db
     .update(referralsTable)
@@ -852,7 +993,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
     })
     .where(
       and(
-        eq(referralsTable.referredUserId, user.id),
+        eq(referralsTable.referredUserId, userForCap.id),
       )
     );
 
@@ -902,6 +1043,25 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
 
   void touchActivity(req.session.userId!);
 
+  const userId = req.session.userId!;
+  const hbUser = await getUserWithResetCheck(userId);
+  if (!hbUser) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  const liveBillable = await sumOpenSessionsBillableMinutes(userId);
+  if (isDailyCapReachedWithLiveExtra(hbUser, liveBillable)) {
+    const [capRow] = await db
+      .select({ audioSecondsProcessed: sessionsTable.audioSecondsProcessed })
+      .from(sessionsTable)
+      .where(eq(sessionsTable.id, sessionId))
+      .limit(1);
+    const rawSec = Number(capRow?.audioSecondsProcessed ?? 0);
+    await closeOpenSessionWithBillingIfNeeded(sessionId, userId, rawSec);
+    res.json({ ok: true, dailyLimitReached: true, sessionEnded: true });
+    return;
+  }
+
   const [metricRow] = await db
     .select({
       startedAt:               sessionsTable.startedAt,
@@ -917,7 +1077,7 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     logInterpretationSessionHourlyRates({
       source: "heartbeat",
       sessionId,
-      userId: req.session.userId!,
+      userId,
       startedAt: metricRow.startedAt,
       audioSecondsProcessed: Number(metricRow.audioSecondsProcessed ?? 0),
       translationTokens: Number(metricRow.translationTokens ?? 0),
@@ -936,94 +1096,15 @@ router.post("/session/stop", requireAuth, async (req, res) => {
     return;
   }
 
-  // Billable duration = audio seconds processed in this session (client measures PCM sent to Soniox).
-  const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSeconds) || 0)), 3 * 60 * 60);
-  const minutesUsed = audioSeconds / 60;
-  const sonioxCost  = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
-
-  await db.update(sessionsTable)
-    .set({
-      endedAt:               new Date(),
-      durationSeconds:       audioSeconds,
-      audioSecondsProcessed: audioSeconds,
-      sonioxCost:            String(sonioxCost),
-      // totalSessionCost = soniox + whatever translation cost was accumulated during the session
-      totalSessionCost: sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
-    })
-    .where(eq(sessionsTable.id, sessionId));
-
-  const [stoppedRow] = await db
-    .select({
-      startedAt:         sessionsTable.startedAt,
-      translationTokens: sessionsTable.translationTokens,
-      translationCost:   sessionsTable.translationCost,
-    })
-    .from(sessionsTable)
-    .where(eq(sessionsTable.id, sessionId))
-    .limit(1);
-  if (stoppedRow) {
-    logInterpretationSessionHourlyRates({
-      source: "session_stop",
-      sessionId,
-      userId: req.session.userId!,
-      startedAt: stoppedRow.startedAt,
-      audioSecondsProcessed: audioSeconds,
-      translationTokens: Number(stoppedRow.translationTokens ?? 0),
-      translationCostUsd: Number(stoppedRow.translationCost ?? 0),
-    });
-  }
-
-  // Remove in-memory snapshot — session is over.
-  sessionStore.delete(sessionId);
-
-  const user = await getUserWithResetCheck(req.session.userId!);
-  if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
-
-  await db.update(usersTable)
-    .set({
-      minutesUsedToday: user.minutesUsedToday + minutesUsed,
-      totalMinutesUsed: user.totalMinutesUsed + minutesUsed,
-      totalSessions: user.totalSessions + 1,
-    })
-    .where(eq(usersTable.id, user.id));
-
-  // Invalidate global cap cache after a session stops
-  globalCapCache.lastChecked = 0;
-
-  const newMinutesUsedToday = Number(user.minutesUsedToday) + minutesUsed;
-  const dailyCap = Number(user.dailyLimitMinutes);
-  const hitDailyCap =
-    Number.isFinite(dailyCap) &&
-    dailyCap > 0 &&
-    dailyCap < UNLIMITED_DAILY_CAP_MINUTES &&
-    newMinutesUsedToday + 1e-6 >= dailyCap;
-  const todayIso = appCalendarDateAndHour().dateIso;
-  const alreadySentToday = user.dailyLimitReachedEmailAppDate === todayIso;
-  const toEmail = user.email?.trim().toLowerCase() ?? "";
-  const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (
-    hitDailyCap &&
-    !alreadySentToday &&
-    user.emailRemindersEnabled !== false &&
-    toEmail &&
-    EMAIL_OK.test(toEmail)
-  ) {
-    void (async () => {
-      try {
-        const ok = await sendDailyLimitReachedEmail(toEmail, user.username, user.id, {
-          dailyLimitMinutes: dailyCap,
-        });
-        if (ok) {
-          await db
-            .update(usersTable)
-            .set({ dailyLimitReachedEmailAppDate: todayIso })
-            .where(eq(usersTable.id, user.id));
-          logger.info({ userId: user.id, email: toEmail }, "Daily limit reached email sent");
-        }
-      } catch (err) {
-        logger.warn({ err, userId: user.id }, "Daily limit reached email failed");
-      }
-    })();
+  const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSeconds) || 0)), MAX_SESSION_AUDIO_SECONDS);
+  const { closed, minutesUsed } = await closeOpenSessionWithBillingIfNeeded(
+    sessionId,
+    req.session.userId!,
+    audioSeconds,
+  );
+  if (!closed) {
+    res.json({ message: "Session already ended", minutesUsed: 0, alreadyEnded: true });
+    return;
   }
 
   res.json({ message: "Session stopped", minutesUsed });
@@ -1220,6 +1301,18 @@ router.post("/translate", requireAuth, async (req, res) => {
         "Translation is not available for this account. If you are on a trial, it may have ended. " +
         "Paid plans (Basic, Professional, Platinum) include translation — refresh after checkout or contact support if this persists.",
       code: "TRANSLATION_PLAN_REQUIRED",
+    });
+    return;
+  }
+
+  const translateLiveBillable = await sumOpenSessionsBillableMinutes(translateUser.id);
+  if (isDailyCapReachedWithLiveExtra(translateUser, translateLiveBillable)) {
+    res.status(403).json({
+      error:
+        isTrialLikePlanType(translateUser.planType)
+          ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
+          : "Daily usage limit reached. Try again tomorrow.",
+      code: "DAILY_LIMIT_REACHED",
     });
     return;
   }

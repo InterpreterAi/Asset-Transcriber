@@ -105,6 +105,18 @@ export default function Workspace() {
   useEffect(() => { langARef.current = langA; }, [langA]);
   useEffect(() => { langBRef.current = langB; }, [langB]);
   const micLabelRef = useRef("Microphone");
+  const dailyCapRef = useRef<{ minutesUsedToday: number; dailyLimitMinutes: number } | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      dailyCapRef.current = null;
+      return;
+    }
+    dailyCapRef.current = {
+      minutesUsedToday: user.minutesUsedToday,
+      dailyLimitMinutes: user.dailyLimitMinutes,
+    };
+  }, [user]);
 
   const snapshotCtxRef = useRef<{
     transcription: ReturnType<typeof useTranscription> | null;
@@ -113,6 +125,7 @@ export default function Workspace() {
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
+    dailyCapRef,
     onAdminSnapshotBuffersUpdated: () => {
       if (snapshotCtxRef.current.debounce != null) return;
       snapshotCtxRef.current.debounce = setTimeout(() => {

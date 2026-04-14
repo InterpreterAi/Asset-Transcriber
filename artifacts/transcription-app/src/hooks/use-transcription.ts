@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import {
@@ -54,6 +54,9 @@ const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
+
+/** Matches api-server `UNLIMITED_DAILY_CAP_MINUTES` — skip client preemption when plan is “unlimited”. */
+const UNLIMITED_DAILY_CAP_MINUTES = 9000;
 
 /** Dev-only diagnosis: browser console. Text snippets truncated (PHI). Stripped in prod via Vite `esbuild.drop`. */
 const TRANS_DIAG_SNIP = 120;
@@ -1397,6 +1400,11 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
+  /**
+   * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
+   * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
+   */
+  dailyCapRef?: MutableRefObject<{ minutesUsedToday: number; dailyLimitMinutes: number } | null>;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1422,6 +1430,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
+
+  const dailyCapRef = options?.dailyCapRef;
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1592,6 +1602,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const maxSessionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetInactivityRef   = useRef<(() => void) | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Prevents double stop() when both worklet and heartbeat see the daily cap. */
+  const dailyLimitAutoStopRef = useRef(false);
 
   const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;   // 5 minutes
   const MAX_SESSION_MS        = 3 * 60 * 60 * 1000; // 3 hours
@@ -2596,6 +2608,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (startInFlightRef.current) return;
     startInFlightRef.current = true;
     setStartBusy(true);
+    dailyLimitAutoStopRef.current = false;
     let sessionStartPromise: ReturnType<typeof startSessionMut.mutateAsync> | undefined;
     try {
       setError(null);
@@ -2638,7 +2651,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const sendHeartbeat = () => {
         const sid = sessionIdRef.current;
         if (!sid) return;
-        fetch("/api/transcription/session/heartbeat", {
+        void fetch("/api/transcription/session/heartbeat", {
           method:      "POST",
           headers:     { "Content-Type": "application/json" },
           credentials: "include",
@@ -2646,7 +2659,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             sessionId: sid,
             audioSecondsProcessed: Math.floor(audioPcmSecondsRef.current),
           }),
-        }).catch(() => { /* best-effort — ignore network errors */ });
+        })
+          .then(async (res) => {
+            if (!res.ok) return;
+            let payload: unknown;
+            try {
+              payload = await res.json();
+            } catch {
+              return;
+            }
+            if (!payload || typeof payload !== "object") return;
+            const o = payload as { dailyLimitReached?: unknown; sessionEnded?: unknown };
+            if (o.dailyLimitReached === true && o.sessionEnded === true) {
+              if (dailyLimitAutoStopRef.current) return;
+              dailyLimitAutoStopRef.current = true;
+              setError("Daily usage limit reached.");
+              void stop();
+              if (!isAdminRef.current) doClear();
+            }
+          })
+          .catch(() => { /* best-effort — ignore network errors */ });
       };
       heartbeatIntervalRef.current = setInterval(sendHeartbeat, 30_000);
       sendHeartbeat();
@@ -2711,6 +2743,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         const samples = new Int16Array(raw);
         audioPcmSecondsRef.current += samples.length / TARGET_RATE;
+        const capRow = dailyCapRef?.current;
+        if (
+          capRow &&
+          Number.isFinite(capRow.dailyLimitMinutes) &&
+          capRow.dailyLimitMinutes > 0 &&
+          capRow.dailyLimitMinutes < UNLIMITED_DAILY_CAP_MINUTES &&
+          !dailyLimitAutoStopRef.current
+        ) {
+          const used = Number(capRow.minutesUsedToday);
+          const pcmMin = audioPcmSecondsRef.current / 60;
+          if (used + pcmMin + 1e-6 >= capRow.dailyLimitMinutes) {
+            dailyLimitAutoStopRef.current = true;
+            queueMicrotask(() => {
+              setError("Daily usage limit reached.");
+              void stop();
+              if (!isAdminRef.current) doClear();
+            });
+          }
+        }
         let sum = 0;
         for (let i = 0; i < samples.length; i++) {
           const s = (samples[i] ?? 0) / 32768;
@@ -2766,6 +2817,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           "Live transcription is off: the server is missing SONIOX_API_KEY. Add it in Railway (or .env for local API), then redeploy.";
       } else if (errCode === "FEEDBACK_REQUIRED") {
         msg = "Daily feedback is required before you can start another session.";
+      } else if (errCode === "DAILY_LIMIT_REACHED") {
+        msg = "Daily usage limit reached. Try again tomorrow.";
       }
       // Error object intentionally not logged to console (HIPAA)
       setError(msg);
@@ -2792,7 +2845,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startInFlightRef.current = false;
       setStartBusy(false);
     }
-  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop]);
+  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, doClear]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
