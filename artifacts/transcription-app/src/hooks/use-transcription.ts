@@ -53,9 +53,6 @@ const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 
-/** Hard cap on each /translate HTTP attempt (ms). Supersedes longer server/model work — prioritizes low latency over coverage. */
-const TRANSLATE_HTTP_HARD_TIMEOUT_MS = 2000;
-
 /** Dev-only diagnosis: browser console. Text snippets truncated (PHI). */
 const TRANS_DIAG_SNIP = 120;
 function transDiagLog(stream: "asr" | "translate", payload: Record<string, unknown>): void {
@@ -606,10 +603,6 @@ type TranslateApiOptions = {
   isFinal?: boolean;
   /** Abort stops this request (superseded live translate or segment teardown). */
   signal?: AbortSignal;
-  /** Override default retry count (live: 1, final: 2). */
-  maxHttpAttempts?: number;
-  /** Per-attempt fetch timeout (default 30s if unset). */
-  perAttemptTimeoutMs?: number;
 };
 
 async function translateViaPrimaryApi(
@@ -619,8 +612,10 @@ async function translateViaPrimaryApi(
   options?: TranslateApiOptions,
 ): Promise<PrimaryTranslationResult> {
   const isFinal = Boolean(options?.isFinal);
-  const MAX_ATTEMPTS = options?.maxHttpAttempts ?? (isFinal ? 2 : 1);
-  const REQUEST_TIMEOUT_MS = options?.perAttemptTimeoutMs ?? 30_000;
+  // Live: one retry on transient errors; timeouts scale with length so long turns are not cut off mid-stream.
+  const MAX_ATTEMPTS = isFinal ? 2 : 2;
+  // Long cumulative live strings — allow full 30s per attempt (product: coverage over cost).
+  const REQUEST_TIMEOUT_MS = 30_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",
@@ -883,12 +878,7 @@ async function fetchTranslation(
   onTranslationIssue?: (message: string) => void,
   options?: FetchTranslationOptions,
 ): Promise<FetchTranslationResult> {
-  const isFinalCall = Boolean(options?.isFinal);
-  const primary = await translateViaPrimaryApi(text, sourceLang, targetLang, {
-    ...options,
-    maxHttpAttempts: isFinalCall ? 2 : 1,
-    perAttemptTimeoutMs: TRANSLATE_HTTP_HARD_TIMEOUT_MS,
-  });
+  const primary = await translateViaPrimaryApi(text, sourceLang, targetLang, options);
   if (primary.outcome === "ok") {
     return { text: primary.text, replaceStreamColumn: false };
   }
@@ -1277,7 +1267,25 @@ function liveSourceWarrantsTranslate(
   return true;
 }
 
-/** Live + final: replace the whole translation cell (innerHTML). */
+/** Skip repainting when the new live translation is effectively the same as what is already shown. */
+function translationOutputTooSimilarToDisplay(prevDisplayed: string, incoming: string): boolean {
+  const p = collapseWs(prevDisplayed);
+  const n = collapseWs(incoming);
+  if (!p || !n || p === "…") return false;
+  if (p === n) return true;
+  const ovr = Math.max(tokenOverlapRatio(p, n), tokenOverlapRatio(n, p));
+  if (ovr >= 0.93) return true;
+  const lim = Math.min(p.length, n.length);
+  if (lim === 0) return false;
+  if (p.length <= 48 && n.length <= 48) {
+    let i = 0;
+    while (i < lim && p[i]!.toLowerCase() === n[i]!.toLowerCase()) i++;
+    if (i / lim >= 0.94 && Math.abs(p.length - n.length) <= 4) return true;
+  }
+  return false;
+}
+
+/** Live + final: always replace the whole translation cell (innerHTML), never append tokens. */
 function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
   el.dir             = rtl ? "rtl" : "ltr";
@@ -1355,12 +1363,6 @@ interface BubbleTransState {
    * with a partial translation still on screen.
    */
   needsFullFinalTranslation: boolean;
-  /** Monotonic dispatch token: a response applies only if it matches this id (see `dispatchTranslation`). */
-  translateRequestNonce: number;
-  /** True while a final /translate round-trip is in flight — blocks duplicate concurrent finals. */
-  finalTranslateHttpInFlight: boolean;
-  /** After first successful final translation for this segment, ignore all later final dispatches and responses. */
-  finalResolved: boolean;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1598,9 +1600,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
-  // Live: optional streamingDelta (source tail) + append fragment to the cell; else full-buffer replace.
-  // Stale responses ignored via translateRequestNonce. Hard 2s per HTTP attempt; live = no retries; final = one retry max.
-  // Final: full-segment replace + lock; finalResolved blocks duplicate finals only (not live).
+  // Live: full cumulative source per request; translation cell is replaced (no delta append/merge).
+  // Final: full-segment replace + lock; adjacent paraphrase dedupe runs in maybePolish on finals only.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1624,7 +1625,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     if (state.translationLocked) return;
-    if (isFinal && state.finalResolved) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
     // While a final pass is in flight, drop late live responses (endpoint / stop) without waiting for lock.
     if (isFinal && !options?.suppressEarlyHardFinal) {
@@ -1681,9 +1681,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         }
-        if (isFinal) {
-          state.finalResolved = true;
-        }
         scrollPanel();
       }
       return;
@@ -1707,7 +1704,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
-          state.finalResolved = true;
           if (translationBufRef.current.length > 0) {
             translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
             onAdminSnapshotBuffersUpdatedRef.current?.();
@@ -1785,15 +1781,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-  // Live: monotonic tail → delta request + append target fragment; else full source + replace cell.
-  // Final: full source, streamingDelta false, replace cell (unchanged).
+    // Live: full cumulative source on every request; UI replaces the whole cell (single active buffer).
+    // Final: always full-segment translate + replace — never tail + streamingDelta (avoids client-side append/merge duplication).
     let requestIsFinal = isFinal;
     let apiText: string;
-    const latinLatinPair = pairIsLatinLatinOnly(pair);
     if (isFinal) {
       apiText = text;
       requestIsFinal = true;
     } else {
+      const latinLatinPair = pairIsLatinLatinOnly(pair);
       if (translationCellLooksFilled(state.transTextEl)) {
         if (!liveSourceWarrantsTranslate(state.streamCommittedSource, text, { relaxLatin: latinLatinPair })) {
           return;
@@ -1803,79 +1799,72 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       requestIsFinal = false;
     }
 
-    let translateInputText: string;
-    let translateStreamingDelta = false;
+    let liveAbortForThisRequest: AbortController | undefined;
     if (isFinal) {
-      translateInputText = apiText;
-      translateStreamingDelta = false;
+      state.liveTranslationAbort?.abort();
+      state.liveTranslationAbort = null;
+    } else if (pairIsLatinLatinOnly(pair)) {
+      // Latin/Latin: let in-flight live requests finish (seq drops stale). Supersede-abort here
+      // cancels HTTP before any reply during rapid ASR revision — no visible growth until pause.
+      liveAbortForThisRequest = undefined;
     } else {
-      const tailInfo = sourceTailAfterPrefix(
-        text,
-        state.streamCommittedSource,
-        latinLatinPair ? { relaxTailForLatinLatinLive: true } : undefined,
-      );
-      if (tailInfo.monotonic && tailInfo.tail.trim().length > 0) {
-        translateInputText = tailInfo.tail;
-        translateStreamingDelta = true;
-      } else if (!tailInfo.monotonic) {
-        translateInputText = apiText;
-        translateStreamingDelta = false;
-      } else {
-        return;
-      }
-    }
-
-    if (!isFinal && (state.hardFinalRequested || state.finalTranslateHttpInFlight)) {
-      return;
-    }
-
-    if (isFinal && state.finalTranslateHttpInFlight) {
-      return;
-    }
-
-    // One in-flight /translate per segment: abort prior HTTP, then assign a new request id.
-    state.liveTranslationAbort?.abort();
-    state.liveTranslationAbort = new AbortController();
-    const liveAbortForThisRequest = state.liveTranslationAbort;
-
-    state.translateRequestNonce += 1;
-    const myRequestId = state.translateRequestNonce;
-
-    if (isFinal) {
-      state.finalTranslateHttpInFlight = true;
+      state.liveTranslationAbort?.abort();
+      state.liveTranslationAbort = new AbortController();
+      liveAbortForThisRequest = state.liveTranslationAbort;
     }
 
     state.seq += 1;
     const mySeq = state.seq;
-    const usedStreamingDelta = translateStreamingDelta;
 
     void (async () => {
       try {
+        const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
+        for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
+          if (fetchAttempt > 0) {
+            await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
+          }
+          if (requestSegmentId !== state.segmentId) return;
+          if (!transTextEl.isConnected) return;
+          if (state.translationLocked) return;
+          if (!requestIsFinal && state.hardFinalRequested) return;
+          if (!isFinal && state.finalizing) return;
+          if (liveAbortForThisRequest?.signal.aborted) return;
+
+          const { text: t } = await fetchTranslation(
+            apiText,
+            dispatchLang,
+            myTargetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              streamingDelta: false,
+              isFinal: requestIsFinal,
+              signal:   liveAbortForThisRequest?.signal,
+            },
+          );
+          translated = t;
+          if (translated?.trim()) break;
+        }
+        if (!translated?.trim() && isFinal && text.trim().length >= 3) {
+          await new Promise<void>(res => setTimeout(res, 450));
+          if (requestSegmentId !== state.segmentId) return;
+          if (!transTextEl.isConnected) return;
+          if (state.translationLocked) return;
+          const { text: tRetry } = await fetchTranslation(
+            text,
+            dispatchLang,
+            myTargetLang,
+            (m) => translationConfigReporterRef.current(m),
+            { streamingDelta: false, isFinal: true },
+          );
+          translated = tRetry;
+        }
         if (requestSegmentId !== state.segmentId) return;
+
         if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
-        if (liveAbortForThisRequest.signal.aborted) return;
-        if (requestIsFinal && state.finalResolved) return;
-
-        const { text: t } = await fetchTranslation(
-          translateInputText,
-          dispatchLang,
-          myTargetLang,
-          (m) => translationConfigReporterRef.current(m),
-          {
-            streamingDelta: translateStreamingDelta,
-            isFinal: requestIsFinal,
-            signal: liveAbortForThisRequest.signal,
-          },
-        );
-        translated = t;
-
-        if (requestSegmentId !== state.segmentId) return;
-        if (!transTextEl.isConnected) return;
-        if (state.translationLocked) return;
-        if (myRequestId !== state.translateRequestNonce) return;
-        if (requestIsFinal && state.finalResolved) return;
+        if (!requestIsFinal && state.hardFinalRequested) return;
+        if (!isFinal && state.finalizing) return;
 
         if (!translated?.trim()) {
           if (isFinal && !lockOnFinal) {
@@ -1887,8 +1876,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
 
+        if (mySeq <= state.lastShownSeq) return;
+
         if (requestIsFinal) {
-          if (state.finalResolved) return;
           const rawFinal = translated.trim();
           let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
           if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
@@ -1913,18 +1903,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           } else if (isFinal) {
             state.hardFinalRequested = false;
           }
-          state.finalResolved = true;
         } else {
-          const fragment = translated.trim();
-          if (!fragment) {
+          const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
+          if (!outRaw.trim()) {
             return;
           }
           const prevTr = (transTextEl.textContent ?? "").trim();
-          const merged = usedStreamingDelta
-            ? (prevTr ? collapseWs(`${prevTr} ${fragment}`) : fragment)
-            : fragment;
-          const outRaw = dedupeConsecutiveTranslationTokens(merged);
-          if (!outRaw.trim()) {
+          if (translationOutputTooSimilarToDisplay(prevTr, outRaw)) {
+            state.lastShownSeq = mySeq;
+            state.streamCommittedSource = text;
+            state.needsFullFinalTranslation = false;
+            state.lastConfirmedSourceTranslated = text;
+            state.pendingDisplayTranslation = "";
+            scrollPanel();
             return;
           }
           state.lastShownSeq = mySeq;
@@ -1946,10 +1937,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
       } finally {
-        if (isFinal) {
-          state.finalTranslateHttpInFlight = false;
-        }
-        if (state.liveTranslationAbort === liveAbortForThisRequest) {
+        if (
+          !isFinal &&
+          liveAbortForThisRequest &&
+          state.liveTranslationAbort === liveAbortForThisRequest
+        ) {
           state.liveTranslationAbort = null;
         }
       }
@@ -2063,9 +2055,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
-      translateRequestNonce:     0,
-      finalTranslateHttpInFlight: false,
-      finalResolved: false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -2156,9 +2145,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
-    // Do not abort: softFinalize just dispatched the closing segment's final translate; abort would
-    // cancel that request while refs are dropped. The async closure keeps the prior BubbleTransState +
-    // transTextEl so the final can still complete and set finalResolved on the orphaned state object.
+    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current = undefined;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
@@ -2221,7 +2208,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stopTranslationInterval();
     finalizeLiveBubble();
 
-    // Same as speaker_change: allow the last segment's final /translate to finish (closure retains state + DOM).
+    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
@@ -2551,7 +2538,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (sawSonioxEndpoint) {
         const stEnd = activeBubbleStateRef.current;
         const srcEnd = liveBufferRef.current.trim();
-        if (stEnd && srcEnd && !stEnd.translationLocked && !stEnd.finalResolved) {
+        if (stEnd && srcEnd && !stEnd.translationLocked) {
           dispatchTranslation(
             srcEnd,
             detectedLangRef.current,
