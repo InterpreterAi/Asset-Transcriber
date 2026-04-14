@@ -677,6 +677,28 @@ components:
           type: integer
         password:
           type: string
+        planType:
+          type: string
+        trialEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        minutesUsedToday:
+          type: number
+        defaultLangA:
+          type: string
+        defaultLangB:
+          type: string
+        subscriptionStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Admin override for paid-tier subscription start (ISO 8601).
+        subscriptionPeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Admin override for current billing period end (ISO 8601).
 
     AdminFeedbackItem:
       type: object

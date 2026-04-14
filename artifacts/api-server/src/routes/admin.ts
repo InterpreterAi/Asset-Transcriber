@@ -987,6 +987,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
+  const rawBody = req.body as Record<string, unknown>;
   const { isActive, isAdmin, dailyLimitMinutes, password, planType, trialEndsAt, minutesUsedToday, defaultLangA, defaultLangB } = req.body as {
     isActive?: boolean;
     isAdmin?: boolean;
@@ -1042,20 +1043,26 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
+  const effectivePlanLower = (planType ?? existing.planType).trim().toLowerCase();
+  const subscriptionDatesApply = !isTrialLikePlanType(effectivePlanLower);
+
   if (planType) {
     const pt = planType.toLowerCase();
     if (isTrialLikePlanType(pt)) {
       updates.subscriptionPlan = null;
       updates.subscriptionPeriodEndsAt = null;
+      updates.subscriptionStartedAt = null;
     } else {
       const key = billingProductKeyFromPlanType(pt);
       if (key) {
         // Keep billing tier aligned with admin plan row (Basic / Pro / Platinum product key).
         updates.subscriptionPlan = key;
 
-        // Backfill calendar dates whenever they're missing — many rows have webhook plan/status
-        // but never got PayPal start/next_billing_time written; trials still excluded above.
-        if (!existing.subscriptionStartedAt) {
+        const startInBody = "subscriptionStartedAt" in rawBody;
+        const endInBody = "subscriptionPeriodEndsAt" in rawBody;
+
+        // Backfill only when admin did not send explicit calendar fields this request.
+        if (!startInBody && !existing.subscriptionStartedAt) {
           const created = existing.createdAt ? new Date(existing.createdAt) : null;
           const start =
             created &&
@@ -1064,13 +1071,41 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
               ? created
               : new Date();
           updates.subscriptionStartedAt = start;
-          updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(start);
-        } else if (!existing.subscriptionPeriodEndsAt) {
+          if (!endInBody) {
+            updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(start);
+          }
+        } else if (!endInBody && !existing.subscriptionPeriodEndsAt && existing.subscriptionStartedAt) {
           updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(
             new Date(existing.subscriptionStartedAt),
           );
         }
       }
+    }
+  }
+
+  function parseAdminDateField(label: string, v: unknown): Date | null | "invalid" {
+    if (v === null || v === undefined || v === "") return null;
+    const d = new Date(String(v));
+    if (!Number.isFinite(d.getTime())) return "invalid";
+    return d;
+  }
+
+  if (subscriptionDatesApply) {
+    if ("subscriptionStartedAt" in rawBody) {
+      const parsed = parseAdminDateField("subscriptionStartedAt", rawBody.subscriptionStartedAt);
+      if (parsed === "invalid") {
+        res.status(400).json({ error: "Invalid subscriptionStartedAt (use ISO 8601 date-time)." });
+        return;
+      }
+      updates.subscriptionStartedAt = parsed;
+    }
+    if ("subscriptionPeriodEndsAt" in rawBody) {
+      const parsed = parseAdminDateField("subscriptionPeriodEndsAt", rawBody.subscriptionPeriodEndsAt);
+      if (parsed === "invalid") {
+        res.status(400).json({ error: "Invalid subscriptionPeriodEndsAt (use ISO 8601 date-time)." });
+        return;
+      }
+      updates.subscriptionPeriodEndsAt = parsed;
     }
   }
 

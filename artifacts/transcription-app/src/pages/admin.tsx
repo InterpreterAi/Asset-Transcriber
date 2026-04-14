@@ -295,6 +295,14 @@ function addBillingFallbackPeriod(start: Date): Date {
   return new Date(start.getTime() + BILLING_FALLBACK_PERIOD_MS);
 }
 
+/** `datetime-local` value in the browser's local timezone. */
+function isoToDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return format(d, "yyyy-MM-dd'T'HH:mm");
+}
+
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
     const engine = planUsesLibreEngine(plan) ? "Libre" : "OpenAI";
@@ -454,6 +462,8 @@ export default function Admin() {
     isActive:          true,
     planType:          "trial",
     trialEndsAt:       "",
+    subscriptionStartedAtLocal:   "",
+    subscriptionPeriodEndsAtLocal: "",
     dailyLimitMinutes: 180,
     minutesUsedToday:  0,
     defaultLangA:      "en",
@@ -843,10 +853,19 @@ export default function Admin() {
       totalSessions:     u.totalSessions,
       createdAt:         u.createdAt ?? new Date().toISOString(),
     });
+    const paidRow = !isTrialLikePlanType(u.planType ?? "trial");
+    const seedSubStart =
+      (u as { subscriptionStartedAt?: string | null }).subscriptionStartedAt ??
+      (paidRow && u.createdAt ? u.createdAt : null);
+    const seedSubEnd =
+      (u as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt ??
+      (seedSubStart ? addBillingFallbackPeriod(new Date(seedSubStart)).toISOString() : null);
     setEditForm({
       isActive:          u.isActive,
       planType:          u.planType ?? "trial",
       trialEndsAt:       u.trialEndsAt ? new Date(u.trialEndsAt).toISOString().slice(0, 10) : "",
+      subscriptionStartedAtLocal:    paidRow ? isoToDatetimeLocalValue(seedSubStart) : "",
+      subscriptionPeriodEndsAtLocal: paidRow ? isoToDatetimeLocalValue(seedSubEnd) : "",
       dailyLimitMinutes: u.dailyLimitMinutes,
       minutesUsedToday:  Math.round(u.minutesUsedToday),
       defaultLangA:      userDefaultA || "en",
@@ -881,6 +900,17 @@ export default function Admin() {
       };
       if (isTrialLikePlanType(editForm.planType) && editForm.trialEndsAt) {
         body.trialEndsAt = new Date(editForm.trialEndsAt).toISOString();
+      }
+      if (!isTrialLikePlanType(editForm.planType)) {
+        const subS = editForm.subscriptionStartedAtLocal.trim();
+        const subE = editForm.subscriptionPeriodEndsAtLocal.trim();
+        if (subS && subE) {
+          body.subscriptionStartedAt = new Date(subS).toISOString();
+          body.subscriptionPeriodEndsAt = new Date(subE).toISOString();
+        } else if (subS || subE) {
+          setEditError("Set both subscription start and period end, or clear both to leave billing dates unchanged.");
+          return;
+        }
       }
       const res = await fetch(`/api/admin/users/${editingUser.id}`, {
         method: "PATCH",
@@ -2785,8 +2815,7 @@ export default function Admin() {
                   {!isTrialLikePlanType(editForm.planType) &&
                     (!editingUser.subscriptionStartedAt || !editingUser.subscriptionPeriodEndsAt) && (
                       <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200/80 rounded-md px-2.5 py-2 leading-snug">
-                        <span className="font-semibold">Exact PayPal dates not stored yet.</span> The table shows estimates from signup + 30 days where needed. Click{" "}
-                        <span className="font-medium">Save</span> to write real calendar fields (start defaults to account created time when missing, then period +30 days).
+                        <span className="font-semibold">PayPal may not have stored these dates.</span> Use the fields below to set the real payment date (e.g. Wed Apr 15) and renewal. Leave both datetime fields empty when saving to keep existing DB values unchanged.
                       </p>
                     )}
                   <div className="grid grid-cols-1 gap-1.5 text-[11px]">
@@ -2798,48 +2827,6 @@ export default function Admin() {
                       <span className="text-muted-foreground">Billed plan (webhook)</span>
                       <span className="font-medium text-right truncate">{editingUser.subscriptionPlan ?? "—"}</span>
                     </div>
-                    <div className="flex justify-between gap-2 items-baseline border-t border-border/50 pt-1.5 mt-0.5">
-                      <span className="text-muted-foreground shrink-0">Subscription started</span>
-                      <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
-                        {(() => {
-                          const showPaidEstimates = !isTrialLikePlanType(editForm.planType);
-                          const iso =
-                            editingUser.subscriptionStartedAt ??
-                            (showPaidEstimates && editingUser.createdAt ? editingUser.createdAt : null);
-                          if (!iso) return "—";
-                          const proxy = !editingUser.subscriptionStartedAt && Boolean(showPaidEstimates && editingUser.createdAt);
-                          return (
-                            <>
-                              {format(new Date(iso), "MMM d, yyyy · HH:mm")}
-                              {proxy ? (
-                                <span className="text-xs font-normal italic text-muted-foreground block">from account created (estimate)</span>
-                              ) : null}
-                            </>
-                          );
-                        })()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-2 items-baseline">
-                      <span className="text-muted-foreground shrink-0">Current period ends</span>
-                      <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
-                        {(() => {
-                          if (editingUser.subscriptionPeriodEndsAt) {
-                            return format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy · HH:mm");
-                          }
-                          const showPaidEstimates = !isTrialLikePlanType(editForm.planType);
-                          const startIso =
-                            editingUser.subscriptionStartedAt ??
-                            (showPaidEstimates && editingUser.createdAt ? editingUser.createdAt : null);
-                          if (!startIso) return "—";
-                          return (
-                            <>
-                              {format(addBillingFallbackPeriod(new Date(startIso)), "MMM d, yyyy · HH:mm")}
-                              <span className="text-xs font-normal italic text-muted-foreground block">start + 30 days (estimate)</span>
-                            </>
-                          );
-                        })()}
-                      </span>
-                    </div>
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">PayPal sub. ID</span>
                       <span className="font-mono text-[10px] text-right break-all">{editingUser.paypalSubscriptionId ?? "—"}</span>
@@ -2849,8 +2836,43 @@ export default function Admin() {
                       <span className="font-mono text-[10px] text-right break-all">{editingUser.stripeSubscriptionId ?? "—"}</span>
                     </div>
                   </div>
+                  {!isTrialLikePlanType(editForm.planType) && (
+                    <div className="space-y-2 pt-2 border-t border-border/60 mt-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Billing calendar (manual)</p>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Subscription started</label>
+                        <input
+                          type="datetime-local"
+                          value={editForm.subscriptionStartedAtLocal}
+                          onChange={e => setEditForm(f => ({ ...f, subscriptionStartedAtLocal: e.target.value }))}
+                          className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Current period ends</label>
+                        <input
+                          type="datetime-local"
+                          value={editForm.subscriptionPeriodEndsAtLocal}
+                          onChange={e => setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: e.target.value }))}
+                          className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const s = editForm.subscriptionStartedAtLocal.trim();
+                          if (!s) return;
+                          const d = addBillingFallbackPeriod(new Date(s));
+                          setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: isoToDatetimeLocalValue(d.toISOString()) }));
+                        }}
+                        className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+                      >
+                        Set period end = start + 30 days
+                      </button>
+                    </div>
+                  )}
                   <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/60">
-                    Period end uses PayPal next billing time when the webhook includes it; otherwise start + 30 days. Saving applies your plan choice, syncs billed tier, and writes missing start/end to the database (start falls back to account created time when PayPal never sent one). Trial dates below apply only to trial-like plans.
+                    Saving with both billing dates filled writes them to the database (overrides signup estimates). PayPal webhooks can still update these later. Trial dates below apply only to trial-like plans.
                   </p>
                 </div>
 
