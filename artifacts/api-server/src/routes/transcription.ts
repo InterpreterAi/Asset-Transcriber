@@ -1227,7 +1227,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
   // Tier still records whether the account is "Libre/machine" vs OpenAI in the DB (basic, trial-libre, … vs basic-openai, …).
   // When OpenAI is configured, every entitled user gets the same interpreter pipeline below as Platinum (final boss).
-  // Google → Libre → MyMemory runs only when OpenAI is not configured (degraded mode for Libre-tier accounts).
+  // Single machine engine (Google or Libre per MACHINE_TRANSLATION_ENGINE) only when OpenAI is not configured.
   const prefersMachineStack = planUsesMachineTranslationStack(planLower);
   const useMachineTranslation = prefersMachineStack && !isOpenAiConfigured();
 
@@ -1344,7 +1344,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Libre-tier fallback (no OpenAI on server): same mask + restore + postProcess as OpenAI; engines: Google → Libre → MyMemory.
+  // Libre-tier fallback (no OpenAI on server): same mask + restore + postProcess; one MT backend only (Google or Libre).
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1384,7 +1384,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         );
         res.status(503).json({
           error:
-            "Translation is temporarily unavailable (machine translation fallback). The API has no OpenAI key; configure OPENAI_API_KEY for full interpreter quality, or set GOOGLE_TRANSLATE_API_KEY / LIBRETRANSLATE_URL for this fallback.",
+            "Translation is temporarily unavailable (machine translation fallback). No OpenAI key: set OPENAI_API_KEY for full quality, or set MACHINE_TRANSLATION_ENGINE=google|libre with the matching Google or LibreTranslate env vars.",
           code: "LIBRETRANSLATE_FAILED",
         });
         return;
@@ -1411,7 +1411,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       res.status(503).json({
         error:
-          "Translation is temporarily unavailable (machine translation fallback). Configure OPENAI_API_KEY for full interpreter translation, or GOOGLE_TRANSLATE_API_KEY / LIBRETRANSLATE_URL for fallback engines.",
+          "Translation is temporarily unavailable (machine translation fallback). Set OPENAI_API_KEY, or MACHINE_TRANSLATION_ENGINE=google|libre with Google or LibreTranslate configured.",
         code: "LIBRETRANSLATE_FAILED",
       });
     }

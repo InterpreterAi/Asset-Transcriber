@@ -112,14 +112,15 @@ export async function callGoogleTranslate(text: string, source: string, target: 
   return pieces.join(" ").replace(/\s+/g, " ").trim();
 }
 
-/** Startup / diagnostics: log once if Basic/Pro will rely only on free hosts. */
+/** Startup / diagnostics: machine fallback uses Google or Libre only (see MACHINE_TRANSLATION_ENGINE). */
 export function logGoogleTranslateStartupHint(): void {
   if (isGoogleTranslateConfigured()) {
-    logger.info("GOOGLE_TRANSLATE_API_KEY is set — Basic/Professional machine translation will use Google Cloud first.");
+    logger.info(
+      "GOOGLE_TRANSLATE_API_KEY is set — Libre-tier machine fallback can use Google Cloud (when ENGINE is google or auto).",
+    );
   } else {
     logger.warn(
-      "GOOGLE_TRANSLATE_API_KEY is not set — Basic/Professional/trial-libre will use LibreTranslate then MyMemory only. " +
-        "Set GOOGLE_TRANSLATE_API_KEY (Cloud Translation API) for reliable production MT.",
+      "GOOGLE_TRANSLATE_API_KEY is not set — Libre-tier machine fallback uses LibreTranslate unless MACHINE_TRANSLATION_ENGINE=google.",
     );
   }
 }

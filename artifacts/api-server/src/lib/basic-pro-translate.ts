@@ -1,18 +1,26 @@
 import { callLibreTranslate } from "./libretranslate.js";
 import { callGoogleTranslate, isGoogleTranslateConfigured } from "./google-translate.js";
-import { callMyMemoryTranslate } from "./mymemory-translate.js";
-import { logger } from "./logger.js";
 
 /**
  * Fallback when the API has no OpenAI credentials: Libre-tier accounts (basic, professional,
- * trial-libre, platinum-libre) use this machine stack after the same masking pipeline as Platinum.
- * When OPENAI_API_KEY (or AI integration URL + key) is set, `/translate` uses OpenAI for all tiers instead.
+ * trial-libre, platinum-libre) use one machine engine only — faster than chaining providers.
+ * When OPENAI_API_KEY (or AI integration URL + key) is set, `/translate` uses OpenAI instead.
  *
- * Order:
- *   1. Google Cloud Translation API when GOOGLE_TRANSLATE_API_KEY (or GOOGLE_CLOUD_TRANSLATION_API_KEY) is set
- *   2. LibreTranslate (self-hosted or public free instances)
- *   3. MyMemory free API (last resort; strict limits)
+ * **Engine choice** (`MACHINE_TRANSLATION_ENGINE`, optional):
+ * - `google` — Cloud Translation API only (`GOOGLE_TRANSLATE_API_KEY` or `GOOGLE_CLOUD_TRANSLATION_API_KEY` required).
+ * - `libre` — LibreTranslate only (`LIBRETRANSLATE_URL` or built-in public bases).
+ * - Unset — **auto**: Google if a Google key is set, otherwise Libre (never both in one request).
  */
+
+export type MachineTranslationEngineKind = "google" | "libre";
+
+function resolveMachineEngine(): MachineTranslationEngineKind {
+  const raw = process.env.MACHINE_TRANSLATION_ENGINE?.trim().toLowerCase();
+  if (raw === "google") return "google";
+  if (raw === "libre") return "libre";
+  // auto
+  return isGoogleTranslateConfigured() ? "google" : "libre";
+}
 
 function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, string>): string {
   if (slotToDigits.size === 0) return text;
@@ -25,7 +33,7 @@ function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, s
 }
 
 /**
- * Plain segment: Google → Libre → MyMemory. At least one must succeed or throws.
+ * Plain segment: exactly one backend per call (Google **or** Libre — never both).
  * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en) for best engine support.
  */
 export async function translatePlainMachine(
@@ -36,21 +44,17 @@ export async function translatePlainMachine(
   const t = plain.trim();
   if (!t) return "";
 
-  if (isGoogleTranslateConfigured()) {
-    try {
-      return await callGoogleTranslate(t, sourceLang, targetLang);
-    } catch (err) {
-      logger.warn({ err }, "Google Cloud Translate failed; falling back to LibreTranslate");
+  const engine = resolveMachineEngine();
+  if (engine === "google") {
+    if (!isGoogleTranslateConfigured()) {
+      throw new Error(
+        "MACHINE_TRANSLATION_ENGINE=google but no GOOGLE_TRANSLATE_API_KEY (or GOOGLE_CLOUD_TRANSLATION_API_KEY) is set",
+      );
     }
+    return callGoogleTranslate(t, sourceLang, targetLang);
   }
 
-  try {
-    return await callLibreTranslate(t, sourceLang, targetLang);
-  } catch (err) {
-    logger.warn({ err }, "LibreTranslate failed; falling back to MyMemory");
-  }
-
-  return callMyMemoryTranslate(t, sourceLang, targetLang);
+  return callLibreTranslate(t, sourceLang, targetLang);
 }
 
 export async function translateBasicProfessional(
