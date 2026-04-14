@@ -82,21 +82,32 @@ export default function Login() {
     } catch (err: unknown) {
       // customFetch throws ApiError with JSON on `.data` (not axios `.response.data`).
       let status: number | undefined;
-      let payload: { error?: unknown; code?: string; hint?: unknown } | undefined;
+      let payload:
+        | { error?: unknown; code?: string; hint?: unknown; message?: unknown }
+        | undefined;
       if (err instanceof ApiError) {
         status = err.status;
         const d = err.data;
         payload =
-          d && typeof d === "object" ? (d as { error?: unknown; code?: string; hint?: unknown }) : undefined;
+          d && typeof d === "object"
+            ? (d as { error?: unknown; code?: string; hint?: unknown; message?: unknown })
+            : undefined;
       } else {
         const ax = err as {
-          response?: { status?: number; data?: { error?: unknown; code?: string; hint?: unknown } };
+          response?: {
+            status?: number;
+            data?: { error?: unknown; code?: string; hint?: unknown; message?: unknown };
+          };
         };
         status = ax.response?.status;
         payload = ax.response?.data;
       }
       const apiMsg =
         typeof payload?.error === "string" && payload.error.length <= 800 ? payload.error.trim() : "";
+      const apiMessageField =
+        typeof payload?.message === "string" && payload.message.length <= 800
+          ? payload.message.trim()
+          : "";
       const apiHint =
         typeof payload?.hint === "string" && payload.hint.length <= 600 ? payload.hint.trim() : "";
       if (status === 403 && payload?.code === "email_not_verified") {
@@ -110,7 +121,16 @@ export default function Login() {
         payload?.code === "login_uncaught_exception"
           ? " Check your API host logs for POST /api/auth/login failed (often database URL, migrations, or session store)."
           : "";
-      const combined = [apiMsg, apiHint, uncaughtTip].filter(Boolean).join(" ").trim();
+      const combined = [apiMsg, apiMessageField, apiHint, uncaughtTip].filter(Boolean).join(" ").trim();
+      if (!combined && err instanceof Error && !(err instanceof ApiError)) {
+        const m = err.message.trim();
+        setError(
+          m && (m.includes("fetch") || m.includes("network") || m.includes("Failed to load"))
+            ? "Cannot reach the API. Start the API server (e.g. port 8787) and ensure DATABASE_URL is set — check the terminal running dev:watch."
+            : m.slice(0, 400) || "Something went wrong. Please try again.",
+        );
+        return;
+      }
       setError(
         combined ||
           (status === 401 || status === 400 ? "Invalid credentials" : "Something went wrong. Please try again."),
