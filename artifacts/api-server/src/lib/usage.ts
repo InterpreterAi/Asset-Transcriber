@@ -47,14 +47,33 @@ export function isTrialExpired(user: User): boolean {
 }
 
 /**
+ * When PayPal/webhooks lag, `plan_type` can stay trial-like while `subscription_plan` + `subscription_status`
+ * already reflect paid Basic/Professional/Platinum. Use the subscription row for translation gating/engine
+ * only in that case so paid tiers keep machine or OpenAI translation.
+ */
+export function effectivePlanTypeForTranslation(user: User): string {
+  const p = (user.planType ?? "trial").trim().toLowerCase();
+  const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
+  const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();
+  if (
+    sub === "active" &&
+    (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
+    isTrialLikePlanType(user.planType)
+  ) {
+    return sp;
+  }
+  return p;
+}
+
+/**
  * Translation (POST /translate): which plans may call the translation endpoint.
- * Engine: `basic`, `professional`, `trial-libre` → LibreTranslate only; otherwise
+ * Engine: `basic`, `professional`, `trial-libre` → machine translation; otherwise
  * `platinum`, `unlimited`, `trial`, `trial-openai` → OpenAI (`gpt-4o-mini`) with full interpreter prompts.
  */
 export function translationEnabledForUser(user: User): boolean {
-  const p = (user.planType ?? "trial").trim().toLowerCase();
-  if (p === "platinum" || p === "unlimited") return true;
-  if (p === "basic" || p === "professional") return true;
+  const eff = effectivePlanTypeForTranslation(user);
+  if (eff === "platinum" || eff === "unlimited") return true;
+  if (eff === "basic" || eff === "professional") return true;
   if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   return false;
 }

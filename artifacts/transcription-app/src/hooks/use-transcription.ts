@@ -101,7 +101,7 @@ const CLS = {
 } as const;
 
 const TRANSLATION_PLATINUM_PLACEHOLDER =
-  "InterpreterAI Translation is available on the Platinum plan.";
+  "Translation is unavailable on this account (trial ended or plan without translation). Upgrade or sign in again.";
 
 // ── Soniox v4 types ────────────────────────────────────────────────────────────
 interface SonioxToken {

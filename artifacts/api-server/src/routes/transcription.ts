@@ -8,6 +8,7 @@ import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
+  effectivePlanTypeForTranslation,
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
@@ -1213,13 +1214,15 @@ router.post("/translate", requireAuth, async (req, res) => {
   const translateUser = await getUserWithResetCheck(req.session.userId!);
   if (!translateUser || !translationEnabledForUser(translateUser)) {
     res.status(403).json({
-      error: "InterpreterAI Translation is available on the Platinum plan.",
+      error:
+        "Translation is not available for this account. If you are on a trial, it may have ended. " +
+        "Paid plans (Basic, Professional, Platinum) include translation — refresh after checkout or contact support if this persists.",
       code: "TRANSLATION_PLAN_REQUIRED",
     });
     return;
   }
 
-  const planLower = (translateUser.planType ?? "trial").trim().toLowerCase();
+  const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
   // LibreTranslate: basic / professional / trial-libre only. Platinum & unlimited use the OpenAI block below unchanged — never add them here.
   const useMachineTranslation =
