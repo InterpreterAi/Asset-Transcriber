@@ -57,7 +57,7 @@ import { sendDailyLimitReachedEmail } from "../lib/transactional-email.js";
 //
 // Data flow:
 //   Audio  → browser mic → Soniox WebSocket (never touches this server)
-//   Text   → /api/transcription/translate → OpenAI (Platinum, trial, trial-openai) or LibreTranslate (Basic, Pro, trial-libre) → discarded
+//   Text   → /api/transcription/translate → OpenAI (all tiers when API key set) or machine fallback (Libre tiers only if no OpenAI) → discarded
 //   DB     → sessions table stores metadata ONLY: id, userId, duration, timestamps
 //
 // Translation cache was INTENTIONALLY REMOVED.
@@ -1225,8 +1225,11 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
-  // Machine stack: basic / professional / trial-libre / platinum-libre (admin comp). OpenAI: all other entitled plans.
-  const useMachineTranslation = planUsesMachineTranslationStack(planLower);
+  // Tier still records whether the account is "Libre/machine" vs OpenAI in the DB (basic, trial-libre, … vs basic-openai, …).
+  // When OpenAI is configured, every entitled user gets the same interpreter pipeline below as Platinum (final boss).
+  // Google → Libre → MyMemory runs only when OpenAI is not configured (degraded mode for Libre-tier accounts).
+  const prefersMachineStack = planUsesMachineTranslationStack(planLower);
+  const useMachineTranslation = prefersMachineStack && !isOpenAiConfigured();
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({
@@ -1341,7 +1344,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Basic / Professional / trial-libre: same mask + restore + postProcess as OpenAI; engines: Google (if key) → Libre → MyMemory.
+  // Libre-tier fallback (no OpenAI on server): same mask + restore + postProcess as OpenAI; engines: Google → Libre → MyMemory.
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1364,7 +1367,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       if (!translated.trim() && phraseNormalized.trim().length >= 2) {
         logger.warn(
           { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "Machine translation empty after mask/restore; retrying unmasked phrase",
+          "Machine translation fallback empty after mask/restore; retrying unmasked phrase",
         );
         raw = await translateBasicProfessional(phraseNormalized, srcLang, tgtLang, new Map());
         translated = await finalizeTranslationOutput(
@@ -1381,8 +1384,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         );
         res.status(503).json({
           error:
-            "Translation is temporarily unavailable (machine translation). Try again in a moment. " +
-            "On the server, set GOOGLE_TRANSLATE_API_KEY (Cloud Translation API) for reliable Basic/Professional output.",
+            "Translation is temporarily unavailable (machine translation fallback). The API has no OpenAI key; configure OPENAI_API_KEY for full interpreter quality, or set GOOGLE_TRANSLATE_API_KEY / LIBRETRANSLATE_URL for this fallback.",
           code: "LIBRETRANSLATE_FAILED",
         });
         return;
@@ -1405,12 +1407,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "Basic/Professional machine translation failed",
+        "Machine translation fallback failed (OpenAI not configured on server)",
       );
       res.status(503).json({
         error:
-          "Translation is temporarily unavailable (machine translation). Try again in a moment. " +
-          "Set GOOGLE_TRANSLATE_API_KEY on the API server for Google Translate, or LIBRETRANSLATE_URL for self-hosted Libre.",
+          "Translation is temporarily unavailable (machine translation fallback). Configure OPENAI_API_KEY for full interpreter translation, or GOOGLE_TRANSLATE_API_KEY / LIBRETRANSLATE_URL for fallback engines.",
         code: "LIBRETRANSLATE_FAILED",
       });
     }

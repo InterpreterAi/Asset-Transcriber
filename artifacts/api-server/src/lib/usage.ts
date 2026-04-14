@@ -39,7 +39,7 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
   return (TRIAL_LIKE_PLAN_TYPES as readonly string[]).includes(p);
 }
 
-/** True when `/translate` uses the machine stack (Libre / Google / MyMemory), not OpenAI. */
+/** True when the account tier is a "Libre" product line (uses machine stack only if OpenAI is not configured). */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   return (
@@ -94,7 +94,8 @@ export function effectivePlanTypeForTranslation(user: User): string {
 
 /**
  * Translation (POST /translate): which plans may call the translation endpoint.
- * Engine: `planUsesMachineTranslationStack(effectivePlanType)` vs OpenAI — see `transcription.ts`.
+ * Billing tier may be Libre-stack or OpenAI-stack in the DB; when the server has OpenAI configured,
+ * all entitled users share the same interpreter path as Platinum (`transcription.ts`).
  */
 export function translationEnabledForUser(user: User): boolean {
   const eff = effectivePlanTypeForTranslation(user);

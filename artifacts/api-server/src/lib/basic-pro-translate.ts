@@ -4,8 +4,11 @@ import { callMyMemoryTranslate } from "./mymemory-translate.js";
 import { logger } from "./logger.js";
 
 /**
- * Basic / Professional / trial-libre: same masking pipeline as Platinum on `/translate`,
- * but the engine is machine translation (never OpenAI). Order:
+ * Fallback when the API has no OpenAI credentials: Libre-tier accounts (basic, professional,
+ * trial-libre, platinum-libre) use this machine stack after the same masking pipeline as Platinum.
+ * When OPENAI_API_KEY (or AI integration URL + key) is set, `/translate` uses OpenAI for all tiers instead.
+ *
+ * Order:
  *   1. Google Cloud Translation API when GOOGLE_TRANSLATE_API_KEY (or GOOGLE_CLOUD_TRANSLATION_API_KEY) is set
  *   2. LibreTranslate (self-hosted or public free instances)
  *   3. MyMemory free API (last resort; strict limits)
