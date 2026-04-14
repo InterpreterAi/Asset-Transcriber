@@ -1,5 +1,4 @@
 {
   "git.enabled": true,
-  "scm.defaultViewMode": "tree",
-  "workbench.activityBar.visible": true
+  "scm.defaultViewMode": "tree"
 }
