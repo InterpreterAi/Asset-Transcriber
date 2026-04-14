@@ -2507,10 +2507,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
       // Start live translate from interim text, not only after Soniox final tokens — finals often lag.
-      // Same readiness rule for every pair so Spanish (and all targets) track like en–ar / en–hi.
+      // Aggressive first-fire gate (1 word, 3 chars) so short Latin words (“El”, “Yo”) don’t sit below threshold.
       const liveHintSourceReady =
         st !== null &&
-        (st.finalTokensSeen >= 1 || (wordsNow >= 2 && hintSource.length >= 8));
+        (st.finalTokensSeen >= 1 || (wordsNow >= 1 && hintSource.length >= 3));
       const latinLivePair = pairIsLatinLatinOnly(langPairRef.current);
       const wordStepOk =
         !st?.earlyHintSent || wordsNow - st!.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP;
@@ -2525,7 +2525,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !st.translationLocked &&
         !st.finalizing &&
         liveHintSourceReady &&
-        hintSource.length >= 6 &&
+        hintSource.length >= 3 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         previewStepOk
       ) {
