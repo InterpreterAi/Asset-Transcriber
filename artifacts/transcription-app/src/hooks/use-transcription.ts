@@ -1228,6 +1228,62 @@ function sourceTailAfterPrefix(
   return { tail: "", monotonic: false };
 }
 
+/**
+ * Whether to call the live translate API: skip when the transcript barely changed vs the last
+ * committed snapshot (punctuation / NF flicker after the speaker stops).
+ */
+function liveSourceWarrantsTranslate(
+  committedRaw: string,
+  incomingRaw: string,
+  opts?: { relaxLatin?: boolean },
+): boolean {
+  const committed = collapseWs(committedRaw);
+  const incoming = collapseWs(incomingRaw);
+  if (!incoming) return false;
+  if (!committed) return true;
+  if (incoming === committed) return false;
+
+  const { tail, monotonic } = sourceTailAfterPrefix(
+    incoming,
+    committed,
+    opts?.relaxLatin ? { relaxTailForLatinLatinLive: true } : undefined,
+  );
+  if (monotonic) {
+    const tailT = tail.trim();
+    if (!tailT) return false;
+    const wC = countWords(committed);
+    const wN = countWords(incoming);
+    if (tailT.length < 6 && wN === wC) return false;
+    if (tailT.length < 4 && !/\p{L}|\p{N}/u.test(tailT)) return false;
+    return true;
+  }
+  const wC = countWords(committed);
+  const wN = countWords(incoming);
+  if (wC >= 4 && wN >= 4) {
+    const ovr = Math.max(tokenOverlapRatio(committed, incoming), tokenOverlapRatio(incoming, committed));
+    const lenD = Math.abs(incoming.length - committed.length);
+    if (ovr >= 0.9 && lenD <= 14) return false;
+  }
+  return true;
+}
+
+/** Skip repainting when the new live translation is effectively the same as what is already shown. */
+function translationOutputTooSimilarToDisplay(prevDisplayed: string, incoming: string): boolean {
+  const p = collapseWs(prevDisplayed);
+  const n = collapseWs(incoming);
+  if (!p || !n || p === "…") return false;
+  if (p === n) return true;
+  const ovr = Math.max(tokenOverlapRatio(p, n), tokenOverlapRatio(n, p));
+  if (ovr >= 0.93) return true;
+  const lim = Math.min(p.length, n.length);
+  if (lim === 0) return false;
+  if (p.length <= 48 && n.length <= 48) {
+    let i = 0;
+    while (i < lim && p[i]!.toLowerCase() === n[i]!.toLowerCase()) i++;
+    if (i / lim >= 0.94 && Math.abs(p.length - n.length) <= 4) return true;
+  }
+  return false;
+}
 
 /** Live + final: always replace the whole translation cell (innerHTML), never append tokens. */
 function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
@@ -1425,10 +1481,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 12;
-  /** Latin/Latin: slightly higher when live HTTP is not supersede-aborted (fewer overlapping calls). */
-  const LIVE_TRANSLATION_DEBOUNCE_LATIN_MS = 22;
+  /** Trailing debounce for live translate API (coalesces WS + post-pause NF noise; ms). */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 700;
+  /** Latin/Latin: allow a bit more coalescing when char-step preview fires often. */
+  const LIVE_TRANSLATION_DEBOUNCE_LATIN_MS = 900;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1564,9 +1620,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (!translationEnabledRef.current) return;
 
+    if (isFinal) {
+      cancelOpenAiLiveDebounce();
+    }
+
     if (state.translationLocked) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
-    if (isFinal && lockOnFinal && !options?.suppressEarlyHardFinal) {
+    // While a final pass is in flight, drop late live responses (endpoint / stop) without waiting for lock.
+    if (isFinal && !options?.suppressEarlyHardFinal) {
       state.hardFinalRequested = true;
     }
     const words = countWords(text);
@@ -1729,13 +1790,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       requestIsFinal = true;
     } else {
       const latinLatinPair = pairIsLatinLatinOnly(pair);
-      const { tail, monotonic } = sourceTailAfterPrefix(
-        text,
-        state.streamCommittedSource,
-        latinLatinPair ? { relaxTailForLatinLatinLive: true } : undefined,
-      );
-      if (monotonic && !tail.trim()) {
-        if (translationCellLooksFilled(state.transTextEl)) return;
+      if (translationCellLooksFilled(state.transTextEl)) {
+        if (!liveSourceWarrantsTranslate(state.streamCommittedSource, text, { relaxLatin: latinLatinPair })) {
+          return;
+        }
       }
       apiText = text;
       requestIsFinal = false;
@@ -1809,6 +1867,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!isFinal && state.finalizing) return;
 
         if (!translated?.trim()) {
+          if (isFinal && !lockOnFinal) {
+            const stEmpty = activeBubbleStateRef.current;
+            if (stEmpty && stEmpty.segmentId === requestSegmentId) {
+              stEmpty.hardFinalRequested = false;
+            }
+          }
           return;
         }
 
@@ -1836,10 +1900,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               translationBufRef.current[translationBufRef.current.length - 1] = out.trim();
               onAdminSnapshotBuffersUpdatedRef.current?.();
             }
+          } else if (isFinal) {
+            state.hardFinalRequested = false;
           }
         } else {
           const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
           if (!outRaw.trim()) {
+            return;
+          }
+          const prevTr = (transTextEl.textContent ?? "").trim();
+          if (translationOutputTooSimilarToDisplay(prevTr, outRaw)) {
+            state.lastShownSeq = mySeq;
+            state.streamCommittedSource = text;
+            state.needsFullFinalTranslation = false;
+            state.lastConfirmedSourceTranslated = text;
+            state.pendingDisplayTranslation = "";
+            scrollPanel();
             return;
           }
           state.lastShownSeq = mySeq;
@@ -1854,6 +1930,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         scrollPanel();
       } catch {
         /* HIPAA — never log speech context */
+        if (isFinal && !lockOnFinal) {
+          const stRecover = activeBubbleStateRef.current;
+          if (stRecover && stRecover.segmentId === requestSegmentId) {
+            stRecover.hardFinalRequested = false;
+          }
+        }
       } finally {
         if (
           !isFinal &&
@@ -1864,7 +1946,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
     })();
-  }, [scrollPanel]);
+  }, [scrollPanel, cancelOpenAiLiveDebounce]);
 
   useEffect(() => {
     dispatchTranslationRef.current = dispatchTranslation;
@@ -2463,7 +2545,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             true,
             {
               lockOnFinal: false,
-              suppressEarlyHardFinal: true,
+              suppressEarlyHardFinal: false,
               skipOpenAiLiveDebounce: true,
             },
             stEnd.segmentId,
