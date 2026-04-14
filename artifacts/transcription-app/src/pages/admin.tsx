@@ -1603,27 +1603,39 @@ export default function Admin() {
                                 ends {format(new Date(u.trialEndsAt), "MMM d")}
                               </span>
                             )}
-                            {!isTrialLikePlanType(u.planType) &&
-                              String((u as { subscriptionStatus?: string | null }).subscriptionStatus ?? "").toLowerCase() === "active" && (
-                                <>
-                                  {(() => {
-                                    const paidFrom = (u as unknown as { subscriptionStartedAt?: string | null }).subscriptionStartedAt;
-                                    return paidFrom ? (
-                                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                        paid from {format(new Date(paidFrom), "MMM d, yyyy")}
-                                      </span>
-                                    ) : null;
-                                  })()}
-                                  {(() => {
-                                    const periodEnd = (u as unknown as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt;
-                                    return periodEnd ? (
-                                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                        period ends {format(new Date(periodEnd), "MMM d, yyyy")}
-                                      </span>
-                                    ) : null;
-                                  })()}
-                                </>
-                              )}
+                            {!isTrialLikePlanType(u.planType) && (() => {
+                              const paidFrom = (u as unknown as { subscriptionStartedAt?: string | null }).subscriptionStartedAt;
+                              const periodEnd = (u as unknown as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt;
+                              const subSt = String((u as { subscriptionStatus?: string | null }).subscriptionStatus ?? "").trim();
+                              const dateFmt = "MMM d, yyyy · HH:mm";
+                              return (
+                                <div className="mt-0.5 space-y-0.5 text-[10px] leading-tight">
+                                  {subSt ? (
+                                    <div className="text-muted-foreground">
+                                      Billing status: <span className="font-medium text-foreground/90">{subSt}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-muted-foreground italic">Billing status: not set</div>
+                                  )}
+                                  <div className="text-muted-foreground whitespace-nowrap">
+                                    Subscribed:{" "}
+                                    {paidFrom ? (
+                                      <span className="font-medium text-foreground tabular-nums">{format(new Date(paidFrom), dateFmt)}</span>
+                                    ) : (
+                                      <span className="text-amber-700 font-medium">—</span>
+                                    )}
+                                  </div>
+                                  <div className="text-muted-foreground whitespace-nowrap">
+                                    Period ends:{" "}
+                                    {periodEnd ? (
+                                      <span className="font-medium text-foreground tabular-nums">{format(new Date(periodEnd), dateFmt)}</span>
+                                    ) : (
+                                      <span className="text-amber-700 font-medium">—</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </td>
 
@@ -2740,7 +2752,14 @@ export default function Admin() {
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                     <Calendar className="w-3 h-3" /> Subscription &amp; billing (admin)
                   </p>
-                  <div className="grid grid-cols-1 gap-1 text-[11px]">
+                  {!isTrialLikePlanType(editForm.planType) &&
+                    (!editingUser.subscriptionStartedAt || !editingUser.subscriptionPeriodEndsAt) && (
+                      <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200/80 rounded-md px-2.5 py-2 leading-snug">
+                        <span className="font-semibold">Dates not in the database yet.</span> They fill when PayPal/Stripe webhooks run with billing times, or use{" "}
+                        <span className="font-medium">Save</span> on an active paid plan to backfill from subscription start + period rules.
+                      </p>
+                    )}
+                  <div className="grid grid-cols-1 gap-1.5 text-[11px]">
                     <div className="flex justify-between gap-2">
                       <span className="text-muted-foreground">Subscription status</span>
                       <span className="font-medium text-right truncate">{editingUser.subscriptionStatus ?? "—"}</span>
@@ -2749,19 +2768,19 @@ export default function Admin() {
                       <span className="text-muted-foreground">Billed plan (webhook)</span>
                       <span className="font-medium text-right truncate">{editingUser.subscriptionPlan ?? "—"}</span>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">Subscription started</span>
-                      <span className="font-medium text-right truncate">
+                    <div className="flex justify-between gap-2 items-baseline border-t border-border/50 pt-1.5 mt-0.5">
+                      <span className="text-muted-foreground shrink-0">Subscription started</span>
+                      <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
                         {editingUser.subscriptionStartedAt
-                          ? format(new Date(editingUser.subscriptionStartedAt), "MMM d, yyyy HH:mm")
+                          ? format(new Date(editingUser.subscriptionStartedAt), "MMM d, yyyy · HH:mm")
                           : "—"}
                       </span>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">Current period ends</span>
-                      <span className="font-medium text-right truncate">
+                    <div className="flex justify-between gap-2 items-baseline">
+                      <span className="text-muted-foreground shrink-0">Current period ends</span>
+                      <span className="text-sm font-semibold text-foreground text-right tabular-nums break-all">
                         {editingUser.subscriptionPeriodEndsAt
-                          ? format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy HH:mm")
+                          ? format(new Date(editingUser.subscriptionPeriodEndsAt), "MMM d, yyyy · HH:mm")
                           : "—"}
                       </span>
                     </div>
