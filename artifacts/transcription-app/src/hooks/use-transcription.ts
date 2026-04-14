@@ -945,86 +945,12 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-/** Share of the shorter string that matches the other from the start (case-insensitive). Rewrite vs append. */
-function lcpPrefixRatio(a: string, b: string): number {
-  let i = 0;
-  const n = Math.min(a.length, b.length);
-  while (i < n && a[i]!.toLowerCase() === b[i]!.toLowerCase()) i++;
-  return i / Math.max(1, Math.min(a.length, b.length));
-}
-
 /** True when the translation cell already shows text we should treat as a real translation (not blank / placeholder-only). */
 function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   const t = (el.textContent ?? "").trim();
   if (!t) return false;
   if (t === "…") return false;
   return true;
-}
-
-/**
- * Streaming tail (streamingDelta). Prefer **replace** when the model is rewriting the same
- * utterance; only **append** when overlap stays low (genuinely new tail).
- */
-function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = collapseWs(newPiece);
-  if (!piece) return collapseWs(prevDisplayed);
-  const prev = collapseWs(prevDisplayed);
-  if (!prev || prev === "…") return piece;
-
-  const pl = prev.toLowerCase();
-  const ql = piece.toLowerCase();
-
-  if (ql === pl) return prev;
-
-  // Extension: new text continues from displayed prefix (or near-equal refresh).
-  if (ql.startsWith(pl) && piece.length + 2 >= prev.length) return piece;
-
-  // New piece is a prefix of what we already show — resend / rewrite; never append.
-  if (pl.startsWith(ql) && ql.length >= 4) return prev;
-
-  if (ql.length >= 6) {
-    if (pl.includes(ql)) return prev;
-    if (pl.endsWith(ql)) return prev;
-  }
-
-  const pPrefix = lcpPrefixRatio(prev, piece);
-  const qPrefix = lcpPrefixRatio(piece, prev);
-  if (pPrefix >= 0.7 || qPrefix >= 0.7) {
-    if (pl.startsWith(ql)) return prev;
-    if (ql.startsWith(pl)) return piece.length >= prev.length ? piece : prev;
-    return piece.length >= prev.length ? piece : prev;
-  }
-
-  const ovr = Math.max(tokenOverlapRatio(prev, piece), tokenOverlapRatio(piece, prev));
-  if (ovr >= 0.7) {
-    return piece.length >= prev.length ? piece : prev;
-  }
-
-  if (pPrefix < 0.55 && qPrefix < 0.55 && ovr < 0.55) {
-    const pw = prev.split(/\s+/).filter(Boolean);
-    const qw = piece.split(/\s+/).filter(Boolean);
-    const maxW = Math.min(pw.length, qw.length, 40);
-    for (let w = maxW; w >= 1; w--) {
-      const suff = pw.slice(-w).join(" ");
-      const pref = qw.slice(0, w).join(" ");
-      if (suff.toLowerCase() !== pref.toLowerCase()) continue;
-      if (w === 1 && suff.length < 8) continue;
-      return collapseWs([...pw.slice(0, -w), ...qw].join(" "));
-    }
-
-    const maxK = Math.min(prev.length, piece.length, 240);
-    for (let k = maxK; k >= 8; k--) {
-      if (pl.slice(-k) === ql.slice(0, k)) {
-        return collapseWs(`${prev.slice(0, prev.length - k)} ${piece}`);
-      }
-    }
-  }
-
-  if (pPrefix >= 0.55 || qPrefix >= 0.55 || ovr >= 0.55) {
-    return piece.length >= prev.length ? piece : prev;
-  }
-
-  return collapseWs(`${prev} ${piece}`);
 }
 
 function countWords(text: string): number {
@@ -1050,71 +976,6 @@ function tokenOverlapRatio(a: string, b: string): number {
   let hit = 0;
   for (const w of tb) if (setA.has(w)) hit++;
   return hit / Math.max(ta.length, tb.length);
-}
-
-/**
- * Live preview when the API returned a full-buffer translation (streamingDelta false) while the
- * source hypothesis is revising. Weld with the visible cell so interim passes extend phrase-by-phrase
- * instead of replacing the same sentence on every revision (common for Latin/Latin pairs).
- */
-function mergeLiveFullBufferTranslation(prevDisplayed: string, newFull: string): string {
-  const f = collapseWs(newFull);
-  if (!f) return collapseWs(prevDisplayed);
-  const p = collapseWs(prevDisplayed);
-  if (!p || p === "…") return f;
-
-  const pl = p.toLowerCase();
-  const fl = f.toLowerCase();
-
-  if (fl === pl) return p;
-
-  if (fl.startsWith(pl) && f.length + 2 >= p.length) return f;
-
-  if (pl.startsWith(fl) && fl.length >= 4) return p;
-
-  if (fl.length >= 6) {
-    if (pl.includes(fl) && f.length <= p.length + 2) return p;
-    if (pl.endsWith(fl)) return p;
-  }
-
-  const pPrefix = lcpPrefixRatio(p, f);
-  const fPrefix = lcpPrefixRatio(f, p);
-  if (pPrefix >= 0.7 || fPrefix >= 0.7) {
-    if (pl.startsWith(fl)) return p;
-    if (fl.startsWith(pl)) return f.length >= p.length ? f : p;
-    return f.length >= p.length ? f : p;
-  }
-
-  const ovr = Math.max(tokenOverlapRatio(p, f), tokenOverlapRatio(f, p));
-  if (ovr >= 0.7) {
-    return f.length >= p.length ? f : p;
-  }
-
-  if (pPrefix < 0.55 && fPrefix < 0.55 && ovr < 0.55) {
-    const pw = p.split(/\s+/).filter(Boolean);
-    const fw = f.split(/\s+/).filter(Boolean);
-    const maxW = Math.min(pw.length, fw.length, 48);
-    for (let w = maxW; w >= 1; w--) {
-      const suff = pw.slice(-w).join(" ");
-      const pref = fw.slice(0, w).join(" ");
-      if (suff.toLowerCase() !== pref.toLowerCase()) continue;
-      if (w === 1 && suff.length < 10) continue;
-      return collapseWs([...pw.slice(0, -w), ...fw].join(" "));
-    }
-
-    const maxK = Math.min(p.length, f.length, 200);
-    for (let k = maxK; k >= 12; k--) {
-      if (pl.slice(-k) === fl.slice(0, k)) {
-        return collapseWs(`${p.slice(0, p.length - k)} ${f}`);
-      }
-    }
-  }
-
-  if (pPrefix >= 0.55 || fPrefix >= 0.55 || ovr >= 0.55) {
-    return f.length >= p.length ? f : p;
-  }
-
-  return f;
 }
 
 /** Split on closing sentence punctuation (Latin, Arabic, CJK full-width) for paraphrase dedupe. */
@@ -1352,16 +1213,14 @@ function sourceTailAfterPrefix(
   }
   // Mid-string edits (e.g. punctuation inserted) break strict prefix but share a long LCP.
   const lcp = lcpLenInsensitive(full, prefix);
-  // One threshold for every language pair: lenient enough that ASR revisions still stay in
-  // streaming tail mode (phrase-by-phrase translation while the transcript grows). Stricter LCP
-  // forced full-buffer live calls that aborted each other and looked like “wait for the whole line.”
+  // Lenient LCP recovery so “same utterance, revised wording” still counts as monotonic growth for
+  // the live skip gate (avoid redundant translate when the transcript has not advanced).
   const minRecover = Math.max(2, Math.min(20, Math.floor(prefix.length * 0.05) || 4));
   if (lcp >= minRecover && lcp < full.length) {
     const tail = full.slice(lcp).trimStart();
     if (tail.length > 0) return { tail, monotonic: true };
   }
-  // Latin/Latin live: ASR revises within the same clause without meeting minRecover — still prefer
-  // tail + streamingDelta so translation grows like en–ar instead of full-buffer + long waits.
+  // Latin/Latin: short revisions often fail minRecover; still treat as monotonic for the same gate.
   if (opts?.relaxTailForLatinLatinLive && lcp >= 1 && lcp < full.length) {
     const tail = full.slice(lcp).trimStart();
     if (tail.length > 0) return { tail, monotonic: true };
@@ -1549,7 +1408,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         lockOnFinal?: boolean;
         skipOpenAiLiveDebounce?: boolean;
         suppressEarlyHardFinal?: boolean;
-        forceFullSegmentFinal?: boolean;
       },
       segmentIdLock?: string,
     ) => void
@@ -1686,9 +1544,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
-  // Live: WS ~80ms debounce + per-bubble abort; token dedupe only (adjacent paraphrase dedupe runs in
-  // maybePolish on finals for every target — avoids mangling streaming merges on fast speaker changes).
-  // Speaker change: softFinalize passes forceFullSegmentFinal so the closing row gets one replace, not tail-append.
+  // Live: full cumulative source per request; translation cell is replaced (no delta append/merge).
+  // Final: full-segment replace + lock; adjacent paraphrase dedupe runs in maybePolish on finals only.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1697,7 +1554,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lockOnFinal?: boolean;
       skipOpenAiLiveDebounce?: boolean;
       suppressEarlyHardFinal?: boolean;
-      forceFullSegmentFinal?: boolean;
     },
     segmentIdLock?: string,
   ) => {
@@ -1864,66 +1720,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
+    // Live: full cumulative source on every request; UI replaces the whole cell (single active buffer).
+    // Final: always full-segment translate + replace — never tail + streamingDelta (avoids client-side append/merge duplication).
     let requestIsFinal = isFinal;
     let apiText: string;
-    let useStreamingDelta = false;
-    if (isFinal && options?.forceFullSegmentFinal) {
+    if (isFinal) {
       apiText = text;
-      useStreamingDelta = false;
       requestIsFinal = true;
-    } else if (isFinal) {
-      const committed = collapseWs(state.streamCommittedSource);
-      const finalSrc = collapseWs(text);
-      const cl = committed.toLowerCase();
-      const fl = finalSrc.toLowerCase();
-      const finalizedIsPrefixTruncation =
-        finalSrc.length >= 1 &&
-        committed.length > finalSrc.length &&
-        (committed.startsWith(finalSrc) || cl.startsWith(fl));
-
-      if (finalizedIsPrefixTruncation) {
-        apiText = text;
-        useStreamingDelta = false;
-        requestIsFinal = true;
-      } else {
-        const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-        if (monotonic && !tail.trim()) {
-          const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
-          const visiblyTranslated = translationCellLooksFilled(state.transTextEl);
-          const sourceLen = text.trim().length;
-          if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (sourceLen > 24 && visibleLen < 8) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (!visiblyTranslated) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else {
-            // Never lock without an API pass — preview can look “filled” while the final source still needs a real translate.
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          }
-        }
-        if (monotonic && tail.trim()) {
-          apiText = tail;
-          useStreamingDelta = true;
-          requestIsFinal = false;
-        } else {
-          apiText = text;
-          useStreamingDelta = false;
-          requestIsFinal = true;
-        }
-      }
     } else {
-      // Live preview: translate only the new tail vs streaming-committed source, then merge.
-      // Full-buffer re-translate every frame caused long blanks (waiting on huge requests) and churn
-      // (model rewrote earlier phrases — English leaks, flicker).
       const latinLatinPair = pairIsLatinLatinOnly(pair);
       const { tail, monotonic } = sourceTailAfterPrefix(
         text,
@@ -1932,15 +1736,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       );
       if (monotonic && !tail.trim()) {
         if (translationCellLooksFilled(state.transTextEl)) return;
-        apiText = text;
-        useStreamingDelta = false;
-      } else if (monotonic && tail.trim()) {
-        apiText = tail;
-        useStreamingDelta = true;
-      } else {
-        apiText = text;
-        useStreamingDelta = false;
       }
+      apiText = text;
       requestIsFinal = false;
     }
 
@@ -1982,8 +1779,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             myTargetLang,
             (m) => translationConfigReporterRef.current(m),
             {
-              streamingDelta:         useStreamingDelta && !requestIsFinal,
-              fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
+              streamingDelta: false,
               isFinal: requestIsFinal,
               signal:   liveAbortForThisRequest?.signal,
             },
@@ -2041,43 +1837,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               onAdminSnapshotBuffersUpdatedRef.current?.();
             }
           }
-        } else if (useStreamingDelta) {
-          const prevShown = (transTextEl.textContent ?? "").trim();
-          const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
-          const latinLatinPair = pairIsLatinLatinOnly(langPairRef.current);
-          let safeMerged = merged;
-          if (prevShown && merged.length < prevShown.length) {
-            if (!latinLatinPair) {
-              safeMerged = prevShown;
-            } else {
-              const ovr = Math.max(tokenOverlapRatio(prevShown, merged), tokenOverlapRatio(merged, prevShown));
-              safeMerged = ovr < 0.55 ? merged : prevShown;
-            }
-          }
-          state.lastShownSeq = mySeq;
-          state.lastShownLen = safeMerged.length;
-          applyTranslationTypography(transTextEl, safeMerged);
-          state.pendingDisplayTranslation = "";
-          state.streamCommittedSource = text;
-          state.needsFullFinalTranslation = false;
-          state.lastConfirmedSourceTranslated = text;
         } else {
           const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
           if (!outRaw.trim()) {
             return;
           }
-          const prevShown = (transTextEl.textContent ?? "").trim();
-          const merged = mergeLiveFullBufferTranslation(prevShown, outRaw);
-          const latinLatinPair = pairIsLatinLatinOnly(langPairRef.current);
-          let out = merged;
-          if (!requestIsFinal && prevShown && merged.length < prevShown.length) {
-            const ovr = Math.max(tokenOverlapRatio(prevShown, merged), tokenOverlapRatio(merged, prevShown));
-            if (latinLatinPair && ovr < 0.55) out = merged;
-            else if (ovr >= 0.4) out = prevShown;
-          }
           state.lastShownSeq = mySeq;
-          state.lastShownLen = out.length;
-          applyTranslationTypography(transTextEl, out);
+          state.lastShownLen = outRaw.length;
+          applyTranslationTypography(transTextEl, outRaw);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
@@ -2254,7 +2021,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // - speaker_change: use DOM finals only. liveBufferRef is still from the *previous* WS frame at
     //   this point (this message updates it after the finals loop), so it often still contains the
     //   next speaker's NF tail — locking that onto the closing row duplicates Arabic on Speaker 1.
-    //   Also forceFullSegmentFinal on speaker_change so dispatch does not tail-merge onto live preview.
     const domFinal = (activeBubbleRef.current.textContent?.trim() ?? "");
     const finalText =
       closeKind === "speaker_change"
@@ -2279,7 +2045,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           lockOnFinal: true,
           suppressEarlyHardFinal: closeKind === "speaker_change",
           skipOpenAiLiveDebounce: true,
-          forceFullSegmentFinal: closeKind === "speaker_change",
         },
         segId,
       );
@@ -2699,7 +2464,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             {
               lockOnFinal: false,
               suppressEarlyHardFinal: true,
-              forceFullSegmentFinal: true,
               skipOpenAiLiveDebounce: true,
             },
             stEnd.segmentId,
