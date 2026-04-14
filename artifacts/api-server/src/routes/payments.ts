@@ -12,6 +12,44 @@ import {
   verifyPayPalWebhookSignature,
 } from "../lib/paypal.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
+
+/** PayPal notification `resource` shape varies; normalize fields used for routing. */
+function paypalResourceCustomId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const c = o.custom_id ?? o.customId;
+  return typeof c === "string" ? c.trim() : "";
+}
+
+function paypalResourcePlanId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const p = o.plan_id ?? o.planId;
+  return typeof p === "string" ? p.trim() : "";
+}
+
+function paypalResourceSubscriptionId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const id = o.id;
+  return typeof id === "string" ? id.trim() : "";
+}
+
+function paypalResourceSubscriberEmail(resource: unknown): string | undefined {
+  if (!resource || typeof resource !== "object") return undefined;
+  const sub = (resource as Record<string, unknown>).subscriber;
+  if (!sub || typeof sub !== "object") return undefined;
+  const email = (sub as Record<string, unknown>).email_address;
+  if (typeof email !== "string" || !email.includes("@")) return undefined;
+  return email.trim().toLowerCase();
+}
+
+function billingPlanDisplayName(plan: BillingPlanType): string {
+  if (plan === "basic") return "Basic";
+  if (plan === "professional") return "Professional";
+  return "Platinum";
+}
 
 const router: IRouter = Router();
 
@@ -133,10 +171,10 @@ router.post("/paypal-webhook", async (req, res) => {
   try {
     const event = req.body as {
       event_type?: string;
-      resource?: { id?: string; plan_id?: string; custom_id?: string };
+      resource?: unknown;
     };
     const eventType = event.event_type ?? "";
-    const resource = event.resource ?? {};
+    const resource = event.resource;
 
     const transmissionId = String(req.headers["paypal-transmission-id"] ?? "");
     const transmissionTime = String(req.headers["paypal-transmission-time"] ?? "");
@@ -158,32 +196,55 @@ router.post("/paypal-webhook", async (req, res) => {
       return;
     }
 
-    const customId = resource.custom_id ?? "";
+    const paypalSubId = paypalResourceSubscriptionId(resource);
+    const customId = paypalResourceCustomId(resource);
+    const planIdStr = paypalResourcePlanId(resource);
     const parsedUserId = Number(customId.split(":")[0] ?? "");
     const parsedPlanTypeFromCustom = customId.split(":")[1] ?? "";
     const parsedPlanType =
       billingPlanFromCustomIdSegment(parsedPlanTypeFromCustom) ??
-      inferPlanTypeFromPayPalPlanId(resource.plan_id ?? "");
+      inferPlanTypeFromPayPalPlanId(planIdStr);
 
     let userId = Number.isFinite(parsedUserId) ? parsedUserId : NaN;
-    if (!Number.isFinite(userId) && resource.id) {
+    if (!Number.isFinite(userId) && paypalSubId) {
       const [userByPaypalSub] = await db
         .select({ id: usersTable.id })
         .from(usersTable)
-        .where(eq(usersTable.paypalSubscriptionId, resource.id))
+        .where(eq(usersTable.paypalSubscriptionId, paypalSubId))
         .limit(1);
       userId = Number(userByPaypalSub?.id ?? NaN);
     }
+    const subscriberEmail = paypalResourceSubscriberEmail(resource);
+    if (!Number.isFinite(userId) && subscriberEmail) {
+      const [userByEmail] = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.email, subscriberEmail))
+        .limit(1);
+      userId = Number(userByEmail?.id ?? NaN);
+      if (Number.isFinite(userId)) {
+        logger.info(
+          { eventType, userId, subscriberEmail },
+          "PayPal webhook: resolved user by subscriber email (custom_id missing)",
+        );
+      }
+    }
 
     if (!Number.isFinite(userId)) {
-      logger.warn({ eventType, customId, paypalSubscriptionId: resource.id }, "PayPal webhook: could not resolve user");
+      logger.warn(
+        { eventType, customId, planIdStr, paypalSubscriptionId: paypalSubId, hadSubscriberEmail: Boolean(subscriberEmail) },
+        "PayPal webhook: could not resolve user — check PayPal dashboard webhook deliveries, PAYPAL_PLAN_ID_* env vs live plan IDs, and that checkout used in-app flow (custom_id userId:plan)",
+      );
       res.json({ received: true });
       return;
     }
 
     if (eventType === "BILLING.SUBSCRIPTION.ACTIVATED") {
       if (!parsedPlanType || !isBillingPlanType(parsedPlanType)) {
-        logger.warn({ eventType, userId, planId: resource.plan_id }, "PayPal webhook: unknown plan id/custom id");
+        logger.warn(
+          { eventType, userId, planIdStr, customId },
+          "PayPal webhook: unknown plan — set PAYPAL_PLAN_ID_BASIC/PROFESSIONAL/PLATINUM to match the Plan ID in PayPal (live vs sandbox)",
+        );
         res.json({ received: true });
         return;
       }
@@ -193,7 +254,7 @@ router.post("/paypal-webhook", async (req, res) => {
         .set({
           planType: parsedPlanType,
           dailyLimitMinutes: plan.dailyLimitMinutes,
-          paypalSubscriptionId: resource.id ?? null,
+          paypalSubscriptionId: paypalSubId || null,
           subscriptionStatus: "active",
           subscriptionPlan: parsedPlanType,
           subscriptionStartedAt: new Date(),
@@ -201,6 +262,31 @@ router.post("/paypal-webhook", async (req, res) => {
         })
         .where(eq(usersTable.id, userId));
       logger.info({ eventType, userId, planType: parsedPlanType }, "PayPal subscription activated");
+
+      try {
+        const [activatedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+        const em = activatedUser?.email?.trim().toLowerCase();
+        if (em && !activatedUser.subscriptionConfirmationSentAt) {
+          const ok = await sendSubscriptionConfirmationEmail(
+            em,
+            billingPlanDisplayName(parsedPlanType),
+            "Your next billing date is available in your PayPal account",
+            activatedUser.username,
+            activatedUser.id,
+          );
+          if (ok) {
+            await db
+              .update(usersTable)
+              .set({ subscriptionConfirmationSentAt: new Date() })
+              .where(eq(usersTable.id, userId));
+            logger.info({ userId }, "PayPal subscription confirmation email sent");
+          } else {
+            logger.warn({ userId }, "PayPal subscription activated but confirmation email not sent (RESEND_API_KEY?)");
+          }
+        }
+      } catch (mailErr) {
+        logger.error({ err: mailErr, userId }, "PayPal ACTIVATED: subscription confirmation email failed");
+      }
     }
 
     if (
