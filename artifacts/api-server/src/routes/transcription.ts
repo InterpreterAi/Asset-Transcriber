@@ -609,9 +609,10 @@ async function finalizeTranslationOutput(
   srcCode: string,
   tgtCode: string,
   tgtLangBcp47: string,
+  opts?: { interim?: boolean },
 ): Promise<string> {
   let t = postProcessTranslatedText(restoredRaw, srcCode, tgtCode);
-  t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47);
+  t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, opts);
   if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t;
 }
@@ -1703,11 +1704,16 @@ router.post("/translate", requireAuth, async (req, res) => {
     let result = await callOpenAI(systemPrompt, userMessageForModel);
     result = {
       ...result,
-      text: await finalizeTranslationOutput(restoreTranslationOutput(result.text), srcCode, tgtCode, tgtLangResolved),
+      text: await finalizeTranslationOutput(restoreTranslationOutput(result.text), srcCode, tgtCode, tgtLangResolved, {
+        interim: !isFinalSegment,
+      }),
     };
 
     // Model often stops after the first clause on long turns — one automatic full retry.
+    // Live cumulative updates (!isFinal): never run a second OpenAI call here — it doubled latency per word.
+    // Authoritative final segment still retries for full coverage.
     const needIncompleteRetry =
+      isFinalSegment &&
       !streamingDelta &&
       result.text.length > 0 &&
       (result.finishReason === "length" ||
@@ -1754,7 +1760,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     }
 
     // Refusals, apologies, or chat-style answers (instead of verbatim translation) — retry strict interpreter-only.
-    if (result.text && translationNeedsStrictInterpreterRetry(result.text, text)) {
+    // Skip on live interim: extra round-trips ruin simultaneous feel; final segment still corrects.
+    if (isFinalSegment && result.text && translationNeedsStrictInterpreterRetry(result.text, text)) {
       logger.warn(
         { srcLang, tgtLang, textLen: text.length },
         "Translation resembles refusal or chat answer — retrying with strict transcript-only prompt",
@@ -1811,7 +1818,12 @@ router.post("/translate", requireAuth, async (req, res) => {
     // target is Hindi), discard the bad output and retry once with the minimal
     // force-override prompt that has the language lock at the very top.
     // Restore placeholders before validation so TERM_n tokens do not skew script checks.
-    if (result.text && !matchesExpectedTargetLanguage(result.text, tgtCode, srcCode, text)) {
+    // Live interim: skip force-override retry (another full OpenAI); final segment still validates.
+    if (
+      isFinalSegment &&
+      result.text &&
+      !matchesExpectedTargetLanguage(result.text, tgtCode, srcCode, text)
+    ) {
       logger.warn(
         { srcLang, tgtLang, tgtCode, textLen: text.length },
         "Translation output failed script validation — retrying with force-override prompt",

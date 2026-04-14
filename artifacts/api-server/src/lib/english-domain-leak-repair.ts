@@ -116,8 +116,15 @@ export async function repairEnglishDomainLeaksInTranslation(
   srcCode: string,
   tgtCode: string,
   tgtLangBcp47: string,
+  opts?: { interim?: boolean },
 ): Promise<string> {
   if (srcCode !== "en" || tgtCode === "en" || !translated?.trim()) {
+    return translated;
+  }
+
+  // Live interim OpenAI: only cheap Arabic static map — skip parallel MT / DB memory (major latency per chunk).
+  if (opts?.interim) {
+    if (tgtCode === "ar") return applyArabicStaticLeakReplacements(translated);
     return translated;
   }
 
