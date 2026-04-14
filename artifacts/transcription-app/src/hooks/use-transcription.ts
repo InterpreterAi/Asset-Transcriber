@@ -6,6 +6,8 @@ import {
   wrapAsciiDigitRunsWithLtrSpans,
 } from "@/lib/wrap-ltr-numbers";
 
+// Deploy/sync marker only — no runtime behavior change (transcription hook baseline).
+
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
   if (!err || typeof err !== "object") return undefined;
