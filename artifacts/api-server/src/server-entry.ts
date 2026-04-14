@@ -154,6 +154,9 @@ async function migrateSchema() {
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS translation_architecture_update_email_sent_at TIMESTAMP`,
       );
       await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS stability_baseline_update_email_sent_at TIMESTAMP`,
+      );
+      await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_canceled_email_sent_at TIMESTAMP`,
       );
       await client.query(
@@ -166,6 +169,9 @@ async function migrateSchema() {
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP`);
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_ends_at TIMESTAMP`,
+      );
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_a TEXT NOT NULL DEFAULT 'en'`);
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_b TEXT NOT NULL DEFAULT 'ar'`);
       await client.query(
