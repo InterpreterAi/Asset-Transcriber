@@ -55,10 +55,16 @@ const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
 
-/** Dev-only diagnosis: browser console. Text snippets truncated (PHI). */
+/** Dev-only diagnosis: browser console. Text snippets truncated (PHI). Stripped in prod via Vite `esbuild.drop`. */
 const TRANS_DIAG_SNIP = 120;
+
+function devConsoleInfo(...args: unknown[]): void {
+  if (import.meta.env.PROD) return;
+  (console.info as (...a: unknown[]) => void)(...args);
+}
+
 function transDiagLog(stream: "asr" | "translate", payload: Record<string, unknown>): void {
-  console.info("[trans_diag]", stream, {
+  devConsoleInfo("[trans_diag]", stream, {
     wallTs: new Date().toISOString(),
     perfMs: Math.round(performance.now() * 100) / 100,
     ...payload,
@@ -1658,7 +1664,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       uniquePairMemberForLang(vSon, pair) === null &&
       uniquePairMemberForLang(sonioxHint, pair) === null
     ) {
-      console.info(
+      devConsoleInfo(
         "[translation_call]",
         `time=${new Date(Date.now()).toISOString()}`,
         `segment_id=${state.segmentId}`,
@@ -1732,7 +1738,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const wDiff = Math.abs(diag.lastInputMeta.words - words);
       if (cDiff <= 8 && wDiff <= 2) {
         diag.redundantCalls += 1;
-        console.info(
+        devConsoleInfo(
           "[translation_redundant]",
           `time=${new Date(nowMs).toISOString()}`,
           `segment_id=${state.segmentId}`,
@@ -1744,7 +1750,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
     }
     diag.lastInputMeta = { segmentId: state.segmentId, chars, words };
-    console.info(
+    devConsoleInfo(
       "[translation_call]",
       `time=${new Date(nowMs).toISOString()}`,
       `segment_id=${state.segmentId}`,
@@ -2262,7 +2268,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const perSegment = [...diag.perSegmentCalls.entries()]
       .map(([segmentId, calls]) => `${segmentId}:${calls}`)
       .join(",");
-    console.info(
+    devConsoleInfo(
       "[translation_diagnostic_summary]",
       `calls_total=${diag.callCount}`,
       `calls_per_min=${callsPerMinute.toFixed(2)}`,

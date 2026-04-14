@@ -12,6 +12,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? "/";
+const isProduction = process.env.NODE_ENV === "production";
 
 const replitPlugins: PluginOption[] = [];
 if (process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined) {
@@ -25,6 +26,9 @@ if (process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined) 
 
 export default defineConfig({
   base: basePath,
+  esbuild: {
+    drop: isProduction ? (["console", "debugger"] as const) : [],
+  },
   plugins: [
     mockupPreviewPlugin(),
     react(),

@@ -28,6 +28,10 @@ const apiProxyTarget =
 
 export default defineConfig({
   base: basePath,
+  /** Strip console/debugger from production bundles — nothing in DevTools for users. */
+  esbuild: {
+    drop: isProduction ? (["console", "debugger"] as const) : [],
+  },
   plugins: [
     react(),
     tailwindcss(),
