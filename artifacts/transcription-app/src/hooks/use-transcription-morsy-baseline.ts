@@ -1,9 +1,12 @@
 /**
- * Morsy baseline: exact `use-transcription.ts` from main commit 23ebc188 (2026-04-13).
- * Resolved as `main` at `--before=2026-04-13 11:00:00 -0400` (America/New_York morning,
- * before afternoon/evening transcription commits the same calendar day).
+ * Morsy baseline: exact `use-transcription.ts` from main at **2026-04-13 11:00 Egypt**
+ * (Africa/Cairo, UTC+2 year-round — same offset as `+0200` in git timestamps).
+ * Git: `main` @ `c3879acd` (`git rev-list -1 --before='2026-04-13 11:00:00 +0200' main`).
  *
- * Small integration-only additions below (dailyCapRef / heartbeat cap) are not in 23ebc188;
+ * The next commit that day (`23ebc188` @ 13:03 +0200) did not touch this file — `use-transcription.ts`
+ * is byte-identical between `c3879acd` and `23ebc188`, so the hook already matched pre-noon Egypt.
+ *
+ * Small integration-only additions below (dailyCapRef / heartbeat cap) are not in `c3879acd`;
  * they keep daily-limit behavior aligned with the current workspace without changing STT/translate logic.
  */
 import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
