@@ -650,8 +650,9 @@ export default function Admin() {
   const [showCreate,     setShowCreate]     = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newLimit,    setNewLimit]    = useState(180);
+  const [newLimit,    setNewLimit]    = useState(360);
   const [newIsAdmin,  setNewIsAdmin]  = useState(false);
+  const [bumpDailyFloorPending, setBumpDailyFloorPending] = useState(false);
 
   // ── Session History drawer ─────────────────────────────────────────────────
   const [historyUser,    setHistoryUser]    = useState<{ id: number; username: string } | null>(null);
@@ -842,6 +843,36 @@ export default function Admin() {
     }
   };
 
+  async function bumpAllUsersDailyFloor(floorMinutes: number) {
+    const hrs = floorMinutes / 60;
+    if (
+      !confirm(
+        `Raise daily limit to at least ${floorMinutes} minutes (${hrs}h) for every non-admin user under the unlimited cap? Users already at ≥9000 min/day are skipped.`,
+      )
+    ) {
+      return;
+    }
+    setBumpDailyFloorPending(true);
+    try {
+      const res = await fetch("/api/admin/users/bump-daily-limit-floor", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ floorMinutes }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(err.error ?? "Request failed");
+        return;
+      }
+      const data = (await res.json()) as { updatedCount?: number; floorMinutes?: number };
+      alert(`Updated ${data.updatedCount ?? 0} user(s) to at least ${data.floorMinutes ?? floorMinutes} min/day.`);
+      await queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
+    } finally {
+      setBumpDailyFloorPending(false);
+    }
+  }
+
   // ── Edit user drawer helpers ───────────────────────────────────────────────
   function openEditUser(u: typeof allUsers[0]) {
     const userDefaultA = ((u as unknown as { defaultLangA?: string }).defaultLangA ?? defaultLangA ?? "en").trim();
@@ -870,9 +901,7 @@ export default function Admin() {
       createdAt:         u.createdAt ?? new Date().toISOString(),
     });
     const paidRow = !isTrialLikePlanType(u.planType ?? "trial");
-    const seedSubStart =
-      (u as { subscriptionStartedAt?: string | null }).subscriptionStartedAt ??
-      (paidRow && u.createdAt ? u.createdAt : null);
+    const seedSubStart = (u as { subscriptionStartedAt?: string | null }).subscriptionStartedAt ?? null;
     const seedSubEnd =
       (u as { subscriptionPeriodEndsAt?: string | null }).subscriptionPeriodEndsAt ??
       (seedSubStart ? addBillingFallbackPeriod(new Date(seedSubStart)).toISOString() : null);
@@ -920,13 +949,8 @@ export default function Admin() {
       if (!isTrialLikePlanType(editForm.planType)) {
         const subS = editForm.subscriptionStartedAtLocal.trim();
         const subE = editForm.subscriptionPeriodEndsAtLocal.trim();
-        if (subS && subE) {
-          body.subscriptionStartedAt = new Date(subS).toISOString();
-          body.subscriptionPeriodEndsAt = new Date(subE).toISOString();
-        } else if (subS || subE) {
-          setEditError("Set both subscription start and period end, or clear both to leave billing dates unchanged.");
-          return;
-        }
+        if (subS) body.subscriptionStartedAt = new Date(subS).toISOString();
+        if (subE) body.subscriptionPeriodEndsAt = new Date(subE).toISOString();
       }
       const res = await fetch(`/api/admin/users/${editingUser.id}`, {
         method: "PATCH",
@@ -1550,6 +1574,29 @@ export default function Admin() {
                 <span className="text-[11px] text-muted-foreground ml-auto">
                   {filteredUsers.length} of {allUsers.length} users
                 </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-dashed border-border/70">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Bulk daily limit</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Non-admins only; skips unlimited-style caps (≥9000 min).
+                </span>
+                <button
+                  type="button"
+                  disabled={bumpDailyFloorPending}
+                  onClick={() => bumpAllUsersDailyFloor(360)}
+                  className="h-7 px-2.5 rounded-lg border border-border bg-white text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                >
+                  Floor ≥ 6h
+                </button>
+                <button
+                  type="button"
+                  disabled={bumpDailyFloorPending}
+                  onClick={() => bumpAllUsersDailyFloor(480)}
+                  className="h-7 px-2.5 rounded-lg border border-border bg-white text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                >
+                  Floor ≥ 8h
+                </button>
               </div>
             </div>
 
@@ -2831,7 +2878,7 @@ export default function Admin() {
                   {!isTrialLikePlanType(editForm.planType) &&
                     (!editingUser.subscriptionStartedAt || !editingUser.subscriptionPeriodEndsAt) && (
                       <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200/80 rounded-md px-2.5 py-2 leading-snug">
-                        <span className="font-semibold">PayPal may not have stored these dates.</span> Use the fields below to set the real payment date (e.g. Wed Apr 15) and renewal. Leave both datetime fields empty when saving to keep existing DB values unchanged.
+                        <span className="font-semibold">PayPal may not have stored these dates.</span> Set the real payment date below. If you only set subscription started and save, the server fills period end as start + 30 days. Leave both fields empty to leave the database unchanged.
                       </p>
                     )}
                   <div className="grid grid-cols-1 gap-1.5 text-[11px]">
@@ -2873,22 +2920,40 @@ export default function Admin() {
                           className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const s = editForm.subscriptionStartedAtLocal.trim();
-                          if (!s) return;
-                          const d = addBillingFallbackPeriod(new Date(s));
-                          setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: isoToDatetimeLocalValue(d.toISOString()) }));
-                        }}
-                        className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
-                      >
-                        Set period end = start + 30 days
-                      </button>
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const now = new Date();
+                            setEditForm(f => ({
+                              ...f,
+                              subscriptionStartedAtLocal: isoToDatetimeLocalValue(now.toISOString()),
+                              subscriptionPeriodEndsAtLocal: isoToDatetimeLocalValue(
+                                addBillingFallbackPeriod(now).toISOString(),
+                              ),
+                            }));
+                          }}
+                          className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+                        >
+                          Payment = now; period end +30 days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const s = editForm.subscriptionStartedAtLocal.trim();
+                            if (!s) return;
+                            const d = addBillingFallbackPeriod(new Date(s));
+                            setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: isoToDatetimeLocalValue(d.toISOString()) }));
+                          }}
+                          className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+                        >
+                          Set period end = start + 30 days
+                        </button>
+                      </div>
                     </div>
                   )}
                   <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/60">
-                    Saving with both billing dates filled writes them to the database (overrides signup estimates). PayPal webhooks can still update these later. Trial dates below apply only to trial-like plans.
+                    Any filled billing fields are written on save (start only → server adds 30-day end). PayPal webhooks can still update these later. Trial dates below apply only to trial-like plans.
                   </p>
                 </div>
 
@@ -2992,14 +3057,15 @@ export default function Admin() {
                       onChange={e => setEditForm(f => ({ ...f, dailyLimitMinutes: Math.max(1, Number(e.target.value)) }))}
                       className="h-9 text-sm"
                     />
-                    <div className="flex gap-1">
-                      {[60, 120, 180, 300, 600].map(m => (
+                    <div className="flex flex-wrap gap-1">
+                      {[120, 180, 300, 360, 480, 600].map(m => (
                         <button
                           key={m}
+                          type="button"
                           onClick={() => setEditForm(f => ({ ...f, dailyLimitMinutes: m }))}
                           className={`h-9 px-2.5 rounded-lg border text-xs font-medium transition-colors ${editForm.dailyLimitMinutes === m ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:bg-muted"}`}
                         >
-                          {m >= 60 ? `${m / 60}h` : `${m}m`}
+                          {m % 60 === 0 ? `${m / 60}h` : `${m}m`}
                         </button>
                       ))}
                     </div>

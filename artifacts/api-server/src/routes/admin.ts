@@ -1062,14 +1062,9 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
         const endInBody = "subscriptionPeriodEndsAt" in rawBody;
 
         // Backfill only when admin did not send explicit calendar fields this request.
+        // Do not infer billing start from account createdAt (misleading for long-ago signups).
         if (!startInBody && !existing.subscriptionStartedAt) {
-          const created = existing.createdAt ? new Date(existing.createdAt) : null;
-          const start =
-            created &&
-            Number.isFinite(created.getTime()) &&
-            created.getTime() <= Date.now() + 60_000
-              ? created
-              : new Date();
+          const start = new Date();
           updates.subscriptionStartedAt = start;
           if (!endInBody) {
             updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(start);
@@ -1091,15 +1086,21 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   }
 
   if (subscriptionDatesApply) {
-    if ("subscriptionStartedAt" in rawBody) {
+    const hasStartKey = "subscriptionStartedAt" in rawBody;
+    const hasEndKey = "subscriptionPeriodEndsAt" in rawBody;
+    if (hasStartKey) {
       const parsed = parseAdminDateField("subscriptionStartedAt", rawBody.subscriptionStartedAt);
       if (parsed === "invalid") {
         res.status(400).json({ error: "Invalid subscriptionStartedAt (use ISO 8601 date-time)." });
         return;
       }
       updates.subscriptionStartedAt = parsed;
+      // Single-field save: new period start without explicit end → same rule as PayPal fallback (30 days).
+      if (parsed !== null && !hasEndKey) {
+        updates.subscriptionPeriodEndsAt = subscriptionPeriodEndFallback(parsed);
+      }
     }
-    if ("subscriptionPeriodEndsAt" in rawBody) {
+    if (hasEndKey) {
       const parsed = parseAdminDateField("subscriptionPeriodEndsAt", rawBody.subscriptionPeriodEndsAt);
       if (parsed === "invalid") {
         res.status(400).json({ error: "Invalid subscriptionPeriodEndsAt (use ISO 8601 date-time)." });
@@ -1148,6 +1149,31 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     sharedLoginIpMaxAccounts: 1,
     sharedLoginIps:           [],
   });
+});
+
+/** Minutes at or above this are treated as "unlimited style" and skipped by bulk floor bumps. */
+const ADMIN_DAILY_LIMIT_UNLIMITED_THRESHOLD = 9000;
+
+// ── Bulk: raise daily limit floor (non-admin, below unlimited threshold) ─────
+router.post("/users/bump-daily-limit-floor", requireAdmin, async (req, res) => {
+  const raw = (req.body as { floorMinutes?: unknown }).floorMinutes;
+  const floor = Math.floor(Number(raw));
+  if (!Number.isFinite(floor) || floor < 1 || floor > 100_000) {
+    res.status(400).json({ error: "floorMinutes must be between 1 and 100000" });
+    return;
+  }
+
+  const rows = await db
+    .update(usersTable)
+    .set({
+      dailyLimitMinutes: sql`GREATEST(${usersTable.dailyLimitMinutes}, ${floor})`,
+    })
+    .where(
+      and(eq(usersTable.isAdmin, false), lt(usersTable.dailyLimitMinutes, ADMIN_DAILY_LIMIT_UNLIMITED_THRESHOLD)),
+    )
+    .returning({ id: usersTable.id });
+
+  res.json({ updatedCount: rows.length, floorMinutes: floor });
 });
 
 // ── Delete user ──────────────────────────────────────────────────────────────
