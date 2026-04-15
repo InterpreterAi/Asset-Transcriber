@@ -80,8 +80,9 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "Interpreter gives name and ID: my name is … and my ID number is …",
     "Please ask parties to speak in short clear phrases.",
     "Confidentiality: all information discussed will remain confidential.",
-    "Use \"you're\" (you are) for connection lines, \"to\" (not too or two) before the interpreter language, \"their/there/they're\" only in grammatical context.",
-    "Speakers constantly give phone numbers, account numbers, dates, IDs, medical record numbers, and dollar amounts. Transcribe every digit and separator exactly as spoken (including pauses, dashes, slashes, and grouped digits). Prefer numerals when the speaker is reading numbers quickly.",
+    "Use \"you're\" (you are) for connection lines. In \"through to the [language] interpreter\" use the preposition to, not the adverb too. Do not globally avoid the word two — two is correct in digit readouts (e.g. area code two one two) and in phrases like room two fourteen.",
+    "Speakers constantly give phone numbers, account numbers, dates, IDs, medical record numbers, and dollar amounts. Transcribe every digit and separator exactly as spoken (including pauses, dashes, slashes, and grouped digits). Prefer Arabic numerals 0-9 when the speaker is reading numbers quickly or digit-by-digit.",
+    "Example English number-heavy turns (style only): Callback 312-555-0188 ext 207. Claim 00-1234567. DOB 03/14/1979. SSN 123-45-6789. MRN 421681. Room 214-B. Balance $42.17. Verification code 8 4 0 2.",
   ];
 
   const terms: string[] = [];
@@ -154,6 +155,14 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "800-555-1212",
     "(555) 123-4567",
     "555-123-4567",
+    "ext",
+    "ext.",
+    "verification code",
+    "confirmation code",
+    "one-time code",
+    "double oh",
+    "triple oh",
+    "digit-by-digit",
     "número de teléfono",
     "número de cuenta",
     "fecha de nacimiento",
@@ -173,6 +182,16 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
         key: "topic",
         value:
           "Live interpreter call — verbatim phone numbers, IDs, dates, and account numbers; introductions, confidentiality, turn-taking",
+      },
+      {
+        key: "language",
+        value:
+          "Bilingual relay; many turns are English with US-style phones, extensions, DOB, SSN-style chains, MRNs, claim numbers, and currency.",
+      },
+      {
+        key: "instructions",
+        value:
+          "For English speech: when the speaker gives numbers, codes, or ID strings, prefer Arabic numerals and keep hyphens, slashes, parentheses, and spaces as spoken. If they read digit-by-digit or say oh/zero for 0 in a phone, mirror that with digits. Do not substitute words for digits in rapid numeric readouts.",
       },
       {
         key: "numbers",
