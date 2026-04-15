@@ -44,74 +44,13 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   for (let k = maxLen; k >= 1; k--) {
     if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
   }
-  const join = fTrim.endsWith(" ") || n.startsWith(" ") ? "" : " ";
-  return fTrim + join + n;
-}
-
-/** Words split on whitespace (Soniox already includes punctuation in tokens). */
-function splitWords(text: string): string[] {
-  return text.trim().split(/\s+/).filter(Boolean);
-}
-
-/**
- * Drop the last `n` words for sliding-window NF alignment. Empty string if nothing left.
- * Used only for **non-final (grey)** text — finals stay locked in the DOM.
- */
-function dropLastWords(text: string, n: number): string {
-  if (n <= 0) return text;
-  const w = splitWords(text);
-  if (w.length <= n) return "";
-  return w.slice(0, w.length - n).join(" ");
-}
-
-/** How many trailing grey words we may realign when Soniox replaces an interim guess (not pure extension). */
-const NF_SLIDING_TAIL_WORDS = 4;
-
-/**
- * Merge Soniox **non-final** text into the grey NF span.
- *
- * - **Suffix rule:** If the raw stream is a strict extension (`nfText.startsWith(prevRaw)`), the
- *   caller appends only the suffix — we are not invoked.
- * - **Difference / sliding window:** If the new hypothesis diverges, allow it to supersede the
- *   last few grey words so “said” → “Discussed” does not become “said Discussed …”.
- * - **Final anchor:** Only this NF span is merged; black finals are separate nodes.
- *
- * Arabic and Latin share this path — Arabic often looked “fine” because script/overlap heuristics
- * differed; this logic is intentionally word-based and symmetric.
- */
-function mergeNonFinalTranscriptionVisible(prevDom: string, sonioxNf: string): string {
-  const p = prevDom.trimEnd();
-  const s = sonioxNf.trim();
-  if (!s) return p;
-  if (!p) return s;
-
-  const pLow = p.toLowerCase();
-  const sLow = s.toLowerCase();
-
-  // Pure extension of what we already show (case-insensitive).
-  if (sLow.startsWith(pLow) || s.startsWith(p)) {
-    return s.length >= p.length ? s : p;
-  }
-
-  // Soniox corrected by shortening the visible NF (drop stale tail).
-  if (pLow.startsWith(sLow) && s.length < p.length) {
-    return s;
-  }
-
-  // Sliding window: stable head after dropping last N words; new NF continues from there.
-  const head = dropLastWords(p, NF_SLIDING_TAIL_WORDS).trimEnd();
-  const headLow = head.toLowerCase();
-  if (headLow && sLow.startsWith(headLow)) {
-    return s;
-  }
-
-  // No safe alignment: trust the latest full hypothesis (avoids char-level glue doubling text).
-  return s;
+  return fTrim + n;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
+const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
@@ -1569,6 +1508,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
+  const scheduleFinalTextRenderFlush = useCallback(() => {
+    if (finalRenderTimerRef.current !== null) return;
+    finalRenderTimerRef.current = setTimeout(() => {
+      finalRenderTimerRef.current = null;
+      flushFinalTextRenderQueue();
+    }, FINAL_TEXT_RENDER_BUFFER_MS);
+  }, [flushFinalTextRenderQueue]);
+
   const getBufferedFinalTextForActiveBubble = useCallback((): string => {
     const active = activeBubbleRef.current;
     if (!active) return "";
@@ -2459,9 +2406,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         detectedLangRef.current = validatedLang;
       }
 
-      // Commit finals to the transcript before touching the NF span so text never briefly disappears
-      // when Soniox clears or shortens hypothesis in the same frame.
-      flushFinalTextRenderQueue();
+      scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
       scrollPanel();
@@ -2499,8 +2444,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const suffix = nfText.slice(prev.length);
             if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
           } else {
-            const curDom = nfEl.textContent ?? "";
-            nfEl.textContent = mergeNonFinalTranscriptionVisible(curDom, nfText);
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
           }
           stNf.lastNfRawText = nfText;
         }
@@ -2643,6 +2588,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     closeActiveSegmentBoundary,
     createBubble,
     scrollPanel,
+    scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
     tryLockSegmentDirectionFromTokens,
