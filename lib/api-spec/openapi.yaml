@@ -553,6 +553,39 @@ components:
       required:
         - rating
 
+    AdminSharedLoginIpAccount:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+          nullable: true
+      required:
+        - id
+        - username
+        - email
+
+    AdminSharedLoginIpCluster:
+      type: object
+      properties:
+        ip:
+          type: string
+        accountCount:
+          type: integer
+          description: Distinct accounts with a successful login from this IP (login history).
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSharedLoginIpAccount"
+          description: Full list of accounts on this IP; identical for every user in the cluster. Refreshes each time the admin user list loads.
+      required:
+        - ip
+        - accountCount
+        - accounts
+
     AdminUser:
       type: object
       properties:
@@ -627,6 +660,13 @@ components:
           items:
             type: string
           description: Sample of login IPs tied to multiple accounts (for admin review).
+        sharedLoginIpClusters:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSharedLoginIpCluster"
+          description: >
+            One entry per shared login IP this user has used; each entry lists every account on that IP
+            so you can see duplicates at a glance. Empty when none.
       required:
         - id
         - username
@@ -640,6 +680,7 @@ components:
         - createdAt
         - sharedLoginIpMaxAccounts
         - sharedLoginIps
+        - sharedLoginIpClusters
 
     AdminUserListResponse:
       type: object

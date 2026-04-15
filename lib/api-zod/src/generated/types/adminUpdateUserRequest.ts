@@ -11,4 +11,13 @@ export interface AdminUpdateUserRequest {
   isAdmin?: boolean;
   dailyLimitMinutes?: number;
   password?: string;
+  planType?: string;
+  trialEndsAt?: Date | null;
+  minutesUsedToday?: number;
+  defaultLangA?: string;
+  defaultLangB?: string;
+  /** Admin override for paid-tier subscription start (ISO 8601). */
+  subscriptionStartedAt?: Date | null;
+  /** Admin override for current billing period end (ISO 8601). */
+  subscriptionPeriodEndsAt?: Date | null;
 }

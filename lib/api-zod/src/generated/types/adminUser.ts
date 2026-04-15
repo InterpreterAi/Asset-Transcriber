@@ -5,6 +5,7 @@
  * AI Transcription & Translation App API
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminSharedLoginIpCluster } from "./adminSharedLoginIpCluster";
 
 export interface AdminUser {
   id: number;
@@ -15,6 +16,15 @@ export interface AdminUser {
   planType?: string;
   trialStartedAt?: Date;
   trialEndsAt?: Date;
+  /** PayPal/Stripe subscription status when present (e.g. active). */
+  subscriptionStatus?: string | null;
+  /** Billed product tier from webhook (basic, professional, platinum, etc.). */
+  subscriptionPlan?: string | null;
+  subscriptionStartedAt?: Date | null;
+  /** End of current paid period (PayPal next_billing_time or start + 30 days). */
+  subscriptionPeriodEndsAt?: Date | null;
+  paypalSubscriptionId?: string | null;
+  stripeSubscriptionId?: string | null;
   trialDaysRemaining?: number;
   dailyLimitMinutes: number;
   minutesUsedToday: number;
@@ -23,4 +33,12 @@ export interface AdminUser {
   totalShares: number;
   lastActivityAt?: Date | null;
   createdAt: Date;
+  /** Largest number of distinct accounts that share a successful-login IP with this user (1 = no other account on the same IP in login history).
+   */
+  sharedLoginIpMaxAccounts: number;
+  /** Sample of login IPs tied to multiple accounts (for admin review). */
+  sharedLoginIps: string[];
+  /** One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.
+   */
+  sharedLoginIpClusters: AdminSharedLoginIpCluster[];
 }

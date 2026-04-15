@@ -80,6 +80,20 @@ export interface FeedbackRequest {
   comment?: string;
 }
 
+export interface AdminSharedLoginIpAccount {
+  id: number;
+  username: string;
+  email: string | null;
+}
+
+export interface AdminSharedLoginIpCluster {
+  ip: string;
+  /** Distinct accounts with a successful login from this IP (login history). */
+  accountCount: number;
+  /** Full list of accounts on this IP; identical for every user in the cluster. Refreshes each time the admin user list loads. */
+  accounts: AdminSharedLoginIpAccount[];
+}
+
 export interface AdminUser {
   id: number;
   username: string;
@@ -106,10 +120,14 @@ export interface AdminUser {
   totalShares: number;
   lastActivityAt?: string | null;
   createdAt: string;
-  /** Largest count of distinct accounts sharing any of this user's successful-login IPs (1 = none). */
+  /** Largest number of distinct accounts that share a successful-login IP with this user (1 = no other account on the same IP in login history).
+   */
   sharedLoginIpMaxAccounts: number;
-  /** IPs (sample) that appear under multiple accounts. */
+  /** Sample of login IPs tied to multiple accounts (for admin review). */
   sharedLoginIps: string[];
+  /** One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.
+   */
+  sharedLoginIpClusters: AdminSharedLoginIpCluster[];
 }
 
 export interface AdminUserListResponse {
@@ -128,6 +146,15 @@ export interface AdminUpdateUserRequest {
   isAdmin?: boolean;
   dailyLimitMinutes?: number;
   password?: string;
+  planType?: string;
+  trialEndsAt?: string | null;
+  minutesUsedToday?: number;
+  defaultLangA?: string;
+  defaultLangB?: string;
+  /** Admin override for paid-tier subscription start (ISO 8601). */
+  subscriptionStartedAt?: string | null;
+  /** Admin override for current billing period end (ISO 8601). */
+  subscriptionPeriodEndsAt?: string | null;
 }
 
 export type AdminFeedbackItemRecommend =

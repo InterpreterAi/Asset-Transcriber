@@ -150,6 +150,27 @@ export const AdminListUsersResponse = zod.object({
       planType: zod.string().optional(),
       trialStartedAt: zod.coerce.date().optional(),
       trialEndsAt: zod.coerce.date().optional(),
+      subscriptionStatus: zod
+        .string()
+        .nullish()
+        .describe(
+          "PayPal\/Stripe subscription status when present (e.g. active).",
+        ),
+      subscriptionPlan: zod
+        .string()
+        .nullish()
+        .describe(
+          "Billed product tier from webhook (basic, professional, platinum, etc.).",
+        ),
+      subscriptionStartedAt: zod.coerce.date().nullish(),
+      subscriptionPeriodEndsAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "End of current paid period (PayPal next_billing_time or start + 30 days).",
+        ),
+      paypalSubscriptionId: zod.string().nullish(),
+      stripeSubscriptionId: zod.string().nullish(),
       trialDaysRemaining: zod.number().optional(),
       dailyLimitMinutes: zod.number(),
       minutesUsedToday: zod.number(),
@@ -158,8 +179,41 @@ export const AdminListUsersResponse = zod.object({
       totalShares: zod.number(),
       lastActivityAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
-      sharedLoginIpMaxAccounts: zod.number(),
-      sharedLoginIps: zod.array(zod.string()),
+      sharedLoginIpMaxAccounts: zod
+        .number()
+        .describe(
+          "Largest number of distinct accounts that share a successful-login IP with this user (1 = no other account on the same IP in login history).\n",
+        ),
+      sharedLoginIps: zod
+        .array(zod.string())
+        .describe(
+          "Sample of login IPs tied to multiple accounts (for admin review).",
+        ),
+      sharedLoginIpClusters: zod
+        .array(
+          zod.object({
+            ip: zod.string(),
+            accountCount: zod
+              .number()
+              .describe(
+                "Distinct accounts with a successful login from this IP (login history).",
+              ),
+            accounts: zod
+              .array(
+                zod.object({
+                  id: zod.number(),
+                  username: zod.string(),
+                  email: zod.string().nullable(),
+                }),
+              )
+              .describe(
+                "Full list of accounts on this IP; identical for every user in the cluster. Refreshes each time the admin user list loads.",
+              ),
+          }),
+        )
+        .describe(
+          "One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.\n",
+        ),
     }),
   ),
 });
@@ -186,6 +240,19 @@ export const AdminUpdateUserBody = zod.object({
   isAdmin: zod.boolean().optional(),
   dailyLimitMinutes: zod.number().optional(),
   password: zod.string().optional(),
+  planType: zod.string().optional(),
+  trialEndsAt: zod.coerce.date().nullish(),
+  minutesUsedToday: zod.number().optional(),
+  defaultLangA: zod.string().optional(),
+  defaultLangB: zod.string().optional(),
+  subscriptionStartedAt: zod.coerce
+    .date()
+    .nullish()
+    .describe("Admin override for paid-tier subscription start (ISO 8601)."),
+  subscriptionPeriodEndsAt: zod.coerce
+    .date()
+    .nullish()
+    .describe("Admin override for current billing period end (ISO 8601)."),
 });
 
 export const AdminUpdateUserResponse = zod.object({
@@ -197,6 +264,25 @@ export const AdminUpdateUserResponse = zod.object({
   planType: zod.string().optional(),
   trialStartedAt: zod.coerce.date().optional(),
   trialEndsAt: zod.coerce.date().optional(),
+  subscriptionStatus: zod
+    .string()
+    .nullish()
+    .describe("PayPal\/Stripe subscription status when present (e.g. active)."),
+  subscriptionPlan: zod
+    .string()
+    .nullish()
+    .describe(
+      "Billed product tier from webhook (basic, professional, platinum, etc.).",
+    ),
+  subscriptionStartedAt: zod.coerce.date().nullish(),
+  subscriptionPeriodEndsAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "End of current paid period (PayPal next_billing_time or start + 30 days).",
+    ),
+  paypalSubscriptionId: zod.string().nullish(),
+  stripeSubscriptionId: zod.string().nullish(),
   trialDaysRemaining: zod.number().optional(),
   dailyLimitMinutes: zod.number(),
   minutesUsedToday: zod.number(),
@@ -205,8 +291,41 @@ export const AdminUpdateUserResponse = zod.object({
   totalShares: zod.number(),
   lastActivityAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
-  sharedLoginIpMaxAccounts: zod.number(),
-  sharedLoginIps: zod.array(zod.string()),
+  sharedLoginIpMaxAccounts: zod
+    .number()
+    .describe(
+      "Largest number of distinct accounts that share a successful-login IP with this user (1 = no other account on the same IP in login history).\n",
+    ),
+  sharedLoginIps: zod
+    .array(zod.string())
+    .describe(
+      "Sample of login IPs tied to multiple accounts (for admin review).",
+    ),
+  sharedLoginIpClusters: zod
+    .array(
+      zod.object({
+        ip: zod.string(),
+        accountCount: zod
+          .number()
+          .describe(
+            "Distinct accounts with a successful login from this IP (login history).",
+          ),
+        accounts: zod
+          .array(
+            zod.object({
+              id: zod.number(),
+              username: zod.string(),
+              email: zod.string().nullable(),
+            }),
+          )
+          .describe(
+            "Full list of accounts on this IP; identical for every user in the cluster. Refreshes each time the admin user list loads.",
+          ),
+      }),
+    )
+    .describe(
+      "One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.\n",
+    ),
 });
 
 /**

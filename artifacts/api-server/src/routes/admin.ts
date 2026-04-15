@@ -145,9 +145,62 @@ router.get("/users", requireAdmin, async (_req, res) => {
     return { sharedLoginIpMaxAccounts: maxAc, sharedLoginIps: flagged.slice(0, 8) };
   }
 
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  const ipToUserIdSet = new Map<string, Set<number>>();
+  for (const row of userLoginIps) {
+    const ip = row.ip?.trim();
+    const uid = row.userId;
+    if (!ip || uid == null) continue;
+    if ((ipAccountCount.get(ip) ?? 1) < 2) continue;
+    let set = ipToUserIdSet.get(ip);
+    if (!set) {
+      set = new Set();
+      ipToUserIdSet.set(ip, set);
+    }
+    set.add(uid);
+  }
+
+  function accountsOnSharedIp(ip: string): Array<{ id: number; username: string; email: string | null }> {
+    const ids = ipToUserIdSet.get(ip);
+    if (!ids?.size) return [];
+    return [...ids]
+      .sort((a, b) => a - b)
+      .map((id) => {
+        const row = userById.get(id)!;
+        return { id: row.id, username: row.username, email: row.email ?? null };
+      });
+  }
+
+  function sharedLoginIpClustersForUser(userId: number): Array<{
+    ip: string;
+    accountCount: number;
+    accounts: Array<{ id: number; username: string; email: string | null }>;
+  }> {
+    const ips = userToIps.get(userId) ?? [];
+    const out: Array<{
+      ip: string;
+      accountCount: number;
+      accounts: Array<{ id: number; username: string; email: string | null }>;
+    }> = [];
+    for (const ip of ips) {
+      const c = ipAccountCount.get(ip) ?? 1;
+      if (c < 2) continue;
+      const accounts = accountsOnSharedIp(ip);
+      if (accounts.length < 2) continue;
+      out.push({
+        ip,
+        accountCount: Math.max(c, accounts.length),
+        accounts,
+      });
+    }
+    return out.sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
+  }
+
   res.json({
     users: users.map((u) => {
       const dup = loginIpDupMetrics(u.id);
+      const sharedLoginIpClusters = sharedLoginIpClustersForUser(u.id);
       return {
         id:                 u.id,
         username:           u.username,
@@ -178,6 +231,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
         sharedLoginIpMaxAccounts: dup.sharedLoginIpMaxAccounts,
         /** Login IPs (successful) that also appear for other accounts — sample for review. */
         sharedLoginIps:           dup.sharedLoginIps,
+        sharedLoginIpClusters,
       };
     }),
   });
@@ -976,6 +1030,7 @@ router.post("/users", requireAdmin, async (req, res) => {
     createdAt:          user.createdAt,
     sharedLoginIpMaxAccounts: 1,
     sharedLoginIps:           [],
+    sharedLoginIpClusters:    [],
   });
 });
 
@@ -1148,6 +1203,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     createdAt:          user.createdAt,
     sharedLoginIpMaxAccounts: 1,
     sharedLoginIps:           [],
+    sharedLoginIpClusters:    [],
   });
 });
 

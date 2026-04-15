@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import {
   useGetMe,
@@ -12,6 +12,7 @@ import {
   getAdminListUsersQueryKey,
   getAdminListFeedbackQueryKey,
 } from "@workspace/api-client-react";
+import type { AdminSharedLoginIpCluster } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format, differenceInDays } from "date-fns";
 import {
@@ -309,6 +310,20 @@ const BILLING_FALLBACK_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 function addBillingFallbackPeriod(start: Date): Date {
   return new Date(start.getTime() + BILLING_FALLBACK_PERIOD_MS);
+}
+
+/** Stable hue + short label so the same set of accounts shares the same visual tag across rows and the overview. */
+function sharedIpRowAccent(accountIds: number[]): { hue: number; label: string } {
+  const sorted = [...accountIds].sort((a, b) => a - b);
+  let h = 2166136261;
+  for (const id of sorted) {
+    h ^= id;
+    h = Math.imul(h, 16777619);
+  }
+  const u = h >>> 0;
+  const hue = (u % 12) * 28 + 6;
+  const label = (u % 900 + 100).toString(36).toUpperCase().slice(0, 4);
+  return { hue, label };
 }
 
 /** `datetime-local` value in the browser's local timezone. */
@@ -813,6 +828,16 @@ export default function Admin() {
   if (!me?.isAdmin) return null;
 
   const allUsers  = usersData?.users ?? [];
+
+  const sharedLoginIpIndex = useMemo(() => {
+    const byIp = new Map<string, AdminSharedLoginIpCluster>();
+    for (const u of allUsers) {
+      for (const c of u.sharedLoginIpClusters ?? []) {
+        if (!byIp.has(c.ip)) byIp.set(c.ip, c);
+      }
+    }
+    return [...byIp.values()].sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
+  }, [allUsers]);
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
   const sessions  = stats?.activeSessions ?? [];
@@ -1598,6 +1623,57 @@ export default function Admin() {
                   Floor ≥ 8h
                 </button>
               </div>
+
+              {sharedLoginIpIndex.length > 0 && (
+                <div className="rounded-xl border border-amber-200/90 bg-amber-50/60 px-3 py-2.5 text-xs space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-amber-950">
+                      Same IP, multiple accounts ({sharedLoginIpIndex.length} IP{sharedLoginIpIndex.length !== 1 ? "s" : ""})
+                    </span>
+                    <span className="text-[10px] text-amber-900/75">
+                      From successful sign-ins only; updates whenever this list reloads
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-0.5">
+                    {sharedLoginIpIndex.map((c) => {
+                      const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
+                      return (
+                        <div
+                          key={c.ip}
+                          className="rounded-lg border border-amber-100/90 bg-white px-2.5 py-2 space-y-1.5 shadow-sm"
+                          style={{
+                            borderLeftWidth: 3,
+                            borderLeftStyle: "solid",
+                            borderLeftColor: `hsl(${accent.hue} 56% 44%)`,
+                          }}
+                        >
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <code className="text-[10px] font-mono bg-amber-50/80 px-1 py-0.5 rounded">{c.ip}</code>
+                            <span className="text-[10px] font-bold text-amber-950">Tag {accent.label}</span>
+                            <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {c.accounts.map((a) => (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-amber-200/80 bg-amber-50/50 hover:bg-amber-100 text-foreground"
+                                title={a.email ? `${a.email}` : `User #${a.id}`}
+                                onClick={() => {
+                                  const peer = allUsers.find((x) => x.id === a.id);
+                                  if (peer) openEditUser(peer);
+                                }}
+                              >
+                                #{a.id} {a.username}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Create form */}
@@ -1644,10 +1720,25 @@ export default function Admin() {
                 <tbody className="divide-y divide-border">
                   {filteredUsers.map(u => {
                     const todayPct  = Math.min(100, (u.minutesUsedToday / u.dailyLimitMinutes) * 100);
+                    const clusters = u.sharedLoginIpClusters ?? [];
+                    const firstCluster = clusters[0];
+                    const dupAccent =
+                      (u.sharedLoginIpMaxAccounts ?? 1) >= 2 && firstCluster && firstCluster.accounts.length >= 2
+                        ? sharedIpRowAccent(firstCluster.accounts.map((a) => a.id))
+                        : null;
                     return (
                       <tr
                         key={u.id}
-                        className="hover:bg-blue-50/30 transition-colors cursor-pointer"
+                        className={`hover:bg-blue-50/30 transition-colors cursor-pointer ${dupAccent ? "bg-amber-50/25" : ""}`}
+                        style={
+                          dupAccent
+                            ? {
+                                borderLeftWidth: 4,
+                                borderLeftStyle: "solid",
+                                borderLeftColor: `hsl(${dupAccent.hue} 58% 42%)`,
+                              }
+                            : undefined
+                        }
                         onClick={() => openHistory(u.id, u.username)}
                       >
                         {/* User */}
@@ -1663,18 +1754,56 @@ export default function Admin() {
                           <div className="text-[10px] text-muted-foreground">Joined {format(new Date(u.createdAt), "MMM d, yyyy · HH:mm")}</div>
                         </td>
 
-                        <td className="px-4 py-3 align-top text-xs">
+                        <td className="px-4 py-3 align-top text-xs" onClick={(e) => e.stopPropagation()}>
                           {(u.sharedLoginIpMaxAccounts ?? 1) >= 2 ? (
-                            <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900" title="Distinct accounts seen on at least one successful-login IP shared with this user">
-                                {u.sharedLoginIpMaxAccounts} accounts / same IP
+                            <div className="space-y-2 max-w-[240px]">
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900"
+                                title="Largest count of distinct accounts sharing one login IP with this user"
+                              >
+                                Up to {u.sharedLoginIpMaxAccounts} accounts / one IP
                               </span>
-                              {u.sharedLoginIps && u.sharedLoginIps.length > 0 && (
-                                <div className="text-[10px] text-muted-foreground font-mono break-all max-w-[140px]" title="Sample IPs (login history)">
-                                  {u.sharedLoginIps.slice(0, 3).join(", ")}
-                                  {u.sharedLoginIps.length > 3 ? "…" : ""}
-                                </div>
-                              )}
+                              {clusters.map((c) => {
+                                const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
+                                return (
+                                  <div
+                                    key={c.ip}
+                                    className="rounded-md border border-amber-100 bg-white/80 px-2 py-1.5 space-y-1"
+                                    style={{
+                                      borderLeftWidth: 3,
+                                      borderLeftStyle: "solid",
+                                      borderLeftColor: `hsl(${accent.hue} 56% 44%)`,
+                                    }}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      <code className="text-[9px] font-mono text-foreground/90 break-all">{c.ip}</code>
+                                      <span className="text-[9px] font-bold text-amber-950 shrink-0">Tag {accent.label}</span>
+                                    </div>
+                                    <div className="text-[9px] text-muted-foreground">{c.accountCount} accounts on this IP</div>
+                                    <div className="flex flex-wrap gap-0.5">
+                                      {c.accounts.map((a) => (
+                                        <button
+                                          key={a.id}
+                                          type="button"
+                                          className={`text-[9px] font-medium px-1 py-0.5 rounded border transition-colors ${
+                                            a.id === u.id
+                                              ? "border-primary bg-primary/10 text-primary"
+                                              : "border-amber-200/90 bg-amber-50/60 hover:bg-amber-100 text-foreground"
+                                          }`}
+                                          title={a.email ?? `User #${a.id}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const peer = allUsers.find((x) => x.id === a.id);
+                                            if (peer) openEditUser(peer);
+                                          }}
+                                        >
+                                          #{a.id} {a.username}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-[11px]">—</span>
@@ -1824,7 +1953,7 @@ export default function Admin() {
             <div className="px-4 py-2 bg-gray-50/50 border-t border-border text-[11px] text-muted-foreground space-y-0.5">
               <div>Click a row to view session history.</div>
               <div>
-                <strong className="text-foreground">Shared IP</strong> uses successful sign-in IPs only (from login history). Same office or VPN can look like duplicates; accounts that never logged in are not linked.
+                <strong className="text-foreground">Shared IP</strong> uses successful sign-in IPs only. Each row lists the IP, a matching <strong className="text-foreground">Tag</strong> (same color and tag = same group of accounts), and every account on that IP—click a name to open the user editor and disable accounts. The summary panel above deduplicates by IP. VPNs and offices can look like duplicates.
               </div>
             </div>
           </Card>
