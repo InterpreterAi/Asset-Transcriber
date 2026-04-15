@@ -27,7 +27,6 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "basic", label: "Basic · Libre", group: "paid" },
   { planType: "professional", label: "Professional · Libre", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Libre", group: "paid" },
-  { planType: "morsy-basic", label: "Morsy Basic · Apr 13 (5h)", group: "paid" },
   { planType: "unlimited", label: "Unlimited", group: "paid" },
 ];
 

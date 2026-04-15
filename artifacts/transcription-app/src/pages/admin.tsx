@@ -292,7 +292,6 @@ const ADMIN_PLAN_OPTIONS_PAID: { value: string; label: string }[] = [
   { value: "basic", label: "Basic · Libre / machine" },
   { value: "professional", label: "Professional · Libre / machine" },
   { value: "platinum-libre", label: "Platinum · Libre / machine" },
-  { value: "morsy-basic", label: "Morsy Basic · Apr 13 baseline (5h · OpenAI)" },
 ];
 
 const ADMIN_PLAN_OPTIONS_TRIAL: { value: string; label: string }[] = [
@@ -1778,7 +1777,7 @@ export default function Admin() {
                                     <div className="flex flex-wrap items-center gap-1">
                                       <code className="text-[9px] font-mono text-foreground/90 break-all">{c.ip}</code>
                                       <span className="text-[9px] font-bold text-amber-950 shrink-0">Tag {accent.label}</span>
-                                    </div>
+                                </div>
                                     <div className="text-[9px] text-muted-foreground">{c.accountCount} accounts on this IP</div>
                                     <div className="flex flex-wrap gap-0.5">
                                       {c.accounts.map((a) => (
