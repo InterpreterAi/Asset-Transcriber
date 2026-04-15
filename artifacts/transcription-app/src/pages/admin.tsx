@@ -96,7 +96,22 @@ interface SessionDetail {
   snapshot:        SessionSnapshot | null;
 }
 
-/** Admin poll merge: translation often fills a line after transcript (worse on Latin/Latin pairs like en/es). Prefer each non-empty translation line from the newest tick; keep prior line if the new one is still empty. Total-string-length merge wrongly dropped those updates when the new blob was shorter. */
+/**
+ * Only reuse a prior translation for this row when the transcript line is still the same segment
+ * (or an obvious extension). If the English/Spanish line is new/changed but translation is still
+ * empty on this poll, carrying `prev.translation[i]` repeats the previous row’s Spanish in admin (e.g. “Ah, sí” showing the long prior paragraph).
+ */
+function transcriptLineStableForTrCarry(prevLine: string, nextLine: string): boolean {
+  const p = prevLine.trim();
+  const n = nextLine.trim();
+  if (n === p) return true;
+  if (!n) return true;
+  if (!p) return false;
+  if (n.startsWith(p) || p.startsWith(n)) return true;
+  return false;
+}
+
+/** Admin poll merge: translation often fills a line after transcript (worse on Latin/Latin pairs like en/es). Prefer each non-empty translation line from the newest tick; keep prior line if the new one is still empty **and** the transcript row is unchanged. */
 function mergeLiveSessionSnapshots(prev: SessionSnapshot, next: SessionSnapshot): SessionSnapshot {
   const pt = prev.transcript.split("\n");
   const nt = next.transcript.split("\n");
@@ -111,7 +126,8 @@ function mergeLiveSessionSnapshots(prev: SessionSnapshot, next: SessionSnapshot)
     outT.push(nl.length >= pl.length ? (nl || pl) : (pl || nl));
     const pTr = ptr[i] ?? "";
     const nTr = ntr[i] ?? "";
-    outTr.push(nTr.trim() ? nTr : pTr);
+    const carryTr = nTr.trim() ? nTr : transcriptLineStableForTrCarry(pl, nl) ? pTr : "";
+    outTr.push(carryTr);
   }
   return {
     ...next,
