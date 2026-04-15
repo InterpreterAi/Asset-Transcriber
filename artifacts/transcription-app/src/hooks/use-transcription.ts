@@ -978,6 +978,44 @@ function clipToLastNWords(raw: string, n: number): string {
   return words.slice(-n).join(" ");
 }
 
+/**
+ * Live path uses a short source window; the model returns only that tail, so a full cell replace
+ * would erase the translation of earlier words (common for Spanish/Portuguese targets). Merge with
+ * what is already on screen instead of overwriting.
+ */
+function mergeLatinWindowedLiveTranslation(prev: string, windowTrans: string): string {
+  const a = collapseWs(prev);
+  const b = collapseWs(windowTrans);
+  if (!b) return a;
+  if (!a) return b;
+  const aw = a.split(/\s+/).filter(Boolean);
+  const bw = b.split(/\s+/).filter(Boolean);
+  if (bw.length === 0) return a;
+  // Model returned a longer or similar-length string — treat as refreshed full hypothesis.
+  if (b.length >= a.length * 0.92 && bw.length >= aw.length * 0.85) return b;
+  let maxOverlap = 0;
+  const maxK = Math.min(aw.length, bw.length);
+  for (let k = maxK; k >= 1; k--) {
+    let ok = true;
+    for (let i = 0; i < k; i++) {
+      if (aw[aw.length - k + i]!.toLowerCase() !== bw[i]!.toLowerCase()) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      maxOverlap = k;
+      break;
+    }
+  }
+  if (maxOverlap > 0) {
+    return [...aw.slice(0, -maxOverlap), ...bw].join(" ");
+  }
+  const drop = Math.min(aw.length, Math.max(1, bw.length));
+  const prefix = aw.length > drop ? aw.slice(0, aw.length - drop).join(" ") : "";
+  return prefix ? `${prefix} ${b}` : b;
+}
+
 function endsWithPhraseBoundary(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
@@ -1428,6 +1466,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       liveTranslationDebounceTimerRef.current = null;
     }
     liveTranslationDebouncePayloadRef.current = null;
+    if (silenceQuickFinalTimerRef.current !== null) {
+      clearTimeout(silenceQuickFinalTimerRef.current);
+      silenceQuickFinalTimerRef.current = null;
+    }
   }, []);
 
   const scheduleDebouncedLiveTranslation = useCallback((text: string, lang: string, segmentId: string) => {
@@ -1501,6 +1543,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const maxSessionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetInactivityRef   = useRef<(() => void) | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Provisional full-segment translate after brief silence (before Soniox &lt;end&gt;). */
+  const silenceQuickFinalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Dedup silence finals until source changes or speech resumes. */
+  const lastSilenceQuickFinalKeyRef = useRef<string>("");
   /** Prevents double stop() when both worklet and heartbeat see the daily cap. */
   const dailyLimitAutoStopRef = useRef(false);
 
@@ -1762,7 +1808,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
-          await new Promise<void>(res => setTimeout(res, 450));
+          await new Promise<void>(res => setTimeout(res, 120));
           if (requestSegmentId !== state.segmentId) return;
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
@@ -1824,9 +1870,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (!outRaw.trim()) {
             return;
           }
+          const prevTr = (transTextEl.textContent ?? "").trim();
+          const sourceWindowed =
+            !requestIsFinal &&
+            apiText.trim().length > 0 &&
+            text.trim().length > apiText.trim().length + 2;
+          const targetBase = myTargetLang.split("-")[0]!.toLowerCase();
+          const useLatinMerge = sourceWindowed && LATIN_SCRIPT_TARGET_LANGS.has(targetBase);
+          const toShow = useLatinMerge ? mergeLatinWindowedLiveTranslation(prevTr, outRaw) : outRaw;
           state.lastShownSeq = mySeq;
-          state.lastShownLen = outRaw.length;
-          applyTranslationTypography(transTextEl, outRaw);
+          state.lastShownLen = toShow.length;
+          applyTranslationTypography(transTextEl, toShow);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           state.needsFullFinalTranslation = false;
@@ -2111,6 +2165,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
+    if (silenceQuickFinalTimerRef.current !== null) {
+      clearTimeout(silenceQuickFinalTimerRef.current);
+      silenceQuickFinalTimerRef.current = null;
+    }
+    lastSilenceQuickFinalKeyRef.current = "";
     stopTranslationInterval();
     finalizeLiveBubble();
 
@@ -2244,7 +2303,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          800,
+        max_endpoint_delay_ms:          220,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
@@ -2295,6 +2354,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens, langPairRef.current);
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
+      if (sawSonioxEndpoint && silenceQuickFinalTimerRef.current !== null) {
+        clearTimeout(silenceQuickFinalTimerRef.current);
+        silenceQuickFinalTimerRef.current = null;
+      }
       resetInactivityRef.current?.();
 
       // ── FINAL tokens (exclude Soniox &lt;end&gt; marker from transcript + counts) ──
@@ -2369,6 +2432,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       const nfEl = activeBubbleNFRef.current;
       if (nfText) {
+        lastSilenceQuickFinalKeyRef.current = "";
+        if (silenceQuickFinalTimerRef.current !== null) {
+          clearTimeout(silenceQuickFinalTimerRef.current);
+          silenceQuickFinalTimerRef.current = null;
+        }
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
           const prev = stNf.lastNfRawText;
@@ -2456,6 +2524,51 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             },
             stEnd.segmentId,
           );
+        }
+      } else {
+        // Brief silence with no NF tail: start full-segment translate early (placeholder is current live cell).
+        // suppressEarlyHardFinal avoids blocking live if the speaker resumes before &lt;end&gt;.
+        const stQ = activeBubbleStateRef.current;
+        const srcQ = liveBufferRef.current.trim();
+        const nfTrim = nfText.trim();
+        if (nfTrim.length > 0) {
+          if (silenceQuickFinalTimerRef.current !== null) {
+            clearTimeout(silenceQuickFinalTimerRef.current);
+            silenceQuickFinalTimerRef.current = null;
+          }
+        } else if (stQ && !stQ.translationLocked && !stQ.finalizing && srcQ.length >= 5) {
+          const silentMs = Date.now() - stQ.lastLiveSourceTs;
+          if (silentMs >= 380) {
+            const key = `${stQ.segmentId}|${srcQ}`;
+            if (lastSilenceQuickFinalKeyRef.current !== key) {
+              lastSilenceQuickFinalKeyRef.current = key;
+              if (silenceQuickFinalTimerRef.current !== null) {
+                clearTimeout(silenceQuickFinalTimerRef.current);
+              }
+              silenceQuickFinalTimerRef.current = setTimeout(() => {
+                silenceQuickFinalTimerRef.current = null;
+                if (!isRecRef.current) return;
+                const stN = activeBubbleStateRef.current;
+                if (!stN || stN.segmentId !== stQ.segmentId || stN.translationLocked || stN.finalizing) {
+                  return;
+                }
+                const srcNow = liveBufferRef.current.trim();
+                if (srcNow !== srcQ) return;
+                if ((activeBubbleNFRef.current?.textContent ?? "").trim().length > 0) return;
+                dispatchTranslationRef.current(
+                  srcNow,
+                  detectedLangRef.current,
+                  true,
+                  {
+                    lockOnFinal: false,
+                    suppressEarlyHardFinal: true,
+                    skipOpenAiLiveDebounce: true,
+                  },
+                  stN.segmentId,
+                );
+              }, 100);
+            }
+          }
         }
       }
     };
