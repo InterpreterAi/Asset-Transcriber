@@ -1040,11 +1040,11 @@ function clipToLastNWords(raw: string, n: number): string {
 }
 
 /**
- * Live path uses a short source window; the model returns only that tail, so a full cell replace
- * would erase the translation of earlier words (common for Spanish/Portuguese targets). Merge with
- * what is already on screen instead of overwriting.
+ * Live path sends only the last N source words; the model returns that tail’s translation only.
+ * Never replace the whole cell with `windowTrans` (that erases pre-pause text). Never drop a suffix
+ * of the previous translation when there is no real token overlap (same speaker resumed after silence).
  */
-function mergeLatinWindowedLiveTranslation(prev: string, windowTrans: string): string {
+function mergeWindowedLiveTranslation(prev: string, windowTrans: string): string {
   const a = collapseWs(prev);
   const b = collapseWs(windowTrans);
   if (!b) return a;
@@ -1052,8 +1052,7 @@ function mergeLatinWindowedLiveTranslation(prev: string, windowTrans: string): s
   const aw = a.split(/\s+/).filter(Boolean);
   const bw = b.split(/\s+/).filter(Boolean);
   if (bw.length === 0) return a;
-  // Model returned a longer or similar-length string — treat as refreshed full hypothesis.
-  if (b.length >= a.length * 0.92 && bw.length >= aw.length * 0.85) return b;
+
   let maxOverlap = 0;
   const maxK = Math.min(aw.length, bw.length);
   for (let k = maxK; k >= 1; k--) {
@@ -1070,11 +1069,10 @@ function mergeLatinWindowedLiveTranslation(prev: string, windowTrans: string): s
     }
   }
   if (maxOverlap > 0) {
-    return [...aw.slice(0, -maxOverlap), ...bw].join(" ");
+    return collapseWs([...aw.slice(0, -maxOverlap), ...bw].join(" "));
   }
-  const drop = Math.min(aw.length, Math.max(1, bw.length));
-  const prefix = aw.length > drop ? aw.slice(0, aw.length - drop).join(" ") : "";
-  return prefix ? `${prefix} ${b}` : b;
+  // No boundary overlap (typical after a pause): keep everything already shown, then add the new tail.
+  return collapseWs(`${a} ${b}`);
 }
 
 function endsWithPhraseBoundary(s: string): boolean {
@@ -1928,9 +1926,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             !requestIsFinal &&
             apiText.trim().length > 0 &&
             text.trim().length > apiText.trim().length + 2;
-          const targetBase = myTargetLang.split("-")[0]!.toLowerCase();
-          const useLatinMerge = sourceWindowed && LATIN_SCRIPT_TARGET_LANGS.has(targetBase);
-          const toShow = useLatinMerge ? mergeLatinWindowedLiveTranslation(prevTr, outRaw) : outRaw;
+          const toShow = sourceWindowed ? mergeWindowedLiveTranslation(prevTr, outRaw) : outRaw;
           state.lastShownSeq = mySeq;
           state.lastShownLen = toShow.length;
           applyTranslationTypography(transTextEl, toShow);
