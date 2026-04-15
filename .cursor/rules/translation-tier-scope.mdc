@@ -5,14 +5,20 @@ alwaysApply: true
 
 # Translation & billing tier scope (InterpreterAI)
 
-## Do not change (final boss / OpenAI)
+## Final Boss 2 (named snapshot — OpenAI interpreter only)
+
+- **Final Boss 2** is the product label for the **current OpenAI interpreter stack**: same `/translate` pipeline and client behavior used for **Platinum**, **`unlimited`**, **Basic/Professional OpenAI variants** (e.g. `basic-openai`, `professional-openai`), **`platinum`** (OpenAI path), and **OpenAI trial tiers** (`trial`, `trial-openai`) when requests hit the OpenAI path (i.e. not `useMachineTranslation`).
+- **Git:** frozen reference **`final-boss-2`** (annotated tag on the tree that shipped this baseline).
+- **Libre / machine line is not Final Boss 2:** tiers that use **`useMachineTranslation`** (`basic`, `professional`, `trial-libre`, `platinum-libre` with the Libre/machine engine) keep their **own** baseline — do not relabel or merge them into FB2; leave those files and behaviors as-is unless a task explicitly targets Libre only.
+
+## Do not change (Final Boss 2 / OpenAI)
 
 - **Platinum** and **`unlimited`** translation, prompts, finalize behavior, retries, or client paths tied to those plans.
 - **OpenAI trial tiers:** default **`trial`** and **`trial-openai`** (same OpenAI `/translate` stack as Platinum). Do not modify their behavior, prompts, or shared OpenAI-only code paths except to fix unrelated bugs with explicit user approval.
 
 ## Allowed to change (Libre / machine translation only)
 
-- **`basic`**, **`professional`**, and **`trial-libre`** only: server Libre path (`useMachineTranslation` in `transcription.ts`), `basic-pro-translate.ts`, `libretranslate.ts`. **Client translation dispatch must stay identical to Platinum** — engine swap is server-side only.
+- **`basic`**, **`professional`**, **`trial-libre`**, and **`platinum-libre`** **machine path** only: server Libre path (`useMachineTranslation` in `transcription.ts`), `basic-pro-translate.ts`, `libretranslate.ts`. **Client translation dispatch must stay identical to Platinum** — engine swap is server-side only.
 
 ## Implementation discipline
 
