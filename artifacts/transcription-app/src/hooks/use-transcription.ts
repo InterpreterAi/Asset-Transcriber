@@ -47,10 +47,30 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   return fTrim + n;
 }
 
+/**
+ * Non-final transcription tail must not shrink when Soniox revises hypothesis (common in en/es pairs):
+ * replacing the NF span with a shorter string made words disappear until a later final.
+ * Prefer the longer visible string or an overlap-merge with {@link mergeFinalWithNonFinalHypothesis}.
+ */
+function mergeNonFinalTranscriptionVisible(prevDom: string, sonioxNf: string): string {
+  const p = prevDom;
+  const s = sonioxNf;
+  if (!s.trim()) return p;
+  if (!p.trim()) return s;
+  const pTrim = p.trimEnd();
+  const sTrim = s.trimStart();
+  if (sTrim.startsWith(pTrim) || s.startsWith(p)) {
+    return s.length >= p.length ? s : p;
+  }
+  if (pTrim.startsWith(sTrim) || p.startsWith(s)) {
+    return p;
+  }
+  return mergeFinalWithNonFinalHypothesis(pTrim, sTrim);
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
@@ -1508,14 +1528,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
-  const scheduleFinalTextRenderFlush = useCallback(() => {
-    if (finalRenderTimerRef.current !== null) return;
-    finalRenderTimerRef.current = setTimeout(() => {
-      finalRenderTimerRef.current = null;
-      flushFinalTextRenderQueue();
-    }, FINAL_TEXT_RENDER_BUFFER_MS);
-  }, [flushFinalTextRenderQueue]);
-
   const getBufferedFinalTextForActiveBubble = useCallback((): string => {
     const active = activeBubbleRef.current;
     if (!active) return "";
@@ -2406,7 +2418,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         detectedLangRef.current = validatedLang;
       }
 
-      scheduleFinalTextRenderFlush();
+      // Commit finals to the transcript before touching the NF span so text never briefly disappears
+      // when Soniox clears or shortens hypothesis in the same frame.
+      flushFinalTextRenderQueue();
 
       finalCountRef.current = finals.length;
       scrollPanel();
@@ -2444,8 +2458,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const suffix = nfText.slice(prev.length);
             if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
           } else {
-            // Revised hypothesis (not a strict extension of the last NF string).
-            nfEl.textContent = nfText;
+            const curDom = nfEl.textContent ?? "";
+            nfEl.textContent = mergeNonFinalTranscriptionVisible(curDom, nfText);
           }
           stNf.lastNfRawText = nfText;
         }
@@ -2588,7 +2602,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     closeActiveSegmentBoundary,
     createBubble,
     scrollPanel,
-    scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
     tryLockSegmentDirectionFromTokens,
