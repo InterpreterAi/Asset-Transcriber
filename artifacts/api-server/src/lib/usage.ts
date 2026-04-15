@@ -55,6 +55,7 @@ function isPaidTranslationPlan(eff: string): boolean {
   return (
     e === "basic" ||
     e === "basic-openai" ||
+    e === "morsy-basic" ||
     e === "professional" ||
     e === "professional-openai" ||
     e === "platinum" ||

@@ -284,7 +284,7 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Paid: exactly 3 products × OpenAI vs Libre (6 rows). End users only see Basic / Professional / Platinum. */
+/** Paid: 3 products × OpenAI vs Libre (6 rows) + admin-only Apr 13 baseline. End users only see Basic / Professional / Platinum. */
 const ADMIN_PLAN_OPTIONS_PAID: { value: string; label: string }[] = [
   { value: "basic-openai", label: "Basic · OpenAI (interpreter stack)" },
   { value: "professional-openai", label: "Professional · OpenAI (interpreter stack)" },
@@ -292,6 +292,7 @@ const ADMIN_PLAN_OPTIONS_PAID: { value: string; label: string }[] = [
   { value: "basic", label: "Basic · Libre / machine" },
   { value: "professional", label: "Professional · Libre / machine" },
   { value: "platinum-libre", label: "Platinum · Libre / machine" },
+  { value: "morsy-basic", label: "Morsy Basic · Apr 13 baseline (5h · OpenAI)" },
 ];
 
 const ADMIN_PLAN_OPTIONS_TRIAL: { value: string; label: string }[] = [

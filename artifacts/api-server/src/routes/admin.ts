@@ -34,6 +34,7 @@ const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
 const PLAN_PRICES: Record<string, number> = {
   basic: 59,
   "basic-openai":      59,
+  "morsy-basic":       59,
   professional:        99,
   "professional-openai": 99,
   platinum:            179,
@@ -1061,6 +1062,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     "trial-libre",
     "basic",
     "basic-openai",
+    "morsy-basic",
     "professional",
     "professional-openai",
     "platinum",
@@ -1163,6 +1165,14 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
       }
       updates.subscriptionPeriodEndsAt = parsed;
     }
+  }
+
+  if (
+    planType &&
+    planType.toLowerCase() === "morsy-basic" &&
+    dailyLimitMinutes === undefined
+  ) {
+    updates.dailyLimitMinutes = 300;
   }
 
   const result = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
