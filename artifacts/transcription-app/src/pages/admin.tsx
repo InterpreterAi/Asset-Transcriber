@@ -2692,7 +2692,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Same segment pairing as the user sees in Practice Output (one row per finalized line). Speaker tags live only in their session UI; this view is for diagnosing transcript ↔ translation alignment.
+                  One row per finalized segment. Stale duplicate translations are hidden so this view matches what users see; empty cells may fill on the next refresh after the final API returns.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
@@ -2703,32 +2703,50 @@ export default function Admin() {
                     const tLines = sessionDetail.snapshot.transcript.split("\n");
                     const trLines = (sessionDetail.snapshot.translation ?? "").split("\n");
                     const n = Math.max(tLines.length, trLines.length);
+                    /** Avoid showing a prior line's translation again when the transcript line changed (stale snapshot). */
+                    function translationCell(i: number): { kind: "ok"; text: string } | { kind: "empty" } | { kind: "dup" } {
+                      const raw = (trLines[i] ?? "").trim();
+                      const tCur = (tLines[i] ?? "").trim();
+                      const tPrev = i > 0 ? (tLines[i - 1] ?? "").trim() : "";
+                      const prevTr = i > 0 ? (trLines[i - 1] ?? "").trim() : "";
+                      if (!raw) return { kind: "empty" };
+                      if (i > 0 && raw === prevTr && tCur && tCur !== tPrev) return { kind: "dup" };
+                      return { kind: "ok", text: trLines[i] ?? "" };
+                    }
                     return (
                       <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
                         <div className="grid grid-cols-2 gap-0 bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                           <div className="px-3 py-2 border-r border-border">Transcript</div>
                           <div className="px-3 py-2">Translation</div>
                         </div>
-                        {Array.from({ length: n }, (_, i) => (
+                        {Array.from({ length: n }, (_, i) => {
+                          const trCell = translationCell(i);
+                          const tCur = (tLines[i] ?? "").trim();
+                          return (
                           <div
                             key={i}
                             className="grid grid-cols-2 gap-0 items-start bg-white hover:bg-muted/10"
                           >
                             <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 border-r border-border min-h-[2.5rem]">
-                              {tLines[i]?.trim() ? tLines[i] : "—"}
+                              {tCur ? tLines[i] : "—"}
                             </div>
                             <div
                               className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 min-h-[2.5rem]"
                               dir="auto"
                             >
-                              {trLines[i]?.trim() ? (
-                                trLines[i]
+                              {trCell.kind === "ok" ? (
+                                trCell.text
                               ) : (
-                                <span className="text-muted-foreground italic">—</span>
+                                <span className="text-muted-foreground italic text-xs leading-relaxed">
+                                  {trCell.kind === "dup"
+                                    ? "— Duplicate of previous line (hidden — not what the user sees)"
+                                    : tCur ? "— Final translation pending" : "—"}
+                                </span>
                               )}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     );
                   })()

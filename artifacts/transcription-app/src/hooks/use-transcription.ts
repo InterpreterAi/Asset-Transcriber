@@ -1934,8 +1934,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
       // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
       transcriptBufRef.current.push(finalText);
-      const stSnap = activeBubbleStateRef.current;
-      translationBufRef.current.push((stSnap?.transTextEl.textContent ?? "").trim());
+      // Admin snapshot: start with an empty translation slot so we never copy a stale
+      // prior-row translation from the DOM before this segment's cell is updated. Live
+      // passthrough and the final API pass overwrite translationBufRef[length-1] in place.
+      translationBufRef.current.push("");
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Always pass live Soniox hint; dispatch snaps to the pair + opposite target (never same-lang tgt).
       const segId = activeBubbleStateRef.current?.segmentId;
