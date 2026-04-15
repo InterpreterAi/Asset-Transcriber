@@ -438,6 +438,16 @@ export default function Admin() {
   const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
   const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { queryKey: getAdminListUsersQueryKey(), enabled: !!me?.isAdmin } });
+  const allUsers = usersData?.users ?? [];
+  const sharedLoginIpIndex = useMemo(() => {
+    const byIp = new Map<string, AdminSharedLoginIpCluster>();
+    for (const u of allUsers) {
+      for (const c of u.sharedLoginIpClusters ?? []) {
+        if (!byIp.has(c.ip)) byIp.set(c.ip, c);
+      }
+    }
+    return [...byIp.values()].sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
+  }, [allUsers]);
   const { data: feedbackData } = useAdminListFeedback({ query: { queryKey: getAdminListFeedbackQueryKey(), enabled: !!me?.isAdmin } });
 
   const { data: statsData, refetch: refetchStats } = useQuery({
@@ -827,17 +837,6 @@ export default function Admin() {
   }
   if (!me?.isAdmin) return null;
 
-  const allUsers  = usersData?.users ?? [];
-
-  const sharedLoginIpIndex = useMemo(() => {
-    const byIp = new Map<string, AdminSharedLoginIpCluster>();
-    for (const u of allUsers) {
-      for (const c of u.sharedLoginIpClusters ?? []) {
-        if (!byIp.has(c.ip)) byIp.set(c.ip, c);
-      }
-    }
-    return [...byIp.values()].sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
-  }, [allUsers]);
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
   const sessions  = stats?.activeSessions ?? [];
