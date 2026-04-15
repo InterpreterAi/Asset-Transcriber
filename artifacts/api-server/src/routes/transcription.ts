@@ -1684,6 +1684,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- If the input contains NUM_1, NUM_2, … tokens, those mark exact digit strings from speech — copy each token exactly in place; never spell them as words and never use localized digit shapes for them.\n` +
     `- Never split a single numeric token into separate chunks (e.g. 3602 must remain 3602, not 36 02 or 2 0 36).\n` +
     `- For all other numbers in plain text, preserve every digit and magnitude: do not round, merge, or reformat unless the target language requires a standard script-specific numeral form.\n` +
+    `- Phone numbers, account numbers, and rapid digit chains: keep the exact digit order and total length; never drop, merge, reorder, or summarize digits.\n` +
     `- Keep medical doses and measurement units accurate (e.g. "500 milligrams" must stay 500 mg equivalent in ${tgtName}, not an approximate amount).\n` +
     `- Reproduce IDs and codes exactly as spoken.\n\n` +
 
