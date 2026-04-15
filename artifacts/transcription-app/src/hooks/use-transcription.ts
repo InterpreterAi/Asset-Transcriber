@@ -2160,7 +2160,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          800,
+        max_endpoint_delay_ms:          500,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {

@@ -531,15 +531,11 @@ const NON_EN_TO_EN_INTERPRETER_RULES =
   `- If the source ends with one closing question or tag (e.g. Arabic تمام؟ or similar), use one English question only — do not append a second tag line such as "Complete confidentiality, right?" or "Is that okay?" that repeats the same idea.\n` +
   `- Never output the same English word twice in a row unless the speaker literally repeated it.\n\n`;
 
-/** Full-segment finalize pass from the client — authoritative translation replacing earlier partials. */
+/** Full-segment finalize pass from the client — lighter prompt for lower latency (stable UI / no client glue changes). */
 function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
   return (
-    `FINAL SEGMENT CORRECTION:\n` +
-    `- The user message is the COMPLETE finalized source text for one interpreter segment (e.g. after a pause or speaker change in live interpreting).\n` +
-    `- Produce one polished, grammatically natural translation of the ENTIRE message in ${tgtDisplayName}.\n` +
-    `- This pass may supersede partial or incremental translations shown earlier — prioritize accuracy and coherence for the full utterance.\n` +
-    `- Do not summarize, omit content, or add information not present in the source.\n` +
-    `- Render medical, legal, and insurance/claims terms in standard ${tgtDisplayName} (full target-language equivalents, not English insertions in non-Latin targets).\n\n`
+    `FINAL SEGMENT:\n` +
+    `- Finalize this segment in ${tgtDisplayName}: Fix only critical punctuation and capitalization. Do not rephrase or expand. Keep it fast.\n\n`
   );
 }
 
