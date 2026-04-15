@@ -1,14 +1,4 @@
-/**
- * Morsy baseline: exact `use-transcription.ts` from main at **2026-04-13 11:00 Egypt**
- * (Africa/Cairo, UTC+2 year-round — same offset as `+0200` in git timestamps).
- * Git: `main` @ `c3879acd` (`git rev-list -1 --before='2026-04-13 11:00:00 +0200' main`).
- *
- * The next commit that day (`23ebc188` @ 13:03 +0200) did not touch this file — `use-transcription.ts`
- * is byte-identical between `c3879acd` and `23ebc188`, so the hook already matched pre-noon Egypt.
- *
- * Small integration-only additions below (dailyCapRef / heartbeat cap) are not in `c3879acd`;
- * they keep daily-limit behavior aligned with the current workspace without changing STT/translate logic.
- */
+/** Morsy: `use-transcription` as it was around Apr 13 2026 morning (Egypt). Extra: dailyCapRef + heartbeat cap for the current app shell. */
 import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
