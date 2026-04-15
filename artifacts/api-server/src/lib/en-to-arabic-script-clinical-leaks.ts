@@ -93,7 +93,42 @@ const ENGLISH_TO_ARABIC_REPLACEMENTS_RAW: [string, string][] = [
   ["fibroid", "ليف رحمي"],
 ];
 
+/**
+ * English → Arabic **only** (not merged into {@link getEnglishDomainLeakPhrasesSorted} — avoids
+ * changing MT repair for Spanish/French/etc.). Covers symptoms often left in Latin letters in live EN→AR.
+ */
+const ARABIC_ONLY_MEDICAL_LEAKS_RAW: [string, string][] = [
+  ["pins and needles", "وخز وأبر"],
+  ["loss of sensation", "فقدان الإحساس"],
+  ["shortness of breath", "ضيق في التنفس"],
+  ["difficulty breathing", "صعوبة في التنفس"],
+  ["abdominal pain", "ألم بطني"],
+  ["muscle pain", "ألم عضلي"],
+  ["joint pain", "ألم في المفاصل"],
+  ["back pain", "ألم في الظهر"],
+  ["chest pain", "ألم في الصدر"],
+  ["blurred vision", "رؤية ضبابية"],
+  ["hearing loss", "فقدان السمع"],
+  ["runny nose", "سيلان الأنف"],
+  ["sore throat", "التهاب في الحلق"],
+  ["numbness", "خدر"],
+  ["tingling", "وخز"],
+  ["dizziness", "دوخة"],
+  ["vomiting", "قيء"],
+  ["headache", "صداع"],
+  ["fatigue", "إرهاق"],
+  ["weakness", "ضعف"],
+  ["swelling", "تورم"],
+  ["itching", "حكة"],
+  ["nausea", "غثيان"],
+  ["rash", "طفح جلدي"],
+];
+
 const ENGLISH_TO_ARABIC_REPLACEMENTS: [string, string][] = [...ENGLISH_TO_ARABIC_REPLACEMENTS_RAW].sort(
+  (a, b) => b[0].length - a[0].length,
+);
+
+const ARABIC_ONLY_MEDICAL_LEAKS: [string, string][] = [...ARABIC_ONLY_MEDICAL_LEAKS_RAW].sort(
   (a, b) => b[0].length - a[0].length,
 );
 
@@ -107,6 +142,10 @@ export function applyArabicStaticLeakReplacements(translated: string): string {
   if (!t || !/[A-Za-z]{3,}/.test(t)) return t;
 
   for (const [en, ar] of ENGLISH_TO_ARABIC_REPLACEMENTS) {
+    const re = new RegExp(`(?<![A-Za-z])${escapeRegExpForLeaks(en)}(?![A-Za-z])`, "gi");
+    t = t.replace(re, ar);
+  }
+  for (const [en, ar] of ARABIC_ONLY_MEDICAL_LEAKS) {
     const re = new RegExp(`(?<![A-Za-z])${escapeRegExpForLeaks(en)}(?![A-Za-z])`, "gi");
     t = t.replace(re, ar);
   }
