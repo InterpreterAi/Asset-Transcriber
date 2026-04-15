@@ -1,3 +1,11 @@
+/**
+ * Morsy baseline: exact `use-transcription.ts` from main commit 23ebc188 (2026-04-13).
+ * Resolved as `main` at `--before=2026-04-13 11:00:00 -0400` (America/New_York morning,
+ * before afternoon/evening transcription commits the same calendar day).
+ *
+ * Small integration-only additions below (dailyCapRef / heartbeat cap) are not in 23ebc188;
+ * they keep daily-limit behavior aligned with the current workspace without changing STT/translate logic.
+ */
 import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
@@ -187,16 +195,8 @@ function _runsFromForwardSpeakers(forward: (string | undefined)[]): _SpeakerRun[
  * code-switching or overlap noise. That used to open a new segment per flicker. Collapse *short*
  * runs sandwiched between the same speaker (A→B→A), tiny leading runs, and tiny trailing runs so
  * boundaries match stable speaker changes only — same rule as “real” speaker, fewer spurious rows.
- *
- * For Latin-only pairs (e.g. English plus Spanish), use looser “ephemeral” limits: solo practice
- * often gets a short clause mis-tagged as the other speaker, which opened a new row and reset
- * translation state. English plus Arabic often sees fewer such splits because the pair mixes Latin
- * with Arabic script. Pairs that combine Latin with a non-Latin script keep the tighter limits.
  */
-function effectiveSpeakersForTokenBoundaries(
-  tokens: SonioxToken[],
-  pair?: { a: string; b: string },
-): (string | undefined)[] {
+function effectiveSpeakersForTokenBoundaries(tokens: SonioxToken[]): (string | undefined)[] {
   const n = tokens.length;
   if (n === 0) return [];
   const forward: (string | undefined)[] = new Array(n).fill(undefined);
@@ -212,13 +212,10 @@ function effectiveSpeakersForTokenBoundaries(
     for (let i = r.start; i < r.end; i++) c += (tokens[i]!.text ?? "").length;
     return c;
   };
-  const latinLatin = pair != null && pairIsLatinLatinOnly(pair);
-  const maxEphemeralTokens = latinLatin ? 14 : 3;
-  const maxEphemeralChars  = latinLatin ? 120 : 28;
   const isEphemeralRun = (r: _SpeakerRun): boolean => {
     const tokLen = r.end - r.start;
     const chars = runChars(r);
-    return tokLen < maxEphemeralTokens && chars < maxEphemeralChars;
+    return tokLen < 3 && chars < 28;
   };
   for (let pass = 0; pass < 4; pass++) {
     let changed = false;
@@ -408,13 +405,6 @@ function scriptEntryLangs(scriptName: string): string[] {
 
 /** BCP-47 bases using Latin script — shared polish with English/Portuguese/Spanish (any en↔X pair). */
 const LATIN_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Latin"));
-
-function pairIsLatinLatinOnly(pair: { a: string; b: string }): boolean {
-  const ba = pair.a.split("-")[0]!.toLowerCase();
-  const bb = pair.b.split("-")[0]!.toLowerCase();
-  return LATIN_SCRIPT_TARGET_LANGS.has(ba) && LATIN_SCRIPT_TARGET_LANGS.has(bb);
-}
-
 /** ar, fa, ur */
 const ARABIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Arabic"));
 const CYRILLIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Cyrillic"));
@@ -1097,10 +1087,7 @@ function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: stri
   }
   // Mid-string edits (e.g. punctuation inserted) break strict prefix but share a long LCP.
   const lcp = lcpLenInsensitive(full, prefix);
-  // One threshold for every language pair: lenient enough that ASR revisions still stay in
-  // streaming tail mode (phrase-by-phrase translation while the transcript grows). Stricter LCP
-  // forced full-buffer live calls that aborted each other and looked like “wait for the whole line.”
-  const minRecover = Math.max(2, Math.min(20, Math.floor(prefix.length * 0.05) || 4));
+  const minRecover = Math.max(4, Math.min(32, Math.floor(prefix.length * 0.12) || 8));
   if (lcp >= minRecover && lcp < full.length) {
     const tail = full.slice(lcp).trimStart();
     if (tail.length > 0) return { tail, monotonic: true };
@@ -1216,9 +1203,9 @@ export type UseTranscriptionOptions = {
  * Translation engine (OpenAI vs machine) is chosen server-side per authenticated user on each request.
  */
 export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Same gates for all pairs so translation tracks interim transcription like en–ar / en–hi. */
-  const EARLY_HINT_MIN_WORDS = 1;
-  const LIVE_PREVIEW_WORD_STEP = 2;
+  /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Tuned for earlier first paint without extra final polish passes. */
+  const EARLY_HINT_MIN_WORDS = 8;
+  const LIVE_PREVIEW_WORD_STEP = 6;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1309,8 +1296,8 @@ export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTran
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Single value for all pairs — incremental translation while transcribing. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 12;
+  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1466,17 +1453,7 @@ export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTran
         : validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
-    // Soniox often tags Latin speech with a third language (e.g. fr, pt, und) that is
-    // not one of the user's two languages. For English plus Hindi, Devanagari vs Latin
-    // disambiguates and tags still map to exactly one pair member. For English plus Spanish,
-    // both sides are Latin: the tag may match neither side, all three uniquePairMemberForLang
-    // checks are null, and we used to "passthrough" (mirror transcript into the translation
-    // column with no API call). That left rows without a real translation. Only passthrough
-    // when the pair is effectively same-language (duplicate bases), which is almost always a mistake.
-    const pairBasesDistinct =
-      pair.a.split("-")[0]!.toLowerCase() !== pair.b.split("-")[0]!.toLowerCase();
     if (
-      !pairBasesDistinct &&
       uniquePairMemberForLang(vRaw, pair) === null &&
       uniquePairMemberForLang(vSon, pair) === null &&
       uniquePairMemberForLang(sonioxHint, pair) === null
@@ -1663,22 +1640,8 @@ export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTran
         }
       }
     } else {
-      // Live preview: translate only the new tail vs streaming-committed source, then merge.
-      // Full-buffer re-translate every frame caused long blanks (waiting on huge requests) and churn
-      // (model rewrote earlier phrases — English leaks, flicker).
-      const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-      if (monotonic && !tail.trim()) {
-        if (translationCellLooksFilled(state.transTextEl)) return;
-        apiText = text;
-        useStreamingDelta = false;
-      } else if (monotonic && tail.trim()) {
-        apiText = tail;
-        useStreamingDelta = true;
-      } else {
-        apiText = text;
-        useStreamingDelta = false;
-      }
-      requestIsFinal = false;
+      apiText = text;
+      useStreamingDelta = false;
     }
 
     let liveAbortForThisRequest: AbortController | undefined;
@@ -1775,26 +1738,20 @@ export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTran
             }
           }
         } else if (useStreamingDelta) {
-          const prevShown = (transTextEl.textContent ?? "").trim();
           const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
-          const safeMerged =
-            prevShown && merged.length < prevShown.length ? prevShown : merged;
           state.lastShownSeq = mySeq;
-          state.lastShownLen = safeMerged.length;
-          applyTranslationTypography(transTextEl, safeMerged);
+          state.lastShownLen = merged.length;
+          applyTranslationTypography(transTextEl, merged);
           state.pendingDisplayTranslation = "";
-          state.streamCommittedSource = text;
+          const committed = state.streamCommittedSource.trim();
+          state.streamCommittedSource = committed ? `${committed} ${text}` : text;
           state.needsFullFinalTranslation = false;
           state.lastConfirmedSourceTranslated = text;
         } else {
-          const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
-          if (!outRaw.trim()) {
+          const out = dedupeConsecutiveTranslationTokens(translated.trim());
+          if (!out.trim()) {
             return;
           }
-          const prevShown = (transTextEl.textContent ?? "").trim();
-          // Live preview: never shrink the cell (avoids “deleted” text when a stale/shorter model reply wins).
-          const out =
-            !requestIsFinal && prevShown && outRaw.length < prevShown.length ? prevShown : outRaw;
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -2244,7 +2201,7 @@ export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTran
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      const effSpk = effectiveSpeakersForTokenBoundaries(tokens, langPairRef.current);
+      const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
@@ -2362,17 +2319,12 @@ export function useTranscriptionMorsyBaseline(isAdmin = false, options?: UseTran
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
-      // Start live translate from interim text, not only after Soniox final tokens — finals often lag.
-      // Same readiness rule for every pair so Spanish (and all targets) track like en–ar / en–hi.
-      const liveHintSourceReady =
-        st !== null &&
-        (st.finalTokensSeen >= 1 || (wordsNow >= 2 && hintSource.length >= 8));
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        liveHintSourceReady &&
-        hintSource.length >= 6 &&
+        st.finalTokensSeen >= 2 &&
+        hintSource.length >= 20 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {
