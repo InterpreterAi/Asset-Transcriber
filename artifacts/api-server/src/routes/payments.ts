@@ -3,6 +3,7 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import {
+  billingProductKeyFromPlanType,
   createPayPalSubscription,
   inferPlanTypeFromPayPalPlanId,
   paypalPlanEnvDiagnostics,
@@ -14,6 +15,7 @@ import {
 } from "../lib/paypal.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
+import { isTrialLikePlanType } from "../lib/usage.js";
 
 /** PayPal notification `resource` shape varies; normalize fields used for routing. */
 function paypalResourceCustomId(resource: unknown): string {
@@ -364,15 +366,56 @@ router.post("/paypal-webhook", async (req, res) => {
 
 const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
-function isDevPlanSwitchType(v: unknown): v is BillingPlanType | "trial" {
-  return v === "basic" || v === "professional" || v === "platinum" || v === "trial";
+/** Same `plan_type` values admins can assign in `/api/admin/users/:id` — keeps workspace “Plan testing” in sync with production. */
+const ADMIN_TEST_PLAN_TYPES = [
+  "trial",
+  "trial-openai",
+  "trial-libre",
+  "basic",
+  "basic-openai",
+  "professional",
+  "professional-openai",
+  "platinum",
+  "platinum-libre",
+  "unlimited",
+] as const;
+
+type AdminTestPlanType = (typeof ADMIN_TEST_PLAN_TYPES)[number];
+
+function normalizeAdminTestPlanType(raw: unknown): AdminTestPlanType | null {
+  if (typeof raw !== "string") return null;
+  const p = raw.trim().toLowerCase();
+  return (ADMIN_TEST_PLAN_TYPES as readonly string[]).includes(p) ? (p as AdminTestPlanType) : null;
+}
+
+/** Daily cap for test switches: PayPal tiers for paid basics; high cap for unlimited-style tiers (matches workspace “Unlimited” UI threshold). */
+function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number {
+  if (planType === "trial" || planType === "trial-openai" || planType === "trial-libre") {
+    return TRIAL_DAILY_LIMIT_MINUTES;
+  }
+  if (planType === "basic" || planType === "basic-openai") {
+    return paypalPlanConfig("basic").dailyLimitMinutes;
+  }
+  if (planType === "professional" || planType === "professional-openai") {
+    return paypalPlanConfig("professional").dailyLimitMinutes;
+  }
+  if (planType === "platinum" || planType === "platinum-libre") {
+    return paypalPlanConfig("platinum").dailyLimitMinutes;
+  }
+  if (planType === "unlimited") {
+    return 9999;
+  }
+  return TRIAL_DAILY_LIMIT_MINUTES;
 }
 
 router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
   try {
-    const { planType } = req.body as { planType?: string };
-    if (!isDevPlanSwitchType(planType)) {
-      res.status(400).json({ error: "planType must be trial, basic, professional, or platinum" });
+    const { planType: rawPlan } = req.body as { planType?: string };
+    const planType = normalizeAdminTestPlanType(rawPlan);
+    if (!planType) {
+      res.status(400).json({
+        error: `planType must be one of: ${ADMIN_TEST_PLAN_TYPES.join(", ")}`,
+      });
       return;
     }
     const userId = Number(req.session.userId);
@@ -388,16 +431,18 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
       return;
     }
 
-    if (planType === "trial") {
+    const dailyLimitMinutes = dailyLimitMinutesForAdminTestPlan(planType);
+
+    if (isTrialLikePlanType(planType)) {
       const now = new Date();
       const trialEndsAt = computeTrialEndsAt(now);
       await db
         .update(usersTable)
         .set({
-          planType: "trial",
+          planType,
           trialStartedAt: now,
           trialEndsAt,
-          dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+          dailyLimitMinutes,
           subscriptionStatus: "trial",
           subscriptionPlan: null,
           subscriptionStartedAt: null,
@@ -407,27 +452,27 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
         .where(eq(usersTable.id, userId));
       res.json({
         ok: true,
-        planType: "trial",
-        dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+        planType,
+        dailyLimitMinutes,
         trialEndsAt: trialEndsAt.toISOString(),
       });
       return;
     }
 
-    const plan = paypalPlanConfig(planType);
+    const billingKey = billingProductKeyFromPlanType(planType);
     const now = new Date();
     await db
       .update(usersTable)
       .set({
         planType,
-        dailyLimitMinutes: plan.dailyLimitMinutes,
+        dailyLimitMinutes,
         subscriptionStatus: "active",
-        subscriptionPlan: planType,
+        subscriptionPlan: billingKey ?? planType,
         subscriptionStartedAt: now,
         subscriptionPeriodEndsAt: subscriptionPeriodEndFallback(now),
       })
       .where(eq(usersTable.id, userId));
-    res.json({ ok: true, planType, dailyLimitMinutes: plan.dailyLimitMinutes });
+    res.json({ ok: true, planType, dailyLimitMinutes });
   } catch (err) {
     logger.error({ err }, "POST /api/payments/test-activate-plan failed");
     res.status(500).json({ error: "Failed to activate plan" });

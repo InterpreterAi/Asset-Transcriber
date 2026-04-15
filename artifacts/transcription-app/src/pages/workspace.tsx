@@ -30,6 +30,23 @@ import {
   PRICING_SHARED_FEATURES_SECTION_TITLE,
 } from "@/lib/pricing-copy";
 
+/**
+ * Workspace “Plan testing” targets — keep in sync with `ADMIN_TEST_PLAN_TYPES` in
+ * `artifacts/api-server/src/routes/payments.ts` (`POST /api/payments/test-activate-plan`).
+ */
+const PLAN_TEST_OPTIONS: readonly { planType: string; label: string; group: "trial" | "paid" }[] = [
+  { planType: "trial", label: "Trial", group: "trial" },
+  { planType: "trial-openai", label: "Trial · OpenAI", group: "trial" },
+  { planType: "trial-libre", label: "Trial · Libre", group: "trial" },
+  { planType: "basic", label: "Basic", group: "paid" },
+  { planType: "basic-openai", label: "Basic · OpenAI", group: "paid" },
+  { planType: "professional", label: "Professional", group: "paid" },
+  { planType: "professional-openai", label: "Pro · OpenAI", group: "paid" },
+  { planType: "platinum", label: "Platinum", group: "paid" },
+  { planType: "platinum-libre", label: "Platinum · Libre", group: "paid" },
+  { planType: "unlimited", label: "Unlimited", group: "paid" },
+];
+
 const LANG_OPTIONS = [
   { value: "ar",    label: "Arabic" },
   { value: "bg",    label: "Bulgarian" },
@@ -305,7 +322,7 @@ export default function Workspace() {
 
   const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
-  const handleTestActivatePlan = async (planType: "trial" | "basic" | "professional" | "platinum") => {
+  const handleTestActivatePlan = async (planType: string) => {
     setTestPlanLoading(planType);
     setUpgradeError(null);
     try {
@@ -998,22 +1015,37 @@ export default function Workspace() {
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Plan testing</p>
               <p className="text-[11px] text-muted-foreground mb-2">
                 {user.isAdmin
-                  ? "Switch plan instantly (no checkout). Trial applies a fresh window from now for testing."
+                  ? "Sets your real DB plan_type (same values as Admin → Users). Trial picks apply a fresh window from now."
                   : "Switch plan instantly (no checkout)."}
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {(["trial", "basic", "professional", "platinum"] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    disabled={testPlanLoading !== null}
-                    onClick={() => void handleTestActivatePlan(p)}
-                    className="px-2.5 py-1 rounded-md text-[10px] font-semibold border border-border bg-white hover:bg-muted transition-colors disabled:opacity-50 capitalize"
-                  >
-                    {testPlanLoading === p ? "…" : p}
-                  </button>
-                ))}
-              </div>
+              {(["trial", "paid"] as const).map((group) => (
+                <div key={group} className={group === "paid" ? "mt-2.5" : ""}>
+                  <p className="text-[10px] font-medium text-muted-foreground/90 mb-1.5">
+                    {group === "trial" ? "Trials" : "Paid tiers"}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PLAN_TEST_OPTIONS.filter((o) => o.group === group).map((o) => {
+                      const active = (user.planType ?? "").toLowerCase() === o.planType;
+                      return (
+                        <button
+                          key={o.planType}
+                          type="button"
+                          title={o.planType}
+                          disabled={testPlanLoading !== null}
+                          onClick={() => void handleTestActivatePlan(o.planType)}
+                          className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[8.5rem] ${
+                            active
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-white hover:bg-muted text-foreground"
+                          }`}
+                        >
+                          {testPlanLoading === o.planType ? "…" : o.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
