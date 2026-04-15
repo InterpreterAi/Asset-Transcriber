@@ -44,28 +44,69 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   for (let k = maxLen; k >= 1; k--) {
     if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
   }
-  return fTrim + n;
+  const join = fTrim.endsWith(" ") || n.startsWith(" ") ? "" : " ";
+  return fTrim + join + n;
+}
+
+/** Words split on whitespace (Soniox already includes punctuation in tokens). */
+function splitWords(text: string): string[] {
+  return text.trim().split(/\s+/).filter(Boolean);
 }
 
 /**
- * Non-final transcription tail must not shrink when Soniox revises hypothesis (common in en/es pairs):
- * replacing the NF span with a shorter string made words disappear until a later final.
- * Prefer the longer visible string or an overlap-merge with {@link mergeFinalWithNonFinalHypothesis}.
+ * Drop the last `n` words for sliding-window NF alignment. Empty string if nothing left.
+ * Used only for **non-final (grey)** text — finals stay locked in the DOM.
+ */
+function dropLastWords(text: string, n: number): string {
+  if (n <= 0) return text;
+  const w = splitWords(text);
+  if (w.length <= n) return "";
+  return w.slice(0, w.length - n).join(" ");
+}
+
+/** How many trailing grey words we may realign when Soniox replaces an interim guess (not pure extension). */
+const NF_SLIDING_TAIL_WORDS = 4;
+
+/**
+ * Merge Soniox **non-final** text into the grey NF span.
+ *
+ * - **Suffix rule:** If the raw stream is a strict extension (`nfText.startsWith(prevRaw)`), the
+ *   caller appends only the suffix — we are not invoked.
+ * - **Difference / sliding window:** If the new hypothesis diverges, allow it to supersede the
+ *   last few grey words so “said” → “Discussed” does not become “said Discussed …”.
+ * - **Final anchor:** Only this NF span is merged; black finals are separate nodes.
+ *
+ * Arabic and Latin share this path — Arabic often looked “fine” because script/overlap heuristics
+ * differed; this logic is intentionally word-based and symmetric.
  */
 function mergeNonFinalTranscriptionVisible(prevDom: string, sonioxNf: string): string {
-  const p = prevDom;
-  const s = sonioxNf;
-  if (!s.trim()) return p;
-  if (!p.trim()) return s;
-  const pTrim = p.trimEnd();
-  const sTrim = s.trimStart();
-  if (sTrim.startsWith(pTrim) || s.startsWith(p)) {
+  const p = prevDom.trimEnd();
+  const s = sonioxNf.trim();
+  if (!s) return p;
+  if (!p) return s;
+
+  const pLow = p.toLowerCase();
+  const sLow = s.toLowerCase();
+
+  // Pure extension of what we already show (case-insensitive).
+  if (sLow.startsWith(pLow) || s.startsWith(p)) {
     return s.length >= p.length ? s : p;
   }
-  if (pTrim.startsWith(sTrim) || p.startsWith(s)) {
-    return p;
+
+  // Soniox corrected by shortening the visible NF (drop stale tail).
+  if (pLow.startsWith(sLow) && s.length < p.length) {
+    return s;
   }
-  return mergeFinalWithNonFinalHypothesis(pTrim, sTrim);
+
+  // Sliding window: stable head after dropping last N words; new NF continues from there.
+  const head = dropLastWords(p, NF_SLIDING_TAIL_WORDS).trimEnd();
+  const headLow = head.toLowerCase();
+  if (headLow && sLow.startsWith(headLow)) {
+    return s;
+  }
+
+  // No safe alignment: trust the latest full hypothesis (avoids char-level glue doubling text).
+  return s;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
