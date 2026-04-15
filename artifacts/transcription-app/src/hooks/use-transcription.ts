@@ -665,6 +665,7 @@ async function translateViaPrimaryApi(
     const t0 = performance.now();
     transDiagLog("translate", {
       phase: "request_start",
+      stream: "translate",
       inputLen,
       attempt,
       streamingDelta,
@@ -677,16 +678,23 @@ async function translateViaPrimaryApi(
       const durationMs = Math.round(performance.now() - t0);
       const extAb = Boolean(externalSignal?.aborted);
       const intAb = controller.signal.aborted;
-      transDiagLog("translate", {
+      const row: Record<string, unknown> = {
         phase: "response",
+        stream: "translate",
         inputLen,
         attempt,
         durationMs,
+        srcLang: sourceLang,
+        tgtLang: targetLang,
         externalAborted: extAb,
         internalAbortOrTimeout: intAb && !extAb,
         canceled: Boolean(fields.canceled ?? (extAb || intAb)),
         ...fields,
-      });
+      };
+      transDiagLog("translate", row);
+      if (!import.meta.env.PROD && durationMs >= 5000) {
+        devConsoleInfo("[trans_diag_slow]", row);
+      }
     };
 
     try {
@@ -863,6 +871,8 @@ async function translateViaPrimaryApi(
     outcome: "loop_exhausted",
     inputLen: text.length,
     isFinal,
+    srcLang: sourceLang,
+    tgtLang: targetLang,
     note: "no_successful_http_in_attempts",
   });
   return {
@@ -954,14 +964,6 @@ function applyTextStyle(el: HTMLElement) {
 
 function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
-}
-
-/** True when the translation cell already shows text we should treat as a real translation (not blank / placeholder-only). */
-function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
-  const t = (el.textContent ?? "").trim();
-  if (!t) return false;
-  if (t === "…") return false;
-  return true;
 }
 
 function countWords(text: string): number {
@@ -1202,108 +1204,6 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
-/** Longest common prefix length between two strings (case-insensitive, per code unit). */
-function lcpLenInsensitive(a: string, b: string): number {
-  let i = 0;
-  const n = Math.min(a.length, b.length);
-  while (i < n && a[i].toLowerCase() === b[i].toLowerCase()) i++;
-  return i;
-}
-
-/** Returns the newly appended tail using prefix/overlap matching (case-insensitive). */
-function sourceTailAfterPrefix(
-  fullRaw: string,
-  prefixRaw: string,
-  opts?: { relaxTailForLatinLatinLive?: boolean },
-): { tail: string; monotonic: boolean } {
-  const full = fullRaw.trimStart();
-  const prefix = prefixRaw.trimEnd();
-  if (!prefix) return { tail: full, monotonic: true };
-  if (full.startsWith(prefix)) return { tail: full.slice(prefix.length).trimStart(), monotonic: true };
-  const f = full.toLowerCase();
-  const p = prefix.toLowerCase();
-  if (f.startsWith(p)) return { tail: full.slice(p.length).trimStart(), monotonic: true };
-  // Soniox interim hypotheses can revise a little. Accept append overlap:
-  // find the largest suffix of previous source that is a prefix of current.
-  const maxK = Math.min(prefix.length, full.length);
-  for (let k = maxK; k >= 1; k--) {
-    const sfx = p.slice(p.length - k);
-    if (f.startsWith(sfx)) return { tail: full.slice(k).trimStart(), monotonic: true };
-  }
-  // Mid-string edits (e.g. punctuation inserted) break strict prefix but share a long LCP.
-  const lcp = lcpLenInsensitive(full, prefix);
-  // Lenient LCP recovery so “same utterance, revised wording” still counts as monotonic growth for
-  // the live skip gate (avoid redundant translate when the transcript has not advanced).
-  const minRecover = Math.max(2, Math.min(20, Math.floor(prefix.length * 0.05) || 4));
-  if (lcp >= minRecover && lcp < full.length) {
-    const tail = full.slice(lcp).trimStart();
-    if (tail.length > 0) return { tail, monotonic: true };
-  }
-  // Latin/Latin: short revisions often fail minRecover; still treat as monotonic for the same gate.
-  if (opts?.relaxTailForLatinLatinLive && lcp >= 1 && lcp < full.length) {
-    const tail = full.slice(lcp).trimStart();
-    if (tail.length > 0) return { tail, monotonic: true };
-  }
-  return { tail: "", monotonic: false };
-}
-
-/**
- * Whether to call the live translate API: skip when the transcript barely changed vs the last
- * committed snapshot (punctuation / NF flicker after the speaker stops).
- */
-function liveSourceWarrantsTranslate(
-  committedRaw: string,
-  incomingRaw: string,
-  opts?: { relaxLatin?: boolean },
-): boolean {
-  const committed = collapseWs(committedRaw);
-  const incoming = collapseWs(incomingRaw);
-  if (!incoming) return false;
-  if (!committed) return true;
-  if (incoming === committed) return false;
-
-  const { tail, monotonic } = sourceTailAfterPrefix(
-    incoming,
-    committed,
-    opts?.relaxLatin ? { relaxTailForLatinLatinLive: true } : undefined,
-  );
-  if (monotonic) {
-    const tailT = tail.trim();
-    if (!tailT) return false;
-    const wC = countWords(committed);
-    const wN = countWords(incoming);
-    if (tailT.length < 3 && wN === wC) return false;
-    if (tailT.length < 4 && !/\p{L}|\p{N}/u.test(tailT)) return false;
-    return true;
-  }
-  const wC = countWords(committed);
-  const wN = countWords(incoming);
-  if (wC >= 4 && wN >= 4) {
-    const ovr = Math.max(tokenOverlapRatio(committed, incoming), tokenOverlapRatio(incoming, committed));
-    const lenD = Math.abs(incoming.length - committed.length);
-    if (ovr >= 0.9 && lenD <= 14) return false;
-  }
-  return true;
-}
-
-/** Skip repainting when the new live translation is effectively the same as what is already shown. */
-function translationOutputTooSimilarToDisplay(prevDisplayed: string, incoming: string): boolean {
-  const p = collapseWs(prevDisplayed);
-  const n = collapseWs(incoming);
-  if (!p || !n || p === "…") return false;
-  if (p === n) return true;
-  const ovr = Math.max(tokenOverlapRatio(p, n), tokenOverlapRatio(n, p));
-  if (ovr >= 0.93) return true;
-  const lim = Math.min(p.length, n.length);
-  if (lim === 0) return false;
-  if (p.length <= 48 && n.length <= 48) {
-    let i = 0;
-    while (i < lim && p[i]!.toLowerCase() === n[i]!.toLowerCase()) i++;
-    if (i / lim >= 0.94 && Math.abs(p.length - n.length) <= 4) return true;
-  }
-  return false;
-}
-
 /** Live + final: always replace the whole translation cell (innerHTML), never append tokens. */
 function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
@@ -1378,8 +1278,7 @@ interface BubbleTransState {
   segmentTargetLang:     string | null;
   /**
    * Live path skipped a truncated API response but still advanced `streamCommittedSource`.
-   * Finalize must run a full translate — otherwise `sourceTailAfterPrefix` sees no tail and locks
-   * with a partial translation still on screen.
+   * Finalize must run a full translate so the row is not left with a partial translation.
    */
   needsFullFinalTranslation: boolean;
 }
@@ -1415,11 +1314,11 @@ export type UseTranscriptionOptions = {
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Same gates for all pairs so translation tracks interim transcription like en–ar / en–hi. */
   const EARLY_HINT_MIN_WORDS = 1;
-  const LIVE_PREVIEW_WORD_STEP = 2;
+  const LIVE_PREVIEW_WORD_STEP = 1;
   /** Latin/Latin only: dispatch live translate when buffer grows by this many chars (word count often flat). */
-  const LIVE_PREVIEW_CHAR_STEP_LATIN = 24;
-  /** Latin/Latin live only: cap source sent to the translator (full segment still on final / endpoint). */
-  const LIVE_TRANSLATION_WINDOW_WORDS = 20;
+  const LIVE_PREVIEW_CHAR_STEP_LATIN = 16;
+  /** Live (non-final) path: only the last N source words go to the API — full buffer still on &lt;end&gt; / finalize. */
+  const LIVE_TRANSLATION_WINDOW_WORDS = 18;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1510,7 +1409,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   });
 
   /** Trailing debounce for live translate API (coalesces WS + post-pause NF noise; ms). */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 700;
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 500;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1628,8 +1527,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
-  // Live: cell replaced each response (no delta merge). Latin/Latin sends last N words only to cut tokens;
-  // mixed-script pairs still send full cumulative source. Final / endpoint always full segment.
+  // Live: cell replaced each response (no delta merge). Interim requests send only the last N source words
+  // to keep payloads small; &lt;end&gt; / finalize always sends the full segment.
   // Final: full-segment replace + lock; adjacent paraphrase dedupe runs in maybePolish on finals only.
   const dispatchTranslation = useCallback((
     text: string,
@@ -1816,15 +1715,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       apiText = text;
       requestIsFinal = true;
     } else {
-      const latinLatinPair = pairIsLatinLatinOnly(pair);
-      if (translationCellLooksFilled(state.transTextEl)) {
-        if (!liveSourceWarrantsTranslate(state.streamCommittedSource, text, { relaxLatin: latinLatinPair })) {
-          return;
-        }
-      }
-      apiText = latinLatinPair
-        ? clipToLastNWords(text, LIVE_TRANSLATION_WINDOW_WORDS)
-        : text;
+      apiText = clipToLastNWords(text, LIVE_TRANSLATION_WINDOW_WORDS);
       requestIsFinal = false;
     }
 
@@ -1931,16 +1822,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         } else {
           const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
           if (!outRaw.trim()) {
-            return;
-          }
-          const prevTr = (transTextEl.textContent ?? "").trim();
-          if (translationOutputTooSimilarToDisplay(prevTr, outRaw)) {
-            state.lastShownSeq = mySeq;
-            state.streamCommittedSource = text;
-            state.needsFullFinalTranslation = false;
-            state.lastConfirmedSourceTranslated = text;
-            state.pendingDisplayTranslation = "";
-            scrollPanel();
             return;
           }
           state.lastShownSeq = mySeq;
