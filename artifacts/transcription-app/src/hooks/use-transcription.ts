@@ -1416,6 +1416,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const LIVE_PREVIEW_CHAR_STEP_LATIN = 16;
   /** Live (non-final) path: only the last N source words go to the API — full buffer still on &lt;end&gt; / finalize. */
   const LIVE_TRANSLATION_WINDOW_WORDS = 18;
+  /** Full-segment translate after brief silence (before Soniox &lt;end&gt;); slightly aggressive vs STT so polish arrives sooner. */
+  const SILENCE_QUICK_FINAL_MIN_MS = 280;
+  const SILENCE_QUICK_FINAL_DEBOUNCE_MS = 50;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1835,7 +1838,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         let translated = "";
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {
-            await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
+            await new Promise<void>(res => setTimeout(res, 250 * fetchAttempt));
           }
           if (requestSegmentId !== state.segmentId) return;
           if (!transTextEl.isConnected) return;
@@ -1859,7 +1862,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
-          await new Promise<void>(res => setTimeout(res, 120));
+          await new Promise<void>(res => setTimeout(res, 50));
           if (requestSegmentId !== state.segmentId) return;
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
@@ -2352,7 +2355,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          220,
+        max_endpoint_delay_ms:          200,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
@@ -2589,7 +2592,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         } else if (stQ && !stQ.translationLocked && !stQ.finalizing && srcQ.length >= 5) {
           const silentMs = Date.now() - stQ.lastLiveSourceTs;
-          if (silentMs >= 380) {
+          if (silentMs >= SILENCE_QUICK_FINAL_MIN_MS) {
             const key = `${stQ.segmentId}|${srcQ}`;
             if (lastSilenceQuickFinalKeyRef.current !== key) {
               lastSilenceQuickFinalKeyRef.current = key;
@@ -2617,7 +2620,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   },
                   stN.segmentId,
                 );
-              }, 100);
+              }, SILENCE_QUICK_FINAL_DEBOUNCE_MS);
             }
           }
         }
