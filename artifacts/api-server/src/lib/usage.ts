@@ -1,7 +1,7 @@
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, usersTable, sessionsTable } from "@workspace/db";
+import { and, eq, gte, sql } from "drizzle-orm";
 import type { User } from "@workspace/db";
-import { appCalendarDayChanged } from "@workspace/app-timezone";
+import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 
 export async function touchActivity(userId: number): Promise<void> {
@@ -103,6 +103,32 @@ export function translationEnabledForUser(user: User): boolean {
   if (isPaidTranslationPlan(eff)) return true;
   if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   return false;
+}
+
+/**
+ * Billable minutes credited today (app calendar), aligned with daily-cap checks:
+ * closed sessions use stored audio/duration seconds; open sessions use
+ * `audio_seconds_processed` only (same basis as open-session billing in transcription routes).
+ */
+export async function getBillableMinutesUsedToday(userId: number): Promise<number> {
+  const todayStart = startOfAppDay();
+  const [row] = await db
+    .select({
+      minutesToday: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN ${sessionsTable.endedAt} IS NULL
+                THEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0)
+              ELSE COALESCE(${sessionsTable.audioSecondsProcessed}, ${sessionsTable.durationSeconds}, 0)
+            END
+          ),
+          0
+        ) / 60.0`,
+    })
+    .from(sessionsTable)
+    .where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayStart)));
+  return Number(row?.minutesToday ?? 0);
 }
 
 export async function getUserWithResetCheck(userId: number): Promise<User | undefined> {

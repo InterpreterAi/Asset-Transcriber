@@ -27,6 +27,10 @@ function getApiErrorMessage(err: unknown): string | undefined {
 /** Matches api-server `UNLIMITED_DAILY_CAP_MINUTES` — skip client preemption when plan is “unlimited”. */
 const UNLIMITED_DAILY_CAP_MINUTES = 9000;
 
+/** Shown when the server ends the session for daily cap (heartbeat, translate, or client PCM preemption). */
+const DAILY_LIMIT_STOP_MESSAGE =
+  "You have used all of your allowed minutes for today. This session has been stopped.";
+
 /**
  * Soniox often sends a non-final hypothesis that repeats the tail already committed
  * as finals (e.g. after a question). Concatenating final + NF verbatim duplicates
@@ -565,11 +569,12 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 // Retry policy (primary only):
 //   • Network errors / timeouts  → retry up to MAX_ATTEMPTS with back-off
 //   • HTTP 5xx / 429             → retry up to MAX_ATTEMPTS with back-off
-//   • HTTP 401 / 403             → try public fallback before surfacing error
+//   • HTTP 401 / 403             → try public fallback before surfacing error (except daily limit → hard stop)
 //   • Other 4xx                  → no retry (bad request)
 //   • Fatal 503 codes            → try public fallback before surfacing error
 type PrimaryTranslationResult =
   | { outcome: "ok"; text: string }
+  | { outcome: "daily_limit"; message: string }
   | { outcome: "try_fallback"; userMessage?: string };
 
 type TranslateApiOptions = {
@@ -665,7 +670,11 @@ async function translateViaPrimaryApi(
       if (r.status === 403) {
         const raw403 = await r.text();
         try {
-          const j403 = JSON.parse(raw403) as { code?: string };
+          const j403 = JSON.parse(raw403) as { code?: string; error?: string };
+          if (j403.code === "DAILY_LIMIT_REACHED") {
+            const m = typeof j403.error === "string" && j403.error.trim() ? j403.error.trim() : DAILY_LIMIT_STOP_MESSAGE;
+            return { outcome: "daily_limit", message: m };
+          }
           if (j403.code === "TRANSLATION_PLAN_REQUIRED") {
             return { outcome: "ok", text: "" };
           }
@@ -731,6 +740,8 @@ type FetchTranslationResult = {
   text: string;
   /** Public fallback translated the full segment while we were in delta mode — replace the cell, do not append. */
   replaceStreamColumn: boolean;
+  dailyLimitReached?: boolean;
+  dailyLimitMessage?: string;
 };
 
 async function fetchTranslation(
@@ -743,6 +754,14 @@ async function fetchTranslation(
   const primary = await translateViaPrimaryApi(text, sourceLang, targetLang, options);
   if (primary.outcome === "ok") {
     return { text: primary.text, replaceStreamColumn: false };
+  }
+  if (primary.outcome === "daily_limit") {
+    return {
+      text:                "",
+      replaceStreamColumn: false,
+      dailyLimitReached:   true,
+      dailyLimitMessage:   primary.message,
+    };
   }
 
   // Public fallback can introduce mixed-language or delayed rewrites.
@@ -1188,6 +1207,8 @@ export type UseTranscriptionOptions = {
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
    */
   dailyCapRef?: MutableRefObject<{ minutesUsedToday: number; dailyLimitMinutes: number } | null>;
+  /** Called after `stop()` finishes (any reason — manual stop, inactivity, daily cap, errors). */
+  onRecordingStopped?: () => void;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1211,6 +1232,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [options?.translationEnabled]);
 
   const dailyCapRef = options?.dailyCapRef;
+  const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
+  onRecordingStoppedRef.current = options?.onRecordingStopped;
 
   const [isRecording,   setIsRecording]   = useState(false);
   const [micLevel,      setMicLevel]      = useState(0);
@@ -1375,15 +1398,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // inactivityTimerRef: fires stop() after 5 min of no speech tokens.
   // maxSessionTimerRef: fires stop() after 3 hours unconditionally.
   // resetInactivityRef: shared function set by start(), called by buildWs onmessage.
-  // heartbeatIntervalRef: pings /session/heartbeat every 30 s to prevent the
-  //   server from treating the session as stale after a page navigation or
-  //   temporary disconnect.
+  // heartbeatIntervalRef: pings /session/heartbeat so the server can enforce daily caps and
+  // avoid treating the session as stale after navigation (see STALE_SESSION_MS on API).
   const inactivityTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxSessionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetInactivityRef   = useRef<(() => void) | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   /** Prevents double stop() when both worklet and heartbeat see the daily cap. */
   const dailyLimitAutoStopRef = useRef(false);
+  /** Set from `stop` once defined — used from `dispatchTranslation` for translate 403 daily cap. */
+  const dailyLimitShutdownRef = useRef<(msg: string) => void>(() => { /* assigned in useEffect */ });
 
   const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;   // 5 minutes
   const MAX_SESSION_MS        = 3 * 60 * 60 * 1000; // 3 hours
@@ -1665,7 +1689,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (!isFinal && state.finalizing) return;
           if (liveAbortForThisRequest?.signal.aborted) return;
 
-          const { text: t } = await fetchTranslation(
+          const tr = await fetchTranslation(
             apiText,
             dispatchLang,
             myTargetLang,
@@ -1677,7 +1701,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               signal:   liveAbortForThisRequest?.signal,
             },
           );
-          translated = t;
+          if (tr.dailyLimitReached) {
+            dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            return;
+          }
+          translated = tr.text;
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
@@ -1685,14 +1713,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (requestSegmentId !== state.segmentId) return;
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
-          const { text: tRetry } = await fetchTranslation(
+          const trRetry = await fetchTranslation(
             text,
             dispatchLang,
             myTargetLang,
             (m) => translationConfigReporterRef.current(m),
             { streamingDelta: false, isFinal: true },
           );
-          translated = tRetry;
+          if (trRetry.dailyLimitReached) {
+            dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            return;
+          }
+          translated = trRetry.text;
         }
         if (requestSegmentId !== state.segmentId) return;
 
@@ -2110,6 +2142,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // Clear columns for regular users when they manually stop a session.
     if (!isAdminRef.current) doClear();
     setTranslationServiceError(null);
+    onRecordingStoppedRef.current?.();
   }, [
     stopSessionMut,
     finalizeLiveBubble,
@@ -2118,6 +2151,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue,
     cancelOpenAiLiveDebounce,
   ]);
+
+  useEffect(() => {
+    dailyLimitShutdownRef.current = (msg: string) => {
+      if (dailyLimitAutoStopRef.current) return;
+      dailyLimitAutoStopRef.current = true;
+      setError(msg);
+      void stop();
+    };
+  }, [stop]);
 
   /** Lock segment translation direction from the first visible token that carries a language tag. */
   const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
@@ -2442,16 +2484,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!payload || typeof payload !== "object") return;
             const o = payload as { dailyLimitReached?: unknown; sessionEnded?: unknown };
             if (o.dailyLimitReached === true && o.sessionEnded === true) {
-              if (dailyLimitAutoStopRef.current) return;
-              dailyLimitAutoStopRef.current = true;
-              setError("Daily usage limit reached.");
-              void stop();
-              if (!isAdminRef.current) doClear();
+              dailyLimitShutdownRef.current(DAILY_LIMIT_STOP_MESSAGE);
             }
           })
           .catch(() => { /* best-effort — ignore network errors */ });
       };
-      heartbeatIntervalRef.current = setInterval(sendHeartbeat, 30_000);
+      const HEARTBEAT_MS = 10_000;
+      heartbeatIntervalRef.current = setInterval(sendHeartbeat, HEARTBEAT_MS);
       sendHeartbeat();
 
       const AudioContextCtor =
@@ -2525,11 +2564,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const used = Number(capRow.minutesUsedToday);
           const pcmMin = audioPcmSecondsRef.current / 60;
           if (used + pcmMin + 1e-6 >= capRow.dailyLimitMinutes) {
-            dailyLimitAutoStopRef.current = true;
             queueMicrotask(() => {
-              setError("Daily usage limit reached.");
-              void stop();
-              if (!isAdminRef.current) doClear();
+              dailyLimitShutdownRef.current(DAILY_LIMIT_STOP_MESSAGE);
             });
           }
         }
@@ -2588,6 +2624,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           "Live transcription is off: the server is missing SONIOX_API_KEY. Add it in Railway (or .env for local API), then redeploy.";
       } else if (errCode === "FEEDBACK_REQUIRED") {
         msg = "Daily feedback is required before you can start another session.";
+      } else if (errCode === "DAILY_LIMIT_REACHED") {
+        msg =
+          getApiErrorMessage(err) ??
+          "You have used all of your allowed minutes for today. Please try again tomorrow.";
       }
       // Error object intentionally not logged to console (HIPAA)
       setError(msg);

@@ -12,6 +12,7 @@ import { and, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import {
+  getBillableMinutesUsedToday,
   getUserWithResetCheck,
   buildUserInfo,
   touchActivity,
@@ -884,7 +885,19 @@ router.get("/me", requireAuth, async (req, res) => {
       and(eq(sessionsTable.userId, user.id), gte(sessionsTable.startedAt, todayStart)),
     );
   const sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
-  res.json({ ...buildUserInfo(user), sessionsToday });
+  const minutesUsedTodayLive = await getBillableMinutesUsedToday(user.id);
+  const base = buildUserInfo(user);
+  const dailyLimit = Number(base.dailyLimitMinutes);
+  const minutesRemainingToday = Math.max(
+    0,
+    (Number.isFinite(dailyLimit) ? dailyLimit : 0) - minutesUsedTodayLive,
+  );
+  res.json({
+    ...base,
+    minutesUsedToday: minutesUsedTodayLive,
+    minutesRemainingToday,
+    sessionsToday,
+  });
 });
 
 // ── Change Password ────────────────────────────────────────────────────────

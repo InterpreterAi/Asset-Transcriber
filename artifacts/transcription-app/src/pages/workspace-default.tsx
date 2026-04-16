@@ -127,6 +127,9 @@ export default function WorkspaceDefault() {
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
     dailyCapRef,
+    onRecordingStopped: () => {
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    },
     onAdminSnapshotBuffersUpdated: () => {
       if (snapshotCtxRef.current.debounce != null) return;
       snapshotCtxRef.current.debounce = setTimeout(() => {
@@ -1442,7 +1445,7 @@ export default function WorkspaceDefault() {
             ) : (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center gap-2 text-sm text-orange-800">
                 <Clock className="w-4 h-4 shrink-0" />
-                Daily limit of {formatMinutes(user.dailyLimitMinutes)} reached.
+                You have used all of your allowed minutes for today ({formatMinutes(user.dailyLimitMinutes)} per day).
               </div>
             )}
           </div>

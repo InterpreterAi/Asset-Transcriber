@@ -77,6 +77,11 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060;
 
 const MAX_SESSION_AUDIO_SECONDS = 3 * 60 * 60;
 
+const DAILY_LIMIT_PAID_MESSAGE =
+  "You have used all of your allowed minutes for today. Please try again tomorrow.";
+const dailyLimitTrialMessage = () =>
+  `You have used all of your allowed trial minutes for today (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours per day). Please try again tomorrow.`;
+
 /** Minimum window (~1 s) so we never divide by zero for “per wall-hour” rates. */
 function elapsedWallHoursSince(startedAt: Date): number {
   const sec = (Date.now() - startedAt.getTime()) / 1000;
@@ -175,11 +180,6 @@ function isDailyCapReachedWithLiveExtra(
   return used + live >= cap - 1e-6;
 }
 
-/** Daily cap from DB row only (no live session audio). */
-function isDailyTranscriptionCapReached(user: { minutesUsedToday: number; dailyLimitMinutes: number }): boolean {
-  return isDailyCapReachedWithLiveExtra(user, 0);
-}
-
 async function maybeSendDailyLimitReachedEmail(
   user: {
     id: number;
@@ -235,16 +235,28 @@ async function closeOpenSessionWithBillingIfNeeded(
   userId: number,
   durationSecondsRaw: number,
 ): Promise<{ closed: boolean; minutesUsed: number }> {
-  const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSecondsRaw) || 0)), MAX_SESSION_AUDIO_SECONDS);
-  const minutesUsed = audioSeconds / 60;
+  const rawSeconds = Math.min(Math.max(0, Math.floor(Number(durationSecondsRaw) || 0)), MAX_SESSION_AUDIO_SECONDS);
+
+  const userForCap = await getUserWithResetCheck(userId);
+  let creditSeconds = rawSeconds;
+  if (userForCap) {
+    const cap = Number(userForCap.dailyLimitMinutes);
+    const used = Number(userForCap.minutesUsedToday);
+    if (Number.isFinite(cap) && cap > 0 && cap < UNLIMITED_DAILY_CAP_MINUTES) {
+      const maxCreditMin = Math.max(0, cap - used);
+      creditSeconds = Math.min(creditSeconds, Math.floor(maxCreditMin * 60));
+    }
+  }
+
+  const minutesUsed = creditSeconds / 60;
   const sonioxCost = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
 
   const updated = await db
     .update(sessionsTable)
     .set({
       endedAt:               new Date(),
-      durationSeconds:       audioSeconds,
-      audioSecondsProcessed: audioSeconds,
+      durationSeconds:       creditSeconds,
+      audioSecondsProcessed: creditSeconds,
       sonioxCost:            String(sonioxCost),
       totalSessionCost:      sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
     })
@@ -276,7 +288,7 @@ async function closeOpenSessionWithBillingIfNeeded(
       sessionId,
       userId,
       startedAt: stoppedRow.startedAt,
-      audioSecondsProcessed: audioSeconds,
+      audioSecondsProcessed: creditSeconds,
       translationTokens: Number(stoppedRow.translationTokens ?? 0),
       translationCostUsd: Number(stoppedRow.translationCost ?? 0),
     });
@@ -397,10 +409,7 @@ router.post("/token", requireAuth, async (req, res) => {
     const liveBillable = await sumOpenSessionsBillableMinutes(user.id);
     if (isDailyCapReachedWithLiveExtra(user, liveBillable)) {
       res.status(403).json({
-        error:
-          isTrialLikePlanType(user.planType)
-            ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
-            : "Daily usage limit reached. Try again tomorrow.",
+        error: isTrialLikePlanType(user.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
         code: "DAILY_LIMIT_REACHED",
       });
       return;
@@ -947,12 +956,10 @@ router.post("/session/start", requireAuth, async (req, res) => {
   }
 
   const userForCap = (await getUserWithResetCheck(user.id)) ?? user;
-  if (isDailyTranscriptionCapReached(userForCap)) {
+  const liveAfterOrphans = await sumOpenSessionsBillableMinutes(userForCap.id);
+  if (isDailyCapReachedWithLiveExtra(userForCap, liveAfterOrphans)) {
     res.status(403).json({
-      error:
-        isTrialLikePlanType(userForCap.planType)
-          ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
-          : "Daily usage limit reached. Try again tomorrow.",
+      error: isTrialLikePlanType(userForCap.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",
     });
     return;
@@ -1304,10 +1311,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   const translateLiveBillable = await sumOpenSessionsBillableMinutes(translateUser.id);
   if (isDailyCapReachedWithLiveExtra(translateUser, translateLiveBillable)) {
     res.status(403).json({
-      error:
-        isTrialLikePlanType(translateUser.planType)
-          ? `Daily trial limit reached (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours). Try again tomorrow.`
-          : "Daily usage limit reached. Try again tomorrow.",
+      error: isTrialLikePlanType(translateUser.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",
     });
     return;
