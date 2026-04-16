@@ -1219,8 +1219,6 @@ export type UseTranscriptionOptions = {
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
   /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Tuned for earlier first paint without extra final polish passes. */
   const EARLY_HINT_MIN_WORDS = 8;
-  /** When the live source already contains digits, ask for translation sooner (phones, IDs). */
-  const EARLY_HINT_MIN_WORDS_DIGITS = 3;
   const LIVE_PREVIEW_WORD_STEP = 6;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
@@ -2215,7 +2213,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          500,
+        max_endpoint_delay_ms:          800,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
@@ -2367,20 +2365,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
-      const hasDigit = /\d/.test(hintSource);
-      const minHintLen = hasDigit ? 6 : 20;
-      const minWordsForHint = hasDigit ? EARLY_HINT_MIN_WORDS_DIGITS : EARLY_HINT_MIN_WORDS;
-      const digitRunLen = hintSource.replace(/[^\d]/g, "").length;
-      const wordGate =
-        wordsNow >= minWordsForHint ||
-        (hasDigit && wordsNow >= 1 && digitRunLen >= 4);
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
         st.finalTokensSeen >= 2 &&
-        hintSource.length >= minHintLen &&
-        wordGate &&
+        hintSource.length >= 20 &&
+        wordsNow >= EARLY_HINT_MIN_WORDS &&
         (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
