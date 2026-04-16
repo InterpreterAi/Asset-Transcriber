@@ -35,6 +35,9 @@ const DAILY_LIMIT_STOP_MESSAGE =
  * Soniox often sends a non-final hypothesis that repeats the tail already committed
  * as finals (e.g. after a question). Concatenating final + NF verbatim duplicates
  * that phrase in `liveBufferRef` and then bakes it into the transcript when NF clears.
+ *
+ * When either side contains digits, skip overlap "repair" — short false overlaps
+ * (common with numeric tails) strip or merge wrong characters vs Soniox's raw tokens.
  */
 function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string {
   const n = nf.trim();
@@ -46,6 +49,11 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   const nLow = n.toLowerCase();
   if (fLow.endsWith(nLow)) return fTrim;
   if (n.startsWith(fTrim) || nLow.startsWith(fLow)) return n;
+
+  if (/\d/.test(fTrim) || /\d/.test(n)) {
+    return fTrim + n;
+  }
+
   const maxLen = Math.min(fTrim.length, n.length);
   for (let k = maxLen; k >= 1; k--) {
     if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
@@ -2327,7 +2335,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
           const prev = stNf.lastNfRawText;
-          if (nfText.startsWith(prev)) {
+          // Digits: always mirror Soniox's current NF string verbatim — incremental
+          // suffix appends can desync from token boundaries and corrupt numeric tails.
+          if (/\d/.test(nfText)) {
+            nfEl.textContent = nfText;
+          } else if (nfText.startsWith(prev)) {
             const suffix = nfText.slice(prev.length);
             if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
           } else {
