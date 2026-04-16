@@ -31,6 +31,28 @@ const UNLIMITED_DAILY_CAP_MINUTES = 9000;
 const DAILY_LIMIT_STOP_MESSAGE =
   "You have used all of your allowed minutes for today. This session has been stopped.";
 
+/**
+ * Soniox often sends a non-final hypothesis that repeats the tail already committed
+ * as finals (e.g. after a question). Concatenating final + NF verbatim duplicates
+ * that phrase in `liveBufferRef` and then bakes it into the transcript when NF clears.
+ */
+function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string {
+  const n = nf.trim();
+  if (!n) return finalPart;
+  const fTrim = finalPart.trimEnd();
+  if (!fTrim) return n;
+  if (fTrim.endsWith(n)) return fTrim;
+  const fLow = fTrim.toLowerCase();
+  const nLow = n.toLowerCase();
+  if (fLow.endsWith(nLow)) return fTrim;
+  if (n.startsWith(fTrim) || nLow.startsWith(fLow)) return n;
+  const maxLen = Math.min(fTrim.length, n.length);
+  for (let k = maxLen; k >= 1; k--) {
+    if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
+  }
+  return fTrim + n;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -81,38 +103,6 @@ interface SonioxToken {
 /** Soniox semantic endpoint token (requires `enable_endpoint_detection` in start config). */
 function isSonioxEndpointToken(t: SonioxToken): boolean {
   return t.text.trim().toLowerCase() === "<end>";
-}
-
-/** 1:1 mirror: `token.text` in index order for one stabilized speaker id — no NF/final merge heuristics. */
-function concatTokensRawForSpeaker(
-  tokens: SonioxToken[],
-  effSpk: (string | undefined)[],
-  speakerId: string,
-): string {
-  let out = "";
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i]!;
-    if (isSonioxEndpointToken(t)) continue;
-    if (effSpk[i] !== speakerId) continue;
-    out += t.text;
-  }
-  return out;
-}
-
-/** Finals-only slice of the same walk (for `lastConfirmedSource` / bookkeeping). */
-function concatFinalTokensRawForSpeaker(
-  tokens: SonioxToken[],
-  effSpk: (string | undefined)[],
-  speakerId: string,
-): string {
-  let out = "";
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i]!;
-    if (isSonioxEndpointToken(t)) continue;
-    if (effSpk[i] !== speakerId) continue;
-    if (t.is_final) out += t.text;
-  }
-  return out;
 }
 
 interface SonioxMessage {
@@ -1388,6 +1378,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }, FINAL_TEXT_RENDER_BUFFER_MS);
   }, [flushFinalTextRenderQueue]);
 
+  const getBufferedFinalTextForActiveBubble = useCallback((): string => {
+    const active = activeBubbleRef.current;
+    if (!active) return "";
+    let pending = "";
+    for (const item of finalRenderQueueRef.current) {
+      if (item.target === active) pending += item.text;
+    }
+    return pending;
+  }, []);
+
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
   // getSnapshot() returns them joined. Cleared when recording stops.
@@ -1659,15 +1659,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     } else {
       apiText = text;
       useStreamingDelta = false;
-    }
-
-    // Finals that include digits: never tail + streamingDelta. Overlap clipping
-    // (sourceTailAfterPrefix) can split number chains and mergeStreamingTranslation
-    // then drops digits vs Soniox; full segment is cheap for short numeric spans.
-    if (isFinal && /\d/.test(text)) {
-      apiText = text;
-      useStreamingDelta = false;
-      requestIsFinal = true;
     }
 
     let liveAbortForThisRequest: AbortController | undefined;
@@ -2213,7 +2204,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          800,
+        max_endpoint_delay_ms:          500,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
@@ -2267,19 +2258,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
-            const prevSpk = currentSpeakerRef.current;
-            const prevFinalEl = activeBubbleRef.current;
-            const prevNfEl = activeBubbleNFRef.current;
-            let closingMirror = "";
-            if (prevSpk !== undefined) {
-              closingMirror = concatTokensRawForSpeaker(tokens, effSpk, prevSpk);
-            }
-            if (prevSpk !== undefined && prevFinalEl && prevNfEl) {
-              finalRenderQueueRef.current = [];
-              prevFinalEl.textContent = closingMirror;
-              prevNfEl.textContent = "";
-            }
-            liveBufferRef.current = prevSpk !== undefined ? closingMirror.trim() : "";
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
@@ -2289,6 +2267,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!activeBubbleRef.current) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
+          finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
           }
@@ -2315,22 +2294,50 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalCountRef.current = finals.length;
       scrollPanel();
 
-      // ── Transcript + translation source: 1:1 index-order concat of Soniox token.text
-      // (final + non-final) for the active speaker — no local NF/final merge heuristics.
-      const spk = currentSpeakerRef.current;
-      let mirrorTrim = "";
-      if (spk !== undefined) {
-        const mirror = concatTokensRawForSpeaker(tokens, effSpk, spk);
-        mirrorTrim = mirror.trim();
-        if (activeBubbleRef.current && activeBubbleNFRef.current) {
-          finalRenderQueueRef.current = [];
-          activeBubbleRef.current.textContent = mirror;
-          activeBubbleNFRef.current.textContent = "";
+      // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
+      let tailSpk: string | undefined;
+      for (let i = effSpk.length - 1; i >= 0; i--) {
+        if (effSpk[i]) {
+          tailSpk = effSpk[i];
+          break;
         }
       }
-      liveBufferRef.current = mirrorTrim;
-      const confirmedSource =
-        spk !== undefined ? concatFinalTokensRawForSpeaker(tokens, effSpk, spk).trim() : "";
+      let nfText = "";
+      if (tailSpk !== undefined) {
+        for (let i = 0; i < tokens.length; i++) {
+          const t = tokens[i]!;
+          if (t.is_final || isSonioxEndpointToken(t)) continue;
+          if (effSpk[i] !== tailSpk) continue;
+          nfText += t.text;
+        }
+      } else {
+        nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
+      }
+      const nfEl = activeBubbleNFRef.current;
+      if (nfText) {
+        const stNf = activeBubbleStateRef.current;
+        if (nfEl && stNf) {
+          const prev = stNf.lastNfRawText;
+          if (nfText.startsWith(prev)) {
+            const suffix = nfText.slice(prev.length);
+            if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+          } else {
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
+          }
+          stNf.lastNfRawText = nfText;
+        }
+      } else if (nfEl) {
+        nfEl.textContent = "";
+        const stNf = activeBubbleStateRef.current;
+        if (stNf) stNf.lastNfRawText = "";
+      }
+
+      // ── Update live translation buffer ────────────────────────────────────
+      const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
+      const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
+      liveBufferRef.current = rawLive;
+      const confirmedSource = finalText.trim();
       if (activeBubbleStateRef.current) {
         activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
       }
@@ -2401,6 +2408,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     createBubble,
     scrollPanel,
     scheduleFinalTextRenderFlush,
+    getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
     tryLockSegmentDirectionFromTokens,
     scheduleDebouncedLiveTranslation,
