@@ -57,7 +57,7 @@ import { sendDailyLimitReachedEmail } from "../lib/transactional-email.js";
 //
 // Data flow:
 //   Audio  → browser mic → Soniox WebSocket (never touches this server)
-//   Text   → /api/transcription/translate → OpenAI (all tiers when API key set) or machine fallback (Libre tiers only if no OpenAI) → discarded
+//   Text   → /api/transcription/translate → OpenAI interpreter stack or Libre/machine (`*-libre` plan_type), per user tier → discarded
 //   DB     → sessions table stores metadata ONLY: id, userId, duration, timestamps
 //
 // Translation cache was INTENTIONALLY REMOVED.
@@ -1319,11 +1319,9 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
-  // Tier still records whether the account is "Libre/machine" vs OpenAI in the DB (basic, trial-libre, … vs basic-openai, …).
-  // When OpenAI is configured, every entitled user gets the same interpreter pipeline below as Platinum (final boss).
-  // Single machine engine (Google or Libre per MACHINE_TRANSLATION_ENGINE) only when OpenAI is not configured.
+  // `trial-libre` / `*-libre` → machine stack always. `trial`, `basic`, `professional`, `platinum`, … → OpenAI when configured.
   const prefersMachineStack = planUsesMachineTranslationStack(planLower);
-  const useMachineTranslation = prefersMachineStack && !isOpenAiConfigured();
+  const useMachineTranslation = prefersMachineStack;
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({

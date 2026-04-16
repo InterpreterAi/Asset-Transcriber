@@ -373,8 +373,10 @@ const ADMIN_TEST_PLAN_TYPES = [
   "trial-libre",
   "basic",
   "basic-openai",
+  "basic-libre",
   "professional",
   "professional-openai",
+  "professional-libre",
   "platinum",
   "platinum-libre",
   "unlimited",
@@ -393,10 +395,10 @@ function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number 
   if (planType === "trial" || planType === "trial-openai" || planType === "trial-libre") {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
-  if (planType === "basic" || planType === "basic-openai") {
+  if (planType === "basic" || planType === "basic-openai" || planType === "basic-libre") {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
-  if (planType === "professional" || planType === "professional-openai") {
+  if (planType === "professional" || planType === "professional-openai" || planType === "professional-libre") {
     return paypalPlanConfig("professional").dailyLimitMinutes;
   }
   if (planType === "platinum" || planType === "platinum-libre") {

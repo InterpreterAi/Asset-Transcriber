@@ -19,14 +19,14 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 }
 
 /**
- * Customer-facing plan name only (no OpenAI vs Libre). Admins see raw `planType` + engine in admin UI.
+ * Customer-facing plan label: hides engine suffix; Professional/Platinum tiers show as "Unlimited".
  */
 export function workspacePlanDisplayName(planType: string | undefined | null): string {
   const p = (planType ?? "").toLowerCase();
   if (p === "trial" || p === "trial-openai" || p === "trial-libre") return "Trial";
-  if (p === "basic" || p === "basic-openai" || p === "morsy-basic") return "Basic";
-  if (p === "professional" || p === "professional-openai") return "Professional";
-  return "Platinum";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic") return "Basic";
+  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "Unlimited";
+  return "Unlimited";
 }
 
 /** Badge / styling tier (ignores translation engine). */
@@ -38,8 +38,8 @@ export function workspacePlanTierKey(planType: string | null | undefined): "tria
   return "platinum";
 }
 
-/** True when the account uses the machine translation stack (not OpenAI on the server). */
+/** True when the account uses the machine translation stack (`plan_type` `*-libre`), not OpenAI. */
 export function planUsesLibreEngine(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "basic" || p === "professional" || p === "trial-libre" || p === "platinum-libre";
+  return ["trial-libre", "basic-libre", "professional-libre", "platinum-libre"].includes(p);
 }

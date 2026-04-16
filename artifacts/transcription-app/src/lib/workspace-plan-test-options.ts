@@ -24,8 +24,10 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "basic-openai", label: "Basic · OpenAI", group: "paid" },
   { planType: "professional-openai", label: "Professional · OpenAI", group: "paid" },
   { planType: "platinum", label: "Platinum · OpenAI", group: "paid" },
-  { planType: "basic", label: "Basic · Libre", group: "paid" },
-  { planType: "professional", label: "Professional · Libre", group: "paid" },
+  { planType: "basic", label: "Basic · OpenAI (PayPal id)", group: "paid" },
+  { planType: "basic-libre", label: "Basic · Libre", group: "paid" },
+  { planType: "professional", label: "Professional · OpenAI (PayPal id)", group: "paid" },
+  { planType: "professional-libre", label: "Professional · Libre", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Libre", group: "paid" },
   { planType: "unlimited", label: "Unlimited", group: "paid" },
 ];

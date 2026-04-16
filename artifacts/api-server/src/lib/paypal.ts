@@ -86,8 +86,8 @@ export function inferPlanTypeFromPayPalPlanId(planId: string): BillingPlanType |
 export function billingProductKeyFromPlanType(planType: string): BillingPlanType | null {
   const p = planType.trim().toLowerCase();
   if (p === "trial" || p === "trial-openai" || p === "trial-libre") return null;
-  if (p === "basic" || p === "basic-openai" || p === "morsy-basic") return "basic";
-  if (p === "professional" || p === "professional-openai") return "professional";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic") return "basic";
+  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   if (p === "platinum" || p === "platinum-libre" || p === "unlimited") return "platinum";
   return null;
 }

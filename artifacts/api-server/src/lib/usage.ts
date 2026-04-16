@@ -39,15 +39,10 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
   return (TRIAL_LIKE_PLAN_TYPES as readonly string[]).includes(p);
 }
 
-/** True when the account tier is a "Libre" product line (uses machine stack only if OpenAI is not configured). */
+/** True when `plan_type` must use the Libre/machine translation stack (never OpenAI), even if OPENAI_API_KEY is set. */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return (
-    p === "basic" ||
-    p === "professional" ||
-    p === "trial-libre" ||
-    p === "platinum-libre"
-  );
+  return ["trial-libre", "basic-libre", "professional-libre", "platinum-libre"].includes(p);
 }
 
 function isPaidTranslationPlan(eff: string): boolean {
@@ -55,9 +50,11 @@ function isPaidTranslationPlan(eff: string): boolean {
   return (
     e === "basic" ||
     e === "basic-openai" ||
+    e === "basic-libre" ||
     e === "morsy-basic" ||
     e === "professional" ||
     e === "professional-openai" ||
+    e === "professional-libre" ||
     e === "platinum" ||
     e === "platinum-libre" ||
     e === "unlimited"
@@ -95,8 +92,8 @@ export function effectivePlanTypeForTranslation(user: User): string {
 
 /**
  * Translation (POST /translate): which plans may call the translation endpoint.
- * Billing tier may be Libre-stack or OpenAI-stack in the DB; when the server has OpenAI configured,
- * all entitled users share the same interpreter path as Platinum (`transcription.ts`).
+ * Engine choice follows `plan_type`: `*-libre` tiers use machine translation; others use the OpenAI
+ * interpreter stack when the key is configured (`transcription.ts`).
  */
 export function translationEnabledForUser(user: User): boolean {
   const eff = effectivePlanTypeForTranslation(user);

@@ -289,8 +289,10 @@ const ADMIN_PLAN_OPTIONS_PAID: { value: string; label: string }[] = [
   { value: "basic-openai", label: "Basic · OpenAI (interpreter stack)" },
   { value: "professional-openai", label: "Professional · OpenAI (interpreter stack)" },
   { value: "platinum", label: "Platinum · OpenAI (interpreter stack)" },
-  { value: "basic", label: "Basic · Libre / machine" },
-  { value: "professional", label: "Professional · Libre / machine" },
+  { value: "basic", label: "Basic · OpenAI (PayPal default)" },
+  { value: "basic-libre", label: "Basic · Libre / machine" },
+  { value: "professional", label: "Professional · OpenAI (PayPal default)" },
+  { value: "professional-libre", label: "Professional · Libre / machine" },
   { value: "platinum-libre", label: "Platinum · Libre / machine" },
 ];
 
