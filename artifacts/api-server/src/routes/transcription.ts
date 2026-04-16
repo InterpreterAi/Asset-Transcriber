@@ -540,11 +540,31 @@ const NON_EN_TO_EN_INTERPRETER_RULES =
   `- If the source ends with one closing question or tag (e.g. Arabic تمام؟ or similar), use one English question only — do not append a second tag line such as "Complete confidentiality, right?" or "Is that okay?" that repeats the same idea.\n` +
   `- Never output the same English word twice in a row unless the speaker literally repeated it.\n\n`;
 
+/** True when ≥50% of non-space characters are ASCII digits (phones, codes, read-out numbers). */
+function isMostlyNumericSourceSegment(source: string): boolean {
+  const core = source.replace(/\s/g, "");
+  if (core.length === 0) return false;
+  let digits = 0;
+  for (const c of core) {
+    if (c >= "0" && c <= "9") digits += 1;
+  }
+  return digits / core.length >= 0.5;
+}
+
 /** Full-segment finalize pass from the client — lighter prompt for lower latency (stable UI / no client glue changes). */
-function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
+function finalSegmentCorrectionPrompt(tgtDisplayName: string, sourceSegment: string): string {
+  const numericHeavy = isMostlyNumericSourceSegment(sourceSegment);
+  if (numericHeavy) {
+    return (
+      `FINAL SEGMENT (MOSTLY NUMERIC):\n` +
+      `- At least half of this segment (non-space characters) are digits. Do **not** rephrase, spell out, merge, split, or “fix” any numeric content — output the same digits and NUM_n placeholders exactly as in the source.\n` +
+      `- You may adjust only light punctuation or capitalization on non-numeric words **outside** numeric spans; keep it fast.\n\n`
+    );
+  }
   return (
     `FINAL SEGMENT:\n` +
-    `- Finalize this segment in ${tgtDisplayName}: Fix only critical punctuation and capitalization. Do not rephrase or expand. Keep it fast.\n\n`
+    `- Finalize this segment in ${tgtDisplayName}: Fix only critical punctuation and capitalization. Do not rephrase or expand. Keep it fast.\n` +
+    `- If about half or more of the segment (non-space characters) are digits, treat it as numeric-heavy: never rephrase or correct those digit strings — output them verbatim.\n\n`
   );
 }
 
@@ -1543,7 +1563,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     : "";
 
   const finalSegmentBlock =
-    isFinalSegment && !streamingDelta ? finalSegmentCorrectionPrompt(tgtName) : "";
+    isFinalSegment && !streamingDelta ? finalSegmentCorrectionPrompt(tgtName, phraseNormalized) : "";
 
   const arabicEnTargetBlock =
     srcCode === "en" && tgtCode === "ar" ? ARABIC_EN_INTERPRETER_RULES : "";
