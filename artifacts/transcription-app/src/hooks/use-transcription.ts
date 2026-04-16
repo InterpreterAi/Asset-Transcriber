@@ -1661,6 +1661,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       useStreamingDelta = false;
     }
 
+    // Finals that include digits: never tail + streamingDelta. Overlap clipping
+    // (sourceTailAfterPrefix) can split number chains and mergeStreamingTranslation
+    // then drops digits vs Soniox; full segment is cheap for short numeric spans.
+    if (isFinal && /\d/.test(text)) {
+      apiText = text;
+      useStreamingDelta = false;
+      requestIsFinal = true;
+    }
+
     let liveAbortForThisRequest: AbortController | undefined;
     if (isFinal) {
       state.liveTranslationAbort?.abort();
@@ -2204,7 +2213,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          500,
+        max_endpoint_delay_ms:          800,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
