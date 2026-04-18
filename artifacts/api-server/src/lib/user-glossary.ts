@@ -90,3 +90,60 @@ export function applyUserGlossaryStrict(
   for (const v of appliedSet) appliedOut.push(v);
   return result;
 }
+
+function translationPresentInOutput(haystack: string, needle: string): boolean {
+  const n = needle.trim();
+  if (n.length < 2) return true;
+  // ASCII-only needles: case-insensitive check (handles EN leaks vs correct casing).
+  if (/^[\x00-\x7F]+$/.test(n)) {
+    return haystack.toLowerCase().includes(n.toLowerCase());
+  }
+  return haystack.includes(n);
+}
+
+/**
+ * Source-aware fallback: if the segment matched a glossary source variation but the
+ * preferred translation does not appear in the model output (paraphrase / no leak),
+ * append missing translations in one lightweight pass (no extra model calls).
+ */
+export function ensureGlossaryTranslationsFromSource(
+  outputText: string,
+  phraseNormalized: string,
+  entries: UserGlossaryRow[],
+  appliedOut: string[],
+): string {
+  const srcLower = phraseNormalized.toLowerCase();
+  const toInject: string[] = [];
+  const seenLower = new Set<string>();
+
+  for (const e of entries) {
+    const trans = e.translation.trim();
+    if (trans.length < 2) continue;
+
+    let sourceHit = false;
+    for (const v of parseGlossaryVariations(e.term)) {
+      if (glossarySourceMatchesSourceText(srcLower, v)) {
+        sourceHit = true;
+        break;
+      }
+    }
+    if (!sourceHit) continue;
+
+    if (translationPresentInOutput(outputText, trans)) continue;
+
+    const dedupe = trans.toLowerCase();
+    if (seenLower.has(dedupe)) continue;
+    seenLower.add(dedupe);
+    toInject.push(trans);
+  }
+
+  if (toInject.length === 0) return outputText;
+
+  const base = outputText.trimEnd();
+  const spacer = base.length > 0 ? " " : "";
+  const injected = `${base}${spacer}${toInject.join(" ")}`.trim();
+  for (const t of toInject) {
+    appliedOut.push(t);
+  }
+  return injected;
+}

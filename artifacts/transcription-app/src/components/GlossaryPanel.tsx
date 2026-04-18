@@ -111,7 +111,10 @@ export function GlossaryPanel({ onClose }: Props) {
           />
           <span className="text-[10px] text-foreground leading-snug">
             <span className="font-semibold">Force glossary on output</span>
-            <span className="text-muted-foreground"> (recommended) — replaces matching text in the translation column after each request.</span>
+            <span className="text-muted-foreground">
+              {" "}
+              (recommended) — replaces leaks in the translation when possible; if the source matched your term but the preferred wording is missing, it is appended (no extra AI calls).
+            </span>
           </span>
         </label>
       </div>

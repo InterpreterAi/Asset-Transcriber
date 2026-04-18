@@ -51,6 +51,7 @@ import { sendDailyLimitReachedEmail } from "../lib/transactional-email.js";
 import {
   applyUserGlossaryStrict,
   buildUserGlossaryHintLines,
+  ensureGlossaryTranslationsFromSource,
   type UserGlossaryRow,
 } from "../lib/user-glossary.js";
 
@@ -1365,10 +1366,12 @@ router.post("/translate", requireAuth, async (req, res) => {
   // calling OpenAI. This is the hard backstop for any client-side direction
   // logic that slips through (e.g. wrong segment lock on a Latin-Latin pair).
   if (srcCode === tgtCode) {
-    let out = applyInterpreterPhrasePretranslate(text);
+    const phraseEcho = applyInterpreterPhrasePretranslate(text);
+    let out = phraseEcho;
     const applied: string[] = [];
     if (glossaryStrictMode) {
       out = applyUserGlossaryStrict(out, userGlossary, applied);
+      out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
     }
     res.json({ translated: out, appliedGlossaryTerms: applied });
     return;
@@ -1512,6 +1515,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       let outMt = translated;
       if (glossaryStrictMode) {
         outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
+        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
       }
       diagCounter.translationSegments += 1;
       diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outMt });
@@ -1985,6 +1989,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let outAi = result.text;
     if (glossaryStrictMode) {
       outAi = applyUserGlossaryStrict(outAi, userGlossary, appliedAi);
+      outAi = ensureGlossaryTranslationsFromSource(outAi, phraseNormalized, userGlossary, appliedAi);
     }
 
     diagCounter.translationSegments += 1;
