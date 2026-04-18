@@ -73,10 +73,9 @@ import {
 //
 
 // ── Final Boss 3 (named product snapshot) ─────────────────────────────────
-// OpenAI interpreter stack = unchanged Final Boss 2 behavior for non-`*-libre` plans.
-// `trial-libre` / `basic-libre` / `professional-libre` / `platinum-libre`: same shared
-// masking, restore, glossary strict, and client STT as OpenAI tiers; translation =
-// Libre + Google cross-fallback only (see `basic-pro-translate.ts`, `usage.ts`).
+// Non-`*-libre` plans: OpenAI interpreter stack only — do not alter this path here.
+// `*-libre` plans: same shared masking, restore, finalize, glossary strict, and client STT;
+// translation = **exactly one** MT backend per request (Google **or** Libre via env — never both in series).
 
 /** Libre/Google may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {

@@ -1,17 +1,16 @@
-import { logger } from "./logger.js";
 import { callLibreTranslate } from "./libretranslate.js";
 import { callGoogleTranslate, isGoogleTranslateConfigured } from "./google-translate.js";
 
 /**
- * Libre / `*-libre` plans (Final Boss 3): machine translation only. OpenAI stack is separate.
+ * Libre / `*-libre` plans (Final Boss 3): machine translation only — **one** backend per request
+ * (Google **or** Libre, never chained) for latency parity with the OpenAI path. OpenAI stack is unchanged.
  *
  * **Engine choice** (`MACHINE_TRANSLATION_ENGINE`, optional):
  * - `google` — Cloud Translation API only (`GOOGLE_TRANSLATE_API_KEY` or `GOOGLE_CLOUD_TRANSLATION_API_KEY` required).
  * - `libre` — LibreTranslate only (`LIBRETRANSLATE_URL` or built-in public bases).
- * - Unset — **auto**: Google if a Google key is set, otherwise Libre (never both in one request).
+ * - Unset — **auto**: Google if a Google key is set, otherwise Libre.
  *
- * `translatePlainMachine` — single engine (used by leak-repair and `/translate` helper).
- * `translateBasicProfessional` — primary + cross-engine fallback for interpreter segments.
+ * `translatePlainMachine` — single-engine MT (leak-repair, `/translate` helper, interpreter segments).
  */
 
 export type MachineTranslationEngineKind = "google" | "libre";
@@ -22,46 +21,6 @@ function resolveMachineEngine(): MachineTranslationEngineKind {
   if (raw === "libre") return "libre";
   // auto
   return isGoogleTranslateConfigured() ? "google" : "libre";
-}
-
-function machineEngineFallbackOrder(primary: MachineTranslationEngineKind): MachineTranslationEngineKind[] {
-  if (primary === "google") {
-    return isGoogleTranslateConfigured() ? ["google", "libre"] : ["libre"];
-  }
-  return isGoogleTranslateConfigured() ? ["libre", "google"] : ["libre"];
-}
-
-/**
- * Try primary MT engine then the other (Libre ↔ Google) so `*-libre` tiers stay up if one backend fails.
- */
-async function translatePlainMachineWithFallback(
-  plain: string,
-  sourceLang: string,
-  targetLang: string,
-): Promise<string> {
-  const t = plain.trim();
-  if (!t) return "";
-
-  const primary = resolveMachineEngine();
-  if (primary === "google" && !isGoogleTranslateConfigured()) {
-    return callLibreTranslate(t, sourceLang, targetLang);
-  }
-
-  const order = machineEngineFallbackOrder(primary);
-  let lastErr: unknown;
-  for (const eng of order) {
-    try {
-      if (eng === "google") {
-        if (!isGoogleTranslateConfigured()) continue;
-        return await callGoogleTranslate(t, sourceLang, targetLang);
-      }
-      return await callLibreTranslate(t, sourceLang, targetLang);
-    } catch (err) {
-      lastErr = err;
-      logger.warn({ err, engine: eng }, "Machine translation engine failed; trying fallback");
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("Machine translation: all engines failed");
 }
 
 /**
@@ -110,5 +69,5 @@ export async function translateBasicProfessional(
   // and digits disappear from the translation. Send literal digits (same as transcript slots);
   // TERM_/PROT_ remain placeholders. Caller restore still reapplies glossary/protected terms.
   const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
-  return translatePlainMachineWithFallback(mtInput, sourceLang, targetLang);
+  return translatePlainMachine(mtInput, sourceLang, targetLang);
 }
