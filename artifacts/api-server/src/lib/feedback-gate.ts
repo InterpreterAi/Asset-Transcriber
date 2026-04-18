@@ -1,10 +1,16 @@
 import { db, feedbackTable, type User } from "@workspace/db";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, or, sql } from "drizzle-orm";
 import { startOfAppDay } from "@workspace/app-timezone";
 import { isTrialExpired, isTrialLikePlanType } from "./usage.js";
 
 /** Stored on feedback rows; name kept for backwards compatibility with existing DB rows. */
 export const MANDATORY_FEEDBACK_SOURCE = "trial-half-daily-mandatory";
+
+/** Minimum comment length to count as satisfying the half-daily mandatory gate (stars alone are not enough). */
+export const MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH = 10;
+
+/** Optional UI source for the same form body; rows may be normalized to {@link MANDATORY_FEEDBACK_SOURCE} on insert. */
+export const DAILY_PROMPT_FEEDBACK_SOURCE = "daily-prompt";
 
 /** Same threshold as workspace UI: accounts at or above this daily cap are treated as unlimited. */
 export const UNLIMITED_DAILY_CAP_MINUTES = 9000;
@@ -44,8 +50,15 @@ export async function hasSubmittedMandatoryFeedbackToday(userId: number): Promis
     .where(
       and(
         eq(feedbackTable.userId, userId),
-        eq(feedbackTable.source, MANDATORY_FEEDBACK_SOURCE),
         gte(feedbackTable.createdAt, startOfAppDay()),
+        gte(feedbackTable.rating, 1),
+        or(
+          eq(feedbackTable.source, MANDATORY_FEEDBACK_SOURCE),
+          and(
+            eq(feedbackTable.source, DAILY_PROMPT_FEEDBACK_SOURCE),
+            sql`length(trim(coalesce(${feedbackTable.comment}, ''))) >= ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH}`,
+          ),
+        ),
       ),
     );
   return Number(row?.count ?? 0) > 0;

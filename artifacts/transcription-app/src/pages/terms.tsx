@@ -30,7 +30,7 @@ export default function Terms() {
           <p>By using this service, you agree that the developers are not liable for any misuse of the tool in professional environments where such tools may be restricted.</p>
 
           <h2>Subscription Plans</h2>
-          <p>New accounts receive a 7-day free trial with a daily usage limit of 60 minutes (1 hour), using the full interpreter stack. Existing users keep the trial limits and duration that were originally assigned to their account. After the trial period, continued access requires a paid subscription. Plans are billed monthly and may be cancelled at any time:</p>
+          <p>New accounts receive a 7-day free trial with a daily usage limit of 120 minutes (2 hours). Existing users keep the trial limits and duration that were originally assigned to their account. After the trial period, continued access requires a paid subscription. Plans are billed monthly and may be cancelled at any time:</p>
           <ul>
             <li><strong>Basic</strong> – $40/month – up to 5 hours/day</li>
             <li><strong>Professional</strong> – $80/month – up to 9 hours/day (shown in the product as unlimited-style usage; a daily platform cap still applies)</li>

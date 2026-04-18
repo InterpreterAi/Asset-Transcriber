@@ -10,6 +10,7 @@ const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, ""
  * @see https://docs.libretranslate.com/community/mirrors/
  */
 const DEFAULT_FREE_LIBRE_BASES = [
+  "https://libretranslate.com",
   "https://translate.fedilab.app",
   "https://translate.cutie.dating",
   "https://translate.argosopentech.com",

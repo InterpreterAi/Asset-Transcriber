@@ -6,6 +6,7 @@ import { sendTelegramNotification } from "../lib/telegram.js";
 import {
   hasSubmittedMandatoryFeedbackToday,
   isMandatoryFeedbackRequiredByUsage,
+  MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH,
   MANDATORY_FEEDBACK_SOURCE,
 } from "../lib/feedback-gate.js";
 import { getUserWithResetCheck } from "../lib/usage.js";
@@ -14,7 +15,6 @@ const router = Router();
 
 const STAR_LABELS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
 const RECOMMEND_EMOJI: Record<string, string> = { yes: "👍", no: "👎", maybe: "🤷" };
-const MIN_MANDATORY_COMMENT_LENGTH = 10;
 
 router.get("/status", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
@@ -45,15 +45,21 @@ router.post("/", requireAuth, async (req, res) => {
   }
   if (
     source === MANDATORY_FEEDBACK_SOURCE &&
-    (comment?.trim().length ?? 0) < MIN_MANDATORY_COMMENT_LENGTH
+    (comment?.trim().length ?? 0) < MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH
   ) {
     res.status(400).json({
-      error: `Comment must be at least ${MIN_MANDATORY_COMMENT_LENGTH} characters for required feedback`,
+      error: `Comment must be at least ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH} characters for required feedback`,
     });
     return;
   }
 
   const userId = req.session.userId!;
+  const userFull = await getUserWithResetCheck(userId);
+  if (!userFull) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
   const [submitter] = await db
     .select({ username: usersTable.username, email: usersTable.email })
     .from(usersTable)
@@ -62,20 +68,30 @@ router.post("/", requireAuth, async (req, res) => {
 
   const submitterEmail = submitter?.email?.trim().toLowerCase() ?? null;
 
+  const commentLen = comment?.trim().length ?? 0;
+  let resolvedSource: string | null =
+    typeof source === "string" && source.trim() ? source.trim() : null;
+  if (
+    isMandatoryFeedbackRequiredByUsage(userFull) &&
+    commentLen >= MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH
+  ) {
+    resolvedSource = MANDATORY_FEEDBACK_SOURCE;
+  }
+
   await db.insert(feedbackTable).values({
     userId,
     email:     submitterEmail,
     rating,
     recommend: recommend ?? null,
     comment:   comment?.trim() || null,
-    source:    source ?? null,
+    source:    resolvedSource,
   });
 
   const user = submitter;
 
   const stars = "⭐".repeat(rating);
   const recLine = recommend ? `Recommend: ${RECOMMEND_EMOJI[recommend]} ${recommend}` : "";
-  const srcLine = source ? `Source: ${source}` : "";
+  const srcLine = resolvedSource ? `Source: ${resolvedSource}` : "";
   void sendTelegramNotification(
     [
       `${stars} New ${STAR_LABELS[rating]} Rating`,
