@@ -612,7 +612,7 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
 //
-// Primary: POST /api/transcription/translate (OpenAI on API server).
+// Primary: POST /api/transcription/translate (OpenAI or LibreTranslate on API server per plan).
 // On primary API failure we now skip that update (no public fallback) to avoid
 // mixed-language corruption during live interpreter use.
 //
@@ -622,8 +622,10 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 //   • HTTP 401 / 403             → try public fallback before surfacing error (except daily limit → hard stop)
 //   • Other 4xx                  → no retry (bad request)
 //   • Fatal 503 codes            → try public fallback before surfacing error
+type TranslationEngineHint = "libre" | "openai" | "passthrough";
+
 type PrimaryTranslationResult =
-  | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[] }
+  | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[]; translationEngine?: TranslationEngineHint }
   | { outcome: "daily_limit"; message: string }
   | { outcome: "try_fallback"; userMessage?: string };
 
@@ -684,11 +686,16 @@ async function translateViaPrimaryApi(
       });
       clearTimeout(timeoutId);
       if (r.ok) {
-        const d = await r.json() as { translated?: string; appliedGlossaryTerms?: string[] };
+        const d = await r.json() as {
+          translated?: string;
+          appliedGlossaryTerms?: string[];
+          translationEngine?: TranslationEngineHint;
+        };
         return {
           outcome: "ok",
           text: d.translated?.trim() ?? "",
           appliedGlossaryTerms: Array.isArray(d.appliedGlossaryTerms) ? d.appliedGlossaryTerms : undefined,
+          translationEngine: d.translationEngine,
         };
       }
 
@@ -799,6 +806,8 @@ type FetchTranslationResult = {
   replaceStreamColumn: boolean;
   dailyLimitReached?: boolean;
   dailyLimitMessage?: string;
+  /** From API: Libre MT output must not go through aggressive client polish (drops clauses). */
+  translationEngine?: TranslationEngineHint;
 };
 
 async function fetchTranslation(
@@ -812,7 +821,11 @@ async function fetchTranslation(
   if (primary.outcome === "ok") {
     const applied = primary.appliedGlossaryTerms ?? [];
     if (applied.length) options?.onGlossaryApplied?.(applied);
-    return { text: primary.text, replaceStreamColumn: false };
+    return {
+      text: primary.text,
+      replaceStreamColumn: false,
+      translationEngine: primary.translationEngine,
+    };
   }
   if (primary.outcome === "daily_limit") {
     return {
@@ -1771,6 +1784,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       try {
         const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
+        let translationEngineHint: TranslationEngineHint | undefined;
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {
             await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
@@ -1800,6 +1814,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             return;
           }
           translated = tr.text;
+          translationEngineHint = tr.translationEngine ?? translationEngineHint;
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
@@ -1819,6 +1834,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             return;
           }
           translated = trRetry.text;
+          translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
         }
         if (requestSegmentId !== state.segmentId) return;
 
@@ -1832,9 +1848,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         if (requestIsFinal) {
           const rawFinal = translated.trim();
-          let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
-          if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
-            out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
+          // Libre / passthrough: server already finalized; aggressive interpreter polish drops clauses and
+          // confuses MT phrasing — keep whitespace hygiene only (matches dedupeConsecutiveTranslationTokens).
+          const useLightweightFinalPolish =
+            translationEngineHint === "libre" || translationEngineHint === "passthrough";
+          let out: string;
+          if (useLightweightFinalPolish) {
+            out = dedupeConsecutiveTranslationTokens(rawFinal);
+          } else {
+            out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
+            if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
+              out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
+            }
           }
           const outTrim = out.trim();
           const resolvedAdminIdx =

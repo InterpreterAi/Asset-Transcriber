@@ -1448,7 +1448,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       out = applyUserGlossaryStrict(out, userGlossary, applied);
       out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
     }
-    res.json({ translated: out, appliedGlossaryTerms: applied });
+    res.json({
+      translated: out,
+      appliedGlossaryTerms: applied,
+      translationEngine: "passthrough" as const,
+    });
     return;
   }
 
@@ -1625,7 +1629,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      res.json({ translated: outMt, appliedGlossaryTerms: appliedMt });
+      res.json({
+        translated: outMt,
+        appliedGlossaryTerms: appliedMt,
+        translationEngine: "libre" as const,
+      });
     } catch (err: unknown) {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
@@ -2101,7 +2109,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       "TRANSCRIPTION_DIAG",
     );
 
-    res.json({ translated: outAi, appliedGlossaryTerms: appliedAi });
+    res.json({
+      translated: outAi,
+      appliedGlossaryTerms: appliedAi,
+      translationEngine: "openai" as const,
+    });
   } catch (err: unknown) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
     const upstreamStatus =
