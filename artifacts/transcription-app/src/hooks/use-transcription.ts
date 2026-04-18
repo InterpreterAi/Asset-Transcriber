@@ -54,13 +54,30 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   return fTrim + n;
 }
 
-/** Set `localStorage.setItem("interpreterai_stt_diag", "1")` to log raw vs merged transcript hints (client-only; Soniox hits the browser). */
+/**
+ * Opt-in STT diagnostics (browser console only; may contain PHI — dev machines only).
+ * `localStorage.setItem("interpreterai_stt_diag", "1")` then reload.
+ * Logs: raw Soniox JSON for messages whose tokens contain a digit, plus UI snapshot after handling.
+ */
 function sttClientDiagEnabled(): boolean {
   try {
     return typeof localStorage !== "undefined" && localStorage.getItem("interpreterai_stt_diag") === "1";
   } catch {
     return false;
   }
+}
+
+const STT_DIAG_RAW_MAX = 65536;
+
+function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
+  if (!sttClientDiagEnabled()) return;
+  const rawAll = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
+  if (!/\d/.test(rawAll)) return;
+  const s = typeof evtData === "string" ? evtData : String(evtData);
+  console.info(
+    "[stt_diag_ws_raw]",
+    s.length > STT_DIAG_RAW_MAX ? `${s.slice(0, STT_DIAG_RAW_MAX)}…[truncated ${s.length} chars]` : s,
+  );
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -2300,21 +2317,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
-      if (sttClientDiagEnabled()) {
-        const rawAll = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
-        if (/\d/.test(rawAll)) {
-          const finalsOnly = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
-          const nfOnly = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
-          console.info("[stt_diag]", {
-            rawLen: rawAll.length,
-            finalsLen: finalsOnly.length,
-            nfLen: nfOnly.length,
-            rawSample: rawAll.slice(0, 220),
-            finalsSample: finalsOnly.slice(0, 220),
-            nfSample: nfOnly.slice(0, 220),
-          });
-        }
-      }
+      logSttDiagWsRaw(evt.data, tokens);
 
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
 
@@ -2466,6 +2469,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             },
             stEnd.segmentId,
           );
+        }
+      }
+
+      if (sttClientDiagEnabled()) {
+        const joined = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
+        if (/\d/.test(joined)) {
+          const fin = activeBubbleRef.current;
+          const st = activeBubbleStateRef.current;
+          console.info("[stt_diag_ui_after]", {
+            joinedTokensFromMsg: joined,
+            finalsInMsg: tokens.filter(t => t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join(""),
+            nfInMsg: tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join(""),
+            dom_orig_paragraph: fin?.parentElement?.textContent?.trim() ?? "",
+            dom_finalSpan: fin?.textContent?.trim() ?? "",
+            dom_nfSpan: activeBubbleNFRef.current?.textContent?.trim() ?? "",
+            liveBufferRef: liveBufferRef.current,
+            renderQueueLength: finalRenderQueueRef.current.length,
+            finalCountRef: finalCountRef.current,
+            translationCell: st?.transTextEl?.textContent?.trim() ?? "",
+          });
         }
       }
     };
