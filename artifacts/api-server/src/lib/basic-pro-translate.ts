@@ -22,16 +22,6 @@ function resolveMachineEngine(): MachineTranslationEngineKind {
   return isGoogleTranslateConfigured() ? "google" : "libre";
 }
 
-function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, string>): string {
-  if (slotToDigits.size === 0) return text;
-  let out = text;
-  const slots = [...slotToDigits.entries()].sort((a, b) => b[0] - a[0]);
-  for (const [n, digits] of slots) {
-    out = out.replace(new RegExp(`NUM_${n}(?!\\d)`, "g"), () => digits);
-  }
-  return out;
-}
-
 /**
  * Plain segment: exactly one backend per call (Google **or** Libre — never both).
  * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en) for best engine support.
@@ -61,9 +51,10 @@ export async function translateBasicProfessional(
   text: string,
   sourceLang: string,
   targetLang: string,
-  slotToDigits: Map<number, string>,
+  _slotToDigits: Map<number, string>,
 ): Promise<string> {
-  const hasNums = slotToDigits.size > 0;
-  const plain = hasNums ? expandNumPlaceholdersToDigits(text, slotToDigits) : text;
-  return translatePlainMachine(plain, sourceLang, targetLang);
+  // Keep NUM_* placeholders in `text`. Expanding to digits before Google/Libre caused
+  // localized numerals, spelling, and reordering vs the transcript; the caller restores
+  // exact ASR digit strings via restoreNumberPlaceholders(_slotToDigits).
+  return translatePlainMachine(text, sourceLang, targetLang);
 }
