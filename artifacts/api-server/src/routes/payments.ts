@@ -89,6 +89,13 @@ function isBillingPlanType(v: unknown): v is BillingPlanType {
   return v === "basic" || v === "professional" || v === "platinum";
 }
 
+/** Final Boss 3: PayPal billing tier → DB `plan_type` (Basic/Prof = Libre; Platinum = OpenAI). */
+function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
+  if (plan === "basic") return "basic-libre";
+  if (plan === "professional") return "professional-libre";
+  return "platinum";
+}
+
 /** PayPal `custom_id` historically used `unlimited`; map to platinum. */
 function billingPlanFromCustomIdSegment(raw: string): BillingPlanType | null {
   const s = raw.trim();
@@ -279,16 +286,20 @@ router.post("/paypal-webhook", async (req, res) => {
 
       if (parsedPlanType && isBillingPlanType(parsedPlanType)) {
         const plan = paypalPlanConfig(parsedPlanType);
+        const resolvedPlanType = dbPlanTypeFromPayPalBilling(parsedPlanType);
         await db
           .update(usersTable)
           .set({
             ...sharedSubscription,
-            planType: parsedPlanType,
+            planType: resolvedPlanType,
             dailyLimitMinutes: plan.dailyLimitMinutes,
             subscriptionPlan: parsedPlanType,
           })
           .where(eq(usersTable.id, userId));
-        logger.info({ eventType, userId, planType: parsedPlanType }, "PayPal subscription activated");
+        logger.info(
+          { eventType, userId, planType: resolvedPlanType, subscriptionPlan: parsedPlanType },
+          "PayPal subscription activated",
+        );
       } else {
         await db
           .update(usersTable)
@@ -348,7 +359,7 @@ router.post("/paypal-webhook", async (req, res) => {
       await db
         .update(usersTable)
         .set({
-          planType: "trial",
+          planType: "trial-libre",
           dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
           subscriptionStatus: "inactive",
           subscriptionPeriodEndsAt: null,

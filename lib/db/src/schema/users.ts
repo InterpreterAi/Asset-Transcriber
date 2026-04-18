@@ -10,7 +10,7 @@ export const usersTable = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   emailVerified: boolean("email_verified").notNull().default(false),
-  planType: text("plan_type").notNull().default("trial"),
+  planType: text("plan_type").notNull().default("trial-libre"),
   trialStartedAt: timestamp("trial_started_at").notNull().defaultNow(),
   trialEndsAt: timestamp("trial_ends_at").notNull(),
   /** Sent when trial end is within 48 hours (subject: ends in 2 days). */

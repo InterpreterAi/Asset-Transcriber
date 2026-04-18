@@ -38,8 +38,20 @@ export function workspacePlanTierKey(planType: string | null | undefined): "tria
   return "platinum";
 }
 
-/** True when the account uses the machine translation stack (`plan_type` `*-libre`), not OpenAI. */
+/**
+ * True when the account uses the machine translation stack — mirrors server `planUsesMachineTranslationStack`
+ * (Final Boss 3: Libre for default trial, Basic, Professional; OpenAI for legacy OpenAI trials, Platinum, Unlimited).
+ */
 export function planUsesLibreEngine(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return ["trial-libre", "basic-libre", "professional-libre", "platinum-libre"].includes(p);
+  if (
+    p === "trial" ||
+    p === "trial-openai" ||
+    p === "platinum" ||
+    p === "platinum-libre" ||
+    p === "unlimited"
+  ) {
+    return false;
+  }
+  return true;
 }

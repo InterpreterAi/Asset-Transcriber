@@ -1,26 +1,31 @@
 ---
-description: Scope product changes to Libre *-libre tiers only; never alter Platinum or OpenAI trial paths; commit and push after work.
+description: Final Boss 3 product matrix — Libre vs OpenAI by plan; gate server MT path; commit and push after work.
 alwaysApply: true
 ---
 
 # Translation & billing tier scope (InterpreterAI)
 
-## Final Boss 3 (current named snapshot)
+## Final Boss 3 (canonical product snapshot)
 
-- **Final Boss 3** is the live product label for the **current tree**: OpenAI interpreter stack unchanged for **non–`*-libre`** plans; **`trial-libre`**, **`basic-libre`**, **`professional-libre`**, **`platinum-libre`** use the **same** shared masking, restore, glossary strict, and client STT as OpenAI tiers, with **machine translation only** via **LibreTranslate** (free public endpoints or `LIBRETRANSLATE_URL`). **No Google Cloud Translation** on the *-libre path — **one primary Libre HTTP call per segment** (post-MT English leak repair is **skipped** on *-libre so public mirrors are not hammered and the client translate timeout is not exceeded). Transcription remains browser → Soniox for everyone.
-- **`trial-libre` → paid** (subscription active): `effectivePlanTypeForTranslation` maps to **`basic-libre` / `professional-libre` / `platinum-libre`** so those users **never** switch to the OpenAI engine when PayPal/webhooks promote the tier.
-- **Git:** tag **`final-boss-3`** is the freeze marker for this baseline when tagged.
+Single named baseline for **transcription** (browser → Soniox, identical for all plans) and **translation engine** (server `POST /translate`):
 
-## Do not change (OpenAI / Final Boss 3 stack)
+| Segment | DB `plan_type` examples | Translation engine |
+|--------|-------------------------|---------------------|
+| **Default signup** | `trial-libre` | LibreTranslate (machine) |
+| **Basic / Professional** (paid) | `basic-libre`, `professional-libre` (PayPal sets these on activate); legacy `basic`, `professional`, `basic-openai`, `professional-openai` also route to Libre | LibreTranslate |
+| **Platinum / Unlimited** | `platinum`, `unlimited`; admin label `platinum-libre` uses **OpenAI** like platinum | OpenAI (`gpt-4o-mini` stack) |
+| **Legacy OpenAI trials** (admin only / old accounts) | `trial`, `trial-openai` | OpenAI |
 
-- **Platinum**, **`unlimited`**, and **non–`*-libre`** translation: prompts, finalize behavior, retries, OpenAI-only code paths, and client paths tied to those plans.
-- **OpenAI trial tiers:** **`trial`** and **`trial-openai`**. Do not modify their behavior or shared OpenAI-only paths except with explicit user approval.
+- **PayPal** `subscription_plan` stays `basic` | `professional` | `platinum` for billing; **`plan_type`** after activation is `basic-libre` / `professional-libre` / `platinum`. Subscription cancel → `trial-libre` + inactive.
+- **Engine switch** is server-only (`planUsesMachineTranslationStack` in `usage.ts` → `useMachineTranslation` in `transcription.ts`). Client dispatch is unchanged.
+- **Git:** tag **`final-boss-3`** marks this baseline (move tag on intentional freezes).
 
-## Allowed to change (Libre / machine translation only)
+## Do not change without explicit approval
 
-- **`trial-libre`**, **`basic-libre`**, **`professional-libre`**, **`platinum-libre`**: server machine path (`useMachineTranslation` in `transcription.ts`), `basic-pro-translate.ts`, `libretranslate.ts`, and **`effectivePlanTypeForTranslation`** only for **preserving `*-libre` lineage** (e.g. `trial-libre` upgrades). **Client translation dispatch stays identical** — engine swap is server-side only.
+- **OpenAI path** in `transcription.ts`: prompts, retries, cost accounting, and behavior for plans that use `callOpenAI` (Platinum, Unlimited, legacy `trial` / `trial-openai`, etc.).
+- **Client** `use-transcription.ts`: no plan-specific branches — same STT + translate dispatch for every tier.
 
-## Implementation discipline
+## Allowed to change (Libre / machine path only)
 
-- When editing shared files (e.g. `transcription.ts`), **gate** Libre-specific behavior with `useMachineTranslation` (or equivalent) so **OpenAI paths stay byte-for-byte unchanged** unless the user explicitly asks otherwise. **Do not** add plan branches in `use-transcription.ts`.
+- **`planUsesMachineTranslationStack` is true** for that user: `basic-pro-translate.ts`, `libretranslate.ts`, Libre-only glossary/masking shortcuts in `transcription.ts`, and **`effectivePlanTypeForTranslation`** when preserving PayPal lag semantics for `trial-libre` upgrades.
 - After completing requested work, **commit and push** to `main` unless the user says not to.

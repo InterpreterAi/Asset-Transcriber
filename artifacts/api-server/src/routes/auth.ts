@@ -371,7 +371,7 @@ router.post("/login", async (req, res) => {
           email: user.email ?? undefined,
           isAdmin: Boolean(user.isAdmin),
           isActive: user.isActive,
-          planType: user.planType ?? "trial",
+          planType: user.planType ?? "trial-libre",
           translationEnabled: false,
           emailVerified: Boolean(user.emailVerified),
           trialStartedAt: user.trialStartedAt,
@@ -687,7 +687,7 @@ router.post("/signup", async (req, res) => {
           isActive: true,
           emailVerified: false,
           requiresEmailVerification: true,
-          planType: "trial",
+          planType: "trial-libre",
           trialStartedAt: trial.trialStartedAt,
           trialEndsAt: trial.trialEndsAt,
           dailyLimitMinutes: trial.dailyLimitMinutes,
@@ -724,7 +724,7 @@ router.post("/signup", async (req, res) => {
   }
 
   void sendTelegramNotification(
-    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Free Trial (7 days)`,
+    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Trial · Libre / Final Boss 3 (7 days)`,
   );
 
   const verifyToken = crypto.randomBytes(32).toString("hex");
@@ -1216,7 +1216,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
                 isActive:         true,
                 emailVerified:    true,
                 requiresEmailVerification: false,
-                planType:         "trial",
+                planType:         "trial-libre",
                 trialStartedAt:   googleTrial.trialStartedAt,
                 trialEndsAt:      googleTrial.trialEndsAt,
                 dailyLimitMinutes: googleTrial.dailyLimitMinutes,

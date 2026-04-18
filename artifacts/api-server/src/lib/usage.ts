@@ -33,16 +33,29 @@ export function getTrialDaysRemaining(user: User): number {
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
 export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre"] as const;
 
-/** Trial-like plans: default signup `trial` (OpenAI), legacy `trial-openai`, or `trial-libre`. */
+/** Trial-like plans: default signup `trial-libre` (Final Boss 3), legacy `trial` / `trial-openai`, or `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   return (TRIAL_LIKE_PLAN_TYPES as readonly string[]).includes(p);
 }
 
-/** True when `plan_type` must use the Libre/machine translation stack (never OpenAI), even if OPENAI_API_KEY is set. */
+/**
+ * True when POST /translate must use the Libre/machine stack (not OpenAI).
+ * Final Boss 3: default signup is `trial-libre`; Basic and Professional (any *basic* / *professional* plan_type)
+ * use Libre; only trial (legacy OpenAI trial), trial-openai, platinum family, and unlimited use OpenAI.
+ */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return ["trial-libre", "basic-libre", "professional-libre", "platinum-libre"].includes(p);
+  if (
+    p === "trial" ||
+    p === "trial-openai" ||
+    p === "platinum" ||
+    p === "platinum-libre" ||
+    p === "unlimited"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function isPaidTranslationPlan(eff: string): boolean {
@@ -77,7 +90,7 @@ export function isTrialExpired(user: User): boolean {
  * only in that case so paid tiers keep machine or OpenAI translation.
  */
 export function effectivePlanTypeForTranslation(user: User): string {
-  const p = (user.planType ?? "trial").trim().toLowerCase();
+  const p = (user.planType ?? "trial-libre").trim().toLowerCase();
   const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
   const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();
   if (
@@ -85,12 +98,12 @@ export function effectivePlanTypeForTranslation(user: User): string {
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
-    // Final Boss 3: keep machine-translation lineage when upgrading from trial-libre (never switch those users to OpenAI).
+    // Final Boss 3: trial-libre → paid maps Basic/Prof to Libre stacks; Platinum/Unlimited → OpenAI.
     if (p === "trial-libre") {
       if (sp === "basic") return "basic-libre";
       if (sp === "professional") return "professional-libre";
-      if (sp === "platinum") return "platinum-libre";
-      if (sp === "unlimited") return "platinum-libre";
+      if (sp === "platinum") return "platinum";
+      if (sp === "unlimited") return "unlimited";
     }
     return sp;
   }
@@ -172,7 +185,7 @@ export function buildUserInfo(user: User) {
     email: user.email ?? undefined,
     isAdmin: user.isAdmin,
     isActive: user.isActive,
-    planType: user.planType ?? "trial",
+    planType: user.planType ?? "trial-libre",
     translationEnabled: translationEnabledForUser(user),
     emailVerified: user.emailVerified ?? false,
     trialStartedAt: user.trialStartedAt,

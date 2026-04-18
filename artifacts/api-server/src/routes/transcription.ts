@@ -73,9 +73,9 @@ import {
 //
 
 // ── Final Boss 3 (named product snapshot) ─────────────────────────────────
-// Non-`*-libre` plans: OpenAI interpreter stack only — do not alter this path here.
-// `*-libre` plans: same shared masking, restore, finalize, glossary strict, and client STT;
-// translation = **LibreTranslate only** (one HTTP call per segment; public free endpoints or LIBRETRANSLATE_URL).
+// `planUsesMachineTranslationStack` → LibreTranslate only (see usage.ts): default `trial-libre`, Basic/Prof tiers,
+// legacy basic/prof plan_types, etc. OpenAI stack: legacy trials `trial`/`trial-openai`, `platinum`, `unlimited`,
+// `platinum-libre`. Shared masking where applicable; client STT = Soniox for everyone.
 
 /** LibreTranslate may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {
