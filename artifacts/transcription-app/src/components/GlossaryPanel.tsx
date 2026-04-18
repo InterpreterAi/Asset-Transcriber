@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { BookOpen, Plus, Trash2, X, ArrowRight, Loader2 } from "lucide-react";
+import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
 
 interface GlossaryEntry {
   id: number;
@@ -20,6 +21,7 @@ export function GlossaryPanel({ onClose }: Props) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [glossaryStrict, setGlossaryStrict] = useState(() => readGlossaryStrictEnabled());
 
   const load = async () => {
     try {
@@ -90,10 +92,28 @@ export function GlossaryPanel({ onClose }: Props) {
         </button>
       </div>
 
-      <div className="p-3 border-b border-border/60 bg-muted/20 shrink-0">
+      <div className="p-3 border-b border-border/60 bg-muted/20 shrink-0 space-y-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          Define preferred translations for terms used during sessions. Matching terms are automatically applied to the AI translation output.
+          Add source phrases and your preferred target wording. The server still nudges the interpreter, then{" "}
+          <span className="font-medium text-foreground/80">enforces</span> matches on the final translation (when enabled below). Use commas for
+          alternate source phrases, e.g. <span className="font-mono">claim number, claim #</span>. Transcription (STT) is unchanged.
         </p>
+        <label className="flex items-start gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5 rounded border-border"
+            checked={glossaryStrict}
+            onChange={e => {
+              const v = e.target.checked;
+              setGlossaryStrict(v);
+              writeGlossaryStrictEnabled(v);
+            }}
+          />
+          <span className="text-[10px] text-foreground leading-snug">
+            <span className="font-semibold">Force glossary on output</span>
+            <span className="text-muted-foreground"> (recommended) — replaces matching text in the translation column after each request.</span>
+          </span>
+        </label>
       </div>
 
       <form onSubmit={(e) => void handleAdd(e)} className="p-3 border-b border-border/60 shrink-0 space-y-2">
@@ -104,7 +124,7 @@ export function GlossaryPanel({ onClose }: Props) {
         <input
           value={term}
           onChange={e => setTerm(e.target.value)}
-          placeholder='Source term (e.g. "claim number")'
+          placeholder='Source term(s), comma-separated'
           className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-white outline-none focus:ring-1 focus:ring-ring"
           required
         />

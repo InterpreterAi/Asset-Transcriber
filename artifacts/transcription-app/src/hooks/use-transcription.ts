@@ -6,6 +6,7 @@ import {
   getTranslationTypographyMeta,
   wrapAsciiDigitRunsWithLtrSpans,
 } from "@/lib/wrap-ltr-numbers";
+import { readGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -573,7 +574,7 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 //   • Other 4xx                  → no retry (bad request)
 //   • Fatal 503 codes            → try public fallback before surfacing error
 type PrimaryTranslationResult =
-  | { outcome: "ok"; text: string }
+  | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[] }
   | { outcome: "daily_limit"; message: string }
   | { outcome: "try_fallback"; userMessage?: string };
 
@@ -629,12 +630,17 @@ async function translateViaPrimaryApi(
           tgtLang:        targetLang,
           streamingDelta: Boolean(options?.streamingDelta),
           isFinal:        Boolean(options?.isFinal),
+          glossaryStrictMode: readGlossaryStrictEnabled(),
         }),
       });
       clearTimeout(timeoutId);
       if (r.ok) {
-        const d = await r.json() as { translated?: string };
-        return { outcome: "ok", text: d.translated?.trim() ?? "" };
+        const d = await r.json() as { translated?: string; appliedGlossaryTerms?: string[] };
+        return {
+          outcome: "ok",
+          text: d.translated?.trim() ?? "",
+          appliedGlossaryTerms: Array.isArray(d.appliedGlossaryTerms) ? d.appliedGlossaryTerms : undefined,
+        };
       }
 
       if (r.status === 503) {
@@ -734,6 +740,8 @@ async function translateViaPrimaryApi(
 type FetchTranslationOptions = TranslateApiOptions & {
   /** Full segment source when `text` is a delta — used if public fallback runs (needs whole sentence). */
   fullSegmentForFallback?: string;
+  /** Fired when the server applied strict glossary replacements (non-empty list). */
+  onGlossaryApplied?: (terms: string[]) => void;
 };
 
 type FetchTranslationResult = {
@@ -753,6 +761,8 @@ async function fetchTranslation(
 ): Promise<FetchTranslationResult> {
   const primary = await translateViaPrimaryApi(text, sourceLang, targetLang, options);
   if (primary.outcome === "ok") {
+    const applied = primary.appliedGlossaryTerms ?? [];
+    if (applied.length) options?.onGlossaryApplied?.(applied);
     return { text: primary.text, replaceStreamColumn: false };
   }
   if (primary.outcome === "daily_limit") {
@@ -1244,6 +1254,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const [sessionId,     setSessionId]     = useState<number | null>(null);
   /** True for the full `start()` path (not just token/session HTTP) so the UI cannot re-enable Start mid-setup. */
   const [startBusy, setStartBusy] = useState(false);
+  const [glossaryAppliedFlash, setGlossaryAppliedFlash] = useState<{
+    count: number;
+    sampleTerms: string[];
+  } | null>(null);
+  const glossaryFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const glossaryNotifyRef = useRef<(terms: string[]) => void>(() => {});
+  const bumpGlossaryApplied = useCallback((terms: string[]) => {
+    if (!terms.length) return;
+    if (glossaryFlashTimerRef.current) {
+      clearTimeout(glossaryFlashTimerRef.current);
+      glossaryFlashTimerRef.current = null;
+    }
+    setGlossaryAppliedFlash({
+      count: terms.length,
+      sampleTerms: terms.slice(0, 5),
+    });
+    glossaryFlashTimerRef.current = setTimeout(() => {
+      setGlossaryAppliedFlash(null);
+      glossaryFlashTimerRef.current = null;
+    }, 4500);
+  }, []);
+  glossaryNotifyRef.current = bumpGlossaryApplied;
 
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
@@ -1708,6 +1740,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
               isFinal: requestIsFinal,
               signal:   liveAbortForThisRequest?.signal,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
             },
           );
           if (tr.dailyLimitReached) {
@@ -1727,7 +1760,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             dispatchLang,
             myTargetLang,
             (m) => translationConfigReporterRef.current(m),
-            { streamingDelta: false, isFinal: true },
+            { streamingDelta: false, isFinal: true, onGlossaryApplied: t => glossaryNotifyRef.current(t) },
           );
           if (trRetry.dailyLimitReached) {
             dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
@@ -2047,6 +2080,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (containerRef.current) containerRef.current.innerHTML = "";
     setHasTranscript(false);
     setTranslationServiceError(null);
+    if (glossaryFlashTimerRef.current) {
+      clearTimeout(glossaryFlashTimerRef.current);
+      glossaryFlashTimerRef.current = null;
+    }
+    setGlossaryAppliedFlash(null);
     resetSpeakerMap();
   }, [stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
@@ -2704,5 +2742,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     clear: doClear,
     isStarting:
       startBusy || getTokenMut.isPending || startSessionMut.isPending,
+    glossaryAppliedFlash,
   };
 }

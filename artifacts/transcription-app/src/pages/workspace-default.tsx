@@ -1451,6 +1451,31 @@ export default function WorkspaceDefault() {
           </div>
         )}
 
+        {transcription.glossaryAppliedFlash && transcription.glossaryAppliedFlash.count > 0 && (
+          <div className="px-4 pt-2 shrink-0">
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/90 px-3 py-1.5 text-[11px] text-emerald-900">
+              <BookOpen className="w-3.5 h-3.5 shrink-0 opacity-80" />
+              <span>
+                Glossary applied:{" "}
+                <span className="font-semibold">{transcription.glossaryAppliedFlash.count}</span> term
+                {transcription.glossaryAppliedFlash.count === 1 ? "" : "s"}
+                {transcription.glossaryAppliedFlash.sampleTerms.length > 0 && (
+                  <>
+                    {" "}
+                    <span className="text-emerald-800/85">
+                      ({transcription.glossaryAppliedFlash.sampleTerms.join(", ")}
+                      {transcription.glossaryAppliedFlash.count > transcription.glossaryAppliedFlash.sampleTerms.length
+                        ? "…"
+                        : ""}
+                      )
+                    </span>
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* TRANSCRIPT + NOTES + HISTORY PANELS */}
         <div className="flex-1 flex gap-3 p-4 min-h-0 overflow-hidden relative">
 

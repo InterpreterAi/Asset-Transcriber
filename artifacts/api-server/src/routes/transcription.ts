@@ -48,6 +48,11 @@ import {
 } from "../lib/feedback-gate.js";
 import { appCalendarDateAndHour, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 import { sendDailyLimitReachedEmail } from "../lib/transactional-email.js";
+import {
+  applyUserGlossaryStrict,
+  buildUserGlossaryHintLines,
+  type UserGlossaryRow,
+} from "../lib/user-glossary.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -1281,6 +1286,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     segmentId: incomingSegmentId,
     streamingDelta: rawStreamingDelta,
     isFinal: rawIsFinal,
+    glossaryStrictMode: rawGlossaryStrict,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1291,9 +1297,12 @@ router.post("/translate", requireAuth, async (req, res) => {
     streamingDelta?: boolean;
     /** Full segment after pause/speaker change — prompt asks for authoritative polished translation. */
     isFinal?: boolean;
+    /** When not `false`, run regex enforcement on translated output (default: on). */
+    glossaryStrictMode?: boolean;
   };
   const streamingDelta = Boolean(rawStreamingDelta);
   const isFinalSegment = Boolean(rawIsFinal);
+  const glossaryStrictMode = rawGlossaryStrict !== false;
 
   if (!text?.trim() || !srcLang || !tgtLang) {
     res.status(400).json({ error: "text, srcLang, and tgtLang are required" });
@@ -1340,13 +1349,28 @@ router.post("/translate", requireAuth, async (req, res) => {
   const srcCode = srcLang.split("-")[0]!;
   const tgtCode = tgtLang.split("-")[0]!;
 
+  const userIdEarly = req.session.userId!;
+  const userGlossaryRows = await db
+    .select({
+      term: glossaryEntriesTable.term,
+      translation: glossaryEntriesTable.translation,
+    })
+    .from(glossaryEntriesTable)
+    .where(eq(glossaryEntriesTable.userId, userIdEarly));
+  const userGlossary: UserGlossaryRow[] = userGlossaryRows;
+
   // ── Same-language guard (server-side failsafe) ─────────────────────────────
   // If the resolved source and target share the same base language code, no
   // translation is possible — return the original text immediately without
   // calling OpenAI. This is the hard backstop for any client-side direction
   // logic that slips through (e.g. wrong segment lock on a Latin-Latin pair).
   if (srcCode === tgtCode) {
-    res.json({ translated: applyInterpreterPhrasePretranslate(text) });
+    let out = applyInterpreterPhrasePretranslate(text);
+    const applied: string[] = [];
+    if (glossaryStrictMode) {
+      out = applyUserGlossaryStrict(out, userGlossary, applied);
+    }
+    res.json({ translated: out, appliedGlossaryTerms: applied });
     return;
   }
 
@@ -1386,7 +1410,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     return t;
   }
 
-  const userId = req.session.userId!;
+  const userId = userIdEarly;
 
   // Diagnostics only: resolve active session and segment IDs, then count stage events.
   let diagSessionId: number | null =
@@ -1484,20 +1508,25 @@ router.post("/translate", requireAuth, async (req, res) => {
         });
         return;
       }
+      const appliedMt: string[] = [];
+      let outMt = translated;
+      if (glossaryStrictMode) {
+        outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
+      }
       diagCounter.translationSegments += 1;
-      diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated });
+      diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outMt });
       logger.info(
         {
           ts: diagNowIso(),
           stage: "translation_response_received",
           sessionId: diagSid,
           segmentId: diagSegId,
-          translatedLength: translated.length,
+          translatedLength: outMt.length,
           counters: diagCounter,
         },
         "TRANSCRIPTION_DIAG",
       );
-      res.json({ translated });
+      res.json({ translated: outMt, appliedGlossaryTerms: appliedMt });
     } catch (err: unknown) {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
@@ -1519,17 +1548,9 @@ router.post("/translate", requireAuth, async (req, res) => {
     if (!termHints.includes(h)) termHints.push(h);
   }
 
-  // ── User personal glossary ─────────────────────────────────────────────────
-  // Load the user's saved glossary entries and add any that match the current text
-  const userGlossary = await db
-    .select()
-    .from(glossaryEntriesTable)
-    .where(eq(glossaryEntriesTable.userId, userId));
-  const lowerText = phraseNormalized.toLowerCase();
-  for (const entry of userGlossary) {
-    if (lowerText.includes(entry.term.toLowerCase())) {
-      termHints.push(`"${entry.term}" → "${entry.translation}"`);
-    }
+  // ── User personal glossary (prompt hints; strict pass runs after model) ────
+  for (const line of buildUserGlossaryHintLines(userGlossary, phraseNormalized)) {
+    if (!termHints.includes(line)) termHints.push(line);
   }
 
   // Arabic dialect understanding — source text may be any regional dialect
@@ -1960,21 +1981,27 @@ router.post("/translate", requireAuth, async (req, res) => {
     // Accumulate cost for the primary call (after validation so we always count it).
     accumulateCost(result.promptTokens, result.completionTokens);
 
+    const appliedAi: string[] = [];
+    let outAi = result.text;
+    if (glossaryStrictMode) {
+      outAi = applyUserGlossaryStrict(outAi, userGlossary, appliedAi);
+    }
+
     diagCounter.translationSegments += 1;
-    diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: result.text });
+    diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outAi });
     logger.info(
       {
         ts: diagNowIso(),
         stage: "translation_response_received",
         sessionId: diagSid,
         segmentId: diagSegId,
-        translatedLength: result.text.length,
+        translatedLength: outAi.length,
         counters: diagCounter,
       },
       "TRANSCRIPTION_DIAG",
     );
 
-    res.json({ translated: result.text }); // result returned to browser; nothing retained server-side
+    res.json({ translated: outAi, appliedGlossaryTerms: appliedAi });
   } catch (err: unknown) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
     const upstreamStatus =
