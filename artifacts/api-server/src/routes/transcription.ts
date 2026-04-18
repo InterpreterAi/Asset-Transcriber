@@ -93,13 +93,7 @@ function normalizeMachineTranslationPlaceholders(s: string): string {
 // ── API cost rates ─────────────────────────────────────────────────────────
 // Soniox: $0.0025 per transcription-minute (= per 60 s of audio).
 const SONIOX_COST_PER_MIN = 0.0025;
-// gpt-4o-mini pricing (per token):
-//   Input  $0.15 / 1M tokens → $1.5e-7 per token
-//   Output $0.60 / 1M tokens → $6.0e-7 per token
-const OPENAI_INPUT_COST_PER_TOKEN  = 0.00000015;
-const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060;
-
-/** OpenAI translation-only spend (USD) from dashboard, America/New_York calendar day (April 2026). Reference for reconciliation. */
+/** OpenAI translation-only spend (USD) from your dashboard, America/New_York calendar day (April 2026). */
 const OPENAI_VERIFIED_TRANSLATION_USD_BY_NY_DAY: Readonly<Record<string, number>> = {
   "2026-04-03": 0.03,
   "2026-04-04": 0.25,
@@ -118,7 +112,33 @@ const OPENAI_VERIFIED_TRANSLATION_USD_BY_NY_DAY: Readonly<Record<string, number>
   "2026-04-17": 4.43,
   "2026-04-18": 0.64,
 };
-// Listed days sum ≈ $51.54; period total cited ≈ $50 — reference only (token charges use API rates below).
+const OPENAI_VERIFIED_TRANSLATION_USD_SUM_LISTED = Object.values(OPENAI_VERIFIED_TRANSLATION_USD_BY_NY_DAY).reduce(
+  (a, b) => a + b,
+  0,
+);
+/** Your cited OpenAI translation total (USD) for that same window — reconciles listed dailies to this anchor. */
+const OPENAI_VERIFIED_TRANSLATION_USD_PERIOD_CITED = 50;
+/**
+ * Apply to every token-derived translation charge. Default = (sum of listed dailies) / cited period total.
+ * Optional env `OPENAI_TRANSLATION_COST_CALIBRATION` (positive number) multiplies on top (e.g. 1.2 if invoice still runs higher).
+ */
+function openaiTranslationCostSessionMultiplier(): number {
+  const raw = process.env.OPENAI_TRANSLATION_COST_CALIBRATION?.trim();
+  let envFactor = 1;
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) envFactor = n;
+  }
+  const tableFactor =
+    OPENAI_VERIFIED_TRANSLATION_USD_PERIOD_CITED > 0
+      ? OPENAI_VERIFIED_TRANSLATION_USD_SUM_LISTED / OPENAI_VERIFIED_TRANSLATION_USD_PERIOD_CITED
+      : 1;
+  return tableFactor * envFactor;
+}
+
+// gpt-4o-mini list: $0.15 / $0.60 per 1M tokens — scaled by verified-window reconciliation (above) into effective $/token.
+const OPENAI_INPUT_COST_PER_TOKEN  = 0.00000015 * openaiTranslationCostSessionMultiplier();
+const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * openaiTranslationCostSessionMultiplier();
 
 const MAX_SESSION_AUDIO_SECONDS = 3 * 60 * 60;
 

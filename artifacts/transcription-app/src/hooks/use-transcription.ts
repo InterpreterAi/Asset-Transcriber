@@ -85,8 +85,10 @@ const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const EST_TOKENS_PER_CHAR = 0.25;
-const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015; // mirrors server constant
-const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060; // mirrors server constant
+/** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
+const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
+const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
+const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
 // Segments close on stabilized speaker_id change (see effectiveSpeakersForTokenBoundaries + ws.onmessage).
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
