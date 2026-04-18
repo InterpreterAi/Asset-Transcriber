@@ -94,6 +94,27 @@ const SONIOX_COST_PER_MIN = 0.0025;
 const OPENAI_INPUT_COST_PER_TOKEN  = 0.00000015;
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060;
 
+/** OpenAI translation-only spend (USD) from dashboard, America/New_York calendar day (April 2026). Reference for reconciliation. */
+const OPENAI_VERIFIED_TRANSLATION_USD_BY_NY_DAY: Readonly<Record<string, number>> = {
+  "2026-04-03": 0.03,
+  "2026-04-04": 0.25,
+  "2026-04-05": 0.17,
+  "2026-04-06": 1.71,
+  "2026-04-07": 2.92,
+  "2026-04-08": 3.29,
+  "2026-04-09": 2.62,
+  "2026-04-10": 2.1,
+  "2026-04-11": 0.6,
+  "2026-04-12": 0.41,
+  "2026-04-13": 6.1,
+  "2026-04-14": 9.6,
+  "2026-04-15": 6.98,
+  "2026-04-16": 9.69,
+  "2026-04-17": 4.43,
+  "2026-04-18": 0.64,
+};
+// Listed days sum ≈ $51.54; period total cited ≈ $50 — reference only (token charges use API rates below).
+
 const MAX_SESSION_AUDIO_SECONDS = 3 * 60 * 60;
 
 const DAILY_LIMIT_PAID_MESSAGE =
@@ -1827,8 +1848,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Runs async — does not block the translate response.
   function accumulateCost(promptTokens: number, completionTokens: number): void {
     const callCost = +(
-      promptTokens     * OPENAI_INPUT_COST_PER_TOKEN +
-      completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
+      promptTokens * OPENAI_INPUT_COST_PER_TOKEN + completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
     ).toFixed(8);
     void db
       .update(sessionsTable)
@@ -1855,6 +1875,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       "TRANSCRIPTION_DIAG",
     );
     let result = await callOpenAI(systemPrompt, userMessageForModel);
+    accumulateCost(result.promptTokens, result.completionTokens);
     result = {
       ...result,
       text: await finalizeTranslationOutput(restoreTranslationOutput(result.text), srcCode, tgtCode, tgtLangResolved, {
@@ -1888,6 +1909,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         `every sentence and clause from the opening word to the last word. ` +
         `Do not stop after the first part. Output ONLY the complete ${tgtName} translation.\n`;
       const second = await callOpenAI(systemPrompt + incompleteBlock, userMessageForModel);
+      accumulateCost(second.promptTokens, second.completionTokens);
       const secondText = await finalizeTranslationOutput(
         restoreTranslationOutput(second.text),
         srcCode,
@@ -1931,6 +1953,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         englishTargetBlock +
         finalSegmentBlock;
       const refusalRetry = await callOpenAI(refusalRetryPrompt, userMessageForModel);
+      accumulateCost(refusalRetry.promptTokens, refusalRetry.completionTokens);
       const refusalRetryRestored = await finalizeTranslationOutput(
         restoreTranslationOutput(refusalRetry.text),
         srcCode,
@@ -1954,6 +1977,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           englishTargetBlock +
           finalSegmentBlock;
         const refusalRetry2 = await callOpenAI(refusalRetry2Prompt, userMessageForModel);
+        accumulateCost(refusalRetry2.promptTokens, refusalRetry2.completionTokens);
         const refusalRetry2Restored = await finalizeTranslationOutput(
           restoreTranslationOutput(refusalRetry2.text),
           srcCode,
@@ -2014,9 +2038,6 @@ router.post("/translate", requireAuth, async (req, res) => {
         );
       }
     }
-
-    // Accumulate cost for the primary call (after validation so we always count it).
-    accumulateCost(result.promptTokens, result.completionTokens);
 
     const appliedAi: string[] = [];
     let outAi = result.text;
