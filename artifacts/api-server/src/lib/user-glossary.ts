@@ -3,7 +3,8 @@
  * Does not modify transcription (STT).
  *
  * Strict enforcement (see ensureGlossaryTranslationsFromSource): English leaks, Arabic hemorrhoid→bleed
- * substring map, same-script prefix token swap (Latin/Arabic/Cyrillic/Han), then append fallback.
+ * substring map, same-script token swap (prefix/suffix similarity; all matches; Latin/Arabic/Cyrillic/Han),
+ * then append fallback.
  */
 
 import { logger } from "./logger.js";
@@ -51,6 +52,14 @@ export function inlineReplaceCandidateAllowed(phrase: string): boolean {
 
 function stripEdgePunct(tok: string): string {
   return tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+}
+
+/** NFC + strip tatweel/ZW so “already applied” checks match MT output variants. */
+function normalizeForGlossaryMatch(s: string): string {
+  return s
+    .normalize("NFC")
+    .replace(/\u0640/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "");
 }
 
 export function translationSemanticallyCloseInOutput(
@@ -235,7 +244,17 @@ function translationPresentInOutput(haystack: string, needle: string): boolean {
   if (/^[\x00-\x7F]+$/.test(n)) {
     return haystack.toLowerCase().includes(n.toLowerCase());
   }
-  return haystack.includes(n);
+  return normalizeForGlossaryMatch(haystack).includes(normalizeForGlossaryMatch(n));
+}
+
+function tokensMatchPreferredToken(wordCore: string, preferredCore: string): boolean {
+  const w = wordCore.trim();
+  const p = preferredCore.trim();
+  if (w.length < 2 || p.length < 2) return false;
+  if (/^[\x00-\x7F]+$/.test(w) && /^[\x00-\x7F]+$/.test(p)) {
+    return w.toLowerCase() === p.toLowerCase();
+  }
+  return normalizeForGlossaryMatch(w) === normalizeForGlossaryMatch(p);
 }
 
 /** Longest-first contiguous word n-grams from a variation (words ≥2 chars) for inline replace attempts. */
@@ -316,6 +335,19 @@ function longestCommonPrefixLengthGraphemes(a: string, b: string): number {
   return i;
 }
 
+function longestCommonSuffixLengthGraphemes(a: string, b: string): number {
+  const ca = [...a.normalize("NFC")];
+  const cb = [...b.normalize("NFC")];
+  let i = 0;
+  const n = Math.min(ca.length, cb.length);
+  while (
+    i < n &&
+    graphemeCpEqualFold(ca[ca.length - 1 - i]!, cb[cb.length - 1 - i]!)
+  )
+    i++;
+  return i;
+}
+
 /** Only mix scripts we can safely prefix-match (Latin, Arabic, Cyrillic, Han). */
 function scriptsCompatibleForGlossaryFix(word: string, preferred: string): boolean {
   const wAr = preferredLooksArabicScript(word);
@@ -336,11 +368,11 @@ function scriptsCompatibleForGlossaryFix(word: string, preferred: string): boole
 }
 
 /**
- * When MT used a wrong target word that looks like a garbled form of the user’s preferred **single**
- * token (shared long prefix: e.g. ES hemorragias → hemorroides), replace that token in-place.
- * Works across Latin, Arabic, Cyrillic, Han; complements English-source inline replace and Arabic bleed list.
+ * When MT used wrong target word(s) that look like garbled forms of the user’s preferred **single**
+ * token (shared long prefix or suffix: e.g. ES hemorragias ↔ hemorroides), replace **every** such
+ * token in-place. Works across Latin, Arabic, Cyrillic, Han.
  */
-function replaceBestTargetTokenByPreferredPrefix(outputText: string, preferred: string): string {
+function replaceAllTargetTokensByPreferredSimilarity(outputText: string, preferred: string): string {
   const T = preferred.trim();
   if (T.length < 2) return outputText;
   const Tcore = stripEdgePunct(T);
@@ -361,42 +393,46 @@ function replaceBestTargetTokenByPreferredPrefix(outputText: string, preferred: 
   const prefHan = /\p{Script=Han}/u.test(Tcore);
   const prefAr = preferredLooksArabicScript(Tcore);
 
-  let best: Tok | null = null;
-  let bestScore = 0;
+  const hits: Tok[] = [];
 
   for (const t of tokens) {
-    if (t.core.toLowerCase() === Tcore.toLowerCase()) continue;
+    if (tokensMatchPreferredToken(t.core, Tcore)) continue;
     if (!scriptsCompatibleForGlossaryFix(t.core, Tcore)) continue;
 
     const lenW = graphemeLen(t.core);
     if (lenW < 3) continue;
 
     const lcp = longestCommonPrefixLengthGraphemes(t.core, Tcore);
+    const lcs = longestCommonSuffixLengthGraphemes(t.core, Tcore);
+    const bestEdge = Math.max(lcp, lcs);
     const denom = Math.max(lenW, lenT, 1);
-    const ratio = lcp / denom;
+    const ratio = bestEdge / denom;
 
     let minRatio = 0.5;
-    let minLcp = 4;
+    let minEdge = 4;
     if (prefHan && /\p{Script=Han}/u.test(t.core)) {
       minRatio = 0.62;
-      minLcp = 2;
+      minEdge = 2;
     } else if (prefAr && preferredLooksArabicScript(t.core)) {
-      minRatio = 0.45;
-      minLcp = 3;
+      minRatio = 0.4;
+      minEdge = 3;
     }
 
-    if (ratio < minRatio || lcp < minLcp) continue;
+    if (ratio < minRatio || bestEdge < minEdge) continue;
     if (lenW > lenT * 1.85 && ratio < 0.62) continue;
     if (lenT > lenW * 1.85 && ratio < 0.62) continue;
 
-    if (ratio > bestScore || (ratio === bestScore && best && lenW > graphemeLen(best.core))) {
-      bestScore = ratio;
-      best = t;
-    }
+    hits.push(t);
   }
 
-  if (!best || bestScore < 0.45) return outputText;
-  return outputText.slice(0, best.start) + T + outputText.slice(best.end);
+  if (hits.length === 0) return outputText;
+
+  hits.sort((a, b) => b.start - a.start);
+  let out = outputText;
+  for (const t of hits) {
+    out = out.slice(0, t.start) + T + out.slice(t.end);
+  }
+  return out;
 }
 
 /**
@@ -503,7 +539,7 @@ export function ensureGlossaryTranslationsFromSource(
     if (out !== beforeArFix) pushAppliedTranslation(appliedOut, row.trans);
 
     const beforePrefix = out;
-    out = replaceBestTargetTokenByPreferredPrefix(out, row.trans);
+    out = replaceAllTargetTokensByPreferredSimilarity(out, row.trans);
     if (out !== beforePrefix) pushAppliedTranslation(appliedOut, row.trans);
 
     if (
