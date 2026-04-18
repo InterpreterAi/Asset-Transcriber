@@ -3,6 +3,8 @@
  * Does not modify transcription (STT).
  */
 
+import { logger } from "./logger.js";
+
 export type GlossaryEnforceMode = "strict" | "hint";
 
 export type UserGlossaryRow = {
@@ -16,6 +18,20 @@ export type UserGlossaryRow = {
 /** Lightweight token-overlap heuristic: skip redundant appends when the model already produced most of the preferred wording. */
 const SEMANTIC_TOKEN_MIN_LEN = 2;
 const SEMANTIC_OVERLAP_RATIO = 0.65;
+
+const glossaryDbg = logger.child({ module: "user-glossary" });
+
+/** NFC, strip ZW/NBSP, drop straight/curly quotes in surfaces, collapse whitespace — O(n) per call. */
+function normalizeSemanticSurface(s: string): string {
+  return s
+    .normalize("NFC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/[''\u2018\u2019`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
 
 /**
  * Inline replace only when the matched span is non-trivial (avoids noisy 1–2 character edits).
@@ -34,19 +50,39 @@ function stripEdgePunct(tok: string): string {
   return tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
 }
 
-export function translationSemanticallyCloseInOutput(outputText: string, translation: string): boolean {
-  const outLower = outputText.toLowerCase();
-  const toks = translation
-    .toLowerCase()
+export function translationSemanticallyCloseInOutput(
+  outputText: string,
+  translation: string,
+  where?: "candidate_filter" | "pick_loop" | "append_gate",
+): boolean {
+  const hay = normalizeSemanticSurface(outputText);
+  const hayHyphenStripped = hay.replace(/[-–—]/g, "");
+  const toks = normalizeSemanticSurface(translation)
     .split(/\s+/)
     .map(stripEdgePunct)
     .filter(t => t.length >= SEMANTIC_TOKEN_MIN_LEN);
   if (toks.length === 0) return false;
   let hits = 0;
   for (const tok of toks) {
-    if (outLower.includes(tok)) hits++;
+    if (hay.includes(tok)) {
+      hits++;
+      continue;
+    }
+    const flat = tok.replace(/[-–—]/g, "");
+    if (flat.length >= SEMANTIC_TOKEN_MIN_LEN && hayHyphenStripped.includes(flat)) hits++;
   }
-  return hits / toks.length >= SEMANTIC_OVERLAP_RATIO;
+  const ratio = hits / toks.length;
+  const close = ratio >= SEMANTIC_OVERLAP_RATIO;
+  if (close && logger.isLevelEnabled("debug")) {
+    glossaryDbg.debug({
+      event: "glossary_semantic_near_match",
+      where: where ?? "unspecified",
+      tokenTotal: toks.length,
+      tokenHits: hits,
+      ratio,
+    });
+  }
+  return close;
 }
 
 export function escapeRegex(s: string): string {
@@ -59,6 +95,23 @@ export function parseGlossaryVariations(termField: string): string[] {
     .split(",")
     .map(t => t.trim())
     .filter(t => t.length >= 2);
+}
+
+/**
+ * When manual `priority` is 0 (default / unset), use this tier so longer, more specific rows
+ * still order ahead without extra DB fields. Manual priority always sorts first.
+ */
+function glossaryAutoPriorityTier(row: UserGlossaryRow): number {
+  let maxVarLen = 0;
+  for (const v of parseGlossaryVariations(row.term)) {
+    if (v.length > maxVarLen) maxVarLen = v.length;
+  }
+  const tLen = Math.min(row.translation.trim().length, 4095);
+  return maxVarLen * 4096 + tLen;
+}
+
+function glossaryStableKey(row: UserGlossaryRow): string {
+  return row.term.slice(0, 96);
 }
 
 /**
@@ -115,15 +168,46 @@ export function applyUserGlossaryStrict(
   entries: UserGlossaryRow[],
   appliedOut: string[],
 ): string {
-  type Pair = { variation: string; translation: string; rowPriority: number };
+  type Pair = {
+    variation: string;
+    translation: string;
+    rowPriority: number;
+    autoTier: number;
+    stableKey: string;
+  };
   const pairs: Pair[] = [];
   for (const e of entries) {
     if (!isStrictRow(e)) continue;
+    const autoTier = glossaryAutoPriorityTier(e);
+    const stableKey = glossaryStableKey(e);
     for (const v of parseGlossaryVariations(e.term)) {
-      pairs.push({ variation: v, translation: e.translation, rowPriority: e.priority });
+      pairs.push({
+        variation: v,
+        translation: e.translation,
+        rowPriority: e.priority,
+        autoTier,
+        stableKey,
+      });
     }
   }
-  pairs.sort((a, b) => b.rowPriority - a.rowPriority || b.variation.length - a.variation.length);
+  pairs.sort(
+    (a, b) =>
+      b.rowPriority - a.rowPriority ||
+      b.autoTier - a.autoTier ||
+      b.variation.length - a.variation.length ||
+      a.stableKey.localeCompare(b.stableKey),
+  );
+
+  if (logger.isLevelEnabled("debug")) {
+    const zeroPri = pairs.filter(p => p.rowPriority === 0).length;
+    if (zeroPri > 0) {
+      glossaryDbg.debug({
+        event: "glossary_priority_auto_tier_sort",
+        zeroPriorityPairCount: zeroPri,
+        totalPairCount: pairs.length,
+      });
+    }
+  }
 
   let result = outputText;
   const appliedSet = new Set<string>();
@@ -238,7 +322,7 @@ export function ensureGlossaryTranslationsFromSource(
     }
     if (matchedVariations.length === 0) continue;
     if (translationPresentInOutput(outputText, trans)) continue;
-    if (translationSemanticallyCloseInOutput(outputText, trans)) continue;
+    if (translationSemanticallyCloseInOutput(outputText, trans, "candidate_filter")) continue;
 
     cands.push({ trans, rowPriority: e.priority, matchLen, matchedVariations });
   }
@@ -257,7 +341,10 @@ export function ensureGlossaryTranslationsFromSource(
 
   let out = outputText;
   for (const row of picked) {
-    if (translationPresentInOutput(out, row.trans) || translationSemanticallyCloseInOutput(out, row.trans)) {
+    if (
+      translationPresentInOutput(out, row.trans) ||
+      translationSemanticallyCloseInOutput(out, row.trans, "pick_loop")
+    ) {
       continue;
     }
 
@@ -274,7 +361,7 @@ export function ensureGlossaryTranslationsFromSource(
     }
     if (inlined) continue;
 
-    if (translationSemanticallyCloseInOutput(out, row.trans)) continue;
+    if (translationSemanticallyCloseInOutput(out, row.trans, "append_gate")) continue;
 
     const base = out.trimEnd();
     const spacer = base.length > 0 ? " " : "";
