@@ -1441,7 +1441,10 @@ router.post("/translate", requireAuth, async (req, res) => {
     const phraseEcho = applyInterpreterPhrasePretranslate(text);
     let out = phraseEcho;
     const applied: string[] = [];
-    if (glossaryStrictMode) {
+    const applyUserGlossarySameLang =
+      glossaryStrictMode &&
+      (!useMachineTranslation || (isFinalSegment && userGlossary.length > 0));
+    if (applyUserGlossarySameLang) {
       out = applyUserGlossaryStrict(out, userGlossary, applied);
       out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
     }
@@ -1449,17 +1452,28 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  // Shared pipeline for ALL plans (same languages, same masking — not English/Arabic-specific):
-  // phrase → protected brands → interpreter glossary placeholders → digit placeholders → engine.
+  // Shared pipeline: phrase → protected brands → (OpenAI only: interpreter JSON glossary TERM_*) → digits → engine.
+  // Libre / machine stack skips the built-in interpreter glossary for speed and to avoid TERM_* in MT; personal
+  // glossary runs only on finalized segments when the user has entries (see MT block + same-language branch).
   const phraseNormalized = applyInterpreterPhrasePretranslate(text);
 
   initProtectedTerms();
   const prot = applyProtectedTermPlaceholders(phraseNormalized);
 
-  initInterpreterGlossaries();
-  const { masked: afterGlossary, slotToEntryIndex, hadPlaceholders } = applyGlossaryPlaceholders(
-    prot.masked,
-  );
+  let afterGlossary: string;
+  let slotToEntryIndex: Map<number, number>;
+  let hadPlaceholders: boolean;
+  if (useMachineTranslation) {
+    afterGlossary = prot.masked;
+    slotToEntryIndex = new Map();
+    hadPlaceholders = false;
+  } else {
+    initInterpreterGlossaries();
+    const g = applyGlossaryPlaceholders(prot.masked);
+    afterGlossary = g.masked;
+    slotToEntryIndex = g.slotToEntryIndex;
+    hadPlaceholders = g.hadPlaceholders;
+  }
   const numMask = applyNumberPlaceholders(afterGlossary);
   const textForOpenAI = numMask.masked;
 
@@ -1538,8 +1552,8 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Final Boss 3 — `*-libre` tiers: same mask + restore + post-process + glossary strict as OpenAI; LibreTranslate only
-  // (no post-MT leak-repair fan-out — keeps one HTTP call per segment for public tier stability).
+  // Final Boss 3 — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
+  // Personal glossary strict pass: finalized segments only, and only if the user has at least one entry.
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1592,7 +1606,9 @@ router.post("/translate", requireAuth, async (req, res) => {
       }
       const appliedMt: string[] = [];
       let outMt = translated;
-      if (glossaryStrictMode) {
+      const applyUserGlossaryMt =
+        glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
+      if (applyUserGlossaryMt) {
         outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
         outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
       }
