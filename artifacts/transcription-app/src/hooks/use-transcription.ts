@@ -59,14 +59,18 @@ function longerAsrSnapshot(prev: string, next: string): string {
   return next.length > prev.length ? next : prev;
 }
 
-/** Strip `prefix` from `full` (case-sensitive, then case-folded); null if `full` does not start with prefix. */
+/**
+ * Strip `prefix` from `full` when `full` starts with `prefix` (case-sensitive, then Unicode case-folded per code unit).
+ * Returns null if the prefix does not fully match at the start (avoids wrong slices when lengths differ under folding).
+ */
 function stripMatchingPrefix(full: string, prefix: string): string | null {
   if (prefix.length === 0) return full;
   if (full.startsWith(prefix)) return full.slice(prefix.length);
-  const fl = full.toLowerCase();
-  const pl = prefix.toLowerCase();
-  if (fl.startsWith(pl)) return full.slice(pl.length);
-  return null;
+  let i = 0;
+  const n = Math.min(full.length, prefix.length);
+  while (i < n && full[i]!.toLowerCase() === prefix[i]!.toLowerCase()) i++;
+  if (i < prefix.length) return null;
+  return full.slice(prefix.length);
 }
 
 /**
@@ -1279,6 +1283,11 @@ export type UseTranscriptionOptions = {
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
   /**
+   * Set by workspace for `*-libre` plans only: keep the longest live transcript per segment so Soniox cannot
+   * visibly drop interim words. Non-Libre should omit or set false (default) — OpenAI tiers stay unchanged.
+   */
+  verbatimTranscriptSticky?: boolean;
+  /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
    */
@@ -1306,6 +1315,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
+
+  const verbatimTranscriptStickyRef = useRef(options?.verbatimTranscriptSticky ?? false);
+  useEffect(() => {
+    verbatimTranscriptStickyRef.current = options?.verbatimTranscriptSticky ?? false;
+  }, [options?.verbatimTranscriptSticky]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2483,50 +2497,71 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (stNf) stNf.lastNfRawText = "";
       }
 
-      // ── Update live translation buffer (ASR high-water: NF must not erase interim words) ──
+      // ── Update live translation buffer ────────────────────────────────────
       const finalText =
         (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
-      const mergedPreFlush = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
-      flushFinalTextRenderQueue();
+      const sticky = verbatimTranscriptStickyRef.current;
 
-      const finalPlain = (activeBubbleRef.current?.textContent ?? "").trimEnd();
-      const mergedLive = mergeFinalWithNonFinalHypothesis(finalPlain, nfText).trim();
-
-      const stLive = activeBubbleStateRef.current;
-      let displayLive = mergedLive;
-      if (stLive) {
-        stLive.asrLiveHighWater = longerAsrSnapshot(stLive.asrLiveHighWater, mergedPreFlush);
-        stLive.asrLiveHighWater = longerAsrSnapshot(stLive.asrLiveHighWater, mergedLive);
-        if (mergedLive.length < stLive.asrLiveHighWater.length) {
-          displayLive = stLive.asrLiveHighWater;
+      if (!sticky) {
+        const rawLive = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
+        liveBufferRef.current = rawLive;
+        const confirmedSource = finalText.trim();
+        if (activeBubbleStateRef.current) {
+          activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
         }
-        if (displayLive.length > mergedLive.length && nfEl) {
-          const tail = stripMatchingPrefix(displayLive, finalPlain);
-          if (tail !== null) {
-            nfEl.textContent = tail;
-            stLive.lastNfRawText = tail;
-          } else {
-            stLive.asrLiveHighWater = mergedLive;
-            displayLive = mergedLive;
+        if (activeBubbleStateRef.current) {
+          if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
+            activeBubbleStateRef.current.lastLiveSource = liveBufferRef.current;
+            activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
           }
         }
-      }
+        tryLockSegmentDirectionFromTokens(tokens);
+        flushFinalTextRenderQueue();
+      } else {
+        // *-libre: longest snapshot per segment + robust tail split so finals/NF handoffs rarely drop words.
+        const mergedPreFlush = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
+        flushFinalTextRenderQueue();
 
-      liveBufferRef.current = displayLive;
-      const confirmedSource = finalText.trim();
-      if (activeBubbleStateRef.current) {
-        activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
-      }
-      if (activeBubbleStateRef.current) {
-        if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
-          activeBubbleStateRef.current.lastLiveSource = liveBufferRef.current;
-          activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
+        const finalPlain = (activeBubbleRef.current?.textContent ?? "").trimEnd();
+        const mergedLive = mergeFinalWithNonFinalHypothesis(finalPlain, nfText).trim();
+
+        const stLive = activeBubbleStateRef.current;
+        let displayLive = mergedLive;
+        if (stLive) {
+          stLive.asrLiveHighWater = longerAsrSnapshot(stLive.asrLiveHighWater, mergedPreFlush);
+          stLive.asrLiveHighWater = longerAsrSnapshot(stLive.asrLiveHighWater, mergedLive);
+          if (mergedLive.length < stLive.asrLiveHighWater.length) {
+            displayLive = stLive.asrLiveHighWater;
+          }
+          if (displayLive.length > mergedLive.length && nfEl) {
+            let tail = stripMatchingPrefix(displayLive, finalPlain);
+            if (tail === null) {
+              const pre = lcpLenInsensitive(displayLive, finalPlain);
+              if (pre >= finalPlain.length) tail = displayLive.slice(pre).trimStart();
+            }
+            if (tail !== null) {
+              nfEl.textContent = tail;
+              stLive.lastNfRawText = tail;
+            }
+          }
         }
+
+        liveBufferRef.current = displayLive;
+        const confirmedSource = finalText.trim();
+        if (activeBubbleStateRef.current) {
+          activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
+        }
+        if (activeBubbleStateRef.current) {
+          if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
+            activeBubbleStateRef.current.lastLiveSource = liveBufferRef.current;
+            activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
+          }
+        }
+
+        tryLockSegmentDirectionFromTokens(tokens);
+
+        flushFinalTextRenderQueue();
       }
-
-      tryLockSegmentDirectionFromTokens(tokens);
-
-      flushFinalTextRenderQueue();
 
       // Word-step live preview (not every Soniox frame): steadier than full mirror.
       const st = activeBubbleStateRef.current;
