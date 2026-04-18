@@ -54,6 +54,15 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   return fTrim + n;
 }
 
+/** Set `localStorage.setItem("interpreterai_stt_diag", "1")` to log raw vs merged transcript hints (client-only; Soniox hits the browser). */
+function sttClientDiagEnabled(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("interpreterai_stt_diag") === "1";
+  } catch {
+    return false;
+  }
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -1980,6 +1989,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
+    // Capture NF *before* clearing: Soniox often keeps the tail of long digit chains non-final until
+    // the next token arrives — speaker_change used to read only `finalSpan`, so those digits never
+    // entered transcriptBuf / final translate (session_end already used liveBuffer, which merges NF).
+    const finBeforeNfClear = (activeBubbleRef.current.textContent ?? "").trimEnd();
+    const nfBeforeClear = (activeBubbleNFRef.current?.textContent ?? "").trim();
+    const domFinalSpanOnly = finBeforeNfClear.trim();
+    const domWithNfMerged =
+      nfBeforeClear.length > 0 ? mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim() : domFinalSpanOnly;
+
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
@@ -1994,15 +2012,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     // Translation source for the final API call:
     // - session_end: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
-    // - speaker_change: use DOM finals only. liveBufferRef is still from the *previous* WS frame at
-    //   this point (this message updates it after the finals loop), so it often still contains the
-    //   next speaker's NF tail — locking that onto the closing row duplicates Arabic on Speaker 1.
-    //   Also forceFullSegmentFinal on speaker_change so dispatch does not tail-merge onto live preview.
-    const domFinal = (activeBubbleRef.current.textContent?.trim() ?? "");
+    // - speaker_change: merge this row's final + NF (same as live column) but do not use liveBufferRef —
+    //   at this instant it can already include the *next* speaker's hypothesis after the pivot.
     const finalText =
       closeKind === "speaker_change"
-        ? domFinal
-        : liveBufferRef.current.trim() || domFinal;
+        ? domWithNfMerged
+        : liveBufferRef.current.trim() || domWithNfMerged;
     if (finalText.trim().length > 0) {
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
@@ -2284,6 +2299,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
+
+      if (sttClientDiagEnabled()) {
+        const rawAll = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
+        if (/\d/.test(rawAll)) {
+          const finalsOnly = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
+          const nfOnly = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
+          console.info("[stt_diag]", {
+            rawLen: rawAll.length,
+            finalsLen: finalsOnly.length,
+            nfLen: nfOnly.length,
+            rawSample: rawAll.slice(0, 220),
+            finalsSample: finalsOnly.slice(0, 220),
+            nfSample: nfOnly.slice(0, 220),
+          });
+        }
+      }
 
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
 
