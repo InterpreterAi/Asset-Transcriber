@@ -72,6 +72,21 @@ import {
 // OpenAI processes it, result is returned to the browser, nothing is retained.
 //
 
+// ── Final Boss 3 (named product snapshot) ─────────────────────────────────
+// OpenAI interpreter stack = unchanged Final Boss 2 behavior for non-`*-libre` plans.
+// `trial-libre` / `basic-libre` / `professional-libre` / `platinum-libre`: same shared
+// masking, restore, glossary strict, and client STT as OpenAI tiers; translation =
+// Libre + Google cross-fallback only (see `basic-pro-translate.ts`, `usage.ts`).
+
+/** Libre/Google sometimes insert spaces in tokens — normalize before TERM/NUM/PROT restore (MT path only). */
+function normalizeMachineTranslationPlaceholders(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(/\bNUM\s*_\s*(\d+)(?!\d)/gi, "NUM_$1")
+    .replace(/\bTERM\s*_\s*(\d+)(?!\d)/gi, "TERM_$1")
+    .replace(/\bPROT\s*_\s*(\d+)(?!\d)/gi, "PROT_$1");
+}
+
 // ── API cost rates ─────────────────────────────────────────────────────────
 // Soniox: $0.0025 per transcription-minute (= per 60 s of audio).
 const SONIOX_COST_PER_MIN = 0.0025;
@@ -1473,7 +1488,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Libre-tier fallback (no OpenAI on server): same mask + restore + postProcess; one MT backend only (Google or Libre).
+  // Final Boss 3 — `*-libre` tiers: same mask + restore + finalize + glossary strict as OpenAI; MT engines with cross-fallback.
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1487,20 +1502,33 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       let raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
       let translated = await finalizeTranslationOutput(
-        restoreTranslationOutput(String(raw ?? "")),
+        restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
         srcCode,
         tgtCode,
         tgtLangResolved,
       );
-      // Masking/restore or aggressive post-process can rarely yield empty while source had text — retry plain phrase.
+      // Retry masked segment once (transient MT failure); then last resort unmasked phrase (placeholders may not round-trip).
       if (!translated.trim() && phraseNormalized.trim().length >= 2) {
         logger.warn(
           { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "Machine translation fallback empty after mask/restore; retrying unmasked phrase",
+          "Machine translation empty after mask/restore; retrying masked segment",
+        );
+        raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+        translated = await finalizeTranslationOutput(
+          restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
+          srcCode,
+          tgtCode,
+          tgtLangResolved,
+        );
+      }
+      if (!translated.trim() && phraseNormalized.trim().length >= 2) {
+        logger.warn(
+          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
+          "Machine translation still empty; last resort unmasked phrase (single engine)",
         );
         raw = await translateBasicProfessional(phraseNormalized, srcLang, tgtLang, new Map());
         translated = await finalizeTranslationOutput(
-          restoreTranslationOutput(String(raw ?? "")),
+          restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
           srcCode,
           tgtCode,
           tgtLangResolved,

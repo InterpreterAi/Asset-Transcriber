@@ -85,6 +85,13 @@ export function effectivePlanTypeForTranslation(user: User): string {
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
+    // Final Boss 3: keep machine-translation lineage when upgrading from trial-libre (never switch those users to OpenAI).
+    if (p === "trial-libre") {
+      if (sp === "basic") return "basic-libre";
+      if (sp === "professional") return "professional-libre";
+      if (sp === "platinum") return "platinum-libre";
+      if (sp === "unlimited") return "platinum-libre";
+    }
     return sp;
   }
   return p;
