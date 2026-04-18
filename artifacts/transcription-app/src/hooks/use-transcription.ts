@@ -46,12 +46,22 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   const fLow = fTrim.toLowerCase();
   const nLow = n.toLowerCase();
   if (fLow.endsWith(nLow)) return fTrim;
+  // NF is a case-insensitive extension of everything already in finals — use the longer hypothesis.
   if (n.startsWith(fTrim) || nLow.startsWith(fLow)) return n;
   const maxLen = Math.min(fTrim.length, n.length);
   for (let k = maxLen; k >= 1; k--) {
     if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
   }
   return fTrim + n;
+}
+
+/** When two merge strategies disagree, keep the longer non-empty string so finalize never prefers a truncated buffer. */
+function longerTranscriptSnapshot(a: string, b: string): string {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (!ta) return tb;
+  if (!tb) return ta;
+  return ta.length >= tb.length ? ta : tb;
 }
 
 /**
@@ -2102,14 +2112,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     // Translation source for the final API call:
-    // - session_end: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
-    // - speaker_change: merge this row's final + NF (same as live column) but do not use liveBufferRef —
-    //   at this instant it can already include the *next* speaker's hypothesis after the pivot.
+    // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
+    //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
+    // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
+    const fromLiveBuf = liveBufferRef.current.trim();
     const finalText =
       closeKind === "speaker_change"
         ? domWithNfMerged
-        : liveBufferRef.current.trim() || domWithNfMerged;
+        : longerTranscriptSnapshot(domWithNfMerged, fromLiveBuf);
     if (finalText.trim().length > 0) {
+      liveBufferRef.current = finalText;
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
       // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
