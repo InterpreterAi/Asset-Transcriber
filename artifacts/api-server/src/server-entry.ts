@@ -9,7 +9,7 @@ import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 import { isOpenAiConfigured } from "./lib/ai-env.js";
-import { logGoogleTranslateStartupHint } from "./lib/google-translate.js";
+import { logLibreMachineTranslationStartupHint } from "./lib/libretranslate.js";
 import { isResendConfigured } from "./lib/resend-mail.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
@@ -566,7 +566,7 @@ async function main() {
           "Live transcription may work via Soniox but POST /api/transcription/translate will return 503 — users see transcript only.",
       );
     }
-    logGoogleTranslateStartupHint();
+    logLibreMachineTranslationStartupHint();
     if (!isResendConfigured()) {
       logger.warn(
         "RESEND_API_KEY is not set — verification, password reset, support, and scheduled onboarding/trial emails will not send until it is configured.",

@@ -1,31 +1,17 @@
 import { callLibreTranslate } from "./libretranslate.js";
-import { callGoogleTranslate, isGoogleTranslateConfigured } from "./google-translate.js";
 
 /**
- * Libre / `*-libre` plans (Final Boss 3): machine translation only — **one** backend per request
- * (Google **or** Libre, never chained) for latency parity with the OpenAI path. OpenAI stack is unchanged.
+ * Libre / `*-libre` plans (Final Boss 3): machine translation **only** via **LibreTranslate**
+ * (free public HTTPS instances when `LIBRETRANSLATE_URL` is unset, or your self-hosted URL).
+ * Exactly one Libre HTTP call per segment — no Google Cloud Translation, no engine switching.
+ * OpenAI interpreter stack is unchanged for non–`*-libre` plans.
  *
- * **Engine choice** (`MACHINE_TRANSLATION_ENGINE`, optional):
- * - `google` — Cloud Translation API only (`GOOGLE_TRANSLATE_API_KEY` or `GOOGLE_CLOUD_TRANSLATION_API_KEY` required).
- * - `libre` — LibreTranslate only (`LIBRETRANSLATE_URL` or built-in public bases).
- * - Unset — **LibreTranslate** (free default). Set `=google` only when you want paid Cloud Translation.
- *
- * `translatePlainMachine` — single-engine MT (leak-repair, `/translate` helper, interpreter segments).
+ * Optional: `LIBRETRANSLATE_URL`, `LIBRETRANSLATE_API_KEY` (see `libretranslate.ts`).
  */
 
-export type MachineTranslationEngineKind = "google" | "libre";
-
-function resolveMachineEngine(): MachineTranslationEngineKind {
-  const raw = process.env.MACHINE_TRANSLATION_ENGINE?.trim().toLowerCase();
-  if (raw === "google") return "google";
-  if (raw === "libre") return "libre";
-  // Unset: always Libre — free MT for *-libre; opt into Google with MACHINE_TRANSLATION_ENGINE=google.
-  return "libre";
-}
-
 /**
- * Plain segment: exactly one backend per call (Google **or** Libre — never both).
- * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en) for best engine support.
+ * Plain segment: LibreTranslate only.
+ * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en).
  */
 export async function translatePlainMachine(
   plain: string,
@@ -34,17 +20,6 @@ export async function translatePlainMachine(
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-
-  const engine = resolveMachineEngine();
-  if (engine === "google") {
-    if (!isGoogleTranslateConfigured()) {
-      throw new Error(
-        "MACHINE_TRANSLATION_ENGINE=google but no GOOGLE_TRANSLATE_API_KEY (or GOOGLE_CLOUD_TRANSLATION_API_KEY) is set",
-      );
-    }
-    return callGoogleTranslate(t, sourceLang, targetLang);
-  }
-
   return callLibreTranslate(t, sourceLang, targetLang);
 }
 
@@ -65,9 +40,7 @@ export async function translateBasicProfessional(
   targetLang: string,
   slotToDigits: Map<number, string>,
 ): Promise<string> {
-  // Libre/Google usually destroy or omit NUM_* tokens, so restoreNumberPlaceholders never runs
-  // and digits disappear from the translation. Send literal digits (same as transcript slots);
-  // TERM_/PROT_ remain placeholders. Caller restore still reapplies glossary/protected terms.
+  // LibreTranslate often drops NUM_* tokens; send literal digits. TERM_/PROT_ stay masked; caller restores glossary.
   const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
   return translatePlainMachine(mtInput, sourceLang, targetLang);
 }

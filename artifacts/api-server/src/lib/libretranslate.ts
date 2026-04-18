@@ -98,3 +98,17 @@ export async function callLibreTranslate(text: string, source: string, target: s
   }
   throw lastErr instanceof Error ? lastErr : new Error("LibreTranslate: all endpoints failed");
 }
+
+/** Startup hint: *-libre tiers use LibreTranslate only (no Google Cloud Translation). */
+export function logLibreMachineTranslationStartupHint(): void {
+  if (CONFIGURED_BASE) {
+    logger.info(
+      { base: CONFIGURED_BASE },
+      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL).",
+    );
+  } else {
+    logger.info(
+      "*-libre machine translation uses free public LibreTranslate endpoints; set LIBRETRANSLATE_URL to pin an instance.",
+    );
+  }
+}

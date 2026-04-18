@@ -75,9 +75,9 @@ import {
 // ── Final Boss 3 (named product snapshot) ─────────────────────────────────
 // Non-`*-libre` plans: OpenAI interpreter stack only — do not alter this path here.
 // `*-libre` plans: same shared masking, restore, finalize, glossary strict, and client STT;
-// translation = **exactly one** MT backend per request (Google **or** Libre via env — never both in series).
+// translation = **LibreTranslate only** (one HTTP call per segment; public free endpoints or LIBRETRANSLATE_URL).
 
-/** Libre/Google may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
+/** LibreTranslate may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {
   if (!s) return s;
   return s
@@ -1526,7 +1526,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         );
         res.status(503).json({
           error:
-            "Translation is temporarily unavailable (machine translation fallback). No OpenAI key: set OPENAI_API_KEY for full quality, or set MACHINE_TRANSLATION_ENGINE=google|libre with the matching Google or LibreTranslate env vars.",
+            "Translation is temporarily unavailable (machine translation fallback). No OpenAI key: set OPENAI_API_KEY for full quality, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
           code: "LIBRETRANSLATE_FAILED",
         });
         return;
@@ -1559,7 +1559,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       res.status(503).json({
         error:
-          "Translation is temporarily unavailable (machine translation fallback). Set OPENAI_API_KEY, or MACHINE_TRANSLATION_ENGINE=google|libre with Google or LibreTranslate configured.",
+          "Translation is temporarily unavailable (machine translation fallback). Set OPENAI_API_KEY, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
         code: "LIBRETRANSLATE_FAILED",
       });
     }
