@@ -1,6 +1,9 @@
 /**
  * Personal glossary: source matching for prompt hints + strict post-processing on translation output.
  * Does not modify transcription (STT).
+ *
+ * Strict enforcement (see ensureGlossaryTranslationsFromSource): English leaks, Arabic hemorrhoid→bleed
+ * substring map, same-script prefix token swap (Latin/Arabic/Cyrillic/Han), then append fallback.
  */
 
 import { logger } from "./logger.js";
@@ -282,6 +285,160 @@ function pushAppliedTranslation(appliedOut: string[], translation: string): void
   if (!appliedOut.includes(t)) appliedOut.push(t);
 }
 
+/** English glossary source text suggests hemorrhoids / piles (MT often wrongly uses Arabic “bleeding” words). */
+function sourceVariationsSuggestHemorrhoids(variations: string[]): boolean {
+  const blob = variations.join(" ").toLowerCase();
+  return /hemorrh|haemorrh|hemroid|haemorrhoid|\bpiles?\b/i.test(blob);
+}
+
+function preferredLooksArabicScript(s: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
+}
+
+function graphemeLen(s: string): number {
+  return [...s.normalize("NFC")].length;
+}
+
+function graphemeCpEqualFold(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length === 1 && b.length === 1 && /[A-Za-z]/.test(a) && /[A-Za-z]/.test(b)) {
+    return a.toLowerCase() === b.toLowerCase();
+  }
+  return false;
+}
+
+function longestCommonPrefixLengthGraphemes(a: string, b: string): number {
+  const ca = [...a.normalize("NFC")];
+  const cb = [...b.normalize("NFC")];
+  let i = 0;
+  const n = Math.min(ca.length, cb.length);
+  while (i < n && graphemeCpEqualFold(ca[i]!, cb[i]!)) i++;
+  return i;
+}
+
+/** Only mix scripts we can safely prefix-match (Latin, Arabic, Cyrillic, Han). */
+function scriptsCompatibleForGlossaryFix(word: string, preferred: string): boolean {
+  const wAr = preferredLooksArabicScript(word);
+  const pAr = preferredLooksArabicScript(preferred);
+  if (wAr || pAr) return wAr && pAr;
+
+  const wLat = /\p{Script=Latin}/u.test(word);
+  const pLat = /\p{Script=Latin}/u.test(preferred);
+  const wCyr = /\p{Script=Cyrl}/u.test(word);
+  const pCyr = /\p{Script=Cyrl}/u.test(preferred);
+  const wHan = /\p{Script=Han}/u.test(word);
+  const pHan = /\p{Script=Han}/u.test(preferred);
+
+  if (wLat && pLat && !wCyr && !pCyr && !wHan && !pHan) return true;
+  if (wCyr && pCyr) return true;
+  if (wHan && pHan) return true;
+  return false;
+}
+
+/**
+ * When MT used a wrong target word that looks like a garbled form of the user’s preferred **single**
+ * token (shared long prefix: e.g. ES hemorragias → hemorroides), replace that token in-place.
+ * Works across Latin, Arabic, Cyrillic, Han; complements English-source inline replace and Arabic bleed list.
+ */
+function replaceBestTargetTokenByPreferredPrefix(outputText: string, preferred: string): string {
+  const T = preferred.trim();
+  if (T.length < 2) return outputText;
+  const Tcore = stripEdgePunct(T);
+  if (Tcore.length < 2 || /\s/.test(Tcore)) return outputText;
+
+  type Tok = { start: number; end: number; raw: string; core: string };
+  const tokens: Tok[] = [];
+  const re = /[\p{L}\p{M}][\p{L}\p{M}'’\-]*/gu;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(outputText)) !== null) {
+    const raw = m[0];
+    const core = stripEdgePunct(raw);
+    if (core.length < 2) continue;
+    tokens.push({ start: m.index, end: m.index + raw.length, raw, core });
+  }
+
+  const lenT = graphemeLen(Tcore);
+  const prefHan = /\p{Script=Han}/u.test(Tcore);
+  const prefAr = preferredLooksArabicScript(Tcore);
+
+  let best: Tok | null = null;
+  let bestScore = 0;
+
+  for (const t of tokens) {
+    if (t.core.toLowerCase() === Tcore.toLowerCase()) continue;
+    if (!scriptsCompatibleForGlossaryFix(t.core, Tcore)) continue;
+
+    const lenW = graphemeLen(t.core);
+    if (lenW < 3) continue;
+
+    const lcp = longestCommonPrefixLengthGraphemes(t.core, Tcore);
+    const denom = Math.max(lenW, lenT, 1);
+    const ratio = lcp / denom;
+
+    let minRatio = 0.5;
+    let minLcp = 4;
+    if (prefHan && /\p{Script=Han}/u.test(t.core)) {
+      minRatio = 0.62;
+      minLcp = 2;
+    } else if (prefAr && preferredLooksArabicScript(t.core)) {
+      minRatio = 0.45;
+      minLcp = 3;
+    }
+
+    if (ratio < minRatio || lcp < minLcp) continue;
+    if (lenW > lenT * 1.85 && ratio < 0.62) continue;
+    if (lenT > lenW * 1.85 && ratio < 0.62) continue;
+
+    if (ratio > bestScore || (ratio === bestScore && best && lenW > graphemeLen(best.core))) {
+      bestScore = ratio;
+      best = t;
+    }
+  }
+
+  if (!best || bestScore < 0.45) return outputText;
+  return outputText.slice(0, best.start) + T + outputText.slice(best.end);
+}
+
+/**
+ * Replace common Arabic mistranslations of “hemorrhoids” (bleeding vocabulary) with the user’s
+ * preferred term. English-only inline replace misses these because the model output is Arabic.
+ */
+function replaceArabicBleedingMisrenderForHemorrhoidGlossary(
+  outputText: string,
+  matchedEnglishVariations: string[],
+  preferredArabic: string,
+): string {
+  if (!sourceVariationsSuggestHemorrhoids(matchedEnglishVariations)) return outputText;
+  const pref = preferredArabic.trim();
+  if (!preferredLooksArabicScript(pref)) return outputText;
+
+  let out = outputText;
+  // Longer substrings first (النزيفات before نزيفات).
+  const wrongOrdered = [
+    "النزيفات",
+    "نزيفات",
+    "النزيفين",
+    "نزيفين",
+    "بالنزيفات",
+    "والنزيفات",
+    "للنزيفات",
+  ];
+  for (const w of wrongOrdered) {
+    if (!out.includes(w)) continue;
+    out = out.split(w).join(pref);
+  }
+  return out;
+}
+
+/** Collapse “بواسير بواسير” when strict pass + append both landed the same preferred token. */
+function dedupeAdjacentPreferredTranslation(out: string, pref: string): string {
+  const p = pref.trim();
+  if (p.length < 2) return out;
+  const esc = escapeRegex(p);
+  const re = new RegExp(`(${esc})(\\s+${esc})+`, "g");
+  return out.replace(re, "$1");
+}
+
 const MAX_SOURCE_ENFORCED_TERMS = 2;
 
 /**
@@ -341,6 +498,14 @@ export function ensureGlossaryTranslationsFromSource(
 
   let out = outputText;
   for (const row of picked) {
+    const beforeArFix = out;
+    out = replaceArabicBleedingMisrenderForHemorrhoidGlossary(out, row.matchedVariations, row.trans);
+    if (out !== beforeArFix) pushAppliedTranslation(appliedOut, row.trans);
+
+    const beforePrefix = out;
+    out = replaceBestTargetTokenByPreferredPrefix(out, row.trans);
+    if (out !== beforePrefix) pushAppliedTranslation(appliedOut, row.trans);
+
     if (
       translationPresentInOutput(out, row.trans) ||
       translationSemanticallyCloseInOutput(out, row.trans, "pick_loop")
@@ -367,6 +532,10 @@ export function ensureGlossaryTranslationsFromSource(
     const spacer = base.length > 0 ? " " : "";
     out = `${base}${spacer}${row.trans}`.trim();
     pushAppliedTranslation(appliedOut, row.trans);
+  }
+
+  for (const row of picked) {
+    out = dedupeAdjacentPreferredTranslation(out, row.trans);
   }
 
   return out;
