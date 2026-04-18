@@ -54,6 +54,42 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   return fTrim + n;
 }
 
+/** Prefer the longer ASR snapshot so a shrinking non-final tail cannot erase words Soniox already showed. */
+function longerAsrSnapshot(prev: string, next: string): string {
+  return next.length > prev.length ? next : prev;
+}
+
+/** Strip `prefix` from `full` (case-sensitive, then case-folded); null if `full` does not start with prefix. */
+function stripMatchingPrefix(full: string, prefix: string): string | null {
+  if (prefix.length === 0) return full;
+  if (full.startsWith(prefix)) return full.slice(prefix.length);
+  const fl = full.toLowerCase();
+  const pl = prefix.toLowerCase();
+  if (fl.startsWith(pl)) return full.slice(pl.length);
+  return null;
+}
+
+/**
+ * Live (non-final) translation: if the source is still growing or stable, do not replace a longer
+ * on-screen translation with a shorter API response — MT sometimes returns a partial. When the source
+ * shrinks (speaker correction), allow the shorter target. Final passes always replace the cell.
+ */
+function shouldPreferPreviousLiveTranslation(
+  prevShown: string,
+  next: string,
+  sourceNowCollapsed: string,
+  sourceCommittedCollapsed: string,
+): boolean {
+  const p = prevShown.trim();
+  const n = next.trim();
+  if (!p || p === "…") return false;
+  if (!n) return true;
+  if (n.length >= p.length) return false;
+  const sn = sourceNowCollapsed.trim();
+  const sc = sourceCommittedCollapsed.trim();
+  return sn.length >= sc.length - 2;
+}
+
 /**
  * Opt-in STT diagnostics (browser console only; may contain PHI — dev machines only).
  * `localStorage.setItem("interpreterai_stt_diag", "1")` then reload.
@@ -1222,6 +1258,8 @@ interface BubbleTransState {
    * with a partial translation still on screen.
    */
   needsFullFinalTranslation: boolean;
+  /** Longest merged final+NF transcript this segment — avoids visible STT regressions when NF clears early. */
+  asrLiveHighWater: string;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1866,9 +1904,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!out.trim()) {
               return;
             }
+            const prevShown = (transTextEl.textContent ?? "").trim();
+            const srcNow = collapseWs(text);
+            const srcCommitted = collapseWs(state.streamCommittedSource);
+            const chosen = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted)
+              ? prevShown
+              : out;
             state.lastShownSeq = mySeq;
-            state.lastShownLen = out.length;
-            applyTranslationTypography(transTextEl, out);
+            state.lastShownLen = chosen.length;
+            applyTranslationTypography(transTextEl, chosen);
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
@@ -1997,6 +2041,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
+      asrLiveHighWater:      "",
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -2438,10 +2483,36 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (stNf) stNf.lastNfRawText = "";
       }
 
-      // ── Update live translation buffer ────────────────────────────────────
-      const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
-      const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
-      liveBufferRef.current = rawLive;
+      // ── Update live translation buffer (ASR high-water: NF must not erase interim words) ──
+      const finalText =
+        (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
+      const mergedPreFlush = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
+      flushFinalTextRenderQueue();
+
+      const finalPlain = (activeBubbleRef.current?.textContent ?? "").trimEnd();
+      const mergedLive = mergeFinalWithNonFinalHypothesis(finalPlain, nfText).trim();
+
+      const stLive = activeBubbleStateRef.current;
+      let displayLive = mergedLive;
+      if (stLive) {
+        stLive.asrLiveHighWater = longerAsrSnapshot(stLive.asrLiveHighWater, mergedPreFlush);
+        stLive.asrLiveHighWater = longerAsrSnapshot(stLive.asrLiveHighWater, mergedLive);
+        if (mergedLive.length < stLive.asrLiveHighWater.length) {
+          displayLive = stLive.asrLiveHighWater;
+        }
+        if (displayLive.length > mergedLive.length && nfEl) {
+          const tail = stripMatchingPrefix(displayLive, finalPlain);
+          if (tail !== null) {
+            nfEl.textContent = tail;
+            stLive.lastNfRawText = tail;
+          } else {
+            stLive.asrLiveHighWater = mergedLive;
+            displayLive = mergedLive;
+          }
+        }
+      }
+
+      liveBufferRef.current = displayLive;
       const confirmedSource = finalText.trim();
       if (activeBubbleStateRef.current) {
         activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
