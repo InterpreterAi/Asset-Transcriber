@@ -33,8 +33,8 @@ export function workspacePlanDisplayName(planType: string | undefined | null): s
 export function workspacePlanTierKey(planType: string | null | undefined): "trial" | "basic" | "professional" | "platinum" {
   const p = (planType ?? "").toLowerCase();
   if (p === "trial" || p === "trial-openai" || p === "trial-libre") return "trial";
-  if (p === "basic" || p === "basic-openai" || p === "morsy-basic") return "basic";
-  if (p === "professional" || p === "professional-openai") return "professional";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic") return "basic";
+  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   return "platinum";
 }
 

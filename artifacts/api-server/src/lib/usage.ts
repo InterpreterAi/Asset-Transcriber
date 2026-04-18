@@ -33,7 +33,7 @@ export function getTrialDaysRemaining(user: User): number {
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
 export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre"] as const;
 
-/** Trial-like plans: default signup `trial`, or admin-assigned `trial-openai` / `trial-libre`. */
+/** Trial-like plans: default signup `trial` (OpenAI), legacy `trial-openai`, or `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   return (TRIAL_LIKE_PLAN_TYPES as readonly string[]).includes(p);

@@ -33,8 +33,10 @@ const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
 
 const PLAN_PRICES: Record<string, number> = {
   basic: 59,
+  "basic-libre":       59,
   "basic-openai":      59,
   professional:        99,
+  "professional-libre": 99,
   "professional-openai": 99,
   platinum:            179,
   "platinum-libre":    179,
@@ -1055,19 +1057,16 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
+  /** Eight canonical tiers; legacy `*-openai` / `unlimited` rows still work until migrated. */
   const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
     "trial",
-    "trial-openai",
     "trial-libre",
     "basic",
-    "basic-openai",
     "basic-libre",
     "professional",
-    "professional-openai",
     "professional-libre",
     "platinum",
     "platinum-libre",
-    "unlimited",
   ]);
   if (planType && !ADMIN_ASSIGNABLE_PLAN_TYPES.has(planType.toLowerCase())) {
     res.status(400).json({ error: "Invalid plan type" });

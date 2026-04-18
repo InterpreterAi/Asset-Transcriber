@@ -349,7 +349,7 @@ router.post("/paypal-webhook", async (req, res) => {
         .update(usersTable)
         .set({
           planType: "trial",
-          dailyLimitMinutes: 180,
+          dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
           subscriptionStatus: "inactive",
           subscriptionPeriodEndsAt: null,
         })
@@ -367,19 +367,16 @@ router.post("/paypal-webhook", async (req, res) => {
 const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
 /** Same `plan_type` values admins can assign in `/api/admin/users/:id` — keeps workspace “Plan testing” in sync with production. */
+/** Canonical assignable tiers (8): OpenAI `trial|basic|professional|platinum` + Libre `*-libre`. */
 const ADMIN_TEST_PLAN_TYPES = [
   "trial",
-  "trial-openai",
   "trial-libre",
   "basic",
-  "basic-openai",
   "basic-libre",
   "professional",
-  "professional-openai",
   "professional-libre",
   "platinum",
   "platinum-libre",
-  "unlimited",
 ] as const;
 
 type AdminTestPlanType = (typeof ADMIN_TEST_PLAN_TYPES)[number];
@@ -392,20 +389,17 @@ function normalizeAdminTestPlanType(raw: unknown): AdminTestPlanType | null {
 
 /** Daily cap for test switches: PayPal tiers for paid basics; high cap for unlimited-style tiers (matches workspace “Unlimited” UI threshold). */
 function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number {
-  if (planType === "trial" || planType === "trial-openai" || planType === "trial-libre") {
+  if (planType === "trial" || planType === "trial-libre") {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
-  if (planType === "basic" || planType === "basic-openai" || planType === "basic-libre") {
+  if (planType === "basic" || planType === "basic-libre") {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
-  if (planType === "professional" || planType === "professional-openai" || planType === "professional-libre") {
+  if (planType === "professional" || planType === "professional-libre") {
     return paypalPlanConfig("professional").dailyLimitMinutes;
   }
   if (planType === "platinum" || planType === "platinum-libre") {
     return paypalPlanConfig("platinum").dailyLimitMinutes;
-  }
-  if (planType === "unlimited") {
-    return 9999;
   }
   return TRIAL_DAILY_LIMIT_MINUTES;
 }

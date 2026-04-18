@@ -79,8 +79,11 @@ const MAX_SESSION_AUDIO_SECONDS = 3 * 60 * 60;
 
 const DAILY_LIMIT_PAID_MESSAGE =
   "You have used all of your allowed minutes for today. Please try again tomorrow.";
-const dailyLimitTrialMessage = () =>
-  `You have used all of your allowed trial minutes for today (${TRIAL_DAILY_LIMIT_MINUTES / 60} hours per day). Please try again tomorrow.`;
+const dailyLimitTrialMessage = () => {
+  const h = TRIAL_DAILY_LIMIT_MINUTES / 60;
+  const hourLabel = h === 1 ? "1 hour" : `${h} hours`;
+  return `You have used all of your allowed trial minutes for today (${hourLabel} per day). Please try again tomorrow.`;
+};
 
 /** Minimum window (~1 s) so we never divide by zero for “per wall-hour” rates. */
 function elapsedWallHoursSince(startedAt: Date): number {

@@ -284,27 +284,24 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Paid: 3 products × OpenAI vs Libre (6 rows) + admin-only Apr 13 baseline. End users only see Basic / Professional / Platinum. */
-const ADMIN_PLAN_OPTIONS_PAID: { value: string; label: string }[] = [
-  { value: "basic-openai", label: "Basic · OpenAI (interpreter stack)" },
-  { value: "professional-openai", label: "Professional · OpenAI (interpreter stack)" },
-  { value: "platinum", label: "Platinum · OpenAI (interpreter stack)" },
-  { value: "basic", label: "Basic · OpenAI (PayPal default)" },
+/** Eight canonical `plan_type` values (4 OpenAI + 4 Libre). Legacy rows still show a fallback option. */
+const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
+  { value: "trial", label: "Trial · OpenAI" },
+  { value: "basic", label: "Basic · OpenAI" },
+  { value: "professional", label: "Professional · OpenAI" },
+  { value: "platinum", label: "Platinum · OpenAI" },
+];
+
+const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
+  { value: "trial-libre", label: "Trial · Libre / machine" },
   { value: "basic-libre", label: "Basic · Libre / machine" },
-  { value: "professional", label: "Professional · OpenAI (PayPal default)" },
   { value: "professional-libre", label: "Professional · Libre / machine" },
   { value: "platinum-libre", label: "Platinum · Libre / machine" },
 ];
 
-const ADMIN_PLAN_OPTIONS_TRIAL: { value: string; label: string }[] = [
-  { value: "trial-openai", label: "Trial · OpenAI" },
-  { value: "trial-libre", label: "Trial · Libre / machine" },
-  { value: "trial", label: "Trial · OpenAI (legacy id: trial)" },
-];
-
 const ADMIN_PLAN_VALUE_SET = new Set([
-  ...ADMIN_PLAN_OPTIONS_PAID.map(o => o.value),
-  ...ADMIN_PLAN_OPTIONS_TRIAL.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_OPENAI.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_LIBRE.map(o => o.value),
 ]);
 
 /** Matches server `SUBSCRIPTION_PERIOD_MS` when PayPal omits next_billing_time. */
@@ -507,7 +504,7 @@ export default function Admin() {
     trialEndsAt:       "",
     subscriptionStartedAtLocal:   "",
     subscriptionPeriodEndsAtLocal: "",
-    dailyLimitMinutes: 180,
+    dailyLimitMinutes: 60,
     minutesUsedToday:  0,
     defaultLangA:      "en",
     defaultLangB:      "ar",
@@ -677,7 +674,7 @@ export default function Admin() {
   const [showCreate,     setShowCreate]     = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newLimit,    setNewLimit]    = useState(360);
+  const [newLimit,    setNewLimit]    = useState(60);
   const [newIsAdmin,  setNewIsAdmin]  = useState(false);
   const [bumpDailyFloorPending, setBumpDailyFloorPending] = useState(false);
 
@@ -846,7 +843,7 @@ export default function Admin() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     await createMut.mutateAsync({ data: { username: newUsername, password: newPassword, dailyLimitMinutes: newLimit, isAdmin: newIsAdmin } });
-    setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewLimit(180); setNewIsAdmin(false);
+    setShowCreate(false); setNewUsername(""); setNewPassword(""); setNewLimit(60); setNewIsAdmin(false);
     queryClient.invalidateQueries({ queryKey: getAdminListUsersQueryKey() });
   };
 
@@ -2987,9 +2984,9 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan: 6 paid choices (3 tiers × 2 engines) + trial group; customers only see tier name */}
+                {/* Plan: 8 canonical tiers (4 OpenAI + 4 Libre). */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Plan (admin — 6 paid options + trials)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Plan (8 options)</label>
                   <select
                     value={editForm.planType}
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
@@ -2998,13 +2995,13 @@ export default function Admin() {
                     {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (
                       <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
                     )}
-                    <optgroup label="Paid — Basic, Professional, Platinum (OpenAI then Libre)">
-                      {ADMIN_PLAN_OPTIONS_PAID.map(o => (
+                    <optgroup label="OpenAI interpreter">
+                      {ADMIN_PLAN_OPTIONS_OPENAI.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="Trial">
-                      {ADMIN_PLAN_OPTIONS_TRIAL.map(o => (
+                    <optgroup label="Libre / machine">
+                      {ADMIN_PLAN_OPTIONS_LIBRE.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
@@ -3206,7 +3203,7 @@ export default function Admin() {
                       className="h-9 text-sm"
                     />
                     <div className="flex flex-wrap gap-1">
-                      {[120, 180, 300, 360, 480, 600].map(m => (
+                      {[60, 120, 180, 300, 360, 480, 540, 600].map(m => (
                         <button
                           key={m}
                           type="button"

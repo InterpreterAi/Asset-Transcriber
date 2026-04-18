@@ -32,7 +32,7 @@ ALTER TABLE users
 
 -- These may already exist on older DBs with different definitions; IF NOT EXISTS skips.
 ALTER TABLE users
-  ADD COLUMN IF NOT EXISTS daily_limit_minutes integer NOT NULL DEFAULT 180,
+  ADD COLUMN IF NOT EXISTS daily_limit_minutes integer NOT NULL DEFAULT 60,
   ADD COLUMN IF NOT EXISTS minutes_used_today real NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS total_minutes_used real NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS total_sessions integer NOT NULL DEFAULT 0,

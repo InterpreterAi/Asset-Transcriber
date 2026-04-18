@@ -35,7 +35,7 @@ export const usersTable = pgTable("users", {
   paymentReceiptLastInvoiceId: text("payment_receipt_last_invoice_id"),
   /** App-calendar date (`YYYY-MM-DD`, America/New_York) — last “daily limit reached” email (one per day). */
   dailyLimitReachedEmailAppDate: text("daily_limit_reached_email_app_date"),
-  dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(180),
+  dailyLimitMinutes: integer("daily_limit_minutes").notNull().default(60),
   minutesUsedToday: real("minutes_used_today").notNull().default(0),
   totalMinutesUsed: real("total_minutes_used").notNull().default(0),
   totalSessions: integer("total_sessions").notNull().default(0),

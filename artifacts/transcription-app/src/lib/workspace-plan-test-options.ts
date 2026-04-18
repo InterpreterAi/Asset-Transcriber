@@ -2,7 +2,7 @@
  * Account panel “Plan testing” — keep in sync with `ADMIN_TEST_PLAN_TYPES` in
  * `artifacts/api-server/src/routes/payments.ts` (`POST /api/payments/test-activate-plan`).
  *
- * Admins see OpenAI vs Libre on paid rows; other allowed test accounts only see Basic / Professional / Platinum.
+ * Eight canonical tiers: OpenAI (`trial`, `basic`, `professional`, `platinum`) and Libre `*-libre`.
  */
 export type WorkspacePlanTestOption = {
   planType: string;
@@ -11,31 +11,27 @@ export type WorkspacePlanTestOption = {
 };
 
 const TRIAL_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial-openai", label: "Trial · OpenAI", group: "trial" },
+  { planType: "trial", label: "Trial · OpenAI", group: "trial" },
   { planType: "trial-libre", label: "Trial · Libre", group: "trial" },
-  { planType: "trial", label: "Trial (legacy)", group: "trial" },
 ];
 
 const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial-openai", label: "Trial", group: "trial" },
+  { planType: "trial", label: "Trial", group: "trial" },
 ];
 
 const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "basic-openai", label: "Basic · OpenAI", group: "paid" },
-  { planType: "professional-openai", label: "Professional · OpenAI", group: "paid" },
+  { planType: "basic", label: "Basic · OpenAI", group: "paid" },
+  { planType: "professional", label: "Professional · OpenAI", group: "paid" },
   { planType: "platinum", label: "Platinum · OpenAI", group: "paid" },
-  { planType: "basic", label: "Basic · OpenAI (PayPal id)", group: "paid" },
   { planType: "basic-libre", label: "Basic · Libre", group: "paid" },
-  { planType: "professional", label: "Professional · OpenAI (PayPal id)", group: "paid" },
   { planType: "professional-libre", label: "Professional · Libre", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Libre", group: "paid" },
-  { planType: "unlimited", label: "Unlimited", group: "paid" },
 ];
 
-/** Maps to OpenAI-stack SKUs; labels hide engine (customer-style). */
+/** PayPal checkout SKUs (OpenAI stack). */
 const PAID_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
-  { planType: "basic-openai", label: "Basic", group: "paid" },
-  { planType: "professional-openai", label: "Professional", group: "paid" },
+  { planType: "basic", label: "Basic", group: "paid" },
+  { planType: "professional", label: "Professional", group: "paid" },
   { planType: "platinum", label: "Platinum", group: "paid" },
 ];
 

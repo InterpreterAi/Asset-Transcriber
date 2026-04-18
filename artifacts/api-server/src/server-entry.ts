@@ -61,7 +61,7 @@ async function migrateSchema() {
           plan_type              TEXT NOT NULL DEFAULT 'trial',
           trial_started_at       TIMESTAMP NOT NULL DEFAULT NOW(),
           trial_ends_at          TIMESTAMP NOT NULL,
-          daily_limit_minutes    INTEGER NOT NULL DEFAULT 180,
+          daily_limit_minutes    INTEGER NOT NULL DEFAULT ${TRIAL_DAILY_LIMIT_MINUTES},
           minutes_used_today     REAL NOT NULL DEFAULT 0,
           total_minutes_used     REAL NOT NULL DEFAULT 0,
           total_sessions         INTEGER NOT NULL DEFAULT 0,
