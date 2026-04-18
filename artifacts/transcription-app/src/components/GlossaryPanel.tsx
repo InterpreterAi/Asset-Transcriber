@@ -113,7 +113,7 @@ export function GlossaryPanel({ onClose }: Props) {
             <span className="font-semibold">Force glossary on output</span>
             <span className="text-muted-foreground">
               {" "}
-              (recommended) — replaces leaks in the translation when possible; if the source matched your term but the preferred wording is missing, it is appended (no extra AI calls).
+              (recommended) — replaces leaked source phrases in-line when possible; otherwise appends at most two preferred terms per segment (no extra AI calls).
             </span>
           </span>
         </label>

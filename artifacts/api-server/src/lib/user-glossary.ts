@@ -45,16 +45,17 @@ export function buildUserGlossaryHintLines(entries: UserGlossaryRow[], phraseNor
   return hints;
 }
 
-function buildReplacePattern(variation: string): RegExp | null {
+function buildReplacePattern(variation: string, global: boolean): RegExp | null {
   const v = variation.trim();
   if (v.length < 2) return null;
   const esc = escapeRegex(v);
+  const flags = global ? "gi" : "i";
   // Word boundaries work for typical Latin/ASCII phrases; fallback for other scripts.
   const mostlyAsciiWords = /^[\s\w'.-]+$/u.test(v) && /[A-Za-z]/.test(v);
   if (mostlyAsciiWords) {
-    return new RegExp(`\\b${esc}\\b`, "gi");
+    return new RegExp(`\\b${esc}\\b`, flags);
   }
-  return new RegExp(esc, "gi");
+  return new RegExp(esc, flags);
 }
 
 /**
@@ -79,7 +80,7 @@ export function applyUserGlossaryStrict(
   const appliedSet = new Set<string>();
 
   for (const { variation, translation } of pairs) {
-    const pattern = buildReplacePattern(variation);
+    const pattern = buildReplacePattern(variation, true);
     if (!pattern) continue;
     const before = result;
     result = result.replace(pattern, () => translation);
@@ -101,10 +102,58 @@ function translationPresentInOutput(haystack: string, needle: string): boolean {
   return haystack.includes(n);
 }
 
+/** Longest-first contiguous word n-grams from a variation (words ≥2 chars) for inline replace attempts. */
+function collectInlineReplaceCandidates(variation: string): string[] {
+  const vRaw = variation.trim();
+  if (vRaw.length < 2) return [];
+  const words = vRaw.split(/\s+/).filter(p => p.length >= 2);
+  const w = words.length > 0 ? words : vRaw.length >= 2 ? [vRaw] : [];
+  if (w.length === 0) return [];
+  const phrases: string[] = [];
+  for (let len = w.length; len >= 1; len--) {
+    for (let i = 0; i <= w.length - len; i++) {
+      const phrase = w.slice(i, i + len).join(" ");
+      if (phrase.length >= 2) phrases.push(phrase);
+    }
+  }
+  const seen = new Set<string>();
+  const uniq: string[] = [];
+  for (const p of phrases) {
+    const k = p.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(p);
+  }
+  uniq.sort((a, b) => b.length - a.length);
+  return uniq;
+}
+
 /**
- * Source-aware fallback: if the segment matched a glossary source variation but the
- * preferred translation does not appear in the model output (paraphrase / no leak),
- * append missing translations in one lightweight pass (no extra model calls).
+ * First matching substring of `variation` in output → replace once with `translation` (non-global).
+ */
+function tryInlineGlossaryReplace(outputText: string, variation: string, translation: string): string | null {
+  for (const sub of collectInlineReplaceCandidates(variation)) {
+    const pattern = buildReplacePattern(sub, false);
+    if (!pattern || !pattern.test(outputText)) continue;
+    const next = outputText.replace(pattern, () => translation);
+    if (next !== outputText) return next;
+  }
+  return null;
+}
+
+function pushAppliedTranslation(appliedOut: string[], translation: string): void {
+  const t = translation.trim();
+  if (t.length < 2) return;
+  if (!appliedOut.includes(t)) appliedOut.push(t);
+}
+
+const MAX_SOURCE_ENFORCED_TERMS = 2;
+
+/**
+ * Source-aware enforcement (max {@link MAX_SOURCE_ENFORCED_TERMS} distinct translations per segment):
+ * 1) Priority = longest source-matched variation (then stable order).
+ * 2) Try lightweight inline replace (longest n-gram of leaked source words in output → translation, first hit only).
+ * 3) Append translation only if inline found no anchor (last resort).
  */
 export function ensureGlossaryTranslationsFromSource(
   outputText: string,
@@ -113,37 +162,66 @@ export function ensureGlossaryTranslationsFromSource(
   appliedOut: string[],
 ): string {
   const srcLower = phraseNormalized.toLowerCase();
-  const toInject: string[] = [];
-  const seenLower = new Set<string>();
 
+  type Cand = {
+    trans: string;
+    priority: number;
+    matchedVariations: string[];
+  };
+
+  const cands: Cand[] = [];
   for (const e of entries) {
     const trans = e.translation.trim();
     if (trans.length < 2) continue;
 
-    let sourceHit = false;
+    const matchedVariations: string[] = [];
+    let priority = 0;
     for (const v of parseGlossaryVariations(e.term)) {
       if (glossarySourceMatchesSourceText(srcLower, v)) {
-        sourceHit = true;
+        matchedVariations.push(v);
+        priority = Math.max(priority, v.length);
+      }
+    }
+    if (matchedVariations.length === 0) continue;
+    if (translationPresentInOutput(outputText, trans)) continue;
+
+    cands.push({ trans, priority, matchedVariations });
+  }
+
+  cands.sort((a, b) => b.priority - a.priority);
+
+  const picked: Cand[] = [];
+  const seenTrans = new Set<string>();
+  for (const c of cands) {
+    const k = c.trans.toLowerCase();
+    if (seenTrans.has(k)) continue;
+    seenTrans.add(k);
+    picked.push(c);
+    if (picked.length >= MAX_SOURCE_ENFORCED_TERMS) break;
+  }
+
+  let out = outputText;
+  for (const row of picked) {
+    if (translationPresentInOutput(out, row.trans)) continue;
+
+    const vars = [...row.matchedVariations].sort((a, b) => b.length - a.length);
+    let inlined = false;
+    for (const v of vars) {
+      const next = tryInlineGlossaryReplace(out, v, row.trans);
+      if (next !== null) {
+        out = next;
+        pushAppliedTranslation(appliedOut, row.trans);
+        inlined = true;
         break;
       }
     }
-    if (!sourceHit) continue;
+    if (inlined) continue;
 
-    if (translationPresentInOutput(outputText, trans)) continue;
-
-    const dedupe = trans.toLowerCase();
-    if (seenLower.has(dedupe)) continue;
-    seenLower.add(dedupe);
-    toInject.push(trans);
+    const base = out.trimEnd();
+    const spacer = base.length > 0 ? " " : "";
+    out = `${base}${spacer}${row.trans}`.trim();
+    pushAppliedTranslation(appliedOut, row.trans);
   }
 
-  if (toInject.length === 0) return outputText;
-
-  const base = outputText.trimEnd();
-  const spacer = base.length > 0 ? " " : "";
-  const injected = `${base}${spacer}${toInject.join(" ")}`.trim();
-  for (const t of toInject) {
-    appliedOut.push(t);
-  }
-  return injected;
+  return out;
 }
