@@ -81,6 +81,11 @@ import {
 function normalizeMachineTranslationPlaceholders(s: string): string {
   if (!s) return s;
   return s
+    // Libre often drops the underscore entirely: "TERM 1" / "PROT 2" (OpenAI path does not use this helper).
+    .replace(/\bTERM\s+(\d+)(?!\d)/gi, "TERM_$1")
+    .replace(/\bPROT\s+(\d+)(?!\d)/gi, "PROT_$1")
+    .replace(/\bTERM\s*[-–—]\s*(\d+)(?!\d)/gi, "TERM_$1")
+    .replace(/\bPROT\s*[-–—]\s*(\d+)(?!\d)/gi, "PROT_$1")
     .replace(/\bTERM\s*_\s*(\d+)(?!\d)/gi, "TERM_$1")
     .replace(/\bPROT\s*_\s*(\d+)(?!\d)/gi, "PROT_$1");
 }
