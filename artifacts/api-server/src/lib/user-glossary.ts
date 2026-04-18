@@ -3,7 +3,51 @@
  * Does not modify transcription (STT).
  */
 
-export type UserGlossaryRow = { term: string; translation: string };
+export type GlossaryEnforceMode = "strict" | "hint";
+
+export type UserGlossaryRow = {
+  term: string;
+  translation: string;
+  enforceMode: GlossaryEnforceMode;
+  /** Higher runs first in strict passes (tie-break vs longest source match). */
+  priority: number;
+};
+
+/** Lightweight token-overlap heuristic: skip redundant appends when the model already produced most of the preferred wording. */
+const SEMANTIC_TOKEN_MIN_LEN = 2;
+const SEMANTIC_OVERLAP_RATIO = 0.65;
+
+/**
+ * Inline replace only when the matched span is non-trivial (avoids noisy 1–2 character edits).
+ * Multi-word n-grams: at least two words (each ≥2 chars). Single token: length ≥4.
+ */
+export function inlineReplaceCandidateAllowed(phrase: string): boolean {
+  const t = phrase.trim();
+  if (t.length < 2) return false;
+  const words = t.split(/\s+/).filter(w => w.length >= 2);
+  if (words.length >= 2) return true;
+  if (words.length === 1) return words[0]!.length >= 4;
+  return t.length >= 4;
+}
+
+function stripEdgePunct(tok: string): string {
+  return tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+}
+
+export function translationSemanticallyCloseInOutput(outputText: string, translation: string): boolean {
+  const outLower = outputText.toLowerCase();
+  const toks = translation
+    .toLowerCase()
+    .split(/\s+/)
+    .map(stripEdgePunct)
+    .filter(t => t.length >= SEMANTIC_TOKEN_MIN_LEN);
+  if (toks.length === 0) return false;
+  let hits = 0;
+  for (const tok of toks) {
+    if (outLower.includes(tok)) hits++;
+  }
+  return hits / toks.length >= SEMANTIC_OVERLAP_RATIO;
+}
 
 export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -31,7 +75,7 @@ export function glossarySourceMatchesSourceText(normalizedLowerText: string, var
   return words.every(w => normalizedLowerText.includes(w));
 }
 
-/** Lines for the OpenAI prompt: one hint per matched variation. */
+/** Lines for the OpenAI prompt: one hint per matched variation (strict + hint rows). */
 export function buildUserGlossaryHintLines(entries: UserGlossaryRow[], phraseNormalized: string): string[] {
   const lower = phraseNormalized.toLowerCase();
   const hints: string[] = [];
@@ -58,23 +102,28 @@ function buildReplacePattern(variation: string, global: boolean): RegExp | null 
   return new RegExp(esc, flags);
 }
 
+function isStrictRow(e: UserGlossaryRow): boolean {
+  return e.enforceMode !== "hint";
+}
+
 /**
- * Deterministic replacements on model output (longest phrases first). Records which
- * variation strings were applied (at least one match each).
+ * Deterministic replacements on model output (manual priority, then longest phrases). Records which
+ * variation strings were applied (at least one match each). Hint rows are skipped.
  */
 export function applyUserGlossaryStrict(
   outputText: string,
   entries: UserGlossaryRow[],
   appliedOut: string[],
 ): string {
-  type Pair = { variation: string; translation: string };
+  type Pair = { variation: string; translation: string; rowPriority: number };
   const pairs: Pair[] = [];
   for (const e of entries) {
+    if (!isStrictRow(e)) continue;
     for (const v of parseGlossaryVariations(e.term)) {
-      pairs.push({ variation: v, translation: e.translation });
+      pairs.push({ variation: v, translation: e.translation, rowPriority: e.priority });
     }
   }
-  pairs.sort((a, b) => b.variation.length - a.variation.length);
+  pairs.sort((a, b) => b.rowPriority - a.rowPriority || b.variation.length - a.variation.length);
 
   let result = outputText;
   const appliedSet = new Set<string>();
@@ -130,11 +179,13 @@ function collectInlineReplaceCandidates(variation: string): string[] {
 
 /**
  * First matching substring of `variation` in output → replace once with `translation` (non-global).
+ * Uses replace-only matching (no regex .test) to avoid lastIndex issues.
  */
 function tryInlineGlossaryReplace(outputText: string, variation: string, translation: string): string | null {
   for (const sub of collectInlineReplaceCandidates(variation)) {
+    if (!inlineReplaceCandidateAllowed(sub)) continue;
     const pattern = buildReplacePattern(sub, false);
-    if (!pattern || !pattern.test(outputText)) continue;
+    if (!pattern) continue;
     const next = outputText.replace(pattern, () => translation);
     if (next !== outputText) return next;
   }
@@ -150,10 +201,11 @@ function pushAppliedTranslation(appliedOut: string[], translation: string): void
 const MAX_SOURCE_ENFORCED_TERMS = 2;
 
 /**
- * Source-aware enforcement (max {@link MAX_SOURCE_ENFORCED_TERMS} distinct translations per segment):
- * 1) Priority = longest source-matched variation (then stable order).
- * 2) Try lightweight inline replace (longest n-gram of leaked source words in output → translation, first hit only).
- * 3) Append translation only if inline found no anchor (last resort).
+ * Source-aware enforcement (max {@link MAX_SOURCE_ENFORCED_TERMS} distinct translations per segment).
+ * Hint rows are skipped. Strict rows only.
+ * 1) Priority = manual `priority`, then longest source-matched variation.
+ * 2) Inline replace (longest qualifying n-gram in output → translation, first hit only).
+ * 3) Append only if still missing and not already semantically close to the preferred translation.
  */
 export function ensureGlossaryTranslationsFromSource(
   outputText: string,
@@ -165,30 +217,33 @@ export function ensureGlossaryTranslationsFromSource(
 
   type Cand = {
     trans: string;
-    priority: number;
+    rowPriority: number;
+    matchLen: number;
     matchedVariations: string[];
   };
 
   const cands: Cand[] = [];
   for (const e of entries) {
+    if (!isStrictRow(e)) continue;
     const trans = e.translation.trim();
     if (trans.length < 2) continue;
 
     const matchedVariations: string[] = [];
-    let priority = 0;
+    let matchLen = 0;
     for (const v of parseGlossaryVariations(e.term)) {
       if (glossarySourceMatchesSourceText(srcLower, v)) {
         matchedVariations.push(v);
-        priority = Math.max(priority, v.length);
+        matchLen = Math.max(matchLen, v.length);
       }
     }
     if (matchedVariations.length === 0) continue;
     if (translationPresentInOutput(outputText, trans)) continue;
+    if (translationSemanticallyCloseInOutput(outputText, trans)) continue;
 
-    cands.push({ trans, priority, matchedVariations });
+    cands.push({ trans, rowPriority: e.priority, matchLen, matchedVariations });
   }
 
-  cands.sort((a, b) => b.priority - a.priority);
+  cands.sort((a, b) => b.rowPriority - a.rowPriority || b.matchLen - a.matchLen);
 
   const picked: Cand[] = [];
   const seenTrans = new Set<string>();
@@ -202,7 +257,9 @@ export function ensureGlossaryTranslationsFromSource(
 
   let out = outputText;
   for (const row of picked) {
-    if (translationPresentInOutput(out, row.trans)) continue;
+    if (translationPresentInOutput(out, row.trans) || translationSemanticallyCloseInOutput(out, row.trans)) {
+      continue;
+    }
 
     const vars = [...row.matchedVariations].sort((a, b) => b.length - a.length);
     let inlined = false;
@@ -216,6 +273,8 @@ export function ensureGlossaryTranslationsFromSource(
       }
     }
     if (inlined) continue;
+
+    if (translationSemanticallyCloseInOutput(out, row.trans)) continue;
 
     const base = out.trimEnd();
     const spacer = base.length > 0 ? " " : "";

@@ -6,6 +6,8 @@ interface GlossaryEntry {
   id: number;
   term: string;
   translation: string;
+  enforceMode: "strict" | "hint";
+  priority: number;
   createdAt: string;
 }
 
@@ -18,6 +20,8 @@ export function GlossaryPanel({ onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [term, setTerm] = useState("");
   const [translation, setTranslation] = useState("");
+  const [enforceMode, setEnforceMode] = useState<"strict" | "hint">("strict");
+  const [priority, setPriority] = useState<string>("0");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -27,7 +31,15 @@ export function GlossaryPanel({ onClose }: Props) {
     try {
       const res = await fetch("/api/glossary", { credentials: "include" });
       const data = await res.json() as { entries?: GlossaryEntry[] };
-      if (res.ok) setEntries(data.entries ?? []);
+      if (res.ok) {
+        setEntries(
+          (data.entries ?? []).map(e => ({
+            ...e,
+            enforceMode: e.enforceMode === "hint" ? "hint" : "strict",
+            priority: typeof e.priority === "number" && Number.isFinite(e.priority) ? e.priority : 0,
+          })),
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -45,7 +57,16 @@ export function GlossaryPanel({ onClose }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ term: term.trim(), translation: translation.trim() }),
+        body: JSON.stringify({
+          term: term.trim(),
+          translation: translation.trim(),
+          enforceMode,
+          priority: (() => {
+            if (priority.trim() === "") return 0;
+            const n = parseInt(priority, 10);
+            return Number.isFinite(n) ? n : 0;
+          })(),
+        }),
       });
       const data = await res.json() as { entry?: GlossaryEntry; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to add");
@@ -60,6 +81,8 @@ export function GlossaryPanel({ onClose }: Props) {
       });
       setTerm("");
       setTranslation("");
+      setEnforceMode("strict");
+      setPriority("0");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -94,9 +117,12 @@ export function GlossaryPanel({ onClose }: Props) {
 
       <div className="p-3 border-b border-border/60 bg-muted/20 shrink-0 space-y-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          Add source phrases and your preferred target wording. The server still nudges the interpreter, then{" "}
-          <span className="font-medium text-foreground/80">enforces</span> matches on the final translation (when enabled below). Use commas for
-          alternate source phrases, e.g. <span className="font-mono">claim number, claim #</span>. Transcription (STT) is unchanged.
+          Add source phrases and your preferred target wording. Every row is sent as a{" "}
+          <span className="font-medium text-foreground/80">prompt hint</span>.{" "}
+          <span className="font-medium text-foreground/80">Strict</span> rows also get lightweight output fixes (when enabled below);{" "}
+          <span className="font-medium text-foreground/80">Hint</span> rows never change the model text after the fact. Use commas for alternate
+          source phrases, e.g. <span className="font-mono">claim number, claim #</span>. Higher <span className="font-mono">priority</span> runs first
+          when several strict rows apply. Transcription (STT) is unchanged.
         </p>
         <label className="flex items-start gap-2 cursor-pointer select-none">
           <input
@@ -139,6 +165,25 @@ export function GlossaryPanel({ onClose }: Props) {
           dir="auto"
           required
         />
+        <div className="flex gap-2">
+          <select
+            value={enforceMode}
+            onChange={e => setEnforceMode(e.target.value === "hint" ? "hint" : "strict")}
+            className="flex-1 h-8 px-2 text-xs rounded-lg border border-input bg-white outline-none focus:ring-1 focus:ring-ring"
+            aria-label="Enforcement mode"
+          >
+            <option value="strict">Strict (hint + output fix)</option>
+            <option value="hint">Hint only</option>
+          </select>
+          <input
+            type="number"
+            value={priority}
+            onChange={e => setPriority(e.target.value)}
+            placeholder="Priority"
+            title="Manual priority (higher first). Optional."
+            className="w-24 h-8 px-2 text-xs rounded-lg border border-input bg-white outline-none focus:ring-1 focus:ring-ring shrink-0"
+          />
+        </div>
         <button
           type="submit"
           disabled={adding || !term.trim() || !translation.trim()}
@@ -169,7 +214,21 @@ export function GlossaryPanel({ onClose }: Props) {
               className="group flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate text-foreground">{entry.term}</p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <p className="text-xs font-medium truncate text-foreground">{entry.term}</p>
+                  {entry.enforceMode === "hint" ? (
+                    <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-700/90 bg-amber-500/15 px-1 rounded shrink-0">
+                      Hint
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-semibold uppercase tracking-wide text-primary/90 bg-primary/10 px-1 rounded shrink-0">
+                      Strict
+                    </span>
+                  )}
+                  {entry.priority !== 0 ? (
+                    <span className="text-[9px] text-muted-foreground tabular-nums shrink-0">p{entry.priority}</span>
+                  ) : null}
+                </div>
                 <div className="flex items-center gap-1 mt-0.5">
                   <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
                   <p className="text-[11px] text-muted-foreground truncate" dir="auto">{entry.translation}</p>

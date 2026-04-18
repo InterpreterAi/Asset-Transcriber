@@ -1355,10 +1355,17 @@ router.post("/translate", requireAuth, async (req, res) => {
     .select({
       term: glossaryEntriesTable.term,
       translation: glossaryEntriesTable.translation,
+      enforceMode: glossaryEntriesTable.enforceMode,
+      priority: glossaryEntriesTable.priority,
     })
     .from(glossaryEntriesTable)
     .where(eq(glossaryEntriesTable.userId, userIdEarly));
-  const userGlossary: UserGlossaryRow[] = userGlossaryRows;
+  const userGlossary: UserGlossaryRow[] = userGlossaryRows.map(r => ({
+    term: r.term,
+    translation: r.translation,
+    enforceMode: r.enforceMode === "hint" ? "hint" : "strict",
+    priority: Number.isFinite(r.priority) ? Math.trunc(r.priority) : 0,
+  }));
 
   // ── Same-language guard (server-side failsafe) ─────────────────────────────
   // If the resolved source and target share the same base language code, no

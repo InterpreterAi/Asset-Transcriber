@@ -209,6 +209,12 @@ async function migrateSchema() {
         created_at  TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
+      await client.query(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS enforce_mode TEXT NOT NULL DEFAULT 'strict'`);
+      await client.query(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`);
+      await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS glossary_entries_user_id_term_uidx
+        ON glossary_entries (user_id, term)
+    `);
       await client.query(`
       CREATE TABLE IF NOT EXISTS support_tickets (
         id         SERIAL PRIMARY KEY,
