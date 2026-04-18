@@ -785,16 +785,22 @@ function postProcessTranslatedText(
   return t;
 }
 
-/** Shared by OpenAI and machine translation: strip/polish, then repair embedded English domain leaks into target language. */
+/**
+ * Shared by OpenAI and machine translation: strip/polish, then (OpenAI only by default) repair embedded English leaks.
+ * `*-libre` passes `skipLeakRepair` so each segment does **one** public Libre call — leak repair would fan out dozens
+ * of extra requests, hit rate limits, and exceed the browser’s translate timeout (empty column).
+ */
 async function finalizeTranslationOutput(
   restoredRaw: string,
   srcCode: string,
   tgtCode: string,
   tgtLangBcp47: string,
-  opts?: { interim?: boolean },
+  opts?: { interim?: boolean; skipLeakRepair?: boolean },
 ): Promise<string> {
   let t = postProcessTranslatedText(restoredRaw, srcCode, tgtCode);
-  t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, opts);
+  if (!opts?.skipLeakRepair) {
+    t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, opts);
+  }
   if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t;
 }
@@ -1486,7 +1492,8 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Final Boss 3 — `*-libre` tiers: same mask + restore + finalize + glossary strict as OpenAI; MT engines with cross-fallback.
+  // Final Boss 3 — `*-libre` tiers: same mask + restore + post-process + glossary strict as OpenAI; LibreTranslate only
+  // (no post-MT leak-repair fan-out — keeps one HTTP call per segment for public tier stability).
   if (useMachineTranslation) {
     try {
       logger.info(
@@ -1498,13 +1505,17 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
+      const restoredFromRaw = (r: string) =>
+        restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(r ?? "")));
       let raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
-      let translated = await finalizeTranslationOutput(
-        restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
-        srcCode,
-        tgtCode,
-        tgtLangResolved,
-      );
+      let restored = restoredFromRaw(raw);
+      let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
+        skipLeakRepair: true,
+      });
+      if (!translated.trim() && restored.trim()) {
+        translated = postProcessTranslatedText(restored, srcCode, tgtCode);
+        if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
+      }
       // Retry masked segment once (transient MT failure); then last resort unmasked phrase (placeholders may not round-trip).
       if (!translated.trim() && phraseNormalized.trim().length >= 2) {
         logger.warn(
@@ -1512,12 +1523,14 @@ router.post("/translate", requireAuth, async (req, res) => {
           "Machine translation empty after mask/restore; retrying masked segment",
         );
         raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
-        translated = await finalizeTranslationOutput(
-          restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
-          srcCode,
-          tgtCode,
-          tgtLangResolved,
-        );
+        restored = restoredFromRaw(raw);
+        translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
+          skipLeakRepair: true,
+        });
+        if (!translated.trim() && restored.trim()) {
+          translated = postProcessTranslatedText(restored, srcCode, tgtCode);
+          if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
+        }
       }
       if (!translated.trim() && text.trim().length >= 1) {
         logger.warn(

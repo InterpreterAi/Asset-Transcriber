@@ -6,9 +6,12 @@ const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, ""
 
 /**
  * Free public LibreTranslate-compatible HTTPS roots (no API key).
- * Tried in order when LIBRETRANSLATE_URL is unset; next host is used if one is down or rate-limited.
+ * Order: community mirrors from docs.libretranslate.com/community/mirrors, then older community hosts.
+ * @see https://docs.libretranslate.com/community/mirrors/
  */
 const DEFAULT_FREE_LIBRE_BASES = [
+  "https://translate.fedilab.app",
+  "https://translate.cutie.dating",
   "https://translate.argosopentech.com",
   "https://libretranslate.de",
   "https://translate.astian.org",
@@ -31,9 +34,10 @@ async function callLibreTranslateAtBase(
   text: string,
   source: string,
   target: string,
+  sourceMode: "explicit" | "auto",
 ): Promise<string> {
-  const src = normalizeLibreLang(source);
   const tgt = normalizeLibreLang(target);
+  const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(source);
   const body: Record<string, unknown> = {
     q: text,
     source: src,
@@ -76,6 +80,27 @@ async function callLibreTranslateAtBase(
   return out;
 }
 
+/** One host: explicit source first, then `source=auto` if the instance supports it (common for STT code drift). */
+async function callLibreTranslateOneHost(
+  baseUrl: string,
+  text: string,
+  source: string,
+  target: string,
+): Promise<string> {
+  try {
+    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit");
+  } catch (errExplicit) {
+    if (normalizeLibreLang(source) === normalizeLibreLang(target)) {
+      throw errExplicit;
+    }
+    try {
+      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
+    } catch (errAuto) {
+      throw errAuto;
+    }
+  }
+}
+
 /**
  * Free tier: public LibreTranslate hosts (no key). Tries each base until one succeeds.
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise DEFAULT_FREE_LIBRE_BASES are tried in order.
@@ -88,7 +113,7 @@ export async function callLibreTranslate(text: string, source: string, target: s
   let lastErr: unknown;
   for (const base of bases) {
     try {
-      return await callLibreTranslateAtBase(base, text, source, target);
+      return await callLibreTranslateOneHost(base, text, source, target);
     } catch (err) {
       lastErr = err;
       if (bases.length > 1) {
