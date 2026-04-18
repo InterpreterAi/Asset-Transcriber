@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Final Boss 3 (current named snapshot)
 
-- **Final Boss 3** is the live product label for the **current tree**: OpenAI interpreter stack unchanged for **non–`*-libre`** plans; **`trial-libre`**, **`basic-libre`**, **`professional-libre`**, **`platinum-libre`** use the **same** shared masking, restore, glossary strict, and client STT as OpenAI tiers, with **machine translation only** — **one** backend per request (**Google _or_ Libre** via `MACHINE_TRANSLATION_ENGINE` / auto, never chained). Transcription remains browser → Soniox for everyone.
+- **Final Boss 3** is the live product label for the **current tree**: OpenAI interpreter stack unchanged for **non–`*-libre`** plans; **`trial-libre`**, **`basic-libre`**, **`professional-libre`**, **`platinum-libre`** use the **same** shared masking, restore, glossary strict, and client STT as OpenAI tiers, with **machine translation only** — **one** backend per request: **LibreTranslate by default** (free); **`MACHINE_TRANSLATION_ENGINE=google`** only when Cloud Translation is desired (never both in one request). Transcription remains browser → Soniox for everyone.
 - **`trial-libre` → paid** (subscription active): `effectivePlanTypeForTranslation` maps to **`basic-libre` / `professional-libre` / `platinum-libre`** so those users **never** switch to the OpenAI engine when PayPal/webhooks promote the tier.
 - **Git:** tag **`final-boss-3`** is the freeze marker for this baseline when tagged.
 

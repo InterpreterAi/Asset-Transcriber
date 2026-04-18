@@ -8,7 +8,7 @@ import { callGoogleTranslate, isGoogleTranslateConfigured } from "./google-trans
  * **Engine choice** (`MACHINE_TRANSLATION_ENGINE`, optional):
  * - `google` — Cloud Translation API only (`GOOGLE_TRANSLATE_API_KEY` or `GOOGLE_CLOUD_TRANSLATION_API_KEY` required).
  * - `libre` — LibreTranslate only (`LIBRETRANSLATE_URL` or built-in public bases).
- * - Unset — **auto**: Google if a Google key is set, otherwise Libre.
+ * - Unset — **LibreTranslate** (free default). Set `=google` only when you want paid Cloud Translation.
  *
  * `translatePlainMachine` — single-engine MT (leak-repair, `/translate` helper, interpreter segments).
  */
@@ -19,8 +19,8 @@ function resolveMachineEngine(): MachineTranslationEngineKind {
   const raw = process.env.MACHINE_TRANSLATION_ENGINE?.trim().toLowerCase();
   if (raw === "google") return "google";
   if (raw === "libre") return "libre";
-  // auto
-  return isGoogleTranslateConfigured() ? "google" : "libre";
+  // Unset: always Libre — free MT for *-libre; opt into Google with MACHINE_TRANSLATION_ENGINE=google.
+  return "libre";
 }
 
 /**

@@ -116,11 +116,11 @@ export async function callGoogleTranslate(text: string, source: string, target: 
 export function logGoogleTranslateStartupHint(): void {
   if (isGoogleTranslateConfigured()) {
     logger.info(
-      "GOOGLE_TRANSLATE_API_KEY is set — Libre-tier machine fallback can use Google Cloud (when ENGINE is google or auto).",
+      "GOOGLE_TRANSLATE_API_KEY is set — set MACHINE_TRANSLATION_ENGINE=google to use Cloud Translation for *-libre; default remains LibreTranslate.",
     );
   } else {
     logger.warn(
-      "GOOGLE_TRANSLATE_API_KEY is not set — Libre-tier machine fallback uses LibreTranslate unless MACHINE_TRANSLATION_ENGINE=google.",
+      "GOOGLE_TRANSLATE_API_KEY is not set — *-libre machine translation uses LibreTranslate (set MACHINE_TRANSLATION_ENGINE=google when a key is configured).",
     );
   }
 }
