@@ -27,7 +27,13 @@ import {
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
-import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, planUsesLibreEngine } from "@/lib/utils";
+import {
+  formatMinutes,
+  isTrialLikePlanType,
+  workspacePlanDisplayName,
+  workspacePlanTierKey,
+  planUsesLibreEngine,
+} from "@/lib/utils";
 import { startOfAppDayMs } from "@workspace/app-timezone";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -61,7 +67,17 @@ interface AdminStats {
     durationSeconds: number;
     hasSnapshot:     boolean;
     micLabel:        string | null;
+    /** Same user has more than one row with ended_at null — investigate stale session. */
+    openSessionsForUser?: number;
+    openSessionOrdinal?: number;
+    /** Mirrors server planUsesMachineTranslationStack — Libre vs OpenAI translation path. */
+    translationStack?: "libre" | "openai";
   }[];
+  /** Populated with /stats and fast /active-sessions polls. */
+  liveSessionSummary?: {
+    totalSessions: number;
+    usersWithMultipleOpen: number;
+  };
 }
 
 interface UserSession {
@@ -469,18 +485,29 @@ export default function Admin() {
   const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Fast-poll active sessions — only when Users tab is open, every 3 s.
+  // Fast-poll live sessions on Overview / Users / Monitor — 3 s (Libre-heavy traffic needs fresh rows).
   // Must come AFTER mainTab useState to avoid temporal dead zone crash.
+  const pollLiveSessions =
+    !!me?.isAdmin && (mainTab === "overview" || mainTab === "users" || mainTab === "monitor");
   const { data: liveSessionsData } = useQuery({
     queryKey: ["admin-active-sessions"],
     queryFn: async () => {
       const res = await fetch("/api/admin/active-sessions", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch active sessions");
-      return res.json() as Promise<{ activeSessions: AdminStats["activeSessions"] }>;
+      return res.json() as Promise<Pick<AdminStats, "activeSessions" | "liveSessionSummary">>;
     },
-    enabled: !!me?.isAdmin && mainTab === "users",
-    refetchInterval: mainTab === "users" ? 3_000 : false,
+    enabled: pollLiveSessions,
+    refetchInterval: pollLiveSessions ? 3_000 : false,
   });
+
+  const sessions = useMemo(
+    () => liveSessionsData?.activeSessions ?? statsData?.activeSessions ?? [],
+    [liveSessionsData?.activeSessions, statsData?.activeSessions],
+  );
+  const liveSessionSummary = useMemo(
+    () => liveSessionsData?.liveSessionSummary ?? statsData?.liveSessionSummary,
+    [liveSessionsData?.liveSessionSummary, statsData?.liveSessionSummary],
+  );
 
   // ── Edit user drawer ───────────────────────────────────────────────────────
   const [editingUser, setEditingUser] = useState<{
@@ -777,7 +804,9 @@ export default function Admin() {
         method: "POST", credentials: "include",
       });
       setViewingSessionId(null);
-      refetchStats();
+      void refetchStats();
+      void queryClient.invalidateQueries({ queryKey: ["admin-active-sessions"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-system-monitor"] });
     } catch { /* ignore */ }
     setTerminateLoading(false);
   };
@@ -838,7 +867,6 @@ export default function Admin() {
 
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
-  const sessions  = stats?.activeSessions ?? [];
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1247,7 +1275,7 @@ export default function Admin() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-600 bg-blue-50" },
-                  { label: "Translation (AI)",      value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0002/min`, color: "text-violet-600 bg-violet-50" },
+                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Libre ~$0`, color: "text-violet-600 bg-violet-50" },
                   { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-600 bg-emerald-50" },
                 ].map(({ label, value, sub, color }) => (
                   <Card key={label} className="p-4 border-none shadow-sm bg-white flex items-center gap-4">
@@ -1269,7 +1297,22 @@ export default function Admin() {
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 Live Sessions ({sessions.length})
+                <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                  · updates every 3s · customer accounts · Libre vs OpenAI by plan
+                </span>
               </h2>
+              {(liveSessionSummary?.usersWithMultipleOpen ?? 0) > 0 && (
+                <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">Duplicate open sessions</p>
+                    <p className="text-amber-900/90 mt-0.5">
+                      {liveSessionSummary!.usersWithMultipleOpen} user(s) have more than one unclosed session row (e.g. tab closed before /session/stop).
+                      Review cards marked “Duplicate” and terminate stale rows if needed.
+                    </p>
+                  </div>
+                </div>
+              )}
               {sessions.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border rounded-2xl bg-white">
                   No active sessions right now.
@@ -1278,7 +1321,7 @@ export default function Admin() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {sessions.map(s => (
                     <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-white" : "bg-amber-50/60"}`}>
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         {s.hasSnapshot
                           ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
                           : <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
@@ -1286,7 +1329,29 @@ export default function Admin() {
                         {!s.hasSnapshot && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">stale</span>
                         )}
-                        <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${s.planType === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
+                        {(s.openSessionsForUser ?? 1) > 1 && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0" title="Multiple DB rows with ended_at null for this user">
+                            Duplicate #{s.openSessionOrdinal ?? "?"}/{s.openSessionsForUser}
+                          </span>
+                        )}
+                        <span
+                          className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                            workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"
+                          }`}
+                        >
+                          {workspacePlanDisplayName(s.planType)}
+                        </span>
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                            (s.translationStack ?? (planUsesLibreEngine(s.planType) ? "libre" : "openai")) === "openai"
+                              ? "bg-violet-100 text-violet-800"
+                              : "bg-amber-100 text-amber-900"
+                          }`}
+                        >
+                          {(s.translationStack ?? (planUsesLibreEngine(s.planType) ? "libre" : "openai")) === "openai"
+                            ? "OpenAI MT"
+                            : "Libre MT"}
+                        </span>
                       </div>
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
@@ -1810,7 +1875,7 @@ export default function Admin() {
 
                         {/* Session Status — uses fast-polling live data when available */}
                         <td className="px-4 py-3">
-                          {sessionStatusBadge(u.id, u.lastActivityAt, liveSessionsData?.activeSessions ?? sessions)}
+                          {sessionStatusBadge(u.id, u.lastActivityAt, sessions)}
                         </td>
 
                         {/* Account Status */}

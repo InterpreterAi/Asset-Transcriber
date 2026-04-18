@@ -15,7 +15,12 @@ import {
 import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt, inArray, notInArray } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
-import { getTrialDaysRemaining, isTrialLikePlanType, TRIAL_LIKE_PLAN_TYPES } from "../lib/usage.js";
+import {
+  getTrialDaysRemaining,
+  isTrialLikePlanType,
+  planUsesMachineTranslationStack,
+  TRIAL_LIKE_PLAN_TYPES,
+} from "../lib/usage.js";
 import { billingProductKeyFromPlanType, subscriptionPeriodEndFallback } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
@@ -45,6 +50,61 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-openai":      0,
   "trial-libre":       0,
 };
+
+type ActiveSessionRow = {
+  sessionId: number;
+  userId: number;
+  startedAt: Date;
+  langPair: string | null;
+  username: string;
+  email: string | null;
+  planType: string;
+};
+
+/**
+ * Per-user open-session counts and ordinal (detect duplicate DB rows for one customer).
+ */
+function enrichActiveSessionRows<T extends ActiveSessionRow>(
+  rows: T[],
+): Array<
+  T & {
+    openSessionsForUser: number;
+    openSessionOrdinal: number;
+    translationStack: "libre" | "openai";
+  }
+> {
+  const byUser = new Map<number, T[]>();
+  for (const r of rows) {
+    const list = byUser.get(r.userId) ?? [];
+    list.push(r);
+    byUser.set(r.userId, list);
+  }
+  for (const list of byUser.values()) {
+    list.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  }
+  const ordinalBySessionId = new Map<number, number>();
+  for (const list of byUser.values()) {
+    list.forEach((r, i) => {
+      ordinalBySessionId.set(r.sessionId, i + 1);
+    });
+  }
+  return rows.map((r) => ({
+    ...r,
+    openSessionsForUser: byUser.get(r.userId)?.length ?? 1,
+    openSessionOrdinal: ordinalBySessionId.get(r.sessionId) ?? 1,
+    translationStack: planUsesMachineTranslationStack(r.planType) ? "libre" : "openai",
+  }));
+}
+
+function liveSessionSummaryFromEnriched(
+  enriched: Array<{ userId: number; openSessionsForUser: number }>,
+): { totalSessions: number; usersWithMultipleOpen: number } {
+  const usersWithMulti = new Set<number>();
+  for (const r of enriched) {
+    if (r.openSessionsForUser > 1) usersWithMulti.add(r.userId);
+  }
+  return { totalSessions: enriched.length, usersWithMultipleOpen: usersWithMulti.size };
+}
 
 // ── List users ───────────────────────────────────────────────────────────────
 router.get("/users", requireAdmin, async (_req, res) => {
@@ -330,7 +390,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
-    // Open (live) sessions — all users (admins testing transcription show up here)
+    // Open (live) sessions — customer accounts only (aligns with /active-sessions; admin test tabs excluded)
     db.select({
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
@@ -342,7 +402,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(isNull(sessionsTable.endedAt))
+      .where(and(isNull(sessionsTable.endedAt), sql`${usersTable.isAdmin} = false`))
       .orderBy(sessionsTable.startedAt),
 
     // All non-admin users for MRR calculation
@@ -428,6 +488,9 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   const costPerSession =
     sessionsTodayCustomer > 0 ? +(totalCostToday / sessionsTodayCustomer).toFixed(4) : 0;
 
+  const enrichedLive = enrichActiveSessionRows(activeSessionRows);
+  const liveSessionSummary = liveSessionSummaryFromEnriched(enrichedLive);
+
   res.json({
     activeUsers:       Number(activeRow[0]?.count  ?? 0),
     /** Every row in `users` (admins included). */
@@ -450,19 +513,23 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     costPerSession,
     payingUsers:   payingCount,
     trialUsers:    trialCount,
-    // Live sessions
-    activeSessions: activeSessionRows.map(s => ({
-      sessionId:       s.sessionId,
-      userId:          s.userId,
-      username:        s.username,
-      email:           s.email ?? null,
-      planType:        s.planType,
-      langPair:        s.langPair ?? null,
-      startedAt:       s.startedAt,
-      durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-      hasSnapshot:     sessionStore.has(s.sessionId),
-      micLabel:        sessionStore.get(s.sessionId)?.micLabel ?? null,
+    // Live sessions (customer accounts; duplicate opens per user surfaced in UI)
+    activeSessions: enrichedLive.map(s => ({
+      sessionId:            s.sessionId,
+      userId:               s.userId,
+      username:             s.username,
+      email:                s.email ?? null,
+      planType:             s.planType,
+      langPair:             s.langPair ?? null,
+      startedAt:            s.startedAt,
+      durationSeconds:      Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+      hasSnapshot:          sessionStore.has(s.sessionId),
+      micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
+      openSessionsForUser:  s.openSessionsForUser,
+      openSessionOrdinal:   s.openSessionOrdinal,
+      translationStack:     s.translationStack,
     })),
+    liveSessionSummary,
   });
 });
 
@@ -818,19 +885,24 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
     ))
     .orderBy(sessionsTable.startedAt);
 
+  const enriched = enrichActiveSessionRows(rows);
   res.json({
-    activeSessions: rows.map(s => ({
-      sessionId:       s.sessionId,
-      userId:          s.userId,
-      username:        s.username,
-      email:           s.email ?? null,
-      planType:        s.planType,
-      langPair:        s.langPair ?? null,
-      startedAt:       s.startedAt,
-      durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-      hasSnapshot:     sessionStore.has(s.sessionId),
-      micLabel:        sessionStore.get(s.sessionId)?.micLabel ?? null,
+    activeSessions: enriched.map(s => ({
+      sessionId:            s.sessionId,
+      userId:               s.userId,
+      username:             s.username,
+      email:                s.email ?? null,
+      planType:             s.planType,
+      langPair:             s.langPair ?? null,
+      startedAt:            s.startedAt,
+      durationSeconds:      Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+      hasSnapshot:          sessionStore.has(s.sessionId),
+      micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
+      openSessionsForUser:  s.openSessionsForUser,
+      openSessionOrdinal:   s.openSessionOrdinal,
+      translationStack:     s.translationStack,
     })),
+    liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
   });
 });
 
@@ -1575,8 +1647,10 @@ router.get("/system-monitor", requireAdmin, async (_req, res) => {
     db.select({ count: sql<number>`COUNT(*)::int` }).from(usersTable)
       .where(and(gt(usersTable.lastActivity, since5min), sql`${usersTable.isAdmin} = false`)),
 
-    db.select({ count: sql<number>`COUNT(*)::int` }).from(sessionsTable)
-      .where(isNull(sessionsTable.endedAt)),
+    db.select({ count: sql<number>`COUNT(*)::int` })
+      .from(sessionsTable)
+      .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
+      .where(and(isNull(sessionsTable.endedAt), sql`${usersTable.isAdmin} = false`)),
 
     db.select({ count: sql<number>`COUNT(*)::int` }).from(loginEventsTable)
       .where(and(gte(loginEventsTable.createdAt, startOfToday), eq(loginEventsTable.success, false))),
@@ -1602,7 +1676,8 @@ router.get("/system-monitor", requireAdmin, async (_req, res) => {
 
   res.json({
     activeUsers:            activeUsersRow[0]?.count           ?? 0,
-    activeSessions:         Math.max(activeSessionsRow[0]?.count ?? 0, sessionStore.size),
+    /** Customer open sessions only (matches admin Live Sessions list). */
+    activeSessions:         activeSessionsRow[0]?.count ?? 0,
     failedLoginsToday:      failedLoginsRow[0]?.count          ?? 0,
     successfulLoginsToday:  successLoginsRow[0]?.count         ?? 0,
     apiErrorsToday:         apiErrorsRow[0]?.count             ?? 0,
