@@ -78,11 +78,10 @@ import {
 // masking, restore, glossary strict, and client STT as OpenAI tiers; translation =
 // Libre + Google cross-fallback only (see `basic-pro-translate.ts`, `usage.ts`).
 
-/** Libre/Google sometimes insert spaces in tokens — normalize before TERM/NUM/PROT restore (MT path only). */
+/** Libre/Google may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {
   if (!s) return s;
   return s
-    .replace(/\bNUM\s*_\s*(\d+)(?!\d)/gi, "NUM_$1")
     .replace(/\bTERM\s*_\s*(\d+)(?!\d)/gi, "TERM_$1")
     .replace(/\bPROT\s*_\s*(\d+)(?!\d)/gi, "PROT_$1");
 }
@@ -1514,19 +1513,6 @@ router.post("/translate", requireAuth, async (req, res) => {
           "Machine translation empty after mask/restore; retrying masked segment",
         );
         raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
-        translated = await finalizeTranslationOutput(
-          restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
-          srcCode,
-          tgtCode,
-          tgtLangResolved,
-        );
-      }
-      if (!translated.trim() && phraseNormalized.trim().length >= 2) {
-        logger.warn(
-          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "Machine translation still empty; last resort unmasked phrase (single engine)",
-        );
-        raw = await translateBasicProfessional(phraseNormalized, srcLang, tgtLang, new Map());
         translated = await finalizeTranslationOutput(
           restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? ""))),
           srcCode,

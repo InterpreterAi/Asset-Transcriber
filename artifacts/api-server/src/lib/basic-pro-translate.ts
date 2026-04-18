@@ -89,14 +89,26 @@ export async function translatePlainMachine(
   return callLibreTranslate(t, sourceLang, targetLang);
 }
 
+/** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */
+function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, string>): string {
+  if (slotToDigits.size === 0) return text;
+  let out = text;
+  const slots = [...slotToDigits.entries()].sort((a, b) => b[0] - a[0]);
+  for (const [n, digits] of slots) {
+    out = out.replace(new RegExp(`NUM_${n}(?!\\d)`, "g"), () => digits);
+  }
+  return out;
+}
+
 export async function translateBasicProfessional(
   text: string,
   sourceLang: string,
   targetLang: string,
-  _slotToDigits: Map<number, string>,
+  slotToDigits: Map<number, string>,
 ): Promise<string> {
-  // Keep NUM_* placeholders in `text`. Expanding to digits before Google/Libre caused
-  // localized numerals, spelling, and reordering vs the transcript; the caller restores
-  // exact ASR digit strings via restoreNumberPlaceholders(_slotToDigits).
-  return translatePlainMachineWithFallback(text, sourceLang, targetLang);
+  // Libre/Google usually destroy or omit NUM_* tokens, so restoreNumberPlaceholders never runs
+  // and digits disappear from the translation. Send literal digits (same as transcript slots);
+  // TERM_/PROT_ remain placeholders. Caller restore still reapplies glossary/protected terms.
+  const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
+  return translatePlainMachineWithFallback(mtInput, sourceLang, targetLang);
 }
