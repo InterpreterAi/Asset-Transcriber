@@ -2691,7 +2691,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  One row per finalized segment. Stale duplicate translations are hidden so this view matches what users see; empty cells may fill on the next refresh after the final API returns.
+                  One row per finalized segment. Translations are pushed from the user session snapshot; rows are aligned by segment index so delayed API responses still appear here after refresh.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
@@ -2703,13 +2703,17 @@ export default function Admin() {
                     const trLines = (sessionDetail.snapshot.translation ?? "").split("\n");
                     const n = Math.max(tLines.length, trLines.length);
                     /** Avoid showing a prior line's translation again when the transcript line changed (stale snapshot). */
-                    function translationCell(i: number): { kind: "ok"; text: string } | { kind: "empty" } | { kind: "dup" } {
+                    function translationCell(
+                      i: number,
+                    ): { kind: "ok"; text: string } | { kind: "empty" } | { kind: "dup"; text: string } {
                       const raw = (trLines[i] ?? "").trim();
                       const tCur = (tLines[i] ?? "").trim();
                       const tPrev = i > 0 ? (tLines[i - 1] ?? "").trim() : "";
                       const prevTr = i > 0 ? (trLines[i - 1] ?? "").trim() : "";
                       if (!raw) return { kind: "empty" };
-                      if (i > 0 && raw === prevTr && tCur && tCur !== tPrev) return { kind: "dup" };
+                      if (i > 0 && raw === prevTr && tCur && tCur !== tPrev) {
+                        return { kind: "dup", text: trLines[i] ?? "" };
+                      }
                       return { kind: "ok", text: trLines[i] ?? "" };
                     }
                     return (
@@ -2735,11 +2739,16 @@ export default function Admin() {
                             >
                               {trCell.kind === "ok" ? (
                                 trCell.text
+                              ) : trCell.kind === "dup" ? (
+                                <span className="leading-relaxed">
+                                  {trCell.text}
+                                  <span className="block text-[10px] text-muted-foreground not-italic mt-1">
+                                    Admin: same string as the row above (user UI may hide repeat); text kept visible here.
+                                  </span>
+                                </span>
                               ) : (
                                 <span className="text-muted-foreground italic text-xs leading-relaxed">
-                                  {trCell.kind === "dup"
-                                    ? "— Duplicate of previous line (hidden — not what the user sees)"
-                                    : tCur ? "— Final translation pending" : "—"}
+                                  {tCur ? "— Translation not in last snapshot yet (wait for auto-refresh)" : "—"}
                                 </span>
                               )}
                             </div>

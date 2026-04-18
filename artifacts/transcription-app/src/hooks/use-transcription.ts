@@ -1502,6 +1502,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       skipOpenAiLiveDebounce?: boolean;
       suppressEarlyHardFinal?: boolean;
       forceFullSegmentFinal?: boolean;
+      /** Row index in transcriptBuf/translationBuf for this finalized segment (admin snapshot); avoids writing into the wrong line when the next segment finalizes before this translate returns. */
+      adminSnapshotLineIndex?: number;
     },
     segmentIdLock?: string,
   ) => {
@@ -1740,6 +1742,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     state.seq += 1;
     const mySeq = state.seq;
+    const adminBufRowIdx = options?.adminSnapshotLineIndex;
 
     void (async () => {
       try {
@@ -1796,7 +1799,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         if (requestSegmentId !== state.segmentId) return;
 
-        if (!transTextEl.isConnected) return;
         if (state.translationLocked) return;
         if (!requestIsFinal && state.hardFinalRequested) return;
         if (!isFinal && state.finalizing) return;
@@ -1805,14 +1807,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
 
-        if (mySeq <= state.lastShownSeq) return;
-
         if (requestIsFinal) {
           const rawFinal = translated.trim();
           let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
           if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
             out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
           }
+          const outTrim = out.trim();
+          const resolvedAdminIdx =
+            typeof adminBufRowIdx === "number" &&
+            adminBufRowIdx >= 0 &&
+            adminBufRowIdx < translationBufRef.current.length
+              ? adminBufRowIdx
+              : null;
+          // Pin admin dashboard row to this finalized segment (next segment can finalize before translate returns).
+          if (resolvedAdminIdx !== null) {
+            translationBufRef.current[resolvedAdminIdx] = outTrim;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
+
+          if (mySeq <= state.lastShownSeq) return;
+          if (!transTextEl.isConnected) return;
+
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           applyTranslationTypography(transTextEl, out);
@@ -1825,33 +1841,37 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (lockOnFinal) {
             state.hardFinalRequested = true;
             state.translationLocked = true;
-            if (translationBufRef.current.length > 0) {
-              translationBufRef.current[translationBufRef.current.length - 1] = out.trim();
-              onAdminSnapshotBuffersUpdatedRef.current?.();
-            }
           }
-        } else if (useStreamingDelta) {
-          const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
-          state.lastShownSeq = mySeq;
-          state.lastShownLen = merged.length;
-          applyTranslationTypography(transTextEl, merged);
-          state.pendingDisplayTranslation = "";
-          const committed = state.streamCommittedSource.trim();
-          state.streamCommittedSource = committed ? `${committed} ${text}` : text;
-          state.needsFullFinalTranslation = false;
-          state.lastConfirmedSourceTranslated = text;
+          if (resolvedAdminIdx === null && translationBufRef.current.length > 0) {
+            translationBufRef.current[translationBufRef.current.length - 1] = outTrim;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
         } else {
-          const out = dedupeConsecutiveTranslationTokens(translated.trim());
-          if (!out.trim()) {
-            return;
+          if (mySeq <= state.lastShownSeq) return;
+          if (!transTextEl.isConnected) return;
+          if (useStreamingDelta) {
+            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
+            state.lastShownSeq = mySeq;
+            state.lastShownLen = merged.length;
+            applyTranslationTypography(transTextEl, merged);
+            state.pendingDisplayTranslation = "";
+            const committed = state.streamCommittedSource.trim();
+            state.streamCommittedSource = committed ? `${committed} ${text}` : text;
+            state.needsFullFinalTranslation = false;
+            state.lastConfirmedSourceTranslated = text;
+          } else {
+            const out = dedupeConsecutiveTranslationTokens(translated.trim());
+            if (!out.trim()) {
+              return;
+            }
+            state.lastShownSeq = mySeq;
+            state.lastShownLen = out.length;
+            applyTranslationTypography(transTextEl, out);
+            state.pendingDisplayTranslation = "";
+            state.streamCommittedSource = text;
+            state.needsFullFinalTranslation = false;
+            state.lastConfirmedSourceTranslated = text;
           }
-          state.lastShownSeq = mySeq;
-          state.lastShownLen = out.length;
-          applyTranslationTypography(transTextEl, out);
-          state.pendingDisplayTranslation = "";
-          state.streamCommittedSource = text;
-          state.needsFullFinalTranslation = false;
-          state.lastConfirmedSourceTranslated = text;
         }
 
         scrollPanel();
@@ -2044,6 +2064,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // prior-row translation from the DOM before this segment's cell is updated. Live
       // passthrough and the final API pass overwrite translationBufRef[length-1] in place.
       translationBufRef.current.push("");
+      const adminSnapshotLineIndex = transcriptBufRef.current.length - 1;
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Always pass live Soniox hint; dispatch snaps to the pair + opposite target (never same-lang tgt).
       const segId = activeBubbleStateRef.current?.segmentId;
@@ -2057,6 +2078,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           suppressEarlyHardFinal: closeKind === "speaker_change",
           skipOpenAiLiveDebounce: true,
           forceFullSegmentFinal: closeKind === "speaker_change",
+          adminSnapshotLineIndex,
         },
         segId,
       );
