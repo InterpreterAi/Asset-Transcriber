@@ -1274,7 +1274,7 @@ export default function WorkspaceDefault() {
 
       {/* GLOSSARY PANEL */}
       {activeTab === "glossary" && (
-        <GlossaryPanel onClose={() => setActiveTab("mic")} />
+        <GlossaryPanel onClose={() => setActiveTab("mic")} langA={langA} langB={langB} />
       )}
 
       {activeTab === "referrals" && (

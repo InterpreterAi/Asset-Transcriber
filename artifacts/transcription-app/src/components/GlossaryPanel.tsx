@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { BookOpen, Plus, Trash2, X, ArrowRight, Loader2 } from "lucide-react";
 import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
+import { glossaryPreferredTranslationPlaceholder } from "@/lib/glossary-translation-placeholder-example";
 
 interface GlossaryEntry {
   id: number;
@@ -13,9 +14,12 @@ interface GlossaryEntry {
 
 interface Props {
   onClose: () => void;
+  /** Workspace language pair — drives the localized example in the translation placeholder only. */
+  langA: string;
+  langB: string;
 }
 
-export function GlossaryPanel({ onClose }: Props) {
+export function GlossaryPanel({ onClose, langA, langB }: Props) {
   const [entries, setEntries] = useState<GlossaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [term, setTerm] = useState("");
@@ -26,6 +30,11 @@ export function GlossaryPanel({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [glossaryStrict, setGlossaryStrict] = useState(() => readGlossaryStrictEnabled());
+
+  const translationPlaceholder = useMemo(
+    () => glossaryPreferredTranslationPlaceholder(langA, langB),
+    [langA, langB],
+  );
 
   const load = async () => {
     try {
@@ -160,7 +169,7 @@ export function GlossaryPanel({ onClose }: Props) {
         <input
           value={translation}
           onChange={e => setTranslation(e.target.value)}
-          placeholder='Preferred translation (e.g. "رقم المطالبة")'
+          placeholder={translationPlaceholder}
           className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-white outline-none focus:ring-1 focus:ring-ring"
           dir="auto"
           required
