@@ -1192,7 +1192,7 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 // The snapshot is held in-memory only (sessionStore) — never persisted to DB.
 // langPair is recorded to the sessions table for historical reporting.
 router.put("/session/snapshot", requireAuth, async (req, res) => {
-  const { sessionId, langA, langB, micLabel, transcript, translation, transcriptLines, translationLines } = req.body as {
+  const { sessionId, langA, langB, micLabel, transcript, translation, transcriptLines, translationLines, snapshotSeq } = req.body as {
     sessionId?:   number;
     langA?:       string;
     langB?:       string;
@@ -1201,6 +1201,8 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     translation?: string;
     transcriptLines?: string[];
     translationLines?: string[];
+    /** Client increments each push; ignore PUTs with lower seq (out-of-order requests). */
+    snapshotSeq?: number;
   };
 
   if (!sessionId || !langA || !langB) {
@@ -1233,22 +1235,43 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
       .where(eq(sessionsTable.id, sessionId));
   }
 
-  const tlIn = Array.isArray(transcriptLines) ? transcriptLines.map(String) : undefined;
-  const trlIn = Array.isArray(translationLines) ? translationLines.map(String) : undefined;
-  const linesOk =
-    tlIn &&
-    trlIn &&
-    tlIn.length > 0 &&
-    tlIn.length === trlIn.length;
+  const existingSnap = sessionStore.get(sessionId);
+  const seqIn =
+    typeof snapshotSeq === "number" && Number.isFinite(snapshotSeq) ? Math.floor(snapshotSeq) : undefined;
+  if (
+    seqIn !== undefined &&
+    existingSnap?.snapshotSeq !== undefined &&
+    seqIn < existingSnap.snapshotSeq
+  ) {
+    res.json({ ok: true, stale: true });
+    return;
+  }
+
+  let tlIn = Array.isArray(transcriptLines) ? transcriptLines.map(String) : [];
+  let trlIn = Array.isArray(translationLines) ? translationLines.map(String) : [];
+  const maxLines = Math.max(tlIn.length, trlIn.length);
+  if (maxLines > 0) {
+    while (tlIn.length < maxLines) tlIn.push("");
+    while (trlIn.length < maxLines) trlIn.push("");
+  }
+
+  let transcriptOut = transcript ?? "";
+  let translationOut = translation ?? "";
+  const hasPaddedLines = maxLines > 0;
+  if (hasPaddedLines) {
+    transcriptOut = tlIn.join("\n");
+    translationOut = trlIn.join("\n");
+  }
 
   // Update in-memory snapshot (admin-visible only, never persisted).
   sessionStore.set(sessionId, {
     langA,
     langB,
     micLabel:    micLabel    ?? "Microphone",
-    transcript:  transcript  ?? "",
-    translation: translation ?? "",
-    ...(linesOk ? { transcriptLines: tlIn, translationLines: trlIn } : {}),
+    transcript:  transcriptOut,
+    translation: translationOut,
+    ...(hasPaddedLines ? { transcriptLines: tlIn, translationLines: trlIn } : {}),
+    ...(seqIn !== undefined ? { snapshotSeq: seqIn } : {}),
     updatedAt:   Date.now(),
   });
 
@@ -1256,7 +1279,7 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
   diagCounter.dashboardUpdates += 1;
   const lastTranslated = diagLastTranslatedBySession.get(sessionId);
   const dashboardHasLastSegment =
-    Boolean(lastTranslated?.translated) && (translation ?? "").includes(lastTranslated!.translated);
+    Boolean(lastTranslated?.translated) && translationOut.includes(lastTranslated!.translated);
   logger.info(
     {
       ts: diagNowIso(),

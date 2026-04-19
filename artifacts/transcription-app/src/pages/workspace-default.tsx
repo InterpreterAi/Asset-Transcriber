@@ -123,6 +123,8 @@ export default function WorkspaceDefault() {
     transcription: ReturnType<typeof useTranscription> | null;
     debounce: ReturnType<typeof setTimeout> | null;
   }>({ transcription: null, debounce: null });
+  /** Increments each snapshot PUT so the server can drop out-of-order requests (aligned transcript ↔ translation rows). */
+  const snapshotSeqRef = useRef(0);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
@@ -137,6 +139,7 @@ export default function WorkspaceDefault() {
         const t = snapshotCtxRef.current.transcription;
         if (!t?.isRecording || !t.sessionId) return;
         const snap = t.getSnapshot();
+        snapshotSeqRef.current += 1;
         void fetch("/api/transcription/session/snapshot", {
           method:      "PUT",
           headers:     { "Content-Type": "application/json" },
@@ -150,6 +153,7 @@ export default function WorkspaceDefault() {
             translation: snap.translation,
             transcriptLines:  snap.transcriptLines,
             translationLines: snap.translationLines,
+            snapshotSeq:      snapshotSeqRef.current,
           }),
         }).catch(() => { /* best-effort */ });
       }, 400);
@@ -548,6 +552,7 @@ export default function WorkspaceDefault() {
       const t = snapshotCtxRef.current.transcription;
       if (!t?.isRecording || !t.sessionId) return;
       const snap = t.getSnapshot();
+      snapshotSeqRef.current += 1;
       void fetch("/api/transcription/session/snapshot", {
         method:      "PUT",
         headers:     { "Content-Type": "application/json" },
@@ -561,6 +566,7 @@ export default function WorkspaceDefault() {
           translation: snap.translation,
           transcriptLines:  snap.transcriptLines,
           translationLines: snap.translationLines,
+          snapshotSeq:      snapshotSeqRef.current,
         }),
       }).catch(() => { /* best-effort */ });
     };
@@ -575,6 +581,10 @@ export default function WorkspaceDefault() {
       }
     };
   }, [transcription.isRecording, transcription.sessionId]);
+
+  useEffect(() => {
+    snapshotSeqRef.current = 0;
+  }, [transcription.sessionId]);
 
   const handleLogout = async () => {
     await logoutMut.mutateAsync();

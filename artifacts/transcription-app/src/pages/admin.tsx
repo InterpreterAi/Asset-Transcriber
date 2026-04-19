@@ -99,6 +99,7 @@ interface SessionSnapshot {
   /** When present (from client buffers), use these instead of splitting joined strings — avoids mis-aligned rows if speech contains newlines. */
   transcriptLines?: string[];
   translationLines?: string[];
+  snapshotSeq?: number;
   updatedAt:   number;
 }
 
@@ -2756,16 +2757,25 @@ export default function Admin() {
                   (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
                   (() => {
                     const snap = sessionDetail.snapshot;
-                    const useLines =
+                    const hasLineArrays =
                       Array.isArray(snap.transcriptLines) &&
                       Array.isArray(snap.translationLines) &&
                       snap.transcriptLines.length > 0 &&
-                      snap.transcriptLines.length === snap.translationLines.length;
-                    const tLines = useLines
-                      ? snap.transcriptLines!
+                      snap.translationLines.length > 0;
+                    let tLines = hasLineArrays
+                      ? snap.transcriptLines!.map(String)
                       : snap.transcript.split("\n");
-                    const trLines = useLines ? snap.translationLines! : (snap.translation ?? "").split("\n");
-                    const n = Math.max(tLines.length, trLines.length);
+                    let trLines = hasLineArrays
+                      ? snap.translationLines!.map(String)
+                      : (snap.translation ?? "").split("\n");
+                    const align = Math.max(tLines.length, trLines.length);
+                    if (align > 0) {
+                      tLines = [...tLines];
+                      trLines = [...trLines];
+                      while (tLines.length < align) tLines.push("");
+                      while (trLines.length < align) trLines.push("");
+                    }
+                    const n = align;
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     return (
