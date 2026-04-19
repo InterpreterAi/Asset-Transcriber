@@ -398,6 +398,14 @@ function detectAudioDevice(label: string | null | undefined) {
   return   { type: "Microphone", badgeCls: "bg-green-50 text-green-700 border-green-100", icon: <Mic      className="w-3 h-3" /> };
 }
 
+/** Resolve BCP-47-ish workspace code to admin UI label (for session column headers). */
+function adminLanguageLabel(code: string | undefined, all: LangOption[] | undefined): string {
+  const c = (code ?? "").trim();
+  if (!c) return "—";
+  const hit = all?.find(l => l.value === c);
+  return hit?.label ?? c.toUpperCase();
+}
+
 function AudioDeviceInfo({ label, nameClass = "" }: { label: string | null | undefined; nameClass?: string }) {
   const dev = detectAudioDevice(label);
   if (!dev) return null;
@@ -831,6 +839,19 @@ export default function Admin() {
       })
       .catch(() => { /* ignore */ });
   }, [mainTab, me?.isAdmin]);
+
+  /** Load language names once for admin (e.g. View Session column headers) without opening the Languages tab. */
+  useEffect(() => {
+    if (!me?.isAdmin) return;
+    let cancelled = false;
+    fetch("/api/admin/config/languages", { credentials: "include" })
+      .then(r => r.json() as Promise<LangConfigResp>)
+      .then(data => {
+        if (!cancelled) setLangConfigData(prev => prev ?? data);
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [me?.isAdmin]);
 
   const saveLangConfig = async () => {
     setLangSaveLoading(true);
@@ -2752,21 +2773,25 @@ export default function Admin() {
               </div>
             ) : null}
 
-            {/* One table row per finalized segment (paired buffers from client — matches user workspace lines). */}
-            <div className="flex-1 overflow-y-auto">
+            {/* One <tr> per finalized segment: source column = lang A, translation column = lang B (same row = same segment). */}
+            <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  One row per finalized segment. Translations are pushed from the user session snapshot; rows are aligned by segment index so delayed API responses still appear here after refresh.
+                  Each row is one segment: left = source ({sessionDetail?.snapshot ? adminLanguageLabel(sessionDetail.snapshot.langA, langConfigData?.allLanguages) : "—"}), right = translation ({sessionDetail?.snapshot ? adminLanguageLabel(sessionDetail.snapshot.langB, langConfigData?.allLanguages) : "—"}). Indices stay aligned when the snapshot refreshes.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
                 {viewLoading ? (
                   <div className="text-sm text-muted-foreground italic">Loading…</div>
-                ) : sessionDetail?.snapshot?.transcript ? (
+                ) : sessionDetail?.snapshot &&
+                  (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
                   (() => {
-                    const tLines = sessionDetail.snapshot.transcript.split("\n");
-                    const trLines = (sessionDetail.snapshot.translation ?? "").split("\n");
+                    const snap = sessionDetail.snapshot;
+                    const tLines = snap.transcript.split("\n");
+                    const trLines = (snap.translation ?? "").split("\n");
                     const n = Math.max(tLines.length, trLines.length);
+                    const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
+                    const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     /** Avoid showing a prior line's translation again when the transcript line changed (stale snapshot). */
                     function translationCell(
                       i: number,
@@ -2782,44 +2807,60 @@ export default function Admin() {
                       return { kind: "ok", text: trLines[i] ?? "" };
                     }
                     return (
-                      <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
-                        <div className="grid grid-cols-2 gap-0 bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          <div className="px-3 py-2 border-r border-border">Transcript</div>
-                          <div className="px-3 py-2">Translation</div>
-                        </div>
-                        {Array.from({ length: n }, (_, i) => {
-                          const trCell = translationCell(i);
-                          const tCur = (tLines[i] ?? "").trim();
-                          return (
-                          <div
-                            key={i}
-                            className="grid grid-cols-2 gap-0 items-start bg-white hover:bg-muted/10"
-                          >
-                            <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 border-r border-border min-h-[2.5rem]">
-                              {tCur ? tLines[i] : "—"}
-                            </div>
-                            <div
-                              className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 min-h-[2.5rem]"
-                              dir="auto"
-                            >
-                              {trCell.kind === "ok" ? (
-                                trCell.text
-                              ) : trCell.kind === "dup" ? (
-                                <span className="leading-relaxed">
-                                  {trCell.text}
-                                  <span className="block text-[10px] text-muted-foreground not-italic mt-1">
-                                    Admin: same string as the row above (user UI may hide repeat); text kept visible here.
-                                  </span>
+                      <div className="rounded-lg border border-border overflow-hidden bg-white">
+                        <table className="w-full text-sm border-collapse table-fixed">
+                          <colgroup>
+                            <col className="w-11" />
+                            <col className="w-[50%]" />
+                            <col className="w-[50%]" />
+                          </colgroup>
+                          <thead>
+                            <tr className="bg-muted/50 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                              <th className="px-1.5 py-2.5 text-center font-mono text-[9px] border-r border-border">#</th>
+                              <th className="px-3 py-2.5 text-left border-r border-border align-bottom">
+                                <span className="normal-case tracking-normal text-foreground">{srcHead}</span>
+                                <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
+                                  Source · {snap.langA}
                                 </span>
-                              ) : (
-                                <span className="text-muted-foreground italic text-xs leading-relaxed">
-                                  {tCur ? "— Translation not in last snapshot yet (wait for auto-refresh)" : "—"}
+                              </th>
+                              <th className="px-3 py-2.5 text-left align-bottom">
+                                <span className="normal-case tracking-normal text-foreground">{trHead}</span>
+                                <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
+                                  Translation · {snap.langB}
                                 </span>
-                              )}
-                            </div>
-                          </div>
-                          );
-                        })}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {Array.from({ length: n }, (_, i) => {
+                              const trCell = translationCell(i);
+                              const tCur = (tLines[i] ?? "").trim();
+                              return (
+                                <tr key={i} className="hover:bg-muted/15 align-top">
+                                  <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
+                                    {i + 1}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
+                                    {tCur ? (tLines[i] ?? "") : <span className="text-muted-foreground">—</span>}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap align-top" dir="auto">
+                                    {trCell.kind === "ok" ? (
+                                      trCell.text
+                                    ) : trCell.kind === "dup" ? (
+                                      <span className="leading-relaxed" title="Same translation string as previous row (possible repeat in snapshot).">
+                                        {trCell.text}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground italic text-xs leading-relaxed">
+                                        {tCur ? "— (translation pending refresh)" : "—"}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     );
                   })()
