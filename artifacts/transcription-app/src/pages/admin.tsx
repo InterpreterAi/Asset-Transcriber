@@ -113,47 +113,6 @@ interface SessionDetail {
   snapshot:        SessionSnapshot | null;
 }
 
-/**
- * Only reuse a prior translation for this row when the transcript line is still the same segment
- * (or an obvious extension). If the English/Spanish line is new/changed but translation is still
- * empty on this poll, carrying `prev.translation[i]` repeats the previous row’s Spanish in admin (e.g. “Ah, sí” showing the long prior paragraph).
- */
-function transcriptLineStableForTrCarry(prevLine: string, nextLine: string): boolean {
-  const p = prevLine.trim();
-  const n = nextLine.trim();
-  if (n === p) return true;
-  if (!n) return true;
-  if (!p) return false;
-  if (n.startsWith(p) || p.startsWith(n)) return true;
-  return false;
-}
-
-/** Admin poll merge: translation often fills a line after transcript (worse on Latin/Latin pairs like en/es). Prefer each non-empty translation line from the newest tick; keep prior line if the new one is still empty **and** the transcript row is unchanged. */
-function mergeLiveSessionSnapshots(prev: SessionSnapshot, next: SessionSnapshot): SessionSnapshot {
-  const pt = prev.transcript.split("\n");
-  const nt = next.transcript.split("\n");
-  const ptr = prev.translation.split("\n");
-  const ntr = next.translation.split("\n");
-  const nRows = Math.max(pt.length, nt.length, ptr.length, ntr.length);
-  const outT: string[] = [];
-  const outTr: string[] = [];
-  for (let i = 0; i < nRows; i++) {
-    const pl = pt[i] ?? "";
-    const nl = nt[i] ?? "";
-    outT.push(nl.length >= pl.length ? (nl || pl) : (pl || nl));
-    const pTr = ptr[i] ?? "";
-    const nTr = ntr[i] ?? "";
-    const carryTr = nTr.trim() ? nTr : transcriptLineStableForTrCarry(pl, nl) ? pTr : "";
-    outTr.push(carryTr);
-  }
-  return {
-    ...next,
-    transcript: outT.join("\n"),
-    translation: outTr.join("\n"),
-    updatedAt: Math.max(prev.updatedAt, next.updatedAt),
-  };
-}
-
 interface LangOption { value: string; label: string; }
 interface LangConfigResp {
   allLanguages:     LangOption[];
@@ -774,20 +733,27 @@ export default function Admin() {
       const res = await fetch(`/api/admin/session/${sessionId}`, { credentials: "include" });
       if (!res.ok) return;
       const next = await res.json() as SessionDetail;
-      // Live view: translation lines often land after transcript; Latin/Latin (e.g. en/es) is
-      // slower / noisier than mixed-script pairs (e.g. en/ar). Merge line-by-line so a shorter
-      // but more complete `translation` payload is not discarded (see mergeLiveSessionSnapshots).
+      // Snapshots mirror workspace buffers: getSnapshot() joins parallel transcript/translation rows
+      // with "\n". Merging polls used to splice lines together and broke index alignment vs the user UI.
       setSessionDetail((prev) => {
-        if (!next.isLive || !prev?.isLive || prev.sessionId !== next.sessionId) return next;
+        if (prev != null && prev.sessionId !== next.sessionId) return next;
         if (!next.snapshot) return next;
-        if (!prev.snapshot) return next;
-        const ps = prev.snapshot;
+        if (!next.isLive) return next;
         const ns = next.snapshot;
-        if (!ns.transcript.trim() && !ns.translation.trim()) return next;
-        return {
-          ...next,
-          snapshot: mergeLiveSessionSnapshots(ps, ns),
-        };
+        const incoming = ns.transcript.trim() || (ns.translation ?? "").trim();
+        const prevHad =
+          prev?.snapshot &&
+          (prev.snapshot.transcript.trim() || (prev.snapshot.translation ?? "").trim());
+        if (!incoming && prevHad) {
+          return {
+            ...next,
+            snapshot: {
+              ...prev.snapshot!,
+              updatedAt: Math.max(prev.snapshot!.updatedAt, ns.updatedAt),
+            },
+          };
+        }
+        return next;
       });
     } catch { /* ignore */ }
   }, []);
@@ -2777,7 +2743,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Each row is one segment: left = source ({sessionDetail?.snapshot ? adminLanguageLabel(sessionDetail.snapshot.langA, langConfigData?.allLanguages) : "—"}), right = translation ({sessionDetail?.snapshot ? adminLanguageLabel(sessionDetail.snapshot.langB, langConfigData?.allLanguages) : "—"}). Indices stay aligned when the snapshot refreshes.
+                  Same pairing as the user workspace: each row is one finalized segment (source line <span className="font-mono">i</span> ↔ translation line <span className="font-mono">i</span> from the live snapshot).
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
@@ -2792,20 +2758,6 @@ export default function Admin() {
                     const n = Math.max(tLines.length, trLines.length);
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
-                    /** Avoid showing a prior line's translation again when the transcript line changed (stale snapshot). */
-                    function translationCell(
-                      i: number,
-                    ): { kind: "ok"; text: string } | { kind: "empty" } | { kind: "dup"; text: string } {
-                      const raw = (trLines[i] ?? "").trim();
-                      const tCur = (tLines[i] ?? "").trim();
-                      const tPrev = i > 0 ? (tLines[i - 1] ?? "").trim() : "";
-                      const prevTr = i > 0 ? (trLines[i - 1] ?? "").trim() : "";
-                      if (!raw) return { kind: "empty" };
-                      if (i > 0 && raw === prevTr && tCur && tCur !== tPrev) {
-                        return { kind: "dup", text: trLines[i] ?? "" };
-                      }
-                      return { kind: "ok", text: trLines[i] ?? "" };
-                    }
                     return (
                       <div className="rounded-lg border border-border overflow-hidden bg-white">
                         <table className="w-full text-sm border-collapse table-fixed">
@@ -2818,42 +2770,40 @@ export default function Admin() {
                             <tr className="bg-muted/50 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                               <th className="px-1.5 py-2.5 text-center font-mono text-[9px] border-r border-border">#</th>
                               <th className="px-3 py-2.5 text-left border-r border-border align-bottom">
-                                <span className="normal-case tracking-normal text-foreground">{srcHead}</span>
+                                <span className="normal-case tracking-normal text-foreground">Original · {srcHead}</span>
                                 <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
-                                  Source · {snap.langA}
+                                  {snap.langA}
                                 </span>
                               </th>
                               <th className="px-3 py-2.5 text-left align-bottom">
-                                <span className="normal-case tracking-normal text-foreground">{trHead}</span>
+                                <span className="normal-case tracking-normal text-foreground">Translation · {trHead}</span>
                                 <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
-                                  Translation · {snap.langB}
+                                  {snap.langB}
                                 </span>
                               </th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
                             {Array.from({ length: n }, (_, i) => {
-                              const trCell = translationCell(i);
-                              const tCur = (tLines[i] ?? "").trim();
+                              const srcLine = tLines[i] ?? "";
+                              const tgtLine = trLines[i] ?? "";
+                              const hasSrc = srcLine.trim().length > 0;
+                              const hasTgt = tgtLine.trim().length > 0;
                               return (
                                 <tr key={i} className="hover:bg-muted/15 align-top">
                                   <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
                                     {i + 1}
                                   </td>
                                   <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
-                                    {tCur ? (tLines[i] ?? "") : <span className="text-muted-foreground">—</span>}
+                                    {hasSrc ? srcLine : <span className="text-muted-foreground">—</span>}
                                   </td>
                                   <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap align-top" dir="auto">
-                                    {trCell.kind === "ok" ? (
-                                      trCell.text
-                                    ) : trCell.kind === "dup" ? (
-                                      <span className="leading-relaxed" title="Same translation string as previous row (possible repeat in snapshot).">
-                                        {trCell.text}
-                                      </span>
+                                    {hasTgt ? (
+                                      tgtLine
+                                    ) : hasSrc ? (
+                                      <span className="text-muted-foreground italic text-xs">…</span>
                                     ) : (
-                                      <span className="text-muted-foreground italic text-xs leading-relaxed">
-                                        {tCur ? "— (translation pending refresh)" : "—"}
-                                      </span>
+                                      <span className="text-muted-foreground">—</span>
                                     )}
                                   </td>
                                 </tr>
