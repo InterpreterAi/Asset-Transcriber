@@ -15,7 +15,8 @@
     "email:send-translation-architecture-update-now": "tsx ./src/lib/send-translation-architecture-update-now.ts",
     "email:send-stability-baseline-update-now": "tsx ./src/lib/send-stability-baseline-update-now.ts",
     "email:send-product-fix-announcement-now": "tsx ./src/lib/send-product-fix-announcement-now.ts",
-    "email:send-daily-limit-catch-up-now": "tsx ./src/lib/send-daily-limit-catch-up-now.ts"
+    "email:send-daily-limit-catch-up-now": "tsx ./src/lib/send-daily-limit-catch-up-now.ts",
+    "email:send-subscription-confirmation-now": "tsx ./src/lib/send-subscription-confirmation-now.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
