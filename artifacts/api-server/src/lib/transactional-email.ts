@@ -735,6 +735,122 @@ export async function sendStabilityBaselineUpdateEmailWithResult(
   return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
 }
 
+// ── Personal Glossary product announcement (one-time; run via send script) ───────────────────
+
+export const GLOSSARY_FEATURE_ANNOUNCEMENT_EMAIL_SUBJECT =
+  "InterpreterAI — Your Personal Glossary is live";
+
+const GLOSSARY_FEATURE_ANNOUNCEMENT_PLAIN_TEXT = `Hi,
+
+Tomorrow's a new week — and for most of you, that means long hours, back-to-back calls, and zero room for mistakes.
+
+So we just shipped something that actually helps you work faster and cleaner:
+
+Your Personal Glossary is now fully active and reliable.
+
+Here's what that means for you:
+
+- You can force your preferred translations for key terms (names, medical terms, legal phrases, etc.)
+- The system will apply them automatically during your sessions
+- It works without slowing you down — no extra steps, no interruptions
+- You can add multiple variations (like "claim number, claim #") and control how they behave
+
+How to use it (takes 30 seconds):
+1. Open your workspace
+2. Go to My Glossary
+3. Add your term + preferred translation
+4. Keep it on "Strict" for full control (recommended)
+
+That's it — the system handles the rest in real time.
+
+---
+
+Why this matters
+
+Every second counts when you're interpreting.
+Every correction costs focus.
+
+This feature is here so you:
+- stop repeating yourself
+- stay consistent across calls
+- and move faster without sacrificing accuracy
+
+---
+
+You're about to go into a heavy week.
+
+Set your glossary now, and let the system carry part of the load for you.
+
+— InterpreterAI`;
+
+function buildGlossaryFeatureAnnouncementMail(opts: { userId: number; to: string }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const base = appBaseUrl();
+  const glossaryHref = workspaceUrl();
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId: opts.userId,
+    heading: "Your Personal Glossary is live",
+    bodyHtml: [
+      emailStandardGreeting(opts.to, null),
+      emailParagraph(
+        "Tomorrow's a new week — and for most of you, that means long hours, back-to-back calls, and zero room for mistakes.",
+      ),
+      emailParagraph("So we just shipped something that actually helps you work faster and cleaner:"),
+      emailParagraph("Your Personal Glossary is now fully active and reliable."),
+      emailSubheading("Here's what that means for you"),
+      emailBulletList([
+        "You can force your preferred translations for key terms (names, medical terms, legal phrases, etc.)",
+        "The system will apply them automatically during your sessions",
+        "It works without slowing you down — no extra steps, no interruptions",
+        'You can add multiple variations (like "claim number, claim #") and control how they behave',
+      ]),
+      emailSubheading("How to use it (takes 30 seconds)"),
+      emailOrderedList([
+        "Open your workspace",
+        "Go to My Glossary",
+        "Add your term + preferred translation",
+        'Keep it on "Strict" for full control (recommended)',
+      ]),
+      emailParagraph("That's it — the system handles the rest in real time."),
+      emailSubheading("Why this matters"),
+      emailParagraph("Every second counts when you're interpreting."),
+      emailParagraph("Every correction costs focus."),
+      emailParagraph("This feature is here so you:"),
+      emailBulletList([
+        "stop repeating yourself",
+        "stay consistent across calls",
+        "and move faster without sacrificing accuracy",
+      ]),
+      emailParagraph("You're about to go into a heavy week."),
+      emailParagraph("Set your glossary now, and let the system carry part of the load for you."),
+      emailParagraph("— InterpreterAI"),
+    ].join(""),
+    primaryButton: { href: glossaryHref, label: "Open workspace & My Glossary" },
+    noteHtml: `<p style="margin:0;">Use <strong>My Glossary</strong> from the workspace sidebar after you sign in.</p>`,
+  });
+  return {
+    subject: GLOSSARY_FEATURE_ANNOUNCEMENT_EMAIL_SUBJECT,
+    html,
+    text: GLOSSARY_FEATURE_ANNOUNCEMENT_PLAIN_TEXT,
+  };
+}
+
+/** One-time broadcast: Personal Glossary announcement (script sets DB flag after success). */
+export async function sendGlossaryFeatureAnnouncementEmailWithResult(
+  to: string,
+  opts: { userId: number },
+): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html, text } = buildGlossaryFeatureAnnouncementMail({ ...opts, to });
+  return sendEmailWithResult({ from: RESEND_FROM_ONBOARDING, to, subject, html, text });
+}
+
 // ── Product fix / stability apology broadcast (all users; run via send script) ───────────────
 
 export const PRODUCT_FIX_ANNOUNCEMENT_EMAIL_SUBJECT = "We fixed it — and here's what changed";
