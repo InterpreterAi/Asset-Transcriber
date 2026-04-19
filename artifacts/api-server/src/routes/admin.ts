@@ -21,11 +21,16 @@ import {
   planUsesMachineTranslationStack,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
-import { billingProductKeyFromPlanType, subscriptionPeriodEndFallback } from "../lib/paypal.js";
+import {
+  billingPlanTierDisplayName,
+  billingProductKeyFromPlanType,
+  subscriptionPeriodEndFallback,
+} from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
 import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
@@ -1859,6 +1864,52 @@ router.get("/login-events/summary", requireAdmin, async (req, res) => {
     lastHour:    lastHour[0]?.c ?? 0,
     byReason,
   });
+});
+
+/** Resend “subscription is active” email (e.g. after a missed webhook). Optional `force: true` sends even if already recorded. */
+router.post("/resend-subscription-confirmation", requireAdmin, async (req, res) => {
+  const { email, force } = req.body as { email?: string; force?: boolean };
+  const em = email?.trim().toLowerCase();
+  if (!em || !em.includes("@")) {
+    res.status(400).json({ error: "email is required" });
+    return;
+  }
+
+  const [u] = await db.select().from(usersTable).where(eq(usersTable.email, em)).limit(1);
+  if (!u) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const key = billingProductKeyFromPlanType(u.planType ?? "");
+  if (!key) {
+    res.status(400).json({ error: "User plan does not map to a paid subscription tier" });
+    return;
+  }
+
+  if (u.subscriptionConfirmationSentAt && !force) {
+    res.status(409).json({ error: "Confirmation already recorded; pass force: true to resend" });
+    return;
+  }
+
+  const ok = await sendSubscriptionConfirmationEmail(
+    em,
+    billingPlanTierDisplayName(key),
+    "Your next billing date is available in your PayPal account",
+    u.username,
+    u.id,
+  );
+  if (!ok) {
+    res.status(503).json({ error: "Email not sent (check RESEND_API_KEY and Resend logs)" });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({ subscriptionConfirmationSentAt: new Date() })
+    .where(eq(usersTable.id, u.id));
+
+  res.json({ ok: true });
 });
 
 export default router;

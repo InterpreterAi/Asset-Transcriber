@@ -192,6 +192,40 @@ export default function WorkspaceDefault() {
     window.history.replaceState(null, "", qs ? `${path}?${qs}` : path);
   }, [user]);
 
+  // PayPal returns here with ?subscription_id=I-... after approval — sync plan + confirmation email if webhook was late or incomplete.
+  useEffect(() => {
+    if (!user?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get("subscription_id")?.trim();
+    if (!sid) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/payments/sync-paypal-subscription", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ subscriptionId: sid }),
+        });
+        if (cancelled || !r.ok) return;
+        await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+        params.delete("subscription_id");
+        params.delete("ba_token");
+        params.delete("token");
+        const q = params.toString();
+        const pathOnly = window.location.pathname + (q ? `?${q}` : "") + window.location.hash;
+        window.history.replaceState(null, "", pathOnly);
+      } catch {
+        // Non-fatal — PayPal webhook may still apply the plan
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, queryClient]);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {

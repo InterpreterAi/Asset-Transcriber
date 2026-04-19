@@ -75,11 +75,108 @@ function missingPayPalPlanEnvVars(): string[] {
 export function inferPlanTypeFromPayPalPlanId(planId: string): BillingPlanType | null {
   const normalized = planId.trim();
   if (!normalized) return null;
-  if (normalized === envTrim("PAYPAL_PLAN_ID_BASIC")) return "basic";
-  if (normalized === envTrim("PAYPAL_PLAN_ID_PROFESSIONAL")) return "professional";
-  if (normalized === envTrim("PAYPAL_PLAN_ID_PLATINUM")) return "platinum";
-  if (normalized === envTrim("PAYPAL_PLAN_ID_UNLIMITED")) return "platinum";
+  const lower = normalized.toLowerCase();
+  const rows: Array<[string | undefined, BillingPlanType]> = [
+    [envTrim("PAYPAL_PLAN_ID_BASIC"), "basic"],
+    [envTrim("PAYPAL_PLAN_ID_PROFESSIONAL"), "professional"],
+    [envTrim("PAYPAL_PLAN_ID_PLATINUM"), "platinum"],
+    [envTrim("PAYPAL_PLAN_ID_UNLIMITED"), "platinum"],
+  ];
+  for (const [envId, tier] of rows) {
+    const e = envId?.trim();
+    if (e && e.toLowerCase() === lower) return tier;
+  }
   return null;
+}
+
+/** Display name for PayPal billing tier keys (Basic / Professional / Platinum). */
+export function billingPlanTierDisplayName(plan: BillingPlanType): string {
+  if (plan === "basic") return "Basic";
+  if (plan === "professional") return "Professional";
+  return "Platinum";
+}
+
+/** Subscription or webhook `resource` object — resolves `plan_id` including nested `plan.id`. */
+export function extractPayPalSubscriptionPlanId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const top = o.plan_id ?? o.planId;
+  if (typeof top === "string" && top.trim()) return top.trim();
+  const plan = o.plan;
+  if (plan && typeof plan === "object") {
+    const id = (plan as Record<string, unknown>).id;
+    if (typeof id === "string" && id.trim()) return id.trim();
+  }
+  return "";
+}
+
+export function extractPayPalCustomId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const c = o.custom_id ?? o.customId;
+  return typeof c === "string" ? c.trim() : "";
+}
+
+export function extractPayPalSubscriptionId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const id = o.id;
+  return typeof id === "string" ? id.trim() : "";
+}
+
+export function extractPayPalSubscriberEmail(resource: unknown): string | undefined {
+  if (!resource || typeof resource !== "object") return undefined;
+  const sub = (resource as Record<string, unknown>).subscriber;
+  if (!sub || typeof sub !== "object") return undefined;
+  const email = (sub as Record<string, unknown>).email_address;
+  if (typeof email !== "string" || !email.includes("@")) return undefined;
+  return email.trim().toLowerCase();
+}
+
+export function extractPayPalSubscriptionStartTime(resource: unknown): Date | null {
+  if (!resource || typeof resource !== "object") return null;
+  const o = resource as Record<string, unknown>;
+  const st = o.start_time ?? o.startTime;
+  if (typeof st !== "string") return null;
+  const d = new Date(st);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+export function extractPayPalSubscriptionNextBillingTime(resource: unknown): Date | null {
+  if (!resource || typeof resource !== "object") return null;
+  const o = resource as Record<string, unknown>;
+  const bi = o.billing_info ?? o.billingInfo;
+  if (!bi || typeof bi !== "object") return null;
+  const nbt =
+    (bi as Record<string, unknown>).next_billing_time ??
+    (bi as Record<string, unknown>).nextBillingTime;
+  if (typeof nbt !== "string") return null;
+  const d = new Date(nbt);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+export async function fetchPayPalSubscription(subscriptionId: string): Promise<unknown> {
+  const token = await getPayPalAccessToken();
+  const id = subscriptionId.trim();
+  if (!id) {
+    throw new PayPalApiError("Missing PayPal subscription id", 400);
+  }
+  const res = await fetch(`${paypalBaseUrl()}/v1/billing/subscriptions/${encodeURIComponent(id)}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+  });
+  const json = (await res.json()) as { message?: string; name?: string };
+  if (!res.ok) {
+    throw new PayPalApiError(
+      json.message ?? json.name ?? "Failed to fetch PayPal subscription",
+      res.status || 500,
+      json,
+    );
+  }
+  return json;
 }
 
 /** Maps app `plan_type` (incl. basic-openai) to PayPal billing product key. Trials → null. */
