@@ -7,25 +7,34 @@ alwaysApply: true
 
 ## Final Boss 3 (canonical product snapshot)
 
-Single named baseline for **transcription** (browser → Soniox, identical for all plans) and **translation engine** (server `POST /translate`):
+Single named baseline for **transcription** (browser → Soniox, identical for all plans) and **translation** (server `POST /translate`). Two shipped stacks:
+
+| Name | Where | When |
+|------|-------|------|
+| **Final Boss 3 · OpenAI** | `transcription.ts` — `callOpenAI`, interpreter prompts, retries, cost hooks | `useMachineTranslation` is **false** |
+| **Final Boss 3 · Libre** | `basic-pro-translate.ts`, `libretranslate.ts`, Libre branch in `transcription.ts` | `useMachineTranslation` is **true** |
 
 | Segment | DB `plan_type` examples | Translation engine |
 |--------|-------------------------|---------------------|
-| **Default signup** | `trial-libre` | LibreTranslate (machine) |
-| **Basic / Professional** (paid) | `basic-libre`, `professional-libre` (PayPal sets these on activate); legacy `basic`, `professional`, `basic-openai`, `professional-openai` also route to Libre | LibreTranslate |
-| **Platinum / Unlimited** | `platinum`, `unlimited`; admin label `platinum-libre` uses **OpenAI** like platinum | OpenAI (`gpt-4o-mini` stack) |
-| **Legacy OpenAI trials** (admin only / old accounts) | `trial`, `trial-openai` | OpenAI |
+| **Default signup** | `trial-libre` | **Final Boss 3 · Libre** (LibreTranslate) |
+| **Basic / Professional** (paid) | `basic-libre`, `professional-libre` (PayPal sets these on activate); legacy `basic`, `professional`, `basic-openai`, `professional-openai` also route to Libre | **Final Boss 3 · Libre** |
+| **Platinum / Unlimited** | `platinum`, `unlimited`; admin label `platinum-libre` uses **OpenAI** like platinum | **Final Boss 3 · OpenAI** |
+| **Legacy OpenAI trials** (admin only / old accounts) | `trial`, `trial-openai` | **Final Boss 3 · OpenAI** |
 
 - **PayPal** `subscription_plan` stays `basic` | `professional` | `platinum` for billing; **`plan_type`** after activation is `basic-libre` / `professional-libre` / `platinum`. Subscription cancel → `trial-libre` + inactive.
 - **Engine switch** is server-only (`planUsesMachineTranslationStack` in `usage.ts` → `useMachineTranslation` in `transcription.ts`). Client dispatch is unchanged.
 - **Git:** tag **`final-boss-3`** marks this baseline (move tag on intentional freezes).
 
+## Soak-test freeze (both stacks)
+
+**Final Boss 3 · OpenAI** and **Final Boss 3 · Libre** are treated as **shipped for ~1 week feedback**: do **not** change prompts, Libre refine, `libretranslate` host logic, or OpenAI interpreter behavior unless the user **explicitly** asks or it is a **P0** production bug. Gather feedback before refactors.
+
 ## Do not change without explicit approval
 
-- **OpenAI path** in `transcription.ts`: prompts, retries, cost accounting, and behavior for plans that use `callOpenAI` (Platinum, Unlimited, legacy `trial` / `trial-openai`, etc.).
+- **Final Boss 3 · OpenAI** path in `transcription.ts`: prompts, retries, cost accounting, and behavior for plans that use `callOpenAI` (Platinum, Unlimited, legacy `trial` / `trial-openai`, etc.).
 - **Client** `use-transcription.ts`: no plan-specific branches — same STT + translate dispatch for every tier.
 
-## Allowed to change (Libre / machine path only)
+## Allowed to change (normally Libre-only; respect soak freeze above)
 
-- **`planUsesMachineTranslationStack` is true** for that user: `basic-pro-translate.ts`, `libretranslate.ts`, Libre-only glossary/masking shortcuts in `transcription.ts`, and **`effectivePlanTypeForTranslation`** when preserving PayPal lag semantics for `trial-libre` upgrades.
+- When the user explicitly requests work on machine translation: **`planUsesMachineTranslationStack` is true** — `basic-pro-translate.ts`, `libretranslate.ts`, Libre-only glossary/masking shortcuts in `transcription.ts`, and **`effectivePlanTypeForTranslation`** when preserving PayPal lag semantics for `trial-libre` upgrades.
 - After completing requested work, **commit and push** to `main` unless the user says not to.

@@ -1,6 +1,8 @@
 import axios from "axios";
 import { logger } from "./logger.js";
 
+/** **Final Boss 3 · Libre** — LibreTranslate HTTP client (host rotation, lang normalization). Paired with `basic-pro-translate.ts`. */
+
 const LIBRE_API_KEY = process.env.LIBRETRANSLATE_API_KEY?.trim();
 const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, "");
 

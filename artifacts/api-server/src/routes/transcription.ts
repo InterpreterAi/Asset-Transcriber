@@ -72,10 +72,17 @@ import {
 // OpenAI processes it, result is returned to the browser, nothing is retained.
 //
 
-// ── Final Boss 3 (named product snapshot) ─────────────────────────────────
-// `planUsesMachineTranslationStack` → LibreTranslate only (see usage.ts): default `trial-libre`, Basic/Prof tiers,
-// legacy basic/prof plan_types, etc. OpenAI stack: legacy trials `trial`/`trial-openai`, `platinum`, `unlimited`,
-// `platinum-libre`. Shared masking where applicable; client STT = Soniox for everyone.
+// ── Final Boss 3 — translation release (named product snapshot) ────────────
+//
+// **Final Boss 3 · OpenAI** — `POST /translate` when `useMachineTranslation` is false: interpreter
+// prompts, `callOpenAI`, retries, `finalizeTranslationOutput` (incl. leak repair where enabled).
+//
+// **Final Boss 3 · Libre** — same route when `useMachineTranslation` is true: `translateBasicProfessional`
+// in `basic-pro-translate.ts` → `libretranslate.ts` (optional non‑EN→EN final refine on Libre only).
+//
+// Both stacks are **shipped for soak testing** (~1 week feedback): avoid drive-by edits; change only on
+// explicit user request or P0 bug. Tier routing: `planUsesMachineTranslationStack` / `usage.ts`.
+// Client STT = Soniox for all plans; engine switch is server-only.
 
 /** LibreTranslate may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {
@@ -1372,7 +1379,7 @@ router.get("/sessions", requireAuth, async (req, res) => {
   });
 });
 
-// ── /translate ─────────────────────────────────────────────────────────────
+// ── /translate — Final Boss 3 · OpenAI vs Libre (see file header) ───────────
 router.post("/translate", requireAuth, async (req, res) => {
   // isFinal: when true, the client sends the full segment after finalize — we add
   // FINAL SEGMENT CORRECTION instructions so the model treats the message as the
@@ -1590,7 +1597,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Final Boss 3 — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
+  // Final Boss 3 · Libre — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
   // Personal glossary strict pass: finalized segments only, and only if the user has at least one entry.
   if (useMachineTranslation) {
     const libreEnRefineOpts = {
@@ -1698,6 +1705,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
+  // Final Boss 3 · OpenAI — interpreter stack below (`callOpenAI` + shared masking/glossary).
   const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
   const globalMemoryHints = await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode);
   for (const h of globalMemoryHints) {

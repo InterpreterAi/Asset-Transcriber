@@ -1,15 +1,17 @@
 import { callLibreTranslate } from "./libretranslate.js";
 
 /**
- * Libre / `*-libre` plans (Final Boss 3): machine translation **only** via **LibreTranslate**
- * (free public HTTPS instances when `LIBRETRANSLATE_URL` is unset, or your self-hosted URL).
- * OpenAI interpreter stack is unchanged for non–`*-libre` plans.
+ * **Final Boss 3 · Libre** — machine translation **only** via **LibreTranslate** for `*-libre` / machine-stack plans.
+ * (Free public HTTPS instances when `LIBRETRANSLATE_URL` is unset, or your self-hosted URL.)
+ * OpenAI (**Final Boss 3 · OpenAI**) lives in `transcription.ts` and is unchanged here.
  *
  * Optional: `LIBRETRANSLATE_URL`, `LIBRETRANSLATE_API_KEY` (see `libretranslate.ts`).
  *
  * **Into-English finals:** up to **two** Libre HTTP calls per finalized segment — primary
  * `sourceLang → en`, then optional `auto → en` on the English draft to reduce calques / mixed
  * script leakage (live streaming segments stay a single call).
+ *
+ * Shipped for soak testing: treat as frozen pending ~1 week of user feedback unless explicitly asked to change.
  */
 
 export type TranslateBasicProfessionalOpts = {

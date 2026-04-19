@@ -477,7 +477,8 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
 ]);
 
 /**
- * THE FINAL BOSS — the one canonical InterpreterAI release (no other “final boss”; earlier baseline is `legacy-final-boss`).
+ * **Final Boss 3** — client pipeline (canonical InterpreterAI release; earlier baseline is `legacy-final-boss`).
+ * Server `POST /translate` runs **Final Boss 3 · OpenAI** or **Final Boss 3 · Libre** by plan only; this hook stays plan-agnostic.
  * Rollback: `git checkout final-boss`. Older pipeline snapshot: `git checkout legacy-final-boss` (superseded; had transcript phrase rewrites).
  * Original column: exact ASR mirror — no client-side rephrasing or “similar meaning” fixes.
  * Translation: live debounce + per-bubble abort; speaker-change full final;
