@@ -114,7 +114,8 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+/** Coalesce rapid final-token bursts into one DOM write; lower = snappier transcript (still merged with queued text for liveBufferRef). */
+const FINAL_TEXT_RENDER_BUFFER_MS = 32;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -2439,9 +2440,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
 
-      // ── FINAL tokens (exclude Soniox &lt;end&gt; marker from transcript + counts) ──
+      // ── FINAL tokens (exclude Soniox <end> marker from transcript + counts) ──
+      // Soniox sends incremental messages: each response’s `tokens` are *new* since last message
+      // (see soniox_examples soniox_realtime.py — finals are appended client-side per response).
+      // Do NOT slice with a cross-message index into `finals` (that dropped every final after the first WS frame).
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
-      const newFinals = finals.slice(finalCountRef.current);
+      const newFinals = finals;
       const newFinalSet = new Set(newFinals);
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
@@ -2487,7 +2491,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       scheduleFinalTextRenderFlush();
 
-      finalCountRef.current = finals.length;
+      finalCountRef.current += newFinals.length;
       scrollPanel();
 
       // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
