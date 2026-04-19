@@ -1601,10 +1601,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
-          if (translationBufRef.current.length > 0) {
+          const pin = options?.adminSnapshotLineIndex;
+          if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
+            translationBufRef.current[pin] = text.trim();
+          } else if (translationBufRef.current.length > 0) {
             translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
-            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
+          onAdminSnapshotBuffersUpdatedRef.current?.();
         }
         scrollPanel();
       }
@@ -1629,10 +1632,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
-          if (translationBufRef.current.length > 0) {
+          const pin = options?.adminSnapshotLineIndex;
+          if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
+            translationBufRef.current[pin] = text.trim();
+          } else if (translationBufRef.current.length > 0) {
             translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
-            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
+          onAdminSnapshotBuffersUpdatedRef.current?.();
         }
         scrollPanel();
       }
@@ -1799,7 +1805,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (fetchAttempt > 0) {
             await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
           }
-          if (requestSegmentId !== state.segmentId) return;
+          // Live (non-final) work is obsolete if the user moved to a new segment; finals must finish to fill admin buffers.
+          if (!isFinal && activeBubbleStateRef.current?.segmentId !== requestSegmentId) return;
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
           if (!requestIsFinal && state.hardFinalRequested) return;
@@ -1829,7 +1836,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
           await new Promise<void>(res => setTimeout(res, 450));
-          if (requestSegmentId !== state.segmentId) return;
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
           const trRetry = await fetchTranslation(
@@ -1846,16 +1852,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           translated = trRetry.text;
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
         }
-        if (requestSegmentId !== state.segmentId) return;
-
-        if (state.translationLocked) return;
-        if (!requestIsFinal && state.hardFinalRequested) return;
-        if (!isFinal && state.finalizing) return;
-
         if (!translated?.trim()) {
           return;
         }
 
+        /** Polished final text for this API response (admin buffer must receive this even if DOM is obsolete). */
+        let adminOutTrim: string | null = null;
         if (requestIsFinal) {
           const rawFinal = translated.trim();
           // Libre / passthrough: server already finalized; aggressive interpreter polish drops clauses and
@@ -1871,21 +1873,34 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
             }
           }
-          const outTrim = out.trim();
+          adminOutTrim = out.trim();
           const resolvedAdminIdx =
             typeof adminBufRowIdx === "number" &&
             adminBufRowIdx >= 0 &&
             adminBufRowIdx < translationBufRef.current.length
               ? adminBufRowIdx
               : null;
-          // Pin admin dashboard row to this finalized segment (next segment can finalize before translate returns).
           if (resolvedAdminIdx !== null) {
-            translationBufRef.current[resolvedAdminIdx] = outTrim;
+            translationBufRef.current[resolvedAdminIdx] = adminOutTrim;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          } else if (translationBufRef.current.length > 0) {
+            translationBufRef.current[translationBufRef.current.length - 1] = adminOutTrim;
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
+        }
 
+        if (!transTextEl.isConnected) {
+          scrollPanel();
+          return;
+        }
+
+        if (state.translationLocked) return;
+        if (!requestIsFinal && state.hardFinalRequested) return;
+        if (!isFinal && state.finalizing) return;
+
+        if (requestIsFinal && adminOutTrim !== null) {
+          const out = adminOutTrim;
           if (mySeq <= state.lastShownSeq) return;
-          if (!transTextEl.isConnected) return;
 
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
@@ -1899,10 +1914,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (lockOnFinal) {
             state.hardFinalRequested = true;
             state.translationLocked = true;
-          }
-          if (resolvedAdminIdx === null && translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = outTrim;
-            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         } else {
           if (mySeq <= state.lastShownSeq) return;
@@ -1935,6 +1946,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
             state.lastConfirmedSourceTranslated = text;
+          }
+        }
+
+        // softFinalize used isFinal=true but internal heuristics sometimes used a live (non-final) API path —
+        // ensure the pinned admin row matches on-screen text if the buffer slot is still empty.
+        if (
+          isFinal &&
+          typeof adminBufRowIdx === "number" &&
+          adminBufRowIdx >= 0 &&
+          adminBufRowIdx < translationBufRef.current.length &&
+          !(translationBufRef.current[adminBufRowIdx] ?? "").trim()
+        ) {
+          const domT = (state.transTextEl.textContent ?? "").trim();
+          if (domT) {
+            translationBufRef.current[adminBufRowIdx] = domT;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         }
 
@@ -2854,12 +2881,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── getSnapshot ────────────────────────────────────────────────────────────
-  // Returns accumulated finalized transcript and translation text for this
-  // session. Used by workspace to push snapshots to the server every 5 s.
-  const getSnapshot = useCallback((): { transcript: string; translation: string } => ({
-    transcript:  transcriptBufRef.current.join("\n"),
-    translation: translationBufRef.current.join("\n"),
-  }), []);
+  // Returns accumulated finalized transcript and translation (parallel arrays + joined strings).
+  // Arrays are sent to the API so admin sees one row per segment even if speech contains "\\n".
+  const getSnapshot = useCallback(
+    (): {
+      transcript: string;
+      translation: string;
+      transcriptLines: string[];
+      translationLines: string[];
+    } => {
+      const tr = [...transcriptBufRef.current];
+      const tl = [...translationBufRef.current];
+      return {
+        transcript: tr.join("\n"),
+        translation: tl.join("\n"),
+        transcriptLines: tr,
+        translationLines: tl,
+      };
+    },
+    [],
+  );
 
   /** Billable audio minutes in the current open session (PCM sent ÷ 60). Server `minutesUsedToday` excludes until stop. */
   const getApproxBillableMinutesThisSession = useCallback(

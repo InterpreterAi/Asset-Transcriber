@@ -96,6 +96,9 @@ interface SessionSnapshot {
   micLabel:    string;
   transcript:  string;
   translation: string;
+  /** When present (from client buffers), use these instead of splitting joined strings — avoids mis-aligned rows if speech contains newlines. */
+  transcriptLines?: string[];
+  translationLines?: string[];
   updatedAt:   number;
 }
 
@@ -2753,8 +2756,15 @@ export default function Admin() {
                   (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
                   (() => {
                     const snap = sessionDetail.snapshot;
-                    const tLines = snap.transcript.split("\n");
-                    const trLines = (snap.translation ?? "").split("\n");
+                    const useLines =
+                      Array.isArray(snap.transcriptLines) &&
+                      Array.isArray(snap.translationLines) &&
+                      snap.transcriptLines.length > 0 &&
+                      snap.transcriptLines.length === snap.translationLines.length;
+                    const tLines = useLines
+                      ? snap.transcriptLines!
+                      : snap.transcript.split("\n");
+                    const trLines = useLines ? snap.translationLines! : (snap.translation ?? "").split("\n");
                     const n = Math.max(tLines.length, trLines.length);
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);

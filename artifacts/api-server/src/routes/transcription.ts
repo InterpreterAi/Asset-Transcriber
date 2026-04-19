@@ -1192,13 +1192,15 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 // The snapshot is held in-memory only (sessionStore) — never persisted to DB.
 // langPair is recorded to the sessions table for historical reporting.
 router.put("/session/snapshot", requireAuth, async (req, res) => {
-  const { sessionId, langA, langB, micLabel, transcript, translation } = req.body as {
+  const { sessionId, langA, langB, micLabel, transcript, translation, transcriptLines, translationLines } = req.body as {
     sessionId?:   number;
     langA?:       string;
     langB?:       string;
     micLabel?:    string;
     transcript?:  string;
     translation?: string;
+    transcriptLines?: string[];
+    translationLines?: string[];
   };
 
   if (!sessionId || !langA || !langB) {
@@ -1231,6 +1233,14 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
       .where(eq(sessionsTable.id, sessionId));
   }
 
+  const tlIn = Array.isArray(transcriptLines) ? transcriptLines.map(String) : undefined;
+  const trlIn = Array.isArray(translationLines) ? translationLines.map(String) : undefined;
+  const linesOk =
+    tlIn &&
+    trlIn &&
+    tlIn.length > 0 &&
+    tlIn.length === trlIn.length;
+
   // Update in-memory snapshot (admin-visible only, never persisted).
   sessionStore.set(sessionId, {
     langA,
@@ -1238,6 +1248,7 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     micLabel:    micLabel    ?? "Microphone",
     transcript:  transcript  ?? "",
     translation: translation ?? "",
+    ...(linesOk ? { transcriptLines: tlIn, translationLines: trlIn } : {}),
     updatedAt:   Date.now(),
   });
 

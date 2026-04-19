@@ -148,6 +148,8 @@ export default function WorkspaceDefault() {
             micLabel:    micLabelRef.current,
             transcript:  snap.transcript,
             translation: snap.translation,
+            transcriptLines:  snap.transcriptLines,
+            translationLines: snap.translationLines,
           }),
         }).catch(() => { /* best-effort */ });
       }, 400);
@@ -557,6 +559,8 @@ export default function WorkspaceDefault() {
           micLabel:    micLabelRef.current,
           transcript:  snap.transcript,
           translation: snap.translation,
+          transcriptLines:  snap.transcriptLines,
+          translationLines: snap.translationLines,
         }),
       }).catch(() => { /* best-effort */ });
     };
