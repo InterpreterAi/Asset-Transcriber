@@ -1,4 +1,4 @@
-import { callLibreTranslate } from "./libretranslate.js";
+import { callLibreTranslate, type LibreTranslateOptions } from "./libretranslate.js";
 
 /**
  * **Final Boss 3 · Libre** — machine translation **only** via **LibreTranslate** for `*-libre` / machine-stack plans.
@@ -21,6 +21,8 @@ export type TranslateBasicProfessionalOpts = {
    * smooth awkward machine phrasing. Skipped on failure; guarded so we never swap in empty/garbled text.
    */
   refineNonEnglishToEnglishFinal?: boolean;
+  /** Finalized segment boundary: use more completion-friendly Libre retry budget. */
+  finalSegment?: boolean;
 };
 
 /**
@@ -31,10 +33,11 @@ export async function translatePlainMachine(
   plain: string,
   sourceLang: string,
   targetLang: string,
+  opts?: LibreTranslateOptions,
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-  return callLibreTranslate(t, sourceLang, targetLang);
+  return callLibreTranslate(t, sourceLang, targetLang, opts);
 }
 
 /** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */
@@ -75,7 +78,8 @@ export async function translateBasicProfessional(
   const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
   const srcBase = (sourceLang.split("-")[0] ?? "").toLowerCase();
   const tgtBase = (targetLang.split("-")[0] ?? "").toLowerCase();
-  let out = await translatePlainMachine(mtInput, sourceLang, targetLang);
+  const libreReqOpts: LibreTranslateOptions = { finalSegment: Boolean(opts?.finalSegment) };
+  let out = await translatePlainMachine(mtInput, sourceLang, targetLang, libreReqOpts);
   if (
     opts?.refineNonEnglishToEnglishFinal &&
     tgtBase === "en" &&
@@ -83,7 +87,7 @@ export async function translateBasicProfessional(
     collapseWs(out).length >= 8
   ) {
     try {
-      const polished = await translatePlainMachine(out.trim(), "auto", "en");
+      const polished = await translatePlainMachine(out.trim(), "auto", "en", libreReqOpts);
       if (libreEnglishRefineLooksSafe(out, polished)) {
         out = polished;
       }
