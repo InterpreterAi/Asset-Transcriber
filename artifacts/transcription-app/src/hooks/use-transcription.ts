@@ -1775,10 +1775,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       useStreamingDelta = false;
     }
 
-    // Finals that include digits: never tail + streamingDelta. Overlap clipping
-    // (sourceTailAfterPrefix) can split number chains and mergeStreamingTranslation
-    // then drops digits vs Soniox; full segment is cheap for short numeric spans.
-    if (isFinal && /\d/.test(text)) {
+    // Interruption-safe finalization (Final Boss 3 behavior):
+    // finalized segments must always complete as one full segment request, never as a live tail.
+    // This prevents abandoned/blank translations when a new speaker opens another segment.
+    if (isFinal) {
       apiText = text;
       useStreamingDelta = false;
       requestIsFinal = true;
