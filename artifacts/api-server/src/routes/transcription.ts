@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
+import { callMyMemoryTranslate } from "../lib/mymemory-translate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -1672,6 +1673,30 @@ router.post("/translate", requireAuth, async (req, res) => {
         }
       }
       if (!translated.trim() && text.trim().length >= 1) {
+        // Last resort for finalized segments only: avoid blank rows in interrupted
+        // speaker turns when Libre public mirrors all fail.
+        if (isFinalSegment && phraseNormalized.trim().length >= 2) {
+          try {
+            const mmRaw = await callMyMemoryTranslate(phraseNormalized, srcLang, tgtLang);
+            let mmOut = await finalizeTranslationOutput(mmRaw, srcCode, tgtCode, tgtLangResolved, {
+              skipLeakRepair: true,
+            });
+            if (!mmOut.trim() && mmRaw.trim()) {
+              mmOut = postProcessTranslatedText(mmRaw, srcCode, tgtCode);
+              if (tgtCode === "ar") mmOut = polishArabicTranslationOutput(mmOut);
+            }
+            if (mmOut.trim()) {
+              translated = mmOut;
+            }
+          } catch (mmErr) {
+            logger.warn(
+              { mmErr, sessionId: diagSid, segmentId: diagSegId, srcLang, tgtLang },
+              "MyMemory fallback failed after Libre empty result",
+            );
+          }
+        }
+      }
+      if (!translated.trim() && text.trim().length >= 1) {
         logger.warn(
           { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
           "Machine translation returned empty after retry",
@@ -1710,6 +1735,53 @@ router.post("/translate", requireAuth, async (req, res) => {
         translationEngine: "libre" as const,
       });
     } catch (err: unknown) {
+      if (isFinalSegment && phraseNormalized.trim().length >= 2) {
+        try {
+          const mmRaw = await callMyMemoryTranslate(phraseNormalized, srcLang, tgtLang);
+          let mmOut = await finalizeTranslationOutput(mmRaw, srcCode, tgtCode, tgtLangResolved, {
+            skipLeakRepair: true,
+          });
+          if (!mmOut.trim() && mmRaw.trim()) {
+            mmOut = postProcessTranslatedText(mmRaw, srcCode, tgtCode);
+            if (tgtCode === "ar") mmOut = polishArabicTranslationOutput(mmOut);
+          }
+          if (mmOut.trim()) {
+            const appliedMt: string[] = [];
+            let outMt = mmOut;
+            const applyUserGlossaryMt =
+              glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
+            if (applyUserGlossaryMt) {
+              outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
+              outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
+            }
+            diagCounter.translationSegments += 1;
+            diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outMt });
+            logger.info(
+              {
+                ts: diagNowIso(),
+                stage: "translation_response_received",
+                sessionId: diagSid,
+                segmentId: diagSegId,
+                translatedLength: outMt.length,
+                counters: diagCounter,
+                fallbackEngine: "mymemory",
+              },
+              "TRANSCRIPTION_DIAG",
+            );
+            res.json({
+              translated: outMt,
+              appliedGlossaryTerms: appliedMt,
+              translationEngine: "libre" as const,
+            });
+            return;
+          }
+        } catch (mmErr) {
+          logger.warn(
+            { mmErr, sessionId: diagSid, segmentId: diagSegId, srcLang, tgtLang },
+            "MyMemory fallback failed after Libre exception",
+          );
+        }
+      }
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
