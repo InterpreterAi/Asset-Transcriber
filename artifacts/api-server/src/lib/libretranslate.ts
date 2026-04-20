@@ -11,6 +11,12 @@ function normalizeLibreBase(raw: string | undefined): string | undefined {
 }
 
 const CONFIGURED_BASE = normalizeLibreBase(process.env.LIBRETRANSLATE_URL);
+const PRELOADED_LANGS = new Set(
+  (process.env.LIBRETRANSLATE_PRELOADED_LANGS ?? "en,ar,es,fr,de,it")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 /**
  * Free public LibreTranslate-compatible HTTPS roots (no API key).
@@ -38,6 +44,17 @@ function normalizeLibreLang(code: string): string {
   if (raw === "zh-tw" || raw === "zh-hant") return "zh";
   if (raw === "zh-cn" || raw === "zh-hans") return "zh";
   return base;
+}
+
+function assertPreloadedPair(source: string, target: string): void {
+  const src = normalizeLibreLang(source);
+  const tgt = normalizeLibreLang(target);
+  if (!PRELOADED_LANGS.has(src) || !PRELOADED_LANGS.has(tgt)) {
+    throw new Error(
+      `LibreTranslate language pair not preloaded on private server: ${src}->${tgt}. ` +
+      `Allowed languages: ${[...PRELOADED_LANGS].join(",")}`,
+    );
+  }
 }
 
 async function callLibreTranslateAtBase(
@@ -116,6 +133,8 @@ async function callLibreTranslateOneHost(
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise defaults are tried in order.
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
+  // Private Railway memory guard: never trigger on-demand model downloads for non-preloaded languages.
+  assertPreloadedPair(source, target);
   const bases: string[] = CONFIGURED_BASE
     ? [CONFIGURED_BASE]
     : [...DEFAULT_FREE_LIBRE_BASES];
