@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
+import { CONFIGURED_BASE as libreConfiguredBase } from "../lib/libretranslate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -1672,7 +1673,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       res.status(503).json({
         error:
-          "Translation is temporarily unavailable (machine translation fallback). Ensure LibreTranslate is reachable (LIBRETRANSLATE_INTERNAL_URL or LIBRETRANSLATE_URL).",
+          `Translation is temporarily unavailable (machine translation). The API could not use LibreTranslate at ${libreConfiguredBase}. On Railway, enable private networking between this service and Libre, confirm the Libre service name and port (default in code: http://libretranslate.railway.internal:5000), or set LIBRETRANSLATE_INTERNAL_URL to the correct HTTP base URL including port.`,
         code: "LIBRETRANSLATE_FAILED",
       });
     }

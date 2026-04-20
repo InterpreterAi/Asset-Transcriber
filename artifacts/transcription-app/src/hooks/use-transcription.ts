@@ -734,7 +734,7 @@ async function translateViaPrimaryApi(
             outcome:     "try_fallback",
             userMessage:
               j?.error ??
-              "Translation is temporarily unavailable. Basic/Professional use LibreTranslate — check network or LIBRETRANSLATE_URL on the API server.",
+              "Translation is temporarily unavailable. LibreTranslate could not be reached from the API server (private networking / LIBRETRANSLATE_INTERNAL_URL).",
           };
         }
         await new Promise<void>(res => setTimeout(res, 700 * attempt));

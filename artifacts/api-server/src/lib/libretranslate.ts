@@ -1,23 +1,32 @@
 import axios, { isAxiosError } from "axios";
 import { logger } from "./logger.js";
 
-/** **Final Boss 3 · Libre** — LibreTranslate HTTP client. Internal Railway URL only (no public fallback). */
-
-function normalizeLibreBase(raw: string | undefined): string | undefined {
-  const v = raw?.trim();
-  if (!v) return undefined;
-  const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v}`;
-  return withScheme.replace(/\/$/, "");
-}
+/** **Final Boss 3 · Libre** — LibreTranslate HTTP client. Default Railway internal URL; optional env override (no public fallback loop). */
 
 /**
- * Sole endpoint: Railway private DNS. **http only** (never https for `.railway.internal`).
- * Libre listens on `[::]:5000` — IPv6 all interfaces; clients use hostname + port 5000.
+ * Default when no env override: Railway private DNS. **http only** (never https for `.railway.internal`).
+ * Libre listens on `[::]:5000` — clients use hostname + port 5000.
  */
 const HARDCODED_INTERNAL_BASE = "http://libretranslate.railway.internal:5000";
 
-/** Resolved base used for every Libre request — must match redeployed Asset-Transcriber image. */
-export const CONFIGURED_BASE = normalizeLibreBase(HARDCODED_INTERNAL_BASE);
+/**
+ * `LIBRETRANSLATE_INTERNAL_URL` (preferred) or `LIBRETRANSLATE_URL` overrides the hard-coded default.
+ * Schemeless hostnames under `.railway.internal` default to **http** so they are not forced to https.
+ */
+function resolveConfiguredLibreBase(): string {
+  const override =
+    process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
+    process.env.LIBRETRANSLATE_URL?.trim();
+  const raw = (override || HARDCODED_INTERNAL_BASE).trim();
+  if (!raw) return HARDCODED_INTERNAL_BASE;
+  const noTrail = raw.replace(/\/$/, "");
+  if (/^https?:\/\//i.test(noTrail)) return noTrail;
+  if (/\.railway\.internal/i.test(noTrail)) return `http://${noTrail}`;
+  return `https://${noTrail}`;
+}
+
+/** Resolved base used for every Libre request (env or hard-coded default). */
+export const CONFIGURED_BASE = resolveConfiguredLibreBase();
 
 /** Internal network + cold LibreTranslate models: 3s was too tight and produced constant 503s. */
 const PER_HOST_TIMEOUT_MS = 25_000;
@@ -133,19 +142,20 @@ async function callLibreTranslateOneHost(
  * Single internal endpoint only — no public mirror fallback. Fails fast for networking issues.
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
-  if (!CONFIGURED_BASE) {
-    throw new Error("LibreTranslate: CONFIGURED_BASE is unset (internal URL missing)");
-  }
   return callLibreTranslateOneHost(CONFIGURED_BASE, text, source, target);
 }
 
 /** Startup: *-libre tiers use this URL only. Search logs for "LibreTranslate sole endpoint" after redeploy. */
 export function logLibreMachineTranslationStartupHint(): void {
+  const fromEnv = Boolean(
+    process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() || process.env.LIBRETRANSLATE_URL?.trim(),
+  );
   logger.info(
     {
       soleBaseUrl: CONFIGURED_BASE,
+      fromEnvOverride: fromEnv,
       noPublicFallback: true,
     },
-    "LibreTranslate sole endpoint (internal only — verify after Asset-Transcriber redeploy)",
+    "LibreTranslate sole endpoint (verify after redeploy — use LIBRETRANSLATE_INTERNAL_URL if hostname/port differ)",
   );
 }

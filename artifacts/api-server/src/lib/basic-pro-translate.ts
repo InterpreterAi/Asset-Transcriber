@@ -2,10 +2,10 @@ import { callLibreTranslate } from "./libretranslate.js";
 
 /**
  * **Final Boss 3 · Libre** — machine translation **only** via **LibreTranslate** for `*-libre` / machine-stack plans.
- * (Free public HTTPS instances when `LIBRETRANSLATE_URL` is unset, or your self-hosted URL.)
+ * Base URL: `libretranslate.ts` — default Railway internal HTTP URL; override with `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL`.
  * OpenAI (**Final Boss 3 · OpenAI**) lives in `transcription.ts` and is unchanged here.
  *
- * Optional: `LIBRETRANSLATE_URL`, `LIBRETRANSLATE_API_KEY` (see `libretranslate.ts`).
+ * Optional: `LIBRETRANSLATE_API_KEY` in `.env.example` for self-hosted Libre that requires an API key (not sent by current client unless added in `libretranslate.ts`).
  *
  * **Into-English finals:** up to **two** Libre HTTP calls per finalized segment — primary
  * `sourceLang → en`, then optional `auto → en` on the English draft to reduce calques / mixed
