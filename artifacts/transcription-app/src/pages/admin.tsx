@@ -744,29 +744,10 @@ export default function Admin() {
         if (!next.snapshot) return next;
         if (!next.isLive) return next;
         const ns = next.snapshot;
-        const incomingAligned =
-          Array.isArray(ns.transcriptLines) &&
-          Array.isArray(ns.translationLines) &&
-          ns.transcriptLines.length > 0 &&
-          ns.transcriptLines.length === ns.translationLines.length;
-        const prevAligned =
-          Array.isArray(prev?.snapshot?.transcriptLines) &&
-          Array.isArray(prev?.snapshot?.translationLines) &&
-          (prev?.snapshot?.transcriptLines?.length ?? 0) > 0 &&
-          prev!.snapshot!.transcriptLines!.length === prev!.snapshot!.translationLines!.length;
         const incoming = ns.transcript.trim() || (ns.translation ?? "").trim();
         const prevHad =
           prev?.snapshot &&
           (prev.snapshot.transcript.trim() || (prev.snapshot.translation ?? "").trim());
-        if (!incomingAligned && prevAligned) {
-          return {
-            ...next,
-            snapshot: {
-              ...prev!.snapshot!,
-              updatedAt: Math.max(prev!.snapshot!.updatedAt, ns.updatedAt),
-            },
-          };
-        }
         if (!incoming && prevHad) {
           return {
             ...next,
@@ -2776,21 +2757,25 @@ export default function Admin() {
                   (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
                   (() => {
                     const snap = sessionDetail.snapshot;
-                    const hasAlignedLineArrays =
+                    const hasLineArrays =
                       Array.isArray(snap.transcriptLines) &&
                       Array.isArray(snap.translationLines) &&
                       snap.transcriptLines.length > 0 &&
-                      snap.transcriptLines.length === snap.translationLines.length;
-                    if (!hasAlignedLineArrays) {
-                      return (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                          Segment snapshot is syncing. Showing only strict aligned rows to mirror user view exactly.
-                        </div>
-                      );
+                      snap.translationLines.length > 0;
+                    let tLines = hasLineArrays
+                      ? snap.transcriptLines!.map(String)
+                      : snap.transcript.split("\n");
+                    let trLines = hasLineArrays
+                      ? snap.translationLines!.map(String)
+                      : (snap.translation ?? "").split("\n");
+                    const align = Math.max(tLines.length, trLines.length);
+                    if (align > 0) {
+                      tLines = [...tLines];
+                      trLines = [...trLines];
+                      while (tLines.length < align) tLines.push("");
+                      while (trLines.length < align) trLines.push("");
                     }
-                    const tLines = snap.transcriptLines!.map(String);
-                    const trLines = snap.translationLines!.map(String);
-                    const n = tLines.length;
+                    const n = align;
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     return (

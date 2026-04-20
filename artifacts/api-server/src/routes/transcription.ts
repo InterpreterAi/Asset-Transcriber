@@ -1254,37 +1254,20 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     return;
   }
 
-  const tlIn = Array.isArray(transcriptLines) ? transcriptLines.map(String) : undefined;
-  const trlIn = Array.isArray(translationLines) ? translationLines.map(String) : undefined;
-  const hasAlignedIncomingLines =
-    Array.isArray(tlIn) &&
-    Array.isArray(trlIn) &&
-    tlIn.length > 0 &&
-    tlIn.length === trlIn.length;
-
-  const prevTl = Array.isArray(existingSnap?.transcriptLines) ? existingSnap.transcriptLines : undefined;
-  const prevTrl = Array.isArray(existingSnap?.translationLines) ? existingSnap.translationLines : undefined;
-  const hasAlignedPrevLines =
-    Array.isArray(prevTl) &&
-    Array.isArray(prevTrl) &&
-    prevTl.length > 0 &&
-    prevTl.length === prevTrl.length;
+  let tlIn = Array.isArray(transcriptLines) ? transcriptLines.map(String) : [];
+  let trlIn = Array.isArray(translationLines) ? translationLines.map(String) : [];
+  const maxLines = Math.max(tlIn.length, trlIn.length);
+  if (maxLines > 0) {
+    while (tlIn.length < maxLines) tlIn.push("");
+    while (trlIn.length < maxLines) trlIn.push("");
+  }
 
   let transcriptOut = transcript ?? "";
   let translationOut = translation ?? "";
-  let transcriptLinesOut: string[] | undefined;
-  let translationLinesOut: string[] | undefined;
-  if (hasAlignedIncomingLines) {
-    transcriptLinesOut = tlIn;
-    translationLinesOut = trlIn;
+  const hasPaddedLines = maxLines > 0;
+  if (hasPaddedLines) {
     transcriptOut = tlIn.join("\n");
     translationOut = trlIn.join("\n");
-  } else if (hasAlignedPrevLines) {
-    // Never downgrade a good aligned snapshot to a mismatched one.
-    transcriptLinesOut = [...prevTl];
-    translationLinesOut = [...prevTrl];
-    transcriptOut = transcriptLinesOut.join("\n");
-    translationOut = translationLinesOut.join("\n");
   }
 
   // Update in-memory snapshot (admin-visible only, never persisted).
@@ -1294,9 +1277,7 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     micLabel:    micLabel    ?? "Microphone",
     transcript:  transcriptOut,
     translation: translationOut,
-    ...(transcriptLinesOut && translationLinesOut
-      ? { transcriptLines: transcriptLinesOut, translationLines: translationLinesOut }
-      : {}),
+    ...(hasPaddedLines ? { transcriptLines: tlIn, translationLines: trlIn } : {}),
     ...(seqIn !== undefined ? { snapshotSeq: seqIn } : {}),
     updatedAt:   Date.now(),
   });
