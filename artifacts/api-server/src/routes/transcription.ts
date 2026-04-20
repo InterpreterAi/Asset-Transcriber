@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
+import { callMyMemoryTranslate } from "../lib/mymemory-translate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -1622,6 +1623,28 @@ router.post("/translate", requireAuth, async (req, res) => {
     const libreEnRefineOpts = {
       refineNonEnglishToEnglishFinal: isFinalSegment && tgtCode === "en" && srcCode !== "en",
     };
+    const finalizeNonEmptyMachineOutput = async (candidate: string): Promise<string> => {
+      let out = candidate.trim();
+      if (out) return out;
+      try {
+        const mmRaw = await callMyMemoryTranslate(phraseNormalized, srcLang, tgtLang);
+        let mmOut = await finalizeTranslationOutput(mmRaw, srcCode, tgtCode, tgtLangResolved, {
+          skipLeakRepair: true,
+        });
+        if (!mmOut.trim() && mmRaw.trim()) {
+          mmOut = postProcessTranslatedText(mmRaw, srcCode, tgtCode);
+          if (tgtCode === "ar") mmOut = polishArabicTranslationOutput(mmOut);
+        }
+        out = mmOut.trim();
+      } catch (mmErr) {
+        logger.warn(
+          { mmErr, sessionId: diagSid, segmentId: diagSegId, srcLang, tgtLang },
+          "MyMemory fallback failed after Libre empty/failure",
+        );
+      }
+      // Never return empty for machine stack: keep row visible even if providers are down.
+      return out || phraseNormalized.trim();
+    };
     try {
       logger.info(
         {
@@ -1671,18 +1694,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
         }
       }
-      if (!translated.trim() && text.trim().length >= 1) {
-        logger.warn(
-          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "Machine translation returned empty after retry",
-        );
-        res.status(503).json({
-          error:
-            "Translation is temporarily unavailable (machine translation fallback). No OpenAI key: set OPENAI_API_KEY for full quality, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
-          code: "LIBRETRANSLATE_FAILED",
-        });
-        return;
-      }
+      translated = await finalizeNonEmptyMachineOutput(translated);
       const appliedMt: string[] = [];
       let outMt = translated;
       const applyUserGlossaryMt =
@@ -1715,10 +1727,19 @@ router.post("/translate", requireAuth, async (req, res) => {
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
         "Machine translation fallback failed (OpenAI not configured on server)",
       );
-      res.status(503).json({
-        error:
-          "Translation is temporarily unavailable (machine translation fallback). Set OPENAI_API_KEY, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
-        code: "LIBRETRANSLATE_FAILED",
+      const translated = await finalizeNonEmptyMachineOutput("");
+      const appliedMt: string[] = [];
+      let outMt = translated;
+      const applyUserGlossaryMt =
+        glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
+      if (applyUserGlossaryMt) {
+        outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
+        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
+      }
+      res.json({
+        translated: outMt,
+        appliedGlossaryTerms: appliedMt,
+        translationEngine: "libre" as const,
       });
     }
     return;
