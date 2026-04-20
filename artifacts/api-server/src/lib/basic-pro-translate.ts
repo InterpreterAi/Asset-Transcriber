@@ -52,6 +52,35 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+function normalizeForEchoCompare(s: string): string {
+  return collapseWs(s)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenOverlapRatio(a: string, b: string): number {
+  const ta = normalizeForEchoCompare(a).split(/\s+/).filter(Boolean);
+  const tb = normalizeForEchoCompare(b).split(/\s+/).filter(Boolean);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  const setA = new Set(ta);
+  let hit = 0;
+  for (const w of tb) if (setA.has(w)) hit++;
+  return hit / Math.max(ta.length, tb.length);
+}
+
+/** Detect "translation" that is effectively the same language/source echo. */
+function looksLikeSourceEcho(source: string, translated: string): boolean {
+  const s = normalizeForEchoCompare(source);
+  const t = normalizeForEchoCompare(translated);
+  if (!s || !t) return false;
+  if (s === t) return true;
+  const lenRatio = t.length / Math.max(1, s.length);
+  const highOverlap = tokenOverlapRatio(s, t) >= 0.86;
+  return highOverlap && lenRatio >= 0.65 && lenRatio <= 1.4;
+}
+
 function wordCount(s: string): number {
   return collapseWs(s).split(/\s+/).filter(Boolean).length;
 }
@@ -124,6 +153,17 @@ export async function translateBasicProfessional(
     out = candidates
       .map((c) => ({ c, score: englishReadabilityScore(mtInput, c) }))
       .sort((a, b) => b.score - a.score)[0]?.c ?? out;
+  }
+  // Enforce opposite-language output: if Libre echoes the source, force auto-detect from original source text.
+  if (srcBase !== tgtBase && looksLikeSourceEcho(mtInput, out)) {
+    try {
+      const forced = await translatePlainMachine(mtInput, "auto", targetLang);
+      if (collapseWs(forced) && !looksLikeSourceEcho(mtInput, forced)) {
+        out = forced;
+      }
+    } catch {
+      /* keep best available output */
+    }
   }
   return out;
 }
