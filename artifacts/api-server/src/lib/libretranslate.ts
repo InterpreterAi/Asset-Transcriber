@@ -1,4 +1,5 @@
-import axios, { isAxiosError } from "axios";
+import axios, { isAxiosError, type AxiosRequestConfig } from "axios";
+import * as dns from "node:dns";
 import { logger } from "./logger.js";
 
 /** **Final Boss 3 · Libre** — LibreTranslate HTTP client. Default Railway internal URL; optional env override (no public fallback loop). */
@@ -30,6 +31,37 @@ export const CONFIGURED_BASE = resolveConfiguredLibreBase();
 
 /** Internal network + cold LibreTranslate models: 3s was too tight and produced constant 503s. */
 const PER_HOST_TIMEOUT_MS = 25_000;
+
+/**
+ * Railway legacy private networks are often **IPv6-only**; Node may otherwise prefer IPv4 and
+ * never connect. See https://docs.railway.com/networking/private-networking/library-configuration
+ */
+const libreTranslateDnsLookup: NonNullable<AxiosRequestConfig["lookup"]> = (
+  hostname,
+  options,
+  cb,
+) => {
+  dns.lookup(
+    hostname,
+    { ...(options as dns.LookupOneOptions), family: 0, verbatim: true },
+    (err, address, family) => {
+      if (err) {
+        cb(err, "", undefined);
+        return;
+      }
+      const fam = family === 6 ? 6 : family === 4 ? 4 : undefined;
+      cb(null, address, fam);
+    },
+  );
+};
+
+function useRailwayPrivateDnsLookup(baseUrl: string): boolean {
+  try {
+    return /\.railway\.internal$/i.test(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
 
 /** Libre `/translate` JSON: `{ translatedText?, error? }`. Proxies may return JSON as a string body. */
 function parseLibreTranslateBody(data: unknown): { translatedText?: string; error?: string } {
@@ -74,7 +106,7 @@ async function callLibreTranslateAtBase(
 
   let res;
   try {
-    res = await axios.post(`${baseUrl}/translate`, body, {
+    const axiosOpts: AxiosRequestConfig = {
       timeout: PER_HOST_TIMEOUT_MS,
       validateStatus: () => true,
       headers: {
@@ -83,7 +115,9 @@ async function callLibreTranslateAtBase(
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
-    });
+      ...(useRailwayPrivateDnsLookup(baseUrl) ? { lookup: libreTranslateDnsLookup } : {}),
+    };
+    res = await axios.post(`${baseUrl}/translate`, body, axiosOpts);
   } catch (err: unknown) {
     const code = isAxiosError(err) ? err.code : undefined;
     const msg = err instanceof Error ? err.message : String(err);
@@ -155,6 +189,7 @@ export function logLibreMachineTranslationStartupHint(): void {
       soleBaseUrl: CONFIGURED_BASE,
       fromEnvOverride: fromEnv,
       noPublicFallback: true,
+      railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),
     },
     "LibreTranslate sole endpoint (verify after redeploy — use LIBRETRANSLATE_INTERNAL_URL if hostname/port differ)",
   );
