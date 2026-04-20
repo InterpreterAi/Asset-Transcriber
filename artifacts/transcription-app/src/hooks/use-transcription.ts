@@ -827,7 +827,7 @@ type FetchTranslationResult = {
 /** Single-line, bounded length for in-cell failure text (avoid layout blow-ups). */
 function translationFailureCellText(message: string): string {
   const one = message.replace(/\s+/g, " ").trim();
-  const max = 220;
+  const max = 360;
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 }
 
