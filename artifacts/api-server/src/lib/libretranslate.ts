@@ -19,7 +19,8 @@ const HARDCODED_INTERNAL_BASE = "http://libretranslate.railway.internal:5000";
 /** Resolved base used for every Libre request — must match redeployed Asset-Transcriber image. */
 export const CONFIGURED_BASE = normalizeLibreBase(HARDCODED_INTERNAL_BASE);
 
-const PER_HOST_TIMEOUT_MS = 3_000;
+/** Internal network + cold LibreTranslate models: 3s was too tight and produced constant 503s. */
+const PER_HOST_TIMEOUT_MS = 25_000;
 
 /** Libre `/translate` JSON: `{ translatedText?, error? }`. Proxies may return JSON as a string body. */
 function parseLibreTranslateBody(data: unknown): { translatedText?: string; error?: string } {

@@ -820,7 +820,16 @@ type FetchTranslationResult = {
   dailyLimitMessage?: string;
   /** From API: Libre MT output must not go through aggressive client polish (drops clauses). */
   translationEngine?: TranslationEngineHint;
+  /** One-line copy for the translation cell when primary fails (e.g. Libre 503). */
+  translationFailedMessage?: string;
 };
+
+/** Single-line, bounded length for in-cell failure text (avoid layout blow-ups). */
+function translationFailureCellText(message: string): string {
+  const one = message.replace(/\s+/g, " ").trim();
+  const max = 220;
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
 
 async function fetchTranslation(
   text: string,
@@ -851,7 +860,14 @@ async function fetchTranslation(
   // Public fallback can introduce mixed-language or delayed rewrites.
   // Keep interpreter output stable: if primary fails, skip this update.
   if (primary.userMessage) onTranslationIssue?.(primary.userMessage);
-  return { text: "", replaceStreamColumn: false };
+  const rawMsg = primary.userMessage?.trim();
+  return {
+    text: "",
+    replaceStreamColumn: false,
+    translationFailedMessage: rawMsg
+      ? translationFailureCellText(rawMsg)
+      : "Translation unavailable.",
+  };
 }
 
 // ── Admin click-to-copy ────────────────────────────────────────────────────────
@@ -1803,6 +1819,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
         let translationEngineHint: TranslationEngineHint | undefined;
+        let lastTranslationFailureMessage: string | undefined;
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {
             await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
@@ -1834,6 +1851,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           translated = tr.text;
           translationEngineHint = tr.translationEngine ?? translationEngineHint;
+          if (tr.translationFailedMessage) lastTranslationFailureMessage = tr.translationFailedMessage;
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
@@ -1857,12 +1875,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           translated = trRetry.text;
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
+          if (trRetry.translationFailedMessage) lastTranslationFailureMessage = trRetry.translationFailedMessage;
         }
         if (!translated?.trim()) {
           if (transTextEl.isConnected) {
             const shown = (transTextEl.textContent ?? "").trim();
             if (!shown || shown === "…") {
-              applyTranslationTypography(transTextEl, "Retrying translation…");
+              applyTranslationTypography(
+                transTextEl,
+                lastTranslationFailureMessage ?? "Retrying translation…",
+              );
             }
           }
           return;
@@ -1982,7 +2004,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (transTextEl.isConnected) {
           const shown = (transTextEl.textContent ?? "").trim();
           if (!shown || shown === "…") {
-            applyTranslationTypography(transTextEl, "Retrying translation…");
+            applyTranslationTypography(transTextEl, "Translation error — try again.");
           }
         }
       } finally {
