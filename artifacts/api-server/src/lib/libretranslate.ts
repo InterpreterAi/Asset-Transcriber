@@ -20,25 +20,41 @@ const DEFAULT_FREE_LIBRE_BASES = [
   "https://translate.astian.org",
 ] as const;
 
-/**
- * Keep per-host timeout below client translate request timeout (30s) so a single
- * slow public mirror does not make live segments appear "missing" in Libre tiers.
- */
-const PER_HOST_TIMEOUT_MS = (() => {
-  const raw = Number(process.env.LIBRETRANSLATE_TIMEOUT_MS ?? "");
-  if (!Number.isFinite(raw) || raw <= 0) return 8_000;
-  return Math.max(2_000, Math.min(20_000, Math.floor(raw)));
-})();
+const LIVE_TIMEOUT_DEFAULT_MS = 8_000;
+const FINAL_TIMEOUT_DEFAULT_MS = 12_000;
+const LIVE_MAX_BASES_DEFAULT = 3;
+const FINAL_MAX_BASES_DEFAULT = 5;
 
-/**
- * Limit how many public mirrors we probe per request. Prevents long cascades
- * across many dead mirrors that would otherwise outlive frontend timeout windows.
- */
-const MAX_PUBLIC_BASES_PER_REQUEST = (() => {
-  const raw = Number(process.env.LIBRETRANSLATE_MAX_BASES_PER_REQUEST ?? "");
-  if (!Number.isFinite(raw) || raw <= 0) return 3;
-  return Math.max(1, Math.min(6, Math.floor(raw)));
-})();
+function boundedInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function timeoutMsForRequest(finalSegment: boolean): number {
+  const legacy = process.env.LIBRETRANSLATE_TIMEOUT_MS;
+  if (legacy) {
+    return boundedInt(legacy, LIVE_TIMEOUT_DEFAULT_MS, 2_000, 20_000);
+  }
+  return finalSegment
+    ? boundedInt(process.env.LIBRETRANSLATE_FINAL_TIMEOUT_MS, FINAL_TIMEOUT_DEFAULT_MS, 4_000, 20_000)
+    : boundedInt(process.env.LIBRETRANSLATE_LIVE_TIMEOUT_MS, LIVE_TIMEOUT_DEFAULT_MS, 2_000, 20_000);
+}
+
+function maxBasesForRequest(finalSegment: boolean): number {
+  const legacy = process.env.LIBRETRANSLATE_MAX_BASES_PER_REQUEST;
+  if (legacy) {
+    return boundedInt(legacy, LIVE_MAX_BASES_DEFAULT, 1, 6);
+  }
+  return finalSegment
+    ? boundedInt(process.env.LIBRETRANSLATE_FINAL_MAX_BASES, FINAL_MAX_BASES_DEFAULT, 1, 6)
+    : boundedInt(process.env.LIBRETRANSLATE_LIVE_MAX_BASES, LIVE_MAX_BASES_DEFAULT, 1, 6);
+}
+
+export type LibreTranslateOptions = {
+  /** Finalized segment (speaker boundary/session end): prioritize completion over speed. */
+  finalSegment?: boolean;
+};
 
 /** Map common BCP-47 tags to LibreTranslate API language codes. */
 function normalizeLibreLang(code: string): string {
@@ -56,6 +72,7 @@ async function callLibreTranslateAtBase(
   source: string,
   target: string,
   sourceMode: "explicit" | "auto",
+  timeoutMs: number,
 ): Promise<string> {
   const tgt = normalizeLibreLang(target);
   const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(source);
@@ -71,7 +88,7 @@ async function callLibreTranslateAtBase(
     `${baseUrl}/translate`,
     body,
     {
-      timeout: PER_HOST_TIMEOUT_MS,
+      timeout: timeoutMs,
       validateStatus: () => true,
       headers: {
         "Content-Type": "application/json",
@@ -107,15 +124,16 @@ async function callLibreTranslateOneHost(
   text: string,
   source: string,
   target: string,
+  timeoutMs: number,
 ): Promise<string> {
   try {
-    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit");
+    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit", timeoutMs);
   } catch (errExplicit) {
     if (normalizeLibreLang(source) === normalizeLibreLang(target)) {
       throw errExplicit;
     }
     try {
-      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
+      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto", timeoutMs);
     } catch (errAuto) {
       throw errAuto;
     }
@@ -126,8 +144,16 @@ async function callLibreTranslateOneHost(
  * Free tier: public LibreTranslate hosts (no key). Tries each base until one succeeds.
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise DEFAULT_FREE_LIBRE_BASES are tried in order.
  */
-export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
-  const freeFallbackBases = DEFAULT_FREE_LIBRE_BASES.slice(0, MAX_PUBLIC_BASES_PER_REQUEST);
+export async function callLibreTranslate(
+  text: string,
+  source: string,
+  target: string,
+  opts?: LibreTranslateOptions,
+): Promise<string> {
+  const isFinal = Boolean(opts?.finalSegment);
+  const timeoutMs = timeoutMsForRequest(isFinal);
+  const maxBases = maxBasesForRequest(isFinal);
+  const freeFallbackBases = DEFAULT_FREE_LIBRE_BASES.slice(0, maxBases);
   const bases: string[] = CONFIGURED_BASE
     ? [CONFIGURED_BASE, ...freeFallbackBases.filter((b) => b !== CONFIGURED_BASE)]
     : freeFallbackBases;
@@ -135,7 +161,7 @@ export async function callLibreTranslate(text: string, source: string, target: s
   let lastErr: unknown;
   for (const base of bases) {
     try {
-      return await callLibreTranslateOneHost(base, text, source, target);
+      return await callLibreTranslateOneHost(base, text, source, target, timeoutMs);
     } catch (err) {
       lastErr = err;
       if (bases.length > 1) {
