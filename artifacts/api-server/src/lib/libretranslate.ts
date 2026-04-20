@@ -118,7 +118,7 @@ async function callLibreTranslateOneHost(
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
   const bases: string[] = CONFIGURED_BASE
-    ? [CONFIGURED_BASE, ...DEFAULT_FREE_LIBRE_BASES.filter((b) => b !== CONFIGURED_BASE)]
+    ? [CONFIGURED_BASE]
     : [...DEFAULT_FREE_LIBRE_BASES];
 
   let lastErr: unknown;

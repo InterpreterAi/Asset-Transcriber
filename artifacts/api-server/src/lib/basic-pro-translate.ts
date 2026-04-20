@@ -52,6 +52,27 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+function wordCount(s: string): number {
+  return collapseWs(s).split(/\s+/).filter(Boolean).length;
+}
+
+function englishReadabilityScore(source: string, candidate: string): number {
+  const c = collapseWs(candidate);
+  if (!c) return -1_000;
+  const chars = [...c];
+  const letters = chars.filter((ch) => /\p{L}/u.test(ch)).length;
+  const latinLetters = chars.filter((ch) => /[A-Za-z]/.test(ch)).length;
+  const nonLatinLetters = Math.max(0, letters - latinLetters);
+  const latinRatio = letters > 0 ? latinLetters / letters : 0;
+  const nonLatinPenalty = letters > 0 ? nonLatinLetters / letters : 0;
+  const srcWords = Math.max(1, wordCount(source));
+  const outWords = wordCount(c);
+  const coverage = outWords / srcWords;
+  const coverageScore = coverage < 0.25 ? -2 : coverage > 2.5 ? -0.5 : 1;
+  const punctuationBonus = /[.!?,;:]/.test(c) ? 0.15 : 0;
+  return (latinRatio * 2.2) - (nonLatinPenalty * 1.6) + coverageScore + punctuationBonus + Math.min(outWords, 24) / 80;
+}
+
 /**
  * Accept a second-pass Libre `auto → en` polish only if it still looks like a full translation
  * (Libre occasionally returns junk or near-empty on auto).
@@ -82,14 +103,27 @@ export async function translateBasicProfessional(
     srcBase !== "en" &&
     collapseWs(out).length >= 8
   ) {
+    const candidates: string[] = [out];
     try {
       const polished = await translatePlainMachine(out.trim(), "auto", "en");
       if (libreEnglishRefineLooksSafe(out, polished)) {
-        out = polished;
+        candidates.push(polished);
       }
     } catch {
       /* keep primary pass */
     }
+    // Rescue path for wrong/uncertain source tags: ask Libre to detect from original text directly.
+    try {
+      const autoFromSource = await translatePlainMachine(mtInput, "auto", "en");
+      if (libreEnglishRefineLooksSafe(out, autoFromSource)) {
+        candidates.push(autoFromSource);
+      }
+    } catch {
+      /* keep best available candidate */
+    }
+    out = candidates
+      .map((c) => ({ c, score: englishReadabilityScore(mtInput, c) }))
+      .sort((a, b) => b.score - a.score)[0]?.c ?? out;
   }
   return out;
 }
