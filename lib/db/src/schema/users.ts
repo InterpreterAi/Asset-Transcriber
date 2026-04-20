@@ -25,6 +25,8 @@ export const usersTable = pgTable("users", {
   stabilityBaselineUpdateEmailSentAt: timestamp("stability_baseline_update_email_sent_at"),
   /** One-time product email: Personal Glossary announcement (manual script; idempotent per user). */
   glossaryFeatureAnnouncementEmailSentAt: timestamp("glossary_feature_announcement_email_sent_at"),
+  /** One-time product email: limited-time promo offer broadcast (manual script; idempotent per user). */
+  promoOfferSentAt: timestamp("promo_offer_sent_at"),
   /** When false, skip trial reminder campaign emails (unsubscribe). Other transactional mail unchanged. */
   emailRemindersEnabled: boolean("email_reminders_enabled").notNull().default(true),
   /** Email/password signups must verify before login; OAuth signups stay false. */

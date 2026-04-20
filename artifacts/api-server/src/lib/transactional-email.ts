@@ -851,6 +851,63 @@ export async function sendGlossaryFeatureAnnouncementEmailWithResult(
   return sendEmailWithResult({ from: RESEND_FROM_ONBOARDING, to, subject, html, text });
 }
 
+// ── Limited-time promo offer broadcast (one-time; run via send script) ───────────────────────
+
+export const PROMO_OFFER_EMAIL_SUBJECT = "New Version of Interpreter AI + 2 Free Hours for You!";
+
+const PROMO_OFFER_PLAIN_TEXT = `We are excited to announce a major update to Interpreter AI! The new version features significantly improved real-time transcription and a more stable translation engine.
+
+As a limited-time promotion, we added 2 free hours to your access so you can try the latest version.
+
+Open your workspace and start testing now:
+https://app.interpreterai.org/workspace
+
+— InterpreterAI Team`;
+
+function buildPromoOfferMail(opts: { userId: number; to: string }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const base = appBaseUrl();
+  const ws = workspaceUrl();
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId: opts.userId,
+    heading: "New Version of Interpreter AI + 2 Free Hours for You!",
+    bodyHtml: [
+      emailStandardGreeting(opts.to, null),
+      emailParagraph(
+        "We are excited to announce a major update to Interpreter AI! The new version features significantly improved real-time transcription and a more stable translation engine.",
+      ),
+      emailParagraph(
+        "As a limited-time promotion, we added 2 free hours to your access so you can try the latest version.",
+      ),
+      emailParagraph("Open your workspace and start testing now:"),
+      emailParagraph(ws),
+      emailParagraph("— InterpreterAI Team"),
+    ].join(""),
+    primaryButton: { href: ws, label: "Open Workspace" },
+  });
+  return {
+    subject: PROMO_OFFER_EMAIL_SUBJECT,
+    html,
+    text: PROMO_OFFER_PLAIN_TEXT,
+  };
+}
+
+/** One-time broadcast: promo offer (script sets DB flag after success). */
+export async function sendPromoOfferEmailWithResult(
+  to: string,
+  opts: { userId: number },
+): Promise<SendEmailResult> {
+  if (!isResendConfigured()) {
+    return { ok: false, exceptionMessage: "RESEND_API_KEY not configured" };
+  }
+  const { subject, html, text } = buildPromoOfferMail({ ...opts, to });
+  return sendEmailWithResult({ from: RESEND_FROM_ONBOARDING, to, subject, html, text });
+}
+
 // ── Product fix / stability apology broadcast (all users; run via send script) ───────────────
 
 export const PRODUCT_FIX_ANNOUNCEMENT_EMAIL_SUBJECT = "We fixed it — and here's what changed";
