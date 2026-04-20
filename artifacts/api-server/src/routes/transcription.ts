@@ -1623,6 +1623,26 @@ router.post("/translate", requireAuth, async (req, res) => {
     const libreEnRefineOpts = {
       refineNonEnglishToEnglishFinal: isFinalSegment && tgtCode === "en" && srcCode !== "en",
     };
+    const normalizeForEchoCompare = (s: string) =>
+      s.replace(/\s+/g, " ").trim().toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
+    const tokenOverlapRatio = (a: string, b: string): number => {
+      const ta = normalizeForEchoCompare(a).split(/\s+/).filter(Boolean);
+      const tb = normalizeForEchoCompare(b).split(/\s+/).filter(Boolean);
+      if (ta.length === 0 || tb.length === 0) return 0;
+      const setA = new Set(ta);
+      let hit = 0;
+      for (const w of tb) if (setA.has(w)) hit++;
+      return hit / Math.max(ta.length, tb.length);
+    };
+    const looksLikeSourceEcho = (source: string, translated: string): boolean => {
+      const s = normalizeForEchoCompare(source);
+      const t = normalizeForEchoCompare(translated);
+      if (!s || !t) return false;
+      if (s === t) return true;
+      const lenRatio = t.length / Math.max(1, s.length);
+      const overlap = tokenOverlapRatio(s, t);
+      return overlap >= 0.86 && lenRatio >= 0.65 && lenRatio <= 1.4;
+    };
     const finalizeNonEmptyMachineOutput = async (candidate: string): Promise<string> => {
       let out = candidate.trim();
       if (out) return out;
@@ -1642,7 +1662,10 @@ router.post("/translate", requireAuth, async (req, res) => {
           "MyMemory fallback failed after Libre empty/failure",
         );
       }
-      // Never return empty for machine stack: keep row visible even if providers are down.
+      // Never mirror source text into translation column for cross-language pairs.
+      if (srcCode !== tgtCode && (!out || looksLikeSourceEcho(phraseNormalized, out))) {
+        return "";
+      }
       return out || phraseNormalized.trim();
     };
     try {
@@ -1695,6 +1718,37 @@ router.post("/translate", requireAuth, async (req, res) => {
         }
       }
       translated = await finalizeNonEmptyMachineOutput(translated);
+      if (srcCode !== tgtCode && looksLikeSourceEcho(phraseNormalized, translated)) {
+        logger.warn(
+          { sessionId: diagSid, segmentId: diagSegId, srcLang, tgtLang, textLen: text.length },
+          "Machine translation echoed source language; forcing auto-detect opposite-language retry",
+        );
+        const forcedRaw = await translateBasicProfessional(
+          textForOpenAI,
+          "auto",
+          tgtLang,
+          numMask.slotToDigits,
+          libreEnRefineOpts,
+        );
+        const forcedRestored = restoredFromRaw(forcedRaw);
+        let forcedTranslated = await finalizeTranslationOutput(
+          forcedRestored,
+          srcCode,
+          tgtCode,
+          tgtLangResolved,
+          { skipLeakRepair: true },
+        );
+        if (!forcedTranslated.trim() && forcedRestored.trim()) {
+          forcedTranslated = postProcessTranslatedText(forcedRestored, srcCode, tgtCode);
+          if (tgtCode === "ar") forcedTranslated = polishArabicTranslationOutput(forcedTranslated);
+        }
+        const nonEmptyForced = await finalizeNonEmptyMachineOutput(forcedTranslated);
+        if (nonEmptyForced.trim() && !looksLikeSourceEcho(phraseNormalized, nonEmptyForced)) {
+          translated = nonEmptyForced;
+        } else {
+          translated = "";
+        }
+      }
       const appliedMt: string[] = [];
       let outMt = translated;
       const applyUserGlossaryMt =

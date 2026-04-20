@@ -658,8 +658,9 @@ async function translateViaPrimaryApi(
   const isFinal = Boolean(options?.isFinal);
   // Live: one retry on transient errors; timeouts scale with length so long turns are not cut off mid-stream.
   const MAX_ATTEMPTS = isFinal ? 2 : 2;
-  // Long cumulative live strings — allow full 30s per attempt (product: coverage over cost).
-  const REQUEST_TIMEOUT_MS = 30_000;
+  // Private Libre may spend ~10-15s loading unseen language models on first request.
+  // Keep client timeout high enough to avoid false "disappearing" failures on warm-up.
+  const REQUEST_TIMEOUT_MS = 55_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",

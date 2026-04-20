@@ -3,8 +3,6 @@ import { logger } from "./logger.js";
 
 /** **Final Boss 3 · Libre** — LibreTranslate HTTP client (host rotation, lang normalization). Paired with `basic-pro-translate.ts`. */
 
-const LIBRE_API_KEY = process.env.LIBRETRANSLATE_API_KEY?.trim();
-
 function normalizeLibreBase(raw: string | undefined): string | undefined {
   const v = raw?.trim();
   if (!v) return undefined;
@@ -20,7 +18,7 @@ const CONFIGURED_BASE = normalizeLibreBase(process.env.LIBRETRANSLATE_URL);
  * @see https://docs.libretranslate.com/community/mirrors/
  */
 const DEFAULT_FREE_LIBRE_BASES = [
-  "https://libretranslatelibretranslate-production-f84d.up.railway.app",
+  "https://libretranslate-production-f84d.up.railway.app",
   "https://translate.fedilab.app",
   "https://translate.cutie.dating",
   "https://translate.argosopentech.com",
@@ -28,7 +26,9 @@ const DEFAULT_FREE_LIBRE_BASES = [
   "https://translate.astian.org",
 ] as const;
 
-const PER_HOST_TIMEOUT_MS = 22_000;
+// Private Railway Libre can take 10-15s on first unseen language model load.
+// Keep generous timeout so first call doesn't fail/blank while model downloads.
+const PER_HOST_TIMEOUT_MS = 45_000;
 
 /** Map common BCP-47 tags to LibreTranslate API language codes. */
 function normalizeLibreLang(code: string): string {
@@ -55,7 +55,6 @@ async function callLibreTranslateAtBase(
     target: tgt,
     format: "text",
   };
-  if (LIBRE_API_KEY) body.api_key = LIBRE_API_KEY;
 
   const res = await axios.post<{ translatedText?: string; error?: string }>(
     `${baseUrl}/translate`,
@@ -140,7 +139,7 @@ export function logLibreMachineTranslationStartupHint(): void {
   if (CONFIGURED_BASE) {
     logger.info(
       { base: CONFIGURED_BASE },
-      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL). API key is optional for private servers.",
+      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL). API key is not used for private server calls.",
     );
   } else {
     logger.info(
