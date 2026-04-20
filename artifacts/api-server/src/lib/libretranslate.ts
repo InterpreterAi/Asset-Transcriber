@@ -20,7 +20,25 @@ const DEFAULT_FREE_LIBRE_BASES = [
   "https://translate.astian.org",
 ] as const;
 
-const PER_HOST_TIMEOUT_MS = 22_000;
+/**
+ * Keep per-host timeout below client translate request timeout (30s) so a single
+ * slow public mirror does not make live segments appear "missing" in Libre tiers.
+ */
+const PER_HOST_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.LIBRETRANSLATE_TIMEOUT_MS ?? "");
+  if (!Number.isFinite(raw) || raw <= 0) return 8_000;
+  return Math.max(2_000, Math.min(20_000, Math.floor(raw)));
+})();
+
+/**
+ * Limit how many public mirrors we probe per request. Prevents long cascades
+ * across many dead mirrors that would otherwise outlive frontend timeout windows.
+ */
+const MAX_PUBLIC_BASES_PER_REQUEST = (() => {
+  const raw = Number(process.env.LIBRETRANSLATE_MAX_BASES_PER_REQUEST ?? "");
+  if (!Number.isFinite(raw) || raw <= 0) return 3;
+  return Math.max(1, Math.min(6, Math.floor(raw)));
+})();
 
 /** Map common BCP-47 tags to LibreTranslate API language codes. */
 function normalizeLibreLang(code: string): string {
@@ -109,9 +127,10 @@ async function callLibreTranslateOneHost(
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise DEFAULT_FREE_LIBRE_BASES are tried in order.
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
+  const freeFallbackBases = DEFAULT_FREE_LIBRE_BASES.slice(0, MAX_PUBLIC_BASES_PER_REQUEST);
   const bases: string[] = CONFIGURED_BASE
-    ? [CONFIGURED_BASE, ...DEFAULT_FREE_LIBRE_BASES.filter((b) => b !== CONFIGURED_BASE)]
-    : [...DEFAULT_FREE_LIBRE_BASES];
+    ? [CONFIGURED_BASE, ...freeFallbackBases.filter((b) => b !== CONFIGURED_BASE)]
+    : freeFallbackBases;
 
   let lastErr: unknown;
   for (const base of bases) {
