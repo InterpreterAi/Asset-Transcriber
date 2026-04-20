@@ -2219,7 +2219,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
-    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    // Sticky translation state: on speaker_change keep prior segment request alive
+    // until final text is committed, so we don't clear/lose previous row mid-switch.
+    if (closeKind === "session_end") {
+      activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    }
     currentSpeakerRef.current = undefined;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;

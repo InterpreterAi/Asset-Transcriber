@@ -21,6 +21,7 @@ export type TranslateBasicProfessionalOpts = {
    * smooth awkward machine phrasing. Skipped on failure; guarded so we never swap in empty/garbled text.
    */
   refineNonEnglishToEnglishFinal?: boolean;
+  signal?: AbortSignal;
 };
 
 /**
@@ -31,10 +32,11 @@ export async function translatePlainMachine(
   plain: string,
   sourceLang: string,
   targetLang: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-  return callLibreTranslate(t, sourceLang, targetLang);
+  return callLibreTranslate(t, sourceLang, targetLang, signal);
 }
 
 /** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */
@@ -125,7 +127,7 @@ export async function translateBasicProfessional(
   const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
   const srcBase = (sourceLang.split("-")[0] ?? "").toLowerCase();
   const tgtBase = (targetLang.split("-")[0] ?? "").toLowerCase();
-  let out = await translatePlainMachine(mtInput, sourceLang, targetLang);
+  let out = await translatePlainMachine(mtInput, sourceLang, targetLang, opts?.signal);
   if (
     opts?.refineNonEnglishToEnglishFinal &&
     tgtBase === "en" &&
@@ -134,7 +136,7 @@ export async function translateBasicProfessional(
   ) {
     const candidates: string[] = [out];
     try {
-      const polished = await translatePlainMachine(out.trim(), "auto", "en");
+      const polished = await translatePlainMachine(out.trim(), "auto", "en", opts?.signal);
       if (libreEnglishRefineLooksSafe(out, polished)) {
         candidates.push(polished);
       }
@@ -143,7 +145,7 @@ export async function translateBasicProfessional(
     }
     // Rescue path for wrong/uncertain source tags: ask Libre to detect from original text directly.
     try {
-      const autoFromSource = await translatePlainMachine(mtInput, "auto", "en");
+      const autoFromSource = await translatePlainMachine(mtInput, "auto", "en", opts?.signal);
       if (libreEnglishRefineLooksSafe(out, autoFromSource)) {
         candidates.push(autoFromSource);
       }
@@ -157,7 +159,7 @@ export async function translateBasicProfessional(
   // Enforce opposite-language output: if Libre echoes the source, force auto-detect from original source text.
   if (srcBase !== tgtBase && looksLikeSourceEcho(mtInput, out)) {
     try {
-      const forced = await translatePlainMachine(mtInput, "auto", targetLang);
+      const forced = await translatePlainMachine(mtInput, "auto", targetLang, opts?.signal);
       if (collapseWs(forced) && !looksLikeSourceEcho(mtInput, forced)) {
         out = forced;
       }

@@ -10,7 +10,9 @@ function normalizeLibreBase(raw: string | undefined): string | undefined {
   return withScheme.replace(/\/$/, "");
 }
 
-const CONFIGURED_BASE = normalizeLibreBase(process.env.LIBRETRANSLATE_URL);
+const CONFIGURED_BASE = normalizeLibreBase(
+  process.env.LIBRETRANSLATE_INTERNAL_URL ?? process.env.LIBRETRANSLATE_URL,
+);
 const PRELOADED_LANGS = new Set(
   (process.env.LIBRETRANSLATE_PRELOADED_LANGS ?? "en,ar,es,fr,de,it")
     .split(",")
@@ -63,6 +65,7 @@ async function callLibreTranslateAtBase(
   source: string,
   target: string,
   sourceMode: "explicit" | "auto",
+  signal?: AbortSignal,
 ): Promise<string> {
   const tgt = normalizeLibreLang(target);
   const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(source);
@@ -78,6 +81,7 @@ async function callLibreTranslateAtBase(
     body,
     {
       timeout: PER_HOST_TIMEOUT_MS,
+      signal,
       validateStatus: () => true,
       headers: {
         "Content-Type": "application/json",
@@ -117,18 +121,36 @@ async function callLibreTranslateOneHost(
   text: string,
   source: string,
   target: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   try {
-    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit");
+    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit", signal);
   } catch (errExplicit) {
     if (normalizeLibreLang(source) === normalizeLibreLang(target)) {
       throw errExplicit;
     }
     try {
-      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
+      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto", signal);
     } catch (errAuto) {
       throw errAuto;
     }
+  }
+}
+
+let libreQueueTail: Promise<void> = Promise.resolve();
+
+async function enqueueLibre<T>(task: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prev = libreQueueTail;
+  libreQueueTail = prev.then(() => next, () => next);
+  await prev;
+  try {
+    return await task();
+  } finally {
+    release();
   }
 }
 
@@ -136,7 +158,12 @@ async function callLibreTranslateOneHost(
  * LibreTranslate hosts. Tries each base until one succeeds.
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise defaults are tried in order.
  */
-export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
+export async function callLibreTranslate(
+  text: string,
+  source: string,
+  target: string,
+  signal?: AbortSignal,
+): Promise<string> {
   // Private Railway memory guard: never trigger on-demand model downloads for non-preloaded languages.
   assertPreloadedPair(source, target);
   const bases: string[] = CONFIGURED_BASE
@@ -144,17 +171,22 @@ export async function callLibreTranslate(text: string, source: string, target: s
     : [...DEFAULT_FREE_LIBRE_BASES];
 
   let lastErr: unknown;
-  for (const base of bases) {
-    try {
-      return await callLibreTranslateOneHost(base, text, source, target);
-    } catch (err) {
-      lastErr = err;
-      if (bases.length > 1) {
-        logger.warn({ err, base }, "LibreTranslate host failed; trying next free endpoint");
+  return enqueueLibre(async () => {
+    for (const base of bases) {
+      if (signal?.aborted) {
+        throw new Error("LibreTranslate request aborted");
+      }
+      try {
+        return await callLibreTranslateOneHost(base, text, source, target, signal);
+      } catch (err) {
+        lastErr = err;
+        if (bases.length > 1) {
+          logger.warn({ err, base }, "LibreTranslate host failed; trying next free endpoint");
+        }
       }
     }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("LibreTranslate: all endpoints failed");
+    throw lastErr instanceof Error ? lastErr : new Error("LibreTranslate: all endpoints failed");
+  });
 }
 
 /** Startup hint: *-libre tiers use LibreTranslate only (no Google Cloud Translation). */

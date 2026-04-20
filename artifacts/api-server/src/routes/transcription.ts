@@ -1620,8 +1620,13 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Final Boss 3 · Libre — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
   // Personal glossary strict pass: finalized segments only, and only if the user has at least one entry.
   if (useMachineTranslation) {
+    const libreAbortController = new AbortController();
+    req.on("close", () => {
+      if (!res.writableEnded) libreAbortController.abort();
+    });
     const libreEnRefineOpts = {
       refineNonEnglishToEnglishFinal: isFinalSegment && tgtCode === "en" && srcCode !== "en",
+      signal: libreAbortController.signal,
     };
     const normalizeForEchoCompare = (s: string) =>
       s.replace(/\s+/g, " ").trim().toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
