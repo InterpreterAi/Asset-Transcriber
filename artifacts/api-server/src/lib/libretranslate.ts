@@ -20,7 +20,18 @@ const DEFAULT_FREE_LIBRE_BASES = [
   "https://translate.astian.org",
 ] as const;
 
-const PER_HOST_TIMEOUT_MS = 22_000;
+function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+/**
+ * Keep Libre fast enough to return (or failover) before client request timeout.
+ * Slow mirrors should not block the whole live segment.
+ */
+const PER_HOST_TIMEOUT_MS = clampInt(process.env.LIBRETRANSLATE_TIMEOUT_MS, 5_000, 1_500, 15_000);
+const TOTAL_REQUEST_TIMEOUT_MS = clampInt(process.env.LIBRETRANSLATE_TOTAL_TIMEOUT_MS, 12_000, 3_000, 28_000);
 
 /** Map common BCP-47 tags to LibreTranslate API language codes. */
 function normalizeLibreLang(code: string): string {
@@ -38,6 +49,7 @@ async function callLibreTranslateAtBase(
   source: string,
   target: string,
   sourceMode: "explicit" | "auto",
+  timeoutMs: number,
 ): Promise<string> {
   const tgt = normalizeLibreLang(target);
   const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(source);
@@ -53,7 +65,7 @@ async function callLibreTranslateAtBase(
     `${baseUrl}/translate`,
     body,
     {
-      timeout: PER_HOST_TIMEOUT_MS,
+      timeout: timeoutMs,
       validateStatus: () => true,
       headers: {
         "Content-Type": "application/json",
@@ -89,15 +101,20 @@ async function callLibreTranslateOneHost(
   text: string,
   source: string,
   target: string,
+  deadlineAtMs: number,
 ): Promise<string> {
+  const remainingMs = (): number => Math.max(600, Math.min(PER_HOST_TIMEOUT_MS, deadlineAtMs - Date.now()));
   try {
-    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit");
+    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit", remainingMs());
   } catch (errExplicit) {
     if (normalizeLibreLang(source) === normalizeLibreLang(target)) {
       throw errExplicit;
     }
+    if (Date.now() >= deadlineAtMs) {
+      throw errExplicit;
+    }
     try {
-      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
+      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto", remainingMs());
     } catch (errAuto) {
       throw errAuto;
     }
@@ -109,14 +126,16 @@ async function callLibreTranslateOneHost(
  * Set LIBRETRANSLATE_URL to pin one instance first; otherwise DEFAULT_FREE_LIBRE_BASES are tried in order.
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
+  const deadlineAtMs = Date.now() + TOTAL_REQUEST_TIMEOUT_MS;
   const bases: string[] = CONFIGURED_BASE
     ? [CONFIGURED_BASE, ...DEFAULT_FREE_LIBRE_BASES.filter((b) => b !== CONFIGURED_BASE)]
     : [...DEFAULT_FREE_LIBRE_BASES];
 
   let lastErr: unknown;
   for (const base of bases) {
+    if (Date.now() >= deadlineAtMs) break;
     try {
-      return await callLibreTranslateOneHost(base, text, source, target);
+      return await callLibreTranslateOneHost(base, text, source, target, deadlineAtMs);
     } catch (err) {
       lastErr = err;
       if (bases.length > 1) {
