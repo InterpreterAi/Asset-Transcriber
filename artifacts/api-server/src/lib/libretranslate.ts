@@ -24,7 +24,7 @@ const PRELOADED_LANGS = new Set(
  * @see https://docs.libretranslate.com/community/mirrors/
  */
 const DEFAULT_FREE_LIBRE_BASES = [
-  "https://libretranslate-production-f84d.up.railway.app",
+  "https://libretranslatelibretranslate-production-f84d.up.railway.app",
   "https://translate.fedilab.app",
   "https://translate.cutie.dating",
   "https://translate.argosopentech.com",
@@ -87,6 +87,10 @@ async function callLibreTranslateAtBase(
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     },
+  );
+  logger.info(
+    { baseUrl, source: src, target: tgt, status: res.status },
+    "LibreTranslate API response",
   );
 
   if (res.status !== 200) {

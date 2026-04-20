@@ -647,6 +647,9 @@ type TranslateApiOptions = {
   isFinal?: boolean;
   /** Abort stops this request (superseded live translate or segment teardown). */
   signal?: AbortSignal;
+  /** Diagnostics context for server-side per-segment tracing. */
+  sessionId?: number;
+  segmentId?: string;
 };
 
 async function translateViaPrimaryApi(
@@ -660,7 +663,7 @@ async function translateViaPrimaryApi(
   const MAX_ATTEMPTS = isFinal ? 2 : 2;
   // Private Libre may spend ~10-15s loading unseen language models on first request.
   // Keep client timeout high enough to avoid false "disappearing" failures on warm-up.
-  const REQUEST_TIMEOUT_MS = 55_000;
+  const REQUEST_TIMEOUT_MS = 120_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",
@@ -692,6 +695,8 @@ async function translateViaPrimaryApi(
           text,
           srcLang:        sourceLang,
           tgtLang:        targetLang,
+          sessionId:      options?.sessionId,
+          segmentId:      options?.segmentId,
           streamingDelta: Boolean(options?.streamingDelta),
           isFinal:        Boolean(options?.isFinal),
           glossaryStrictMode: readGlossaryStrictEnabled(),
@@ -1801,6 +1806,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
+        const ensureNonBlankTranslationUi = (): void => {
+          if (!transTextEl.isConnected) return;
+          const shown = (transTextEl.textContent ?? "").trim();
+          if (shown && shown !== "…") return;
+          applyTranslationTypography(transTextEl, "Retrying translation…");
+        };
         const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
         let translationEngineHint: TranslationEngineHint | undefined;
@@ -1826,6 +1837,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
               isFinal: requestIsFinal,
               signal:   liveAbortForThisRequest?.signal,
+              sessionId: sessionIdRef.current ?? undefined,
+              segmentId: requestSegmentId,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
             },
           );
@@ -1846,7 +1859,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             dispatchLang,
             myTargetLang,
             (m) => translationConfigReporterRef.current(m),
-            { streamingDelta: false, isFinal: true, onGlossaryApplied: t => glossaryNotifyRef.current(t) },
+            {
+              streamingDelta: false,
+              isFinal: true,
+              sessionId: sessionIdRef.current ?? undefined,
+              segmentId: requestSegmentId,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+            },
           );
           if (trRetry.dailyLimitReached) {
             dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
@@ -1856,6 +1875,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
         }
         if (!translated?.trim()) {
+          ensureNonBlankTranslationUi();
           return;
         }
 
@@ -1970,7 +1990,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         scrollPanel();
       } catch {
-        /* HIPAA — never log speech context */
+        // Keep translation cell stable on failures; never leave blank while source text exists.
+        if (transTextEl.isConnected) {
+          const shown = (transTextEl.textContent ?? "").trim();
+          if (!shown || shown === "…") {
+            applyTranslationTypography(transTextEl, "Retrying translation…");
+          }
+        }
       } finally {
         if (
           !isFinal &&
