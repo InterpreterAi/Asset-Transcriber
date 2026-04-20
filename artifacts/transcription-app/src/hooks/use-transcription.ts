@@ -1304,9 +1304,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Tuned for earlier first paint without extra final polish passes. */
   const EARLY_HINT_MIN_WORDS = 8;
   const LIVE_PREVIEW_WORD_STEP = 6;
-  /** Rescue path: if source grows but translation cell is still blank, nudge a live preview sooner (throttled). */
-  const EMPTY_CELL_HINT_MIN_WORDS = 4;
-  const EMPTY_CELL_HINT_RETRY_MS = 900;
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -2573,29 +2570,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
         st.earlyHintSent = true;
         st.lastPreviewWordsSent = wordsNow;
-      }
-
-      // If a segment is still speaking and the translation column stayed blank,
-      // don't wait for speaker change/endpoint to show the first translation.
-      if (
-        st &&
-        !st.translationLocked &&
-        !st.finalizing &&
-        hintSource.length >= 12 &&
-        wordsNow >= EMPTY_CELL_HINT_MIN_WORDS &&
-        !translationCellLooksFilled(st.transTextEl)
-      ) {
-        const nowMs = Date.now();
-        const enoughFinalsForRescue = st.finalTokensSeen >= 1;
-        const sourceStableBriefly = nowMs - st.lastLiveSourceTs >= 700;
-        if (
-          nowMs - st.lastEmptyCellHintDispatchAtMs >= EMPTY_CELL_HINT_RETRY_MS &&
-          (enoughFinalsForRescue || sourceStableBriefly)
-        ) {
-          const lang = st.segmentSourceLang ?? detectedLangRef.current;
-          scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
-          st.lastEmptyCellHintDispatchAtMs = nowMs;
-        }
       }
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
