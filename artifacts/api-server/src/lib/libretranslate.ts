@@ -19,6 +19,10 @@ const PRELOADED_LANGS = new Set(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
 );
+const LIBRE_MAX_CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(process.env.LIBRETRANSLATE_MAX_CONCURRENCY ?? "2", 10) || 2,
+);
 
 /**
  * Free public LibreTranslate-compatible HTTPS roots (no API key).
@@ -137,20 +141,37 @@ async function callLibreTranslateOneHost(
   }
 }
 
-let libreQueueTail: Promise<void> = Promise.resolve();
+let libreInFlight = 0;
+const libreWaiters: Array<() => void> = [];
 
-async function enqueueLibre<T>(task: () => Promise<T>): Promise<T> {
-  let release!: () => void;
-  const next = new Promise<void>((resolve) => {
-    release = resolve;
+async function acquireLibreSlot(signal?: AbortSignal): Promise<void> {
+  if (libreInFlight < LIBRE_MAX_CONCURRENCY) {
+    libreInFlight += 1;
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const wake = () => resolve();
+    libreWaiters.push(wake);
+    if (signal) {
+      signal.addEventListener("abort", () => reject(new Error("LibreTranslate request aborted")), { once: true });
+    }
   });
-  const prev = libreQueueTail;
-  libreQueueTail = prev.then(() => next, () => next);
-  await prev;
+  if (signal?.aborted) throw new Error("LibreTranslate request aborted");
+  libreInFlight += 1;
+}
+
+function releaseLibreSlot(): void {
+  libreInFlight = Math.max(0, libreInFlight - 1);
+  const next = libreWaiters.shift();
+  if (next) next();
+}
+
+async function enqueueLibre<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  await acquireLibreSlot(signal);
   try {
     return await task();
   } finally {
-    release();
+    releaseLibreSlot();
   }
 }
 
@@ -186,7 +207,7 @@ export async function callLibreTranslate(
       }
     }
     throw lastErr instanceof Error ? lastErr : new Error("LibreTranslate: all endpoints failed");
-  });
+  }, signal);
 }
 
 /** Startup hint: *-libre tiers use LibreTranslate only (no Google Cloud Translation). */
@@ -194,11 +215,35 @@ export function logLibreMachineTranslationStartupHint(): void {
   if (CONFIGURED_BASE) {
     logger.info(
       { base: CONFIGURED_BASE },
-      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL). API key is not used for private server calls.",
+      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL/internal). API key is not used for private server calls.",
     );
   } else {
     logger.info(
       "*-libre machine translation uses default LibreTranslate endpoints (private Railway first); set LIBRETRANSLATE_URL to pin an instance.",
     );
   }
+}
+
+let prewarmStarted = false;
+export function prewarmLibreTranslatePairs(): void {
+  if (prewarmStarted) return;
+  prewarmStarted = true;
+  const jobs: Array<[string, string, string]> = [
+    ["Warmup: hello", "en", "ar"],
+    ["Warmup: hello", "en", "es"],
+    ["Warmup: hello", "en", "pl"],
+    ["إحماء", "ar", "en"],
+    ["Calentamiento", "es", "en"],
+    ["Rozgrzewka", "pl", "en"],
+  ];
+  void (async () => {
+    for (const [q, src, tgt] of jobs) {
+      try {
+        await callLibreTranslate(q, src, tgt);
+      } catch (err) {
+        logger.warn({ err, src, tgt }, "Libre prewarm pair failed");
+      }
+    }
+    logger.info({ pairs: jobs.length }, "Libre prewarm finished");
+  })();
 }

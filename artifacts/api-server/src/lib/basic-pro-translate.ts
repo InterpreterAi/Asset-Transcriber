@@ -39,15 +39,9 @@ export async function translatePlainMachine(
   return callLibreTranslate(t, sourceLang, targetLang, signal);
 }
 
-/** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */
-function expandNumPlaceholdersToDigits(text: string, slotToDigits: Map<number, string>): string {
-  if (slotToDigits.size === 0) return text;
-  let out = text;
-  const slots = [...slotToDigits.entries()].sort((a, b) => b[0] - a[0]);
-  for (const [n, digits] of slots) {
-    out = out.replace(new RegExp(`NUM_${n}(?!\\d)`, "g"), () => digits);
-  }
-  return out;
+/** Keep NUM_n placeholders while calling Libre; they are restored server-side after translation. */
+function keepNumberPlaceholdersForLibre(text: string): string {
+  return text;
 }
 
 function collapseWs(s: string): string {
@@ -124,7 +118,8 @@ export async function translateBasicProfessional(
   slotToDigits: Map<number, string>,
   opts?: TranslateBasicProfessionalOpts,
 ): Promise<string> {
-  const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
+  void slotToDigits;
+  const mtInput = keepNumberPlaceholdersForLibre(text);
   const srcBase = (sourceLang.split("-")[0] ?? "").toLowerCase();
   const tgtBase = (targetLang.split("-")[0] ?? "").toLowerCase();
   let out = await translatePlainMachine(mtInput, sourceLang, targetLang, opts?.signal);

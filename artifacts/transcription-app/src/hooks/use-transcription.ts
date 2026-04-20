@@ -1274,6 +1274,9 @@ interface BubbleTransState {
    * with a partial translation still on screen.
    */
   needsFullFinalTranslation: boolean;
+  /** Dedupes duplicate sends while the same segment request is still pending. */
+  pendingRequestKey: string | null;
+  pendingRequestStartedAtMs: number;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1803,6 +1806,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     state.seq += 1;
     const mySeq = state.seq;
     const adminBufRowIdx = options?.adminSnapshotLineIndex;
+    const requestKey = `${requestSegmentId}|${requestIsFinal ? "final" : "live"}|${collapseWs(apiText)}`;
+    if (
+      state.pendingRequestKey === requestKey &&
+      Date.now() - state.pendingRequestStartedAtMs < 120_000
+    ) {
+      return;
+    }
+    state.pendingRequestKey = requestKey;
+    state.pendingRequestStartedAtMs = Date.now();
 
     void (async () => {
       try {
@@ -1998,6 +2010,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
       } finally {
+        if (state.pendingRequestKey === requestKey) {
+          state.pendingRequestKey = null;
+          state.pendingRequestStartedAtMs = 0;
+        }
         if (
           !isFinal &&
           liveAbortForThisRequest &&
@@ -2115,6 +2131,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
+      pendingRequestKey: null,
+      pendingRequestStartedAtMs: 0,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
