@@ -647,9 +647,6 @@ type TranslateApiOptions = {
   isFinal?: boolean;
   /** Abort stops this request (superseded live translate or segment teardown). */
   signal?: AbortSignal;
-  /** Diagnostics context for server-side per-segment tracing. */
-  sessionId?: number;
-  segmentId?: string;
 };
 
 async function translateViaPrimaryApi(
@@ -661,9 +658,8 @@ async function translateViaPrimaryApi(
   const isFinal = Boolean(options?.isFinal);
   // Live: one retry on transient errors; timeouts scale with length so long turns are not cut off mid-stream.
   const MAX_ATTEMPTS = isFinal ? 2 : 2;
-  // Private Libre may spend ~10-15s loading unseen language models on first request.
-  // Keep client timeout high enough to avoid false "disappearing" failures on warm-up.
-  const REQUEST_TIMEOUT_MS = 120_000;
+  // Long cumulative live strings — allow full 30s per attempt (product: coverage over cost).
+  const REQUEST_TIMEOUT_MS = 30_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",
@@ -695,8 +691,6 @@ async function translateViaPrimaryApi(
           text,
           srcLang:        sourceLang,
           tgtLang:        targetLang,
-          sessionId:      options?.sessionId,
-          segmentId:      options?.segmentId,
           streamingDelta: Boolean(options?.streamingDelta),
           isFinal:        Boolean(options?.isFinal),
           glossaryStrictMode: readGlossaryStrictEnabled(),
@@ -1274,9 +1268,6 @@ interface BubbleTransState {
    * with a partial translation still on screen.
    */
   needsFullFinalTranslation: boolean;
-  /** Dedupes duplicate sends while the same segment request is still pending. */
-  pendingRequestKey: string | null;
-  pendingRequestStartedAtMs: number;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1806,24 +1797,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     state.seq += 1;
     const mySeq = state.seq;
     const adminBufRowIdx = options?.adminSnapshotLineIndex;
-    const requestKey = `${requestSegmentId}|${requestIsFinal ? "final" : "live"}|${collapseWs(apiText)}`;
-    if (
-      state.pendingRequestKey === requestKey &&
-      Date.now() - state.pendingRequestStartedAtMs < 120_000
-    ) {
-      return;
-    }
-    state.pendingRequestKey = requestKey;
-    state.pendingRequestStartedAtMs = Date.now();
 
     void (async () => {
       try {
-        const ensureNonBlankTranslationUi = (): void => {
-          if (!transTextEl.isConnected) return;
-          const shown = (transTextEl.textContent ?? "").trim();
-          if (shown && shown !== "…") return;
-          applyTranslationTypography(transTextEl, "Retrying translation…");
-        };
         const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
         let translationEngineHint: TranslationEngineHint | undefined;
@@ -1849,8 +1825,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               fullSegmentForFallback: useStreamingDelta && !requestIsFinal ? text : undefined,
               isFinal: requestIsFinal,
               signal:   liveAbortForThisRequest?.signal,
-              sessionId: sessionIdRef.current ?? undefined,
-              segmentId: requestSegmentId,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
             },
           );
@@ -1874,8 +1848,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             {
               streamingDelta: false,
               isFinal: true,
-              sessionId: sessionIdRef.current ?? undefined,
-              segmentId: requestSegmentId,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
             },
           );
@@ -1887,7 +1859,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
         }
         if (!translated?.trim()) {
-          ensureNonBlankTranslationUi();
           return;
         }
 
@@ -2002,18 +1973,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         scrollPanel();
       } catch {
-        // Keep translation cell stable on failures; never leave blank while source text exists.
-        if (transTextEl.isConnected) {
-          const shown = (transTextEl.textContent ?? "").trim();
-          if (!shown || shown === "…") {
-            applyTranslationTypography(transTextEl, "Retrying translation…");
-          }
-        }
+        /* HIPAA — never log speech context */
       } finally {
-        if (state.pendingRequestKey === requestKey) {
-          state.pendingRequestKey = null;
-          state.pendingRequestStartedAtMs = 0;
-        }
         if (
           !isFinal &&
           liveAbortForThisRequest &&
@@ -2131,8 +2092,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
-      pendingRequestKey: null,
-      pendingRequestStartedAtMs: 0,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
