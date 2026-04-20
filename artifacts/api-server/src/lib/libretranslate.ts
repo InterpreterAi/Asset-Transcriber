@@ -13,16 +13,6 @@ function normalizeLibreBase(raw: string | undefined): string | undefined {
 const CONFIGURED_BASE = normalizeLibreBase(
   process.env.LIBRETRANSLATE_INTERNAL_URL ?? process.env.LIBRETRANSLATE_URL,
 );
-const PRELOADED_LANGS = new Set(
-  (process.env.LIBRETRANSLATE_PRELOADED_LANGS ?? "en,ar,es,fr,de,it")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean),
-);
-const LIBRE_MAX_CONCURRENCY = Math.max(
-  1,
-  Number.parseInt(process.env.LIBRETRANSLATE_MAX_CONCURRENCY ?? "2", 10) || 2,
-);
 
 /**
  * Free public LibreTranslate-compatible HTTPS roots (no API key).
@@ -30,7 +20,7 @@ const LIBRE_MAX_CONCURRENCY = Math.max(
  * @see https://docs.libretranslate.com/community/mirrors/
  */
 const DEFAULT_FREE_LIBRE_BASES = [
-  "https://libretranslatelibretranslate-production-f84d.up.railway.app",
+  "https://libretranslate.com",
   "https://translate.fedilab.app",
   "https://translate.cutie.dating",
   "https://translate.argosopentech.com",
@@ -38,9 +28,7 @@ const DEFAULT_FREE_LIBRE_BASES = [
   "https://translate.astian.org",
 ] as const;
 
-// Private Railway Libre can take 10-15s on first unseen language model load.
-// Keep generous timeout so first call doesn't fail/blank while model downloads.
-const PER_HOST_TIMEOUT_MS = 45_000;
+const PER_HOST_TIMEOUT_MS = 22_000;
 
 /** Map common BCP-47 tags to LibreTranslate API language codes. */
 function normalizeLibreLang(code: string): string {
@@ -52,24 +40,12 @@ function normalizeLibreLang(code: string): string {
   return base;
 }
 
-function assertPreloadedPair(source: string, target: string): void {
-  const src = normalizeLibreLang(source);
-  const tgt = normalizeLibreLang(target);
-  if (!PRELOADED_LANGS.has(src) || !PRELOADED_LANGS.has(tgt)) {
-    throw new Error(
-      `LibreTranslate language pair not preloaded on private server: ${src}->${tgt}. ` +
-      `Allowed languages: ${[...PRELOADED_LANGS].join(",")}`,
-    );
-  }
-}
-
 async function callLibreTranslateAtBase(
   baseUrl: string,
   text: string,
   source: string,
   target: string,
   sourceMode: "explicit" | "auto",
-  signal?: AbortSignal,
 ): Promise<string> {
   const tgt = normalizeLibreLang(target);
   const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(source);
@@ -85,7 +61,6 @@ async function callLibreTranslateAtBase(
     body,
     {
       timeout: PER_HOST_TIMEOUT_MS,
-      signal,
       validateStatus: () => true,
       headers: {
         "Content-Type": "application/json",
@@ -120,58 +95,18 @@ async function callLibreTranslateAtBase(
 }
 
 /** One host: explicit source first, then `source=auto` if the instance supports it (common for STT code drift). */
-async function callLibreTranslateOneHost(
-  baseUrl: string,
-  text: string,
-  source: string,
-  target: string,
-  signal?: AbortSignal,
-): Promise<string> {
+async function callLibreTranslateOneHost(baseUrl: string, text: string, source: string, target: string): Promise<string> {
   try {
-    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit", signal);
+    return await callLibreTranslateAtBase(baseUrl, text, source, target, "explicit");
   } catch (errExplicit) {
     if (normalizeLibreLang(source) === normalizeLibreLang(target)) {
       throw errExplicit;
     }
     try {
-      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto", signal);
+      return await callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
     } catch (errAuto) {
       throw errAuto;
     }
-  }
-}
-
-let libreInFlight = 0;
-const libreWaiters: Array<() => void> = [];
-
-async function acquireLibreSlot(signal?: AbortSignal): Promise<void> {
-  if (libreInFlight < LIBRE_MAX_CONCURRENCY) {
-    libreInFlight += 1;
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const wake = () => resolve();
-    libreWaiters.push(wake);
-    if (signal) {
-      signal.addEventListener("abort", () => reject(new Error("LibreTranslate request aborted")), { once: true });
-    }
-  });
-  if (signal?.aborted) throw new Error("LibreTranslate request aborted");
-  libreInFlight += 1;
-}
-
-function releaseLibreSlot(): void {
-  libreInFlight = Math.max(0, libreInFlight - 1);
-  const next = libreWaiters.shift();
-  if (next) next();
-}
-
-async function enqueueLibre<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-  await acquireLibreSlot(signal);
-  try {
-    return await task();
-  } finally {
-    releaseLibreSlot();
   }
 }
 
@@ -183,31 +118,23 @@ export async function callLibreTranslate(
   text: string,
   source: string,
   target: string,
-  signal?: AbortSignal,
 ): Promise<string> {
-  // Private Railway memory guard: never trigger on-demand model downloads for non-preloaded languages.
-  assertPreloadedPair(source, target);
   const bases: string[] = CONFIGURED_BASE
     ? [CONFIGURED_BASE]
     : [...DEFAULT_FREE_LIBRE_BASES];
 
   let lastErr: unknown;
-  return enqueueLibre(async () => {
-    for (const base of bases) {
-      if (signal?.aborted) {
-        throw new Error("LibreTranslate request aborted");
-      }
-      try {
-        return await callLibreTranslateOneHost(base, text, source, target, signal);
-      } catch (err) {
-        lastErr = err;
-        if (bases.length > 1) {
-          logger.warn({ err, base }, "LibreTranslate host failed; trying next free endpoint");
-        }
+  for (const base of bases) {
+    try {
+      return await callLibreTranslateOneHost(base, text, source, target);
+    } catch (err) {
+      lastErr = err;
+      if (bases.length > 1) {
+        logger.warn({ err, base }, "LibreTranslate host failed; trying next free endpoint");
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error("LibreTranslate: all endpoints failed");
-  }, signal);
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("LibreTranslate: all endpoints failed");
 }
 
 /** Startup hint: *-libre tiers use LibreTranslate only (no Google Cloud Translation). */
@@ -215,35 +142,11 @@ export function logLibreMachineTranslationStartupHint(): void {
   if (CONFIGURED_BASE) {
     logger.info(
       { base: CONFIGURED_BASE },
-      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL/internal). API key is not used for private server calls.",
+      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL/internal).",
     );
   } else {
     logger.info(
       "*-libre machine translation uses default LibreTranslate endpoints (private Railway first); set LIBRETRANSLATE_URL to pin an instance.",
     );
   }
-}
-
-let prewarmStarted = false;
-export function prewarmLibreTranslatePairs(): void {
-  if (prewarmStarted) return;
-  prewarmStarted = true;
-  const jobs: Array<[string, string, string]> = [
-    ["Warmup: hello", "en", "ar"],
-    ["Warmup: hello", "en", "es"],
-    ["Warmup: hello", "en", "pl"],
-    ["إحماء", "ar", "en"],
-    ["Calentamiento", "es", "en"],
-    ["Rozgrzewka", "pl", "en"],
-  ];
-  void (async () => {
-    for (const [q, src, tgt] of jobs) {
-      try {
-        await callLibreTranslate(q, src, tgt);
-      } catch (err) {
-        logger.warn({ err, src, tgt }, "Libre prewarm pair failed");
-      }
-    }
-    logger.info({ pairs: jobs.length }, "Libre prewarm finished");
-  })();
 }

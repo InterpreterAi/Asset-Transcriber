@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
-import { callMyMemoryTranslate } from "../lib/mymemory-translate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -1620,59 +1619,6 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Final Boss 3 · Libre — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
   // Personal glossary strict pass: finalized segments only, and only if the user has at least one entry.
   if (useMachineTranslation) {
-    const libreAbortController = new AbortController();
-    req.on("close", () => {
-      if (!res.writableEnded) libreAbortController.abort();
-    });
-    const libreEnRefineOpts = {
-      refineNonEnglishToEnglishFinal: isFinalSegment && tgtCode === "en" && srcCode !== "en",
-      signal: libreAbortController.signal,
-    };
-    const normalizeForEchoCompare = (s: string) =>
-      s.replace(/\s+/g, " ").trim().toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
-    const tokenOverlapRatio = (a: string, b: string): number => {
-      const ta = normalizeForEchoCompare(a).split(/\s+/).filter(Boolean);
-      const tb = normalizeForEchoCompare(b).split(/\s+/).filter(Boolean);
-      if (ta.length === 0 || tb.length === 0) return 0;
-      const setA = new Set(ta);
-      let hit = 0;
-      for (const w of tb) if (setA.has(w)) hit++;
-      return hit / Math.max(ta.length, tb.length);
-    };
-    const looksLikeSourceEcho = (source: string, translated: string): boolean => {
-      const s = normalizeForEchoCompare(source);
-      const t = normalizeForEchoCompare(translated);
-      if (!s || !t) return false;
-      if (s === t) return true;
-      const lenRatio = t.length / Math.max(1, s.length);
-      const overlap = tokenOverlapRatio(s, t);
-      return overlap >= 0.86 && lenRatio >= 0.65 && lenRatio <= 1.4;
-    };
-    const finalizeNonEmptyMachineOutput = async (candidate: string): Promise<string> => {
-      let out = candidate.trim();
-      if (out) return out;
-      try {
-        const mmRaw = await callMyMemoryTranslate(phraseNormalized, srcLang, tgtLang);
-        let mmOut = await finalizeTranslationOutput(mmRaw, srcCode, tgtCode, tgtLangResolved, {
-          skipLeakRepair: true,
-        });
-        if (!mmOut.trim() && mmRaw.trim()) {
-          mmOut = postProcessTranslatedText(mmRaw, srcCode, tgtCode);
-          if (tgtCode === "ar") mmOut = polishArabicTranslationOutput(mmOut);
-        }
-        out = mmOut.trim();
-      } catch (mmErr) {
-        logger.warn(
-          { mmErr, sessionId: diagSid, segmentId: diagSegId, srcLang, tgtLang },
-          "MyMemory fallback failed after Libre empty/failure",
-        );
-      }
-      // Never mirror source text into translation column for cross-language pairs.
-      if (srcCode !== tgtCode && (!out || looksLikeSourceEcho(phraseNormalized, out))) {
-        return "";
-      }
-      return out || phraseNormalized.trim();
-    };
     try {
       logger.info(
         {
@@ -1683,76 +1629,14 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      const restoredFromRaw = (r: string) =>
-        restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(r ?? "")));
-      let raw = await translateBasicProfessional(
-        textForOpenAI,
-        srcLang,
-        tgtLang,
-        numMask.slotToDigits,
-        libreEnRefineOpts,
-      );
-      let restored = restoredFromRaw(raw);
+      const raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+      const restored = restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? "")));
       let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
         skipLeakRepair: true,
       });
       if (!translated.trim() && restored.trim()) {
         translated = postProcessTranslatedText(restored, srcCode, tgtCode);
         if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
-      }
-      // Retry masked segment once (transient MT failure); then last resort unmasked phrase (placeholders may not round-trip).
-      if (!translated.trim() && phraseNormalized.trim().length >= 2) {
-        logger.warn(
-          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
-          "Machine translation empty after mask/restore; retrying masked segment",
-        );
-        raw = await translateBasicProfessional(
-          textForOpenAI,
-          srcLang,
-          tgtLang,
-          numMask.slotToDigits,
-          libreEnRefineOpts,
-        );
-        restored = restoredFromRaw(raw);
-        translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
-          skipLeakRepair: true,
-        });
-        if (!translated.trim() && restored.trim()) {
-          translated = postProcessTranslatedText(restored, srcCode, tgtCode);
-          if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
-        }
-      }
-      translated = await finalizeNonEmptyMachineOutput(translated);
-      if (srcCode !== tgtCode && looksLikeSourceEcho(phraseNormalized, translated)) {
-        logger.warn(
-          { sessionId: diagSid, segmentId: diagSegId, srcLang, tgtLang, textLen: text.length },
-          "Machine translation echoed source language; forcing auto-detect opposite-language retry",
-        );
-        const forcedRaw = await translateBasicProfessional(
-          textForOpenAI,
-          "auto",
-          tgtLang,
-          numMask.slotToDigits,
-          libreEnRefineOpts,
-        );
-        const forcedRestored = restoredFromRaw(forcedRaw);
-        let forcedTranslated = await finalizeTranslationOutput(
-          forcedRestored,
-          srcCode,
-          tgtCode,
-          tgtLangResolved,
-          { skipLeakRepair: true },
-        );
-        if (!forcedTranslated.trim() && forcedRestored.trim()) {
-          forcedTranslated = postProcessTranslatedText(forcedRestored, srcCode, tgtCode);
-          if (tgtCode === "ar") forcedTranslated = polishArabicTranslationOutput(forcedTranslated);
-        }
-        const nonEmptyForced = await finalizeNonEmptyMachineOutput(forcedTranslated);
-        if (nonEmptyForced.trim() && !looksLikeSourceEcho(phraseNormalized, nonEmptyForced)) {
-          translated = nonEmptyForced;
-        } else {
-          translated = "";
-        }
       }
       const appliedMt: string[] = [];
       let outMt = translated;
@@ -1784,21 +1668,12 @@ router.post("/translate", requireAuth, async (req, res) => {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "Machine translation fallback failed (OpenAI not configured on server)",
+        "Machine translation failed",
       );
-      const translated = await finalizeNonEmptyMachineOutput("");
-      const appliedMt: string[] = [];
-      let outMt = translated;
-      const applyUserGlossaryMt =
-        glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
-      if (applyUserGlossaryMt) {
-        outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
-        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
-      }
-      res.json({
-        translated: outMt,
-        appliedGlossaryTerms: appliedMt,
-        translationEngine: "libre" as const,
+      res.status(503).json({
+        error:
+          "Translation is temporarily unavailable (machine translation fallback). Ensure LibreTranslate is reachable (LIBRETRANSLATE_INTERNAL_URL or LIBRETRANSLATE_URL).",
+        code: "LIBRETRANSLATE_FAILED",
       });
     }
     return;

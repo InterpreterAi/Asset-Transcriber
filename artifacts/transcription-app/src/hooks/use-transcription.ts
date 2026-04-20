@@ -1859,6 +1859,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
         }
         if (!translated?.trim()) {
+          if (transTextEl.isConnected) {
+            const shown = (transTextEl.textContent ?? "").trim();
+            if (!shown || shown === "…") {
+              applyTranslationTypography(transTextEl, "Retrying translation…");
+            }
+          }
           return;
         }
 
@@ -1973,7 +1979,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         scrollPanel();
       } catch {
-        /* HIPAA — never log speech context */
+        if (transTextEl.isConnected) {
+          const shown = (transTextEl.textContent ?? "").trim();
+          if (!shown || shown === "…") {
+            applyTranslationTypography(transTextEl, "Retrying translation…");
+          }
+        }
       } finally {
         if (
           !isFinal &&

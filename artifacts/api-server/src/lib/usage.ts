@@ -41,21 +41,32 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 
 /**
  * True when POST /translate must use the Libre/machine stack (not OpenAI).
- * Final Boss 3: default signup is `trial-libre`; Basic and Professional (any *basic* / *professional* plan_type)
- * use Libre; only trial (legacy OpenAI trial), trial-openai, platinum family, and unlimited use OpenAI.
+ * Admin-assigned OpenAI plans (`trial`, `basic`, `professional`, `platinum`, `*-openai`) must route to OpenAI.
+ * Libre routes are explicit `*-libre` plans (including default signup `trial-libre`).
  */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (
+    p === "trial-libre" ||
+    p === "basic-libre" ||
+    p === "professional-libre" ||
+    p === "platinum-libre"
+  ) {
+    return true;
+  }
+  if (
     p === "trial" ||
     p === "trial-openai" ||
+    p === "basic" ||
+    p === "basic-openai" ||
+    p === "professional" ||
+    p === "professional-openai" ||
     p === "platinum" ||
-    p === "platinum-libre" ||
     p === "unlimited"
   ) {
     return false;
   }
-  return true;
+  return p.endsWith("-libre");
 }
 
 function isPaidTranslationPlan(eff: string): boolean {
