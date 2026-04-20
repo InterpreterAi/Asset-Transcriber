@@ -4,7 +4,15 @@ import { logger } from "./logger.js";
 /** **Final Boss 3 · Libre** — LibreTranslate HTTP client (host rotation, lang normalization). Paired with `basic-pro-translate.ts`. */
 
 const LIBRE_API_KEY = process.env.LIBRETRANSLATE_API_KEY?.trim();
-const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, "");
+
+function normalizeLibreBase(raw: string | undefined): string | undefined {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+  return withScheme.replace(/\/$/, "");
+}
+
+const CONFIGURED_BASE = normalizeLibreBase(process.env.LIBRETRANSLATE_URL);
 
 /**
  * Free public LibreTranslate-compatible HTTPS roots (no API key).
@@ -12,7 +20,7 @@ const CONFIGURED_BASE = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/$/, ""
  * @see https://docs.libretranslate.com/community/mirrors/
  */
 const DEFAULT_FREE_LIBRE_BASES = [
-  "https://libretranslate.com",
+  "https://libretranslatelibretranslate-production-f84d.up.railway.app",
   "https://translate.fedilab.app",
   "https://translate.cutie.dating",
   "https://translate.argosopentech.com",
@@ -105,8 +113,8 @@ async function callLibreTranslateOneHost(
 }
 
 /**
- * Free tier: public LibreTranslate hosts (no key). Tries each base until one succeeds.
- * Set LIBRETRANSLATE_URL to pin one instance first; otherwise DEFAULT_FREE_LIBRE_BASES are tried in order.
+ * LibreTranslate hosts. Tries each base until one succeeds.
+ * Set LIBRETRANSLATE_URL to pin one instance first; otherwise defaults are tried in order.
  */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
   const bases: string[] = CONFIGURED_BASE
@@ -132,11 +140,11 @@ export function logLibreMachineTranslationStartupHint(): void {
   if (CONFIGURED_BASE) {
     logger.info(
       { base: CONFIGURED_BASE },
-      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL).",
+      "*-libre machine translation uses LibreTranslate (LIBRETRANSLATE_URL). API key is optional for private servers.",
     );
   } else {
     logger.info(
-      "*-libre machine translation uses free public LibreTranslate endpoints; set LIBRETRANSLATE_URL to pin an instance.",
+      "*-libre machine translation uses default LibreTranslate endpoints (private Railway first); set LIBRETRANSLATE_URL to pin an instance.",
     );
   }
 }
