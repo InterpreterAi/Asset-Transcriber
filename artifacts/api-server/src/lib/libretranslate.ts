@@ -1,6 +1,12 @@
 import axios, { isAxiosError, type AxiosRequestConfig } from "axios";
 import * as dns from "node:dns";
+import http from "node:http";
+import https from "node:https";
 import { logger } from "./logger.js";
+
+/** Keep sockets warm to Libre — avoids TLS+TCP setup every segment (closer to public CDN behavior). */
+const LIBRE_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
+const LIBRE_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48 });
 
 /** **Final Boss 3 · Libre** — LibreTranslate HTTP client. Default Railway internal URL; optional env override (no public fallback loop). */
 
@@ -109,6 +115,8 @@ async function callLibreTranslateAtBase(
     const axiosOpts: AxiosRequestConfig = {
       timeout: PER_HOST_TIMEOUT_MS,
       validateStatus: () => true,
+      httpAgent: baseUrl.startsWith("http:") ? LIBRE_HTTP_AGENT : undefined,
+      httpsAgent: baseUrl.startsWith("https:") ? LIBRE_HTTPS_AGENT : undefined,
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",

@@ -7,9 +7,7 @@ import { callLibreTranslate } from "./libretranslate.js";
  *
  * Optional: `LIBRETRANSLATE_API_KEY` in `.env.example` for self-hosted Libre that requires an API key (not sent by current client unless added in `libretranslate.ts`).
  *
- * **Into-English finals:** up to **two** Libre HTTP calls per finalized segment — primary
- * `sourceLang → en`, then optional `auto → en` on the English draft to reduce calques / mixed
- * script leakage (live streaming segments stay a single call).
+ * One Libre HTTP call per segment (`translatePlainMachine` → `callLibreTranslate`).
  *
  * Shipped for soak testing: treat as frozen pending ~1 week of user feedback unless explicitly asked to change.
  */

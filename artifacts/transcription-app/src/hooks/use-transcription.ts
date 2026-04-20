@@ -737,7 +737,7 @@ async function translateViaPrimaryApi(
               "Translation is temporarily unavailable. LibreTranslate could not be reached from the API server (private networking / LIBRETRANSLATE_INTERNAL_URL).",
           };
         }
-        await new Promise<void>(res => setTimeout(res, 700 * attempt));
+        await new Promise<void>(res => setTimeout(res, 220 * attempt));
         continue;
       }
 
@@ -796,7 +796,7 @@ async function translateViaPrimaryApi(
       if (externalSignal?.aborted) {
         return { outcome: "ok", text: "" };
       }
-      await new Promise<void>(res => setTimeout(res, 700 * attempt));
+      await new Promise<void>(res => setTimeout(res, 220 * attempt));
     }
   }
   return {
@@ -1434,8 +1434,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
+  /** Trailing debounce for live translate API (coalesces WS bursts). 0 = fire as soon as the timer yields (closest to public-Libre snappiness); aborts drop superseded calls. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 0;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1816,13 +1816,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
-        const maxFetchAttempts = requestIsFinal ? 3 : 1;
+        const maxFetchAttempts = requestIsFinal ? 2 : 1;
         let translated = "";
         let translationEngineHint: TranslationEngineHint | undefined;
         let lastTranslationFailureMessage: string | undefined;
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {
-            await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
+            await new Promise<void>(res => setTimeout(res, 90 * fetchAttempt));
           }
           // Live (non-final) work is obsolete if the user moved to a new segment; finals must finish to fill admin buffers.
           if (!isFinal && activeBubbleStateRef.current?.segmentId !== requestSegmentId) return;
@@ -1855,7 +1855,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
-          await new Promise<void>(res => setTimeout(res, 450));
+          await new Promise<void>(res => setTimeout(res, 60));
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
           const trRetry = await fetchTranslation(
