@@ -1602,7 +1602,6 @@ router.post("/translate", requireAuth, async (req, res) => {
   if (useMachineTranslation) {
     const libreEnRefineOpts = {
       refineNonEnglishToEnglishFinal: isFinalSegment && tgtCode === "en" && srcCode !== "en",
-      finalSegment: isFinalSegment,
     };
     try {
       logger.info(
