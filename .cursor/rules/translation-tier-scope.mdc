@@ -12,7 +12,7 @@ Single named baseline for **transcription** (browser → Soniox, identical for a
 | Name | Where | When |
 |------|-------|------|
 | **Final Boss 3 · OpenAI** | `transcription.ts` — `callOpenAI`, interpreter prompts, retries, cost hooks | `useMachineTranslation` is **false** |
-| **Final Boss 3 · Libre** | `basic-pro-translate.ts`, `libretranslate.ts`, Libre branch in `transcription.ts` | `useMachineTranslation` is **true** |
+| **Final Boss 3 · Libre** | `basic-pro-translate.ts`, `hetzner-translate.ts`, Libre branch in `transcription.ts` | `useMachineTranslation` is **true** |
 
 | Segment | DB `plan_type` examples | Translation engine |
 |--------|-------------------------|---------------------|
@@ -36,5 +36,5 @@ Single named baseline for **transcription** (browser → Soniox, identical for a
 
 ## Allowed to change (normally Libre-only; respect soak freeze above)
 
-- When the user explicitly requests work on machine translation: **`planUsesMachineTranslationStack` is true** — `basic-pro-translate.ts`, `libretranslate.ts`, Libre-only glossary/masking shortcuts in `transcription.ts`, and **`effectivePlanTypeForTranslation`** when preserving PayPal lag semantics for `trial-libre` upgrades.
+- When the user explicitly requests work on machine translation: **`planUsesMachineTranslationStack` is true** — `basic-pro-translate.ts`, `hetzner-translate.ts`, Libre-only glossary/masking shortcuts in `transcription.ts`, and **`effectivePlanTypeForTranslation`** when preserving PayPal lag semantics for `trial-libre` upgrades.
 - After completing requested work, **commit and push** to `main` unless the user says not to.

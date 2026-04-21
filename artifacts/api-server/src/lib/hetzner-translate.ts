@@ -4,24 +4,32 @@ import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
 
-/** Keep sockets warm to Libre — fewer TCP handshakes per session. */
-const LIBRE_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
-const LIBRE_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48 });
+/** Keep sockets warm — fewer TCP handshakes per segment. */
+const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
+const HETZNER_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48 });
 
-/** **Final Boss 3 · Libre** — primary machine translation (Basic / Professional / trial-libre). No public mirror list. */
-
-/** Dedicated Interpreter AI LibreTranslate (Hetzner). Override with `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL` if the host changes. */
+/**
+ * Primary **Hetzner** machine-translation host (LibreTranslate-compatible `/translate` API).
+ * `*-libre` plans use this only — no public mirror list, no Railway private DNS default.
+ */
 const HARDCODED_PRIMARY_BASE = "http://178.156.211.226:5000";
 
 /**
- * `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL` overrides the default base (no trailing `/translate`).
- * Scheme: required for ambiguity; otherwise bare IPv4 → `http://`, `.railway.internal` → `http://`, else `https://`.
+ * Optional override: `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL` (legacy names).
+ * Values pointing at `*.railway.internal` are **ignored** so stale Railway env does not override Hetzner.
  */
-function resolveConfiguredLibreBase(): string {
-  const override =
+function resolveConfiguredBase(): string {
+  const rawOverride =
     process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
     process.env.LIBRETRANSLATE_URL?.trim();
-  const raw = (override || HARDCODED_PRIMARY_BASE).trim();
+  if (rawOverride && /\.railway\.internal/i.test(rawOverride)) {
+    logger.warn(
+      { ignoredOverride: rawOverride },
+      "LIBRETRANSLATE_* still points at railway.internal — ignoring in favor of Hetzner primary (remove that env var in deploy)",
+    );
+    return HARDCODED_PRIMARY_BASE;
+  }
+  const raw = (rawOverride || HARDCODED_PRIMARY_BASE).trim();
   if (!raw) return HARDCODED_PRIMARY_BASE;
   const noTrail = raw.replace(/\/$/, "");
   if (/^https?:\/\//i.test(noTrail)) return noTrail;
@@ -31,13 +39,12 @@ function resolveConfiguredLibreBase(): string {
   return `https://${noTrail}`;
 }
 
-/** Resolved base used for every Libre request (env or default Hetzner). */
-export const CONFIGURED_BASE = resolveConfiguredLibreBase();
+/** Base URL used for every machine translate request (Hetzner default unless a valid override is set). */
+export const CONFIGURED_BASE = resolveConfiguredBase();
 
 const PER_HOST_TIMEOUT_MS = 25_000;
 
-/** Railway private DNS is often IPv6-heavy; custom lookup avoids broken A/AAAA ordering. */
-const libreTranslateDnsLookup: NonNullable<AxiosRequestConfig["lookup"]> = (
+const railwayPrivateDnsLookup: NonNullable<AxiosRequestConfig["lookup"]> = (
   hostname,
   options,
   cb,
@@ -64,14 +71,18 @@ function useRailwayPrivateDnsLookup(baseUrl: string): boolean {
   }
 }
 
-/** Libre `/translate` JSON: `{ translatedText?, error? }`. Proxies may return JSON as a string body. */
-function parseLibreTranslateBody(data: unknown): { translatedText?: string; error?: string } {
+function parseTranslateBody(data: unknown): { translatedText?: string; error?: string } {
   if (data != null && typeof data === "object" && !Array.isArray(data)) {
-    return data as { translatedText?: string; error?: string };
+    const o = data as Record<string, unknown>;
+    const err = typeof o.error === "string" ? o.error : undefined;
+    let text: string | undefined;
+    if (typeof o.translatedText === "string") text = o.translatedText;
+    else if (typeof o.translation === "string") text = o.translation;
+    return { translatedText: text, error: err };
   }
   if (typeof data === "string") {
     try {
-      return JSON.parse(data) as { translatedText?: string; error?: string };
+      return parseTranslateBody(JSON.parse(data) as unknown);
     } catch {
       return {};
     }
@@ -79,8 +90,7 @@ function parseLibreTranslateBody(data: unknown): { translatedText?: string; erro
   return {};
 }
 
-/** Map common BCP-47 tags to LibreTranslate API language codes. */
-function normalizeLibreLang(code: string): string {
+function normalizeTargetLang(code: string): string {
   const raw = code.trim().toLowerCase();
   const base = raw.split("-")[0] ?? raw;
   if (base === "iw") return "he";
@@ -89,15 +99,14 @@ function normalizeLibreLang(code: string): string {
   return base;
 }
 
-async function callLibreTranslateAtBase(
+async function postTranslateAtBase(
   baseUrl: string,
   text: string,
   _sourceHint: string,
   target: string,
-  sourceMode: "explicit" | "auto",
 ): Promise<string> {
-  const tgt = normalizeLibreLang(target);
-  const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(_sourceHint);
+  const tgt = normalizeTargetLang(target);
+  const src = "auto";
   const body: Record<string, unknown> = {
     q: text,
     source: src,
@@ -110,15 +119,15 @@ async function callLibreTranslateAtBase(
     const axiosOpts: AxiosRequestConfig = {
       timeout: PER_HOST_TIMEOUT_MS,
       validateStatus: () => true,
-      httpAgent: baseUrl.startsWith("http:") ? LIBRE_HTTP_AGENT : undefined,
-      httpsAgent: baseUrl.startsWith("https:") ? LIBRE_HTTPS_AGENT : undefined,
+      httpAgent: baseUrl.startsWith("http:") ? HETZNER_HTTP_AGENT : undefined,
+      httpsAgent: baseUrl.startsWith("https:") ? HETZNER_HTTPS_AGENT : undefined,
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
-      ...(useRailwayPrivateDnsLookup(baseUrl) ? { lookup: libreTranslateDnsLookup } : {}),
+      ...(useRailwayPrivateDnsLookup(baseUrl) ? { lookup: railwayPrivateDnsLookup } : {}),
     };
     res = await axios.post(`${baseUrl}/translate`, body, axiosOpts);
   } catch (err: unknown) {
@@ -126,15 +135,15 @@ async function callLibreTranslateAtBase(
     const msg = err instanceof Error ? err.message : String(err);
     logger.error(
       { baseUrl, code, message: msg, source: src, target: tgt },
-      "LibreTranslate request failed",
+      "Hetzner machine translate request failed",
     );
     throw err;
   }
   const contentType = String(res.headers["content-type"] ?? "");
-  const payload = parseLibreTranslateBody(res.data);
+  const payload = parseTranslateBody(res.data);
   logger.info(
     { baseUrl, source: src, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
-    "LibreTranslate API response",
+    "Hetzner machine translate API response",
   );
 
   if (res.status !== 200) {
@@ -142,55 +151,46 @@ async function callLibreTranslateAtBase(
       typeof res.data === "string"
         ? res.data.slice(0, 200)
         : JSON.stringify(res.data ?? "").slice(0, 200);
-    logger.error({ baseUrl, status: res.status, preview }, "LibreTranslate non-200 body preview");
-    throw new Error(`LibreTranslate HTTP ${res.status}`);
+    logger.error({ baseUrl, status: res.status, preview }, "Hetzner machine translate non-200 body preview");
+    throw new Error(`Hetzner translate HTTP ${res.status}`);
   }
   const errMsg = payload.error;
   if (typeof errMsg === "string" && errMsg.trim()) {
-    throw new Error(`LibreTranslate: ${errMsg}`);
+    throw new Error(`Hetzner translate: ${errMsg}`);
   }
   const out = payload.translatedText;
   if (typeof out !== "string") {
     const preview = JSON.stringify(res.data ?? "").slice(0, 300);
     logger.error(
       { baseUrl, contentType, preview },
-      "LibreTranslate response missing translatedText (wrong JSON or HTML error page)",
+      "Hetzner translate response missing translatedText",
     );
-    throw new Error("LibreTranslate returned no translatedText");
+    throw new Error("Hetzner translate returned no translatedText");
   }
   const trimmed = out.trim();
   if (!trimmed) {
-    throw new Error("LibreTranslate returned empty translatedText");
+    throw new Error("Hetzner translate returned empty translatedText");
   }
   return out;
 }
 
-/** Primary path: `source: "auto"` (private Hetzner; no api_key). */
-async function callLibreTranslateOneHost(
-  baseUrl: string,
-  text: string,
-  source: string,
-  target: string,
-): Promise<string> {
-  return callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
+/** `*-libre` tiers: one POST per segment, `source: auto`, no API key. */
+export async function callHetznerTranslate(text: string, source: string, target: string): Promise<string> {
+  return postTranslateAtBase(CONFIGURED_BASE, text, source, target);
 }
 
-/** Single primary endpoint — no public mirror fallback. */
-export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
-  return callLibreTranslateOneHost(CONFIGURED_BASE, text, source, target);
-}
-
-export function logLibreMachineTranslationStartupHint(): void {
-  const fromEnv = Boolean(
-    process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() || process.env.LIBRETRANSLATE_URL?.trim(),
-  );
+export function logHetznerMachineTranslationStartupHint(): void {
+  const rawOverride =
+    process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
+    process.env.LIBRETRANSLATE_URL?.trim();
+  const fromEnv = Boolean(rawOverride && !/\.railway\.internal/i.test(rawOverride));
   logger.info(
     {
-      soleBaseUrl: CONFIGURED_BASE,
+      primaryBaseUrl: CONFIGURED_BASE,
       fromEnvOverride: fromEnv,
-      noPublicFallback: true,
+      ignoredRailwayOverride: Boolean(rawOverride && /\.railway\.internal/i.test(rawOverride)),
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),
     },
-    "LibreTranslate primary endpoint (Hetzner default — override with LIBRETRANSLATE_INTERNAL_URL if needed)",
+    "Hetzner machine translate primary endpoint (remove LIBRETRANSLATE_* if it still targets Railway)",
   );
 }

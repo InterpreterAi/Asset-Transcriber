@@ -1,13 +1,11 @@
-import { callLibreTranslate } from "./libretranslate.js";
+import { callHetznerTranslate } from "./hetzner-translate.js";
 
 /**
- * **Final Boss 3 · Libre** — machine translation **only** via **LibreTranslate** for `*-libre` / machine-stack plans.
- * Base URL: `libretranslate.ts` — default Railway internal HTTP URL; override with `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL`.
+ * **Final Boss 3 · machine stack** — translation for `*-libre` plans via **Hetzner** (LibreTranslate-compatible API).
+ * Host: `hetzner-translate.ts`. Stale `LIBRETRANSLATE_*` pointing at Railway is ignored server-side.
  * OpenAI (**Final Boss 3 · OpenAI**) lives in `transcription.ts` and is unchanged here.
  *
- * Primary Libre host is configured in `libretranslate.ts` (Hetzner default; optional env override). No API key is sent.
- *
- * One Libre HTTP call per segment (`translatePlainMachine` → `callLibreTranslate`).
+ * One HTTP call per segment (`translatePlainMachine` → `callHetznerTranslate`). No API key.
  *
  * Shipped for soak testing: treat as frozen pending ~1 week of user feedback unless explicitly asked to change.
  */
@@ -15,7 +13,7 @@ import { callLibreTranslate } from "./libretranslate.js";
 export type TranslateBasicProfessionalOpts = Record<string, never>;
 
 /**
- * Plain segment: LibreTranslate only.
+ * Plain segment: Hetzner machine translate (Libre-compatible API).
  * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en).
  */
 export async function translatePlainMachine(
@@ -25,7 +23,7 @@ export async function translatePlainMachine(
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-  return callLibreTranslate(t, sourceLang, targetLang);
+  return callHetznerTranslate(t, sourceLang, targetLang);
 }
 
 /** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */

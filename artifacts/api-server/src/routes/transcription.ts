@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
-import { CONFIGURED_BASE as libreConfiguredBase } from "../lib/libretranslate.js";
+import { CONFIGURED_BASE as hetznerTranslateBase } from "../lib/hetzner-translate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -79,7 +79,7 @@ import {
 // prompts, `callOpenAI`, retries, `finalizeTranslationOutput` (incl. leak repair where enabled).
 //
 // **Final Boss 3 · Libre** — same route when `useMachineTranslation` is true: `translateBasicProfessional`
-// in `basic-pro-translate.ts` → `libretranslate.ts` (optional non‑EN→EN final refine on Libre only).
+// in `basic-pro-translate.ts` → `hetzner-translate.ts` (Hetzner LibreTranslate-compatible `/translate`).
 //
 // Both stacks are **shipped for soak testing** (~1 week feedback): avoid drive-by edits; change only on
 // explicit user request or P0 bug. Tier routing: `planUsesMachineTranslationStack` / `usage.ts`.
@@ -1663,7 +1663,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       res.json({
         translated: outMt,
         appliedGlossaryTerms: appliedMt,
-        translationEngine: "libre" as const,
+        translationEngine: "hetzner" as const,
       });
     } catch (err: unknown) {
       const status = isAxiosError(err) ? err.response?.status : undefined;
@@ -1673,8 +1673,8 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       res.status(503).json({
         error:
-          `Translation unavailable (Libre). Cannot reach ${libreConfiguredBase}. Ensure the Libre server is up and reachable from the API, or set LIBRETRANSLATE_INTERNAL_URL to the correct http(s) base (with port, no /translate).`,
-        code: "LIBRETRANSLATE_FAILED",
+          `Translation unavailable (Hetzner). Cannot reach ${hetznerTranslateBase}. Ensure the translate server is up and reachable from the API, or set LIBRETRANSLATE_INTERNAL_URL to a valid http(s) base (not railway.internal; no /translate suffix).`,
+        code: "HETZNERTRANSLATE_FAILED",
       });
     }
     return;

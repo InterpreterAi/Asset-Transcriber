@@ -634,7 +634,7 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 //   • HTTP 401 / 403             → try public fallback before surfacing error (except daily limit → hard stop)
 //   • Other 4xx                  → no retry (bad request)
 //   • Fatal 503 codes            → try public fallback before surfacing error
-type TranslationEngineHint = "libre" | "openai" | "passthrough";
+type TranslationEngineHint = "hetzner" | "libre" | "openai" | "passthrough";
 
 type PrimaryTranslationResult =
   | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[]; translationEngine?: TranslationEngineHint }
@@ -663,6 +663,7 @@ async function translateViaPrimaryApi(
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",
+    "HETZNERTRANSLATE_FAILED",
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",
@@ -734,7 +735,7 @@ async function translateViaPrimaryApi(
             outcome:     "try_fallback",
             userMessage:
               j?.error ??
-              "Translation is temporarily unavailable. LibreTranslate could not be reached from the API server (private networking / LIBRETRANSLATE_INTERNAL_URL).",
+              "Translation is temporarily unavailable. Hetzner translate could not be reached from the API server (check Hetzner host and remove stale LIBRETRANSLATE_* pointing at Railway).",
           };
         }
         await new Promise<void>(res => setTimeout(res, 220 * attempt));
@@ -1897,7 +1898,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           // Libre / passthrough: server already finalized; aggressive interpreter polish drops clauses and
           // confuses MT phrasing — keep whitespace hygiene only (matches dedupeConsecutiveTranslationTokens).
           const useLightweightFinalPolish =
-            translationEngineHint === "libre" || translationEngineHint === "passthrough";
+            translationEngineHint === "hetzner" ||
+            translationEngineHint === "libre" ||
+            translationEngineHint === "passthrough";
           let out: string;
           if (useLightweightFinalPolish) {
             out = dedupeConsecutiveTranslationTokens(rawFinal);
