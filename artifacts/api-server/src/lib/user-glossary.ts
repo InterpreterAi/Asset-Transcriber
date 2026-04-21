@@ -553,18 +553,46 @@ function dedupeAdjacentPreferredTranslation(out: string, pref: string): string {
 
 const MAX_SOURCE_ENFORCED_TERMS = 2;
 
-/** Common EN medical surface → ES clinic wording when target is Spanish (glossary source is English). */
-const EN_TO_ES_INLINE_COGNATES: Record<string, string[]> = {
-  colonoscopy: ["colonoscopia", "colonoscopía"],
+/** Source-term keyed target-side cognates/transliterations to replace in-place before append fallback. */
+const SOURCE_TO_TARGET_COGNATES: Record<string, Partial<Record<string, string[]>>> = {
+  colonoscopy: {
+    es: ["colonoscopia", "colonoscopía"],
+    ar: ["كولونوسكوبي", "كولونوسكوبى", "كولونوسكوبيا", "كولونوسكوب"],
+  },
 };
+
+function tryReplaceTargetCognatesFromSource(
+  outputText: string,
+  variations: string[],
+  translation: string,
+  tgtBase: string,
+): { out: string; changed: boolean } {
+  let out = outputText;
+  let changed = false;
+  for (const v of variations) {
+    const k = v.trim().toLowerCase();
+    const targetForms = SOURCE_TO_TARGET_COGNATES[k]?.[tgtBase];
+    if (!targetForms || targetForms.length === 0) continue;
+    for (const form of targetForms) {
+      const pat = buildReplacePattern(form, true);
+      if (!pat) continue;
+      const before = out;
+      out = out.replace(pat, () => translation);
+      if (out !== before) changed = true;
+    }
+  }
+  return { out, changed };
+}
 
 /**
  * Source-aware enforcement (max {@link MAX_SOURCE_ENFORCED_TERMS} distinct translations per segment).
  * Hint rows are skipped. Strict rows only.
  * 1) Priority = manual `priority`, then longest source-matched variation.
  * 2) Inline replace (longest qualifying n-gram in output → translation, first hit only).
- * 3) For `es` target, replace Spanish cognates of matched English terms before append.
- * 4) Append only if still missing and not already semantically close to the preferred translation.
+ * 3) Replace known target-side cognates/transliterations (e.g. es/ar forms of "colonoscopy")
+ *    in place before append fallback.
+ * 4) Append only if still missing and not already semantically close to the preferred translation
+ *    (disabled for targets where in-place-only behavior is preferred, e.g. `es`, `ar`).
  */
 export function ensureGlossaryTranslationsFromSource(
   outputText: string,
@@ -646,31 +674,18 @@ export function ensureGlossaryTranslationsFromSource(
     }
     if (inlined) continue;
 
-    if (tgtBase === "es") {
-      for (const v of vars) {
-        const vKey = v.trim().toLowerCase();
-        const cognates = EN_TO_ES_INLINE_COGNATES[vKey];
-        if (!cognates) continue;
-        for (const cogn of cognates) {
-          const pat = buildReplacePattern(cogn, true);
-          if (!pat) continue;
-          const beforeCog = out;
-          out = out.replace(pat, () => row.trans);
-          if (out !== beforeCog) {
-            pushAppliedTranslation(appliedOut, row.trans);
-            inlined = true;
-            break;
-          }
-        }
-        if (inlined) break;
-      }
+    const cognatePass = tryReplaceTargetCognatesFromSource(out, vars, row.trans, tgtBase);
+    out = cognatePass.out;
+    if (cognatePass.changed) {
+      pushAppliedTranslation(appliedOut, row.trans);
+      inlined = true;
     }
     if (inlined) continue;
 
     if (translationSemanticallyCloseInOutput(out, row.trans, "append_gate")) continue;
 
-    // Spanish (and similar): never append glossary at sentence end — only in-place / cognate swaps.
-    if (tgtBase === "es") continue;
+    // For these targets we prefer strict in-place replacements only (no sentence-end appends).
+    if (tgtBase === "es" || tgtBase === "ar") continue;
 
     const tailBase = out.trimEnd();
     const spacer = tailBase.length > 0 ? " " : "";
