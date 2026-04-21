@@ -99,6 +99,109 @@ function normalizeTargetLang(code: string): string {
   return base;
 }
 
+type DomainTermPack = {
+  source: string;
+  english: string;
+  // Optional English variants we normalize to the canonical `english`.
+  englishVariants?: string[];
+};
+
+const DOMAIN_TERMS_TO_EN: Record<string, DomainTermPack[]> = {
+  ar: [
+    { source: "تنظير القولون", english: "colonoscopy" },
+    { source: "خزعة", english: "biopsy" },
+    { source: "تشخيص", english: "diagnosis" },
+    { source: "وصفة طبية", english: "prescription" },
+    { source: "شركة التأمين", english: "insurance company" },
+    { source: "وثيقة التأمين", english: "insurance policy" },
+    { source: "قسط التأمين", english: "insurance premium" },
+    { source: "الخصم", english: "deductible" },
+    { source: "تغطية", english: "coverage" },
+    { source: "دعوى قضائية", english: "lawsuit" },
+    { source: "محام", english: "attorney", englishVariants: ["lawyer"] },
+    { source: "تسوية", english: "settlement" },
+    { source: "تعويض", english: "compensation" },
+    { source: "مسؤولية", english: "liability" },
+  ],
+  es: [
+    { source: "colonoscopia", english: "colonoscopy" },
+    { source: "biopsia", english: "biopsy" },
+    { source: "diagnóstico", english: "diagnosis" },
+    { source: "endoscopia", english: "endoscopy" },
+    { source: "compañía de seguros", english: "insurance company" },
+    { source: "póliza", english: "policy", englishVariants: ["insurance policy"] },
+    { source: "prima", english: "premium", englishVariants: ["insurance premium"] },
+    { source: "deducible", english: "deductible" },
+    { source: "cobertura", english: "coverage" },
+    { source: "reclamación", english: "claim", englishVariants: ["insurance claim"] },
+    { source: "demanda", english: "lawsuit" },
+    { source: "abogado", english: "attorney", englishVariants: ["lawyer"] },
+    { source: "acuerdo", english: "settlement" },
+    { source: "responsabilidad", english: "liability" },
+  ],
+  pt: [
+    { source: "colonoscopia", english: "colonoscopy" },
+    { source: "biópsia", english: "biopsy" },
+    { source: "diagnóstico", english: "diagnosis" },
+    { source: "endoscopia", english: "endoscopy" },
+    { source: "seguradora", english: "insurance company" },
+    { source: "apólice", english: "policy", englishVariants: ["insurance policy"] },
+    { source: "prêmio", english: "premium", englishVariants: ["insurance premium"] },
+    { source: "franquia", english: "deductible" },
+    { source: "cobertura", english: "coverage" },
+    { source: "sinistro", english: "claim", englishVariants: ["insurance claim"] },
+    { source: "processo", english: "lawsuit" },
+    { source: "advogado", english: "attorney", englishVariants: ["lawyer"] },
+    { source: "acordo", english: "settlement" },
+    { source: "responsabilidade", english: "liability" },
+  ],
+  pl: [
+    { source: "kolonoskopia", english: "colonoscopy" },
+    { source: "biopsja", english: "biopsy" },
+    { source: "diagnoza", english: "diagnosis" },
+    { source: "endoskopia", english: "endoscopy" },
+    { source: "ubezpieczyciel", english: "insurance company" },
+    { source: "polisa", english: "policy", englishVariants: ["insurance policy"] },
+    { source: "składka", english: "premium", englishVariants: ["insurance premium"] },
+    { source: "udział własny", english: "deductible" },
+    { source: "zakres ochrony", english: "coverage" },
+    { source: "roszczenie", english: "claim", englishVariants: ["insurance claim"] },
+    { source: "pozew", english: "lawsuit" },
+    { source: "adwokat", english: "attorney", englishVariants: ["lawyer"] },
+    { source: "ugoda", english: "settlement" },
+    { source: "odpowiedzialność", english: "liability" },
+  ],
+};
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Fast deterministic domain normalization for non-English -> English machine output.
+ * No network/model calls; only lightweight regex replacements when source terms are present.
+ */
+function applyFastDomainTerminologyToEnglish(
+  sourceText: string,
+  sourceBase: string,
+  translated: string,
+): string {
+  const packs = DOMAIN_TERMS_TO_EN[sourceBase];
+  if (!packs || packs.length === 0) return translated;
+
+  const srcLower = sourceText.toLowerCase();
+  let out = translated;
+  for (const p of packs) {
+    if (!srcLower.includes(p.source.toLowerCase())) continue;
+    const variants = [p.source, ...(p.englishVariants ?? [])];
+    for (const v of variants) {
+      const re = new RegExp(`\\b${escapeRegex(v)}\\b`, "gi");
+      out = out.replace(re, p.english);
+    }
+  }
+  return out;
+}
+
 function looksLikeEnglish(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (!t) return false;
@@ -193,11 +296,13 @@ async function postTranslateAtBase(
       );
       throw new Error("Hetzner translate returned no translatedText");
     }
-    const trimmed = out.trim();
+    const normalizedOut =
+      tgt === "en" ? applyFastDomainTerminologyToEnglish(text, srcHintBase, out) : out;
+    const trimmed = normalizedOut.trim();
     if (!trimmed) {
       throw new Error("Hetzner translate returned empty translatedText");
     }
-    return out;
+    return normalizedOut;
   };
 
   const primarySourceCode =
