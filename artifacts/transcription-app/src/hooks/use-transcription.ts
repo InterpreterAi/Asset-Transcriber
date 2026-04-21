@@ -85,6 +85,47 @@ function shouldPreferPreviousLiveTranslation(
   return sn.length >= sc.length - 2;
 }
 
+function ratioScriptMatches(re: RegExp, s: string): number {
+  if (!s) return 0;
+  const chars = [...s];
+  const letters = chars.filter(ch => /\p{L}/u.test(ch));
+  if (letters.length === 0) return 0;
+  let hits = 0;
+  for (const ch of letters) {
+    if (re.test(ch)) hits++;
+  }
+  return hits / letters.length;
+}
+
+/**
+ * Heuristic guard for live updates:
+ * keep existing live translation when the incoming text clearly does not match the target script.
+ * Finalized passes are still allowed to fully replace.
+ */
+function looksReasonablyLikeTargetLanguage(text: string, targetLangBcp47: string): boolean {
+  const t = text.trim();
+  if (t.length < 3) return true;
+  const base = targetLangBcp47.trim().toLowerCase().split("-")[0] ?? "";
+
+  const arabicRatio = ratioScriptMatches(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/u, t);
+  const cyrRatio = ratioScriptMatches(/[\u0400-\u04FF]/u, t);
+  const thaiRatio = ratioScriptMatches(/[\u0E00-\u0E7F]/u, t);
+  const devRatio = ratioScriptMatches(/[\u0900-\u097F]/u, t);
+  const hangulRatio = ratioScriptMatches(/\p{Script=Hangul}/u, t);
+  const hanRatio = ratioScriptMatches(/\p{Script=Han}/u, t);
+  const latinRatio = ratioScriptMatches(/\p{Script=Latin}/u, t);
+
+  if (base === "ar" || base === "fa" || base === "ur") return arabicRatio >= 0.35 || latinRatio >= 0.45;
+  if (base === "ru" || base === "uk" || base === "bg") return cyrRatio >= 0.4 || latinRatio >= 0.45;
+  if (base === "th") return thaiRatio >= 0.35 || latinRatio >= 0.45;
+  if (base === "hi") return devRatio >= 0.35 || latinRatio >= 0.45;
+  if (base === "ko") return hangulRatio >= 0.3 || latinRatio >= 0.45;
+  if (base === "zh" || base === "ja") return hanRatio >= 0.2 || latinRatio >= 0.45;
+
+  // Latin-family targets (en/es/fr/de/it/pt/nl/pl/id/vi/tr/...):
+  return latinRatio >= 0.45 || (arabicRatio < 0.2 && cyrRatio < 0.2 && thaiRatio < 0.2 && devRatio < 0.2);
+}
+
 /**
  * Opt-in STT diagnostics (browser console only; may contain PHI — dev machines only).
  * `localStorage.setItem("interpreterai_stt_diag", "1")` then reload.
@@ -1979,7 +2020,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (mySeq <= state.lastShownSeq) return;
           if (!transTextEl.isConnected) return;
           if (useStreamingDelta) {
-            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
+            const prevShown = (transTextEl.textContent ?? "").trim();
+            const incoming = translated.trim();
+            if (
+              prevShown &&
+              !requestIsFinal &&
+              looksReasonablyLikeTargetLanguage(prevShown, myTargetLang) &&
+              !looksReasonablyLikeTargetLanguage(incoming, myTargetLang)
+            ) {
+              return;
+            }
+            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
             applyTranslationTypography(transTextEl, merged);
@@ -2006,6 +2057,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             )
               ? prevShown
               : out;
+            if (
+              prevShown &&
+              !requestIsFinal &&
+              looksReasonablyLikeTargetLanguage(prevShown, myTargetLang) &&
+              !looksReasonablyLikeTargetLanguage(chosen, myTargetLang)
+            ) {
+              return;
+            }
             state.lastShownSeq = mySeq;
             state.lastShownLen = chosen.length;
             applyTranslationTypography(transTextEl, chosen);
