@@ -53,6 +53,7 @@ import {
   applyUserGlossaryStrict,
   buildUserGlossaryHintLines,
   ensureGlossaryTranslationsFromSource,
+  filterUserGlossaryForTarget,
   type UserGlossaryRow,
 } from "../lib/user-glossary.js";
 
@@ -1486,12 +1487,15 @@ router.post("/translate", requireAuth, async (req, res) => {
     })
     .from(glossaryEntriesTable)
     .where(eq(glossaryEntriesTable.userId, userIdEarly));
-  const userGlossary: UserGlossaryRow[] = userGlossaryRows.map(r => ({
-    term: r.term,
-    translation: r.translation,
-    enforceMode: r.enforceMode === "hint" ? "hint" : "strict",
-    priority: Number.isFinite(r.priority) ? Math.trunc(r.priority) : 0,
-  }));
+  const userGlossary: UserGlossaryRow[] = filterUserGlossaryForTarget(
+    userGlossaryRows.map(r => ({
+      term: r.term,
+      translation: r.translation,
+      enforceMode: r.enforceMode === "hint" ? "hint" : "strict",
+      priority: Number.isFinite(r.priority) ? Math.trunc(r.priority) : 0,
+    })),
+    tgtLang,
+  );
 
   // ── Same-language guard (server-side failsafe) ─────────────────────────────
   // If the resolved source and target share the same base language code, no
@@ -1507,7 +1511,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       (!useMachineTranslation || (isFinalSegment && userGlossary.length > 0));
     if (applyUserGlossarySameLang) {
       out = applyUserGlossaryStrict(out, userGlossary, applied);
-      out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
+      out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied, tgtLang);
     }
     res.json({
       translated: out,
@@ -1645,7 +1649,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
       if (applyUserGlossaryMt) {
         outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
-        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
+        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt, tgtLang);
       }
       diagCounter.translationSegments += 1;
       diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outMt });
@@ -2124,7 +2128,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let outAi = result.text;
     if (glossaryStrictMode) {
       outAi = applyUserGlossaryStrict(outAi, userGlossary, appliedAi);
-      outAi = ensureGlossaryTranslationsFromSource(outAi, phraseNormalized, userGlossary, appliedAi);
+      outAi = ensureGlossaryTranslationsFromSource(outAi, phraseNormalized, userGlossary, appliedAi, tgtLang);
     }
 
     diagCounter.translationSegments += 1;

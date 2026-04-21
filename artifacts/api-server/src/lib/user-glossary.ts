@@ -310,8 +310,84 @@ function sourceVariationsSuggestHemorrhoids(variations: string[]): boolean {
   return /hemorrh|haemorrh|hemroid|haemorrhoid|\bpiles?\b/i.test(blob);
 }
 
-function preferredLooksArabicScript(s: string): boolean {
+export function preferredLooksArabicScript(s: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
+}
+
+function hasLatinScript(s: string): boolean {
+  return /\p{Script=Latin}/u.test(s);
+}
+
+function hasCyrillicScript(s: string): boolean {
+  return /[\u0400-\u04FF]/.test(s);
+}
+
+function hasHanScript(s: string): boolean {
+  return /\p{Script=Han}/u.test(s);
+}
+
+function hasHangulScript(s: string): boolean {
+  return /\p{Script=Hangul}/u.test(s);
+}
+
+function hasThaiScript(s: string): boolean {
+  return /[\u0E00-\u0E7F]/.test(s);
+}
+
+function hasDevanagariScript(s: string): boolean {
+  return /[\u0900-\u097F]/.test(s);
+}
+
+/**
+ * Skip glossary rows whose `translation` script does not fit the session **target** language
+ * (e.g. Arabic-only saved gloss when translating English → Spanish).
+ */
+export function userGlossaryRowMatchesTargetLanguage(
+  row: UserGlossaryRow,
+  tgtLangBcp47: string,
+): boolean {
+  const trans = row.translation.trim();
+  if (trans.length < 1) return false;
+  const base = tgtLangBcp47.trim().toLowerCase().split("-")[0] ?? "";
+
+  const ar = preferredLooksArabicScript(trans);
+  const lat = hasLatinScript(trans);
+  const cyr = hasCyrillicScript(trans);
+  const han = hasHanScript(trans);
+  const hang = hasHangulScript(trans);
+  const th = hasThaiScript(trans);
+  const dev = hasDevanagariScript(trans);
+
+  if (base === "ar" || base === "fa" || base === "ur") {
+    if (ar) return true;
+    if (lat && !ar) return true;
+    return false;
+  }
+  if (base === "hi") {
+    return dev || ar || lat;
+  }
+  if (base === "th") {
+    return th || lat;
+  }
+  if (base === "ru" || base === "uk" || base === "bg") {
+    return cyr || lat;
+  }
+  if (base === "zh" || base === "ja") {
+    return han || lat;
+  }
+  if (base === "ko") {
+    return hang || lat;
+  }
+  // Latin-alphabet targets (es, en, fr, de, it, pt, nl, pl, id, vi, tr, …)
+  if (ar && !lat && !cyr && !han && !hang && !dev && !th) return false;
+  return true;
+}
+
+export function filterUserGlossaryForTarget(
+  entries: UserGlossaryRow[],
+  tgtLangBcp47: string,
+): UserGlossaryRow[] {
+  return entries.filter(e => userGlossaryRowMatchesTargetLanguage(e, tgtLangBcp47));
 }
 
 function graphemeLen(s: string): number {
@@ -477,20 +553,28 @@ function dedupeAdjacentPreferredTranslation(out: string, pref: string): string {
 
 const MAX_SOURCE_ENFORCED_TERMS = 2;
 
+/** Common EN medical surface → ES clinic wording when target is Spanish (glossary source is English). */
+const EN_TO_ES_INLINE_COGNATES: Record<string, string[]> = {
+  colonoscopy: ["colonoscopia", "colonoscopía"],
+};
+
 /**
  * Source-aware enforcement (max {@link MAX_SOURCE_ENFORCED_TERMS} distinct translations per segment).
  * Hint rows are skipped. Strict rows only.
  * 1) Priority = manual `priority`, then longest source-matched variation.
  * 2) Inline replace (longest qualifying n-gram in output → translation, first hit only).
- * 3) Append only if still missing and not already semantically close to the preferred translation.
+ * 3) For `es` target, replace Spanish cognates of matched English terms before append.
+ * 4) Append only if still missing and not already semantically close to the preferred translation.
  */
 export function ensureGlossaryTranslationsFromSource(
   outputText: string,
   phraseNormalized: string,
   entries: UserGlossaryRow[],
   appliedOut: string[],
+  tgtLangBcp47?: string,
 ): string {
   const srcLower = phraseNormalized.toLowerCase();
+  const tgtBase = tgtLangBcp47?.trim().toLowerCase().split("-")[0] ?? "";
 
   type Cand = {
     trans: string;
@@ -562,11 +646,35 @@ export function ensureGlossaryTranslationsFromSource(
     }
     if (inlined) continue;
 
+    if (tgtBase === "es") {
+      for (const v of vars) {
+        const vKey = v.trim().toLowerCase();
+        const cognates = EN_TO_ES_INLINE_COGNATES[vKey];
+        if (!cognates) continue;
+        for (const cogn of cognates) {
+          const pat = buildReplacePattern(cogn, true);
+          if (!pat) continue;
+          const beforeCog = out;
+          out = out.replace(pat, () => row.trans);
+          if (out !== beforeCog) {
+            pushAppliedTranslation(appliedOut, row.trans);
+            inlined = true;
+            break;
+          }
+        }
+        if (inlined) break;
+      }
+    }
+    if (inlined) continue;
+
     if (translationSemanticallyCloseInOutput(out, row.trans, "append_gate")) continue;
 
-    const base = out.trimEnd();
-    const spacer = base.length > 0 ? " " : "";
-    out = `${base}${spacer}${row.trans}`.trim();
+    // Spanish (and similar): never append glossary at sentence end — only in-place / cognate swaps.
+    if (tgtBase === "es") continue;
+
+    const tailBase = out.trimEnd();
+    const spacer = tailBase.length > 0 ? " " : "";
+    out = `${tailBase}${spacer}${row.trans}`.trim();
     pushAppliedTranslation(appliedOut, row.trans);
   }
 

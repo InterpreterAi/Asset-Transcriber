@@ -636,6 +636,27 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 //   • Fatal 503 codes            → try public fallback before surfacing error
 type TranslationEngineHint = "hetzner" | "libre" | "openai" | "passthrough";
 
+/** Avoid keeping English-looking live text when machine translate returns Spanish for en↔es. */
+function shouldPreferPreviousLiveTranslationWithTarget(
+  prevShown: string,
+  next: string,
+  sourceNowCollapsed: string,
+  sourceCommittedCollapsed: string,
+  targetLangBcp47: string,
+  engineHint: TranslationEngineHint | undefined,
+): boolean {
+  const base = targetLangBcp47.trim().toLowerCase().split("-")[0] ?? "";
+  if (engineHint === "hetzner" || engineHint === "libre") {
+    const esHint =
+      /[áéíóúñü¿¡]|\b(el|la|los|las|de|que|para|qué|paciente|necesita|necesitan|colonoscop)\w*\b/i;
+    const nextEs = esHint.test(next);
+    const prevEs = esHint.test(prevShown);
+    if (base === "es" && nextEs && !prevEs && next.trim().length >= 10) return false;
+    if (base === "es" && prevEs && !nextEs && prevShown.trim().length >= 10) return true;
+  }
+  return shouldPreferPreviousLiveTranslation(prevShown, next, sourceNowCollapsed, sourceCommittedCollapsed);
+}
+
 type PrimaryTranslationResult =
   | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[]; translationEngine?: TranslationEngineHint }
   | { outcome: "daily_limit"; message: string }
@@ -1973,7 +1994,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const prevShown = (transTextEl.textContent ?? "").trim();
             const srcNow = collapseWs(text);
             const srcCommitted = collapseWs(state.streamCommittedSource);
-            const chosen = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted)
+            const chosen = shouldPreferPreviousLiveTranslationWithTarget(
+              prevShown,
+              out,
+              srcNow,
+              srcCommitted,
+              myTargetLang,
+              translationEngineHint,
+            )
               ? prevShown
               : out;
             state.lastShownSeq = mySeq;
