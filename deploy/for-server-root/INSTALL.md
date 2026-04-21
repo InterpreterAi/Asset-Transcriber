@@ -19,6 +19,15 @@ cp -a Asset-Transcriber/deploy/for-server-root/* /root/deploy/
 cd /root/deploy && docker compose pull && docker compose up -d
 ```
 
+## Option C — no git on the server (curl the file from GitHub `main`)
+
+```bash
+mkdir -p /root/deploy
+curl -fsSL -o /root/deploy/docker-compose.yml \
+  "https://raw.githubusercontent.com/InterpreterAi/Asset-Transcriber/main/deploy/for-server-root/docker-compose.yml"
+cd /root/deploy && docker compose pull && docker compose up -d
+```
+
 ## Check (on the server)
 
 ```bash
