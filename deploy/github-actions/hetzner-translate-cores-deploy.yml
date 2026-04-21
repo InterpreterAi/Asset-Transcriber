@@ -47,6 +47,5 @@ jobs:
         env:
           HETZNER_CORE1_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE1_TRANSLATE_BASE }}
           HETZNER_CORE2_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE2_TRANSLATE_BASE }}
-          HETZNER_CORE3_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE3_TRANSLATE_BASE }}
           HETZNER_WORKER_HOST: ${{ secrets.HETZNER_WORKER_HOST }}
         run: node scripts/verify-hetzner-translate-cores.mjs

@@ -1,36 +1,28 @@
+# Two lanes (paid :5001, trial :5002) — memory-safe defaults for ~4 GB hosts.
+# See deploy/MEMORY-BUDGET-2LANE.md
 version: "3.8"
 
+x-libre-env: &libre-env
+  LT_THREADS: "1"
+  LT_WORKERS: "1"
+  OMP_NUM_THREADS: "1"
+  LT_LOAD_ONLY: "en,es,fr,de,it,pt,ru,ar,zh,hi,tr,pl,nl"
+
 services:
-  libre-core-1:
+  libre-paid:
     image: libretranslate/libretranslate:latest
-    container_name: libre-core-1
-    environment:
-      LT_THREADS: "1"
-      LT_WORKERS: "1"
-      OMP_NUM_THREADS: "1"
+    container_name: libre-paid
+    environment: *libre-env
     ports:
       - "5001:5000"
     restart: unless-stopped
+    mem_limit: 1400m
 
-  libre-core-2:
+  libre-trial:
     image: libretranslate/libretranslate:latest
-    container_name: libre-core-2
-    environment:
-      LT_THREADS: "1"
-      LT_WORKERS: "1"
-      OMP_NUM_THREADS: "1"
+    container_name: libre-trial
+    environment: *libre-env
     ports:
       - "5002:5000"
     restart: unless-stopped
-
-  libre-core-3:
-    image: libretranslate/libretranslate:latest
-    container_name: libre-core-3
-    environment:
-      LT_THREADS: "1"
-      LT_WORKERS: "1"
-      OMP_NUM_THREADS: "1"
-    ports:
-      - "5003:5000"
-    restart: unless-stopped
-
+    mem_limit: 1400m

@@ -22,7 +22,7 @@
 # Live transcription: set SONIOX_API_KEY (or SONIOX_STT_API_KEY) on this same API service.
 # See railway.api.env.example and repo-root .env.example for local dev.
 #
-# Hetzner three-lane MT: set HETZNER_CORE1/2/3_TRANSLATE_BASE (or HETZNER_WORKER_HOST) per railway.api.env.example.
+# Hetzner two-lane MT: HETZNER_CORE1 + CORE2 (or HETZNER_WORKER_HOST) — see railway.api.env.example and deploy/MEMORY-BUDGET-2LANE.md.
 # Verify workers: copy deploy/github-actions/*.yml into .github/workflows (see deploy/github-actions/README.md), or run pnpm verify:hetzner-cores.
 #
 # Sessions: Dockerfile sets SESSION_STORE=memory by default (fixes login/Google 500s when

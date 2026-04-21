@@ -1,6 +1,6 @@
 # Put these files on your Hetzner box as `/root/deploy/`
 
-The API repo lives on GitHub; this folder is the **only** thing you need on the translator server to run the three LibreTranslate ports.
+The API repo lives on GitHub; this folder is the **only** thing you need on the translator server to run **two** LibreTranslate instances (**5001 = paid**, **5002 = trial**), with `LT_LOAD_ONLY` + `mem_limit` for small RAM hosts (see `deploy/MEMORY-BUDGET-2LANE.md`).
 
 ## Option A — from your laptop (replace `YOUR_SERVER_IP`)
 
@@ -34,9 +34,8 @@ cd /root/deploy && docker compose pull && docker compose up -d
 docker compose -f /root/deploy/docker-compose.yml ps
 curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5001/languages
 curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5002/languages
-curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5003/languages
 ```
 
-Expect `200` on each line.
+Expect two `200` lines.
 
-Then set Railway/API env `HETZNER_CORE1/2/3_TRANSLATE_BASE` to `http://<this server's public IP>:5001` etc., and redeploy the API.
+Then set Railway/API env **`HETZNER_CORE1_TRANSLATE_BASE`** and **`HETZNER_CORE2_TRANSLATE_BASE`** to `http://<this server's public IP>:5001` and `:5002`, and redeploy the API.

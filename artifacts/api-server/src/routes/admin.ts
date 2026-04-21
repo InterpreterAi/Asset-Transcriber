@@ -72,7 +72,7 @@ type ActiveSessionRow = {
 
 type CoreLaneColor = "blue" | "violet";
 type EnrichedCorePlacement = {
-  coreLane: 1 | 2 | 3;
+  coreLane: 1 | 2;
   coreLaneColor: CoreLaneColor;
   coreNodeLabel: string;
 };
@@ -102,40 +102,22 @@ function resolveCoreNodeLabelAndColor(): { coreNodeLabel: string; coreLaneColor:
 function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCorePlacement> {
   const out = new Map<number, EnrichedCorePlacement>();
   const node = resolveCoreNodeLabelAndColor();
-  const laneLoad = new Map<1 | 2 | 3, number>([
-    [1, 0],
-    [2, 0],
-    [3, 0],
-  ]);
 
   const sorted = [...rows].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
   const machineRows = sorted.filter((r) => userUsesMachineTranslationStack(r));
   const paidMachine = machineRows.filter((r) => isPaidPlanForCoreRouting(r.planType));
   const trialMachine = machineRows.filter((r) => !isPaidPlanForCoreRouting(r.planType));
 
-  function place(sessionId: number, lane: 1 | 2 | 3) {
-    laneLoad.set(lane, (laneLoad.get(lane) ?? 0) + 1);
+  function place(sessionId: number, lane: 1 | 2) {
     out.set(sessionId, { coreLane: lane, coreLaneColor: node.coreLaneColor, coreNodeLabel: node.coreNodeLabel });
   }
 
-  // Paid sessions prefer lanes 1-2 and auto-balance.
+  // Mirrors server two-lane router: paid → lane 1, trial machine → lane 2.
   for (const row of paidMachine) {
-    const l1 = laneLoad.get(1) ?? 0;
-    const l2 = laneLoad.get(2) ?? 0;
-    place(row.sessionId, l1 <= l2 ? 1 : 2);
+    place(row.sessionId, 1);
   }
-  // Trial sessions prefer lane 3, spill to least-loaded lane under pressure.
   for (const row of trialMachine) {
-    const l3 = laneLoad.get(3) ?? 0;
-    if (l3 <= 2) {
-      place(row.sessionId, 3);
-      continue;
-    }
-    const l1 = laneLoad.get(1) ?? 0;
-    const l2 = laneLoad.get(2) ?? 0;
-    const l3now = laneLoad.get(3) ?? 0;
-    const lane = l1 <= l2 && l1 <= l3now ? 1 : l2 <= l1 && l2 <= l3now ? 2 : 3;
-    place(row.sessionId, lane);
+    place(row.sessionId, 2);
   }
   return out;
 }
@@ -150,7 +132,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     openSessionsForUser: number;
     openSessionOrdinal: number;
     translationStack: "libre" | "openai";
-    coreLane: 1 | 2 | 3 | null;
+    coreLane: 1 | 2 | null;
     coreLaneColor: CoreLaneColor | null;
     coreNodeLabel: string | null;
   }

@@ -72,7 +72,7 @@ interface AdminStats {
     openSessionOrdinal?: number;
     /** Mirrors server planUsesMachineTranslationStack — Libre vs OpenAI translation path. */
     translationStack?: "libre" | "openai";
-    coreLane?: 1 | 2 | 3 | null;
+    coreLane?: 1 | 2 | null;
     coreLaneColor?: "blue" | "violet" | null;
     coreNodeLabel?: string | null;
   }[];

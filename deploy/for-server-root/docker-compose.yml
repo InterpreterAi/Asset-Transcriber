@@ -1,37 +1,29 @@
-# Copy this entire folder to the server as /root/deploy/ (see INSTALL.md).
-# Then: cd /root/deploy && docker compose pull && docker compose up -d
+# Two LibreTranslate instances for small RAM hosts (see ../MEMORY-BUDGET-2LANE.md).
+# Paid API → :5001, trial API → :5002. Adjust LT_LOAD_ONLY / mem_limit if you still OOM.
 version: "3.8"
 
+x-libre-env: &libre-env
+  LT_THREADS: "1"
+  LT_WORKERS: "1"
+  OMP_NUM_THREADS: "1"
+  # Only load these Argos pairs — major RAM saver vs full image (edit list to your product languages).
+  LT_LOAD_ONLY: "en,es,fr,de,it,pt,ru,ar,zh,hi,tr,pl,nl"
+
 services:
-  libre-core-1:
+  libre-paid:
     image: libretranslate/libretranslate:latest
-    container_name: libre-core-1
-    environment:
-      LT_THREADS: "1"
-      LT_WORKERS: "1"
-      OMP_NUM_THREADS: "1"
+    container_name: libre-paid
+    environment: *libre-env
     ports:
       - "5001:5000"
     restart: unless-stopped
+    mem_limit: 1400m
 
-  libre-core-2:
+  libre-trial:
     image: libretranslate/libretranslate:latest
-    container_name: libre-core-2
-    environment:
-      LT_THREADS: "1"
-      LT_WORKERS: "1"
-      OMP_NUM_THREADS: "1"
+    container_name: libre-trial
+    environment: *libre-env
     ports:
       - "5002:5000"
     restart: unless-stopped
-
-  libre-core-3:
-    image: libretranslate/libretranslate:latest
-    container_name: libre-core-3
-    environment:
-      LT_THREADS: "1"
-      LT_WORKERS: "1"
-      OMP_NUM_THREADS: "1"
-    ports:
-      - "5003:5000"
-    restart: unless-stopped
+    mem_limit: 1400m

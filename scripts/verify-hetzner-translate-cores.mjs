@@ -1,13 +1,7 @@
 #!/usr/bin/env node
 /**
- * Health-check the three LibreTranslate lane URLs (GET /languages → 200).
- * Uses the same defaults as `hetzner-core-router.ts` unless env overrides.
- *
- * Usage (on the worker host, or anywhere that can reach the ports):
- *   node scripts/verify-hetzner-translate-cores.mjs
- *
- * Or set explicit bases:
- *   HETZNER_CORE1_TRANSLATE_BASE=... HETZNER_CORE2_TRANSLATE_BASE=... HETZNER_CORE3_TRANSLATE_BASE=... node ...
+ * Health-check two LibreTranslate lane URLs (GET /languages → 200).
+ * Matches `hetzner-core-router.ts` two-lane defaults (5001 paid, 5002 trial).
  */
 
 function trimHost(raw) {
@@ -23,7 +17,7 @@ function defaults() {
     .trim()
     .replace(/:+$/, "");
   const root = `${scheme}://${host}`;
-  return [`${root}:5001`, `${root}:5002`, `${root}:5003`];
+  return [`${root}:5001`, `${root}:5002`];
 }
 
 async function checkOne(name, base) {
@@ -46,16 +40,15 @@ async function checkOne(name, base) {
 
 async function main() {
   if (process.env.HETZNER_USE_LEGACY_SINGLE_STACK === "1") {
-    console.log("[verify-hetzner-cores] HETZNER_USE_LEGACY_SINGLE_STACK=1 — skipping three-core check.");
+    console.log("[verify-hetzner-cores] HETZNER_USE_LEGACY_SINGLE_STACK=1 — skipping two-lane check.");
     process.exit(0);
   }
 
-  const [d1, d2, d3] = defaults();
+  const [d1, d2] = defaults();
   const pick = (v, d) => (v != null && String(v).trim() !== "" ? String(v).trim() : d);
   const urls = [
-    ["core1", pick(process.env.HETZNER_CORE1_TRANSLATE_BASE, d1)],
-    ["core2", pick(process.env.HETZNER_CORE2_TRANSLATE_BASE, d2)],
-    ["core3", pick(process.env.HETZNER_CORE3_TRANSLATE_BASE, d3)],
+    ["paid-lane", pick(process.env.HETZNER_CORE1_TRANSLATE_BASE, d1)],
+    ["trial-lane", pick(process.env.HETZNER_CORE2_TRANSLATE_BASE, d2)],
   ];
 
   console.log("[verify-hetzner-cores] Checking /languages on each lane…");
@@ -67,10 +60,12 @@ async function main() {
     if (!r.ok) failed = true;
   }
   if (failed) {
-    console.error("[verify-hetzner-cores] One or more cores failed. Fix Docker/workers or set HETZNER_USE_LEGACY_SINGLE_STACK=1 temporarily.");
+    console.error(
+      "[verify-hetzner-cores] One or more lanes failed. Fix Docker/workers, tighten LT_LOAD_ONLY, or set HETZNER_USE_LEGACY_SINGLE_STACK=1 temporarily.",
+    );
     process.exit(1);
   }
-  console.log("[verify-hetzner-cores] All three lanes responded OK.");
+  console.log("[verify-hetzner-cores] Both lanes responded OK.");
 }
 
 void main();

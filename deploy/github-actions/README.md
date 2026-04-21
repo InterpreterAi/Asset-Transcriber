@@ -21,4 +21,4 @@ pnpm install   # optional if you only need node
 node scripts/verify-hetzner-translate-cores.mjs
 ```
 
-Exit code `0` means all three `/languages` checks returned HTTP 200.
+Exit code `0` means both lane `/languages` checks returned HTTP 200.
