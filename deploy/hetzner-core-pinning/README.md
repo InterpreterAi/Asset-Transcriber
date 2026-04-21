@@ -26,11 +26,29 @@ docker run -d --name libre-core-3 --restart unless-stopped \
 
 ## API env configuration
 
-Set these on the API service:
+**Important:** If `HETZNER_CORE1_TRANSLATE_BASE`, `HETZNER_CORE2_TRANSLATE_BASE`, and `HETZNER_CORE3_TRANSLATE_BASE` are **not** all set, the API uses **`HETZNER_TRANSLATE_LEGACY_BASE` (default `http://178.156.211.226:5000`) for every lane** so machine translation keeps working without the three pinned containers. After workers on 5001–5003 are up, set all three variables on the API service.
+
+When pinned workers are running, set these on the API service:
 
 - `HETZNER_CORE1_TRANSLATE_BASE=http://<host>:5001`
 - `HETZNER_CORE2_TRANSLATE_BASE=http://<host>:5002`
 - `HETZNER_CORE3_TRANSLATE_BASE=http://<host>:5003`
+
+## Start pinned workers (same host as the ports)
+
+From the repo root (Docker required):
+
+```bash
+docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml up -d
+```
+
+Verify on **that host** (not from the API-only Railway container unless it shares network):
+
+```bash
+for p in 5001 5002 5003; do curl -sS -o /dev/null -w "%{http_code} :$p\n" "http://127.0.0.1:$p/languages" || echo "fail :$p"; done
+```
+
+Expect `200` lines if LibreTranslate is healthy (`/languages` is a light GET).
 
 The API runtime enforces:
 

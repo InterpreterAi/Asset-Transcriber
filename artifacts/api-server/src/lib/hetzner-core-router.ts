@@ -3,9 +3,21 @@ import { logger } from "./logger.js";
 type CoreLane = 1 | 2 | 3;
 type CoreRoute = { lane: CoreLane; baseUrl: string };
 
-const CORE1_BASE = (process.env.HETZNER_CORE1_TRANSLATE_BASE ?? "http://178.156.211.226:5001").trim();
-const CORE2_BASE = (process.env.HETZNER_CORE2_TRANSLATE_BASE ?? "http://178.156.211.226:5002").trim();
-const CORE3_BASE = (process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "http://178.156.211.226:5003").trim();
+/**
+ * Single-worker fallback (same host as `hetzner-translate` CONFIGURED_BASE :5000).
+ * Defaults MUST NOT assume 5001–5003 are up — that breaks production if pinned containers are not deployed.
+ * Set `HETZNER_CORE{1,2,3}_TRANSLATE_BASE` when the three LibreTranslate containers are actually listening.
+ */
+const LEGACY_TRANSLATE_BASE = (process.env.HETZNER_TRANSLATE_LEGACY_BASE ?? "http://178.156.211.226:5000").trim();
+
+const CORE1_BASE = (process.env.HETZNER_CORE1_TRANSLATE_BASE ?? LEGACY_TRANSLATE_BASE).trim();
+const CORE2_BASE = (process.env.HETZNER_CORE2_TRANSLATE_BASE ?? LEGACY_TRANSLATE_BASE).trim();
+const CORE3_BASE = (process.env.HETZNER_CORE3_TRANSLATE_BASE ?? LEGACY_TRANSLATE_BASE).trim();
+
+const coresArePinned =
+  Boolean(process.env.HETZNER_CORE1_TRANSLATE_BASE?.trim()) &&
+  Boolean(process.env.HETZNER_CORE2_TRANSLATE_BASE?.trim()) &&
+  Boolean(process.env.HETZNER_CORE3_TRANSLATE_BASE?.trim());
 
 const laneToBase: Record<CoreLane, string> = {
   1: CORE1_BASE,
@@ -111,10 +123,14 @@ export function logHetznerCoreRouterStartupHint(): void {
   logger.info(
     {
       lanes: laneToBase,
+      coresArePinned,
+      legacyFallbackBase: LEGACY_TRANSLATE_BASE,
       semantics:
         "paid lock cores 1/2; trials register only when using machine translate; trial borrow 1–3 when no paid active; preempt trial->core3 on paid start",
     },
-    "Hetzner core router configured",
+    coresArePinned
+      ? "Hetzner core router configured (pinned bases from env)"
+      : "Hetzner core router configured (all lanes fall back to legacy single port until HETZNER_CORE1/2/3_TRANSLATE_BASE are set)",
   );
 }
 
