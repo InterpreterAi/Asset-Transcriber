@@ -66,6 +66,76 @@ type ActiveSessionRow = {
   planType: string;
 };
 
+type CoreLaneColor = "blue" | "violet";
+type EnrichedCorePlacement = {
+  coreLane: 1 | 2 | 3;
+  coreLaneColor: CoreLaneColor;
+  coreNodeLabel: string;
+};
+
+function isPaidPlanForCoreRouting(planType: string): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  return (
+    p === "basic-libre" ||
+    p === "professional-libre" ||
+    p === "platinum-libre" ||
+    p === "basic" ||
+    p === "professional" ||
+    p === "platinum" ||
+    p === "unlimited"
+  );
+}
+
+function resolveCoreNodeLabelAndColor(): { coreNodeLabel: string; coreLaneColor: CoreLaneColor } {
+  const rawNodeId = Number.parseInt((process.env.HETZNER_NODE_ID ?? "1").trim(), 10);
+  const nodeId = Number.isFinite(rawNodeId) && rawNodeId >= 1 ? rawNodeId : 1;
+  return {
+    coreNodeLabel: `HZ-${nodeId}`,
+    coreLaneColor: nodeId === 1 ? "blue" : "violet",
+  };
+}
+
+function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCorePlacement> {
+  const out = new Map<number, EnrichedCorePlacement>();
+  const node = resolveCoreNodeLabelAndColor();
+  const laneLoad = new Map<1 | 2 | 3, number>([
+    [1, 0],
+    [2, 0],
+    [3, 0],
+  ]);
+
+  const sorted = [...rows].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  const machineRows = sorted.filter((r) => planUsesMachineTranslationStack(r.planType));
+  const paidMachine = machineRows.filter((r) => isPaidPlanForCoreRouting(r.planType));
+  const trialMachine = machineRows.filter((r) => !isPaidPlanForCoreRouting(r.planType));
+
+  function place(sessionId: number, lane: 1 | 2 | 3) {
+    laneLoad.set(lane, (laneLoad.get(lane) ?? 0) + 1);
+    out.set(sessionId, { coreLane: lane, coreLaneColor: node.coreLaneColor, coreNodeLabel: node.coreNodeLabel });
+  }
+
+  // Paid sessions prefer lanes 1-2 and auto-balance.
+  for (const row of paidMachine) {
+    const l1 = laneLoad.get(1) ?? 0;
+    const l2 = laneLoad.get(2) ?? 0;
+    place(row.sessionId, l1 <= l2 ? 1 : 2);
+  }
+  // Trial sessions prefer lane 3, spill to least-loaded lane under pressure.
+  for (const row of trialMachine) {
+    const l3 = laneLoad.get(3) ?? 0;
+    if (l3 <= 2) {
+      place(row.sessionId, 3);
+      continue;
+    }
+    const l1 = laneLoad.get(1) ?? 0;
+    const l2 = laneLoad.get(2) ?? 0;
+    const l3now = laneLoad.get(3) ?? 0;
+    const lane = l1 <= l2 && l1 <= l3now ? 1 : l2 <= l1 && l2 <= l3now ? 2 : 3;
+    place(row.sessionId, lane);
+  }
+  return out;
+}
+
 /**
  * Per-user open-session counts and ordinal (detect duplicate DB rows for one customer).
  */
@@ -76,8 +146,12 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     openSessionsForUser: number;
     openSessionOrdinal: number;
     translationStack: "libre" | "openai";
+    coreLane: 1 | 2 | 3 | null;
+    coreLaneColor: CoreLaneColor | null;
+    coreNodeLabel: string | null;
   }
 > {
+  const corePlacementBySessionId = computeCorePlacement(rows);
   const byUser = new Map<number, T[]>();
   for (const r of rows) {
     const list = byUser.get(r.userId) ?? [];
@@ -98,6 +172,9 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     openSessionsForUser: byUser.get(r.userId)?.length ?? 1,
     openSessionOrdinal: ordinalBySessionId.get(r.sessionId) ?? 1,
     translationStack: planUsesMachineTranslationStack(r.planType) ? "libre" : "openai",
+    coreLane: corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null,
+    coreLaneColor: corePlacementBySessionId.get(r.sessionId)?.coreLaneColor ?? null,
+    coreNodeLabel: corePlacementBySessionId.get(r.sessionId)?.coreNodeLabel ?? null,
   }));
 }
 
@@ -533,6 +610,9 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       openSessionsForUser:  s.openSessionsForUser,
       openSessionOrdinal:   s.openSessionOrdinal,
       translationStack:     s.translationStack,
+      coreLane:            s.coreLane,
+      coreLaneColor:       s.coreLaneColor,
+      coreNodeLabel:       s.coreNodeLabel,
     })),
     liveSessionSummary,
   });
@@ -906,6 +986,9 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       openSessionsForUser:  s.openSessionsForUser,
       openSessionOrdinal:   s.openSessionOrdinal,
       translationStack:     s.translationStack,
+      coreLane:             s.coreLane,
+      coreLaneColor:        s.coreLaneColor,
+      coreNodeLabel:        s.coreNodeLabel,
     })),
     liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
   });

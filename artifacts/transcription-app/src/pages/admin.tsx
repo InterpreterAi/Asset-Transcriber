@@ -72,6 +72,9 @@ interface AdminStats {
     openSessionOrdinal?: number;
     /** Mirrors server planUsesMachineTranslationStack — Libre vs OpenAI translation path. */
     translationStack?: "libre" | "openai";
+    coreLane?: 1 | 2 | 3 | null;
+    coreLaneColor?: "blue" | "violet" | null;
+    coreNodeLabel?: string | null;
   }[];
   /** Populated with /stats and fast /active-sessions polls. */
   liveSessionSummary?: {
@@ -424,6 +427,17 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording
         </span>
+        {activeSession.coreLane ? (
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+              (activeSession.coreLaneColor ?? "blue") === "violet"
+                ? "bg-violet-100 text-violet-800"
+                : "bg-blue-100 text-blue-800"
+            }`}
+          >
+            {activeSession.coreNodeLabel ?? "HZ-1"} · Core {activeSession.coreLane}
+          </span>
+        ) : null}
         <AudioDeviceInfo label={activeSession.micLabel} />
       </div>
     );
@@ -482,7 +496,7 @@ export default function Admin() {
   const resetMut  = useAdminResetUsage();
 
   // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
+  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "ipWatch" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Fast-poll live sessions on Overview / Users / Monitor — 3 s (Libre-heavy traffic needs fresh rows).
@@ -1101,6 +1115,7 @@ export default function Admin() {
     { id: "analytics",  label: "Analytics",  icon: <TrendingUp className="w-4 h-4" />,     badge: null },
     { id: "monitor",    label: "Monitor",    icon: <Monitor className="w-4 h-4" />,         badge: sessions.length > 0 ? sessions.length : null },
     { id: "users",      label: "Users",      icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
+    { id: "ipWatch",    label: "IP Watch",   icon: <ShieldAlert className="w-4 h-4" />,     badge: sharedLoginIpIndex.length > 0 ? sharedLoginIpIndex.length : null },
     { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
     { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
     { id: "referrals",  label: "Referrals",  icon: <Gift className="w-4 h-4" />,            badge: referralsAdminData?.totals.pendingReferrals ?? null },
@@ -1335,10 +1350,11 @@ export default function Admin() {
                         )}
                         <span
                           className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"
+                            workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"
                           }`}
+                          title="Exact database plan_type"
                         >
-                          {workspacePlanDisplayName(s.planType)}
+                          {s.planType}
                         </span>
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
@@ -1351,6 +1367,18 @@ export default function Admin() {
                             ? "OpenAI MT"
                             : "Hetzner MT"}
                         </span>
+                        {s.coreLane ? (
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                              (s.coreLaneColor ?? "blue") === "violet"
+                                ? "bg-violet-100 text-violet-800"
+                                : "bg-blue-100 text-blue-800"
+                            }`}
+                            title="Live machine-lane assignment"
+                          >
+                            {s.coreNodeLabel ?? "HZ-1"} · Core {s.coreLane}
+                          </span>
+                        ) : null}
                       </div>
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
@@ -1687,53 +1715,8 @@ export default function Admin() {
               </div>
 
               {sharedLoginIpIndex.length > 0 && (
-                <div className="rounded-xl border border-amber-200/90 bg-amber-50/60 px-3 py-2.5 text-xs space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold text-amber-950">
-                      Same IP, multiple accounts ({sharedLoginIpIndex.length} IP{sharedLoginIpIndex.length !== 1 ? "s" : ""})
-                    </span>
-                    <span className="text-[10px] text-amber-900/75">
-                      From successful sign-ins only; updates whenever this list reloads
-                    </span>
-                  </div>
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-0.5">
-                    {sharedLoginIpIndex.map((c) => {
-                      const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
-                      return (
-                        <div
-                          key={c.ip}
-                          className="rounded-lg border border-amber-100/90 bg-white px-2.5 py-2 space-y-1.5 shadow-sm"
-                          style={{
-                            borderLeftWidth: 3,
-                            borderLeftStyle: "solid",
-                            borderLeftColor: `hsl(${accent.hue} 56% 44%)`,
-                          }}
-                        >
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                            <code className="text-[10px] font-mono bg-amber-50/80 px-1 py-0.5 rounded">{c.ip}</code>
-                            <span className="text-[10px] font-bold text-amber-950">Tag {accent.label}</span>
-                            <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {c.accounts.map((a) => (
-                              <button
-                                key={a.id}
-                                type="button"
-                                className="text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-amber-200/80 bg-amber-50/50 hover:bg-amber-100 text-foreground"
-                                title={a.email ? `${a.email}` : `User #${a.id}`}
-                                onClick={() => {
-                                  const peer = allUsers.find((x) => x.id === a.id);
-                                  if (peer) openEditUser(peer);
-                                }}
-                              >
-                                #{a.id} {a.username}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs text-blue-900">
+                  Shared-IP review moved to <strong>IP Watch</strong> tab ({sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}).
                 </div>
               )}
             </div>
@@ -1769,7 +1752,7 @@ export default function Admin() {
                 <thead className="bg-gray-50/80 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
                   <tr>
                     <th className="px-4 py-3 font-semibold">User</th>
-                    <th className="px-4 py-3 font-semibold">Shared IP</th>
+                    <th className="px-4 py-3 font-semibold">Risk</th>
                     <th className="px-4 py-3 font-semibold">Session</th>
                     <th className="px-4 py-3 font-semibold">Account</th>
                     <th className="px-4 py-3 font-semibold">Plan</th>
@@ -1818,54 +1801,13 @@ export default function Admin() {
 
                         <td className="px-4 py-3 align-top text-xs" onClick={(e) => e.stopPropagation()}>
                           {(u.sharedLoginIpMaxAccounts ?? 1) >= 2 ? (
-                            <div className="space-y-2 max-w-[240px]">
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900"
-                                title="Largest count of distinct accounts sharing one login IP with this user"
-                              >
-                                Up to {u.sharedLoginIpMaxAccounts} accounts / one IP
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
+                                Shared IP ({u.sharedLoginIpMaxAccounts})
                               </span>
-                              {clusters.map((c) => {
-                                const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
-                                return (
-                                  <div
-                                    key={c.ip}
-                                    className="rounded-md border border-amber-100 bg-white/80 px-2 py-1.5 space-y-1"
-                                    style={{
-                                      borderLeftWidth: 3,
-                                      borderLeftStyle: "solid",
-                                      borderLeftColor: `hsl(${accent.hue} 56% 44%)`,
-                                    }}
-                                  >
-                                    <div className="flex flex-wrap items-center gap-1">
-                                      <code className="text-[9px] font-mono text-foreground/90 break-all">{c.ip}</code>
-                                      <span className="text-[9px] font-bold text-amber-950 shrink-0">Tag {accent.label}</span>
-                                </div>
-                                    <div className="text-[9px] text-muted-foreground">{c.accountCount} accounts on this IP</div>
-                                    <div className="flex flex-wrap gap-0.5">
-                                      {c.accounts.map((a) => (
-                                        <button
-                                          key={a.id}
-                                          type="button"
-                                          className={`text-[9px] font-medium px-1 py-0.5 rounded border transition-colors ${
-                                            a.id === u.id
-                                              ? "border-primary bg-primary/10 text-primary"
-                                              : "border-amber-200/90 bg-amber-50/60 hover:bg-amber-100 text-foreground"
-                                          }`}
-                                          title={a.email ?? `User #${a.id}`}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const peer = allUsers.find((x) => x.id === a.id);
-                                            if (peer) openEditUser(peer);
-                                          }}
-                                        >
-                                          #{a.id} {a.username}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                              {firstCluster?.ip && (
+                                <code className="text-[9px] font-mono text-muted-foreground break-all">{firstCluster.ip}</code>
+                              )}
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-[11px]">—</span>
@@ -1888,6 +1830,9 @@ export default function Admin() {
                         {/* Plan */}
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
+                            <code className="text-[10px] font-mono text-foreground bg-gray-100 px-1.5 py-0.5 rounded self-start">
+                              {u.planType}
+                            </code>
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
                             {isTrialLikePlanType(u.planType) && u.trialEndsAt && (
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
@@ -2015,9 +1960,62 @@ export default function Admin() {
             <div className="px-4 py-2 bg-gray-50/50 border-t border-border text-[11px] text-muted-foreground space-y-0.5">
               <div>Click a row to view session history.</div>
               <div>
-                <strong className="text-foreground">Shared IP</strong> uses successful sign-in IPs only. Each row lists the IP, a matching <strong className="text-foreground">Tag</strong> (same color and tag = same group of accounts), and every account on that IP—click a name to open the user editor and disable accounts. The summary panel above deduplicates by IP. VPNs and offices can look like duplicates.
+                <strong className="text-foreground">Risk</strong> is a compact shared-IP indicator only; full account/IP mapping and disable actions are in <strong className="text-foreground">IP Watch</strong>.
               </div>
             </div>
+          </Card>
+        )}
+
+        {/* ── IP WATCH TAB ─────────────────────────────────────────────────── */}
+        {mainTab === "ipWatch" && (
+          <Card className="overflow-hidden border-border shadow-sm bg-white">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold">Shared IP Watch</h3>
+                <p className="text-xs text-muted-foreground">Successful login IPs used by 2+ accounts (auto-refreshes with Users data).</p>
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">
+                {sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            {sharedLoginIpIndex.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">No shared-IP clusters detected.</div>
+            ) : (
+              <div className="divide-y divide-border max-h-[70vh] overflow-y-auto">
+                {sharedLoginIpIndex.map((c) => {
+                  const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
+                  return (
+                    <div
+                      key={c.ip}
+                      className="px-4 py-3"
+                      style={{ borderLeft: `4px solid hsl(${accent.hue} 56% 44%)` }}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <code className="text-xs font-mono bg-amber-50 px-1.5 py-0.5 rounded">{c.ip}</code>
+                        <span className="text-[10px] font-bold text-amber-900">Tag {accent.label}</span>
+                        <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {c.accounts.map((a) => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            className="text-[11px] font-medium px-2 py-0.5 rounded border border-amber-200 bg-amber-50 hover:bg-amber-100"
+                            title={a.email ?? `User #${a.id}`}
+                            onClick={() => {
+                              const peer = allUsers.find((x) => x.id === a.id);
+                              if (peer) openEditUser(peer);
+                            }}
+                          >
+                            #{a.id} {a.username}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </Card>
         )}
 
