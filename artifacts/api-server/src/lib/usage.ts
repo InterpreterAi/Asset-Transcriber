@@ -41,26 +41,26 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 
 /**
  * True when POST /translate must use the Libre/machine stack (not OpenAI).
- * Admin-assigned OpenAI plans (`trial`, `basic`, `professional`, `platinum`, `*-openai`) must route to OpenAI.
- * Libre routes are explicit `*-libre` plans (including default signup `trial-libre`).
+ * Hetzner machine stack is canonical for Trial/Basic/Professional families.
+ * OpenAI stack is reserved for Platinum/Unlimited only.
  */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (
     p === "trial-libre" ||
+    p === "trial" ||
+    p === "trial-openai" ||
     p === "basic-libre" ||
+    p === "basic" ||
+    p === "basic-openai" ||
     p === "professional-libre" ||
+    p === "professional" ||
+    p === "professional-openai" ||
     p === "platinum-libre"
   ) {
     return true;
   }
   if (
-    p === "trial" ||
-    p === "trial-openai" ||
-    p === "basic" ||
-    p === "basic-openai" ||
-    p === "professional" ||
-    p === "professional-openai" ||
     p === "platinum" ||
     p === "unlimited"
   ) {
