@@ -633,6 +633,10 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     usageMonthRow,
     conversionRows,
     topUsersRows,
+    hetznerHoursMonthRow,
+    openAiHoursMonthRow,
+    paidUsersNowRow,
+    churnSignalsRow,
   ] = await Promise.all([
     // New signups per day — last 30 days
     db.select({
@@ -746,6 +750,82 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
           0
         )`))
       .limit(10),
+
+    // Hetzner MT usage hours MTD (machine-translation plans; includes live elapsed audio time).
+    db.select({
+      hours: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 3600.0`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonthNy}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`LOWER(${usersTable.planType}) LIKE '%-libre'`,
+      )),
+
+    // OpenAI usage hours MTD (non-machine plans; transcription and translation hours tracked separately in UI formula).
+    db.select({
+      transcriptionHours: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 3600.0`,
+      translationHours: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 3600.0`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonthNy}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`LOWER(${usersTable.planType}) NOT LIKE '%-libre'`,
+      )),
+
+    // Active paid base (current).
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(and(
+        sql`${usersTable.isAdmin} = false`,
+        notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
+      )),
+
+    // Monthly churn signals among paid users.
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(and(
+        sql`${usersTable.isAdmin} = false`,
+        notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
+        sql`(
+          COALESCE(${usersTable.subscriptionStatus}, '') ILIKE 'cancel%'
+          OR COALESCE(${usersTable.subscriptionStatus}, '') ILIKE 'inactive%'
+          OR ${usersTable.isActive} = false
+        )`,
+      )),
   ]);
 
   // Fill missing days with 0 for growth chart (last 30 days)
@@ -771,6 +851,25 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
   // Month cost: completed sessions only (no live-session adjustment needed for monthly view)
   const realCostMonth      = +(minutesMonth * SONIOX_COST_PER_MIN).toFixed(4);
 
+  const hetznerTranslationHoursMtd = +Number(hetznerHoursMonthRow[0]?.hours ?? 0).toFixed(2);
+  const openAiTranscriptionHoursMtd = +Number(openAiHoursMonthRow[0]?.transcriptionHours ?? 0).toFixed(2);
+  const openAiTranslationHoursMtd = +Number(openAiHoursMonthRow[0]?.translationHours ?? 0).toFixed(2);
+  const hetznerSavingsMtd = +(hetznerTranslationHoursMtd * 0.35).toFixed(2);
+  const estimatedOpenAiBurnMtd = +(
+    openAiTranscriptionHoursMtd * 0.15 +
+    openAiTranslationHoursMtd * 0.35
+  ).toFixed(2);
+  const serverUtilizationPerDollar = +(hetznerTranslationHoursMtd / 13).toFixed(3);
+  const effectiveHetznerCostPerHour = hetznerTranslationHoursMtd > 0
+    ? +(13 / hetznerTranslationHoursMtd).toFixed(3)
+    : 0;
+  const churnPercentMonthly = (() => {
+    const paidNow = Number(paidUsersNowRow[0]?.count ?? 0);
+    const churnCount = Number(churnSignalsRow[0]?.count ?? 0);
+    return paidNow > 0 ? +((churnCount / paidNow) * 100).toFixed(2) : 0;
+  })();
+  const ltvEstimate = churnPercentMonthly > 0 ? +(mrrEstimate / churnPercentMonthly).toFixed(2) : null;
+
   const planMap = new Map(conversionRows.map(r => [r.planType, Number(r.count)]));
   const trialCount  = planMap.get("trial") ?? 0;
   const payingCount = [...planMap.entries()].filter(([k]) => k !== "trial").reduce((s, [, v]) => s + v, 0);
@@ -785,6 +884,18 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       costToday:       realCostToday,
       costMonth:       realCostMonth,
       sessionsToday:   sessionsTodayCount,
+    },
+    businessMetrics: {
+      hetznerSavingsMtd,
+      hetznerTranslationHoursMtd,
+      estimatedOpenAiBurnMtd,
+      openAiTranscriptionHoursMtd,
+      openAiTranslationHoursMtd,
+      serverUtilizationPerDollar,
+      effectiveHetznerCostPerHour,
+      ltvEstimate,
+      churnPercentMonthly,
+      activeMrr: mrrEstimate,
     },
     conversion: {
       totalUsers:     totalCount,

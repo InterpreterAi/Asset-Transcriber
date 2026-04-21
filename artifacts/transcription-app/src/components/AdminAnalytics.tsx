@@ -25,6 +25,18 @@ interface AnalyticsData {
     costMonth: number;
     sessionsToday: number;
   };
+  businessMetrics?: {
+    hetznerSavingsMtd: number;
+    hetznerTranslationHoursMtd: number;
+    estimatedOpenAiBurnMtd: number;
+    openAiTranscriptionHoursMtd: number;
+    openAiTranslationHoursMtd: number;
+    serverUtilizationPerDollar: number;
+    effectiveHetznerCostPerHour: number;
+    ltvEstimate: number | null;
+    churnPercentMonthly: number;
+    activeMrr: number;
+  };
   conversion: {
     totalUsers: number;
     trialUsers: number;
@@ -258,6 +270,7 @@ export default function AdminAnalytics() {
   if (!data) return null;
 
   const { userGrowth, dau, usageStats, conversion, topUsers } = data;
+  const business = data.businessMetrics;
 
   const conversionPie = [
     { name: "Paid",  value: conversion.paidUsers  },
@@ -343,6 +356,41 @@ export default function AdminAnalytics() {
               />
             </>
           ) : null}
+        </div>
+      </section>
+
+      {/* ── Efficiency & Profit (MTD) ───────────────────────────────────── */}
+      <section>
+        <SectionTitle><DollarSign className="w-4 h-4 text-emerald-500" />Efficiency & Profit Metrics (MTD)</SectionTitle>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+          <StatCard
+            icon={<Zap className="w-4.5 h-4.5" />}
+            label="Hetzner Savings"
+            value={fmtUsd(business?.hetznerSavingsMtd ?? 0)}
+            sub={`${(business?.hetznerTranslationHoursMtd ?? 0).toFixed(2)} h x $0.35`}
+            color="bg-emerald-50 text-emerald-700"
+          />
+          <StatCard
+            icon={<DollarSign className="w-4.5 h-4.5" />}
+            label="Estimated OpenAI Burn"
+            value={fmtUsd(business?.estimatedOpenAiBurnMtd ?? 0)}
+            sub={`${(business?.openAiTranscriptionHoursMtd ?? 0).toFixed(2)}h x $0.15 + ${(business?.openAiTranslationHoursMtd ?? 0).toFixed(2)}h x $0.35`}
+            color="bg-rose-50 text-rose-700"
+          />
+          <StatCard
+            icon={<Activity className="w-4.5 h-4.5" />}
+            label="Server Utilization vs Cost"
+            value={`${(business?.serverUtilizationPerDollar ?? 0).toFixed(3)} h/$`}
+            sub={`Real cost/hour: ${fmtUsd(business?.effectiveHetznerCostPerHour ?? 0)} (${(business?.hetznerTranslationHoursMtd ?? 0).toFixed(2)}h / $13)`}
+            color="bg-blue-50 text-blue-700"
+          />
+          <StatCard
+            icon={<Users className="w-4.5 h-4.5" />}
+            label="User LTV"
+            value={business?.ltvEstimate != null ? fmtUsd(business.ltvEstimate) : "N/A"}
+            sub={`MRR ${fmtUsd(business?.activeMrr ?? 0)} / churn ${(business?.churnPercentMonthly ?? 0).toFixed(2)}%`}
+            color="bg-violet-50 text-violet-700"
+          />
         </div>
       </section>
 
