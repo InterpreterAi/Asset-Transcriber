@@ -117,12 +117,13 @@ interface SessionDetail {
   snapshot:        SessionSnapshot | null;
 }
 
-type StableSnapshotRow = { src: string; tgt: string };
+type StableSnapshotRow = { idx: number; src: string; tgt: string };
 
 /**
  * Show only stable aligned pairs in admin monitor.
- * For live sessions, intentionally hide the newest row (one-segment delay)
- * so admin never sees partial/blank right-column artifacts.
+ * Keep original row indices so admin view does not reindex/shift rows.
+ * For live sessions, intentionally hide only the newest row (one-segment delay)
+ * so admin never sees in-flight partial artifacts.
  */
 function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
   const transcriptLines = snapshot.transcriptLines;
@@ -138,17 +139,11 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
   for (let i = 0; i < lastExclusive; i++) {
     const s = src[i] ?? "";
     const t = tgt[i] ?? "";
-    if (!s || !t) continue;
-    rows.push({ src: s, tgt: t });
+    // Keep contiguous aligned prefix only; never skip holes or rows shift.
+    if (!s || !t) break;
+    rows.push({ idx: i + 1, src: s, tgt: t });
   }
-
-  const deduped: StableSnapshotRow[] = [];
-  for (const r of rows) {
-    const prev = deduped[deduped.length - 1];
-    if (prev && prev.src === r.src && prev.tgt === r.tgt) continue;
-    deduped.push(r);
-  }
-  return deduped;
+  return rows;
 }
 
 interface LangOption { value: string; label: string; }
@@ -2810,10 +2805,11 @@ export default function Admin() {
                             {Array.from({ length: n }, (_, i) => {
                               const srcLine = stableRows[i]?.src ?? "";
                               const tgtLine = stableRows[i]?.tgt ?? "";
+                              const rowIndex = stableRows[i]?.idx ?? i + 1;
                               return (
                                 <tr key={i} className="hover:bg-muted/15 align-top">
                                   <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
-                                    {i + 1}
+                                    {rowIndex}
                                   </td>
                                   <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
                                     {srcLine}
