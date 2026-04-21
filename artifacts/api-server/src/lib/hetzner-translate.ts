@@ -110,16 +110,18 @@ function looksLikeEnglish(text: string): boolean {
     /[ãõáàâêôç]|\b(o|a|os|as|para|com|porque|obrigad|voce|você|paciente|hoje|amanh)\w*\b/;
   const polishCue =
     /[ąćęłńóśźż]|\b(i|oraz|dla|z|jest|to|pacjent|dzisiaj|jutro|poniewa)\w*\b/;
+  const arabicCue = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
 
   const en = englishCue.test(t);
   const es = spanishCue.test(t);
   const pt = portugueseCue.test(t);
   const pl = polishCue.test(t);
-  if (!en && (es || pt || pl)) return false;
-  return en || (!es && !pt && !pl);
+  const ar = arabicCue.test(t);
+  if (!en && (es || pt || pl || ar)) return false;
+  return en || (!es && !pt && !pl && !ar);
 }
 
-const RETRY_EXPLICIT_SOURCE_TO_EN = new Set(["es", "pt", "pl"]);
+const RETRY_EXPLICIT_SOURCE_TO_EN = new Set(["ar", "es", "pt", "pl"]);
 
 async function postTranslateAtBase(
   baseUrl: string,
@@ -198,7 +200,11 @@ async function postTranslateAtBase(
     return out;
   };
 
-  const first = await requestOnce("auto");
+  const primarySourceCode =
+    tgt === "en" && RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase)
+      ? srcHintBase
+      : "auto";
+  const first = await requestOnce(primarySourceCode);
   if (
     tgt === "en" &&
     RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase) &&
@@ -208,6 +214,9 @@ async function postTranslateAtBase(
       { sourceHint: srcHintBase, target: tgt },
       "Hetzner MT to English looked off; retrying once with explicit source",
     );
+    if (primarySourceCode === srcHintBase) {
+      return requestOnce("auto");
+    }
     return requestOnce(srcHintBase);
   }
   return first;
