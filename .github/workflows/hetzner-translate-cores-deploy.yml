@@ -1,0 +1,51 @@
+# Optional remote start: Actions → "Deploy Hetzner translate cores" → Run workflow.
+# Add these repository secrets once (Settings → Secrets and variables → Actions):
+#   HETZNER_SSH_HOST, HETZNER_SSH_USER, HETZNER_SSH_KEY (private key PEM),
+#   HETZNER_REMOTE_REPO_PATH (absolute path on the server to this repo, containing deploy/hetzner-core-pinning/)
+# Optional (for verify step from GitHub’s runner): HETZNER_CORE1/2/3_TRANSLATE_BASE or HETZNER_WORKER_HOST
+
+name: Deploy Hetzner translate cores
+
+on:
+  workflow_dispatch:
+
+jobs:
+  skip-notice:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.HETZNER_SSH_HOST == '' || secrets.HETZNER_SSH_USER == '' || secrets.HETZNER_SSH_KEY == '' || secrets.HETZNER_REMOTE_REPO_PATH == '' }}
+    steps:
+      - name: Secrets not configured
+        run: |
+          echo "Remote deploy was skipped: add HETZNER_SSH_HOST, HETZNER_SSH_USER, HETZNER_SSH_KEY, and HETZNER_REMOTE_REPO_PATH"
+          echo "to GitHub Actions secrets, or start Docker on the worker manually (see deploy/hetzner-core-pinning/README.md)."
+
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.HETZNER_SSH_HOST != '' && secrets.HETZNER_SSH_USER != '' && secrets.HETZNER_SSH_KEY != '' && secrets.HETZNER_REMOTE_REPO_PATH != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull and start pinned LibreTranslate stack
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_SSH_HOST }}
+          username: ${{ secrets.HETZNER_SSH_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ secrets.HETZNER_REMOTE_REPO_PATH }}"
+            docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml pull
+            docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml up -d
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify cores from CI (worker must be reachable from the internet)
+        env:
+          HETZNER_CORE1_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE1_TRANSLATE_BASE }}
+          HETZNER_CORE2_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE2_TRANSLATE_BASE }}
+          HETZNER_CORE3_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE3_TRANSLATE_BASE }}
+          HETZNER_WORKER_HOST: ${{ secrets.HETZNER_WORKER_HOST }}
+        run: node scripts/verify-hetzner-translate-cores.mjs

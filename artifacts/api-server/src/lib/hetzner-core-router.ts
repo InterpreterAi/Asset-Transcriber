@@ -3,21 +3,38 @@ import { logger } from "./logger.js";
 type CoreLane = 1 | 2 | 3;
 type CoreRoute = { lane: CoreLane; baseUrl: string };
 
-/**
- * Single-worker fallback (same host as `hetzner-translate` CONFIGURED_BASE :5000).
- * Defaults MUST NOT assume 5001–5003 are up — that breaks production if pinned containers are not deployed.
- * Set `HETZNER_CORE{1,2,3}_TRANSLATE_BASE` when the three LibreTranslate containers are actually listening.
- */
+/** Emergency only: all lanes → one LibreTranslate (e.g. workers down). Normal operation keeps three URLs. */
+const USE_LEGACY_EMERGENCY = process.env.HETZNER_USE_LEGACY_SINGLE_STACK === "1";
+
+/** Single port when `HETZNER_USE_LEGACY_SINGLE_STACK=1` (default matches `hetzner-translate` primary). */
 const LEGACY_TRANSLATE_BASE = (process.env.HETZNER_TRANSLATE_LEGACY_BASE ?? "http://178.156.211.226:5000").trim();
 
-const CORE1_BASE = (process.env.HETZNER_CORE1_TRANSLATE_BASE ?? LEGACY_TRANSLATE_BASE).trim();
-const CORE2_BASE = (process.env.HETZNER_CORE2_TRANSLATE_BASE ?? LEGACY_TRANSLATE_BASE).trim();
-const CORE3_BASE = (process.env.HETZNER_CORE3_TRANSLATE_BASE ?? LEGACY_TRANSLATE_BASE).trim();
+/** Hostname or host for default `http://HOST:5001` … `:5003` (no scheme). Override if workers moved. */
+function defaultLaneBases(): Record<CoreLane, string> {
+  const raw = (process.env.HETZNER_WORKER_HOST ?? "178.156.211.226").trim();
+  const host = raw.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const scheme = (process.env.HETZNER_WORKER_SCHEME ?? "http").trim().replace(/:+$/, "");
+  const root = `${scheme}://${host}`;
+  return { 1: `${root}:5001`, 2: `${root}:5002`, 3: `${root}:5003` };
+}
 
-const coresArePinned =
-  Boolean(process.env.HETZNER_CORE1_TRANSLATE_BASE?.trim()) &&
-  Boolean(process.env.HETZNER_CORE2_TRANSLATE_BASE?.trim()) &&
-  Boolean(process.env.HETZNER_CORE3_TRANSLATE_BASE?.trim());
+const def = defaultLaneBases();
+function envOrLane(envVal: string | undefined, lane: CoreLane): string {
+  const t = envVal?.trim();
+  return t || def[lane];
+}
+const CORE1_BASE = (
+  USE_LEGACY_EMERGENCY ? LEGACY_TRANSLATE_BASE : envOrLane(process.env.HETZNER_CORE1_TRANSLATE_BASE, 1)
+).trim();
+const CORE2_BASE = (
+  USE_LEGACY_EMERGENCY ? LEGACY_TRANSLATE_BASE : envOrLane(process.env.HETZNER_CORE2_TRANSLATE_BASE, 2)
+).trim();
+const CORE3_BASE = (
+  USE_LEGACY_EMERGENCY ? LEGACY_TRANSLATE_BASE : envOrLane(process.env.HETZNER_CORE3_TRANSLATE_BASE, 3)
+).trim();
+
+/** False only when forced to legacy single stack; otherwise three distinct lane bases (paid 1/2, trial 3 under load). */
+const threeLaneIsolation = !USE_LEGACY_EMERGENCY;
 
 const laneToBase: Record<CoreLane, string> = {
   1: CORE1_BASE,
@@ -123,14 +140,15 @@ export function logHetznerCoreRouterStartupHint(): void {
   logger.info(
     {
       lanes: laneToBase,
-      coresArePinned,
+      threeLaneIsolation,
+      legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
       semantics:
         "paid lock cores 1/2; trials register only when using machine translate; trial borrow 1–3 when no paid active; preempt trial->core3 on paid start",
     },
-    coresArePinned
-      ? "Hetzner core router configured (pinned bases from env)"
-      : "Hetzner core router configured (all lanes fall back to legacy single port until HETZNER_CORE1/2/3_TRANSLATE_BASE are set)",
+    USE_LEGACY_EMERGENCY
+      ? "Hetzner core router: LEGACY SINGLE STACK (HETZNER_USE_LEGACY_SINGLE_STACK=1) — unset for 3-lane isolation"
+      : "Hetzner core router configured (three lane bases; paid prefers 1/2, trials to 3 when paid active)",
   );
 }
 

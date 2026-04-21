@@ -1,0 +1,30 @@
+# One-click check from GitHub → Actions → "Verify Hetzner translate cores" → Run workflow.
+# Add repository secrets once (Settings → Secrets → Actions):
+#   HETZNER_CORE1_TRANSLATE_BASE  e.g. http://YOUR_WORKER_IP:5001
+#   HETZNER_CORE2_TRANSLATE_BASE  e.g. http://YOUR_WORKER_IP:5002
+#   HETZNER_CORE3_TRANSLATE_BASE  e.g. http://YOUR_WORKER_IP:5003
+# If unset, the script uses the same public defaults as the API (178.156.211.226:5001–5003).
+
+name: Verify Hetzner translate cores
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify /languages on each lane
+        env:
+          HETZNER_CORE1_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE1_TRANSLATE_BASE }}
+          HETZNER_CORE2_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE2_TRANSLATE_BASE }}
+          HETZNER_CORE3_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE3_TRANSLATE_BASE }}
+          HETZNER_WORKER_HOST: ${{ secrets.HETZNER_WORKER_HOST }}
+          HETZNER_WORKER_SCHEME: ${{ secrets.HETZNER_WORKER_SCHEME }}
+        run: node scripts/verify-hetzner-translate-cores.mjs

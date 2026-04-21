@@ -24,15 +24,22 @@ docker run -d --name libre-core-3 --restart unless-stopped \
   -p 5003:5000 libretranslate/libretranslate:latest
 ```
 
-## API env configuration
+## API env configuration (three-lane isolation — default)
 
-**Important:** If `HETZNER_CORE1_TRANSLATE_BASE`, `HETZNER_CORE2_TRANSLATE_BASE`, and `HETZNER_CORE3_TRANSLATE_BASE` are **not** all set, the API uses **`HETZNER_TRANSLATE_LEGACY_BASE` (default `http://178.156.211.226:5000`) for every lane** so machine translation keeps working without the three pinned containers. After workers on 5001–5003 are up, set all three variables on the API service.
+The API **defaults** to three distinct bases: `http://<HETZNER_WORKER_HOST>:5001` … `:5003` (host defaults to `178.156.211.226`). Paid machine sessions prefer **lanes 1–2**; when any paid session is active, **trials are forced to lane 3** (see `hetzner-core-router.ts`).
 
-When pinned workers are running, set these on the API service:
+On **Railway** (or any API host): paste the variables from `railway.api.env.example` — at minimum either:
 
-- `HETZNER_CORE1_TRANSLATE_BASE=http://<host>:5001`
-- `HETZNER_CORE2_TRANSLATE_BASE=http://<host>:5002`
-- `HETZNER_CORE3_TRANSLATE_BASE=http://<host>:5003`
+- `HETZNER_WORKER_HOST` + `HETZNER_WORKER_SCHEME`, or  
+- explicit `HETZNER_CORE1_TRANSLATE_BASE`, `HETZNER_CORE2_TRANSLATE_BASE`, `HETZNER_CORE3_TRANSLATE_BASE`
+
+**Emergency only** (one bottleneck on purpose): set `HETZNER_USE_LEGACY_SINGLE_STACK=1` so every lane uses `HETZNER_TRANSLATE_LEGACY_BASE` (default `:5000`). Unset when the three workers are healthy again.
+
+### If you are not running `curl` yourself
+
+1. Start the three containers on the worker (Docker on that machine, or GitHub → **Actions** → **Deploy Hetzner translate cores** → *Run workflow* after one-time SSH secrets — see `.github/workflows/hetzner-translate-cores-deploy.yml`).
+2. Paste Railway/API env vars from `railway.api.env.example` and **redeploy the API**.
+3. Confirm from **GitHub → Actions → Verify Hetzner translate cores** → *Run workflow* (uses the same URLs as production if you set the optional secrets; otherwise public defaults). Green run = all three `/languages` checks returned 200.
 
 ## Start pinned workers (same host as the ports)
 
