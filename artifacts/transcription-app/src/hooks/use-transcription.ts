@@ -1683,12 +1683,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
           const pin = options?.adminSnapshotLineIndex;
-          if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
+            if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
             translationBufRef.current[pin] = text.trim();
-          } else if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
+              onAdminSnapshotBuffersUpdatedRef.current?.();
           }
-          onAdminSnapshotBuffersUpdatedRef.current?.();
         }
         scrollPanel();
       }
@@ -1718,10 +1716,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const pin = options?.adminSnapshotLineIndex;
           if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
             translationBufRef.current[pin] = text.trim();
-          } else if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
+            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
-          onAdminSnapshotBuffersUpdatedRef.current?.();
         }
         scrollPanel();
       }
@@ -1983,9 +1979,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               : null;
           if (resolvedAdminIdx !== null) {
             translationBufRef.current[resolvedAdminIdx] = adminOutTrim;
-            onAdminSnapshotBuffersUpdatedRef.current?.();
-          } else if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = adminOutTrim;
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         }
