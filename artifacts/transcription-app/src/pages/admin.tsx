@@ -117,6 +117,40 @@ interface SessionDetail {
   snapshot:        SessionSnapshot | null;
 }
 
+type StableSnapshotRow = { src: string; tgt: string };
+
+/**
+ * Show only stable aligned pairs in admin monitor.
+ * For live sessions, intentionally hide the newest row (one-segment delay)
+ * so admin never sees partial/blank right-column artifacts.
+ */
+function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
+  const transcriptLines = snapshot.transcriptLines;
+  const translationLines = snapshot.translationLines;
+  if (!Array.isArray(transcriptLines) || !Array.isArray(translationLines)) return [];
+  if (transcriptLines.length === 0 || transcriptLines.length !== translationLines.length) return [];
+
+  const src = transcriptLines.map(v => String(v).trim());
+  const tgt = translationLines.map(v => String(v).trim());
+  const lastExclusive = isLive ? Math.max(0, src.length - 1) : src.length;
+
+  const rows: StableSnapshotRow[] = [];
+  for (let i = 0; i < lastExclusive; i++) {
+    const s = src[i] ?? "";
+    const t = tgt[i] ?? "";
+    if (!s || !t) continue;
+    rows.push({ src: s, tgt: t });
+  }
+
+  const deduped: StableSnapshotRow[] = [];
+  for (const r of rows) {
+    const prev = deduped[deduped.length - 1];
+    if (prev && prev.src === r.src && prev.tgt === r.tgt) continue;
+    deduped.push(r);
+  }
+  return deduped;
+}
+
 interface LangOption { value: string; label: string; }
 interface LangConfigResp {
   allLanguages:     LangOption[];
@@ -737,47 +771,7 @@ export default function Admin() {
       const res = await fetch(`/api/admin/session/${sessionId}`, { credentials: "include" });
       if (!res.ok) return;
       const next = await res.json() as SessionDetail;
-      // Snapshots mirror workspace buffers: getSnapshot() joins parallel transcript/translation rows
-      // with "\n". Merging polls used to splice lines together and broke index alignment vs the user UI.
-      setSessionDetail((prev) => {
-        if (prev != null && prev.sessionId !== next.sessionId) return next;
-        if (!next.snapshot) return next;
-        if (!next.isLive) return next;
-        const ns = next.snapshot;
-        const incomingAligned =
-          Array.isArray(ns.transcriptLines) &&
-          Array.isArray(ns.translationLines) &&
-          ns.transcriptLines.length > 0 &&
-          ns.transcriptLines.length === ns.translationLines.length;
-        const prevAligned =
-          Array.isArray(prev?.snapshot?.transcriptLines) &&
-          Array.isArray(prev?.snapshot?.translationLines) &&
-          (prev?.snapshot?.transcriptLines?.length ?? 0) > 0 &&
-          prev!.snapshot!.transcriptLines!.length === prev!.snapshot!.translationLines!.length;
-        const incoming = ns.transcript.trim() || (ns.translation ?? "").trim();
-        const prevHad =
-          prev?.snapshot &&
-          (prev.snapshot.transcript.trim() || (prev.snapshot.translation ?? "").trim());
-        if (!incomingAligned && prevAligned) {
-          return {
-            ...next,
-            snapshot: {
-              ...prev!.snapshot!,
-              updatedAt: Math.max(prev!.snapshot!.updatedAt, ns.updatedAt),
-            },
-          };
-        }
-        if (!incoming && prevHad) {
-          return {
-            ...next,
-            snapshot: {
-              ...prev.snapshot!,
-              updatedAt: Math.max(prev.snapshot!.updatedAt, ns.updatedAt),
-            },
-          };
-        }
-        return next;
-      });
+      setSessionDetail(next);
     } catch { /* ignore */ }
   }, []);
 
@@ -2762,11 +2756,11 @@ export default function Admin() {
               </div>
             ) : null}
 
-            {/* One <tr> per finalized segment: source column = lang A, translation column = lang B (same row = same segment). */}
+            {/* One <tr> per stable finalized pair: source column = lang A, translation column = lang B. */}
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Same pairing as the user workspace: each row is one finalized segment (source line <span className="font-mono">i</span> ↔ translation line <span className="font-mono">i</span> from the live snapshot).
+                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally one segment delayed to avoid duplicate/blank artifacts.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
@@ -2776,21 +2770,15 @@ export default function Admin() {
                   (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
                   (() => {
                     const snap = sessionDetail.snapshot;
-                    const hasAlignedLineArrays =
-                      Array.isArray(snap.transcriptLines) &&
-                      Array.isArray(snap.translationLines) &&
-                      snap.transcriptLines.length > 0 &&
-                      snap.transcriptLines.length === snap.translationLines.length;
-                    if (!hasAlignedLineArrays) {
+                    const stableRows = buildStableSnapshotRows(snap, Boolean(sessionDetail?.isLive));
+                    if (stableRows.length === 0) {
                       return (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                          Segment snapshot is syncing. Showing only strict aligned rows to mirror user view exactly.
+                          Waiting for stable aligned segment pairs (source + translation). Live monitor intentionally hides the newest in-flight row.
                         </div>
                       );
                     }
-                    const tLines = snap.transcriptLines!.map(String);
-                    const trLines = snap.translationLines!.map(String);
-                    const n = tLines.length;
+                    const n = stableRows.length;
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     return (
@@ -2820,26 +2808,18 @@ export default function Admin() {
                           </thead>
                           <tbody className="divide-y divide-border">
                             {Array.from({ length: n }, (_, i) => {
-                              const srcLine = tLines[i] ?? "";
-                              const tgtLine = trLines[i] ?? "";
-                              const hasSrc = srcLine.trim().length > 0;
-                              const hasTgt = tgtLine.trim().length > 0;
+                              const srcLine = stableRows[i]?.src ?? "";
+                              const tgtLine = stableRows[i]?.tgt ?? "";
                               return (
                                 <tr key={i} className="hover:bg-muted/15 align-top">
                                   <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
                                     {i + 1}
                                   </td>
                                   <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
-                                    {hasSrc ? srcLine : <span className="text-muted-foreground">—</span>}
+                                    {srcLine}
                                   </td>
                                   <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap align-top" dir="auto">
-                                    {hasTgt ? (
-                                      tgtLine
-                                    ) : hasSrc ? (
-                                      <span className="text-muted-foreground italic text-xs">…</span>
-                                    ) : (
-                                      <span className="text-muted-foreground">—</span>
-                                    )}
+                                    {tgtLine}
                                   </td>
                                 </tr>
                               );
