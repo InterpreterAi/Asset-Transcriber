@@ -868,12 +868,18 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     const churnCount = Number(churnSignalsRow[0]?.count ?? 0);
     return paidNow > 0 ? +((churnCount / paidNow) * 100).toFixed(2) : 0;
   })();
-  const ltvEstimate = churnPercentMonthly > 0 ? +(mrrEstimate / churnPercentMonthly).toFixed(2) : null;
 
   const planMap = new Map(conversionRows.map(r => [r.planType, Number(r.count)]));
-  const trialCount  = planMap.get("trial") ?? 0;
-  const payingCount = [...planMap.entries()].filter(([k]) => k !== "trial").reduce((s, [, v]) => s + v, 0);
+  const trialCount  = [...planMap.entries()]
+    .filter(([k]) => isTrialLikePlanType(k))
+    .reduce((s, [, v]) => s + v, 0);
+  const payingCount = [...planMap.entries()].filter(([k]) => !isTrialLikePlanType(k)).reduce((s, [, v]) => s + v, 0);
   const totalCount  = trialCount + payingCount;
+  const activeMrr = [...planMap.entries()].reduce((sum, [planType, count]) => {
+    const price = PLAN_PRICES[planType] ?? 0;
+    return sum + price * count;
+  }, 0);
+  const ltvEstimate = churnPercentMonthly > 0 ? +(activeMrr / churnPercentMonthly).toFixed(2) : null;
 
   res.json({
     userGrowth:  growthChart,
@@ -895,7 +901,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       effectiveHetznerCostPerHour,
       ltvEstimate,
       churnPercentMonthly,
-      activeMrr: mrrEstimate,
+      activeMrr,
     },
     conversion: {
       totalUsers:     totalCount,
