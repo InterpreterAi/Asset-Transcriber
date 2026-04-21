@@ -43,6 +43,10 @@ import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
+  registerSessionStartForCoreRouting,
+  unregisterSessionForCoreRouting,
+} from "../lib/hetzner-core-router.js";
+import {
   hasSubmittedMandatoryFeedbackToday,
   isMandatoryFeedbackRequiredByUsage,
   UNLIMITED_DAILY_CAP_MINUTES,
@@ -372,6 +376,7 @@ async function closeOpenSessionWithBillingIfNeeded(
   }
 
   sessionStore.delete(sessionId);
+  unregisterSessionForCoreRouting(sessionId);
 
   const user = await getUserWithResetCheck(userId);
   if (!user) {
@@ -565,6 +570,7 @@ async function sweepStaleSessions(): Promise<void> {
         })
         .where(eq(sessionsTable.id, s.id));
       sessionStore.delete(s.id);
+      unregisterSessionForCoreRouting(s.id);
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -1068,6 +1074,8 @@ router.post("/session/start", requireAuth, async (req, res) => {
     .insert(sessionsTable)
     .values({ userId: userForCap.id, startedAt: new Date(), lastActivityAt: new Date(), langPair })
     .returning();
+  const createdSessionId = result[0]!.id;
+  registerSessionStartForCoreRouting(createdSessionId, userForCap.planType);
 
   void touchActivity(userForCap.id);
 
@@ -1083,7 +1091,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
       )
     );
 
-  res.json({ sessionId: result[0]!.id, message: "Session started" });
+  res.json({ sessionId: createdSessionId, message: "Session started" });
 });
 
 // ── /session/heartbeat ──────────────────────────────────────────────────────
@@ -1144,6 +1152,7 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
       .limit(1);
     const rawSec = Number(capRow?.audioSecondsProcessed ?? 0);
     await closeOpenSessionWithBillingIfNeeded(sessionId, userId, rawSec);
+    unregisterSessionForCoreRouting(sessionId);
     res.json({ ok: true, dailyLimitReached: true, sessionEnded: true });
     return;
   }
@@ -1634,7 +1643,14 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      const raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+      const routingSessionId = typeof incomingSessionId === "number" ? incomingSessionId : undefined;
+      const raw = await translateBasicProfessional(
+        textForOpenAI,
+        srcLang,
+        tgtLang,
+        numMask.slotToDigits,
+        { sessionId: routingSessionId, planType: planLower },
+      );
       const restored = restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? "")));
       let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
         skipLeakRepair: true,

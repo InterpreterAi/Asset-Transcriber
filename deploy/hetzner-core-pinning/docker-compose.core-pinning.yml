@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  libre-core-1:
+    image: libretranslate/libretranslate:latest
+    container_name: libre-core-1
+    cpuset: "0"
+    environment:
+      LT_THREADS: "1"
+      LT_WORKERS: "1"
+      OMP_NUM_THREADS: "1"
+    ports:
+      - "5001:5000"
+    restart: unless-stopped
+
+  libre-core-2:
+    image: libretranslate/libretranslate:latest
+    container_name: libre-core-2
+    cpuset: "1"
+    environment:
+      LT_THREADS: "1"
+      LT_WORKERS: "1"
+      OMP_NUM_THREADS: "1"
+    ports:
+      - "5002:5000"
+    restart: unless-stopped
+
+  libre-core-3:
+    image: libretranslate/libretranslate:latest
+    container_name: libre-core-3
+    cpuset: "2"
+    environment:
+      LT_THREADS: "1"
+      LT_WORKERS: "1"
+      OMP_NUM_THREADS: "1"
+    ports:
+      - "5003:5000"
+    restart: unless-stopped
+

@@ -3,6 +3,7 @@ import * as dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
+import { selectHetznerCoreRoute } from "./hetzner-core-router.js";
 
 /** Keep sockets warm — fewer TCP handshakes per segment. */
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
@@ -303,8 +304,17 @@ async function postTranslateAtBase(
 }
 
 /** `*-libre` tiers: one POST per segment, `source: auto`, no API key. */
-export async function callHetznerTranslate(text: string, source: string, target: string): Promise<string> {
-  return postTranslateAtBase(CONFIGURED_BASE, text, source, target);
+export async function callHetznerTranslate(
+  text: string,
+  source: string,
+  target: string,
+  routingHint?: { planType?: string; sessionId?: number },
+): Promise<string> {
+  const route = selectHetznerCoreRoute(
+    routingHint?.planType ?? "trial-libre",
+    routingHint?.sessionId,
+  );
+  return postTranslateAtBase(route.baseUrl || CONFIGURED_BASE, text, source, target);
 }
 
 export function logHetznerMachineTranslationStartupHint(): void {

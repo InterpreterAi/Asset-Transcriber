@@ -10,7 +10,10 @@ import { callHetznerTranslate } from "./hetzner-translate.js";
  * Shipped for soak testing: treat as frozen pending ~1 week of user feedback unless explicitly asked to change.
  */
 
-export type TranslateBasicProfessionalOpts = Record<string, never>;
+export type TranslateBasicProfessionalOpts = {
+  sessionId?: number;
+  planType?: string;
+};
 
 /**
  * Plain segment: Hetzner machine translate (Libre-compatible API).
@@ -20,10 +23,14 @@ export async function translatePlainMachine(
   plain: string,
   sourceLang: string,
   targetLang: string,
+  opts?: TranslateBasicProfessionalOpts,
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-  return callHetznerTranslate(t, sourceLang, targetLang);
+  return callHetznerTranslate(t, sourceLang, targetLang, {
+    sessionId: opts?.sessionId,
+    planType: opts?.planType,
+  });
 }
 
 /** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */
@@ -45,5 +52,5 @@ export async function translateBasicProfessional(
   _opts?: TranslateBasicProfessionalOpts,
 ): Promise<string> {
   const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
-  return translatePlainMachine(mtInput, sourceLang, targetLang);
+  return translatePlainMachine(mtInput, sourceLang, targetLang, _opts);
 }
