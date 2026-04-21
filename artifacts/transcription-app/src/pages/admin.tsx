@@ -263,7 +263,7 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Eight canonical `plan_type` values (4 OpenAI + 4 Libre). Legacy rows still show a fallback option. */
+/** Eight canonical `plan_type` values (4 OpenAI + 4 Hetzner-machine). Legacy rows still show a fallback option. */
 const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial", label: "Trial · OpenAI" },
   { value: "basic", label: "Basic · OpenAI" },
@@ -272,10 +272,10 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
 ];
 
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
-  { value: "trial-libre", label: "Trial · Libre / machine" },
-  { value: "basic-libre", label: "Basic · Libre / machine" },
-  { value: "professional-libre", label: "Professional · Libre / machine" },
-  { value: "platinum-libre", label: "Platinum · Libre / machine" },
+  { value: "trial-libre", label: "Trial · Hetzner / machine" },
+  { value: "basic-libre", label: "Basic · Hetzner / machine" },
+  { value: "professional-libre", label: "Professional · Hetzner / machine" },
+  { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
 ];
 
 const ADMIN_PLAN_VALUE_SET = new Set([
@@ -314,7 +314,7 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
-    const engine = planUsesLibreEngine(plan) ? "Libre" : "OpenAI";
+    const engine = planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI";
     return (
       <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap">
         <span>{workspacePlanDisplayName(plan)}</span>
@@ -332,12 +332,12 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   );
   if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Libre" : "OpenAI"}
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
     </span>
   );
   return (
     <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">
-      {daysLeft}d left · {planUsesLibreEngine(plan) ? "Libre" : "OpenAI"}
+      {daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
     </span>
   );
 }
@@ -1285,7 +1285,7 @@ export default function Admin() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-600 bg-blue-50" },
-                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Libre ~$0`, color: "text-violet-600 bg-violet-50" },
+                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Hetzner ~$0`, color: "text-violet-600 bg-violet-50" },
                   { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-600 bg-emerald-50" },
                 ].map(({ label, value, sub, color }) => (
                   <Card key={label} className="p-4 border-none shadow-sm bg-white flex items-center gap-4">
@@ -1308,7 +1308,7 @@ export default function Admin() {
                 <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 Live Sessions ({sessions.length})
                 <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                  · updates every 3s · customer accounts · Libre vs OpenAI by plan
+                  · updates every 3s · customer accounts · Hetzner vs OpenAI by plan
                 </span>
               </h2>
               {(liveSessionSummary?.usersWithMultipleOpen ?? 0) > 0 && (
@@ -1360,7 +1360,7 @@ export default function Admin() {
                         >
                           {(s.translationStack ?? (planUsesLibreEngine(s.planType) ? "libre" : "openai")) === "openai"
                             ? "OpenAI MT"
-                            : "Libre MT"}
+                            : "Hetzner MT"}
                         </span>
                       </div>
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
@@ -3084,7 +3084,7 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan: 8 canonical tiers (4 OpenAI + 4 Libre). */}
+                {/* Plan: 8 canonical tiers (4 OpenAI + 4 Hetzner machine). */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Plan (8 options)</label>
                   <select
@@ -3100,7 +3100,7 @@ export default function Admin() {
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="Libre / machine">
+                    <optgroup label="Hetzner / machine">
                       {ADMIN_PLAN_OPTIONS_LIBRE.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
@@ -3110,7 +3110,7 @@ export default function Admin() {
                     <span className="font-medium text-foreground/80">Customer sees:</span>{" "}
                     {workspacePlanDisplayName(editForm.planType)} only ·{" "}
                     <span className="font-medium text-foreground/80">You assign:</span>{" "}
-                    {planUsesLibreEngine(editForm.planType) ? "Libre / machine" : "OpenAI interpreter"} ·{" "}
+                    {planUsesLibreEngine(editForm.planType) ? "Hetzner / machine" : "OpenAI interpreter"} ·{" "}
                     <span className="font-mono text-[9px] opacity-80">{editForm.planType}</span>
                   </p>
                 </div>

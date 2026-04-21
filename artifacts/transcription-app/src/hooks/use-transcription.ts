@@ -1654,11 +1654,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const dispatchLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
-    const myTargetLang = targetOppositeInPair(dispatchLang, pair);
+    const detectedSourceLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
+    const dispatchLang = state.segmentSourceLang ?? detectedSourceLang;
+    const myTargetLang = state.segmentTargetLang ?? targetOppositeInPair(dispatchLang, pair);
+    // Lock segment direction on first resolved source so mixed-language tails never flip the target.
     if (!state.translationLocked) {
-      state.segmentSourceLang = dispatchLang;
-      state.segmentTargetLang = myTargetLang;
+      if (state.segmentSourceLang === null) state.segmentSourceLang = dispatchLang;
+      if (state.segmentTargetLang === null) state.segmentTargetLang = myTargetLang;
     }
     const { transTextEl } = state;
 
