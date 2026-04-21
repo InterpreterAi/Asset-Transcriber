@@ -4,6 +4,15 @@ import type { User } from "@workspace/db";
 import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 
+/** Row fields used for trial window, PayPal lag, and translation stack routing (nullable like DB + admin joins). */
+export type TranslationRoutingUser = {
+  planType: string | null | undefined;
+  trialEndsAt: Date | string | null | undefined;
+  dailyLimitMinutes: number | string | null | undefined;
+  subscriptionStatus?: string | null | undefined;
+  subscriptionPlan?: string | null | undefined;
+};
+
 export async function touchActivity(userId: number): Promise<void> {
   await db
     .update(usersTable)
@@ -19,10 +28,11 @@ export function resetDailyUsageIfNeeded(user: User): boolean {
   return appCalendarDayChanged(lastReset, now);
 }
 
-export function getTrialDaysRemaining(user: User): number {
+export function getTrialDaysRemaining(user: TranslationRoutingUser): number {
   const daily = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(daily) || daily <= 0) return 0;
   const now = new Date();
+  if (user.trialEndsAt == null) return 0;
   const end = new Date(user.trialEndsAt);
   if (!Number.isFinite(end.getTime()) || end.getTime() <= 0) return 0;
   const diff = end.getTime() - now.getTime();
@@ -69,6 +79,20 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
   return p.endsWith("-libre");
 }
 
+/**
+ * Live translation routing: which stack `/translate` should call for this account row.
+ * `trial-libre` stays on OpenAI until fewer than four full calendar days remain before `trial_ends_at`,
+ * then uses the machine stack for the last three days. Paid-effective types (subscription lag) follow
+ * {@link planUsesMachineTranslationStack} only.
+ */
+export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {
+  const eff = effectivePlanTypeForTranslation(user).trim().toLowerCase();
+  if (eff === "trial-libre" && !isTrialExpired(user)) {
+    if (getTrialDaysRemaining(user) >= 4) return false;
+  }
+  return planUsesMachineTranslationStack(eff);
+}
+
 function isPaidTranslationPlan(eff: string): boolean {
   const e = eff.trim().toLowerCase();
   return (
@@ -86,10 +110,11 @@ function isPaidTranslationPlan(eff: string): boolean {
 }
 
 /** True only when the user is on a trial-like plan, was granted a real trial window, and that window has ended. */
-export function isTrialExpired(user: User): boolean {
+export function isTrialExpired(user: TranslationRoutingUser): boolean {
   if (!isTrialLikePlanType(user.planType)) return false;
   const daily = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(daily) || daily <= 0) return false;
+  if (user.trialEndsAt == null) return false;
   const end = new Date(user.trialEndsAt);
   if (!Number.isFinite(end.getTime()) || end.getTime() <= 0) return false;
   return new Date() > end;
@@ -100,7 +125,7 @@ export function isTrialExpired(user: User): boolean {
  * already reflect paid Basic/Professional/Platinum. Use the subscription row for translation gating/engine
  * only in that case so paid tiers keep machine or OpenAI translation.
  */
-export function effectivePlanTypeForTranslation(user: User): string {
+export function effectivePlanTypeForTranslation(user: TranslationRoutingUser): string {
   const p = (user.planType ?? "trial-libre").trim().toLowerCase();
   const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
   const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();

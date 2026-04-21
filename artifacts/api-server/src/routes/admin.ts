@@ -18,7 +18,7 @@ import { hashPassword } from "../lib/password.js";
 import {
   getTrialDaysRemaining,
   isTrialLikePlanType,
-  planUsesMachineTranslationStack,
+  userUsesMachineTranslationStack,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
 import {
@@ -63,7 +63,11 @@ type ActiveSessionRow = {
   langPair: string | null;
   username: string;
   email: string | null;
-  planType: string;
+  planType: string | null;
+  trialEndsAt: Date | null;
+  dailyLimitMinutes: number | null;
+  subscriptionStatus: string | null;
+  subscriptionPlan: string | null;
 };
 
 type CoreLaneColor = "blue" | "violet";
@@ -73,7 +77,7 @@ type EnrichedCorePlacement = {
   coreNodeLabel: string;
 };
 
-function isPaidPlanForCoreRouting(planType: string): boolean {
+function isPaidPlanForCoreRouting(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   return (
     p === "basic-libre" ||
@@ -105,7 +109,7 @@ function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCor
   ]);
 
   const sorted = [...rows].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
-  const machineRows = sorted.filter((r) => planUsesMachineTranslationStack(r.planType));
+  const machineRows = sorted.filter((r) => userUsesMachineTranslationStack(r));
   const paidMachine = machineRows.filter((r) => isPaidPlanForCoreRouting(r.planType));
   const trialMachine = machineRows.filter((r) => !isPaidPlanForCoreRouting(r.planType));
 
@@ -171,7 +175,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     ...r,
     openSessionsForUser: byUser.get(r.userId)?.length ?? 1,
     openSessionOrdinal: ordinalBySessionId.get(r.sessionId) ?? 1,
-    translationStack: planUsesMachineTranslationStack(r.planType) ? "libre" : "openai",
+    translationStack: userUsesMachineTranslationStack(r) ? "libre" : "openai",
     coreLane: corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null,
     coreLaneColor: corePlacementBySessionId.get(r.sessionId)?.coreLaneColor ?? null,
     coreNodeLabel: corePlacementBySessionId.get(r.sessionId)?.coreNodeLabel ?? null,
@@ -481,6 +485,10 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       username:   usersTable.username,
       email:      usersTable.email,
       planType:   usersTable.planType,
+      trialEndsAt: usersTable.trialEndsAt,
+      dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      subscriptionStatus: usersTable.subscriptionStatus,
+      subscriptionPlan: usersTable.subscriptionPlan,
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
@@ -1078,6 +1086,10 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       username:   usersTable.username,
       email:      usersTable.email,
       planType:   usersTable.planType,
+      trialEndsAt: usersTable.trialEndsAt,
+      dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      subscriptionStatus: usersTable.subscriptionStatus,
+      subscriptionPlan: usersTable.subscriptionPlan,
     })
     .from(sessionsTable)
     .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))

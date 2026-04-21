@@ -155,7 +155,7 @@ router.post("/create-subscription", requireAuth, async (req: any, res) => {
       return;
     }
     if (user.isAdmin) {
-      logger.info({ userId, subscriptionId }, "PayPal sync ignored for admin account (manual plan lock)");
+      logger.info({ userId }, "PayPal sync ignored for admin account (manual plan lock)");
       res.json({ ok: true, planType: user.planType, subscriptionPlan: user.subscriptionPlan ?? null, ignored: true });
       return;
     }

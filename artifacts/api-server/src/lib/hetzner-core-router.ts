@@ -49,8 +49,20 @@ function preemptTrialsOffPaidLanes(): void {
   }
 }
 
-export function registerSessionStartForCoreRouting(sessionId: number, planType: string): void {
+/**
+ * @param machineTranslationEnabled When false, the session does not use Hetzner (e.g. trial OpenAI phase);
+ *   it must not occupy paid/trial core slots.
+ */
+export function registerSessionStartForCoreRouting(
+  sessionId: number,
+  planType: string,
+  machineTranslationEnabled = true,
+): void {
   if (!Number.isFinite(sessionId)) return;
+  if (!machineTranslationEnabled) {
+    unregisterSessionForCoreRouting(sessionId);
+    return;
+  }
   if (isPaidPlan(planType)) {
     paidActiveSessions.add(sessionId);
     sessionLane.set(sessionId, choosePaidLane());
@@ -99,7 +111,8 @@ export function logHetznerCoreRouterStartupHint(): void {
   logger.info(
     {
       lanes: laneToBase,
-      semantics: "paid lock cores 1/2, trial borrow all cores only when no paid active, preempt trial->core3 on paid start",
+      semantics:
+        "paid lock cores 1/2; trials register only when using machine translate; trial borrow 1–3 when no paid active; preempt trial->core3 on paid start",
     },
     "Hetzner core router configured",
   );

@@ -13,7 +13,7 @@ import {
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
-  planUsesMachineTranslationStack,
+  userUsesMachineTranslationStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -87,7 +87,7 @@ import {
 // in `basic-pro-translate.ts` → `hetzner-translate.ts` (Hetzner LibreTranslate-compatible `/translate`).
 //
 // Both stacks are **shipped for soak testing** (~1 week feedback): avoid drive-by edits; change only on
-// explicit user request or P0 bug. Tier routing: `planUsesMachineTranslationStack` / `usage.ts`.
+// explicit user request or P0 bug. Tier routing: `userUsesMachineTranslationStack` / `usage.ts`.
 // Client STT = Soniox for all plans; engine switch is server-only.
 
 /** LibreTranslate may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
@@ -1467,9 +1467,9 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
-  // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
-  // `trial-libre` / `*-libre` → machine stack always. `trial`, `basic`, `professional`, `platinum`, … → OpenAI when configured.
-  const prefersMachineStack = planUsesMachineTranslationStack(planLower);
+  // Engine split is strictly from this request's authenticated user row. Never from client flags.
+  // `trial-libre`: OpenAI for the first four trial days (≥4 days until trial_ends_at), then machine; other `*-libre` → machine.
+  const prefersMachineStack = userUsesMachineTranslationStack(translateUser);
   const useMachineTranslation = prefersMachineStack;
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
