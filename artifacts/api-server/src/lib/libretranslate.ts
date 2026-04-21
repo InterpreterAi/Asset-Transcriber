@@ -4,44 +4,39 @@ import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
 
-/** Keep sockets warm to Libre — avoids TLS+TCP setup every segment (closer to public CDN behavior). */
+/** Keep sockets warm to Libre — fewer TCP handshakes per session. */
 const LIBRE_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
 const LIBRE_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48 });
 
-/** **Final Boss 3 · Libre** — LibreTranslate HTTP client. Default Railway internal URL; optional env override (no public fallback loop). */
+/** **Final Boss 3 · Libre** — primary machine translation (Basic / Professional / trial-libre). No public mirror list. */
+
+/** Dedicated Interpreter AI LibreTranslate (Hetzner). Override with `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL` if the host changes. */
+const HARDCODED_PRIMARY_BASE = "http://178.156.211.226:5000";
 
 /**
- * Default when no env override: Railway private DNS. **http only** (never https for `.railway.internal`).
- * Libre listens on `[::]:5000` — clients use hostname + port 5000.
- */
-const HARDCODED_INTERNAL_BASE = "http://libretranslate.railway.internal:5000";
-
-/**
- * `LIBRETRANSLATE_INTERNAL_URL` (preferred) or `LIBRETRANSLATE_URL` overrides the hard-coded default.
- * Schemeless hostnames under `.railway.internal` default to **http** so they are not forced to https.
+ * `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL` overrides the default base (no trailing `/translate`).
+ * Scheme: required for ambiguity; otherwise bare IPv4 → `http://`, `.railway.internal` → `http://`, else `https://`.
  */
 function resolveConfiguredLibreBase(): string {
   const override =
     process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
     process.env.LIBRETRANSLATE_URL?.trim();
-  const raw = (override || HARDCODED_INTERNAL_BASE).trim();
-  if (!raw) return HARDCODED_INTERNAL_BASE;
+  const raw = (override || HARDCODED_PRIMARY_BASE).trim();
+  if (!raw) return HARDCODED_PRIMARY_BASE;
   const noTrail = raw.replace(/\/$/, "");
   if (/^https?:\/\//i.test(noTrail)) return noTrail;
+  const hostOnly = noTrail.split(":")[0] ?? noTrail;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostOnly)) return `http://${noTrail}`;
   if (/\.railway\.internal/i.test(noTrail)) return `http://${noTrail}`;
   return `https://${noTrail}`;
 }
 
-/** Resolved base used for every Libre request (env or hard-coded default). */
+/** Resolved base used for every Libre request (env or default Hetzner). */
 export const CONFIGURED_BASE = resolveConfiguredLibreBase();
 
-/** Internal network + cold LibreTranslate models: 3s was too tight and produced constant 503s. */
 const PER_HOST_TIMEOUT_MS = 25_000;
 
-/**
- * Railway legacy private networks are often **IPv6-only**; Node may otherwise prefer IPv4 and
- * never connect. See https://docs.railway.com/networking/private-networking/library-configuration
- */
+/** Railway private DNS is often IPv6-heavy; custom lookup avoids broken A/AAAA ordering. */
 const libreTranslateDnsLookup: NonNullable<AxiosRequestConfig["lookup"]> = (
   hostname,
   options,
@@ -97,12 +92,12 @@ function normalizeLibreLang(code: string): string {
 async function callLibreTranslateAtBase(
   baseUrl: string,
   text: string,
-  source: string,
+  _sourceHint: string,
   target: string,
   sourceMode: "explicit" | "auto",
 ): Promise<string> {
   const tgt = normalizeLibreLang(target);
-  const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(source);
+  const src = sourceMode === "auto" ? "auto" : normalizeLibreLang(_sourceHint);
   const body: Record<string, unknown> = {
     q: text,
     source: src,
@@ -131,7 +126,7 @@ async function callLibreTranslateAtBase(
     const msg = err instanceof Error ? err.message : String(err);
     logger.error(
       { baseUrl, code, message: msg, source: src, target: tgt },
-      "LibreTranslate request failed (check ECONNREFUSED = wrong service name / port)",
+      "LibreTranslate request failed",
     );
     throw err;
   }
@@ -170,24 +165,21 @@ async function callLibreTranslateAtBase(
   return out;
 }
 
-/** One host, one direct attempt. */
+/** Primary path: `source: "auto"` (private Hetzner; no api_key). */
 async function callLibreTranslateOneHost(
   baseUrl: string,
   text: string,
   source: string,
   target: string,
 ): Promise<string> {
-  return callLibreTranslateAtBase(baseUrl, text, source, target, "explicit");
+  return callLibreTranslateAtBase(baseUrl, text, source, target, "auto");
 }
 
-/**
- * Single internal endpoint only — no public mirror fallback. Fails fast for networking issues.
- */
+/** Single primary endpoint — no public mirror fallback. */
 export async function callLibreTranslate(text: string, source: string, target: string): Promise<string> {
   return callLibreTranslateOneHost(CONFIGURED_BASE, text, source, target);
 }
 
-/** Startup: *-libre tiers use this URL only. Search logs for "LibreTranslate sole endpoint" after redeploy. */
 export function logLibreMachineTranslationStartupHint(): void {
   const fromEnv = Boolean(
     process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() || process.env.LIBRETRANSLATE_URL?.trim(),
@@ -199,6 +191,6 @@ export function logLibreMachineTranslationStartupHint(): void {
       noPublicFallback: true,
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),
     },
-    "LibreTranslate sole endpoint (verify after redeploy — use LIBRETRANSLATE_INTERNAL_URL if hostname/port differ)",
+    "LibreTranslate primary endpoint (Hetzner default — override with LIBRETRANSLATE_INTERNAL_URL if needed)",
   );
 }

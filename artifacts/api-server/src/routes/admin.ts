@@ -1035,13 +1035,27 @@ router.put("/config/languages", requireAdmin, async (req, res) => {
     defaultLangB?:     string;
   };
 
-  if (enabledLanguages && enabledLanguages.length < 2) {
-    res.status(400).json({ error: "At least 2 languages must be enabled" });
+  const allowed = new Set(ALL_LANGUAGES.map(l => l.value));
+  let nextEnabled = enabledLanguages;
+  if (enabledLanguages) {
+    nextEnabled = [...new Set(enabledLanguages)].filter(c => allowed.has(c));
+    if (nextEnabled.length < 2) {
+      res.status(400).json({ error: "At least 2 configured languages must be enabled" });
+      return;
+    }
+  }
+
+  if (defaultLangA && !allowed.has(defaultLangA)) {
+    res.status(400).json({ error: "defaultLangA must be one of the configured languages" });
+    return;
+  }
+  if (defaultLangB && !allowed.has(defaultLangB)) {
+    res.status(400).json({ error: "defaultLangB must be one of the configured languages" });
     return;
   }
 
   updateLangConfig({
-    ...(enabledLanguages && { enabledLanguages }),
+    ...(nextEnabled && { enabledLanguages: nextEnabled }),
     ...(defaultLangA    && { defaultLangA }),
     ...(defaultLangB    && { defaultLangB }),
   });

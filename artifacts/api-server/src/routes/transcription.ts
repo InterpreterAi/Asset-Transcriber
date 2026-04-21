@@ -1673,7 +1673,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       res.status(503).json({
         error:
-          `Translation unavailable (Libre). Cannot reach ${libreConfiguredBase}. Railway: enable private networking for the API and Libre services, or set LIBRETRANSLATE_INTERNAL_URL to the correct http base (with port).`,
+          `Translation unavailable (Libre). Cannot reach ${libreConfiguredBase}. Ensure the Libre server is up and reachable from the API, or set LIBRETRANSLATE_INTERNAL_URL to the correct http(s) base (with port, no /translate).`,
         code: "LIBRETRANSLATE_FAILED",
       });
     }
