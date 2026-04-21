@@ -31,7 +31,9 @@ function resolveConfiguredBase(): string {
   }
   const raw = (rawOverride || HARDCODED_PRIMARY_BASE).trim();
   if (!raw) return HARDCODED_PRIMARY_BASE;
-  const noTrail = raw.replace(/\/$/, "");
+  let noTrail = raw.replace(/\/$/, "");
+  // Accept either base URL or full endpoint URL from env; normalize to base.
+  noTrail = noTrail.replace(/\/translate$/i, "");
   if (/^https?:\/\//i.test(noTrail)) return noTrail;
   const hostOnly = noTrail.split(":")[0] ?? noTrail;
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostOnly)) return `http://${noTrail}`;
