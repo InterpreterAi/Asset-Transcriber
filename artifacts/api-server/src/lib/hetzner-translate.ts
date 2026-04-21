@@ -14,33 +14,8 @@ const HETZNER_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48 })
  */
 const HARDCODED_PRIMARY_BASE = "http://178.156.211.226:5000";
 
-/**
- * Optional override: `LIBRETRANSLATE_INTERNAL_URL` or `LIBRETRANSLATE_URL` (legacy names).
- * Values pointing at `*.railway.internal` are **ignored** so stale Railway env does not override Hetzner.
- */
-function resolveConfiguredBase(): string {
-  const rawOverride =
-    process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
-    process.env.LIBRETRANSLATE_URL?.trim();
-  if (rawOverride && /\.railway\.internal/i.test(rawOverride)) {
-    logger.warn(
-      { ignoredOverride: rawOverride },
-      "LIBRETRANSLATE_* still points at railway.internal — ignoring in favor of Hetzner primary (remove that env var in deploy)",
-    );
-    return HARDCODED_PRIMARY_BASE;
-  }
-  const raw = (rawOverride || HARDCODED_PRIMARY_BASE).trim();
-  if (!raw) return HARDCODED_PRIMARY_BASE;
-  const noTrail = raw.replace(/\/$/, "");
-  if (/^https?:\/\//i.test(noTrail)) return noTrail;
-  const hostOnly = noTrail.split(":")[0] ?? noTrail;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostOnly)) return `http://${noTrail}`;
-  if (/\.railway\.internal/i.test(noTrail)) return `http://${noTrail}`;
-  return `https://${noTrail}`;
-}
-
-/** Base URL used for every machine translate request (Hetzner default unless a valid override is set). */
-export const CONFIGURED_BASE = resolveConfiguredBase();
+/** Base URL is intentionally locked for `*-libre` (Hetzner) machine stack. */
+export const CONFIGURED_BASE = HARDCODED_PRIMARY_BASE;
 
 const PER_HOST_TIMEOUT_MS = 25_000;
 
@@ -336,14 +311,13 @@ export function logHetznerMachineTranslationStartupHint(): void {
   const rawOverride =
     process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
     process.env.LIBRETRANSLATE_URL?.trim();
-  const fromEnv = Boolean(rawOverride && !/\.railway\.internal/i.test(rawOverride));
   logger.info(
     {
       primaryBaseUrl: CONFIGURED_BASE,
-      fromEnvOverride: fromEnv,
-      ignoredRailwayOverride: Boolean(rawOverride && /\.railway\.internal/i.test(rawOverride)),
+      fromEnvOverride: false,
+      ignoredEnvOverride: Boolean(rawOverride),
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),
     },
-    "Hetzner machine translate primary endpoint (remove LIBRETRANSLATE_* if it still targets Railway)",
+    "Hetzner machine translate primary endpoint locked (env override disabled)",
   );
 }
