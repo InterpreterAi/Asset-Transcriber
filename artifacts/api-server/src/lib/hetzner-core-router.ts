@@ -50,7 +50,18 @@ function moveTrialsOffPaidLane(): void {
   if (paidActiveSessions.size === 0) return;
   for (const [sid, lane] of sessionLane.entries()) {
     if (paidActiveSessions.has(sid)) continue;
-    if (lane === 1) sessionLane.set(sid, 2);
+    if (lane === 1) {
+      sessionLane.set(sid, 2);
+      logger.info(
+        {
+          sessionId: sid,
+          fromLane: 1,
+          toLane: 2,
+          paidMachineSessions: paidActiveSessions.size,
+        },
+        "Hetzner core router: trial machine session moved off paid lane (paid active)",
+      );
+    }
   }
 }
 
@@ -71,6 +82,10 @@ export function registerSessionStartForCoreRouting(
   if (isPaidPlan(planType)) {
     paidActiveSessions.add(sessionId);
     sessionLane.set(sessionId, 1);
+    logger.info(
+      { sessionId, planType: planType.trim().toLowerCase(), lane: 1 },
+      "Hetzner core router: paid machine session registered on lane 1",
+    );
     moveTrialsOffPaidLane();
     return;
   }
