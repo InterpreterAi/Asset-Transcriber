@@ -154,6 +154,11 @@ router.post("/create-subscription", requireAuth, async (req: any, res) => {
       res.status(404).json({ error: "User not found" });
       return;
     }
+    if (user.isAdmin) {
+      logger.info({ userId, subscriptionId }, "PayPal sync ignored for admin account (manual plan lock)");
+      res.json({ ok: true, planType: user.planType, subscriptionPlan: user.subscriptionPlan ?? null, ignored: true });
+      return;
+    }
 
     const plan = paypalPlanConfig(planType);
     logger.info(
@@ -366,6 +371,25 @@ router.post("/paypal-webhook", async (req, res) => {
         "PayPal webhook: could not resolve user — check PayPal dashboard webhook deliveries, PAYPAL_PLAN_ID_* env vs live plan IDs, and that checkout used in-app flow (custom_id userId:plan)",
       );
       res.json({ received: true });
+      return;
+    }
+
+    const [targetUser] = await db
+      .select({ id: usersTable.id, isAdmin: usersTable.isAdmin, planType: usersTable.planType })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    if (!targetUser) {
+      logger.warn({ eventType, userId }, "PayPal webhook resolved unknown user");
+      res.json({ received: true });
+      return;
+    }
+    if (targetUser.isAdmin) {
+      logger.info(
+        { eventType, userId, currentPlanType: targetUser.planType },
+        "PayPal webhook ignored for admin account (manual plan lock)",
+      );
+      res.json({ received: true, ignored: true });
       return;
     }
 

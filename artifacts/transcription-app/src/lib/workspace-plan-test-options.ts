@@ -11,8 +11,8 @@ export type WorkspacePlanTestOption = {
 };
 
 const TRIAL_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial", label: "Trial · OpenAI", group: "trial" },
   { planType: "trial-libre", label: "Trial · Hetzner", group: "trial" },
+  { planType: "trial", label: "Trial · OpenAI", group: "trial" },
 ];
 
 const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [

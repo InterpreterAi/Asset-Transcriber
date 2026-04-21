@@ -1292,6 +1292,7 @@ router.post("/users", requireAdmin, async (req, res) => {
     passwordHash,
     isAdmin: isAdmin ?? false,
     isActive: true,
+    planType: "trial-libre",
     trialStartedAt,
     trialEndsAt,
     dailyLimitMinutes: dailyLimitMinutes ?? TRIAL_DAILY_LIMIT_MINUTES,
