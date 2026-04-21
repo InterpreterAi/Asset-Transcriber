@@ -37,9 +37,9 @@ On **Railway** (or any API host): paste the variables from `railway.api.env.exam
 
 ### If you are not running `curl` yourself
 
-1. Start the three containers on the worker (Docker on that machine, or GitHub → **Actions** → **Deploy Hetzner translate cores** → *Run workflow* after one-time SSH secrets — see `.github/workflows/hetzner-translate-cores-deploy.yml`).
+1. Copy **`deploy/for-server-root/`** to the server as **`/root/deploy/`** (see `deploy/for-server-root/INSTALL.md`), then `docker compose pull && docker compose up -d` in that folder.
 2. Paste Railway/API env vars from `railway.api.env.example` and **redeploy the API**.
-3. Confirm from **GitHub → Actions → Verify Hetzner translate cores** → *Run workflow* (uses the same URLs as production if you set the optional secrets; otherwise public defaults). Green run = all three `/languages` checks returned 200.
+3. For a green **GitHub Actions** check: copy `deploy/github-actions/*.yml` into `.github/workflows/` (see `deploy/github-actions/README.md` if `git push` was blocked for missing `workflow` scope), then **Actions → Verify Hetzner translate cores → Run workflow**. Or run `pnpm verify:hetzner-cores` locally against reachable URLs.
 
 ## Start pinned workers (same host as the ports)
 

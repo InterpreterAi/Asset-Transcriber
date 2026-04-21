@@ -23,7 +23,7 @@
 # See railway.api.env.example and repo-root .env.example for local dev.
 #
 # Hetzner three-lane MT: set HETZNER_CORE1/2/3_TRANSLATE_BASE (or HETZNER_WORKER_HOST) per railway.api.env.example.
-# GitHub Actions can verify workers: .github/workflows/hetzner-translate-cores-verify.yml (Run workflow).
+# Verify workers: copy deploy/github-actions/*.yml into .github/workflows (see deploy/github-actions/README.md), or run pnpm verify:hetzner-cores.
 #
 # Sessions: Dockerfile sets SESSION_STORE=memory by default (fixes login/Google 500s when
 # Postgres session storage fails). Override with SESSION_STORE=postgres if you run multiple

@@ -1,8 +1,6 @@
-# Optional remote start: Actions → "Deploy Hetzner translate cores" → Run workflow.
-# Add these repository secrets once (Settings → Secrets and variables → Actions):
-#   HETZNER_SSH_HOST, HETZNER_SSH_USER, HETZNER_SSH_KEY (private key PEM),
-#   HETZNER_REMOTE_REPO_PATH (absolute path on the server to this repo, containing deploy/hetzner-core-pinning/)
-# Optional (for verify step from GitHub’s runner): HETZNER_CORE1/2/3_TRANSLATE_BASE or HETZNER_WORKER_HOST
+# Copy to: .github/workflows/hetzner-translate-cores-deploy.yml
+# Secrets: HETZNER_SSH_HOST, HETZNER_SSH_USER, HETZNER_SSH_KEY, HETZNER_REMOTE_REPO_PATH
+# Set HETZNER_REMOTE_REPO_PATH to /root/deploy if you only copied deploy/for-server-root there.
 
 name: Deploy Hetzner translate cores
 
@@ -16,8 +14,8 @@ jobs:
     steps:
       - name: Secrets not configured
         run: |
-          echo "Remote deploy was skipped: add HETZNER_SSH_HOST, HETZNER_SSH_USER, HETZNER_SSH_KEY, and HETZNER_REMOTE_REPO_PATH"
-          echo "to GitHub Actions secrets, or start Docker on the worker manually (see deploy/hetzner-core-pinning/README.md)."
+          echo "Add HETZNER_SSH_HOST, HETZNER_SSH_USER, HETZNER_SSH_KEY, HETZNER_REMOTE_REPO_PATH to Actions secrets."
+          echo "Use HETZNER_REMOTE_REPO_PATH=/root/deploy after copying deploy/for-server-root/* to the server."
 
   deploy:
     runs-on: ubuntu-latest
@@ -25,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull and start pinned LibreTranslate stack
+      - name: Pull and start LibreTranslate stack
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_SSH_HOST }}
@@ -34,15 +32,18 @@ jobs:
           script_stop: true
           script: |
             set -e
-            cd "${{ secrets.HETZNER_REMOTE_REPO_PATH }}"
-            docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml pull
-            docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml up -d
+            REPO="${{ secrets.HETZNER_REMOTE_REPO_PATH }}"
+            if [ -f "$REPO/docker-compose.yml" ]; then
+              cd "$REPO" && docker compose pull && docker compose up -d
+            else
+              cd "$REPO" && docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml pull && docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml up -d
+            fi
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Verify cores from CI (worker must be reachable from the internet)
+      - name: Verify cores from CI
         env:
           HETZNER_CORE1_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE1_TRANSLATE_BASE }}
           HETZNER_CORE2_TRANSLATE_BASE: ${{ secrets.HETZNER_CORE2_TRANSLATE_BASE }}

@@ -1,9 +1,5 @@
-# One-click check from GitHub → Actions → "Verify Hetzner translate cores" → Run workflow.
-# Add repository secrets once (Settings → Secrets → Actions):
-#   HETZNER_CORE1_TRANSLATE_BASE  e.g. http://YOUR_WORKER_IP:5001
-#   HETZNER_CORE2_TRANSLATE_BASE  e.g. http://YOUR_WORKER_IP:5002
-#   HETZNER_CORE3_TRANSLATE_BASE  e.g. http://YOUR_WORKER_IP:5003
-# If unset, the script uses the same public defaults as the API (178.156.211.226:5001–5003).
+# Copy to: .github/workflows/hetzner-translate-cores-verify.yml
+# See deploy/github-actions/README.md if `git push` failed on workflow scope.
 
 name: Verify Hetzner translate cores
 
