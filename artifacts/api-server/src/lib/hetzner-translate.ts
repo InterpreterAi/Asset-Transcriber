@@ -99,79 +99,118 @@ function normalizeTargetLang(code: string): string {
   return base;
 }
 
+function looksLikeEnglish(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  const englishCue =
+    /\b(the|and|you|your|for|with|this|that|from|have|need|please|patient|today|tomorrow|because|about|will|can|could|would|should)\b/;
+  const spanishCue =
+    /[áéíóúñü¿¡]|\b(el|la|los|las|para|con|porque|gracias|usted|paciente|hoy|manana|mañana|colonoscop)\w*\b/;
+  const portugueseCue =
+    /[ãõáàâêôç]|\b(o|a|os|as|para|com|porque|obrigad|voce|você|paciente|hoje|amanh)\w*\b/;
+  const polishCue =
+    /[ąćęłńóśźż]|\b(i|oraz|dla|z|jest|to|pacjent|dzisiaj|jutro|poniewa)\w*\b/;
+
+  const en = englishCue.test(t);
+  const es = spanishCue.test(t);
+  const pt = portugueseCue.test(t);
+  const pl = polishCue.test(t);
+  if (!en && (es || pt || pl)) return false;
+  return en || (!es && !pt && !pl);
+}
+
+const RETRY_EXPLICIT_SOURCE_TO_EN = new Set(["es", "pt", "pl"]);
+
 async function postTranslateAtBase(
   baseUrl: string,
   text: string,
-  _sourceHint: string,
+  sourceHint: string,
   target: string,
 ): Promise<string> {
   const tgt = normalizeTargetLang(target);
-  const src = "auto";
-  const body: Record<string, unknown> = {
-    q: text,
-    source: src,
-    target: tgt,
-    format: "text",
+  const srcHintBase = normalizeTargetLang(sourceHint);
+
+  const requestOnce = async (sourceCode: string): Promise<string> => {
+    const body: Record<string, unknown> = {
+      q: text,
+      source: sourceCode,
+      target: tgt,
+      format: "text",
+    };
+
+    let res;
+    try {
+      const axiosOpts: AxiosRequestConfig = {
+        timeout: PER_HOST_TIMEOUT_MS,
+        validateStatus: () => true,
+        httpAgent: baseUrl.startsWith("http:") ? HETZNER_HTTP_AGENT : undefined,
+        httpsAgent: baseUrl.startsWith("https:") ? HETZNER_HTTPS_AGENT : undefined,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+        ...(useRailwayPrivateDnsLookup(baseUrl) ? { lookup: railwayPrivateDnsLookup } : {}),
+      };
+      res = await axios.post(`${baseUrl}/translate`, body, axiosOpts);
+    } catch (err: unknown) {
+      const code = isAxiosError(err) ? err.code : undefined;
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { baseUrl, code, message: msg, source: sourceCode, target: tgt },
+        "Hetzner machine translate request failed",
+      );
+      throw err;
+    }
+    const contentType = String(res.headers["content-type"] ?? "");
+    const payload = parseTranslateBody(res.data);
+    logger.info(
+      { baseUrl, source: sourceCode, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
+      "Hetzner machine translate API response",
+    );
+
+    if (res.status !== 200) {
+      const preview =
+        typeof res.data === "string"
+          ? res.data.slice(0, 200)
+          : JSON.stringify(res.data ?? "").slice(0, 200);
+      logger.error({ baseUrl, status: res.status, preview }, "Hetzner machine translate non-200 body preview");
+      throw new Error(`Hetzner translate HTTP ${res.status}`);
+    }
+    const errMsg = payload.error;
+    if (typeof errMsg === "string" && errMsg.trim()) {
+      throw new Error(`Hetzner translate: ${errMsg}`);
+    }
+    const out = payload.translatedText;
+    if (typeof out !== "string") {
+      const preview = JSON.stringify(res.data ?? "").slice(0, 300);
+      logger.error(
+        { baseUrl, contentType, preview },
+        "Hetzner translate response missing translatedText",
+      );
+      throw new Error("Hetzner translate returned no translatedText");
+    }
+    const trimmed = out.trim();
+    if (!trimmed) {
+      throw new Error("Hetzner translate returned empty translatedText");
+    }
+    return out;
   };
 
-  let res;
-  try {
-    const axiosOpts: AxiosRequestConfig = {
-      timeout: PER_HOST_TIMEOUT_MS,
-      validateStatus: () => true,
-      httpAgent: baseUrl.startsWith("http:") ? HETZNER_HTTP_AGENT : undefined,
-      httpsAgent: baseUrl.startsWith("https:") ? HETZNER_HTTPS_AGENT : undefined,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-      ...(useRailwayPrivateDnsLookup(baseUrl) ? { lookup: railwayPrivateDnsLookup } : {}),
-    };
-    res = await axios.post(`${baseUrl}/translate`, body, axiosOpts);
-  } catch (err: unknown) {
-    const code = isAxiosError(err) ? err.code : undefined;
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error(
-      { baseUrl, code, message: msg, source: src, target: tgt },
-      "Hetzner machine translate request failed",
+  const first = await requestOnce("auto");
+  if (
+    tgt === "en" &&
+    RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase) &&
+    !looksLikeEnglish(first)
+  ) {
+    logger.warn(
+      { sourceHint: srcHintBase, target: tgt },
+      "Hetzner MT to English looked off; retrying once with explicit source",
     );
-    throw err;
+    return requestOnce(srcHintBase);
   }
-  const contentType = String(res.headers["content-type"] ?? "");
-  const payload = parseTranslateBody(res.data);
-  logger.info(
-    { baseUrl, source: src, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
-    "Hetzner machine translate API response",
-  );
-
-  if (res.status !== 200) {
-    const preview =
-      typeof res.data === "string"
-        ? res.data.slice(0, 200)
-        : JSON.stringify(res.data ?? "").slice(0, 200);
-    logger.error({ baseUrl, status: res.status, preview }, "Hetzner machine translate non-200 body preview");
-    throw new Error(`Hetzner translate HTTP ${res.status}`);
-  }
-  const errMsg = payload.error;
-  if (typeof errMsg === "string" && errMsg.trim()) {
-    throw new Error(`Hetzner translate: ${errMsg}`);
-  }
-  const out = payload.translatedText;
-  if (typeof out !== "string") {
-    const preview = JSON.stringify(res.data ?? "").slice(0, 300);
-    logger.error(
-      { baseUrl, contentType, preview },
-      "Hetzner translate response missing translatedText",
-    );
-    throw new Error("Hetzner translate returned no translatedText");
-  }
-  const trimmed = out.trim();
-  if (!trimmed) {
-    throw new Error("Hetzner translate returned empty translatedText");
-  }
-  return out;
+  return first;
 }
 
 /** `*-libre` tiers: one POST per segment, `source: auto`, no API key. */
