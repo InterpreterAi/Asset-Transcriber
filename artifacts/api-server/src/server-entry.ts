@@ -19,6 +19,7 @@ import { initInterpreterGlossaries } from "./lib/interpreter-glossary.js";
 import { initProtectedTerms } from "./lib/protected-terms.js";
 import { isTrialLoginBlocked } from "./lib/trial-login-block.js";
 import { isGlobalAccessBlocked } from "./lib/global-access-block.js";
+import { setPriority } from "node:os";
 
 const rawPort =
   process.env["PORT"] ??
@@ -567,6 +568,20 @@ async function main() {
       process.exit(1);
     }
     logger.info({ port }, "Server listening");
+    if (process.env.API_OS_PROCESS_PRIORITY === "high" && process.platform !== "win32") {
+      const raw = process.env.API_OS_NICE?.trim() ?? "-8";
+      const nice = Number.parseInt(raw, 10);
+      const n = Number.isFinite(nice) && nice >= -20 && nice <= 19 ? nice : -8;
+      try {
+        setPriority(n);
+        logger.info({ nice: n }, "OS scheduling priority raised for API process (API_OS_PROCESS_PRIORITY=high)");
+      } catch (err) {
+        logger.warn(
+          { err, nice: n },
+          "API_OS_PROCESS_PRIORITY=high but setPriority failed (may need CAP_SYS_NICE or appropriate ulimit)",
+        );
+      }
+    }
     if (!isOpenAiConfigured()) {
       logger.error(
         "OPENAI_API_KEY (or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY) is missing. " +

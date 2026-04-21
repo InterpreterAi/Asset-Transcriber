@@ -503,15 +503,26 @@ export default function Admin() {
   // Must come AFTER mainTab useState to avoid temporal dead zone crash.
   const pollLiveSessions =
     !!me?.isAdmin && (mainTab === "overview" || mainTab === "users" || mainTab === "monitor");
-  const { data: liveSessionsData } = useQuery({
+  const {
+    data: liveSessionsData,
+    isError: liveSessionsPollError,
+    isFetching: liveSessionsPollFetching,
+    refetch: refetchLiveSessions,
+  } = useQuery({
     queryKey: ["admin-active-sessions"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/active-sessions", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch active sessions");
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/admin/active-sessions", { credentials: "include", signal });
+      if (!res.ok) throw new Error(`Active sessions HTTP ${res.status}`);
       return res.json() as Promise<Pick<AdminStats, "activeSessions" | "liveSessionSummary">>;
     },
     enabled: pollLiveSessions,
     refetchInterval: pollLiveSessions ? 3_000 : false,
+    refetchIntervalInBackground: true,
+    placeholderData: (previousData) => previousData,
+    retry: 4,
+    retryDelay: (attempt) => Math.min(2_000 * 2 ** attempt, 30_000),
+    staleTime: 2_000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const sessions = useMemo(
@@ -1308,13 +1319,32 @@ export default function Admin() {
 
             {/* Live Sessions */}
             <section>
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2 flex-wrap">
                 <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 Live Sessions ({sessions.length})
                 <span className="text-[10px] font-normal normal-case text-muted-foreground">
                   · updates every 3s · customer accounts · Hetzner vs OpenAI by plan
                 </span>
+                {pollLiveSessions && liveSessionsPollFetching && (
+                  <span className="text-[10px] font-medium normal-case text-blue-600">refreshing…</span>
+                )}
               </h2>
+              {pollLiveSessions && liveSessionsPollError && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50/90 px-3 py-2.5 text-xs text-red-950">
+                  <span>
+                    Live session poll failed (network, timeout, or 429). Last good snapshot is kept when available; stats still refresh on the slower interval.
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 border-red-300 text-red-900"
+                    onClick={() => void refetchLiveSessions()}
+                  >
+                    Retry now
+                  </Button>
+                </div>
+              )}
               {(liveSessionSummary?.usersWithMultipleOpen ?? 0) > 0 && (
                 <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />

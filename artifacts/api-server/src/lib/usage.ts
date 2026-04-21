@@ -109,6 +109,19 @@ function isPaidTranslationPlan(eff: string): boolean {
   );
 }
 
+/**
+ * Trial (non-paid-effective) accounts: stricter AI/transcription rate limits and outbound Hetzner concurrency.
+ * Admins and paid-effective rows (subscription lag) are excluded.
+ */
+export function appliesStrictTrialAiThrottle(
+  user: TranslationRoutingUser & { isAdmin?: boolean | null },
+): boolean {
+  if (user.isAdmin) return false;
+  const eff = effectivePlanTypeForTranslation(user).trim().toLowerCase();
+  if (isPaidTranslationPlan(eff)) return false;
+  return isTrialLikePlanType(user.planType) && !isTrialExpired(user);
+}
+
 /** True only when the user is on a trial-like plan, was granted a real trial window, and that window has ended. */
 export function isTrialExpired(user: TranslationRoutingUser): boolean {
   if (!isTrialLikePlanType(user.planType)) return false;

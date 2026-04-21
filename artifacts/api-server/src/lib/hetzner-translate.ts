@@ -9,6 +9,33 @@ import { selectHetznerCoreRoute } from "./hetzner-core-router.js";
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
 const HETZNER_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48 });
 
+const TRIAL_HETZNER_MAX_CONCURRENT = Math.max(
+  1,
+  Number.parseInt(process.env.TRIAL_HETZNER_MAX_CONCURRENT?.trim() ?? "2", 10) || 2,
+);
+
+/** Limits simultaneous outbound Hetzner MT calls for `trial-libre` only (paid `*-libre` bypasses). */
+class TrialOutboundGate {
+  private active = 0;
+  private readonly waiters: (() => void)[] = [];
+  constructor(private readonly max: number) {}
+  async acquire(): Promise<void> {
+    while (this.active >= this.max) {
+      await new Promise<void>((resolve) => {
+        this.waiters.push(resolve);
+      });
+    }
+    this.active++;
+  }
+  release(): void {
+    this.active--;
+    const w = this.waiters.shift();
+    if (w) w();
+  }
+}
+
+const trialHetznerOutboundGate = new TrialOutboundGate(TRIAL_HETZNER_MAX_CONCURRENT);
+
 /**
  * Primary **Hetzner** machine-translation host (LibreTranslate-compatible `/translate` API).
  * `*-libre` plans use this only — no public mirror list, no Railway private DNS default.
@@ -310,11 +337,27 @@ export async function callHetznerTranslate(
   target: string,
   routingHint?: { planType?: string; sessionId?: number },
 ): Promise<string> {
-  const route = selectHetznerCoreRoute(
-    routingHint?.planType ?? "trial-libre",
-    routingHint?.sessionId,
-  );
-  return postTranslateAtBase(route.baseUrl || CONFIGURED_BASE, text, source, target);
+  const plan = (routingHint?.planType ?? "").trim().toLowerCase();
+  const useTrialOutboundGate = plan === "trial-libre";
+
+  const run = async () => {
+    const route = selectHetznerCoreRoute(
+      routingHint?.planType ?? "trial-libre",
+      routingHint?.sessionId,
+    );
+    return postTranslateAtBase(route.baseUrl || CONFIGURED_BASE, text, source, target);
+  };
+
+  if (!useTrialOutboundGate) {
+    return run();
+  }
+
+  await trialHetznerOutboundGate.acquire();
+  try {
+    return await run();
+  } finally {
+    trialHetznerOutboundGate.release();
+  }
 }
 
 export function logHetznerMachineTranslationStartupHint(): void {
@@ -324,6 +367,7 @@ export function logHetznerMachineTranslationStartupHint(): void {
   logger.info(
     {
       primaryBaseUrl: CONFIGURED_BASE,
+      trialHetznerMaxConcurrent: TRIAL_HETZNER_MAX_CONCURRENT,
       fromEnvOverride: false,
       ignoredEnvOverride: Boolean(rawOverride),
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),

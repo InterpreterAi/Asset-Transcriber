@@ -38,3 +38,10 @@ The API runtime enforces:
 - Borrowing: when no paid sessions are active, trial sessions round-robin across 1-3.
 - Pre-emption: once a paid session starts, trial lanes on 1-2 are immediately remapped to lane 3 for subsequent requests.
 
+## API host (main Node process) vs workers
+
+- **CPU isolation:** Run the API on a **different physical core** than LibreTranslate workers (see `cpuset-cpus` above). The API never runs MT itself; it still parses JSON, awaits workers, and holds open HTTP/WebSocket-adjacent state — under trial floods the event loop can lag paid `/translate` if everything shares one busy core.
+- **Nice / priority (optional):** On the API service set `API_OS_PROCESS_PRIORITY=high` and optionally `API_OS_NICE=-8` (range -20…19 on Linux; lower = higher priority). Requires a platform that supports `os.setPriority` without extra caps.
+- **Runtime limits (code):** Trial accounts get stricter `/transcription/translate` + `/transcription/token` rate limits, and outbound Hetzner calls for `trial-libre` are capped at **2** in flight (`TRIAL_HETZNER_MAX_CONCURRENT`). Tune with env vars on deploy.
+- **WebSockets:** Browser audio uses **Soniox** WebSockets directly, not Socket.io through this API — there is no second WS tier here to reorder; protecting the API process and rate limits is what keeps token + translate responsive for paid users.
+
