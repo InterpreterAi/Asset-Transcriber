@@ -2040,7 +2040,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const prevShown = (transTextEl.textContent ?? "").trim();
             const srcNow = collapseWs(text);
             const srcCommitted = collapseWs(state.streamCommittedSource);
-            const chosen = shouldPreferPreviousLiveTranslationWithTarget(
+            let chosen = shouldPreferPreviousLiveTranslationWithTarget(
               prevShown,
               out,
               srcNow,
@@ -2050,6 +2050,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             )
               ? prevShown
               : out;
+            const baseSrc = dispatchLang.split("-")[0]!.toLowerCase();
+            const baseTgt = myTargetLang.split("-")[0]!.toLowerCase();
+            if (
+              prevShown &&
+              !requestIsFinal &&
+              baseTgt === "en" &&
+              baseSrc !== "en" &&
+              srcNow.length >= srcCommitted.length - 2 &&
+              !chosen.toLowerCase().includes(prevShown.toLowerCase()) &&
+              !prevShown.toLowerCase().includes(chosen.toLowerCase())
+            ) {
+              // Same speaker resumed after pause: keep prior translation and append fresh part.
+              chosen = mergeStreamingTranslation(prevShown, chosen);
+            }
             if (
               prevShown &&
               !requestIsFinal &&
@@ -2683,24 +2697,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
-      const pairNow = langPairRef.current;
-      const hintSourceLang = st?.segmentSourceLang ?? detectedLangRef.current;
-      const hintTargetLang = targetOppositeInPair(hintSourceLang, pairNow);
-      const sourceBase = hintSourceLang.split("-")[0]!.toLowerCase();
-      const targetBase = hintTargetLang.split("-")[0]!.toLowerCase();
-      // Non-English -> English needs tighter live refresh cadence so same-speaker
-      // continuations after a short pause still retranslate in the same segment.
-      const preferAggressiveEnLive = targetBase === "en" && sourceBase !== "en";
-      const livePreviewMinWords = preferAggressiveEnLive ? 3 : EARLY_HINT_MIN_WORDS;
-      const livePreviewWordStep = preferAggressiveEnLive ? 1 : LIVE_PREVIEW_WORD_STEP;
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
         st.finalTokensSeen >= 2 &&
         hintSource.length >= 20 &&
-        wordsNow >= livePreviewMinWords &&
-        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= livePreviewWordStep)
+        wordsNow >= EARLY_HINT_MIN_WORDS &&
+        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
       ) {
         const lang = st.segmentSourceLang ?? detectedLangRef.current;
         scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
