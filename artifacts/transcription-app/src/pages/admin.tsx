@@ -297,7 +297,7 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Eight canonical `plan_type` values (4 OpenAI + 4 Hetzner-machine). Legacy rows still show a fallback option. */
+/** Canonical plan types + admin alias option for clearer manual Hetzner-trial switching. */
 const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial", label: "Trial · OpenAI" },
   { value: "basic", label: "Basic · OpenAI" },
@@ -306,6 +306,7 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
 ];
 
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
+  { value: "trial-hetzner", label: "Trial · Hetzner (admin alias -> trial-libre)" },
   { value: "trial-libre", label: "Trial · Hetzner (machine after day 4; days 1–4 use OpenAI)" },
   { value: "basic-libre", label: "Basic · Hetzner / machine" },
   { value: "professional-libre", label: "Professional · Hetzner / machine" },
@@ -3099,9 +3100,9 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan: 8 canonical tiers (4 OpenAI + 4 Hetzner machine). */}
+                {/* Plan: canonical tiers plus explicit Hetzner-trial admin alias. */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Plan (8 options)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Plan</label>
                   <select
                     value={editForm.planType}
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}

@@ -1369,9 +1369,10 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
-  /** Eight canonical tiers; legacy `*-openai` / `unlimited` rows still work until migrated. */
+  /** Canonical tiers; includes admin alias `trial-hetzner` which normalizes to `trial-libre`. */
   const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
     "trial",
+    "trial-hetzner",
     "trial-libre",
     "basic",
     "basic-libre",
@@ -1395,7 +1396,10 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   if (isActive !== undefined)             updates.isActive = isActive;
   if (isAdmin !== undefined)              updates.isAdmin = isAdmin;
   if (dailyLimitMinutes !== undefined)    updates.dailyLimitMinutes = dailyLimitMinutes;
-  if (planType)                           updates.planType = planType.toLowerCase();
+  if (planType) {
+    const normalizedPlan = planType.toLowerCase() === "trial-hetzner" ? "trial-libre" : planType.toLowerCase();
+    updates.planType = normalizedPlan;
+  }
   if (password)                           updates.passwordHash = await hashPassword(password);
   if (trialEndsAt !== undefined && trialEndsAt) updates.trialEndsAt = new Date(trialEndsAt);
   if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;
@@ -1411,11 +1415,13 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  const effectivePlanLower = (planType ?? existing.planType).trim().toLowerCase();
+  const planTypeEffectiveInput =
+    planType && planType.toLowerCase() === "trial-hetzner" ? "trial-libre" : (planType ?? existing.planType);
+  const effectivePlanLower = planTypeEffectiveInput.trim().toLowerCase();
   const subscriptionDatesApply = !isTrialLikePlanType(effectivePlanLower);
 
   if (planType) {
-    const pt = planType.toLowerCase();
+    const pt = planType.toLowerCase() === "trial-hetzner" ? "trial-libre" : planType.toLowerCase();
     if (isTrialLikePlanType(pt)) {
       updates.subscriptionPlan = null;
       updates.subscriptionPeriodEndsAt = null;
