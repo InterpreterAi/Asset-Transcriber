@@ -6,9 +6,9 @@ import {
   billingPlanTierDisplayName,
   billingProductKeyFromPlanType,
   createPayPalSubscription,
+  extractPayPalSubscriptionId,
   extractPayPalCustomId,
   extractPayPalSubscriberEmail,
-  extractPayPalSubscriptionId,
   extractPayPalSubscriptionNextBillingTime,
   extractPayPalSubscriptionPlanId,
   extractPayPalSubscriptionStartTime,
@@ -24,6 +24,7 @@ import {
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
 import { isTrialLikePlanType } from "../lib/usage.js";
+import { stripeService } from "../lib/stripeService.js";
 
 const router: IRouter = Router();
 
@@ -36,6 +37,13 @@ function requireAuth(req: any, res: any, next: any) {
 
 function isBillingPlanType(v: unknown): v is BillingPlanType {
   return v === "basic" || v === "professional" || v === "platinum";
+}
+
+function paypalManageBillingUrl(): string {
+  const mode = (process.env.PAYPAL_ENV ?? "sandbox").trim().toLowerCase();
+  return mode === "live"
+    ? "https://www.paypal.com/myaccount/autopay/"
+    : "https://www.sandbox.paypal.com/myaccount/autopay/";
 }
 
 /** Final Boss 3: PayPal billing tier → DB `plan_type` (Basic/Prof = Libre; Platinum = OpenAI). */
@@ -589,6 +597,40 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
   } catch (err) {
     logger.error({ err }, "POST /api/payments/test-activate-plan failed");
     res.status(500).json({ error: "Failed to activate plan" });
+  }
+});
+
+router.post("/manage-billing", requireAuth, async (req: any, res) => {
+  try {
+    const userId = Number(req.session.userId);
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    // Final Boss 3 billing is primarily PayPal; route users there when they have PayPal subscription state.
+    if (user.paypalSubscriptionId || user.subscriptionPlan) {
+      res.json({ url: paypalManageBillingUrl(), provider: "paypal" as const });
+      return;
+    }
+
+    // Legacy Stripe users keep full customer-portal support.
+    if (user.stripeCustomerId) {
+      const host = req.get("host") ?? "";
+      const proto = req.headers["x-forwarded-proto"] ?? req.protocol ?? "https";
+      const session = await stripeService.createCustomerPortalSession(
+        user.stripeCustomerId,
+        `${proto}://${host}/workspace`,
+      );
+      res.json({ url: session.url, provider: "stripe" as const });
+      return;
+    }
+
+    res.status(400).json({ error: "No active billing profile found" });
+  } catch (err) {
+    logger.error({ err }, "POST /api/payments/manage-billing failed");
+    res.status(500).json({ error: "Failed to open billing management" });
   }
 });
 

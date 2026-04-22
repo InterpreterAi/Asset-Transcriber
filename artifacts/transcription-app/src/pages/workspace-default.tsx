@@ -372,7 +372,7 @@ export default function WorkspaceDefault() {
   const handleManageBilling = async () => {
     setUpgradeLoading("portal");
     try {
-      const res = await fetch("/api/stripe/portal", {
+      const res = await fetch("/api/payments/manage-billing", {
         method: "POST",
         credentials: "include",
       });
