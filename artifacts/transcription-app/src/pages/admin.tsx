@@ -70,8 +70,10 @@ interface AdminStats {
     /** Same user has more than one row with ended_at null — investigate stale session. */
     openSessionsForUser?: number;
     openSessionOrdinal?: number;
-    /** Mirrors server planUsesMachineTranslationStack — Libre vs OpenAI translation path. */
+    /** Live POST /translate stack (matches server `userUsesMachineTranslationStack`). */
     translationStack?: "libre" | "openai";
+    /** Plain-language route + Hetzner core when applicable. */
+    translationRouteDetail?: string;
     coreLane?: 1 | 2 | null;
     coreLaneColor?: "blue" | "violet" | null;
     coreNodeLabel?: string | null;
@@ -304,7 +306,7 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
 ];
 
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
-  { value: "trial-libre", label: "Trial · Hetzner / machine" },
+  { value: "trial-libre", label: "Trial · Hetzner (machine after day 4; days 1–4 use OpenAI)" },
   { value: "basic-libre", label: "Basic · Hetzner / machine" },
   { value: "professional-libre", label: "Professional · Hetzner / machine" },
   { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
@@ -427,6 +429,11 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording
         </span>
+        {activeSession.translationRouteDetail && (
+          <span className="text-[9px] text-muted-foreground leading-tight max-w-[14rem]" title={activeSession.translationRouteDetail}>
+            {activeSession.translationRouteDetail}
+          </span>
+        )}
         {activeSession.coreLane ? (
           <span
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
@@ -1323,7 +1330,7 @@ export default function Admin() {
                 <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 Live Sessions ({sessions.length})
                 <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                  · updates every 3s · customer accounts · Hetzner vs OpenAI by plan
+                  · updates every 3s · live /translate path (not plan label alone)
                 </span>
                 {pollLiveSessions && liveSessionsPollFetching && (
                   <span className="text-[10px] font-medium normal-case text-blue-600">refreshing…</span>
@@ -1382,20 +1389,19 @@ export default function Admin() {
                           className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
                             workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"
                           }`}
-                          title="Exact database plan_type"
+                          title="Database plan_type. For trial-libre, live /translate may still be OpenAI for the first four trial days — see line below."
                         >
                           {s.planType}
                         </span>
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            (s.translationStack ?? (planUsesLibreEngine(s.planType) ? "libre" : "openai")) === "openai"
+                            (s.translationStack ?? "openai") === "openai"
                               ? "bg-violet-100 text-violet-800"
                               : "bg-amber-100 text-amber-900"
                           }`}
+                          title={s.translationRouteDetail ?? "Live translation path from API"}
                         >
-                          {(s.translationStack ?? (planUsesLibreEngine(s.planType) ? "libre" : "openai")) === "openai"
-                            ? "OpenAI MT"
-                            : "Hetzner MT"}
+                          {(s.translationStack ?? "openai") === "openai" ? "OpenAI MT" : "Hetzner MT"}
                         </span>
                         {s.coreLane ? (
                           <span
@@ -1404,12 +1410,17 @@ export default function Admin() {
                                 ? "bg-violet-100 text-violet-800"
                                 : "bg-blue-100 text-blue-800"
                             }`}
-                            title="Live machine-lane assignment"
+                            title="Live Hetzner lane (two-lane: 1 paid · 5001, 2 trial · 5002)"
                           >
                             {s.coreNodeLabel ?? "HZ-1"} · Core {s.coreLane}
                           </span>
                         ) : null}
                       </div>
+                      {s.translationRouteDetail && (
+                        <p className="text-[10px] text-muted-foreground leading-snug mb-1.5 border-l-2 border-border pl-2">
+                          {s.translationRouteDetail}
+                        </p>
+                      )}
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
                         <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">

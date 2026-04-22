@@ -16,6 +16,7 @@ import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt, inArray, notInArray
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import {
+  effectivePlanTypeForTranslation,
   getTrialDaysRemaining,
   isTrialLikePlanType,
   userUsesMachineTranslationStack,
@@ -122,6 +123,28 @@ function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCor
   return out;
 }
 
+/** Human-readable live `/translate` path + Hetzner lane (matches `userUsesMachineTranslationStack` + core router). */
+function buildTranslationRouteDetail(
+  r: ActiveSessionRow,
+  translationStack: "libre" | "openai",
+  coreLane: 1 | 2 | null,
+): string {
+  if (translationStack === "openai") {
+    const eff = effectivePlanTypeForTranslation(r).trim().toLowerCase();
+    if (eff === "trial-libre" && getTrialDaysRemaining(r) >= 4) {
+      return "Live /translate: OpenAI (trial-libre days 1–4; Hetzner after day 4)";
+    }
+    return "Live /translate: OpenAI";
+  }
+  if (coreLane === 1) {
+    return "Live /translate: Hetzner · Core 1 (paid · :5001)";
+  }
+  if (coreLane === 2) {
+    return "Live /translate: Hetzner · Core 2 (trial · :5002)";
+  }
+  return "Live /translate: Hetzner (lane assigning…)";
+}
+
 /**
  * Per-user open-session counts and ordinal (detect duplicate DB rows for one customer).
  */
@@ -132,6 +155,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     openSessionsForUser: number;
     openSessionOrdinal: number;
     translationStack: "libre" | "openai";
+    translationRouteDetail: string;
     coreLane: 1 | 2 | null;
     coreLaneColor: CoreLaneColor | null;
     coreNodeLabel: string | null;
@@ -599,10 +623,11 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
       openSessionsForUser:  s.openSessionsForUser,
       openSessionOrdinal:   s.openSessionOrdinal,
-      translationStack:     s.translationStack,
-      coreLane:            s.coreLane,
-      coreLaneColor:       s.coreLaneColor,
-      coreNodeLabel:       s.coreNodeLabel,
+      translationStack:        s.translationStack,
+      translationRouteDetail:  s.translationRouteDetail,
+      coreLane:                  s.coreLane,
+      coreLaneColor:             s.coreLaneColor,
+      coreNodeLabel:             s.coreNodeLabel,
     })),
     liveSessionSummary,
   });
@@ -1096,10 +1121,11 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
       openSessionsForUser:  s.openSessionsForUser,
       openSessionOrdinal:   s.openSessionOrdinal,
-      translationStack:     s.translationStack,
-      coreLane:             s.coreLane,
-      coreLaneColor:        s.coreLaneColor,
-      coreNodeLabel:        s.coreNodeLabel,
+      translationStack:        s.translationStack,
+      translationRouteDetail:  s.translationRouteDetail,
+      coreLane:                s.coreLane,
+      coreLaneColor:           s.coreLaneColor,
+      coreNodeLabel:           s.coreNodeLabel,
     })),
     liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
   });
