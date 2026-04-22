@@ -214,8 +214,67 @@ export const AdminListUsersResponse = zod.object({
         .describe(
           "One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.\n",
         ),
+      paidBillingPeriodStartAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "Admin-only paid subscription window start (subscription_started_at, or created_at when start missing).\n",
+        ),
+      paidBillingPeriodEndAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "Admin-only paid subscription window end (subscription_period_ends_at, or start + 30 days when end missing).\n",
+        ),
+      paidBillingPeriodDays: zod
+        .number()
+        .nullish()
+        .describe(
+          "Admin-only calendar days in the billing window (capped at 366).",
+        ),
+      paidBillingDailyCapHours: zod
+        .number()
+        .nullish()
+        .describe("Admin-only daily cap as hours (daily_limit_minutes \/ 60)."),
+      paidBillingEligibleHours: zod
+        .number()
+        .nullish()
+        .describe(
+          "Admin-only max hours if user used full daily cap every day of the billing window.",
+        ),
+      paidBillingMinutesUsedInPeriod: zod
+        .number()
+        .nullish()
+        .describe(
+          "Admin-only billable minutes from sessions whose started_at falls in the billing window.",
+        ),
+      paidBillingHoursUsedInPeriod: zod
+        .number()
+        .nullish()
+        .describe(
+          "Admin-only hours used this billing window (same basis as minutes).",
+        ),
+      paidBillingProjectedHoursAtPeriodEnd: zod
+        .number()
+        .nullish()
+        .describe(
+          "Admin-only linear extrapolation to window end, capped at eligible hours (pace from elapsed time in window).\n",
+        ),
+      paidBillingUsesSignupProxyForStart: zod.boolean().nullish(),
+      paidBillingUsesEstimatedPeriodEnd: zod.boolean().nullish(),
     }),
   ),
+  paidBillingRollup: zod
+    .object({
+      paidUsersInRollup: zod.number(),
+      totalEligibleHoursThisPeriod: zod.number(),
+      totalHoursUsedThisPeriod: zod.number(),
+      totalProjectedHoursAtPeriodEnd: zod.number(),
+      description: zod.string(),
+    })
+    .describe(
+      "Admin-only aggregate over non-admin paid users with a computable billing window.",
+    ),
 });
 
 /**
@@ -326,6 +385,54 @@ export const AdminUpdateUserResponse = zod.object({
     .describe(
       "One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.\n",
     ),
+  paidBillingPeriodStartAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "Admin-only paid subscription window start (subscription_started_at, or created_at when start missing).\n",
+    ),
+  paidBillingPeriodEndAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "Admin-only paid subscription window end (subscription_period_ends_at, or start + 30 days when end missing).\n",
+    ),
+  paidBillingPeriodDays: zod
+    .number()
+    .nullish()
+    .describe(
+      "Admin-only calendar days in the billing window (capped at 366).",
+    ),
+  paidBillingDailyCapHours: zod
+    .number()
+    .nullish()
+    .describe("Admin-only daily cap as hours (daily_limit_minutes \/ 60)."),
+  paidBillingEligibleHours: zod
+    .number()
+    .nullish()
+    .describe(
+      "Admin-only max hours if user used full daily cap every day of the billing window.",
+    ),
+  paidBillingMinutesUsedInPeriod: zod
+    .number()
+    .nullish()
+    .describe(
+      "Admin-only billable minutes from sessions whose started_at falls in the billing window.",
+    ),
+  paidBillingHoursUsedInPeriod: zod
+    .number()
+    .nullish()
+    .describe(
+      "Admin-only hours used this billing window (same basis as minutes).",
+    ),
+  paidBillingProjectedHoursAtPeriodEnd: zod
+    .number()
+    .nullish()
+    .describe(
+      "Admin-only linear extrapolation to window end, capped at eligible hours (pace from elapsed time in window).\n",
+    ),
+  paidBillingUsesSignupProxyForStart: zod.boolean().nullish(),
+  paidBillingUsesEstimatedPeriodEnd: zod.boolean().nullish(),
 });
 
 /**

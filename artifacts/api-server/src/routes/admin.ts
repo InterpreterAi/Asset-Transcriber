@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   db,
+  pool,
   usersTable,
   trialConsumedEmailsTable,
   feedbackTable,
@@ -35,6 +36,48 @@ import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js
 import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
+
+/** Same 30-day fallback as PayPal when `subscription_period_ends_at` is missing (admin UI uses this for estimates). */
+const BILLING_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
+
+function paidBillingWindowForUser(
+  u: (typeof usersTable)["$inferSelect"],
+  minutesInPeriod: number,
+): Record<string, string | number | boolean> | null {
+  if (u.isAdmin || isTrialLikePlanType(u.planType)) return null;
+  const start = new Date(u.subscriptionStartedAt ?? u.createdAt);
+  const end = new Date(
+    u.subscriptionPeriodEndsAt?.getTime() ?? start.getTime() + BILLING_FALLBACK_MS,
+  );
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return null;
+  if (end.getTime() <= start.getTime()) return null;
+  const periodMs = end.getTime() - start.getTime();
+  const daysInPeriod = Math.min(366, Math.max(1, Math.ceil(periodMs / 86_400_000)));
+  const dailyCapMin = Number(u.dailyLimitMinutes);
+  if (!Number.isFinite(dailyCapMin) || dailyCapMin <= 0) return null;
+  const dailyHours = dailyCapMin / 60;
+  const eligibleHours = dailyHours * daysInPeriod;
+  const now = Date.now();
+  const sliceEnd = Math.min(now, end.getTime());
+  const elapsedMs = Math.max(0, sliceEnd - start.getTime());
+  /** Avoid divide-by-zero on brand-new periods; extrapolate from at least ~1h elapsed. */
+  const elapsedDays = Math.max(elapsedMs / 86_400_000, 1 / 24);
+  const usedHours = minutesInPeriod / 60;
+  const projectedHours = Math.min(eligibleHours, (usedHours / elapsedDays) * daysInPeriod);
+
+  return {
+    paidBillingPeriodStartAt: start.toISOString(),
+    paidBillingPeriodEndAt: end.toISOString(),
+    paidBillingPeriodDays: daysInPeriod,
+    paidBillingDailyCapHours: Math.round((dailyCapMin / 60) * 100) / 100,
+    paidBillingEligibleHours: Math.round(eligibleHours * 10) / 10,
+    paidBillingMinutesUsedInPeriod: Math.round(minutesInPeriod * 10) / 10,
+    paidBillingHoursUsedInPeriod: Math.round(usedHours * 10) / 10,
+    paidBillingProjectedHoursAtPeriodEnd: Math.round(projectedHours * 10) / 10,
+    paidBillingUsesSignupProxyForStart: !u.subscriptionStartedAt,
+    paidBillingUsesEstimatedPeriodEnd: !u.subscriptionPeriodEndsAt,
+  };
+}
 
 // ── Cost constants ─────────────────────────────────────────────────────────
 // SONIOX_COST_PER_MIN is only used for estimating live (not-yet-ended) session
@@ -209,7 +252,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
-  const [users, shareCounts, todayUsageRows, loginIpStats, userLoginIps] = await Promise.all([
+  const [users, shareCounts, todayUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
@@ -263,7 +306,35 @@ router.get("/users", requireAdmin, async (_req, res) => {
           sql`trim(${loginEventsTable.ipAddress}) <> ''`,
         ),
       ),
+    pool.query<{
+      user_id: number;
+      minutes_in_period: string | number;
+    }>(`
+      SELECT u.id AS user_id,
+        COALESCE((
+          SELECT SUM(
+            CASE
+              WHEN s.ended_at IS NULL THEN COALESCE(s.audio_seconds_processed, 0)::double precision
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)::double precision
+            END
+          ) / 60.0
+          FROM sessions s
+          WHERE s.user_id = u.id
+            AND s.started_at >= COALESCE(u.subscription_started_at, u.created_at)
+            AND s.started_at < COALESCE(
+              u.subscription_period_ends_at,
+              COALESCE(u.subscription_started_at, u.created_at) + interval '30 days'
+            )
+        ), 0)::double precision AS minutes_in_period
+      FROM users u
+      WHERE u.is_admin = false
+        AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai')
+    `),
   ]);
+
+  const paidMinuteMap = new Map<number, number>(
+    paidBillingRows.rows.map((r) => [Number(r.user_id), Number(r.minutes_in_period)]),
+  );
 
   const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
   const todayUsageMap = new Map(todayUsageRows.map((r) => [r.userId, Number(r.minutesToday)]));
@@ -351,43 +422,67 @@ router.get("/users", requireAdmin, async (_req, res) => {
     return out.sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
   }
 
+  let paidBillingRollupEligible = 0;
+  let paidBillingRollupUsed = 0;
+  let paidBillingRollupProjected = 0;
+  let paidBillingRollupUserCount = 0;
+
+  const userPayloads = users.map((u) => {
+    const dup = loginIpDupMetrics(u.id);
+    const sharedLoginIpClusters = sharedLoginIpClustersForUser(u.id);
+    const minutesInPaidWindow = paidMinuteMap.get(u.id) ?? 0;
+    const paidBilling = paidBillingWindowForUser(u, minutesInPaidWindow);
+    if (paidBilling) {
+      paidBillingRollupUserCount++;
+      paidBillingRollupEligible += Number(paidBilling.paidBillingEligibleHours);
+      paidBillingRollupUsed += Number(paidBilling.paidBillingHoursUsedInPeriod);
+      paidBillingRollupProjected += Number(paidBilling.paidBillingProjectedHoursAtPeriodEnd);
+    }
+    return {
+      id:                 u.id,
+      username:           u.username,
+      email:              u.email ?? null,
+      isAdmin:            u.isAdmin,
+      isActive:           u.isActive,
+      planType:           u.planType,
+      trialStartedAt:     u.trialStartedAt,
+      trialEndsAt:        u.trialEndsAt,
+      subscriptionStatus: u.subscriptionStatus ?? null,
+      subscriptionPlan:   u.subscriptionPlan ?? null,
+      subscriptionStartedAt: u.subscriptionStartedAt ?? null,
+      subscriptionPeriodEndsAt: u.subscriptionPeriodEndsAt ?? null,
+      paypalSubscriptionId: u.paypalSubscriptionId ?? null,
+      stripeSubscriptionId: u.stripeSubscriptionId ?? null,
+      trialDaysRemaining: getTrialDaysRemaining(u),
+      dailyLimitMinutes:  u.dailyLimitMinutes,
+      // Live-accurate "today" usage for admin table/pills.
+      minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
+      totalMinutesUsed:   u.totalMinutesUsed,
+      totalSessions:      u.totalSessions,
+      totalShares:        shareMap.get(u.id) ?? 0,
+      defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
+      defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
+      lastActivityAt:     u.lastActivity ?? null,
+      createdAt:          u.createdAt,
+      /** Max distinct accounts seen on any single login IP for this user (1 = no sharing detected). */
+      sharedLoginIpMaxAccounts: dup.sharedLoginIpMaxAccounts,
+      /** Login IPs (successful) that also appear for other accounts — sample for review. */
+      sharedLoginIps:           dup.sharedLoginIps,
+      sharedLoginIpClusters,
+      ...(paidBilling ?? {}),
+    };
+  });
+
   res.json({
-    users: users.map((u) => {
-      const dup = loginIpDupMetrics(u.id);
-      const sharedLoginIpClusters = sharedLoginIpClustersForUser(u.id);
-      return {
-        id:                 u.id,
-        username:           u.username,
-        email:              u.email ?? null,
-        isAdmin:            u.isAdmin,
-        isActive:           u.isActive,
-        planType:           u.planType,
-        trialStartedAt:     u.trialStartedAt,
-        trialEndsAt:        u.trialEndsAt,
-        subscriptionStatus: u.subscriptionStatus ?? null,
-        subscriptionPlan:   u.subscriptionPlan ?? null,
-        subscriptionStartedAt: u.subscriptionStartedAt ?? null,
-        subscriptionPeriodEndsAt: u.subscriptionPeriodEndsAt ?? null,
-        paypalSubscriptionId: u.paypalSubscriptionId ?? null,
-        stripeSubscriptionId: u.stripeSubscriptionId ?? null,
-        trialDaysRemaining: getTrialDaysRemaining(u),
-        dailyLimitMinutes:  u.dailyLimitMinutes,
-        // Live-accurate "today" usage for admin table/pills.
-        minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
-        totalMinutesUsed:   u.totalMinutesUsed,
-        totalSessions:      u.totalSessions,
-        totalShares:        shareMap.get(u.id) ?? 0,
-        defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
-        defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
-        lastActivityAt:     u.lastActivity ?? null,
-        createdAt:          u.createdAt,
-        /** Max distinct accounts seen on any single login IP for this user (1 = no sharing detected). */
-        sharedLoginIpMaxAccounts: dup.sharedLoginIpMaxAccounts,
-        /** Login IPs (successful) that also appear for other accounts — sample for review. */
-        sharedLoginIps:           dup.sharedLoginIps,
-        sharedLoginIpClusters,
-      };
-    }),
+    users: userPayloads,
+    paidBillingRollup: {
+      paidUsersInRollup: paidBillingRollupUserCount,
+      totalEligibleHoursThisPeriod: Math.round(paidBillingRollupEligible * 10) / 10,
+      totalHoursUsedThisPeriod: Math.round(paidBillingRollupUsed * 10) / 10,
+      totalProjectedHoursAtPeriodEnd: Math.round(paidBillingRollupProjected * 10) / 10,
+      description:
+        "Admin-only estimate: non-admin paid plans. Billing window = subscription_started_at (or signup created_at) through subscription_period_ends_at (or start + 30 days). Eligible hours = (daily_limit_minutes/60) × days in that window. Session minutes counted when session started inside the window. Projected at renewal caps at eligible total and extrapolates from pace so far in the window.",
+    },
   });
 });
 

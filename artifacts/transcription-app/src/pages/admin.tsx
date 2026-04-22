@@ -476,6 +476,7 @@ export default function Admin() {
 
   const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { queryKey: getAdminListUsersQueryKey(), enabled: !!me?.isAdmin } });
   const allUsers = usersData?.users ?? [];
+  const paidBillingRollup = usersData?.paidBillingRollup;
   const sharedLoginIpIndex = useMemo(() => {
     const byIp = new Map<string, AdminSharedLoginIpCluster>();
     for (const u of allUsers) {
@@ -1761,6 +1762,26 @@ export default function Admin() {
                   Shared-IP review moved to <strong>IP Watch</strong> tab ({sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}).
                 </div>
               )}
+
+              {paidBillingRollup && (
+                <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 space-y-1">
+                  <p className="font-semibold text-[11px] uppercase tracking-wide text-emerald-900/90">
+                    Paid users — billing window (admin only)
+                  </p>
+                  <p className="text-[11px] leading-snug text-emerald-900/85">
+                    <span className="font-semibold tabular-nums">{paidBillingRollup.paidUsersInRollup}</span> paying accounts with a window ·{" "}
+                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalEligibleHoursThisPeriod} h</span> total eligible this period
+                    (full daily cap each day) ·{" "}
+                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalHoursUsedThisPeriod} h</span> used so far ·{" "}
+                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalProjectedHoursAtPeriodEnd} h</span> projected at renewal
+                    (pace extrapolation, capped at eligible).
+                  </p>
+                  <p className="text-[10px] text-emerald-900/70 leading-snug">
+                    Window uses <code className="font-mono bg-white/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
+                    <code className="font-mono bg-white/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Create form */}
@@ -1790,7 +1811,7 @@ export default function Admin() {
 
             {/* Table */}
             <div className="overflow-x-auto bg-white">
-              <table className="w-full text-sm text-left min-w-[960px]">
+              <table className="w-full text-sm text-left min-w-[1180px]">
                 <thead className="bg-gray-50/80 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
                   <tr>
                     <th className="px-4 py-3 font-semibold">User</th>
@@ -1799,6 +1820,15 @@ export default function Admin() {
                     <th className="px-4 py-3 font-semibold">Account</th>
                     <th className="px-4 py-3 font-semibold">Plan</th>
                     <th className="px-4 py-3 font-semibold">Today</th>
+                    <th className="px-4 py-3 font-semibold text-right" title="Paid: max hours if full daily cap every day in current subscription window (admin only).">
+                      Period cap (h)
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-right" title="Paid: billable hours used in that window (sessions started in window; admin only).">
+                      Window used (h)
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-right" title="Paid: linear projection to window end, capped at period cap (admin only).">
+                      Proj. (h)
+                    </th>
                     <th className="px-4 py-3 font-semibold">Total</th>
                     <th className="px-4 py-3 font-semibold">Last Seen</th>
                     <th className="px-4 py-3 font-semibold text-right">Actions</th>
@@ -1952,6 +1982,29 @@ export default function Admin() {
                           </div>
                         </td>
 
+                        {/* Paid billing window — admin API only */}
+                        <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
+                          {u.paidBillingEligibleHours != null ? (
+                            <span title="Eligible hours this subscription window (daily cap × days).">{u.paidBillingEligibleHours}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
+                          {u.paidBillingHoursUsedInPeriod != null ? (
+                            <span title="Hours from sessions started inside the window.">{u.paidBillingHoursUsedInPeriod}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
+                          {u.paidBillingProjectedHoursAtPeriodEnd != null ? (
+                            <span title="Projected at period end from current pace (capped).">{u.paidBillingProjectedHoursAtPeriodEnd}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+
                         {/* Total */}
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatMinutes(u.totalMinutesUsed)}
@@ -1991,7 +2044,7 @@ export default function Admin() {
                   })}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground bg-white">
+                      <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground bg-white">
                         No users match this filter.
                       </td>
                     </tr>
