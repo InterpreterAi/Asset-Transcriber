@@ -508,14 +508,19 @@ export default function WorkspaceDefault() {
 
   useEffect(() => {
     if (!userError) return;
-    if (userError instanceof ApiError && userError.status === 403) {
-      const d = userError.data as { code?: string } | null;
-      if (d?.code === "email_not_verified") {
-        setLocation("/login?verify=required");
-        return;
+    if (userError instanceof ApiError) {
+      if (userError.status === 403) {
+        const d = userError.data as { code?: string } | null;
+        if (d?.code === "email_not_verified") {
+          setLocation("/login?verify=required");
+          return;
+        }
       }
+      if (userError.status === 401) {
+        setLocation("/login");
+      }
+      return;
     }
-    setLocation("/login");
   }, [userError, setLocation]);
 
   useEffect(() => {
