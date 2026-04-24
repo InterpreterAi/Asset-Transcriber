@@ -297,17 +297,18 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Canonical plan types + admin alias option for clearer manual Hetzner-trial switching. */
+/** Canonical plan types including separate OpenAI / Hetzner / mixed trial modes. */
 const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
-  { value: "trial", label: "Trial · OpenAI" },
+  { value: "trial-openai", label: "Trial · OpenAI (7 days, full OpenAI)" },
+  { value: "trial", label: "Trial · OpenAI (legacy)" },
   { value: "basic", label: "Basic · OpenAI" },
   { value: "professional", label: "Professional · OpenAI" },
   { value: "platinum", label: "Platinum · OpenAI" },
 ];
 
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
-  { value: "trial-hetzner", label: "Trial · Hetzner (admin alias -> trial-libre)" },
-  { value: "trial-libre", label: "Trial · Hetzner (machine after day 4; days 1–4 use OpenAI)" },
+  { value: "trial-hetzner", label: "Trial · Hetzner (7 days, full Hetzner)" },
+  { value: "trial-libre", label: "Trial · Mixed (days 1–4 OpenAI, then Hetzner)" },
   { value: "basic-libre", label: "Basic · Hetzner / machine" },
   { value: "professional-libre", label: "Professional · Hetzner / machine" },
   { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
@@ -3153,7 +3154,7 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan: canonical tiers plus explicit Hetzner-trial admin alias. */}
+                {/* Plan: canonical tiers with explicit trial routing modes. */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Plan</label>
                   <select

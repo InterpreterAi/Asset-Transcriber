@@ -11,8 +11,10 @@ export type WorkspacePlanTestOption = {
 };
 
 const TRIAL_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial-libre", label: "Trial · Hetzner", group: "trial" },
-  { planType: "trial", label: "Trial · OpenAI", group: "trial" },
+  { planType: "trial-openai", label: "Trial · OpenAI (7d)", group: "trial" },
+  { planType: "trial-hetzner", label: "Trial · Hetzner (7d)", group: "trial" },
+  { planType: "trial-libre", label: "Trial · Mixed (1-4 OpenAI, then Hetzner)", group: "trial" },
+  { planType: "trial", label: "Trial · OpenAI (legacy)", group: "trial" },
 ];
 
 const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [

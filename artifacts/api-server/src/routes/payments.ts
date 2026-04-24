@@ -492,9 +492,11 @@ router.post("/paypal-webhook", async (req, res) => {
 const TEST_PLAN_ACTIVATION_EMAIL = "mmorsyy1@gmail.com";
 
 /** Same `plan_type` values admins can assign in `/api/admin/users/:id` — keeps workspace “Plan testing” in sync with production. */
-/** Canonical assignable tiers (8): OpenAI `trial|basic|professional|platinum` + Libre `*-libre`. */
+/** Canonical assignable tiers: OpenAI + Hetzner + mixed trial control. */
 const ADMIN_TEST_PLAN_TYPES = [
   "trial",
+  "trial-openai",
+  "trial-hetzner",
   "trial-libre",
   "basic",
   "basic-libre",
@@ -514,7 +516,12 @@ function normalizeAdminTestPlanType(raw: unknown): AdminTestPlanType | null {
 
 /** Daily cap for test switches: PayPal tiers for paid basics; high cap for unlimited-style tiers (matches workspace “Unlimited” UI threshold). */
 function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number {
-  if (planType === "trial" || planType === "trial-libre") {
+  if (
+    planType === "trial" ||
+    planType === "trial-openai" ||
+    planType === "trial-libre" ||
+    planType === "trial-hetzner"
+  ) {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
   if (planType === "basic" || planType === "basic-libre") {

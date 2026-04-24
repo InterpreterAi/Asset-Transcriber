@@ -32,7 +32,7 @@ import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
-import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
+import { sendSubscriptionConfirmationEmail, sendTrialExtensionActivatedEmail } from "../lib/transactional-email.js";
 import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
@@ -1464,9 +1464,10 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
-  /** Canonical tiers; includes admin alias `trial-hetzner` which normalizes to `trial-libre`. */
+  /** Canonical tiers (includes explicit `trial-hetzner` as full Hetzner trial). */
   const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
     "trial",
+    "trial-openai",
     "trial-hetzner",
     "trial-libre",
     "basic",
@@ -1491,12 +1492,13 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   if (isActive !== undefined)             updates.isActive = isActive;
   if (isAdmin !== undefined)              updates.isAdmin = isAdmin;
   if (dailyLimitMinutes !== undefined)    updates.dailyLimitMinutes = dailyLimitMinutes;
-  if (planType) {
-    const normalizedPlan = planType.toLowerCase() === "trial-hetzner" ? "trial-libre" : planType.toLowerCase();
-    updates.planType = normalizedPlan;
-  }
+  if (planType) updates.planType = planType.toLowerCase();
   if (password)                           updates.passwordHash = await hashPassword(password);
-  if (trialEndsAt !== undefined && trialEndsAt) updates.trialEndsAt = new Date(trialEndsAt);
+  let trialEndsAtParsed: Date | null = null;
+  if (trialEndsAt !== undefined && trialEndsAt) {
+    trialEndsAtParsed = new Date(trialEndsAt);
+    updates.trialEndsAt = trialEndsAtParsed;
+  }
   if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;
   if (defaultLangA && defaultLangA.trim()) (updates as Record<string, unknown>).defaultLangA = defaultLangA.trim();
   if (defaultLangB && defaultLangB.trim()) (updates as Record<string, unknown>).defaultLangB = defaultLangB.trim();
@@ -1510,13 +1512,21 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  const planTypeEffectiveInput =
-    planType && planType.toLowerCase() === "trial-hetzner" ? "trial-libre" : (planType ?? existing.planType);
+  const planTypeEffectiveInput = planType ?? existing.planType;
   const effectivePlanLower = planTypeEffectiveInput.trim().toLowerCase();
   const subscriptionDatesApply = !isTrialLikePlanType(effectivePlanLower);
+  if (
+    trialEndsAtParsed &&
+    Number.isFinite(trialEndsAtParsed.getTime()) &&
+    trialEndsAtParsed.getTime() > Date.now() &&
+    isTrialLikePlanType(effectivePlanLower)
+  ) {
+    // Immediate access after admin trial extension: restore today's available minutes.
+    updates.minutesUsedToday = 0;
+  }
 
   if (planType) {
-    const pt = planType.toLowerCase() === "trial-hetzner" ? "trial-libre" : planType.toLowerCase();
+    const pt = planType.toLowerCase();
     if (isTrialLikePlanType(pt)) {
       updates.subscriptionPlan = null;
       updates.subscriptionPeriodEndsAt = null;
@@ -1586,6 +1596,22 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   }
 
   const user = result[0]!;
+  const trialEndWasUpdated = trialEndsAt !== undefined && Boolean(user.trialEndsAt);
+  if (trialEndWasUpdated && isTrialLikePlanType(user.planType)) {
+    const email = user.email?.trim().toLowerCase();
+    if (email) {
+      const daysRemaining = getTrialDaysRemaining(user);
+      if (daysRemaining > 0) {
+        void sendTrialExtensionActivatedEmail(
+          email,
+          user.username ?? null,
+          user.trialEndsAt!,
+          TRIAL_DAILY_LIMIT_MINUTES,
+          user.id,
+        );
+      }
+    }
+  }
   const [shareAgg] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(shareEventsTable)

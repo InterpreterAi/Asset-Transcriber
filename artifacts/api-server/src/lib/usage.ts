@@ -41,7 +41,7 @@ export function getTrialDaysRemaining(user: TranslationRoutingUser): number {
 }
 
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
-export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre"] as const;
+export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre", "trial-hetzner"] as const;
 
 /** Trial-like plans: default signup `trial-libre` (Final Boss 3), legacy `trial` / `trial-openai`, or `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
@@ -57,6 +57,7 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (
+    p === "trial-hetzner" ||
     p === "trial-libre" ||
     p === "basic-libre" ||
     p === "professional-libre" ||
@@ -82,7 +83,8 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
 /**
  * Live translation routing: which stack `/translate` should call for this account row.
  * `trial-libre` stays on OpenAI until fewer than four full calendar days remain before `trial_ends_at`,
- * then uses the machine stack for the last three days. Paid-effective types (subscription lag) follow
+ * then uses the machine stack for the last three days. `trial-hetzner` is machine for the full trial.
+ * Paid-effective types (subscription lag) follow
  * {@link planUsesMachineTranslationStack} only.
  */
 export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {

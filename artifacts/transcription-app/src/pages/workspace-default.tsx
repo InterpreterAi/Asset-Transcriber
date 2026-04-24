@@ -999,18 +999,28 @@ export default function WorkspaceDefault() {
                 Upgrade to Pro
               </button>
             ) : (
-              <button
-                onClick={() => void handleManageBilling()}
-                disabled={upgradeLoading === "portal"}
-                className="w-full mt-2 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-              >
-                {upgradeLoading === "portal" ? (
-                  <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
-                ) : (
-                  <ExternalLink className="w-3.5 h-3.5" />
-                )}
-                Manage Billing
-              </button>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => void handleManageBilling()}
+                  disabled={upgradeLoading === "portal"}
+                  className="h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                >
+                  {upgradeLoading === "portal" ? (
+                    <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+                  ) : (
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  )}
+                  Manage Billing
+                </button>
+                <button
+                  onClick={() => void handleManageBilling()}
+                  disabled={upgradeLoading === "portal"}
+                  className="h-8 rounded-lg border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  title="Open billing page to cancel your subscription and stop auto-renew charges."
+                >
+                  Cancel Subscription
+                </button>
+              </div>
             )}
           </div>
 

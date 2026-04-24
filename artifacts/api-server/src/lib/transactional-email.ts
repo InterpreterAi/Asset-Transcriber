@@ -247,6 +247,35 @@ export async function sendTrialExpiredEmail(
   return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
 }
 
+/** Sent immediately when admin extends a trial window manually. */
+export async function sendTrialExtensionActivatedEmail(
+  to: string,
+  displayName: string | null | undefined,
+  trialEndsAt: Date | string,
+  dailyLimitMinutes: number,
+  recipientUserId: number,
+): Promise<boolean> {
+  if (!isResendConfigured()) return false;
+  const base = appBaseUrl();
+  const hoursPerDay = Math.max(0, Math.round((Number(dailyLimitMinutes) / 60) * 10) / 10);
+  const subject = "Your free trial has been extended";
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId,
+    heading: "Good news: your trial is active again",
+    bodyHtml: [
+      emailStandardGreeting(to, displayName),
+      emailParagraph(
+        `We added extra trial access to your account. You now have up to ${hoursPerDay} hours per day available.`,
+      ),
+      emailTrialInformationBlock(emailTrialReminderInner(trialEndsAt)),
+      emailParagraph("Open your workspace and continue interpreting right away."),
+    ].join(""),
+    primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
+  });
+  return sendEmail({ from: RESEND_FROM_ONBOARDING, to, subject, html });
+}
+
 /** When a metered user hits their daily transcription cap (session stop). At most once per app calendar day. */
 export async function sendDailyLimitReachedEmail(
   to: string,
