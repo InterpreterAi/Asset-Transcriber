@@ -14,7 +14,7 @@ const TRIAL_HETZNER_MAX_CONCURRENT = Math.max(
   Number.parseInt(process.env.TRIAL_HETZNER_MAX_CONCURRENT?.trim() ?? "2", 10) || 2,
 );
 
-/** Limits simultaneous outbound Hetzner MT calls for `trial-libre` only (paid `*-libre` bypasses). */
+/** Limits simultaneous outbound Hetzner MT calls for trial machine plans only (`trial-libre` + `trial-hetzner`). */
 class TrialOutboundGate {
   private active = 0;
   private readonly waiters: (() => void)[] = [];
@@ -338,7 +338,7 @@ export async function callHetznerTranslate(
   routingHint?: { planType?: string; sessionId?: number },
 ): Promise<string> {
   const plan = (routingHint?.planType ?? "").trim().toLowerCase();
-  const useTrialOutboundGate = plan === "trial-libre";
+  const useTrialOutboundGate = plan === "trial-libre" || plan === "trial-hetzner";
 
   const run = async () => {
     const route = selectHetznerCoreRoute(
