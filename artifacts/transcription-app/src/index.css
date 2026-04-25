@@ -129,6 +129,14 @@
   --chart-5: 340 75% 55%;
 }
 
+/* Scoped to workspace shell: electric “hero” blue for Start + active pills */
+.workspace-hero-accent {
+  --primary: 199 89% 48%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 199 89% 48%;
+  --chart-1: 199 89% 48%;
+}
+
 @layer base {
   * {
     @apply border-border;
