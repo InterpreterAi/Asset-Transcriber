@@ -32,11 +32,11 @@ interface SupportPanelProps {
 
 function StatusBadge({ status }: { status: string }) {
   return status === "resolved" ? (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 px-2 py-0.5 rounded-full">
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-100/80 text-green-800 border border-green-200 dark:bg-green-500/12 dark:text-green-300 dark:border-green-500/30 px-2 py-0.5 rounded-full">
       <CheckCircle className="w-2.5 h-2.5" /> Resolved
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full">
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100/80 text-amber-800 border border-amber-200 dark:bg-amber-500/12 dark:text-amber-300 dark:border-amber-500/30 px-2 py-0.5 rounded-full">
       <Clock className="w-2.5 h-2.5" /> Open
     </span>
   );
@@ -247,7 +247,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                     rows={5}
                     className="w-full text-sm rounded-xl border border-border dark:border-white/10 bg-background dark:bg-muted/30 px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
                   />
-                  <p className="text-[10px] text-muted-foreground text-right">{message.length}/1000</p>
+                  <p className="text-[10px] text-muted-foreground/80 dark:text-muted-foreground text-right">{message.length}/1000</p>
                 </div>
 
                 <Button type="submit" isLoading={submitting} className="w-full text-sm h-9">
