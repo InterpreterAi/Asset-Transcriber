@@ -1353,6 +1353,24 @@ router.get("/sessions", requireAuth, async (req, res) => {
   }
 
   const fromDate = periodStart(period);
+  const effectiveDurationSecondsSql = sql<number>`
+    CASE
+      WHEN ${sessionsTable.endedAt} IS NULL
+        THEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0)
+      WHEN COALESCE(${sessionsTable.durationSeconds}, 0) > 0
+        THEN ${sessionsTable.durationSeconds}
+      WHEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0) > 0
+        THEN ${sessionsTable.audioSecondsProcessed}
+      -- Machine-stack historical fallback: session had heartbeats but stale-close stored zero duration.
+      WHEN ${sessionsTable.lastActivityAt} IS NOT NULL
+        AND EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt})) >= 90
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt}))))
+      -- Backfill historical rows that were finalized with 0 duration despite real activity.
+      WHEN COALESCE(${sessionsTable.translationTokens}, 0) > 0
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.endedAt} - ${sessionsTable.startedAt}))))
+      ELSE 0
+    END
+  `;
 
   // Sessions list filtered by period
   const baseWhere = fromDate
@@ -1364,7 +1382,7 @@ router.get("/sessions", requireAuth, async (req, res) => {
       id:              sessionsTable.id,
       startedAt:       sessionsTable.startedAt,
       endedAt:         sessionsTable.endedAt,
-      durationSeconds: sessionsTable.durationSeconds,
+      durationSeconds: effectiveDurationSecondsSql,
       langPair:        sessionsTable.langPair,
     })
     .from(sessionsTable)
@@ -1378,7 +1396,7 @@ router.get("/sessions", requireAuth, async (req, res) => {
 
   const aggCols = {
     count:        sql<number>`count(*)::int`,
-    totalSeconds: sql<number>`coalesce(sum(duration_seconds),0)::int`,
+    totalSeconds: sql<number>`coalesce(sum(${effectiveDurationSecondsSql}),0)::int`,
   };
 
   const [[periodAgg], [lifetime], [today], [week]] = await Promise.all([

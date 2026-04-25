@@ -1301,13 +1301,31 @@ router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
 router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
   const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+  const effectiveDurationSecondsSql = sql<number>`
+    CASE
+      WHEN ${sessionsTable.endedAt} IS NULL
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${sessionsTable.startedAt}))))
+      WHEN COALESCE(${sessionsTable.durationSeconds}, 0) > 0
+        THEN ${sessionsTable.durationSeconds}
+      WHEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0) > 0
+        THEN ${sessionsTable.audioSecondsProcessed}
+      -- Machine-stack historical fallback: session had heartbeats but stale-close stored zero duration.
+      WHEN ${sessionsTable.lastActivityAt} IS NOT NULL
+        AND EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt})) >= 90
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt}))))
+      -- Backfill historical rows that show 0 min despite real translated activity.
+      WHEN COALESCE(${sessionsTable.translationTokens}, 0) > 0
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.endedAt} - ${sessionsTable.startedAt}))))
+      ELSE 0
+    END
+  `;
 
   const rows = await db
     .select({
       id:              sessionsTable.id,
       startedAt:       sessionsTable.startedAt,
       endedAt:         sessionsTable.endedAt,
-      durationSeconds: sessionsTable.durationSeconds,
+      durationSeconds: effectiveDurationSecondsSql,
       langPair:        sessionsTable.langPair,
       lastActivityAt:  sessionsTable.lastActivityAt,
     })
@@ -1321,12 +1339,9 @@ router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
       id:              s.id,
       startedAt:       s.startedAt,
       endedAt:         s.endedAt ?? null,
-      durationSeconds: s.durationSeconds ?? (
-        s.endedAt ? null
-          : Math.round((Date.now() - s.startedAt.getTime()) / 1000)
-      ),
+      durationSeconds: s.durationSeconds ?? 0,
       langPair:       s.langPair ?? null,
-      minutesUsed:    s.durationSeconds ? +(s.durationSeconds / 60).toFixed(2) : null,
+      minutesUsed:    +(Math.max(0, Number(s.durationSeconds ?? 0)) / 60).toFixed(2),
       isLive:         !s.endedAt,
     })),
   });
