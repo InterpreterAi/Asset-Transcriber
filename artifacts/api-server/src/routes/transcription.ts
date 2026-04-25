@@ -546,7 +546,12 @@ async function sweepStaleSessions(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - STALE_SESSION_MS);
     const stale = await db
-      .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt, userId: sessionsTable.userId })
+      .select({
+        id: sessionsTable.id,
+        startedAt: sessionsTable.startedAt,
+        userId: sessionsTable.userId,
+        audioSecondsProcessed: sessionsTable.audioSecondsProcessed,
+      })
       .from(sessionsTable)
       .where(and(
         isNull(sessionsTable.endedAt),
@@ -555,22 +560,14 @@ async function sweepStaleSessions(): Promise<void> {
 
     if (stale.length === 0) return;
 
-    const now = new Date();
     for (const s of stale) {
-      // Do not bill wall-clock time: the client never reported processed audio (tab close / refresh).
-      // Daily limits must reflect only audio seconds credited via POST /session/stop.
-      await db
-        .update(sessionsTable)
-        .set({
-          endedAt:               now,
-          durationSeconds:        0,
-          audioSecondsProcessed: 0,
-          sonioxCost:            "0",
-          totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
-        })
-        .where(eq(sessionsTable.id, s.id));
-      sessionStore.delete(s.id);
-      unregisterSessionForCoreRouting(s.id);
+      // Close abandoned sessions with the last known processed-audio value from heartbeat,
+      // so real usage never lands in history as a zero-minute session.
+      await closeOpenSessionWithBillingIfNeeded(
+        s.id,
+        s.userId,
+        Number(s.audioSecondsProcessed ?? 0),
+      );
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -787,6 +784,13 @@ function latinPairLooksUntranslated(source: string, translated: string): boolean
   if (outWords.length >= 6) return overlapRatio >= 0.78;
   if (outWords.length >= 3) return overlapRatio >= 0.9;
   return false;
+}
+
+function isEnglishSpanishPair(sourceBase: string, targetBase: string): boolean {
+  return (
+    (sourceBase === "en" && targetBase === "es") ||
+    (sourceBase === "es" && targetBase === "en")
+  );
 }
 
 function matchesExpectedTargetLanguage(
@@ -1655,6 +1659,26 @@ router.post("/translate", requireAuth, async (req, res) => {
       let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
         skipLeakRepair: true,
       });
+      if (isEnglishSpanishPair(srcCode, tgtCode) && latinPairLooksUntranslated(phraseNormalized, translated)) {
+        logger.warn(
+          { srcLang, tgtLang, textLen: phraseNormalized.length },
+          "Machine EN<->ES output looked untranslated; retrying once",
+        );
+        const retryRaw = await translateBasicProfessional(
+          textForOpenAI,
+          srcLang,
+          tgtLang,
+          numMask.slotToDigits,
+          { sessionId: routingSessionId, planType: planLower },
+        );
+        const retryRestored = restoreTranslationOutput(
+          normalizeMachineTranslationPlaceholders(String(retryRaw ?? "")),
+        );
+        const retryTranslated = await finalizeTranslationOutput(retryRestored, srcCode, tgtCode, tgtLangResolved, {
+          skipLeakRepair: true,
+        });
+        if (retryTranslated.trim()) translated = retryTranslated;
+      }
       if (!translated.trim() && restored.trim()) {
         translated = postProcessTranslatedText(restored, srcCode, tgtCode);
         if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
@@ -1983,6 +2007,28 @@ router.post("/translate", requireAuth, async (req, res) => {
         interim: !isFinalSegment,
       }),
     };
+    if (isEnglishSpanishPair(srcCode, tgtCode) && latinPairLooksUntranslated(phraseNormalized, result.text)) {
+      logger.warn(
+        { srcLang, tgtLang, textLen: phraseNormalized.length },
+        "OpenAI EN<->ES output looked untranslated; retrying once with strict language lock",
+      );
+      const enEsRetryPrompt =
+        buildSystemPrompt(true, streamingDelta) +
+        placeholderRules +
+        finalSegmentBlock;
+      const enEsRetry = await callOpenAI(enEsRetryPrompt, userMessageForModel);
+      accumulateCost(enEsRetry.promptTokens, enEsRetry.completionTokens);
+      const enEsRetryText = await finalizeTranslationOutput(
+        restoreTranslationOutput(enEsRetry.text),
+        srcCode,
+        tgtCode,
+        tgtLangResolved,
+        { interim: !isFinalSegment },
+      );
+      if (enEsRetryText.trim()) {
+        result = { ...enEsRetry, text: enEsRetryText };
+      }
+    }
 
     // Model often stops after the first clause on long turns — one automatic full retry.
     // Live cumulative updates (!isFinal): never run a second OpenAI call here — it doubled latency per word.

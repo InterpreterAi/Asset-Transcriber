@@ -227,6 +227,44 @@ function looksLikeEnglish(text: string): boolean {
   return en || (!es && !pt && !pl && !ar);
 }
 
+function normalizedWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+}
+
+function latinPairLooksUntranslated(sourceText: string, translatedText: string): boolean {
+  const srcWords = normalizedWords(sourceText);
+  const outWords = normalizedWords(translatedText);
+  if (srcWords.length === 0 || outWords.length === 0) return false;
+
+  const srcNorm = srcWords.join(" ");
+  const outNorm = outWords.join(" ");
+  if (srcNorm && outNorm && srcNorm === outNorm) return true;
+
+  const srcSet = new Set(srcWords.filter((w) => w.length >= 4));
+  const outSet = new Set(outWords.filter((w) => w.length >= 4));
+  if (srcSet.size === 0 || outSet.size === 0) return false;
+
+  let overlap = 0;
+  for (const w of outSet) {
+    if (srcSet.has(w)) overlap += 1;
+  }
+  const overlapRatio = overlap / Math.max(1, outSet.size);
+  if (outWords.length >= 6) return overlapRatio >= 0.78;
+  if (outWords.length >= 3) return overlapRatio >= 0.9;
+  return false;
+}
+
+function isEnglishSpanishPair(srcBase: string, tgtBase: string): boolean {
+  return (
+    (srcBase === "en" && tgtBase === "es") ||
+    (srcBase === "es" && tgtBase === "en")
+  );
+}
+
 const RETRY_EXPLICIT_SOURCE_TO_EN = new Set(["ar", "es", "pt", "pl"]);
 
 async function postTranslateAtBase(
@@ -308,11 +346,20 @@ async function postTranslateAtBase(
     return normalizedOut;
   };
 
+  const enEsPair = isEnglishSpanishPair(srcHintBase, tgt);
   const primarySourceCode =
-    tgt === "en" && RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase)
+    enEsPair || (tgt === "en" && RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase))
       ? srcHintBase
       : "auto";
   const first = await requestOnce(primarySourceCode);
+  if (enEsPair && latinPairLooksUntranslated(text, first)) {
+    logger.warn(
+      { sourceHint: srcHintBase, target: tgt },
+      "Hetzner EN<->ES output looked untranslated; retrying once with strict source direction",
+    );
+    const retrySourceCode = primarySourceCode === srcHintBase ? "auto" : srcHintBase;
+    return requestOnce(retrySourceCode);
+  }
   if (
     tgt === "en" &&
     RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase) &&
