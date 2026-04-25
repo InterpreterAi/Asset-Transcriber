@@ -166,18 +166,24 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * OPENAI_VERIFIED_TRANSLATION_CO
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
-const SPEAKER_COLORS = [
-  // slot 1 — Blue (dark-surface friendly)
+const SPEAKER_COLORS_LIGHT = [
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-green-50 text-green-600 border border-green-100 mb-1",
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-100 mb-1",
+] as const;
+const SPEAKER_COLORS_DARK = [
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-sky-500/15 text-sky-300 border border-sky-400/25 mb-1",
-  // slot 2 — Green
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-400/25 mb-1",
-  // slot 3 — Orange
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/15 text-amber-200 border border-amber-400/25 mb-1",
 ] as const;
 
+const TRANSCRIPT_ROW_LIGHT =
+  "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
+const TRANSCRIPT_ROW_DARK =
+  "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-white/[0.04] px-2 py-1.5 -mx-2 transition-colors";
+
 // ── DOM class names ────────────────────────────────────────────────────────────
 const CLS = {
-  row:         "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-white/[0.04] px-2 py-1.5 -mx-2 transition-colors",
   colOrig:     "min-w-0",
   colTrans:    "min-w-0",
   textRow:     "flex items-start gap-1",
@@ -1361,6 +1367,8 @@ type TranslationDiag = {
 };
 
 export type UseTranscriptionOptions = {
+  /** Matches workspace chrome: pastel speaker tags on light panels, high-contrast tags on dark. */
+  workspaceChrome?: "dark" | "light";
   /** Fired when finalized transcript/translation lines are appended for admin live view (debounce in parent). */
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
@@ -2133,12 +2141,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const createBubble = useCallback((rawSpeaker: number | string | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
     const { label, slot } = normalizeSpeaker(rawSpeaker);
+    const skin = workspaceChromeRef.current;
+    const palette = skin === "dark" ? SPEAKER_COLORS_DARK : SPEAKER_COLORS_LIGHT;
     const tagCls = slot > 0
-      ? SPEAKER_COLORS[Math.min(slot - 1, SPEAKER_COLORS.length - 1)]
+      ? palette[Math.min(slot - 1, palette.length - 1)]
       : undefined;
 
     const row = document.createElement("div");
-    row.className = CLS.row;
+    row.className = skin === "dark" ? TRANSCRIPT_ROW_DARK : TRANSCRIPT_ROW_LIGHT;
 
     // ── LEFT COLUMN: original ────────────────────────────────────────────────
     const colOrig = document.createElement("div");

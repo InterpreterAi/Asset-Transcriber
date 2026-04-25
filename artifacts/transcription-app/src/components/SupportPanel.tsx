@@ -151,9 +151,9 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
   const openCount = tickets.filter(t => t.status === "open").length;
 
   return (
-    <div className="w-full md:w-80 bg-white border-r border-border flex flex-col overflow-hidden shrink-0 z-10">
+    <div className="w-full md:w-80 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-hidden shrink-0 z-10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]">
       {/* Header */}
-      <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
+      <div className="h-[52px] border-b border-border dark:border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-muted/10 dark:bg-black/20">
         <div className="flex items-center gap-2">
           <LifeBuoy className="w-4 h-4 text-primary" />
           <span className="font-semibold text-sm">Support</span>
@@ -167,7 +167,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border shrink-0">
+      <div className="flex border-b border-border dark:border-white/[0.08] shrink-0">
         <button
           onClick={() => setTab("new")}
           className={`flex-1 py-2.5 text-xs font-semibold transition-all ${tab === "new" ? "border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
@@ -245,7 +245,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                     placeholder="Describe your issue in detail..."
                     required
                     rows={5}
-                    className="w-full text-sm rounded-xl border border-border bg-background px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
+                    className="w-full text-sm rounded-xl border border-border dark:border-white/10 bg-background dark:bg-muted/30 px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
                   />
                   <p className="text-[10px] text-muted-foreground text-right">{message.length}/1000</p>
                 </div>
@@ -284,7 +284,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                   <div key={ticket.id}>
                     {/* Ticket row */}
                     <button
-                      className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-start gap-2"
+                      className="w-full px-4 py-3 text-left hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors flex items-start gap-2"
                       onClick={() => toggleTicket(ticket.id)}
                     >
                       <div className="flex-1 min-w-0">
@@ -304,7 +304,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
 
                     {/* Expanded thread */}
                     {expandedId === ticket.id && (
-                      <div className="bg-gray-50 border-t border-border">
+                      <div className="bg-muted/30 dark:bg-black/25 border-t border-border dark:border-white/[0.06]">
                         {detailLoading ? (
                           <div className="flex justify-center py-6">
                             <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" />
