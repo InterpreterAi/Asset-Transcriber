@@ -23,11 +23,12 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle, Mail,
-  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb,
+  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb, Sun, Moon,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
 import {
+  cn,
   formatMinutes,
   isTrialLikePlanType,
   workspacePlanDisplayName,
@@ -508,6 +509,21 @@ export default function Admin() {
   // ── Main tabs ─────────────────────────────────────────────────────────────
   const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "ipWatch" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const ADMIN_THEME_STORAGE_KEY = "interpreterai-admin-theme";
+  type AdminTheme = "dark" | "light";
+  const [adminTheme, setAdminTheme] = useState<AdminTheme>(() => {
+    if (typeof window === "undefined") return "dark";
+    const v = localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
+    return v === "light" || v === "dark" ? v : "dark";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
+    } catch {
+      /* ignore */
+    }
+  }, [adminTheme]);
+  const adminDark = adminTheme === "dark";
 
   // Fast-poll live sessions on Overview / Users / Monitor — 3 s (Libre-heavy traffic needs fresh rows).
   // Must come AFTER mainTab useState to avoid temporal dead zone crash.
@@ -1145,7 +1161,14 @@ export default function Admin() {
   ];
 
   return (
-    <div className="h-full bg-[#f5f5f7] text-foreground flex overflow-hidden">
+    <div
+      className={cn(
+        "h-full text-foreground flex overflow-hidden",
+        adminDark &&
+          "dark workspace-hero-accent bg-[linear-gradient(165deg,#0b0e14_0%,#121a26_42%,#081420_100%)]",
+        !adminDark && "bg-[#f5f5f7]",
+      )}
+    >
 
       {/* ── MOBILE SIDEBAR BACKDROP ───────────────────────────────────────── */}
       {sidebarOpen && (
@@ -1157,7 +1180,7 @@ export default function Admin() {
 
       {/* ── ADMIN SIDEBAR ─────────────────────────────────────────────────── */}
       <aside className={`
-        fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-border flex flex-col overflow-y-auto
+        fixed inset-y-0 left-0 z-30 w-64 bg-card border-r border-border dark:border-white/[0.08] shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)] flex flex-col overflow-y-auto
         transform transition-transform duration-300 ease-in-out
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         md:relative md:inset-auto md:translate-x-0 md:w-52 md:z-10 md:shrink-0
@@ -1190,7 +1213,7 @@ export default function Admin() {
 
         {/* Live session badge */}
         {sessions.length > 0 && (
-          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100 shrink-0">
+          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-100/80 px-3 py-2 rounded-lg border border-red-200 dark:bg-red-500/10 dark:border-red-500/30 shrink-0">
             <Radio className="w-3 h-3 animate-pulse shrink-0" />
             {sessions.length} Live Session{sessions.length > 1 ? "s" : ""}
           </div>
@@ -1241,6 +1264,20 @@ export default function Admin() {
               <h1 className="text-xl font-display font-semibold tracking-tight">{adminTabs.find(t => t.id === mainTab)?.label ?? "Admin"}</h1>
               <p className="text-muted-foreground text-sm">Monitor usage, manage users, and track costs.</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setAdminTheme(adminDark ? "light" : "dark")}
+              className={cn(
+                "ml-auto w-9 h-9 rounded-lg border flex items-center justify-center transition-colors",
+                adminDark
+                  ? "border-white/10 text-amber-200/90 hover:bg-card/10 hover:text-amber-100"
+                  : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+              title={adminDark ? "Bright mode" : "Dark mode"}
+              aria-label={adminDark ? "Switch admin to bright mode" : "Switch admin to dark mode"}
+            >
+              {adminDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
 
         {/* ── ANALYTICS TAB ────────────────────────────────────────────────── */}
@@ -1267,13 +1304,13 @@ export default function Admin() {
                     icon: <Users className="w-4 h-4" />,
                     color: "text-primary bg-primary/10",
                   },
-                  { label: "Active Now",     value: stats?.activeUsers ?? 0,              icon: <Activity className="w-4 h-4" />,   color: "text-blue-600 bg-blue-50",   sub: "last 5 min" },
-                  { label: "Active Today",   value: stats?.dailyActiveUsers ?? 0,         icon: <TrendingUp className="w-4 h-4" />, color: "text-emerald-600 bg-emerald-50" },
-                  { label: "Min Today",      value: formatMinutes(stats?.minutesToday ?? 0), icon: <Clock className="w-4 h-4" />,   color: "text-orange-600 bg-orange-50" },
-                  { label: "Min This Week",  value: formatMinutes(stats?.minutesWeek ?? 0),  icon: <Calendar className="w-4 h-4" />,color: "text-violet-600 bg-violet-50" },
-                  { label: "Min This Month", value: formatMinutes(stats?.minutesMonth ?? 0), icon: <Calendar className="w-4 h-4" />,color: "text-pink-600 bg-pink-50" },
+                  { label: "Active Now",     value: stats?.activeUsers ?? 0,              icon: <Activity className="w-4 h-4" />,   color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",   sub: "last 5 min" },
+                  { label: "Active Today",   value: stats?.dailyActiveUsers ?? 0,         icon: <TrendingUp className="w-4 h-4" />, color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15" },
+                  { label: "Min Today",      value: formatMinutes(stats?.minutesToday ?? 0), icon: <Clock className="w-4 h-4" />,   color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15" },
+                  { label: "Min This Week",  value: formatMinutes(stats?.minutesWeek ?? 0),  icon: <Calendar className="w-4 h-4" />,color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
+                  { label: "Min This Month", value: formatMinutes(stats?.minutesMonth ?? 0), icon: <Calendar className="w-4 h-4" />,color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15" },
                 ].map(({ label, value, icon, color, sub }) => (
-                  <Card key={label} className="p-4 border-none shadow-sm bg-white">
+                  <Card key={label} className="p-4 border-none shadow-sm bg-card">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold font-display mt-0.5">{value}</p>
@@ -1288,13 +1325,13 @@ export default function Admin() {
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">SaaS Metrics</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 {[
-                  { label: "MRR Estimate",      value: `$${(stats?.mrrEstimate ?? 0).toFixed(0)}`,   sub: `${stats?.payingUsers ?? 0} paying users`,   color: "text-emerald-600 bg-emerald-50", icon: <DollarSign className="w-4 h-4" /> },
-                  { label: "Conversion Rate",   value: `${stats?.conversionRate ?? 0}%`,             sub: `${stats?.trialUsers ?? 0} still on trial`,  color: "text-blue-600 bg-blue-50",      icon: <TrendingUp className="w-4 h-4" /> },
-                  { label: "Avg Session",       value: `${stats?.avgSessionMin ?? 0}m`,              sub: "last 30 days",                               color: "text-violet-600 bg-violet-50",  icon: <Clock className="w-4 h-4" /> },
-                  { label: "Sessions Today",    value: stats?.sessionsToday ?? 0,                    sub: "all sessions",                               color: "text-orange-600 bg-orange-50",  icon: <Radio className="w-4 h-4" /> },
-                  { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: "today's average",                            color: "text-pink-600 bg-pink-50",      icon: <BarChart2 className="w-4 h-4" /> },
+                  { label: "MRR Estimate",      value: `$${(stats?.mrrEstimate ?? 0).toFixed(0)}`,   sub: `${stats?.payingUsers ?? 0} paying users`,   color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15", icon: <DollarSign className="w-4 h-4" /> },
+                  { label: "Conversion Rate",   value: `${stats?.conversionRate ?? 0}%`,             sub: `${stats?.trialUsers ?? 0} still on trial`,  color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",      icon: <TrendingUp className="w-4 h-4" /> },
+                  { label: "Avg Session",       value: `${stats?.avgSessionMin ?? 0}m`,              sub: "last 30 days",                               color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15",  icon: <Clock className="w-4 h-4" /> },
+                  { label: "Sessions Today",    value: stats?.sessionsToday ?? 0,                    sub: "all sessions",                               color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  icon: <Radio className="w-4 h-4" /> },
+                  { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: "today's average",                            color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15",      icon: <BarChart2 className="w-4 h-4" /> },
                 ].map(({ label, value, sub, color, icon }) => (
-                  <Card key={label} className="p-4 border-none shadow-sm bg-white">
+                  <Card key={label} className="p-4 border-none shadow-sm bg-card">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold font-display mt-0.5">{value}</p>
@@ -1309,11 +1346,11 @@ export default function Admin() {
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Estimated API Costs Today</h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
-                  { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-600 bg-blue-50" },
-                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Hetzner ~$0`, color: "text-violet-600 bg-violet-50" },
-                  { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-600 bg-emerald-50" },
+                  { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15" },
+                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Hetzner ~$0`, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
+                  { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15" },
                 ].map(({ label, value, sub, color }) => (
-                  <Card key={label} className="p-4 border-none shadow-sm bg-white flex items-center gap-4">
+                  <Card key={label} className="p-4 border-none shadow-sm bg-card flex items-center gap-4">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
                       <DollarSign className="w-4 h-4" />
                     </div>
@@ -1368,13 +1405,13 @@ export default function Admin() {
                 </div>
               )}
               {sessions.length === 0 ? (
-                <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border rounded-2xl bg-white">
+                <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border rounded-2xl bg-card">
                   No active sessions right now.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {sessions.map(s => (
-                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-white" : "bg-amber-50/60"}`}>
+                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-card" : "bg-amber-50/60"}`}>
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         {s.hasSnapshot
                           ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
@@ -1465,13 +1502,13 @@ export default function Admin() {
           const filtered = eventTypeFilter === "all" ? events : events.filter(e => e.type === eventTypeFilter);
 
           const metricCards = [
-            { label: "Active Users",           value: m?.activeUsers ?? 0,             sub: "last 5 min",   icon: <Activity className="w-4 h-4" />,    color: "text-blue-600 bg-blue-50",      alert: false },
+            { label: "Active Users",           value: m?.activeUsers ?? 0,             sub: "last 5 min",   icon: <Activity className="w-4 h-4" />,    color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",      alert: false },
             { label: "Active Sessions",        value: m?.activeSessions ?? 0,          sub: "live now",     icon: <Radio className="w-4 h-4" />,       color: "text-red-600 bg-red-50",        alert: (m?.activeSessions ?? 0) > 0 },
             { label: "Failed Logins Today",    value: m?.failedLoginsToday ?? 0,       sub: "since midnight", icon: <XCircle className="w-4 h-4" />,   color: "text-red-600 bg-red-50",        alert: (m?.failedLoginsToday ?? 0) >= 5 },
-            { label: "Successful Logins",      value: m?.successfulLoginsToday ?? 0,   sub: "since midnight", icon: <LogIn className="w-4 h-4" />,     color: "text-emerald-600 bg-emerald-50", alert: false },
+            { label: "Successful Logins",      value: m?.successfulLoginsToday ?? 0,   sub: "since midnight", icon: <LogIn className="w-4 h-4" />,     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15", alert: false },
             { label: "API Errors Today",       value: m?.apiErrorsToday ?? 0,          sub: "since midnight", icon: <Server className="w-4 h-4" />,    color: "text-amber-600 bg-amber-50",    alert: (m?.apiErrorsToday ?? 0) >= 10 },
-            { label: "Proxy Failures",         value: m?.proxyFailuresToday ?? 0,      sub: "since midnight", icon: <Zap className="w-4 h-4" />,       color: "text-orange-600 bg-orange-50",  alert: (m?.proxyFailuresToday ?? 0) > 0 },
-            { label: "Session Expirations",    value: m?.sessionExpirationsToday ?? 0, sub: "401 errors today", icon: <ShieldAlert className="w-4 h-4" />, color: "text-violet-600 bg-violet-50", alert: (m?.sessionExpirationsToday ?? 0) >= 20 },
+            { label: "Proxy Failures",         value: m?.proxyFailuresToday ?? 0,      sub: "since midnight", icon: <Zap className="w-4 h-4" />,       color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  alert: (m?.proxyFailuresToday ?? 0) > 0 },
+            { label: "Session Expirations",    value: m?.sessionExpirationsToday ?? 0, sub: "401 errors today", icon: <ShieldAlert className="w-4 h-4" />, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15", alert: (m?.sessionExpirationsToday ?? 0) >= 20 },
             { label: "Sessions Started",       value: m?.sessionsStartedToday ?? 0,    sub: "since midnight", icon: <Play className="w-4 h-4" />,      color: "text-teal-600 bg-teal-50",      alert: false },
             { label: "Sessions Ended",         value: m?.sessionsEndedToday ?? 0,      sub: "since midnight", icon: <LogOut className="w-4 h-4" />,    color: "text-gray-600 bg-gray-100",     alert: false },
           ];
@@ -1532,7 +1569,7 @@ export default function Admin() {
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Platform Health</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                   {metricCards.slice(0, 5).map(({ label, value, sub, icon, color, alert }) => (
-                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-red-50 ring-1 ring-red-100" : "bg-white"}`}>
+                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-red-100/80 ring-1 ring-red-200 dark:bg-red-500/10 dark:ring-red-500/30" : "bg-card"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
                       <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-red-600" : ""}`}>{value}</p>
@@ -1542,7 +1579,7 @@ export default function Admin() {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
                   {metricCards.slice(5).map(({ label, value, sub, icon, color, alert }) => (
-                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-orange-50 ring-1 ring-orange-100" : "bg-white"}`}>
+                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-orange-100/80 ring-1 ring-orange-200 dark:bg-orange-500/10 dark:ring-orange-500/30" : "bg-card"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
                       <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-orange-600" : ""}`}>{value}</p>
@@ -1563,7 +1600,7 @@ export default function Admin() {
                       <button
                         key={opt.value}
                         onClick={() => setEventTypeFilter(opt.value)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${eventTypeFilter === opt.value ? "bg-primary text-white" : "bg-white border border-border text-muted-foreground hover:bg-gray-50"}`}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${eventTypeFilter === opt.value ? "bg-primary text-white" : "bg-card border border-border text-muted-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}
                       >
                         {opt.label}
                       </button>
@@ -1571,7 +1608,7 @@ export default function Admin() {
                   </div>
                 </div>
 
-                <Card className="border-none shadow-sm bg-white overflow-hidden">
+                <Card className="border-none shadow-sm bg-card overflow-hidden">
                   {filtered.length === 0 ? (
                     <div className="py-14 text-center text-muted-foreground text-sm">
                       <Monitor className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -1580,7 +1617,7 @@ export default function Admin() {
                   ) : (
                     <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
                       {filtered.map(ev => (
-                        <div key={ev.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50/60 transition-colors">
+                        <div key={ev.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/40 dark:hover:bg-white/[0.05]/60 transition-colors">
                           {/* Timeline dot */}
                           <div className="flex flex-col items-center flex-shrink-0 pt-0.5">
                             <div className={`w-2 h-2 rounded-full mt-0.5 ${eventDot(ev.type)}`} />
@@ -1630,7 +1667,7 @@ export default function Admin() {
         {mainTab === "users" && (
           <Card className="overflow-hidden border-border shadow-sm">
             {/* Filters + New User */}
-            <div className="p-4 border-b border-border bg-white space-y-3">
+            <div className="p-4 border-b border-border bg-card space-y-3">
               {/* Row 1: plan filter pills + New User button */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap gap-1.5">
@@ -1661,7 +1698,7 @@ export default function Admin() {
                     value={userSearch}
                     onChange={e => setUserSearch(e.target.value)}
                     placeholder="Search email or username…"
-                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border bg-white text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border bg-card text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
                   />
                   {userSearch && (
                     <button onClick={() => setUserSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -1674,7 +1711,7 @@ export default function Admin() {
                 <select
                   value={lastSeenFilter}
                   onChange={e => setLastSeenFilter(e.target.value)}
-                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${lastSeenFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${lastSeenFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-card text-muted-foreground"}`}
                 >
                   <option value="">Last Seen: Any</option>
                   <option value="5min">Active (5 min)</option>
@@ -1688,7 +1725,7 @@ export default function Admin() {
                 <select
                   value={newUsersFilter}
                   onChange={e => setNewUsersFilter(e.target.value)}
-                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${newUsersFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${newUsersFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-card text-muted-foreground"}`}
                 >
                   <option value="">Joined: Any</option>
                   <option value="today">Joined Today</option>
@@ -1701,7 +1738,7 @@ export default function Admin() {
                 <select
                   value={sortBy}
                   onChange={e => setSortBy(e.target.value as typeof sortBy)}
-                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${sortBy ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${sortBy ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-card text-muted-foreground"}`}
                 >
                   <option value="">Sort: Default</option>
                   <option value="lastSeen">Sort: Last Seen</option>
@@ -1713,7 +1750,7 @@ export default function Admin() {
 
                 <button
                   onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
-                  className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:bg-gray-50 font-mono"
+                  className="h-8 px-2.5 rounded-lg border border-border bg-card text-xs text-muted-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05] font-mono"
                   title={sortDir === "desc" ? "Descending — click to flip" : "Ascending — click to flip"}
                 >
                   {sortDir === "desc" ? "↓" : "↑"}
@@ -1723,7 +1760,7 @@ export default function Admin() {
                 {(userSearch || lastSeenFilter || newUsersFilter || sortBy || userFilter !== "all") && (
                   <button
                     onClick={() => { setUserSearch(""); setLastSeenFilter(""); setNewUsersFilter(""); setSortBy("lastSeen"); setUserFilter("all"); }}
-                    className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                    className="h-8 px-2.5 rounded-lg border border-border bg-card text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
                   >
                     Reset
                   </button>
@@ -1744,7 +1781,7 @@ export default function Admin() {
                   type="button"
                   disabled={bumpDailyFloorPending}
                   onClick={() => bumpAllUsersDailyFloor(360)}
-                  className="h-7 px-2.5 rounded-lg border border-border bg-white text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
                 >
                   Floor ≥ 6h
                 </button>
@@ -1752,7 +1789,7 @@ export default function Admin() {
                   type="button"
                   disabled={bumpDailyFloorPending}
                   onClick={() => bumpAllUsersDailyFloor(480)}
-                  className="h-7 px-2.5 rounded-lg border border-border bg-white text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
                 >
                   Floor ≥ 8h
                 </button>
@@ -1778,8 +1815,8 @@ export default function Admin() {
                     (pace extrapolation, capped at eligible).
                   </p>
                   <p className="text-[10px] text-emerald-900/70 leading-snug">
-                    Window uses <code className="font-mono bg-white/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
-                    <code className="font-mono bg-white/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
+                    Window uses <code className="font-mono bg-card/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
+                    <code className="font-mono bg-card/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
                   </p>
                 </div>
               )}
@@ -1791,15 +1828,15 @@ export default function Admin() {
                 <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Username</label>
-                    <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} required className="h-9 bg-white" />
+                    <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} required className="h-9 bg-card" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Password</label>
-                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="h-9 bg-white" />
+                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="h-9 bg-card" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Daily Limit (min)</label>
-                    <Input type="number" value={newLimit} onChange={e => setNewLimit(Number(e.target.value))} required min={1} className="h-9 bg-white" />
+                    <Input type="number" value={newLimit} onChange={e => setNewLimit(Number(e.target.value))} required min={1} className="h-9 bg-card" />
                   </div>
                   <div className="flex items-center gap-2 pb-1">
                     <input type="checkbox" id="isAdmin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} className="w-4 h-4 rounded" />
@@ -1811,7 +1848,7 @@ export default function Admin() {
             )}
 
             {/* Table */}
-            <div className="overflow-x-auto bg-white">
+            <div className="overflow-x-auto bg-card">
               <table className="w-full text-sm text-left min-w-[1180px]">
                 <thead className="bg-gray-50/80 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
                   <tr>
@@ -2045,7 +2082,7 @@ export default function Admin() {
                   })}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground bg-white">
+                      <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground bg-card">
                         No users match this filter.
                       </td>
                     </tr>
@@ -2064,7 +2101,7 @@ export default function Admin() {
 
         {/* ── IP WATCH TAB ─────────────────────────────────────────────────── */}
         {mainTab === "ipWatch" && (
-          <Card className="overflow-hidden border-border shadow-sm bg-white">
+          <Card className="overflow-hidden border-border shadow-sm bg-card">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-semibold">Shared IP Watch</h3>
@@ -2118,7 +2155,7 @@ export default function Admin() {
         {/* ── LANGUAGES TAB ────────────────────────────────────────────────── */}
         {mainTab === "languages" && (
           <div className="space-y-5">
-            <Card className="p-6 border-none shadow-sm bg-white">
+            <Card className="p-6 border-none shadow-sm bg-card">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-base">Enabled Languages</h3>
@@ -2136,7 +2173,7 @@ export default function Admin() {
                   <select
                     value={defaultLangA}
                     onChange={e => setDefaultLangA(e.target.value)}
-                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {(langConfigData?.allLanguages ?? []).filter(l => enabledLangs.has(l.value)).map(l => (
                       <option key={l.value} value={l.value}>{l.label}</option>
@@ -2148,7 +2185,7 @@ export default function Admin() {
                   <select
                     value={defaultLangB}
                     onChange={e => setDefaultLangB(e.target.value)}
-                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {(langConfigData?.allLanguages ?? []).filter(l => enabledLangs.has(l.value) && l.value !== defaultLangA).map(l => (
                       <option key={l.value} value={l.value}>{l.label}</option>
@@ -2180,7 +2217,7 @@ export default function Admin() {
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-left text-sm transition-all ${
                         enabled
                           ? "border-primary/30 bg-primary/5 text-foreground"
-                          : "border-border bg-white text-muted-foreground hover:border-gray-300"
+                          : "border-border bg-card text-muted-foreground hover:border-gray-300"
                       } ${isDefault ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:shadow-sm"}`}
                     >
                       <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${enabled ? "bg-primary border-primary" : "border-gray-300"}`}>
@@ -2203,7 +2240,7 @@ export default function Admin() {
         {mainTab === "feedback" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {feedback.map(item => (
-              <Card key={item.id} className="p-5 border-none shadow-sm bg-white">
+              <Card key={item.id} className="p-5 border-none shadow-sm bg-card">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h3 className="font-semibold text-sm">{item.username}</h3>
@@ -2244,7 +2281,7 @@ export default function Admin() {
               </Card>
             ))}
             {feedback.length === 0 && (
-              <div className="col-span-full py-16 text-center text-muted-foreground border border-dashed border-border rounded-2xl bg-white">
+              <div className="col-span-full py-16 text-center text-muted-foreground border border-dashed border-border rounded-2xl bg-card">
                 No feedback received yet.
               </div>
             )}
@@ -2255,20 +2292,20 @@ export default function Admin() {
         {mainTab === "referrals" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card className="p-4 border-none shadow-sm bg-white">
+              <Card className="p-4 border-none shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total referrals</p>
                 <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalReferrals ?? 0}</p>
               </Card>
-              <Card className="p-4 border-none shadow-sm bg-white">
+              <Card className="p-4 border-none shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Active referrals</p>
                 <p className="text-2xl font-bold mt-1 text-green-700">{referralsAdminData?.totals.activeReferrals ?? 0}</p>
               </Card>
-              <Card className="p-4 border-none shadow-sm bg-white">
+              <Card className="p-4 border-none shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pending referrals</p>
                 <p className="text-2xl font-bold mt-1 text-amber-700">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
               </Card>
             </div>
-            <Card className="border-none shadow-sm bg-white overflow-hidden">
+            <Card className="border-none shadow-sm bg-card overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="font-semibold text-base">Referral tracking</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -2335,7 +2372,7 @@ export default function Admin() {
         {/* ── SUPPORT TAB ──────────────────────────────────────────────────── */}
         {mainTab === "support" && (
           <div className="space-y-4">
-            <Card className="border-none shadow-sm bg-white overflow-hidden">
+            <Card className="border-none shadow-sm bg-card overflow-hidden">
               {/* Support header */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
                 <div className="flex items-center gap-3">
@@ -2380,7 +2417,7 @@ export default function Admin() {
                       <div key={ticket.id}>
                         {/* Ticket row */}
                         <button
-                          className="w-full px-6 py-4 text-left hover:bg-gray-50 transition-colors flex items-start gap-3"
+                          className="w-full px-6 py-4 text-left hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors flex items-start gap-3"
                           onClick={() => { setReplyText(""); void toggleTicketExpand(ticket.id); }}
                         >
                           <div className="flex-1 min-w-0">
@@ -2439,7 +2476,7 @@ export default function Admin() {
                             ) : ticketDetail && (
                               <>
                                 {/* Original message */}
-                                <div className="bg-white rounded-xl border border-border p-4">
+                                <div className="bg-card rounded-xl border border-border p-4">
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                     <span>{ticket.username ? `@${ticket.username}` : ticket.email}</span>
                                     <span className="normal-case font-normal">{format(new Date(ticket.createdAt), "MMM d, yyyy HH:mm")}</span>
@@ -2450,7 +2487,7 @@ export default function Admin() {
 
                                 {/* Thread replies */}
                                 {ticketDetail.replies.map(reply => (
-                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 ml-6" : "bg-white border-border"}`}>
+                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 ml-6" : "bg-card border-border"}`}>
                                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                       {reply.isAdmin ? (
                                         <><span className="w-2 h-2 rounded-full bg-primary inline-block" /><span className="text-primary">Support Team</span></>
@@ -2471,7 +2508,7 @@ export default function Admin() {
                                     onChange={e => setReplyText(e.target.value)}
                                     rows={3}
                                     placeholder="Type your reply..."
-                                    className="w-full text-sm rounded-xl border border-border bg-white px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                                    className="w-full text-sm rounded-xl border border-border bg-card px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                                   />
                                   <div className="flex items-center gap-2">
                                     <Button
@@ -2503,13 +2540,13 @@ export default function Admin() {
         {mainTab === "errors" && (
           <div className="space-y-5">
             {/* Sub-tab toggle */}
-            <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm w-fit">
+            <div className="flex items-center gap-1 bg-card rounded-xl p-1 border border-border shadow-sm w-fit">
               {[
                 { id: "api" as const,   label: "API Errors" },
                 { id: "login" as const, label: "Login Events" },
               ].map(t => (
                 <button key={t.id} onClick={() => setErrorsSubTab(t.id)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${errorsSubTab === t.id ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}>
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${errorsSubTab === t.id ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}>
                   {t.label}
                 </button>
               ))}
@@ -2538,10 +2575,10 @@ export default function Admin() {
 
                 {/* Login filter + refresh */}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm">
+                  <div className="flex items-center gap-1 bg-card rounded-xl p-1 border border-border shadow-sm">
                     {["all", "success", "failure", "2fa"].map(f => (
                       <button key={f} onClick={() => setLoginEventFilter(f)}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${loginEventFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}>
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${loginEventFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}>
                         {f === "all" ? "All" : f === "2fa" ? "2FA" : f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
                     ))}
@@ -2576,7 +2613,7 @@ export default function Admin() {
                         </thead>
                         <tbody className="divide-y divide-border">
                           {loginEventsData.events.map(e => (
-                            <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                            <tr key={e.id} className="hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors">
                               <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
                                 {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
                               </td>
@@ -2663,12 +2700,12 @@ export default function Admin() {
 
             {/* Filter + refresh */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm">
+              <div className="flex items-center gap-1 bg-card rounded-xl p-1 border border-border shadow-sm">
                 {["all", "login_failure", "session_expired", "rate_limited", "server_error", "proxy_error", "auth_error"].map(t => (
                   <button
                     key={t}
                     onClick={() => setErrorTypeFilter(t)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${errorTypeFilter === t ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${errorTypeFilter === t ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}
                   >
                     {t === "all" ? "All" : t.replace(/_/g, " ")}
                   </button>
@@ -2705,7 +2742,7 @@ export default function Admin() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {errorsData.errors.map(e => (
-                        <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                        <tr key={e.id} className="hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors">
                           <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
                             {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
                           </td>
@@ -2790,7 +2827,7 @@ export default function Admin() {
       {/* ── VIEW SESSION MODAL ───────────────────────────────────────────── */}
       {viewingSessionId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setViewingSessionId(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Modal header */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-0 justify-between p-4 sm:p-5 border-b border-border">
               <div className="flex items-center gap-3 min-w-0">
@@ -2871,7 +2908,7 @@ export default function Admin() {
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     return (
-                      <div className="rounded-lg border border-border overflow-hidden bg-white">
+                      <div className="rounded-lg border border-border overflow-hidden bg-card">
                         <table className="w-full text-sm border-collapse table-fixed">
                           <colgroup>
                             <col className="w-11" />
@@ -2957,7 +2994,7 @@ export default function Admin() {
           {/* Backdrop */}
           <div className="flex-1 bg-black/20 backdrop-blur-sm" />
           {/* Panel */}
-          <div className="w-full max-w-[520px] bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-[520px] bg-card h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div className="flex items-center gap-2.5">
@@ -3030,7 +3067,7 @@ export default function Admin() {
                   {userSessions.map((s, idx) => {
                     const minUsed = s.minutesUsed ?? (s.durationSeconds != null ? s.durationSeconds / 60 : null);
                     return (
-                      <div key={s.id} className="px-5 py-4 hover:bg-gray-50/70 transition-colors">
+                      <div key={s.id} className="px-5 py-4 hover:bg-muted/40 dark:hover:bg-white/[0.05]/70 transition-colors">
                         {/* Row header */}
                         <div className="flex items-center justify-between mb-2.5">
                           <div className="flex items-center gap-2">
@@ -3108,10 +3145,10 @@ export default function Admin() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingUser(null)} />
 
           {/* Panel */}
-          <div className="relative z-10 w-full sm:w-[440px] bg-white border-l border-border shadow-2xl flex flex-col overflow-hidden">
+          <div className="relative z-10 w-full sm:w-[440px] bg-card border-l border-border shadow-2xl flex flex-col overflow-hidden">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-white shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
                   <Pencil className="w-4 h-4 text-violet-600" />
@@ -3143,7 +3180,7 @@ export default function Admin() {
                     onClick={() => setEditForm(f => ({ ...f, isActive: !f.isActive }))}
                     className={`relative w-11 h-6 rounded-full transition-colors ${editForm.isActive ? "bg-green-500" : "bg-gray-300"}`}
                   >
-                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${editForm.isActive ? "left-5.5 translate-x-0" : "left-0.5"}`} style={{ left: editForm.isActive ? "calc(100% - 22px)" : "2px" }} />
+                    <span className={`absolute top-0.5 w-5 h-5 bg-card rounded-full shadow transition-all ${editForm.isActive ? "left-5.5 translate-x-0" : "left-0.5"}`} style={{ left: editForm.isActive ? "calc(100% - 22px)" : "2px" }} />
                   </button>
                 </div>
               </section>
@@ -3160,7 +3197,7 @@ export default function Admin() {
                   <select
                     value={editForm.planType}
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
-                    className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (
                       <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
@@ -3223,7 +3260,7 @@ export default function Admin() {
                           type="datetime-local"
                           value={editForm.subscriptionStartedAtLocal}
                           onChange={e => setEditForm(f => ({ ...f, subscriptionStartedAtLocal: e.target.value }))}
-                          className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                       </div>
                       <div className="space-y-1">
@@ -3232,7 +3269,7 @@ export default function Admin() {
                           type="datetime-local"
                           value={editForm.subscriptionPeriodEndsAtLocal}
                           onChange={e => setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: e.target.value }))}
-                          className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
@@ -3286,7 +3323,7 @@ export default function Admin() {
                       type="date"
                       value={editForm.trialEndsAt}
                       onChange={e => setEditForm(f => ({ ...f, trialEndsAt: e.target.value }))}
-                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     />
                     <div className="flex gap-2">
                       {[7, 14, 30].map(d => (
@@ -3329,7 +3366,7 @@ export default function Admin() {
                           defaultLangB: nextA === f.defaultLangB ? defaultLangB : f.defaultLangB,
                         }));
                       }}
-                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
                       {(langConfigData?.allLanguages ?? []).map(l => (
                         <option key={l.value} value={l.value}>{l.label}</option>
@@ -3341,7 +3378,7 @@ export default function Admin() {
                     <select
                       value={editForm.defaultLangB}
                       onChange={e => setEditForm(f => ({ ...f, defaultLangB: e.target.value }))}
-                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
                       {(langConfigData?.allLanguages ?? [])
                         .filter(l => l.value !== editForm.defaultLangA)
@@ -3470,7 +3507,7 @@ export default function Admin() {
             </div>
 
             {/* Footer */}
-            <div className="border-t border-border px-5 py-4 bg-white shrink-0 space-y-2">
+            <div className="border-t border-border px-5 py-4 bg-card shrink-0 space-y-2">
               {editError && (
                 <p className="text-xs text-destructive bg-destructive/5 px-3 py-2 rounded-lg">{editError}</p>
               )}

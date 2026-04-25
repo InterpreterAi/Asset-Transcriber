@@ -224,6 +224,13 @@ export async function getUserWithResetCheck(userId: number): Promise<User | unde
 export function buildUserInfo(user: User) {
   const trialDaysRemaining = getTrialDaysRemaining(user);
   const trialExpired = isTrialExpired(user);
+  const isPaidPlan = !isTrialLikePlanType(user.planType);
+  const paidPeriodEnd =
+    user.subscriptionPeriodEndsAt != null ? new Date(user.subscriptionPeriodEndsAt) : null;
+  const paidCycleDaysRemaining =
+    isPaidPlan && paidPeriodEnd && Number.isFinite(paidPeriodEnd.getTime())
+      ? Math.max(0, Math.ceil((paidPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      : null;
   const dailyLimit = Number(user.dailyLimitMinutes);
   const usedToday = Number(user.minutesUsedToday);
   const minutesRemainingToday = Math.max(
@@ -243,6 +250,7 @@ export function buildUserInfo(user: User) {
     trialEndsAt: user.trialEndsAt,
     trialDaysRemaining,
     trialExpired,
+    paidCycleDaysRemaining,
     dailyLimitMinutes: Number.isFinite(dailyLimit) ? dailyLimit : user.dailyLimitMinutes,
     minutesUsedToday: Number.isFinite(usedToday) ? usedToday : user.minutesUsedToday,
     minutesRemainingToday,

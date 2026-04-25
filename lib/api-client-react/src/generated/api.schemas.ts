@@ -35,6 +35,7 @@ export interface UserInfo {
   trialEndsAt?: string;
   trialDaysRemaining: number;
   trialExpired: boolean;
+  paidCycleDaysRemaining?: number | null;
   dailyLimitMinutes: number;
   minutesUsedToday: number;
   minutesRemainingToday: number;
