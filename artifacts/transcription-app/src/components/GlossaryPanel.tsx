@@ -178,7 +178,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
           <select
             value={enforceMode}
             onChange={e => setEnforceMode(e.target.value === "hint" ? "hint" : "strict")}
-            className="flex-1 h-8 px-2 text-xs rounded-lg border border-input bg-white outline-none focus:ring-1 focus:ring-ring"
+            className="flex-1 h-8 px-2 text-xs font-semibold text-foreground rounded-lg border border-input bg-background dark:bg-[#1f2733] dark:border-white/15 outline-none focus:ring-1 focus:ring-ring"
             aria-label="Enforcement mode"
           >
             <option value="strict">Strict (hint + output fix)</option>
