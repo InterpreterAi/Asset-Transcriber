@@ -167,17 +167,17 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * OPENAI_VERIFIED_TRANSLATION_CO
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
 const SPEAKER_COLORS = [
-  // slot 1 — Blue
-  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
+  // slot 1 — Blue (dark-surface friendly)
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-sky-500/15 text-sky-300 border border-sky-400/25 mb-1",
   // slot 2 — Green
-  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-green-50 text-green-600 border border-green-100 mb-1",
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-400/25 mb-1",
   // slot 3 — Orange
-  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-100 mb-1",
+  "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/15 text-amber-200 border border-amber-400/25 mb-1",
 ] as const;
 
 // ── DOM class names ────────────────────────────────────────────────────────────
 const CLS = {
-  row:         "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors",
+  row:         "group relative grid grid-cols-2 gap-6 mb-3 rounded-lg hover:bg-white/[0.04] px-2 py-1.5 -mx-2 transition-colors",
   colOrig:     "min-w-0",
   colTrans:    "min-w-0",
   textRow:     "flex items-start gap-1",
