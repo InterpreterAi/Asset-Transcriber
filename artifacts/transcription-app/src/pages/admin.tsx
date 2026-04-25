@@ -1310,7 +1310,7 @@ export default function Admin() {
                   { label: "Min This Week",  value: formatMinutes(stats?.minutesWeek ?? 0),  icon: <Calendar className="w-4 h-4" />,color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
                   { label: "Min This Month", value: formatMinutes(stats?.minutesMonth ?? 0), icon: <Calendar className="w-4 h-4" />,color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15" },
                 ].map(({ label, value, icon, color, sub }) => (
-                  <Card key={label} className="p-4 border-none shadow-sm bg-card">
+                  <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold font-display mt-0.5">{value}</p>
@@ -1331,7 +1331,7 @@ export default function Admin() {
                   { label: "Sessions Today",    value: stats?.sessionsToday ?? 0,                    sub: "all sessions",                               color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  icon: <Radio className="w-4 h-4" /> },
                   { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: "today's average",                            color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15",      icon: <BarChart2 className="w-4 h-4" /> },
                 ].map(({ label, value, sub, color, icon }) => (
-                  <Card key={label} className="p-4 border-none shadow-sm bg-card">
+                  <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold font-display mt-0.5">{value}</p>
@@ -1350,7 +1350,7 @@ export default function Admin() {
                   { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Hetzner ~$0`, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
                   { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15" },
                 ].map(({ label, value, sub, color }) => (
-                  <Card key={label} className="p-4 border-none shadow-sm bg-card flex items-center gap-4">
+                  <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card flex items-center gap-4">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
                       <DollarSign className="w-4 h-4" />
                     </div>
@@ -1405,7 +1405,7 @@ export default function Admin() {
                 </div>
               )}
               {sessions.length === 0 ? (
-                <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border rounded-2xl bg-card">
+                <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border dark:border-white/[0.16] rounded-2xl bg-card">
                   No active sessions right now.
                 </div>
               ) : (
@@ -1608,7 +1608,7 @@ export default function Admin() {
                   </div>
                 </div>
 
-                <Card className="border-none shadow-sm bg-card overflow-hidden">
+                <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
                   {filtered.length === 0 ? (
                     <div className="py-14 text-center text-muted-foreground text-sm">
                       <Monitor className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -1698,7 +1698,7 @@ export default function Admin() {
                     value={userSearch}
                     onChange={e => setUserSearch(e.target.value)}
                     placeholder="Search email or username…"
-                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border bg-card text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border dark:border-white/[0.12] bg-card text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
                   />
                   {userSearch && (
                     <button onClick={() => setUserSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -2155,7 +2155,7 @@ export default function Admin() {
         {/* ── LANGUAGES TAB ────────────────────────────────────────────────── */}
         {mainTab === "languages" && (
           <div className="space-y-5">
-            <Card className="p-6 border-none shadow-sm bg-card">
+            <Card className="p-6 border border-border dark:border-white/[0.08] shadow-sm bg-card">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-base">Enabled Languages</h3>
@@ -2240,7 +2240,7 @@ export default function Admin() {
         {mainTab === "feedback" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {feedback.map(item => (
-              <Card key={item.id} className="p-5 border-none shadow-sm bg-card">
+              <Card key={item.id} className="p-5 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h3 className="font-semibold text-sm">{item.username}</h3>
@@ -2292,20 +2292,20 @@ export default function Admin() {
         {mainTab === "referrals" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card className="p-4 border-none shadow-sm bg-card">
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total referrals</p>
                 <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalReferrals ?? 0}</p>
               </Card>
-              <Card className="p-4 border-none shadow-sm bg-card">
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Active referrals</p>
                 <p className="text-2xl font-bold mt-1 text-green-700">{referralsAdminData?.totals.activeReferrals ?? 0}</p>
               </Card>
-              <Card className="p-4 border-none shadow-sm bg-card">
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pending referrals</p>
                 <p className="text-2xl font-bold mt-1 text-amber-700">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
               </Card>
             </div>
-            <Card className="border-none shadow-sm bg-card overflow-hidden">
+            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="font-semibold text-base">Referral tracking</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -2372,7 +2372,7 @@ export default function Admin() {
         {/* ── SUPPORT TAB ──────────────────────────────────────────────────── */}
         {mainTab === "support" && (
           <div className="space-y-4">
-            <Card className="border-none shadow-sm bg-card overflow-hidden">
+            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
               {/* Support header */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
                 <div className="flex items-center gap-3">
