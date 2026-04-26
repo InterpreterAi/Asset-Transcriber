@@ -476,7 +476,17 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
-  const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { queryKey: getAdminListUsersQueryKey(), enabled: !!me?.isAdmin } });
+  const pollUsersForAdmin =
+    !!me?.isAdmin && (mainTab === "users" || mainTab === "ipWatch");
+  const { data: usersData, isLoading: usersLoading, isFetching: usersRefreshing } = useAdminListUsers({
+    query: {
+      queryKey: getAdminListUsersQueryKey(),
+      enabled: !!me?.isAdmin,
+      refetchInterval: pollUsersForAdmin ? 10_000 : false,
+      refetchIntervalInBackground: true,
+      staleTime: 5_000,
+    },
+  });
   const allUsers = usersData?.users ?? [];
   const paidBillingRollup = usersData?.paidBillingRollup;
   const sharedLoginIpIndex = useMemo(() => {
@@ -488,6 +498,21 @@ export default function Admin() {
     }
     return [...byIp.values()].sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
   }, [allUsers]);
+  const sharedIpStats = useMemo(() => {
+    const uniqueAccounts = new Set<number>();
+    let memberships = 0;
+    for (const cluster of sharedLoginIpIndex) {
+      for (const account of cluster.accounts) {
+        uniqueAccounts.add(account.id);
+        memberships += 1;
+      }
+    }
+    return {
+      flaggedIps: sharedLoginIpIndex.length,
+      accountsInSharedIps: uniqueAccounts.size,
+      totalMemberships: memberships,
+    };
+  }, [sharedLoginIpIndex]);
   const { data: feedbackData } = useAdminListFeedback({ query: { queryKey: getAdminListFeedbackQueryKey(), enabled: !!me?.isAdmin } });
 
   const { data: statsData, refetch: refetchStats } = useQuery({
@@ -2105,9 +2130,15 @@ export default function Admin() {
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-semibold">Shared IP Watch</h3>
-                <p className="text-xs text-muted-foreground">Successful login IPs used by 2+ accounts (auto-refreshes with Users data).</p>
+                <p className="text-xs text-muted-foreground">
+                  Successful login IPs used by 2+ accounts. Auto-refreshes every 10s while this tab is open.
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {sharedIpStats.accountsInSharedIps} users across {sharedIpStats.flaggedIps} shared IPs
+                  ({sharedIpStats.totalMemberships} total account memberships)
+                </p>
               </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30">
                 {sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}
               </span>
             </div>
@@ -2124,16 +2155,19 @@ export default function Admin() {
                       style={{ borderLeft: `4px solid hsl(${accent.hue} 56% 44%)` }}
                     >
                       <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <code className="text-xs font-mono bg-amber-50 px-1.5 py-0.5 rounded">{c.ip}</code>
-                        <span className="text-[10px] font-bold text-amber-900">Tag {accent.label}</span>
+                        <code className="text-xs font-mono bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/30">{c.ip}</code>
+                        <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">Tag {accent.label}</span>
                         <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
+                        {usersRefreshing && (
+                          <span className="text-[10px] text-primary/90">Updating…</span>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {c.accounts.map((a) => (
                           <button
                             key={a.id}
                             type="button"
-                            className="text-[11px] font-medium px-2 py-0.5 rounded border border-amber-200 bg-amber-50 hover:bg-amber-100"
+                            className="text-[11px] font-medium px-2 py-0.5 rounded border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-500/20"
                             title={a.email ?? `User #${a.id}`}
                             onClick={() => {
                               const peer = allUsers.find((x) => x.id === a.id);
