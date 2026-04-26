@@ -380,6 +380,31 @@ function endsWithQuestionLikeBoundary(text: string): boolean {
   return /[?؟]\s*$/.test(t);
 }
 
+function pivotLooksLikeFlickerToCurrent(
+  tokens: SonioxToken[],
+  effectiveSpeakers: (string | undefined)[],
+  pivotIndex: number,
+  currentSpeaker: string | undefined,
+): boolean {
+  const sid = effectiveSpeakers[pivotIndex];
+  if (!sid || !currentSpeaker || sameSpeaker(sid, currentSpeaker)) return false;
+  let start = pivotIndex;
+  let end = pivotIndex + 1;
+  while (start > 0 && effectiveSpeakers[start - 1] === sid) start--;
+  while (end < effectiveSpeakers.length && effectiveSpeakers[end] === sid) end++;
+  const tokLen = end - start;
+  let chars = 0;
+  for (let i = start; i < end; i++) chars += (tokens[i]?.text ?? "").length;
+  let revertsToCurrent = false;
+  for (let i = end; i < effectiveSpeakers.length; i++) {
+    if (sameSpeaker(effectiveSpeakers[i], currentSpeaker)) {
+      revertsToCurrent = true;
+      break;
+    }
+  }
+  return revertsToCurrent && tokLen <= 8 && chars <= 72;
+}
+
 // ── Language-pair helpers ──────────────────────────────────────────────────────
 // Compare two BCP-47 codes loosely (e.g. "zh-CN" matches "zh").
 function matchesLang(detected: string, selected: string): boolean {
@@ -2633,6 +2658,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
+              pendingQuestionTailSwitchRef.current = null;
+              continue;
+            }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
             const activeRowText =
               (activeBubbleRef.current?.textContent ?? "").trim().length +
