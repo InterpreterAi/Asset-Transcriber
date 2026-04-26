@@ -1611,8 +1611,33 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   }
 
   const user = result[0]!;
-  const trialEndWasUpdated = trialEndsAt !== undefined && Boolean(user.trialEndsAt);
-  if (trialEndWasUpdated && isTrialLikePlanType(user.planType)) {
+  const previousPlanType = (existing.planType ?? "").trim().toLowerCase();
+  const nextPlanType = (user.planType ?? "").trim().toLowerCase();
+  const previousTrialEndsAtMs = existing.trialEndsAt?.getTime() ?? null;
+  const nextTrialEndsAtMs = user.trialEndsAt?.getTime() ?? null;
+  const nowMs = Date.now();
+  const trialDateWasExplicitlyProvided = trialEndsAt !== undefined;
+  const trialDateMovedLater =
+    previousTrialEndsAtMs !== null &&
+    nextTrialEndsAtMs !== null &&
+    nextTrialEndsAtMs > previousTrialEndsAtMs;
+  const explicitTrialExtension =
+    trialDateWasExplicitlyProvided &&
+    trialDateMovedLater &&
+    nextTrialEndsAtMs !== null &&
+    nextTrialEndsAtMs > nowMs;
+  const switchedIntoMixedTrial =
+    nextPlanType === "trial-libre" &&
+    previousPlanType !== "trial-libre";
+
+  // Email users only for:
+  // 1) explicit extension of trial end date to a later future date, or
+  // 2) an explicit switch into the mixed trial plan.
+  const shouldSendTrialActivationEmail =
+    isTrialLikePlanType(nextPlanType) &&
+    (explicitTrialExtension || switchedIntoMixedTrial);
+
+  if (shouldSendTrialActivationEmail) {
     const email = user.email?.trim().toLowerCase();
     if (email) {
       const daysRemaining = getTrialDaysRemaining(user);
