@@ -2470,13 +2470,13 @@ export default function Admin() {
 
                         {/* Expanded thread */}
                         {expandedTicket === ticket.id && (
-                          <div className="bg-gray-50 border-t border-border px-6 py-4 space-y-4">
+                          <div className="bg-gray-50 dark:bg-[#0f1722] border-t border-border dark:border-white/[0.08] px-6 py-4 space-y-4">
                             {detailLoading ? (
                               <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" /></div>
                             ) : ticketDetail && (
                               <>
                                 {/* Original message */}
-                                <div className="bg-card rounded-xl border border-border p-4">
+                                <div className="bg-card dark:bg-[#162233] rounded-xl border border-border dark:border-white/[0.08] p-4">
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                     <span>{ticket.username ? `@${ticket.username}` : ticket.email}</span>
                                     <span className="normal-case font-normal">{format(new Date(ticket.createdAt), "MMM d, yyyy HH:mm")}</span>
@@ -2487,7 +2487,7 @@ export default function Admin() {
 
                                 {/* Thread replies */}
                                 {ticketDetail.replies.map(reply => (
-                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 ml-6" : "bg-card border-border"}`}>
+                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 dark:bg-sky-500/10 dark:border-sky-400/25 ml-6" : "bg-card dark:bg-[#162233] border-border dark:border-white/[0.08]"}`}>
                                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                       {reply.isAdmin ? (
                                         <><span className="w-2 h-2 rounded-full bg-primary inline-block" /><span className="text-primary">Support Team</span></>
@@ -2508,7 +2508,7 @@ export default function Admin() {
                                     onChange={e => setReplyText(e.target.value)}
                                     rows={3}
                                     placeholder="Type your reply..."
-                                    className="w-full text-sm rounded-xl border border-border bg-card px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                                    className="w-full text-sm text-foreground dark:text-slate-100 rounded-xl border border-border dark:border-white/10 bg-card dark:bg-[#162233] px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                                   />
                                   <div className="flex items-center gap-2">
                                     <Button
