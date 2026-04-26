@@ -190,7 +190,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
             onChange={e => setPriority(e.target.value)}
             placeholder="Priority"
             title="Manual priority (higher first). Optional."
-            className="w-24 h-8 px-2 text-xs rounded-lg border border-input bg-white outline-none focus:ring-1 focus:ring-ring shrink-0"
+            className="w-24 h-8 px-2 text-xs text-foreground rounded-lg border border-input dark:border-white/10 bg-background dark:bg-[#1f2733] outline-none focus:ring-1 focus:ring-ring shrink-0"
           />
         </div>
         <button

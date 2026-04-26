@@ -1127,7 +1127,7 @@ export default function WorkspaceDefault() {
                           className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[8.5rem] ${
                             active
                               ? "border-primary bg-primary/10 text-primary"
-                              : "border-border bg-white hover:bg-muted text-foreground"
+                              : "border-border dark:border-white/10 bg-white dark:bg-[#1f2733] hover:bg-muted dark:hover:bg-white/[0.08] text-foreground"
                           }`}
                         >
                           {testPlanLoading === o.planType ? "…" : o.label}
