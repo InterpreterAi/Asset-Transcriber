@@ -2675,14 +2675,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
             const rapidBounce = (Date.now() - lastSpeakerSwitchAtMsRef.current) < 1800;
-            if (rapidBounce && weakNow && !sawSonioxEndpoint) {
+            const questionTailBoundary =
+              endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
+              !sawSonioxEndpoint;
+            if (rapidBounce && weakNow && questionTailBoundary) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
             }
             const guardQuestionTail =
               weakNow &&
-              endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
-              !sawSonioxEndpoint;
+              questionTailBoundary;
             if (guardQuestionTail) {
               const pending = pendingQuestionTailSwitchRef.current;
               if (!pending || pending.sid !== sid) {
@@ -2691,9 +2693,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               }
               pending.seen += 1;
               if (pending.seen < 2) continue;
-            } else if (weakNow) {
-              pendingQuestionTailSwitchRef.current = null;
-              continue;
             }
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
