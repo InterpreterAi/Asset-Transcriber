@@ -370,8 +370,8 @@ function isWeakSpeakerPivotInMessage(
   for (let i = start; i < end; i++) {
     chars += (tokens[i]?.text ?? "").length;
   }
-  // Ephemeral-run scale plus short 3–4 token glue (e.g. "type the") Soniox often mis-assigns mid-utterance.
-  return (tokLen < 3 && chars < 28) || (tokLen <= 4 && chars <= 56);
+  // Same thresholds as ephemeral-run smoothing: <3 tokens and <28 chars.
+  return tokLen < 3 && chars < 28;
 }
 
 function endsWithQuestionLikeBoundary(text: string): boolean {
@@ -2667,23 +2667,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
               continue;
             }
-            const activeRowChars = (activeBubbleRef.current?.textContent ?? "").trim().length;
-            const tailWeakPivot = weakNow && activeRowChars >= 120;
-            // Weak pivots used to open a new row on ~1 final + 10 chars — same speaker then lost continuity ("type the").
-            const requiredFinal = questionTailBoundary
-              ? 2
-              : tailWeakPivot
-                ? 2
-                : weakNow
-                  ? 2
-                  : 1;
-            const requiredChars = questionTailBoundary
-              ? 22
-              : tailWeakPivot
-                ? 28
-                : weakNow
-                  ? 32
-                  : 16;
+            const requiredFinal = questionTailBoundary ? 2 : (weakNow ? 1 : 0);
+            const requiredChars = questionTailBoundary ? 20 : 10;
             let evidence = pendingSpeakerEvidenceRef.current;
             if (!evidence || evidence.sid !== sid) {
               evidence = { sid, finalCount: 0, chars: 0 };
