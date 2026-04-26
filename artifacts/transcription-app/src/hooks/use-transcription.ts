@@ -2655,6 +2655,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
         const t = tokens[ti]!;
+        if (isSonioxEndpointToken(t)) continue;
         const sid = effSpk[ti];
         if (sid !== undefined) {
           if (!activeBubbleRef.current) {
@@ -2664,6 +2665,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            const hasFinalEvidenceForSidInMessage = tokens.some(
+              (tok, idx) =>
+                tok.is_final &&
+                !isSonioxEndpointToken(tok) &&
+                sameSpeaker(effSpk[idx], sid),
+            );
+            // Do not pivot rows on pure non-final jitter; wait for final evidence.
+            if (!t.is_final && !hasFinalEvidenceForSidInMessage) {
+              pendingQuestionTailSwitchRef.current = null;
+              continue;
+            }
             if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
@@ -2705,7 +2717,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
         if (!activeBubbleRef.current) continue;
-        if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
           finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
           if (activeBubbleStateRef.current) {
