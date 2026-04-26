@@ -2651,7 +2651,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
-      const questionTailPivotSeenInMessage = new Set<string>();
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2687,17 +2686,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               weakNow &&
               questionTailBoundary;
             if (guardQuestionTail) {
-              if (!questionTailPivotSeenInMessage.has(sid)) {
-                questionTailPivotSeenInMessage.add(sid);
-                const pending = pendingQuestionTailSwitchRef.current;
-                if (!pending || pending.sid !== sid) {
-                  pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
-                } else {
-                  pending.seen += 1;
-                }
+              const pending = pendingQuestionTailSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+                continue;
               }
-              const pendingSeen = pendingQuestionTailSwitchRef.current?.seen ?? 0;
-              if (pendingSeen < 2) continue;
+              pending.seen += 1;
+              if (pending.seen < 2) continue;
             }
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
