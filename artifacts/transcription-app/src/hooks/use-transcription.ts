@@ -1466,6 +1466,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
+  /** Confirmation buffer for speaker flips across WS messages. */
+  const pendingSpeakerSwitchRef = useRef<{ sid: string; seen: number } | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -2356,6 +2358,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     }
     currentSpeakerRef.current = undefined;
+    pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -2373,6 +2376,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
+    pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
@@ -2424,6 +2428,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
+    pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
@@ -2618,17 +2623,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (sid !== undefined) {
           if (!activeBubbleRef.current) {
             currentSpeakerRef.current = sid;
+            pendingSpeakerSwitchRef.current = null;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
-            // Ignore tiny one-message speaker pivots (common around short pauses / question starts).
-            // This prevents opening multiple bubbles for the same real speaker.
-            if (!isWeakSpeakerPivotInMessage(tokens, effSpk, ti)) {
+            const pending = pendingSpeakerSwitchRef.current;
+            if (!pending || pending.sid !== sid) {
+              pendingSpeakerSwitchRef.current = { sid, seen: 1 };
+            } else {
+              pending.seen += 1;
+            }
+            const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
+            const confirmed =
+              pendingSpeakerSwitchRef.current?.sid === sid &&
+              (pendingSpeakerSwitchRef.current.seen >= 2);
+            if (!weakNow || confirmed) {
               closeActiveSegmentBoundary("speaker_change");
               currentSpeakerRef.current = sid;
+              pendingSpeakerSwitchRef.current = null;
               activeBubbleRef.current = createBubble(sid);
               setHasTranscript(true);
             }
+          } else {
+            pendingSpeakerSwitchRef.current = null;
           }
         }
         if (!activeBubbleRef.current) continue;
@@ -2815,6 +2832,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setTranslationServiceError(null);
       setAudioInfo("");
       currentSpeakerRef.current      = undefined;
+      pendingSpeakerSwitchRef.current = null;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
       activeBubbleStateRef.current   = null;
