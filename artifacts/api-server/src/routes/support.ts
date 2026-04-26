@@ -118,8 +118,8 @@ router.post("/:id/reply", requireAuth, async (req, res) => {
     message:  message.trim(),
   }).returning();
 
-  // Auto-reopen if ticket was resolved
-  const wasResolved = ticket.status === "resolved";
+  // Auto-reopen on any non-open status (legacy statuses included).
+  const wasClosed = ticket.status !== "open";
   await db.update(supportTicketsTable)
     .set({ status: "open", updatedAt: new Date() })
     .where(eq(supportTicketsTable.id, ticketId));
@@ -129,12 +129,12 @@ router.post("/:id/reply", requireAuth, async (req, res) => {
     `💬 User Reply on Ticket #${ticketId}\n` +
     `From: ${user?.username ?? "unknown"} <${ticket.email}>\n` +
     `Subject: ${ticket.subject}\n` +
-    (wasResolved ? `⚠️ Ticket was resolved — now reopened\n` : "") +
+    (wasClosed ? `⚠️ Ticket was closed/resolved — now reopened\n` : "") +
     `Message: ${message.trim().substring(0, 300)}${message.trim().length > 300 ? "..." : ""}`,
   );
 
   logger.info({ ticketId, userId: req.session.userId }, "User reply added to ticket");
-  res.status(201).json({ reply, reopened: wasResolved });
+  res.status(201).json({ reply, reopened: wasClosed });
 });
 
 export default router;

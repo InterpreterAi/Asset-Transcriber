@@ -136,10 +136,8 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
       if (data.reply) {
         setTicketDetail(d => d ? { ...d, replies: [...d.replies, data.reply!], status: "open" } : d);
       }
-      // Update ticket status in list if it was reopened
-      if (data.reopened) {
-        setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: "open" } : t));
-      }
+      // Keep list status consistent after any successful reply.
+      setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: "open" } : t));
       setReplyText("");
     } catch {
       setReplyError("Network error. Please try again.");

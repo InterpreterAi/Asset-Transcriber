@@ -1859,9 +1859,9 @@ router.post("/support/:id/reply", requireAdmin, async (req, res) => {
     message:  message.trim(),
   }).returning();
 
-  // Re-open if resolved when admin replies
+  // Re-open on any non-open status (legacy closed statuses included) when admin replies.
   await db.update(supportTicketsTable)
-    .set({ updatedAt: new Date() })
+    .set({ status: "open", updatedAt: new Date() })
     .where(eq(supportTicketsTable.id, ticketId));
 
   // Email user
