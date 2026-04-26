@@ -2667,8 +2667,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
               continue;
             }
-            const requiredFinal = questionTailBoundary ? 2 : (weakNow ? 1 : 0);
-            const requiredChars = questionTailBoundary ? 20 : 10;
+            const requiredFinal = questionTailBoundary ? 3 : (weakNow ? 1 : 0);
+            const requiredChars = questionTailBoundary ? 30 : 10;
             let evidence = pendingSpeakerEvidenceRef.current;
             if (!evidence || evidence.sid !== sid) {
               evidence = { sid, finalCount: 0, chars: 0 };
