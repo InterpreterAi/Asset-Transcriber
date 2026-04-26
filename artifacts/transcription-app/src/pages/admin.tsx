@@ -476,6 +476,10 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
+  // ── Main tabs ─────────────────────────────────────────────────────────────
+  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "ipWatch" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const pollUsersForAdmin =
     !!me?.isAdmin && (mainTab === "users" || mainTab === "ipWatch");
   const { data: usersData, isLoading: usersLoading, isFetching: usersRefreshing } = useAdminListUsers({
@@ -531,9 +535,6 @@ export default function Admin() {
   const deleteMut = useAdminDeleteUser();
   const resetMut  = useAdminResetUsage();
 
-  // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "ipWatch" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const ADMIN_THEME_STORAGE_KEY = "interpreterai-admin-theme";
   type AdminTheme = "dark" | "light";
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(() => {
