@@ -374,6 +374,24 @@ function isWeakSpeakerPivotInMessage(
   return tokLen < 3 && chars < 28;
 }
 
+function speakerPivotRunCharsInMessage(
+  tokens: SonioxToken[],
+  effectiveSpeakers: (string | undefined)[],
+  pivotIndex: number,
+): number {
+  const sid = effectiveSpeakers[pivotIndex];
+  if (!sid) return 0;
+  let start = pivotIndex;
+  let end = pivotIndex + 1;
+  while (start > 0 && effectiveSpeakers[start - 1] === sid) start--;
+  while (end < effectiveSpeakers.length && effectiveSpeakers[end] === sid) end++;
+  let chars = 0;
+  for (let i = start; i < end; i++) {
+    chars += (tokens[i]?.text ?? "").length;
+  }
+  return chars;
+}
+
 // ── Language-pair helpers ──────────────────────────────────────────────────────
 // Compare two BCP-47 codes loosely (e.g. "zh-CN" matches "zh").
 function matchesLang(detected: string, selected: string): boolean {
@@ -2615,6 +2633,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
+      const pivotSeenThisMessage = new Set<string>();
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2627,17 +2646,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
-            const pending = pendingSpeakerSwitchRef.current;
-            if (!pending || pending.sid !== sid) {
-              pendingSpeakerSwitchRef.current = { sid, seen: 1 };
-            } else {
-              pending.seen += 1;
+            if (!pivotSeenThisMessage.has(sid)) {
+              pivotSeenThisMessage.add(sid);
+              const pending = pendingSpeakerSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingSpeakerSwitchRef.current = { sid, seen: 1 };
+              } else {
+                pending.seen += 1;
+              }
             }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
-            const confirmed =
+            const runCharsNow = speakerPivotRunCharsInMessage(tokens, effSpk, ti);
+            const confirmedAcrossMessages =
               pendingSpeakerSwitchRef.current?.sid === sid &&
               (pendingSpeakerSwitchRef.current.seen >= 2);
-            if (!weakNow || confirmed) {
+            const hasEndpointConfidence = sawSonioxEndpoint && runCharsNow >= 20;
+            const shouldSwitch =
+              !weakNow && (confirmedAcrossMessages || hasEndpointConfidence);
+            if (shouldSwitch) {
               closeActiveSegmentBoundary("speaker_change");
               currentSpeakerRef.current = sid;
               pendingSpeakerSwitchRef.current = null;
