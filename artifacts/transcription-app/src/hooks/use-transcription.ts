@@ -2651,7 +2651,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
-      const questionTailPivotSeenInMessage = new Set<string>();
+      let switchedInThisMessage = false;
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2665,6 +2665,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            // Under lag, one WS message can carry mixed diarization pivots.
+            // Allow at most one accepted pivot per message to prevent segment storms.
+            if (switchedInThisMessage) continue;
             if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
@@ -2675,31 +2678,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               pendingQuestionTailSwitchRef.current = null;
               continue;
             }
-            const questionTailBoundaryActive =
+            const guardQuestionTail =
+              weakNow &&
               endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
               !sawSonioxEndpoint;
-            const guardQuestionTail = questionTailBoundaryActive || weakNow;
             if (guardQuestionTail) {
-              if (questionTailBoundaryActive) {
-                if (!questionTailPivotSeenInMessage.has(sid)) {
-                  questionTailPivotSeenInMessage.add(sid);
-                  const pending = pendingQuestionTailSwitchRef.current;
-                  if (!pending || pending.sid !== sid) {
-                    pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
-                  } else {
-                    pending.seen += 1;
-                  }
-                }
-                if ((pendingQuestionTailSwitchRef.current?.seen ?? 0) < 2) continue;
-              } else {
-                const pending = pendingQuestionTailSwitchRef.current;
-                if (!pending || pending.sid !== sid) {
-                  pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
-                  continue;
-                }
-                pending.seen += 1;
-                if (pending.seen < 2) continue;
+              const pending = pendingQuestionTailSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+                continue;
               }
+              pending.seen += 1;
+              if (pending.seen < 2) continue;
             } else if (weakNow) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
@@ -2708,6 +2698,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             currentSpeakerRef.current = sid;
             lastSpeakerSwitchAtMsRef.current = Date.now();
             pendingQuestionTailSwitchRef.current = null;
+            switchedInThisMessage = true;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else {
