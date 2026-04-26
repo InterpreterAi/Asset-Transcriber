@@ -349,6 +349,31 @@ function effectiveSpeakersForTokenBoundaries(tokens: SonioxToken[]): (string | u
   return out;
 }
 
+/**
+ * Guard against one-chunk diarization flicker when a new phrase starts with short pauses/questions.
+ * If the proposed new speaker appears only in a tiny contiguous run in this WS message, keep the
+ * current segment open and wait for stronger evidence before opening a new bubble.
+ */
+function isWeakSpeakerPivotInMessage(
+  tokens: SonioxToken[],
+  effectiveSpeakers: (string | undefined)[],
+  pivotIndex: number,
+): boolean {
+  const sid = effectiveSpeakers[pivotIndex];
+  if (!sid) return true;
+  let start = pivotIndex;
+  let end = pivotIndex + 1;
+  while (start > 0 && effectiveSpeakers[start - 1] === sid) start--;
+  while (end < effectiveSpeakers.length && effectiveSpeakers[end] === sid) end++;
+  const tokLen = end - start;
+  let chars = 0;
+  for (let i = start; i < end; i++) {
+    chars += (tokens[i]?.text ?? "").length;
+  }
+  // Same thresholds as ephemeral-run smoothing: <3 tokens and <28 chars.
+  return tokLen < 3 && chars < 28;
+}
+
 // ── Language-pair helpers ──────────────────────────────────────────────────────
 // Compare two BCP-47 codes loosely (e.g. "zh-CN" matches "zh").
 function matchesLang(detected: string, selected: string): boolean {
@@ -2596,10 +2621,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
-            closeActiveSegmentBoundary("speaker_change");
-            currentSpeakerRef.current = sid;
-            activeBubbleRef.current = createBubble(sid);
-            setHasTranscript(true);
+            // Ignore tiny one-message speaker pivots (common around short pauses / question starts).
+            // This prevents opening multiple bubbles for the same real speaker.
+            if (!isWeakSpeakerPivotInMessage(tokens, effSpk, ti)) {
+              closeActiveSegmentBoundary("speaker_change");
+              currentSpeakerRef.current = sid;
+              activeBubbleRef.current = createBubble(sid);
+              setHasTranscript(true);
+            }
           }
         }
         if (!activeBubbleRef.current) continue;
