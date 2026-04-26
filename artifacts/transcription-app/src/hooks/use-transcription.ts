@@ -1103,6 +1103,11 @@ function mergeMachineStreamingTranslation(prevDisplayed: string, newPiece: strin
   return mergeStreamingTranslation(prev, dedupedPiece);
 }
 
+/** Same live merge rules for OpenAI and machine stacks (segment-boundary bleed fix). */
+function useOverlapAwareTranslationMerge(h: TranslationEngineHint | undefined): boolean {
+  return h === "hetzner" || h === "libre" || h === "openai";
+}
+
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -2122,10 +2127,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ) {
               return;
             }
-            const merged =
-              translationEngineHint === "hetzner" || translationEngineHint === "libre"
-                ? mergeMachineStreamingTranslation(transTextEl.textContent ?? "", incoming)
-                : mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
+            const merged = useOverlapAwareTranslationMerge(translationEngineHint)
+              ? mergeMachineStreamingTranslation(transTextEl.textContent ?? "", incoming)
+              : mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
             applyTranslationTypography(transTextEl, merged);
@@ -2140,13 +2144,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               return;
             }
             const prevShown = (transTextEl.textContent ?? "").trim();
-            const out =
-              translationEngineHint === "hetzner" || translationEngineHint === "libre"
-                ? (() => {
-                    const stripped = stripLeadingOverlapFromPrev(prevShown, rawOut);
-                    return stripped.trim() || rawOut;
-                  })()
-                : rawOut;
+            const out = useOverlapAwareTranslationMerge(translationEngineHint)
+              ? (() => {
+                  const stripped = stripLeadingOverlapFromPrev(prevShown, rawOut);
+                  return stripped.trim() || rawOut;
+                })()
+              : rawOut;
             const srcNow = collapseWs(text);
             const srcCommitted = collapseWs(state.streamCommittedSource);
             let chosen = shouldPreferPreviousLiveTranslationWithTarget(
@@ -2171,10 +2174,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               !prevShown.toLowerCase().includes(chosen.toLowerCase())
             ) {
               // Same speaker resumed after pause: keep prior translation and append fresh part.
-              chosen =
-                translationEngineHint === "hetzner" || translationEngineHint === "libre"
-                  ? mergeMachineStreamingTranslation(prevShown, chosen)
-                  : mergeStreamingTranslation(prevShown, chosen);
+              chosen = useOverlapAwareTranslationMerge(translationEngineHint)
+                ? mergeMachineStreamingTranslation(prevShown, chosen)
+                : mergeStreamingTranslation(prevShown, chosen);
             }
             if (
               prevShown &&
