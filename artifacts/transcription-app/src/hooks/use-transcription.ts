@@ -1441,11 +1441,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
+  /** Confirm speaker pivots across WS messages before opening a new bubble. */
+  const pendingSpeakerConfirmRef = useRef<{ sid: string; count: number; firstMs: number } | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
   const activeBubbleNFRef = useRef<HTMLSpanElement | null>(null);  // NF span
   const finalCountRef     = useRef(0);
+  /** Tracks previous message finals signature to reconcile cumulative vs incremental framing safely. */
+  const lastFinalTokenSigsRef = useRef<string[]>([]);
   const detectedLangRef      = useRef<string>("en");
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
@@ -2331,6 +2335,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     }
     currentSpeakerRef.current = undefined;
+    pendingSpeakerConfirmRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -2348,11 +2353,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
+    pendingSpeakerConfirmRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
     finalCountRef.current          = 0;
+    lastFinalTokenSigsRef.current  = [];
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
     translationDiagRef.current = {
@@ -2399,10 +2406,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
+    pendingSpeakerConfirmRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
     finalCountRef.current         = 0;
+    lastFinalTokenSigsRef.current = [];
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -2579,27 +2588,56 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       resetInactivityRef.current?.();
 
       // ── FINAL tokens (exclude Soniox <end> marker from transcript + counts) ──
-      // Soniox sends incremental messages: each response’s `tokens` are *new* since last message
-      // (see soniox_examples soniox_realtime.py — finals are appended client-side per response).
-      // Do NOT slice with a cross-message index into `finals` (that dropped every final after the first WS frame).
-      const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
-      const newFinals = finals;
+      // Reconcile cumulative vs incremental framing robustly to avoid fragmented/missing finals.
+      const finals = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
+      const finalsSig = finals.map((tok, idx) => {
+        const sp = tok.speaker === undefined || tok.speaker === null ? "" : String(tok.speaker);
+        const lang = tok.language ?? "";
+        return `${sp}|${lang}|${tok.text}|${idx}`;
+      });
+      const prevFinalSigs = lastFinalTokenSigsRef.current;
+      const looksCumulative =
+        prevFinalSigs.length > 0 &&
+        finalsSig.length >= prevFinalSigs.length &&
+        prevFinalSigs.every((s, i) => s === finalsSig[i]);
+      const newFinals = looksCumulative ? finals.slice(prevFinalSigs.length) : finals;
       const newFinalSet = new Set(newFinals);
+      lastFinalTokenSigsRef.current = finalsSig;
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
         const t = tokens[ti]!;
         const sid = effSpk[ti];
+        const tokenSuitable = !isSonioxEndpointToken(t) && hasVisibleText(t.text);
         if (sid !== undefined) {
           if (!activeBubbleRef.current) {
-            currentSpeakerRef.current = sid;
-            activeBubbleRef.current = createBubble(sid);
-            setHasTranscript(true);
+            if (tokenSuitable) {
+              currentSpeakerRef.current = sid;
+              pendingSpeakerConfirmRef.current = null;
+              activeBubbleRef.current = createBubble(sid);
+              setHasTranscript(true);
+            }
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
-            closeActiveSegmentBoundary("speaker_change");
-            currentSpeakerRef.current = sid;
-            activeBubbleRef.current = createBubble(sid);
-            setHasTranscript(true);
+            if (tokenSuitable) {
+              const nowMs = Date.now();
+              const pending = pendingSpeakerConfirmRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingSpeakerConfirmRef.current = { sid, count: 1, firstMs: nowMs };
+              } else {
+                pending.count += 1;
+              }
+              const p = pendingSpeakerConfirmRef.current;
+              const confirmed = !!p && (p.count >= 4 || (nowMs - p.firstMs >= 500 && p.count >= 2));
+              if (confirmed) {
+                closeActiveSegmentBoundary("speaker_change");
+                currentSpeakerRef.current = sid;
+                pendingSpeakerConfirmRef.current = null;
+                activeBubbleRef.current = createBubble(sid);
+                setHasTranscript(true);
+              }
+            }
+          } else {
+            pendingSpeakerConfirmRef.current = null;
           }
         }
         if (!activeBubbleRef.current) continue;
@@ -2786,12 +2824,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setTranslationServiceError(null);
       setAudioInfo("");
       currentSpeakerRef.current      = undefined;
+      pendingSpeakerConfirmRef.current = null;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
       activeBubbleStateRef.current   = null;
       styleUpgradedRef.current       = false;
       liveBufferRef.current          = "";
       finalCountRef.current          = 0;
+      lastFinalTokenSigsRef.current  = [];
       detectedLangRef.current        = "en";
       resetSpeakerMap();
       pcmBacklogRef.current          = [];
@@ -2812,6 +2852,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setSessionId(sessionRes.sessionId);
       transcriptBufRef.current  = [];
       translationBufRef.current = [];
+      lastFinalTokenSigsRef.current = [];
       startTimeRef.current = Date.now();
       audioPcmSecondsRef.current = 0;
 
