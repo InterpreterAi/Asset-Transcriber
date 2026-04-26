@@ -2651,6 +2651,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
+      let switchedInThisMessage = false;
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2664,12 +2665,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            // Under lag, one WS message can carry mixed diarization pivots.
+            // Allow at most one accepted pivot per message to prevent segment storms.
+            if (switchedInThisMessage) continue;
             if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
             }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
             const rapidBounce = (Date.now() - lastSpeakerSwitchAtMsRef.current) < 1800;
+            if (rapidBounce && !t.is_final && !sawSonioxEndpoint) {
+              pendingQuestionTailSwitchRef.current = null;
+              continue;
+            }
             if (rapidBounce && weakNow && !sawSonioxEndpoint) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
@@ -2694,6 +2702,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             currentSpeakerRef.current = sid;
             lastSpeakerSwitchAtMsRef.current = Date.now();
             pendingQuestionTailSwitchRef.current = null;
+            switchedInThisMessage = true;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else {
