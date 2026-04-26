@@ -667,49 +667,6 @@ components:
           description: >
             One entry per shared login IP this user has used; each entry lists every account on that IP
             so you can see duplicates at a glance. Empty when none.
-        paidBillingPeriodStartAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: >
-            Admin-only paid subscription window start (subscription_started_at, or created_at when start missing).
-        paidBillingPeriodEndAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: >
-            Admin-only paid subscription window end (subscription_period_ends_at, or start + 30 days when end missing).
-        paidBillingPeriodDays:
-          type: integer
-          nullable: true
-          description: Admin-only calendar days in the billing window (capped at 366).
-        paidBillingDailyCapHours:
-          type: number
-          nullable: true
-          description: Admin-only daily cap as hours (daily_limit_minutes / 60).
-        paidBillingEligibleHours:
-          type: number
-          nullable: true
-          description: Admin-only max hours if user used full daily cap every day of the billing window.
-        paidBillingMinutesUsedInPeriod:
-          type: number
-          nullable: true
-          description: Admin-only billable minutes from sessions whose started_at falls in the billing window.
-        paidBillingHoursUsedInPeriod:
-          type: number
-          nullable: true
-          description: Admin-only hours used this billing window (same basis as minutes).
-        paidBillingProjectedHoursAtPeriodEnd:
-          type: number
-          nullable: true
-          description: >
-            Admin-only linear extrapolation to window end, capped at eligible hours (pace from elapsed time in window).
-        paidBillingUsesSignupProxyForStart:
-          type: boolean
-          nullable: true
-        paidBillingUsesEstimatedPeriodEnd:
-          type: boolean
-          nullable: true
       required:
         - id
         - username
@@ -725,27 +682,6 @@ components:
         - sharedLoginIps
         - sharedLoginIpClusters
 
-    AdminPaidBillingRollup:
-      type: object
-      description: Admin-only aggregate over non-admin paid users with a computable billing window.
-      properties:
-        paidUsersInRollup:
-          type: integer
-        totalEligibleHoursThisPeriod:
-          type: number
-        totalHoursUsedThisPeriod:
-          type: number
-        totalProjectedHoursAtPeriodEnd:
-          type: number
-        description:
-          type: string
-      required:
-        - paidUsersInRollup
-        - totalEligibleHoursThisPeriod
-        - totalHoursUsedThisPeriod
-        - totalProjectedHoursAtPeriodEnd
-        - description
-
     AdminUserListResponse:
       type: object
       properties:
@@ -753,11 +689,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminUser"
-        paidBillingRollup:
-          $ref: "#/components/schemas/AdminPaidBillingRollup"
       required:
         - users
-        - paidBillingRollup
 
     AdminCreateUserRequest:
       type: object

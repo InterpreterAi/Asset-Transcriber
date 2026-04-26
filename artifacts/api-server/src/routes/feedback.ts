@@ -1,12 +1,11 @@
 import { Router } from "express";
-import { db, feedbackTable, usersTable, sessionsTable } from "@workspace/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { db, feedbackTable, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import {
   hasSubmittedMandatoryFeedbackToday,
   isMandatoryFeedbackRequiredByUsage,
-  isMandatoryFeedbackRequiredByUsageWithLive,
   MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH,
   MANDATORY_FEEDBACK_SOURCE,
 } from "../lib/feedback-gate.js";
@@ -17,24 +16,13 @@ const router = Router();
 const STAR_LABELS = ["", "Poor", "Fair", "Good", "Great", "Excellent"];
 const RECOMMEND_EMOJI: Record<string, string> = { yes: "👍", no: "👎", maybe: "🤷" };
 
-async function sumOpenSessionsBillableMinutes(userId: number): Promise<number> {
-  const rows = await db
-    .select({ sec: sessionsTable.audioSecondsProcessed })
-    .from(sessionsTable)
-    .where(and(eq(sessionsTable.userId, userId), isNull(sessionsTable.endedAt)));
-  let totalSec = 0;
-  for (const r of rows) totalSec += Math.max(0, Number(r.sec ?? 0));
-  return totalSec / 60;
-}
-
 router.get("/status", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
   if (!user) {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  const liveOpenMinutes = await sumOpenSessionsBillableMinutes(user.id);
-  const required = isMandatoryFeedbackRequiredByUsageWithLive(user, liveOpenMinutes);
+  const required = isMandatoryFeedbackRequiredByUsage(user);
   const submitted = required ? await hasSubmittedMandatoryFeedbackToday(user.id) : false;
   res.json({
     required,

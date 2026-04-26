@@ -1,36 +1,26 @@
-import { callHetznerTranslate } from "./hetzner-translate.js";
+import { callLibreTranslate } from "./libretranslate.js";
 
 /**
- * **Final Boss 3 · machine stack** — translation for `*-libre` plans via **Hetzner** (LibreTranslate-compatible API).
- * Host: `hetzner-translate.ts`. Stale `LIBRETRANSLATE_*` pointing at Railway is ignored server-side.
- * OpenAI (**Final Boss 3 · OpenAI**) lives in `transcription.ts` and is unchanged here.
+ * Libre / `*-libre` plans (Final Boss 3): machine translation **only** via **LibreTranslate**
+ * (free public HTTPS instances when `LIBRETRANSLATE_URL` is unset, or your self-hosted URL).
+ * Exactly one Libre HTTP call per segment — no Google Cloud Translation, no engine switching.
+ * OpenAI interpreter stack is unchanged for non–`*-libre` plans.
  *
- * One HTTP call per segment (`translatePlainMachine` → `callHetznerTranslate`). No API key.
- *
- * Shipped for soak testing: treat as frozen pending ~1 week of user feedback unless explicitly asked to change.
+ * Optional: `LIBRETRANSLATE_URL`, `LIBRETRANSLATE_API_KEY` (see `libretranslate.ts`).
  */
 
-export type TranslateBasicProfessionalOpts = {
-  sessionId?: number;
-  planType?: string;
-};
-
 /**
- * Plain segment: Hetzner machine translate (Libre-compatible API).
+ * Plain segment: LibreTranslate only.
  * @param sourceLang / targetLang — BCP-47 tags from the client (e.g. zh-CN, en).
  */
 export async function translatePlainMachine(
   plain: string,
   sourceLang: string,
   targetLang: string,
-  opts?: TranslateBasicProfessionalOpts,
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-  return callHetznerTranslate(t, sourceLang, targetLang, {
-    sessionId: opts?.sessionId,
-    planType: opts?.planType,
-  });
+  return callLibreTranslate(t, sourceLang, targetLang);
 }
 
 /** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */
@@ -49,8 +39,8 @@ export async function translateBasicProfessional(
   sourceLang: string,
   targetLang: string,
   slotToDigits: Map<number, string>,
-  _opts?: TranslateBasicProfessionalOpts,
 ): Promise<string> {
+  // LibreTranslate often drops NUM_* tokens; send literal digits. TERM_/PROT_ stay masked; caller restores glossary.
   const mtInput = expandNumPlaceholdersToDigits(text, slotToDigits);
-  return translatePlainMachine(mtInput, sourceLang, targetLang, _opts);
+  return translatePlainMachine(mtInput, sourceLang, targetLang);
 }

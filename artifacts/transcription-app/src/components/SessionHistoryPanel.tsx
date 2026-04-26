@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { History, Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 type SessionRow = {
   id: number;
@@ -63,7 +62,7 @@ function fmtDur(secs: number | null) {
   return `${Math.round(secs / 60)}m`;
 }
 
-export function SessionHistoryPanel({ refreshKey, className }: { refreshKey?: number; className?: string }) {
+export function SessionHistoryPanel({ refreshKey }: { refreshKey?: number }) {
   const [stats, setStats]     = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod]   = useState<Period>("today");
@@ -81,12 +80,7 @@ export function SessionHistoryPanel({ refreshKey, className }: { refreshKey?: nu
   const sessions = stats?.sessions ?? [];
 
   return (
-    <div
-      className={cn(
-        "flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden h-full",
-        className,
-      )}
-    >
+    <div className="flex flex-col bg-white rounded-xl border border-border shadow-sm overflow-hidden h-full">
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 border-b border-border shrink-0">
@@ -116,22 +110,22 @@ export function SessionHistoryPanel({ refreshKey, className }: { refreshKey?: nu
       {/* Stats strip */}
       <div className="grid grid-cols-3 divide-x divide-border border-b border-border shrink-0">
         <div className="py-2 flex flex-col items-center justify-center">
-          <span className="text-base font-bold text-sky-500 leading-none">
+          <span className="text-base font-bold text-blue-700 leading-none">
             {loading ? "·" : (stats?.periodSessions ?? 0)}
           </span>
-          <span className="text-[10px] text-sky-400/90 font-medium mt-0.5">Sessions</span>
+          <span className="text-[10px] text-blue-500 font-medium mt-0.5">Sessions</span>
         </div>
         <div className="py-2 flex flex-col items-center justify-center">
-          <span className="text-base font-bold text-violet-500 leading-none">
+          <span className="text-base font-bold text-violet-700 leading-none">
             {loading ? "·" : fmt(stats?.periodMinutes ?? 0)}
           </span>
-          <span className="text-[10px] text-violet-400/90 font-medium mt-0.5">Total</span>
+          <span className="text-[10px] text-violet-500 font-medium mt-0.5">Total</span>
         </div>
         <div className="py-2 flex flex-col items-center justify-center">
-          <span className="text-base font-bold text-emerald-500 leading-none">
+          <span className="text-base font-bold text-emerald-700 leading-none">
             {loading ? "·" : fmt(stats?.periodAvgMinutes ?? 0)}
           </span>
-          <span className="text-[10px] text-emerald-400/90 font-medium mt-0.5">Avg</span>
+          <span className="text-[10px] text-emerald-500 font-medium mt-0.5">Avg</span>
         </div>
       </div>
 

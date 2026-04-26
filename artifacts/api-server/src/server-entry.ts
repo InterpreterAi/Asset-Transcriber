@@ -9,8 +9,7 @@ import { logAuthEnvBootstrap } from "./lib/authEnv.js";
 import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnostics.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 import { isOpenAiConfigured } from "./lib/ai-env.js";
-import { logHetznerMachineTranslationStartupHint } from "./lib/hetzner-translate.js";
-import { logHetznerCoreRouterStartupHint } from "./lib/hetzner-core-router.js";
+import { logLibreMachineTranslationStartupHint } from "./lib/libretranslate.js";
 import { isResendConfigured } from "./lib/resend-mail.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
@@ -19,7 +18,6 @@ import { initInterpreterGlossaries } from "./lib/interpreter-glossary.js";
 import { initProtectedTerms } from "./lib/protected-terms.js";
 import { isTrialLoginBlocked } from "./lib/trial-login-block.js";
 import { isGlobalAccessBlocked } from "./lib/global-access-block.js";
-import { setPriority } from "node:os";
 
 const rawPort =
   process.env["PORT"] ??
@@ -157,12 +155,6 @@ async function migrateSchema() {
       );
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS stability_baseline_update_email_sent_at TIMESTAMP`,
-      );
-      await client.query(
-        `ALTER TABLE users ADD COLUMN IF NOT EXISTS glossary_feature_announcement_email_sent_at TIMESTAMP`,
-      );
-      await client.query(
-        `ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_offer_sent_at TIMESTAMP`,
       );
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_canceled_email_sent_at TIMESTAMP`,
@@ -568,28 +560,13 @@ async function main() {
       process.exit(1);
     }
     logger.info({ port }, "Server listening");
-    if (process.env.API_OS_PROCESS_PRIORITY === "high" && process.platform !== "win32") {
-      const raw = process.env.API_OS_NICE?.trim() ?? "-8";
-      const nice = Number.parseInt(raw, 10);
-      const n = Number.isFinite(nice) && nice >= -20 && nice <= 19 ? nice : -8;
-      try {
-        setPriority(n);
-        logger.info({ nice: n }, "OS scheduling priority raised for API process (API_OS_PROCESS_PRIORITY=high)");
-      } catch (err) {
-        logger.warn(
-          { err, nice: n },
-          "API_OS_PROCESS_PRIORITY=high but setPriority failed (may need CAP_SYS_NICE or appropriate ulimit)",
-        );
-      }
-    }
     if (!isOpenAiConfigured()) {
       logger.error(
         "OPENAI_API_KEY (or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY) is missing. " +
           "Live transcription may work via Soniox but POST /api/transcription/translate will return 503 — users see transcript only.",
       );
     }
-    logHetznerMachineTranslationStartupHint();
-    logHetznerCoreRouterStartupHint();
+    logLibreMachineTranslationStartupHint();
     if (!isResendConfigured()) {
       logger.warn(
         "RESEND_API_KEY is not set — verification, password reset, support, and scheduled onboarding/trial emails will not send until it is configured.",

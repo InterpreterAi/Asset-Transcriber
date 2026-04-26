@@ -23,18 +23,11 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle, Mail,
-  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb, Sun, Moon,
+  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
-import {
-  cn,
-  formatMinutes,
-  isTrialLikePlanType,
-  workspacePlanDisplayName,
-  workspacePlanTierKey,
-  planUsesLibreEngine,
-} from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, planUsesLibreEngine } from "@/lib/utils";
 import { startOfAppDayMs } from "@workspace/app-timezone";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -68,22 +61,7 @@ interface AdminStats {
     durationSeconds: number;
     hasSnapshot:     boolean;
     micLabel:        string | null;
-    /** Same user has more than one row with ended_at null — investigate stale session. */
-    openSessionsForUser?: number;
-    openSessionOrdinal?: number;
-    /** Live POST /translate stack (matches server `userUsesMachineTranslationStack`). */
-    translationStack?: "libre" | "openai";
-    /** Plain-language route + Hetzner core when applicable. */
-    translationRouteDetail?: string;
-    coreLane?: 1 | 2 | null;
-    coreLaneColor?: "blue" | "violet" | null;
-    coreNodeLabel?: string | null;
   }[];
-  /** Populated with /stats and fast /active-sessions polls. */
-  liveSessionSummary?: {
-    totalSessions: number;
-    usersWithMultipleOpen: number;
-  };
 }
 
 interface UserSession {
@@ -102,10 +80,6 @@ interface SessionSnapshot {
   micLabel:    string;
   transcript:  string;
   translation: string;
-  /** When present (from client buffers), use these instead of splitting joined strings — avoids mis-aligned rows if speech contains newlines. */
-  transcriptLines?: string[];
-  translationLines?: string[];
-  snapshotSeq?: number;
   updatedAt:   number;
 }
 
@@ -123,33 +97,45 @@ interface SessionDetail {
   snapshot:        SessionSnapshot | null;
 }
 
-type StableSnapshotRow = { idx: number; src: string; tgt: string };
-
 /**
- * Show only stable aligned pairs in admin monitor.
- * Keep original row indices so admin view does not reindex/shift rows.
- * For live sessions, intentionally hide only the newest row (one-segment delay)
- * so admin never sees in-flight partial artifacts.
+ * Only reuse a prior translation for this row when the transcript line is still the same segment
+ * (or an obvious extension). If the English/Spanish line is new/changed but translation is still
+ * empty on this poll, carrying `prev.translation[i]` repeats the previous row’s Spanish in admin (e.g. “Ah, sí” showing the long prior paragraph).
  */
-function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
-  const transcriptLines = snapshot.transcriptLines;
-  const translationLines = snapshot.translationLines;
-  if (!Array.isArray(transcriptLines) || !Array.isArray(translationLines)) return [];
-  if (transcriptLines.length === 0 || transcriptLines.length !== translationLines.length) return [];
+function transcriptLineStableForTrCarry(prevLine: string, nextLine: string): boolean {
+  const p = prevLine.trim();
+  const n = nextLine.trim();
+  if (n === p) return true;
+  if (!n) return true;
+  if (!p) return false;
+  if (n.startsWith(p) || p.startsWith(n)) return true;
+  return false;
+}
 
-  const src = transcriptLines.map(v => String(v).trim());
-  const tgt = translationLines.map(v => String(v).trim());
-  const lastExclusive = isLive ? Math.max(0, src.length - 1) : src.length;
-
-  const rows: StableSnapshotRow[] = [];
-  for (let i = 0; i < lastExclusive; i++) {
-    const s = src[i] ?? "";
-    const t = tgt[i] ?? "";
-    // Keep contiguous aligned prefix only; never skip holes or rows shift.
-    if (!s || !t) break;
-    rows.push({ idx: i + 1, src: s, tgt: t });
+/** Admin poll merge: translation often fills a line after transcript (worse on Latin/Latin pairs like en/es). Prefer each non-empty translation line from the newest tick; keep prior line if the new one is still empty **and** the transcript row is unchanged. */
+function mergeLiveSessionSnapshots(prev: SessionSnapshot, next: SessionSnapshot): SessionSnapshot {
+  const pt = prev.transcript.split("\n");
+  const nt = next.transcript.split("\n");
+  const ptr = prev.translation.split("\n");
+  const ntr = next.translation.split("\n");
+  const nRows = Math.max(pt.length, nt.length, ptr.length, ntr.length);
+  const outT: string[] = [];
+  const outTr: string[] = [];
+  for (let i = 0; i < nRows; i++) {
+    const pl = pt[i] ?? "";
+    const nl = nt[i] ?? "";
+    outT.push(nl.length >= pl.length ? (nl || pl) : (pl || nl));
+    const pTr = ptr[i] ?? "";
+    const nTr = ntr[i] ?? "";
+    const carryTr = nTr.trim() ? nTr : transcriptLineStableForTrCarry(pl, nl) ? pTr : "";
+    outTr.push(carryTr);
   }
-  return rows;
+  return {
+    ...next,
+    transcript: outT.join("\n"),
+    translation: outTr.join("\n"),
+    updatedAt: Math.max(prev.updatedAt, next.updatedAt),
+  };
 }
 
 interface LangOption { value: string; label: string; }
@@ -282,8 +268,8 @@ function fmtDuration(secs: number | null | undefined) {
 
 function lastSeen(date: string | null | undefined) {
   if (!date) return (
-    <span className="flex items-center gap-1.5 text-muted-foreground">
-      <span className="w-2 h-2 rounded-full bg-gray-400/70 dark:bg-white/35 shrink-0" />
+    <span className="flex items-center gap-1.5 text-gray-400">
+      <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />
       Never
     </span>
   );
@@ -298,21 +284,19 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Canonical plan types including separate OpenAI / Hetzner / mixed trial modes. */
+/** Eight canonical `plan_type` values (4 OpenAI + 4 Libre). Legacy rows still show a fallback option. */
 const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
-  { value: "trial-openai", label: "Trial · OpenAI (7 days, full OpenAI)" },
-  { value: "trial", label: "Trial · OpenAI (legacy)" },
+  { value: "trial", label: "Trial · OpenAI" },
   { value: "basic", label: "Basic · OpenAI" },
   { value: "professional", label: "Professional · OpenAI" },
   { value: "platinum", label: "Platinum · OpenAI" },
 ];
 
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
-  { value: "trial-hetzner", label: "Trial · Hetzner (7 days, full Hetzner)" },
-  { value: "trial-libre", label: "Trial · Mixed (days 1–4 OpenAI, then Hetzner)" },
-  { value: "basic-libre", label: "Basic · Hetzner / machine" },
-  { value: "professional-libre", label: "Professional · Hetzner / machine" },
-  { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
+  { value: "trial-libre", label: "Trial · Libre / machine" },
+  { value: "basic-libre", label: "Basic · Libre / machine" },
+  { value: "professional-libre", label: "Professional · Libre / machine" },
+  { value: "platinum-libre", label: "Platinum · Libre / machine" },
 ];
 
 const ADMIN_PLAN_VALUE_SET = new Set([
@@ -351,7 +335,7 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
-    const engine = planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI";
+    const engine = planUsesLibreEngine(plan) ? "Libre" : "OpenAI";
     return (
       <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap">
         <span>{workspacePlanDisplayName(plan)}</span>
@@ -361,20 +345,20 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
     );
   }
   if (!trialEndsAt) return (
-    <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
   const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   if (daysLeft <= 0) return (
-    <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
+    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
   );
   if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Libre" : "OpenAI"}
     </span>
   );
   return (
     <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">
-      {daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
+      {daysLeft}d left · {planUsesLibreEngine(plan) ? "Libre" : "OpenAI"}
     </span>
   );
 }
@@ -393,17 +377,9 @@ function detectAudioDevice(label: string | null | undefined) {
     return { type: "Bluetooth",  badgeCls: "bg-sky-50 text-sky-700 border-sky-100",      icon: <Bluetooth className="w-3 h-3" /> };
   }
   if (l.includes("built-in") || l.includes("built in") || l.includes("internal") || l.includes("macbook") || l.includes("laptop")) {
-    return { type: "Built-in",   badgeCls: "bg-gray-100 text-gray-600 border-gray-200 dark:bg-white/10 dark:text-slate-200 dark:border-white/20",  icon: <Mic       className="w-3 h-3" /> };
+    return { type: "Built-in",   badgeCls: "bg-gray-100 text-gray-600 border-gray-200",  icon: <Mic       className="w-3 h-3" /> };
   }
   return   { type: "Microphone", badgeCls: "bg-green-50 text-green-700 border-green-100", icon: <Mic      className="w-3 h-3" /> };
-}
-
-/** Resolve BCP-47-ish workspace code to admin UI label (for session column headers). */
-function adminLanguageLabel(code: string | undefined, all: LangOption[] | undefined): string {
-  const c = (code ?? "").trim();
-  if (!c) return "—";
-  const hit = all?.find(l => l.value === c);
-  return hit?.label ?? c.toUpperCase();
 }
 
 function AudioDeviceInfo({ label, nameClass = "" }: { label: string | null | undefined; nameClass?: string }) {
@@ -429,32 +405,16 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
   if (activeSession) {
     return (
       <div className="flex flex-col gap-1">
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording
         </span>
-        {activeSession.translationRouteDetail && (
-          <span className="text-[9px] text-muted-foreground leading-tight max-w-[14rem]" title={activeSession.translationRouteDetail}>
-            {activeSession.translationRouteDetail}
-          </span>
-        )}
-        {activeSession.coreLane ? (
-          <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-              (activeSession.coreLaneColor ?? "blue") === "violet"
-                ? "bg-violet-100 text-violet-800"
-                : "bg-blue-100 text-blue-800"
-            }`}
-          >
-            {activeSession.coreNodeLabel ?? "HZ-1"} · Core {activeSession.coreLane}
-          </span>
-        ) : null}
         <AudioDeviceInfo label={activeSession.micLabel} />
       </div>
     );
   }
   if (!lastActivityAt) return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-300">
-      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-slate-300" />Offline
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-400">
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Offline
     </span>
   );
   const minsAgo = (Date.now() - new Date(lastActivityAt).getTime()) / 60000;
@@ -464,8 +424,8 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
     </span>
   );
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-300">
-      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-slate-300" />Offline
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />Offline
     </span>
   );
 }
@@ -476,23 +436,8 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
-  // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "ipWatch" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const pollUsersForAdmin =
-    !!me?.isAdmin && (mainTab === "users" || mainTab === "ipWatch");
-  const { data: usersData, isLoading: usersLoading, isFetching: usersRefreshing } = useAdminListUsers({
-    query: {
-      queryKey: getAdminListUsersQueryKey(),
-      enabled: !!me?.isAdmin,
-      refetchInterval: pollUsersForAdmin ? 10_000 : false,
-      refetchIntervalInBackground: true,
-      staleTime: 5_000,
-    },
-  });
+  const { data: usersData, isLoading: usersLoading } = useAdminListUsers({ query: { queryKey: getAdminListUsersQueryKey(), enabled: !!me?.isAdmin } });
   const allUsers = usersData?.users ?? [];
-  const paidBillingRollup = usersData?.paidBillingRollup;
   const sharedLoginIpIndex = useMemo(() => {
     const byIp = new Map<string, AdminSharedLoginIpCluster>();
     for (const u of allUsers) {
@@ -502,21 +447,6 @@ export default function Admin() {
     }
     return [...byIp.values()].sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
   }, [allUsers]);
-  const sharedIpStats = useMemo(() => {
-    const uniqueAccounts = new Set<number>();
-    let memberships = 0;
-    for (const cluster of sharedLoginIpIndex) {
-      for (const account of cluster.accounts) {
-        uniqueAccounts.add(account.id);
-        memberships += 1;
-      }
-    }
-    return {
-      flaggedIps: sharedLoginIpIndex.length,
-      accountsInSharedIps: uniqueAccounts.size,
-      totalMemberships: memberships,
-    };
-  }, [sharedLoginIpIndex]);
   const { data: feedbackData } = useAdminListFeedback({ query: { queryKey: getAdminListFeedbackQueryKey(), enabled: !!me?.isAdmin } });
 
   const { data: statsData, refetch: refetchStats } = useQuery({
@@ -535,56 +465,22 @@ export default function Admin() {
   const deleteMut = useAdminDeleteUser();
   const resetMut  = useAdminResetUsage();
 
-  const ADMIN_THEME_STORAGE_KEY = "interpreterai-admin-theme";
-  type AdminTheme = "dark" | "light";
-  const [adminTheme, setAdminTheme] = useState<AdminTheme>(() => {
-    if (typeof window === "undefined") return "dark";
-    const v = localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
-    return v === "light" || v === "dark" ? v : "dark";
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(ADMIN_THEME_STORAGE_KEY, adminTheme);
-    } catch {
-      /* ignore */
-    }
-  }, [adminTheme]);
-  const adminDark = adminTheme === "dark";
+  // ── Main tabs ─────────────────────────────────────────────────────────────
+  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Fast-poll live sessions on Overview / Users / Monitor — 3 s (Libre-heavy traffic needs fresh rows).
+  // Fast-poll active sessions — only when Users tab is open, every 3 s.
   // Must come AFTER mainTab useState to avoid temporal dead zone crash.
-  const pollLiveSessions =
-    !!me?.isAdmin && (mainTab === "overview" || mainTab === "users" || mainTab === "monitor");
-  const {
-    data: liveSessionsData,
-    isError: liveSessionsPollError,
-    isFetching: liveSessionsPollFetching,
-    refetch: refetchLiveSessions,
-  } = useQuery({
+  const { data: liveSessionsData } = useQuery({
     queryKey: ["admin-active-sessions"],
-    queryFn: async ({ signal }) => {
-      const res = await fetch("/api/admin/active-sessions", { credentials: "include", signal });
-      if (!res.ok) throw new Error(`Active sessions HTTP ${res.status}`);
-      return res.json() as Promise<Pick<AdminStats, "activeSessions" | "liveSessionSummary">>;
+    queryFn: async () => {
+      const res = await fetch("/api/admin/active-sessions", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch active sessions");
+      return res.json() as Promise<{ activeSessions: AdminStats["activeSessions"] }>;
     },
-    enabled: pollLiveSessions,
-    refetchInterval: pollLiveSessions ? 3_000 : false,
-    refetchIntervalInBackground: true,
-    placeholderData: (previousData) => previousData,
-    retry: 4,
-    retryDelay: (attempt) => Math.min(2_000 * 2 ** attempt, 30_000),
-    staleTime: 2_000,
-    gcTime: 30 * 60 * 1000,
+    enabled: !!me?.isAdmin && mainTab === "users",
+    refetchInterval: mainTab === "users" ? 3_000 : false,
   });
-
-  const sessions = useMemo(
-    () => liveSessionsData?.activeSessions ?? statsData?.activeSessions ?? [],
-    [liveSessionsData?.activeSessions, statsData?.activeSessions],
-  );
-  const liveSessionSummary = useMemo(
-    () => liveSessionsData?.liveSessionSummary ?? statsData?.liveSessionSummary,
-    [liveSessionsData?.liveSessionSummary, statsData?.liveSessionSummary],
-  );
 
   // ── Edit user drawer ───────────────────────────────────────────────────────
   const [editingUser, setEditingUser] = useState<{
@@ -843,7 +739,21 @@ export default function Admin() {
       const res = await fetch(`/api/admin/session/${sessionId}`, { credentials: "include" });
       if (!res.ok) return;
       const next = await res.json() as SessionDetail;
-      setSessionDetail(next);
+      // Live view: translation lines often land after transcript; Latin/Latin (e.g. en/es) is
+      // slower / noisier than mixed-script pairs (e.g. en/ar). Merge line-by-line so a shorter
+      // but more complete `translation` payload is not discarded (see mergeLiveSessionSnapshots).
+      setSessionDetail((prev) => {
+        if (!next.isLive || !prev?.isLive || prev.sessionId !== next.sessionId) return next;
+        if (!next.snapshot) return next;
+        if (!prev.snapshot) return next;
+        const ps = prev.snapshot;
+        const ns = next.snapshot;
+        if (!ns.transcript.trim() && !ns.translation.trim()) return next;
+        return {
+          ...next,
+          snapshot: mergeLiveSessionSnapshots(ps, ns),
+        };
+      });
     } catch { /* ignore */ }
   }, []);
 
@@ -867,9 +777,7 @@ export default function Admin() {
         method: "POST", credentials: "include",
       });
       setViewingSessionId(null);
-      void refetchStats();
-      void queryClient.invalidateQueries({ queryKey: ["admin-active-sessions"] });
-      void queryClient.invalidateQueries({ queryKey: ["admin-system-monitor"] });
+      refetchStats();
     } catch { /* ignore */ }
     setTerminateLoading(false);
   };
@@ -894,19 +802,6 @@ export default function Admin() {
       })
       .catch(() => { /* ignore */ });
   }, [mainTab, me?.isAdmin]);
-
-  /** Load language names once for admin (e.g. View Session column headers) without opening the Languages tab. */
-  useEffect(() => {
-    if (!me?.isAdmin) return;
-    let cancelled = false;
-    fetch("/api/admin/config/languages", { credentials: "include" })
-      .then(r => r.json() as Promise<LangConfigResp>)
-      .then(data => {
-        if (!cancelled) setLangConfigData(prev => prev ?? data);
-      })
-      .catch(() => { /* ignore */ });
-    return () => { cancelled = true; };
-  }, [me?.isAdmin]);
 
   const saveLangConfig = async () => {
     setLangSaveLoading(true);
@@ -943,6 +838,7 @@ export default function Admin() {
 
   const feedback  = feedbackData?.feedback ?? [];
   const stats     = statsData;
+  const sessions  = stats?.activeSessions ?? [];
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1178,7 +1074,6 @@ export default function Admin() {
     { id: "analytics",  label: "Analytics",  icon: <TrendingUp className="w-4 h-4" />,     badge: null },
     { id: "monitor",    label: "Monitor",    icon: <Monitor className="w-4 h-4" />,         badge: sessions.length > 0 ? sessions.length : null },
     { id: "users",      label: "Users",      icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
-    { id: "ipWatch",    label: "IP Watch",   icon: <ShieldAlert className="w-4 h-4" />,     badge: sharedLoginIpIndex.length > 0 ? sharedLoginIpIndex.length : null },
     { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
     { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
     { id: "referrals",  label: "Referrals",  icon: <Gift className="w-4 h-4" />,            badge: referralsAdminData?.totals.pendingReferrals ?? null },
@@ -1187,14 +1082,7 @@ export default function Admin() {
   ];
 
   return (
-    <div
-      className={cn(
-        "h-full text-foreground flex overflow-hidden",
-        adminDark &&
-          "dark workspace-hero-accent bg-[linear-gradient(165deg,#0b0e14_0%,#121a26_42%,#081420_100%)]",
-        !adminDark && "bg-[#f5f5f7]",
-      )}
-    >
+    <div className="h-full bg-[#f5f5f7] text-foreground flex overflow-hidden">
 
       {/* ── MOBILE SIDEBAR BACKDROP ───────────────────────────────────────── */}
       {sidebarOpen && (
@@ -1206,7 +1094,7 @@ export default function Admin() {
 
       {/* ── ADMIN SIDEBAR ─────────────────────────────────────────────────── */}
       <aside className={`
-        fixed inset-y-0 left-0 z-30 w-64 bg-card border-r border-border dark:border-white/[0.08] shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)] flex flex-col overflow-y-auto
+        fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-border flex flex-col overflow-y-auto
         transform transition-transform duration-300 ease-in-out
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         md:relative md:inset-auto md:translate-x-0 md:w-52 md:z-10 md:shrink-0
@@ -1239,7 +1127,7 @@ export default function Admin() {
 
         {/* Live session badge */}
         {sessions.length > 0 && (
-          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-100/80 px-3 py-2 rounded-lg border border-red-200 dark:bg-red-500/10 dark:border-red-500/30 shrink-0">
+          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100 shrink-0">
             <Radio className="w-3 h-3 animate-pulse shrink-0" />
             {sessions.length} Live Session{sessions.length > 1 ? "s" : ""}
           </div>
@@ -1290,20 +1178,6 @@ export default function Admin() {
               <h1 className="text-xl font-display font-semibold tracking-tight">{adminTabs.find(t => t.id === mainTab)?.label ?? "Admin"}</h1>
               <p className="text-muted-foreground text-sm">Monitor usage, manage users, and track costs.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setAdminTheme(adminDark ? "light" : "dark")}
-              className={cn(
-                "ml-auto w-9 h-9 rounded-lg border flex items-center justify-center transition-colors",
-                adminDark
-                  ? "border-white/10 text-amber-200/90 hover:bg-card/10 hover:text-amber-100"
-                  : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-              title={adminDark ? "Bright mode" : "Dark mode"}
-              aria-label={adminDark ? "Switch admin to bright mode" : "Switch admin to dark mode"}
-            >
-              {adminDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
           </div>
 
         {/* ── ANALYTICS TAB ────────────────────────────────────────────────── */}
@@ -1330,13 +1204,13 @@ export default function Admin() {
                     icon: <Users className="w-4 h-4" />,
                     color: "text-primary bg-primary/10",
                   },
-                  { label: "Active Now",     value: stats?.activeUsers ?? 0,              icon: <Activity className="w-4 h-4" />,   color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",   sub: "last 5 min" },
-                  { label: "Active Today",   value: stats?.dailyActiveUsers ?? 0,         icon: <TrendingUp className="w-4 h-4" />, color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15" },
-                  { label: "Min Today",      value: formatMinutes(stats?.minutesToday ?? 0), icon: <Clock className="w-4 h-4" />,   color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15" },
-                  { label: "Min This Week",  value: formatMinutes(stats?.minutesWeek ?? 0),  icon: <Calendar className="w-4 h-4" />,color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
-                  { label: "Min This Month", value: formatMinutes(stats?.minutesMonth ?? 0), icon: <Calendar className="w-4 h-4" />,color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15" },
+                  { label: "Active Now",     value: stats?.activeUsers ?? 0,              icon: <Activity className="w-4 h-4" />,   color: "text-blue-600 bg-blue-50",   sub: "last 5 min" },
+                  { label: "Active Today",   value: stats?.dailyActiveUsers ?? 0,         icon: <TrendingUp className="w-4 h-4" />, color: "text-emerald-600 bg-emerald-50" },
+                  { label: "Min Today",      value: formatMinutes(stats?.minutesToday ?? 0), icon: <Clock className="w-4 h-4" />,   color: "text-orange-600 bg-orange-50" },
+                  { label: "Min This Week",  value: formatMinutes(stats?.minutesWeek ?? 0),  icon: <Calendar className="w-4 h-4" />,color: "text-violet-600 bg-violet-50" },
+                  { label: "Min This Month", value: formatMinutes(stats?.minutesMonth ?? 0), icon: <Calendar className="w-4 h-4" />,color: "text-pink-600 bg-pink-50" },
                 ].map(({ label, value, icon, color, sub }) => (
-                  <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                  <Card key={label} className="p-4 border-none shadow-sm bg-white">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold font-display mt-0.5">{value}</p>
@@ -1351,13 +1225,13 @@ export default function Admin() {
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">SaaS Metrics</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 {[
-                  { label: "MRR Estimate",      value: `$${(stats?.mrrEstimate ?? 0).toFixed(0)}`,   sub: `${stats?.payingUsers ?? 0} paying users`,   color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15", icon: <DollarSign className="w-4 h-4" /> },
-                  { label: "Conversion Rate",   value: `${stats?.conversionRate ?? 0}%`,             sub: `${stats?.trialUsers ?? 0} still on trial`,  color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",      icon: <TrendingUp className="w-4 h-4" /> },
-                  { label: "Avg Session",       value: `${stats?.avgSessionMin ?? 0}m`,              sub: "last 30 days",                               color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15",  icon: <Clock className="w-4 h-4" /> },
-                  { label: "Sessions Today",    value: stats?.sessionsToday ?? 0,                    sub: "all sessions",                               color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  icon: <Radio className="w-4 h-4" /> },
-                  { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: "today's average",                            color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15",      icon: <BarChart2 className="w-4 h-4" /> },
+                  { label: "MRR Estimate",      value: `$${(stats?.mrrEstimate ?? 0).toFixed(0)}`,   sub: `${stats?.payingUsers ?? 0} paying users`,   color: "text-emerald-600 bg-emerald-50", icon: <DollarSign className="w-4 h-4" /> },
+                  { label: "Conversion Rate",   value: `${stats?.conversionRate ?? 0}%`,             sub: `${stats?.trialUsers ?? 0} still on trial`,  color: "text-blue-600 bg-blue-50",      icon: <TrendingUp className="w-4 h-4" /> },
+                  { label: "Avg Session",       value: `${stats?.avgSessionMin ?? 0}m`,              sub: "last 30 days",                               color: "text-violet-600 bg-violet-50",  icon: <Clock className="w-4 h-4" /> },
+                  { label: "Sessions Today",    value: stats?.sessionsToday ?? 0,                    sub: "all sessions",                               color: "text-orange-600 bg-orange-50",  icon: <Radio className="w-4 h-4" /> },
+                  { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: "today's average",                            color: "text-pink-600 bg-pink-50",      icon: <BarChart2 className="w-4 h-4" /> },
                 ].map(({ label, value, sub, color, icon }) => (
-                  <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                  <Card key={label} className="p-4 border-none shadow-sm bg-white">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
                     <p className="text-xl font-bold font-display mt-0.5">{value}</p>
@@ -1372,11 +1246,11 @@ export default function Admin() {
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Estimated API Costs Today</h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
-                  { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15" },
-                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Hetzner ~$0`, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
-                  { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15" },
+                  { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-600 bg-blue-50" },
+                  { label: "Translation (AI)",      value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0002/min`, color: "text-violet-600 bg-violet-50" },
+                  { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-600 bg-emerald-50" },
                 ].map(({ label, value, sub, color }) => (
-                  <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card flex items-center gap-4">
+                  <Card key={label} className="p-4 border-none shadow-sm bg-white flex items-center gap-4">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
                       <DollarSign className="w-4 h-4" />
                     </div>
@@ -1392,53 +1266,19 @@ export default function Admin() {
 
             {/* Live Sessions */}
             <section>
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2 flex-wrap">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 Live Sessions ({sessions.length})
-                <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                  · updates every 3s · live /translate path (not plan label alone)
-                </span>
-                {pollLiveSessions && liveSessionsPollFetching && (
-                  <span className="text-[10px] font-medium normal-case text-blue-600">refreshing…</span>
-                )}
               </h2>
-              {pollLiveSessions && liveSessionsPollError && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50/90 dark:bg-red-500/10 px-3 py-2.5 text-xs text-red-950 dark:text-red-200">
-                  <span>
-                    Live session poll failed (network, timeout, or 429). Last good snapshot is kept when available; stats still refresh on the slower interval.
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0 border-red-300 text-red-900"
-                    onClick={() => void refetchLiveSessions()}
-                  >
-                    Retry now
-                  </Button>
-                </div>
-              )}
-              {(liveSessionSummary?.usersWithMultipleOpen ?? 0) > 0 && (
-                <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-                  <div>
-                    <p className="font-semibold">Duplicate open sessions</p>
-                    <p className="text-amber-900/90 mt-0.5">
-                      {liveSessionSummary!.usersWithMultipleOpen} user(s) have more than one unclosed session row (e.g. tab closed before /session/stop).
-                      Review cards marked “Duplicate” and terminate stale rows if needed.
-                    </p>
-                  </div>
-                </div>
-              )}
               {sessions.length === 0 ? (
-                <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border dark:border-white/[0.16] rounded-2xl bg-card">
+                <div className="py-10 text-center text-muted-foreground text-sm border border-dashed border-border rounded-2xl bg-white">
                   No active sessions right now.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {sessions.map(s => (
-                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-card" : "bg-amber-50/60"}`}>
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-white" : "bg-amber-50/60"}`}>
+                      <div className="flex items-center gap-2 mb-2">
                         {s.hasSnapshot
                           ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
                           : <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
@@ -1446,47 +1286,8 @@ export default function Admin() {
                         {!s.hasSnapshot && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">stale</span>
                         )}
-                        {(s.openSessionsForUser ?? 1) > 1 && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0" title="Multiple DB rows with ended_at null for this user">
-                            Duplicate #{s.openSessionOrdinal ?? "?"}/{s.openSessionsForUser}
-                          </span>
-                        )}
-                        <span
-                          className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"
-                          }`}
-                          title="Database plan_type. For trial-libre, live /translate may still be OpenAI for the first four trial days — see line below."
-                        >
-                          {s.planType}
-                        </span>
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            (s.translationStack ?? "openai") === "openai"
-                              ? "bg-violet-100 text-violet-800"
-                              : "bg-amber-100 text-amber-900"
-                          }`}
-                          title={s.translationRouteDetail ?? "Live translation path from API"}
-                        >
-                          {(s.translationStack ?? "openai") === "openai" ? "OpenAI MT" : "Hetzner MT"}
-                        </span>
-                        {s.coreLane ? (
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                              (s.coreLaneColor ?? "blue") === "violet"
-                                ? "bg-violet-100 text-violet-800"
-                                : "bg-blue-100 text-blue-800"
-                            }`}
-                            title="Live Hetzner lane (two-lane: 1 paid · 5001, 2 trial · 5002)"
-                          >
-                            {s.coreNodeLabel ?? "HZ-1"} · Core {s.coreLane}
-                          </span>
-                        ) : null}
+                        <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${s.planType === "trial" ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>{s.planType}</span>
                       </div>
-                      {s.translationRouteDetail && (
-                        <p className="text-[10px] text-muted-foreground leading-snug mb-1.5 border-l-2 border-border pl-2">
-                          {s.translationRouteDetail}
-                        </p>
-                      )}
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
                         <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
@@ -1528,15 +1329,15 @@ export default function Admin() {
           const filtered = eventTypeFilter === "all" ? events : events.filter(e => e.type === eventTypeFilter);
 
           const metricCards = [
-            { label: "Active Users",           value: m?.activeUsers ?? 0,             sub: "last 5 min",   icon: <Activity className="w-4 h-4" />,    color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",      alert: false },
-            { label: "Active Sessions",        value: m?.activeSessions ?? 0,          sub: "live now",     icon: <Radio className="w-4 h-4" />,       color: "text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-500/15",        alert: (m?.activeSessions ?? 0) > 0 },
-            { label: "Failed Logins Today",    value: m?.failedLoginsToday ?? 0,       sub: "since midnight", icon: <XCircle className="w-4 h-4" />,   color: "text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-500/15",        alert: (m?.failedLoginsToday ?? 0) >= 5 },
-            { label: "Successful Logins",      value: m?.successfulLoginsToday ?? 0,   sub: "since midnight", icon: <LogIn className="w-4 h-4" />,     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15", alert: false },
-            { label: "API Errors Today",       value: m?.apiErrorsToday ?? 0,          sub: "since midnight", icon: <Server className="w-4 h-4" />,    color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",    alert: (m?.apiErrorsToday ?? 0) >= 10 },
-            { label: "Proxy Failures",         value: m?.proxyFailuresToday ?? 0,      sub: "since midnight", icon: <Zap className="w-4 h-4" />,       color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  alert: (m?.proxyFailuresToday ?? 0) > 0 },
-            { label: "Session Expirations",    value: m?.sessionExpirationsToday ?? 0, sub: "401 errors today", icon: <ShieldAlert className="w-4 h-4" />, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15", alert: (m?.sessionExpirationsToday ?? 0) >= 20 },
-            { label: "Sessions Started",       value: m?.sessionsStartedToday ?? 0,    sub: "since midnight", icon: <Play className="w-4 h-4" />,      color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",      alert: false },
-            { label: "Sessions Ended",         value: m?.sessionsEndedToday ?? 0,      sub: "since midnight", icon: <LogOut className="w-4 h-4" />,    color: "text-gray-600 bg-gray-100 dark:text-slate-200 dark:bg-white/10",     alert: false },
+            { label: "Active Users",           value: m?.activeUsers ?? 0,             sub: "last 5 min",   icon: <Activity className="w-4 h-4" />,    color: "text-blue-600 bg-blue-50",      alert: false },
+            { label: "Active Sessions",        value: m?.activeSessions ?? 0,          sub: "live now",     icon: <Radio className="w-4 h-4" />,       color: "text-red-600 bg-red-50",        alert: (m?.activeSessions ?? 0) > 0 },
+            { label: "Failed Logins Today",    value: m?.failedLoginsToday ?? 0,       sub: "since midnight", icon: <XCircle className="w-4 h-4" />,   color: "text-red-600 bg-red-50",        alert: (m?.failedLoginsToday ?? 0) >= 5 },
+            { label: "Successful Logins",      value: m?.successfulLoginsToday ?? 0,   sub: "since midnight", icon: <LogIn className="w-4 h-4" />,     color: "text-emerald-600 bg-emerald-50", alert: false },
+            { label: "API Errors Today",       value: m?.apiErrorsToday ?? 0,          sub: "since midnight", icon: <Server className="w-4 h-4" />,    color: "text-amber-600 bg-amber-50",    alert: (m?.apiErrorsToday ?? 0) >= 10 },
+            { label: "Proxy Failures",         value: m?.proxyFailuresToday ?? 0,      sub: "since midnight", icon: <Zap className="w-4 h-4" />,       color: "text-orange-600 bg-orange-50",  alert: (m?.proxyFailuresToday ?? 0) > 0 },
+            { label: "Session Expirations",    value: m?.sessionExpirationsToday ?? 0, sub: "401 errors today", icon: <ShieldAlert className="w-4 h-4" />, color: "text-violet-600 bg-violet-50", alert: (m?.sessionExpirationsToday ?? 0) >= 20 },
+            { label: "Sessions Started",       value: m?.sessionsStartedToday ?? 0,    sub: "since midnight", icon: <Play className="w-4 h-4" />,      color: "text-teal-600 bg-teal-50",      alert: false },
+            { label: "Sessions Ended",         value: m?.sessionsEndedToday ?? 0,      sub: "since midnight", icon: <LogOut className="w-4 h-4" />,    color: "text-gray-600 bg-gray-100",     alert: false },
           ];
 
           function eventIcon(type: SystemEvent["type"]) {
@@ -1595,7 +1396,7 @@ export default function Admin() {
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Platform Health</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                   {metricCards.slice(0, 5).map(({ label, value, sub, icon, color, alert }) => (
-                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-red-100/80 ring-1 ring-red-200 dark:bg-red-500/10 dark:ring-red-500/30" : "bg-card"}`}>
+                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-red-50 ring-1 ring-red-100" : "bg-white"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
                       <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-red-600" : ""}`}>{value}</p>
@@ -1605,7 +1406,7 @@ export default function Admin() {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
                   {metricCards.slice(5).map(({ label, value, sub, icon, color, alert }) => (
-                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-orange-100/80 ring-1 ring-orange-200 dark:bg-orange-500/10 dark:ring-orange-500/30" : "bg-card"}`}>
+                    <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-orange-50 ring-1 ring-orange-100" : "bg-white"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
                       <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-orange-600" : ""}`}>{value}</p>
@@ -1626,7 +1427,7 @@ export default function Admin() {
                       <button
                         key={opt.value}
                         onClick={() => setEventTypeFilter(opt.value)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${eventTypeFilter === opt.value ? "bg-primary text-white" : "bg-card border border-border text-muted-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${eventTypeFilter === opt.value ? "bg-primary text-white" : "bg-white border border-border text-muted-foreground hover:bg-gray-50"}`}
                       >
                         {opt.label}
                       </button>
@@ -1634,7 +1435,7 @@ export default function Admin() {
                   </div>
                 </div>
 
-                <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+                <Card className="border-none shadow-sm bg-white overflow-hidden">
                   {filtered.length === 0 ? (
                     <div className="py-14 text-center text-muted-foreground text-sm">
                       <Monitor className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -1643,7 +1444,7 @@ export default function Admin() {
                   ) : (
                     <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
                       {filtered.map(ev => (
-                        <div key={ev.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/40 dark:hover:bg-white/[0.05]/60 transition-colors">
+                        <div key={ev.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50/60 transition-colors">
                           {/* Timeline dot */}
                           <div className="flex flex-col items-center flex-shrink-0 pt-0.5">
                             <div className={`w-2 h-2 rounded-full mt-0.5 ${eventDot(ev.type)}`} />
@@ -1657,10 +1458,10 @@ export default function Admin() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-semibold text-foreground">{ev.title}</span>
                               {ev.type === "login_failure" && (
-                                <span className="text-[10px] bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300 px-1.5 py-0.5 rounded-full font-medium">failure</span>
+                                <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium">failure</span>
                               )}
                               {ev.type === "proxy_failure" && (
-                                <span className="text-[10px] bg-orange-50 text-orange-600 dark:bg-orange-500/12 dark:text-orange-300 px-1.5 py-0.5 rounded-full font-medium">proxy</span>
+                                <span className="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded-full font-medium">proxy</span>
                               )}
                               {ev.type === "api_error" && (
                                 <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-mono">{String(ev.meta.statusCode ?? "")}</span>
@@ -1677,7 +1478,7 @@ export default function Admin() {
                     </div>
                   )}
                   {filtered.length > 0 && (
-                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a] text-[11px] text-muted-foreground flex items-center justify-between">
+                    <div className="px-4 py-2 border-t border-border bg-gray-50 text-[11px] text-muted-foreground flex items-center justify-between">
                       <span>Showing {filtered.length} event{filtered.length !== 1 ? "s" : ""} from the last 24 hours</span>
                       <span className="text-primary font-medium">Auto-refreshes every 15 s</span>
                     </div>
@@ -1693,13 +1494,13 @@ export default function Admin() {
         {mainTab === "users" && (
           <Card className="overflow-hidden border-border shadow-sm">
             {/* Filters + New User */}
-            <div className="p-4 border-b border-border bg-card space-y-3">
+            <div className="p-4 border-b border-border bg-white space-y-3">
               {/* Row 1: plan filter pills + New User button */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap gap-1.5">
                   {(["all", "trial", "paying", "inactive", "high", "dupIp"] as const).map(f => (
                     <button key={f} onClick={() => setUserFilter(f)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : f === "dupIp" && filterCounts.dupIp > 0 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/60 dark:bg-amber-500/15 dark:text-amber-200 dark:ring-amber-500/30" : "bg-gray-100 text-muted-foreground hover:bg-gray-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/15"}`}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : f === "dupIp" && filterCounts.dupIp > 0 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/60" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}
                     >
                       {f === "all"      && `All (${filterCounts.all})`}
                       {f === "trial"    && `Trial (${filterCounts.trial})`}
@@ -1724,7 +1525,7 @@ export default function Admin() {
                     value={userSearch}
                     onChange={e => setUserSearch(e.target.value)}
                     placeholder="Search email or username…"
-                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border dark:border-white/[0.12] bg-card text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-full h-8 pl-3 pr-7 rounded-lg border border-border bg-white text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
                   />
                   {userSearch && (
                     <button onClick={() => setUserSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -1737,7 +1538,7 @@ export default function Admin() {
                 <select
                   value={lastSeenFilter}
                   onChange={e => setLastSeenFilter(e.target.value)}
-                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${lastSeenFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-card text-muted-foreground"}`}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${lastSeenFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
                 >
                   <option value="">Last Seen: Any</option>
                   <option value="5min">Active (5 min)</option>
@@ -1751,7 +1552,7 @@ export default function Admin() {
                 <select
                   value={newUsersFilter}
                   onChange={e => setNewUsersFilter(e.target.value)}
-                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${newUsersFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-card text-muted-foreground"}`}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${newUsersFilter ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
                 >
                   <option value="">Joined: Any</option>
                   <option value="today">Joined Today</option>
@@ -1764,7 +1565,7 @@ export default function Admin() {
                 <select
                   value={sortBy}
                   onChange={e => setSortBy(e.target.value as typeof sortBy)}
-                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${sortBy ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-card text-muted-foreground"}`}
+                  className={`h-8 px-2 rounded-lg border text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 ${sortBy ? "border-primary/50 bg-primary/5 text-primary font-semibold" : "border-border bg-white text-muted-foreground"}`}
                 >
                   <option value="">Sort: Default</option>
                   <option value="lastSeen">Sort: Last Seen</option>
@@ -1776,7 +1577,7 @@ export default function Admin() {
 
                 <button
                   onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}
-                  className="h-8 px-2.5 rounded-lg border border-border bg-card text-xs text-muted-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05] font-mono"
+                  className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:bg-gray-50 font-mono"
                   title={sortDir === "desc" ? "Descending — click to flip" : "Ascending — click to flip"}
                 >
                   {sortDir === "desc" ? "↓" : "↑"}
@@ -1786,7 +1587,7 @@ export default function Admin() {
                 {(userSearch || lastSeenFilter || newUsersFilter || sortBy || userFilter !== "all") && (
                   <button
                     onClick={() => { setUserSearch(""); setLastSeenFilter(""); setNewUsersFilter(""); setSortBy("lastSeen"); setUserFilter("all"); }}
-                    className="h-8 px-2.5 rounded-lg border border-border bg-card text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
+                    className="h-8 px-2.5 rounded-lg border border-border bg-white text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
                   >
                     Reset
                   </button>
@@ -1807,7 +1608,7 @@ export default function Admin() {
                   type="button"
                   disabled={bumpDailyFloorPending}
                   onClick={() => bumpAllUsersDailyFloor(360)}
-                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                  className="h-7 px-2.5 rounded-lg border border-border bg-white text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
                 >
                   Floor ≥ 6h
                 </button>
@@ -1815,54 +1616,79 @@ export default function Admin() {
                   type="button"
                   disabled={bumpDailyFloorPending}
                   onClick={() => bumpAllUsersDailyFloor(480)}
-                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                  className="h-7 px-2.5 rounded-lg border border-border bg-white text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
                 >
                   Floor ≥ 8h
                 </button>
               </div>
 
               {sharedLoginIpIndex.length > 0 && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs text-blue-900">
-                  Shared-IP review moved to <strong>IP Watch</strong> tab ({sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}).
-                </div>
-              )}
-
-              {paidBillingRollup && (
-                <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 space-y-1">
-                  <p className="font-semibold text-[11px] uppercase tracking-wide text-emerald-900/90">
-                    Paid users — billing window (admin only)
-                  </p>
-                  <p className="text-[11px] leading-snug text-emerald-900/85">
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.paidUsersInRollup}</span> paying accounts with a window ·{" "}
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalEligibleHoursThisPeriod} h</span> total eligible this period
-                    (full daily cap each day) ·{" "}
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalHoursUsedThisPeriod} h</span> used so far ·{" "}
-                    <span className="font-semibold tabular-nums">{paidBillingRollup.totalProjectedHoursAtPeriodEnd} h</span> projected at renewal
-                    (pace extrapolation, capped at eligible).
-                  </p>
-                  <p className="text-[10px] text-emerald-900/70 leading-snug">
-                    Window uses <code className="font-mono bg-card/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
-                    <code className="font-mono bg-card/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
-                  </p>
+                <div className="rounded-xl border border-amber-200/90 bg-amber-50/60 px-3 py-2.5 text-xs space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-amber-950">
+                      Same IP, multiple accounts ({sharedLoginIpIndex.length} IP{sharedLoginIpIndex.length !== 1 ? "s" : ""})
+                    </span>
+                    <span className="text-[10px] text-amber-900/75">
+                      From successful sign-ins only; updates whenever this list reloads
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-0.5">
+                    {sharedLoginIpIndex.map((c) => {
+                      const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
+                      return (
+                        <div
+                          key={c.ip}
+                          className="rounded-lg border border-amber-100/90 bg-white px-2.5 py-2 space-y-1.5 shadow-sm"
+                          style={{
+                            borderLeftWidth: 3,
+                            borderLeftStyle: "solid",
+                            borderLeftColor: `hsl(${accent.hue} 56% 44%)`,
+                          }}
+                        >
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <code className="text-[10px] font-mono bg-amber-50/80 px-1 py-0.5 rounded">{c.ip}</code>
+                            <span className="text-[10px] font-bold text-amber-950">Tag {accent.label}</span>
+                            <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {c.accounts.map((a) => (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className="text-[10px] font-medium px-1.5 py-0.5 rounded-md border border-amber-200/80 bg-amber-50/50 hover:bg-amber-100 text-foreground"
+                                title={a.email ? `${a.email}` : `User #${a.id}`}
+                                onClick={() => {
+                                  const peer = allUsers.find((x) => x.id === a.id);
+                                  if (peer) openEditUser(peer);
+                                }}
+                              >
+                                #{a.id} {a.username}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Create form */}
             {showCreate && (
-              <div className="p-5 bg-gray-50 dark:bg-[#131d2a] border-b border-border dark:border-white/[0.08]">
+              <div className="p-5 bg-gray-50 border-b border-border">
                 <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Username</label>
-                    <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} required className="h-9 bg-card" />
+                    <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} required className="h-9 bg-white" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Password</label>
-                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="h-9 bg-card" />
+                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="h-9 bg-white" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Daily Limit (min)</label>
-                    <Input type="number" value={newLimit} onChange={e => setNewLimit(Number(e.target.value))} required min={1} className="h-9 bg-card" />
+                    <Input type="number" value={newLimit} onChange={e => setNewLimit(Number(e.target.value))} required min={1} className="h-9 bg-white" />
                   </div>
                   <div className="flex items-center gap-2 pb-1">
                     <input type="checkbox" id="isAdmin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} className="w-4 h-4 rounded" />
@@ -1874,25 +1700,16 @@ export default function Admin() {
             )}
 
             {/* Table */}
-            <div className="overflow-x-auto bg-card">
-              <table className="w-full text-sm text-left min-w-[1180px]">
-                <thead className="bg-gray-50/80 dark:bg-[#131d2a] text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border dark:border-white/[0.08]">
+            <div className="overflow-x-auto bg-white">
+              <table className="w-full text-sm text-left min-w-[960px]">
+                <thead className="bg-gray-50/80 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
                   <tr>
                     <th className="px-4 py-3 font-semibold">User</th>
-                    <th className="px-4 py-3 font-semibold">Risk</th>
+                    <th className="px-4 py-3 font-semibold">Shared IP</th>
                     <th className="px-4 py-3 font-semibold">Session</th>
                     <th className="px-4 py-3 font-semibold">Account</th>
                     <th className="px-4 py-3 font-semibold">Plan</th>
                     <th className="px-4 py-3 font-semibold">Today</th>
-                    <th className="px-4 py-3 font-semibold text-right" title="Paid: max hours if full daily cap every day in current subscription window (admin only).">
-                      Period cap (h)
-                    </th>
-                    <th className="px-4 py-3 font-semibold text-right" title="Paid: billable hours used in that window (sessions started in window; admin only).">
-                      Window used (h)
-                    </th>
-                    <th className="px-4 py-3 font-semibold text-right" title="Paid: linear projection to window end, capped at period cap (admin only).">
-                      Proj. (h)
-                    </th>
                     <th className="px-4 py-3 font-semibold">Total</th>
                     <th className="px-4 py-3 font-semibold">Last Seen</th>
                     <th className="px-4 py-3 font-semibold text-right">Actions</th>
@@ -1910,7 +1727,7 @@ export default function Admin() {
                     return (
                       <tr
                         key={u.id}
-                        className={`hover:bg-blue-50/30 dark:hover:bg-sky-500/8 transition-colors cursor-pointer ${dupAccent ? "bg-amber-50/25 dark:bg-amber-500/8" : ""}`}
+                        className={`hover:bg-blue-50/30 transition-colors cursor-pointer ${dupAccent ? "bg-amber-50/25" : ""}`}
                         style={
                           dupAccent
                             ? {
@@ -1937,13 +1754,54 @@ export default function Admin() {
 
                         <td className="px-4 py-3 align-top text-xs" onClick={(e) => e.stopPropagation()}>
                           {(u.sharedLoginIpMaxAccounts ?? 1) >= 2 ? (
-                            <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
-                                Shared IP ({u.sharedLoginIpMaxAccounts})
+                            <div className="space-y-2 max-w-[240px]">
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900"
+                                title="Largest count of distinct accounts sharing one login IP with this user"
+                              >
+                                Up to {u.sharedLoginIpMaxAccounts} accounts / one IP
                               </span>
-                              {firstCluster?.ip && (
-                                <code className="text-[9px] font-mono text-muted-foreground break-all">{firstCluster.ip}</code>
-                              )}
+                              {clusters.map((c) => {
+                                const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
+                                return (
+                                  <div
+                                    key={c.ip}
+                                    className="rounded-md border border-amber-100 bg-white/80 px-2 py-1.5 space-y-1"
+                                    style={{
+                                      borderLeftWidth: 3,
+                                      borderLeftStyle: "solid",
+                                      borderLeftColor: `hsl(${accent.hue} 56% 44%)`,
+                                    }}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      <code className="text-[9px] font-mono text-foreground/90 break-all">{c.ip}</code>
+                                      <span className="text-[9px] font-bold text-amber-950 shrink-0">Tag {accent.label}</span>
+                                </div>
+                                    <div className="text-[9px] text-muted-foreground">{c.accountCount} accounts on this IP</div>
+                                    <div className="flex flex-wrap gap-0.5">
+                                      {c.accounts.map((a) => (
+                                        <button
+                                          key={a.id}
+                                          type="button"
+                                          className={`text-[9px] font-medium px-1 py-0.5 rounded border transition-colors ${
+                                            a.id === u.id
+                                              ? "border-primary bg-primary/10 text-primary"
+                                              : "border-amber-200/90 bg-amber-50/60 hover:bg-amber-100 text-foreground"
+                                          }`}
+                                          title={a.email ?? `User #${a.id}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const peer = allUsers.find((x) => x.id === a.id);
+                                            if (peer) openEditUser(peer);
+                                          }}
+                                        >
+                                          #{a.id} {a.username}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-[11px]">—</span>
@@ -1952,12 +1810,12 @@ export default function Admin() {
 
                         {/* Session Status — uses fast-polling live data when available */}
                         <td className="px-4 py-3">
-                          {sessionStatusBadge(u.id, u.lastActivityAt, sessions)}
+                          {sessionStatusBadge(u.id, u.lastActivityAt, liveSessionsData?.activeSessions ?? sessions)}
                         </td>
 
                         {/* Account Status */}
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${u.isActive ? "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300" : "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300"}`}>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${u.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-green-500" : "bg-red-500"}`} />
                             {u.isActive ? "Active" : "Disabled"}
                           </span>
@@ -1966,9 +1824,6 @@ export default function Admin() {
                         {/* Plan */}
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
-                            <code className="text-[10px] font-mono text-foreground bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded self-start">
-                              {u.planType}
-                            </code>
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
                             {isTrialLikePlanType(u.planType) && u.trialEndsAt && (
                               <span className="text-[10px] text-muted-foreground whitespace-nowrap">
@@ -2037,7 +1892,7 @@ export default function Admin() {
                         {/* Today */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-14 h-1.5 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
+                            <div className="w-14 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                               <div className="h-full bg-primary rounded-full" style={{ width: `${todayPct}%` }} />
                             </div>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -2046,33 +1901,10 @@ export default function Admin() {
                           </div>
                         </td>
 
-                        {/* Paid billing window — admin API only */}
-                        <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
-                          {u.paidBillingEligibleHours != null ? (
-                            <span title="Eligible hours this subscription window (daily cap × days).">{u.paidBillingEligibleHours}</span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
-                          {u.paidBillingHoursUsedInPeriod != null ? (
-                            <span title="Hours from sessions started inside the window.">{u.paidBillingHoursUsedInPeriod}</span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-right tabular-nums text-muted-foreground">
-                          {u.paidBillingProjectedHoursAtPeriodEnd != null ? (
-                            <span title="Projected at period end from current pace (capped).">{u.paidBillingProjectedHoursAtPeriodEnd}</span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-
                         {/* Total */}
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatMinutes(u.totalMinutesUsed)}
-                          <span className="text-muted-foreground/70 text-[10px]"> ({u.totalSessions} sess)</span>
+                          <span className="text-gray-400 text-[10px]"> ({u.totalSessions} sess)</span>
                           {u.totalShares > 0 && (
                             <span className="ml-1.5 text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold" title="Total shares">
                               {u.totalShares} shares
@@ -2108,7 +1940,7 @@ export default function Admin() {
                   })}
                   {filteredUsers.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                      <td colSpan={9} className="px-6 py-12 text-center text-muted-foreground bg-white">
                         No users match this filter.
                       </td>
                     </tr>
@@ -2116,81 +1948,19 @@ export default function Admin() {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 bg-gray-50/50 dark:bg-[#131d2a] border-t border-border dark:border-white/[0.08] text-[11px] text-muted-foreground space-y-0.5">
+            <div className="px-4 py-2 bg-gray-50/50 border-t border-border text-[11px] text-muted-foreground space-y-0.5">
               <div>Click a row to view session history.</div>
               <div>
-                <strong className="text-foreground">Risk</strong> is a compact shared-IP indicator only; full account/IP mapping and disable actions are in <strong className="text-foreground">IP Watch</strong>.
+                <strong className="text-foreground">Shared IP</strong> uses successful sign-in IPs only. Each row lists the IP, a matching <strong className="text-foreground">Tag</strong> (same color and tag = same group of accounts), and every account on that IP—click a name to open the user editor and disable accounts. The summary panel above deduplicates by IP. VPNs and offices can look like duplicates.
               </div>
             </div>
-          </Card>
-        )}
-
-        {/* ── IP WATCH TAB ─────────────────────────────────────────────────── */}
-        {mainTab === "ipWatch" && (
-          <Card className="overflow-hidden border-border shadow-sm bg-card">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold">Shared IP Watch</h3>
-                <p className="text-xs text-muted-foreground">
-                  Successful login IPs used by 2+ accounts. Auto-refreshes every 10s while this tab is open.
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {sharedIpStats.accountsInSharedIps} users across {sharedIpStats.flaggedIps} shared IPs
-                  ({sharedIpStats.totalMemberships} total account memberships)
-                </p>
-              </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30">
-                {sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-            {sharedLoginIpIndex.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No shared-IP clusters detected.</div>
-            ) : (
-              <div className="divide-y divide-border max-h-[70vh] overflow-y-auto">
-                {sharedLoginIpIndex.map((c) => {
-                  const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
-                  return (
-                    <div
-                      key={c.ip}
-                      className="px-4 py-3"
-                      style={{ borderLeft: `4px solid hsl(${accent.hue} 56% 44%)` }}
-                    >
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <code className="text-xs font-mono bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/30">{c.ip}</code>
-                        <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">Tag {accent.label}</span>
-                        <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
-                        {usersRefreshing && (
-                          <span className="text-[10px] text-primary/90">Updating…</span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {c.accounts.map((a) => (
-                          <button
-                            key={a.id}
-                            type="button"
-                            className="text-[11px] font-medium px-2 py-0.5 rounded border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-500/20"
-                            title={a.email ?? `User #${a.id}`}
-                            onClick={() => {
-                              const peer = allUsers.find((x) => x.id === a.id);
-                              if (peer) openEditUser(peer);
-                            }}
-                          >
-                            #{a.id} {a.username}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </Card>
         )}
 
         {/* ── LANGUAGES TAB ────────────────────────────────────────────────── */}
         {mainTab === "languages" && (
           <div className="space-y-5">
-            <Card className="p-6 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+            <Card className="p-6 border-none shadow-sm bg-white">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-semibold text-base">Enabled Languages</h3>
@@ -2202,13 +1972,13 @@ export default function Admin() {
               </div>
 
               {/* Default pair selectors */}
-              <div className="mb-5 p-4 bg-gray-50 dark:bg-[#131d2a] rounded-xl flex flex-wrap gap-4">
+              <div className="mb-5 p-4 bg-gray-50 rounded-xl flex flex-wrap gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Default Language A</label>
                   <select
                     value={defaultLangA}
                     onChange={e => setDefaultLangA(e.target.value)}
-                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {(langConfigData?.allLanguages ?? []).filter(l => enabledLangs.has(l.value)).map(l => (
                       <option key={l.value} value={l.value}>{l.label}</option>
@@ -2220,7 +1990,7 @@ export default function Admin() {
                   <select
                     value={defaultLangB}
                     onChange={e => setDefaultLangB(e.target.value)}
-                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-card focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="text-sm border border-border rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {(langConfigData?.allLanguages ?? []).filter(l => enabledLangs.has(l.value) && l.value !== defaultLangA).map(l => (
                       <option key={l.value} value={l.value}>{l.label}</option>
@@ -2252,7 +2022,7 @@ export default function Admin() {
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-left text-sm transition-all ${
                         enabled
                           ? "border-primary/30 bg-primary/5 text-foreground"
-                          : "border-border bg-card text-muted-foreground hover:border-gray-300"
+                          : "border-border bg-white text-muted-foreground hover:border-gray-300"
                       } ${isDefault ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:shadow-sm"}`}
                     >
                       <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${enabled ? "bg-primary border-primary" : "border-gray-300"}`}>
@@ -2275,7 +2045,7 @@ export default function Admin() {
         {mainTab === "feedback" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {feedback.map(item => (
-              <Card key={item.id} className="p-5 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+              <Card key={item.id} className="p-5 border-none shadow-sm bg-white">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h3 className="font-semibold text-sm">{item.username}</h3>
@@ -2293,9 +2063,9 @@ export default function Admin() {
                 {item.recommend && (
                   <div className="mb-2.5">
                     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                      item.recommend === "yes"   ? "bg-green-50 text-green-700 border-green-100 dark:bg-green-500/12 dark:text-green-300 dark:border-green-500/30" :
-                      item.recommend === "no"    ? "bg-red-50 text-red-700 border-red-100 dark:bg-red-500/12 dark:text-red-300 dark:border-red-500/30" :
-                                                   "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-500/12 dark:text-amber-300 dark:border-amber-500/30"
+                      item.recommend === "yes"   ? "bg-green-50 text-green-700 border-green-100" :
+                      item.recommend === "no"    ? "bg-red-50 text-red-700 border-red-100" :
+                                                   "bg-amber-50 text-amber-700 border-amber-100"
                     }`}>
                       {item.recommend === "yes" ? "👍 Would recommend" : item.recommend === "no" ? "👎 Wouldn't recommend" : "🤔 Not sure"}
                     </span>
@@ -2316,7 +2086,7 @@ export default function Admin() {
               </Card>
             ))}
             {feedback.length === 0 && (
-              <div className="col-span-full py-16 text-center text-muted-foreground border border-dashed border-border rounded-2xl bg-card">
+              <div className="col-span-full py-16 text-center text-muted-foreground border border-dashed border-border rounded-2xl bg-white">
                 No feedback received yet.
               </div>
             )}
@@ -2327,20 +2097,20 @@ export default function Admin() {
         {mainTab === "referrals" && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+              <Card className="p-4 border-none shadow-sm bg-white">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total referrals</p>
                 <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalReferrals ?? 0}</p>
               </Card>
-              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+              <Card className="p-4 border-none shadow-sm bg-white">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Active referrals</p>
                 <p className="text-2xl font-bold mt-1 text-green-700">{referralsAdminData?.totals.activeReferrals ?? 0}</p>
               </Card>
-              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+              <Card className="p-4 border-none shadow-sm bg-white">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pending referrals</p>
                 <p className="text-2xl font-bold mt-1 text-amber-700">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
               </Card>
             </div>
-            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+            <Card className="border-none shadow-sm bg-white overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="font-semibold text-base">Referral tracking</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -2407,7 +2177,7 @@ export default function Admin() {
         {/* ── SUPPORT TAB ──────────────────────────────────────────────────── */}
         {mainTab === "support" && (
           <div className="space-y-4">
-            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+            <Card className="border-none shadow-sm bg-white overflow-hidden">
               {/* Support header */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border">
                 <div className="flex items-center gap-3">
@@ -2425,7 +2195,7 @@ export default function Admin() {
                   {/* Filter chips */}
                   {(["all", "open", "resolved"] as const).map(f => (
                     <button key={f} onClick={() => setSupportFilter(f)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/15"}`}>
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}>
                       {f}
                     </button>
                   ))}
@@ -2452,12 +2222,12 @@ export default function Admin() {
                       <div key={ticket.id}>
                         {/* Ticket row */}
                         <button
-                          className="w-full px-6 py-4 text-left hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors flex items-start gap-3"
+                          className="w-full px-6 py-4 text-left hover:bg-gray-50 transition-colors flex items-start gap-3"
                           onClick={() => { setReplyText(""); void toggleTicketExpand(ticket.id); }}
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded">#{ticket.id}</span>
+                              <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 px-1.5 py-0.5 rounded">#{ticket.id}</span>
                               {ticket.status === "resolved" ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 px-2 py-0.5 rounded-full">
                                   <CheckCircle className="w-2.5 h-2.5" /> Resolved
@@ -2505,13 +2275,13 @@ export default function Admin() {
 
                         {/* Expanded thread */}
                         {expandedTicket === ticket.id && (
-                          <div className="bg-gray-50 dark:bg-[#0f1722] border-t border-border dark:border-white/[0.08] px-6 py-4 space-y-4">
+                          <div className="bg-gray-50 border-t border-border px-6 py-4 space-y-4">
                             {detailLoading ? (
                               <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" /></div>
                             ) : ticketDetail && (
                               <>
                                 {/* Original message */}
-                                <div className="bg-card dark:bg-[#162233] rounded-xl border border-border dark:border-white/[0.08] p-4">
+                                <div className="bg-white rounded-xl border border-border p-4">
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                     <span>{ticket.username ? `@${ticket.username}` : ticket.email}</span>
                                     <span className="normal-case font-normal">{format(new Date(ticket.createdAt), "MMM d, yyyy HH:mm")}</span>
@@ -2522,7 +2292,7 @@ export default function Admin() {
 
                                 {/* Thread replies */}
                                 {ticketDetail.replies.map(reply => (
-                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 dark:bg-sky-500/10 dark:border-sky-400/25 ml-6" : "bg-card dark:bg-[#162233] border-border dark:border-white/[0.08]"}`}>
+                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 ml-6" : "bg-white border-border"}`}>
                                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                       {reply.isAdmin ? (
                                         <><span className="w-2 h-2 rounded-full bg-primary inline-block" /><span className="text-primary">Support Team</span></>
@@ -2543,7 +2313,7 @@ export default function Admin() {
                                     onChange={e => setReplyText(e.target.value)}
                                     rows={3}
                                     placeholder="Type your reply..."
-                                    className="w-full text-sm text-foreground dark:text-slate-100 rounded-xl border border-border dark:border-white/10 bg-card dark:bg-[#162233] px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                                    className="w-full text-sm rounded-xl border border-border bg-white px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                                   />
                                   <div className="flex items-center gap-2">
                                     <Button
@@ -2575,13 +2345,13 @@ export default function Admin() {
         {mainTab === "errors" && (
           <div className="space-y-5">
             {/* Sub-tab toggle */}
-            <div className="flex items-center gap-1 bg-card rounded-xl p-1 border border-border shadow-sm w-fit">
+            <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm w-fit">
               {[
                 { id: "api" as const,   label: "API Errors" },
                 { id: "login" as const, label: "Login Events" },
               ].map(t => (
                 <button key={t.id} onClick={() => setErrorsSubTab(t.id)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${errorsSubTab === t.id ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}>
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${errorsSubTab === t.id ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}>
                   {t.label}
                 </button>
               ))}
@@ -2594,9 +2364,9 @@ export default function Admin() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
                     { label: "Total logins (24h)", value: loginEventsSummary?.total24h ?? "—",    color: "bg-blue-50 text-blue-700",   icon: <Activity className="w-4 h-4" /> },
-                    { label: "Successful",          value: loginEventsSummary?.success24h ?? "—",  color: "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300", icon: <CheckCircle className="w-4 h-4" /> },
-                    { label: "Failed",              value: loginEventsSummary?.failures24h ?? "—", color: "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300",     icon: <AlertTriangle className="w-4 h-4" /> },
-                    { label: "2FA verified",        value: loginEventsSummary?.twoFa24h ?? "—",    color: "bg-violet-50 text-violet-700 dark:bg-violet-500/12 dark:text-violet-300", icon: <Lock className="w-4 h-4" /> },
+                    { label: "Successful",          value: loginEventsSummary?.success24h ?? "—",  color: "bg-green-50 text-green-700", icon: <CheckCircle className="w-4 h-4" /> },
+                    { label: "Failed",              value: loginEventsSummary?.failures24h ?? "—", color: "bg-red-50 text-red-700",     icon: <AlertTriangle className="w-4 h-4" /> },
+                    { label: "2FA verified",        value: loginEventsSummary?.twoFa24h ?? "—",    color: "bg-violet-50 text-violet-700", icon: <Lock className="w-4 h-4" /> },
                   ].map(c => (
                     <Card key={c.label} className="p-4 flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.color}`}>{c.icon}</div>
@@ -2610,10 +2380,10 @@ export default function Admin() {
 
                 {/* Login filter + refresh */}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-1 bg-card rounded-xl p-1 border border-border shadow-sm">
+                  <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm">
                     {["all", "success", "failure", "2fa"].map(f => (
                       <button key={f} onClick={() => setLoginEventFilter(f)}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${loginEventFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}>
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${loginEventFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}>
                         {f === "all" ? "All" : f === "2fa" ? "2FA" : f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
                     ))}
@@ -2636,7 +2406,7 @@ export default function Admin() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
+                          <tr className="border-b border-border bg-gray-50">
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Result</th>
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">User</th>
@@ -2648,7 +2418,7 @@ export default function Admin() {
                         </thead>
                         <tbody className="divide-y divide-border">
                           {loginEventsData.events.map(e => (
-                            <tr key={e.id} className="hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors">
+                            <tr key={e.id} className="hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
                                 {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
                               </td>
@@ -2681,7 +2451,7 @@ export default function Admin() {
                     </div>
                   )}
                   {loginEventsData?.events?.length ? (
-                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
+                    <div className="px-4 py-2 border-t border-border bg-gray-50">
                       <p className="text-[11px] text-muted-foreground">
                         Showing {loginEventsData.events.length} most recent events · auto-refreshes every 30s
                       </p>
@@ -2699,7 +2469,7 @@ export default function Admin() {
                         return (
                           <div key={r.reason ?? "unknown"} className="flex items-center gap-3">
                             <span className="w-36 text-xs capitalize text-foreground">{(r.reason ?? "unknown").replace(/_/g, " ")}</span>
-                            <div className="flex-1 h-2 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
+                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                               <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                             <span className="text-xs font-semibold text-foreground w-6 text-right">{r.count}</span>
@@ -2718,10 +2488,10 @@ export default function Admin() {
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Total (24h)",      value: errorsSummary?.total24h ?? "—",        color: "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300",    icon: <AlertTriangle className="w-4 h-4" /> },
-                { label: "Login Failures",   value: errorsSummary?.loginFailures24h ?? "—", color: "bg-amber-50 text-amber-700 dark:bg-amber-500/12 dark:text-amber-300", icon: <Lock className="w-4 h-4" /> },
-                { label: "Rate Limited",     value: errorsSummary?.rateLimited24h ?? "—",   color: "bg-violet-50 text-violet-700 dark:bg-violet-500/12 dark:text-violet-300", icon: <StopCircle className="w-4 h-4" /> },
-                { label: "Server Errors",    value: errorsSummary?.serverErrors24h ?? "—",  color: "bg-orange-50 text-orange-700 dark:bg-orange-500/12 dark:text-orange-300", icon: <Activity className="w-4 h-4" /> },
+                { label: "Total (24h)",      value: errorsSummary?.total24h ?? "—",        color: "bg-red-50 text-red-700",    icon: <AlertTriangle className="w-4 h-4" /> },
+                { label: "Login Failures",   value: errorsSummary?.loginFailures24h ?? "—", color: "bg-amber-50 text-amber-700", icon: <Lock className="w-4 h-4" /> },
+                { label: "Rate Limited",     value: errorsSummary?.rateLimited24h ?? "—",   color: "bg-violet-50 text-violet-700", icon: <StopCircle className="w-4 h-4" /> },
+                { label: "Server Errors",    value: errorsSummary?.serverErrors24h ?? "—",  color: "bg-orange-50 text-orange-700", icon: <Activity className="w-4 h-4" /> },
               ].map(c => (
                 <Card key={c.label} className="p-4 flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.color}`}>{c.icon}</div>
@@ -2735,12 +2505,12 @@ export default function Admin() {
 
             {/* Filter + refresh */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-1 bg-card rounded-xl p-1 border border-border shadow-sm">
+              <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-border shadow-sm">
                 {["all", "login_failure", "session_expired", "rate_limited", "server_error", "proxy_error", "auth_error"].map(t => (
                   <button
                     key={t}
                     onClick={() => setErrorTypeFilter(t)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${errorTypeFilter === t ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted/40 dark:hover:bg-white/[0.05]"}`}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${errorTypeFilter === t ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground hover:bg-gray-50"}`}
                   >
                     {t === "all" ? "All" : t.replace(/_/g, " ")}
                   </button>
@@ -2765,7 +2535,7 @@ export default function Admin() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
+                      <tr className="border-b border-border bg-gray-50">
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Type</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Endpoint</th>
@@ -2777,7 +2547,7 @@ export default function Admin() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {errorsData.errors.map(e => (
-                        <tr key={e.id} className="hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors">
+                        <tr key={e.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">
                             {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
                           </td>
@@ -2862,7 +2632,7 @@ export default function Admin() {
       {/* ── VIEW SESSION MODAL ───────────────────────────────────────────── */}
       {viewingSessionId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setViewingSessionId(null)}>
-          <div className="bg-card rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Modal header */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-0 justify-between p-4 sm:p-5 border-b border-border">
               <div className="flex items-center gap-3 min-w-0">
@@ -2917,77 +2687,74 @@ export default function Admin() {
               </div>
             ) : null}
 
-            {/* One <tr> per stable finalized pair: source column = lang A, translation column = lang B. */}
-            <div className="flex-1 overflow-y-auto min-h-0">
+            {/* One table row per finalized segment (paired buffers from client — matches user workspace lines). */}
+            <div className="flex-1 overflow-y-auto">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally one segment delayed to avoid duplicate/blank artifacts.
+                  One row per finalized segment. Translations are pushed from the user session snapshot; rows are aligned by segment index so delayed API responses still appear here after refresh.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
                 {viewLoading ? (
                   <div className="text-sm text-muted-foreground italic">Loading…</div>
-                ) : sessionDetail?.snapshot &&
-                  (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
+                ) : sessionDetail?.snapshot?.transcript ? (
                   (() => {
-                    const snap = sessionDetail.snapshot;
-                    const stableRows = buildStableSnapshotRows(snap, Boolean(sessionDetail?.isLive));
-                    if (stableRows.length === 0) {
-                      return (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                          Waiting for stable aligned segment pairs (source + translation). Live monitor intentionally hides the newest in-flight row.
-                        </div>
-                      );
+                    const tLines = sessionDetail.snapshot.transcript.split("\n");
+                    const trLines = (sessionDetail.snapshot.translation ?? "").split("\n");
+                    const n = Math.max(tLines.length, trLines.length);
+                    /** Avoid showing a prior line's translation again when the transcript line changed (stale snapshot). */
+                    function translationCell(
+                      i: number,
+                    ): { kind: "ok"; text: string } | { kind: "empty" } | { kind: "dup"; text: string } {
+                      const raw = (trLines[i] ?? "").trim();
+                      const tCur = (tLines[i] ?? "").trim();
+                      const tPrev = i > 0 ? (tLines[i - 1] ?? "").trim() : "";
+                      const prevTr = i > 0 ? (trLines[i - 1] ?? "").trim() : "";
+                      if (!raw) return { kind: "empty" };
+                      if (i > 0 && raw === prevTr && tCur && tCur !== tPrev) {
+                        return { kind: "dup", text: trLines[i] ?? "" };
+                      }
+                      return { kind: "ok", text: trLines[i] ?? "" };
                     }
-                    const n = stableRows.length;
-                    const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
-                    const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
                     return (
-                      <div className="rounded-lg border border-border overflow-hidden bg-card">
-                        <table className="w-full text-sm border-collapse table-fixed">
-                          <colgroup>
-                            <col className="w-11" />
-                            <col className="w-[50%]" />
-                            <col className="w-[50%]" />
-                          </colgroup>
-                          <thead>
-                            <tr className="bg-muted/50 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                              <th className="px-1.5 py-2.5 text-center font-mono text-[9px] border-r border-border">#</th>
-                              <th className="px-3 py-2.5 text-left border-r border-border align-bottom">
-                                <span className="normal-case tracking-normal text-foreground">Original · {srcHead}</span>
-                                <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
-                                  {snap.langA}
+                      <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
+                        <div className="grid grid-cols-2 gap-0 bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          <div className="px-3 py-2 border-r border-border">Transcript</div>
+                          <div className="px-3 py-2">Translation</div>
+                        </div>
+                        {Array.from({ length: n }, (_, i) => {
+                          const trCell = translationCell(i);
+                          const tCur = (tLines[i] ?? "").trim();
+                          return (
+                          <div
+                            key={i}
+                            className="grid grid-cols-2 gap-0 items-start bg-white hover:bg-muted/10"
+                          >
+                            <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 border-r border-border min-h-[2.5rem]">
+                              {tCur ? tLines[i] : "—"}
+                            </div>
+                            <div
+                              className="text-sm text-foreground leading-relaxed whitespace-pre-wrap px-3 py-2.5 min-h-[2.5rem]"
+                              dir="auto"
+                            >
+                              {trCell.kind === "ok" ? (
+                                trCell.text
+                              ) : trCell.kind === "dup" ? (
+                                <span className="leading-relaxed">
+                                  {trCell.text}
+                                  <span className="block text-[10px] text-muted-foreground not-italic mt-1">
+                                    Admin: same string as the row above (user UI may hide repeat); text kept visible here.
+                                  </span>
                                 </span>
-                              </th>
-                              <th className="px-3 py-2.5 text-left align-bottom">
-                                <span className="normal-case tracking-normal text-foreground">Translation · {trHead}</span>
-                                <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
-                                  {snap.langB}
+                              ) : (
+                                <span className="text-muted-foreground italic text-xs leading-relaxed">
+                                  {tCur ? "— Translation not in last snapshot yet (wait for auto-refresh)" : "—"}
                                 </span>
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {Array.from({ length: n }, (_, i) => {
-                              const srcLine = stableRows[i]?.src ?? "";
-                              const tgtLine = stableRows[i]?.tgt ?? "";
-                              const rowIndex = stableRows[i]?.idx ?? i + 1;
-                              return (
-                                <tr key={i} className="hover:bg-muted/15 align-top">
-                                  <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
-                                    {rowIndex}
-                                  </td>
-                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
-                                    {srcLine}
-                                  </td>
-                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap align-top" dir="auto">
-                                    {tgtLine}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                              )}
+                            </div>
+                          </div>
+                          );
+                        })}
                       </div>
                     );
                   })()
@@ -3029,7 +2796,7 @@ export default function Admin() {
           {/* Backdrop */}
           <div className="flex-1 bg-black/20 backdrop-blur-sm" />
           {/* Panel */}
-          <div className="w-full max-w-[520px] bg-card h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-[520px] bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Drawer header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div className="flex items-center gap-2.5">
@@ -3102,7 +2869,7 @@ export default function Admin() {
                   {userSessions.map((s, idx) => {
                     const minUsed = s.minutesUsed ?? (s.durationSeconds != null ? s.durationSeconds / 60 : null);
                     return (
-                      <div key={s.id} className="px-5 py-4 hover:bg-muted/40 dark:hover:bg-white/[0.05]/70 transition-colors">
+                      <div key={s.id} className="px-5 py-4 hover:bg-gray-50/70 transition-colors">
                         {/* Row header */}
                         <div className="flex items-center justify-between mb-2.5">
                           <div className="flex items-center gap-2">
@@ -3180,10 +2947,10 @@ export default function Admin() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingUser(null)} />
 
           {/* Panel */}
-          <div className="relative z-10 w-full sm:w-[440px] bg-card border-l border-border shadow-2xl flex flex-col overflow-hidden">
+          <div className="relative z-10 w-full sm:w-[440px] bg-white border-l border-border shadow-2xl flex flex-col overflow-hidden">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-white shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
                   <Pencil className="w-4 h-4 text-violet-600" />
@@ -3215,7 +2982,7 @@ export default function Admin() {
                     onClick={() => setEditForm(f => ({ ...f, isActive: !f.isActive }))}
                     className={`relative w-11 h-6 rounded-full transition-colors ${editForm.isActive ? "bg-green-500" : "bg-gray-300"}`}
                   >
-                    <span className={`absolute top-0.5 w-5 h-5 bg-card rounded-full shadow transition-all ${editForm.isActive ? "left-5.5 translate-x-0" : "left-0.5"}`} style={{ left: editForm.isActive ? "calc(100% - 22px)" : "2px" }} />
+                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${editForm.isActive ? "left-5.5 translate-x-0" : "left-0.5"}`} style={{ left: editForm.isActive ? "calc(100% - 22px)" : "2px" }} />
                   </button>
                 </div>
               </section>
@@ -3226,13 +2993,13 @@ export default function Admin() {
                   <Star className="w-3 h-3" /> Plan & Trial
                 </h3>
 
-                {/* Plan: canonical tiers with explicit trial routing modes. */}
+                {/* Plan: 8 canonical tiers (4 OpenAI + 4 Libre). */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Plan</label>
+                  <label className="text-xs font-medium text-muted-foreground">Plan (8 options)</label>
                   <select
                     value={editForm.planType}
                     onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
-                    className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (
                       <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
@@ -3242,7 +3009,7 @@ export default function Admin() {
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="Hetzner / machine">
+                    <optgroup label="Libre / machine">
                       {ADMIN_PLAN_OPTIONS_LIBRE.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
@@ -3252,7 +3019,7 @@ export default function Admin() {
                     <span className="font-medium text-foreground/80">Customer sees:</span>{" "}
                     {workspacePlanDisplayName(editForm.planType)} only ·{" "}
                     <span className="font-medium text-foreground/80">You assign:</span>{" "}
-                    {planUsesLibreEngine(editForm.planType) ? "Hetzner / machine" : "OpenAI interpreter"} ·{" "}
+                    {planUsesLibreEngine(editForm.planType) ? "Libre / machine" : "OpenAI interpreter"} ·{" "}
                     <span className="font-mono text-[9px] opacity-80">{editForm.planType}</span>
                   </p>
                 </div>
@@ -3295,7 +3062,7 @@ export default function Admin() {
                           type="datetime-local"
                           value={editForm.subscriptionStartedAtLocal}
                           onChange={e => setEditForm(f => ({ ...f, subscriptionStartedAtLocal: e.target.value }))}
-                          className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                       </div>
                       <div className="space-y-1">
@@ -3304,7 +3071,7 @@ export default function Admin() {
                           type="datetime-local"
                           value={editForm.subscriptionPeriodEndsAtLocal}
                           onChange={e => setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: e.target.value }))}
-                          className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                       </div>
                       <div className="flex flex-col gap-1.5">
@@ -3358,7 +3125,7 @@ export default function Admin() {
                       type="date"
                       value={editForm.trialEndsAt}
                       onChange={e => setEditForm(f => ({ ...f, trialEndsAt: e.target.value }))}
-                      className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     />
                     <div className="flex gap-2">
                       {[7, 14, 30].map(d => (
@@ -3401,7 +3168,7 @@ export default function Admin() {
                           defaultLangB: nextA === f.defaultLangB ? defaultLangB : f.defaultLangB,
                         }));
                       }}
-                      className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
                       {(langConfigData?.allLanguages ?? []).map(l => (
                         <option key={l.value} value={l.value}>{l.label}</option>
@@ -3413,7 +3180,7 @@ export default function Admin() {
                     <select
                       value={editForm.defaultLangB}
                       onChange={e => setEditForm(f => ({ ...f, defaultLangB: e.target.value }))}
-                      className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
                       {(langConfigData?.allLanguages ?? [])
                         .filter(l => l.value !== editForm.defaultLangA)
@@ -3542,7 +3309,7 @@ export default function Admin() {
             </div>
 
             {/* Footer */}
-            <div className="border-t border-border px-5 py-4 bg-card shrink-0 space-y-2">
+            <div className="border-t border-border px-5 py-4 bg-white shrink-0 space-y-2">
               {editError && (
                 <p className="text-xs text-destructive bg-destructive/5 px-3 py-2 rounded-lg">{editError}</p>
               )}

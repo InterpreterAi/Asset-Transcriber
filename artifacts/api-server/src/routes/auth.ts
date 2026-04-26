@@ -2,14 +2,13 @@ import { Router, type Request, type Response } from "express";
 import {
   db,
   usersTable,
-  loginEventsTable,
   passwordResetTokensTable,
   emailVerificationTokensTable,
   sessionsTable,
   referralsTable,
   type User,
 } from "@workspace/db";
-import { and, eq, or, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, or, gte, sql } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import {
@@ -674,35 +673,6 @@ router.post("/signup", async (req, res) => {
   const passwordHash = await hashPassword(password);
   const accountCreatedAt = new Date();
   const trial            = defaultTrialFieldsForNewAccount(accountCreatedAt);
-  const signupIp         = getClientIp(req).trim();
-
-  let autoDisabledForSharedIp = false;
-  if (signupIp && signupIp !== "unknown") {
-    const sharedIpRows = await db
-      .selectDistinct({ userId: loginEventsTable.userId })
-      .from(loginEventsTable)
-      .where(and(
-        eq(loginEventsTable.success, true),
-        eq(loginEventsTable.ipAddress, signupIp),
-        sql`${loginEventsTable.userId} IS NOT NULL`,
-      ));
-
-    const sharedUserIds = sharedIpRows
-      .map((r) => r.userId)
-      .filter((v): v is number => typeof v === "number");
-
-    if (sharedUserIds.length >= 2) {
-      const existingOnIp = await db
-        .select({ planType: usersTable.planType, isAdmin: usersTable.isAdmin })
-        .from(usersTable)
-        .where(inArray(usersTable.id, sharedUserIds));
-      const hasPaidAccountOnIp = existingOnIp.some(
-        (u) => !u.isAdmin && !isTrialLikePlanType(u.planType),
-      );
-      // Auto-disable only suspicious multi-trial clusters from one IP.
-      autoDisabledForSharedIp = !hasPaidAccountOnIp;
-    }
-  }
 
   let newUser: User;
   try {
@@ -714,7 +684,7 @@ router.post("/signup", async (req, res) => {
           email: normalized,
           passwordHash,
           isAdmin: false,
-          isActive: !autoDisabledForSharedIp,
+          isActive: true,
           emailVerified: false,
           requiresEmailVerification: true,
           planType: "trial-libre",
@@ -777,12 +747,9 @@ router.post("/signup", async (req, res) => {
   res.status(201).json({
     needsEmailVerification: true,
     email: normalized,
-    accountAutoDisabled: autoDisabledForSharedIp,
     verificationEmailSent,
     message: verificationEmailSent
-      ? autoDisabledForSharedIp
-        ? "Account created and verification email sent. This account is temporarily disabled for review due to shared-IP risk."
-        : "Check your email to verify your account before signing in."
+      ? "Check your email to verify your account before signing in."
       : "Your account was created, but we could not send the verification email. Check RESEND_API_KEY or use “Resend verification” on the login page.",
   });
 });

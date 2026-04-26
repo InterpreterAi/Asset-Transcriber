@@ -9,7 +9,6 @@ import {
   Globe, Languages, Trash2, Copy, Check, Type, Monitor,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
-  Hash, Sparkles, Sun, Moon,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -24,7 +23,7 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { cn, formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, workspacePlanTierKey } from "@/lib/utils";
+import { formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, workspacePlanTierKey } from "@/lib/utils";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
 import {
   PRICING_PLANS,
@@ -81,7 +80,7 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       onClick={copy}
-      className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1.5 p-0.5 rounded hover:bg-white/10 text-muted-foreground/60 hover:text-foreground flex-shrink-0 align-middle"
+      className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1.5 p-0.5 rounded hover:bg-black/8 text-muted-foreground/60 hover:text-foreground flex-shrink-0 align-middle"
       title="Copy to clipboard"
     >
       {done
@@ -120,28 +119,10 @@ export default function WorkspaceDefault() {
     };
   }, [user]);
 
-  const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-workspace-theme";
-  type WorkspaceChromeTheme = "dark" | "light";
-  const [workspaceTheme, setWorkspaceTheme] = useState<WorkspaceChromeTheme>(() => {
-    if (typeof window === "undefined") return "dark";
-    const s = localStorage.getItem(WORKSPACE_THEME_STORAGE_KEY);
-    return s === "light" || s === "dark" ? s : "dark";
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(WORKSPACE_THEME_STORAGE_KEY, workspaceTheme);
-    } catch {
-      /* ignore quota / private mode */
-    }
-  }, [workspaceTheme]);
-  const wsDark = workspaceTheme === "dark";
-
   const snapshotCtxRef = useRef<{
     transcription: ReturnType<typeof useTranscription> | null;
     debounce: ReturnType<typeof setTimeout> | null;
   }>({ transcription: null, debounce: null });
-  /** Increments each snapshot PUT so the server can drop out-of-order requests (aligned transcript ↔ translation rows). */
-  const snapshotSeqRef = useRef(0);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
@@ -156,7 +137,6 @@ export default function WorkspaceDefault() {
         const t = snapshotCtxRef.current.transcription;
         if (!t?.isRecording || !t.sessionId) return;
         const snap = t.getSnapshot();
-        snapshotSeqRef.current += 1;
         void fetch("/api/transcription/session/snapshot", {
           method:      "PUT",
           headers:     { "Content-Type": "application/json" },
@@ -168,9 +148,6 @@ export default function WorkspaceDefault() {
             micLabel:    micLabelRef.current,
             transcript:  snap.transcript,
             translation: snap.translation,
-            transcriptLines:  snap.transcriptLines,
-            translationLines: snap.translationLines,
-            snapshotSeq:      snapshotSeqRef.current,
           }),
         }).catch(() => { /* best-effort */ });
       }, 400);
@@ -214,40 +191,6 @@ export default function WorkspaceDefault() {
     const path = window.location.pathname;
     window.history.replaceState(null, "", qs ? `${path}?${qs}` : path);
   }, [user]);
-
-  // PayPal returns here with ?subscription_id=I-... after approval — sync plan + confirmation email if webhook was late or incomplete.
-  useEffect(() => {
-    if (!user?.id) return;
-    const params = new URLSearchParams(window.location.search);
-    const sid = params.get("subscription_id")?.trim();
-    if (!sid) return;
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const r = await fetch("/api/payments/sync-paypal-subscription", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ subscriptionId: sid }),
-        });
-        if (cancelled || !r.ok) return;
-        await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-        params.delete("subscription_id");
-        params.delete("ba_token");
-        params.delete("token");
-        const q = params.toString();
-        const pathOnly = window.location.pathname + (q ? `?${q}` : "") + window.location.hash;
-        window.history.replaceState(null, "", pathOnly);
-      } catch {
-        // Non-fatal — PayPal webhook may still apply the plan
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, queryClient]);
 
   useEffect(() => {
     let cancelled = false;
@@ -389,7 +332,7 @@ export default function WorkspaceDefault() {
   const handleManageBilling = async () => {
     setUpgradeLoading("portal");
     try {
-      const res = await fetch("/api/payments/manage-billing", {
+      const res = await fetch("/api/stripe/portal", {
         method: "POST",
         credentials: "include",
       });
@@ -525,19 +468,14 @@ export default function WorkspaceDefault() {
 
   useEffect(() => {
     if (!userError) return;
-    if (userError instanceof ApiError) {
-      if (userError.status === 403) {
-        const d = userError.data as { code?: string } | null;
-        if (d?.code === "email_not_verified") {
-          setLocation("/login?verify=required");
-          return;
-        }
+    if (userError instanceof ApiError && userError.status === 403) {
+      const d = userError.data as { code?: string } | null;
+      if (d?.code === "email_not_verified") {
+        setLocation("/login?verify=required");
+        return;
       }
-      if (userError.status === 401) {
-        setLocation("/login");
-      }
-      return;
     }
+    setLocation("/login");
   }, [userError, setLocation]);
 
   useEffect(() => {
@@ -574,7 +512,6 @@ export default function WorkspaceDefault() {
       const t = snapshotCtxRef.current.transcription;
       if (!t?.isRecording || !t.sessionId) return;
       const snap = t.getSnapshot();
-      snapshotSeqRef.current += 1;
       void fetch("/api/transcription/session/snapshot", {
         method:      "PUT",
         headers:     { "Content-Type": "application/json" },
@@ -586,9 +523,6 @@ export default function WorkspaceDefault() {
           micLabel:    micLabelRef.current,
           transcript:  snap.transcript,
           translation: snap.translation,
-          transcriptLines:  snap.transcriptLines,
-          translationLines: snap.translationLines,
-          snapshotSeq:      snapshotSeqRef.current,
         }),
       }).catch(() => { /* best-effort */ });
     };
@@ -603,10 +537,6 @@ export default function WorkspaceDefault() {
       }
     };
   }, [transcription.isRecording, transcription.sessionId]);
-
-  useEffect(() => {
-    snapshotSeqRef.current = 0;
-  }, [transcription.sessionId]);
 
   const handleLogout = async () => {
     await logoutMut.mutateAsync();
@@ -700,7 +630,6 @@ export default function WorkspaceDefault() {
   if (!user) return null;
 
   const usageShowsUnlimitedCap = user.dailyLimitMinutes >= 9000;
-  const isPaidUser = !isTrialLikePlanType(user.planType);
 
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
@@ -712,14 +641,7 @@ export default function WorkspaceDefault() {
     0 * usageRecomputeTick;
 
   return (
-    <div
-      className={cn(
-        "h-full w-full max-w-[100vw] flex overflow-hidden text-foreground",
-        wsDark &&
-          "dark workspace-hero-accent bg-[linear-gradient(165deg,#0b0e14_0%,#121a26_42%,#081420_100%)]",
-        !wsDark && "bg-background",
-      )}
-    >
+    <div className="h-full w-full max-w-[100vw] bg-background flex overflow-hidden text-foreground">
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
       <ReportIssueModal
         isOpen={showReportIssue}
@@ -895,14 +817,11 @@ export default function WorkspaceDefault() {
           ].map(({ id, icon, title }) => (
             <button
               key={id}
-              className={cn(
-                "flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all",
+              className={`flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all ${
                 activeTab === id
-                  ? wsDark
-                    ? "bg-sky-500/15 shadow-[0_0_20px_rgba(56,189,248,0.15)] text-sky-300 border border-sky-400/20 md:border-0"
-                    : "bg-white text-primary shadow-sm"
-                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              )}
+                  ? "bg-white shadow-sm text-primary"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              }`}
               onClick={() => { setActiveTab(id); setSettingsOpen(false); }}
               title={title}
             >
@@ -947,14 +866,11 @@ export default function WorkspaceDefault() {
           </button>
           <button
             onClick={() => { setActiveTab("referrals"); setSettingsOpen(false); }}
-            className={cn(
-              "flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all",
+            className={`flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all ${
               activeTab === "referrals"
-                ? wsDark
-                  ? "bg-sky-500/15 shadow-[0_0_20px_rgba(56,189,248,0.15)] text-sky-300 border border-sky-400/20 md:border-0"
-                  : "bg-white text-primary shadow-sm"
-                : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            )}
+                ? "bg-white shadow-sm text-primary"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            }`}
             title="Referrals"
           >
             <Gift className="w-4.5 h-4.5 shrink-0" />
@@ -976,7 +892,7 @@ export default function WorkspaceDefault() {
 
       {/* PROFILE PANEL */}
       {activeTab === "profile" && (
-        <div className="w-full md:w-72 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-y-auto shrink-0 z-10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]">
+        <div className="w-full md:w-72 bg-white border-r border-border flex flex-col overflow-y-auto shrink-0 z-10">
           {/* Panel header */}
           <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
             <span className="font-semibold text-sm">Account</span>
@@ -1030,28 +946,18 @@ export default function WorkspaceDefault() {
                 Upgrade to Pro
               </button>
             ) : (
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={() => void handleManageBilling()}
-                  disabled={upgradeLoading === "portal"}
-                  className="h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                >
-                  {upgradeLoading === "portal" ? (
-                    <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
-                  ) : (
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  )}
-                  Manage Billing
-                </button>
-                <button
-                  onClick={() => void handleManageBilling()}
-                  disabled={upgradeLoading === "portal"}
-                  className="h-8 rounded-lg border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                  title="Open billing page to cancel your subscription and stop auto-renew charges."
-                >
-                  Cancel Subscription
-                </button>
-              </div>
+              <button
+                onClick={() => void handleManageBilling()}
+                disabled={upgradeLoading === "portal"}
+                className="w-full mt-2 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+              >
+                {upgradeLoading === "portal" ? (
+                  <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+                ) : (
+                  <ExternalLink className="w-3.5 h-3.5" />
+                )}
+                Manage Billing
+              </button>
             )}
           </div>
 
@@ -1089,16 +995,6 @@ export default function WorkspaceDefault() {
               <span>Sessions today</span>
               <span className="font-semibold text-foreground">{(user as unknown as { sessionsToday?: number }).sessionsToday ?? 0}</span>
             </div>
-            {isPaidUser && (
-              <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
-                <span>Next cycle</span>
-                <span className="font-semibold text-foreground">
-                  {typeof user.paidCycleDaysRemaining === "number"
-                    ? `${user.paidCycleDaysRemaining} day${user.paidCycleDaysRemaining === 1 ? "" : "s"} left`
-                    : "—"}
-                </span>
-              </div>
-            )}
           </div>
 
           {(user.isAdmin || (user.email ?? "").trim().toLowerCase() === TEST_PLAN_ACTIVATION_EMAIL) && (
@@ -1127,7 +1023,7 @@ export default function WorkspaceDefault() {
                           className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[8.5rem] ${
                             active
                               ? "border-primary bg-primary/10 text-primary"
-                              : "border-border dark:border-white/10 bg-white dark:bg-[#1f2733] hover:bg-muted dark:hover:bg-white/[0.08] text-foreground"
+                              : "border-border bg-white hover:bg-muted text-foreground"
                           }`}
                         >
                           {testPlanLoading === o.planType ? "…" : o.label}
@@ -1168,7 +1064,7 @@ export default function WorkspaceDefault() {
                     value={pwForm.current}
                     onChange={(e) => setPwForm(f => ({ ...f, current: e.target.value }))}
                     placeholder="Current password"
-                    className="w-full pl-8 pr-8 h-8 text-xs rounded-lg border border-input bg-background outline-none focus:ring-1 focus:ring-ring"
+                    className="w-full pl-8 pr-8 h-8 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
                     required
                   />
                   <button
@@ -1192,7 +1088,7 @@ export default function WorkspaceDefault() {
                     value={pwForm.next}
                     onChange={(e) => setPwForm(f => ({ ...f, next: e.target.value }))}
                     placeholder="At least 8 characters"
-                    className="w-full pl-8 pr-8 h-8 text-xs rounded-lg border border-input bg-background outline-none focus:ring-1 focus:ring-ring"
+                    className="w-full pl-8 pr-8 h-8 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
                     required
                     minLength={8}
                   />
@@ -1215,7 +1111,7 @@ export default function WorkspaceDefault() {
                   value={pwForm.confirm}
                   onChange={(e) => setPwForm(f => ({ ...f, confirm: e.target.value }))}
                   placeholder="Repeat new password"
-                  className="w-full pl-3 h-8 text-xs rounded-lg border border-input bg-background outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full pl-3 h-8 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
                   required
                 />
               </div>
@@ -1281,7 +1177,7 @@ export default function WorkspaceDefault() {
                     </div>
                   )}
                   {twoFaSecret && (
-                    <div className="bg-background rounded-lg p-2 border border-border">
+                    <div className="bg-gray-50 rounded-lg p-2 border border-border">
                       <p className="text-[10px] text-muted-foreground mb-1">Manual key:</p>
                       <p className="text-xs font-mono break-all text-foreground select-all">{twoFaSecret}</p>
                     </div>
@@ -1292,7 +1188,7 @@ export default function WorkspaceDefault() {
                     placeholder="000000"
                     inputMode="numeric"
                     maxLength={6}
-                    className="w-full h-8 text-center font-mono text-base tracking-[0.4em] rounded-lg border border-input bg-background outline-none focus:ring-1 focus:ring-ring"
+                    className="w-full h-8 text-center font-mono text-base tracking-[0.4em] rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
                   />
                   <div className="flex gap-2">
                     <button
@@ -1341,7 +1237,7 @@ export default function WorkspaceDefault() {
                     placeholder="000000"
                     inputMode="numeric"
                     maxLength={6}
-                    className="w-full h-8 text-center font-mono text-base tracking-[0.4em] rounded-lg border border-input bg-background outline-none focus:ring-1 focus:ring-ring"
+                    className="w-full h-8 text-center font-mono text-base tracking-[0.4em] rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring"
                   />
                   <div className="flex gap-2">
                     <button
@@ -1382,7 +1278,7 @@ export default function WorkspaceDefault() {
       )}
 
       {activeTab === "referrals" && (
-        <div className="w-full md:w-72 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-y-auto shrink-0 z-10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]">
+        <div className="w-full md:w-72 bg-white border-r border-border flex flex-col overflow-y-auto shrink-0 z-10">
           <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
             <span className="font-semibold text-sm">Referrals</span>
             <button
@@ -1439,14 +1335,7 @@ export default function WorkspaceDefault() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
 
         {/* HEADER */}
-        <header
-          className={cn(
-            "h-[52px] shrink-0 min-w-0 flex items-center justify-between px-3 sm:px-5",
-            wsDark
-              ? "border-b border-white/[0.08] bg-card/45 backdrop-blur-xl supports-[backdrop-filter]:bg-card/35"
-              : "border-b border-border bg-white/90 backdrop-blur-md supports-[backdrop-filter]:bg-white/75",
-          )}
-        >
+        <header className="h-[52px] bg-white border-b border-border flex items-center justify-between px-3 sm:px-5 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 mr-2">
             {/* Mobile: Settings sidebar toggle — hidden on md+ */}
             <button
@@ -1467,35 +1356,9 @@ export default function WorkspaceDefault() {
             >
               <StickyNote className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-2 min-w-0">
-              <Sparkles className="w-4 h-4 text-sky-400 shrink-0 hidden sm:block" aria-hidden />
-              <div className="flex flex-col min-w-0 leading-none">
-                <span className="font-mono font-semibold text-[13px] sm:text-[14px] tracking-[0.18em] uppercase text-foreground/95 whitespace-nowrap">
-                  Interpreter<span className="text-sky-400 tracking-[0.12em]">AI</span>
-                </span>
-                <span className="mt-1 h-0.5 w-9 rounded-full bg-gradient-to-r from-sky-400 to-violet-500 opacity-90" aria-hidden />
-              </div>
-            </div>
-            <span
-              className={cn(
-                "hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold shrink-0 border",
-                wsDark
-                  ? "bg-sky-500/15 text-sky-300 border-sky-400/25"
-                  : "bg-violet-100 text-violet-700 border-violet-200",
-              )}
-            >
-              <span
-                className={cn(
-                  "w-1.5 h-1.5 rounded-full flex-shrink-0",
-                  transcription.isRecording
-                    ? wsDark
-                      ? "bg-sky-400 animate-pulse"
-                      : "bg-violet-500 animate-pulse"
-                    : wsDark
-                      ? "bg-sky-500/40"
-                      : "bg-violet-300",
-                )}
-              />
+            <span className="font-bold text-[15px] tracking-tight whitespace-nowrap">InterpreterAI</span>
+            <span className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200 shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${transcription.isRecording ? "bg-violet-500 animate-pulse" : "bg-violet-300"}`} />
               <span className="truncate max-w-[160px]">{LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}</span>
             </span>
             {transcription.isRecording && (
@@ -1512,20 +1375,6 @@ export default function WorkspaceDefault() {
             )}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setWorkspaceTheme(wsDark ? "light" : "dark")}
-              className={cn(
-                "flex items-center justify-center w-9 h-9 rounded-lg border transition-colors shrink-0",
-                wsDark
-                  ? "border-white/10 text-amber-200/90 hover:bg-white/10 hover:text-amber-100"
-                  : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-              title={wsDark ? "Bright mode" : "Dark mode"}
-              aria-label={wsDark ? "Switch to bright mode" : "Switch to dark mode"}
-            >
-              {wsDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
             {/* Mark Important Line — highlights the last transcript row */}
             <button
               onClick={() => {
@@ -1538,12 +1387,7 @@ export default function WorkspaceDefault() {
                 last.style.borderRadius = "6px";
               }}
               disabled={!transcription.hasTranscript}
-              className={cn(
-                "flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:pointer-events-none",
-                wsDark
-                  ? "text-muted-foreground/55 hover:text-amber-400 hover:bg-amber-500/10"
-                  : "text-muted-foreground hover:text-amber-600 hover:bg-amber-50",
-              )}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:pointer-events-none"
               title="Mark last line as important"
             >
               <Flag className="w-3.5 h-3.5" />
@@ -1552,22 +1396,12 @@ export default function WorkspaceDefault() {
             <button
               onClick={() => transcription.clear()}
               disabled={transcription.isRecording || !transcription.hasTranscript}
-              className={cn(
-                "flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:pointer-events-none",
-                wsDark
-                  ? "text-muted-foreground/55 hover:text-destructive hover:bg-destructive/15"
-                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-              )}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Clear</span>
             </button>
-            <div
-              className={cn(
-                "px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1 sm:gap-1.5 border",
-                wsDark ? "bg-muted/40 border-white/[0.08]" : "bg-muted border-border/50",
-              )}
-            >
+            <div className="bg-muted px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1 sm:gap-1.5 border border-border/50">
               <Clock className="w-3 h-3 shrink-0" />
               {usageShowsUnlimitedCap
                 ? <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} today · Unlimited</span>
@@ -1576,11 +1410,6 @@ export default function WorkspaceDefault() {
                     <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
                   </>
               }
-              {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-                <span className="hidden lg:inline text-muted-foreground/80">
-                  · {user.paidCycleDaysRemaining} day{user.paidCycleDaysRemaining === 1 ? "" : "s"} left
-                </span>
-              )}
             </div>
             {isTrialLikePlanType(user.planType) && (
               <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
@@ -1659,22 +1488,10 @@ export default function WorkspaceDefault() {
           )}
 
           {/* MAIN TRANSCRIPT PANEL — left side */}
-          <div
-            className={cn(
-              "flex-1 rounded-xl flex flex-col min-h-0 overflow-hidden backdrop-blur-md",
-              wsDark
-                ? "bg-card/80 border border-white/[0.08] shadow-[0_12px_48px_rgba(0,0,0,0.45),0_0_0_1px_rgba(255,255,255,0.04)]"
-                : "bg-white border border-border shadow-sm",
-            )}
-          >
+          <div className="flex-1 bg-white rounded-xl border border-border shadow-sm flex flex-col min-h-0 overflow-hidden">
 
             {/* Transcript header */}
-            <div
-              className={cn(
-                "h-10 flex items-center gap-3 px-4 shrink-0 border-b",
-                wsDark ? "border-white/[0.06] bg-muted/15" : "border-border bg-muted/20",
-              )}
-            >
+            <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-3 px-4 shrink-0">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
                 Practice Output
               </span>
@@ -1693,21 +1510,16 @@ export default function WorkspaceDefault() {
                 Audio is processed in real time and is not stored.
               </span>
               {/* Text size selector */}
-              <div
-                className={cn(
-                  "flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
-                  wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
-                )}
-              >
-                <Type className="w-3 h-3 text-muted-foreground/45 ml-1.5" />
+              <div className="flex items-center gap-0.5 border border-border/60 rounded-md overflow-hidden bg-muted/30 shrink-0">
+                <Type className="w-3 h-3 text-muted-foreground/50 ml-1.5" />
                 {(["sm", "md", "lg"] as const).map((sz) => (
                   <button
                     key={sz}
                     onClick={() => setTextSize(sz)}
                     className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
                       textSize === sz
-                        ? "bg-primary text-primary-foreground shadow-[0_0_12px_rgba(56,189,248,0.25)]"
-                        : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                        ? "bg-primary text-white"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                     }`}
                     title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
                   >
@@ -1719,12 +1531,7 @@ export default function WorkspaceDefault() {
 
             {/* Two-column label row — visible only once transcript starts */}
             {transcription.hasTranscript && (
-              <div
-                className={cn(
-                  "grid grid-cols-2 gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b shrink-0 bg-muted/10",
-                  wsDark ? "border-white/[0.05]" : "border-border/40",
-                )}
-              >
+              <div className="grid grid-cols-2 gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b border-border/40 bg-muted/10 shrink-0">
                 <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                   Original
                 </div>
@@ -1813,12 +1620,7 @@ export default function WorkspaceDefault() {
           `}>
 
             {/* Mobile close button */}
-            <div
-              className={cn(
-                "md:hidden h-14 backdrop-blur-md flex items-center justify-between px-4 shrink-0 border-b",
-                wsDark ? "bg-card/80 border-white/[0.08]" : "bg-white border-border",
-              )}
-            >
+            <div className="md:hidden h-14 bg-muted/80 border-b border-border flex items-center justify-between px-4 shrink-0">
               <span className="text-sm font-semibold">Notes & History</span>
               <button
                 onClick={() => setShowLeftPanel(false)}
@@ -1830,47 +1632,27 @@ export default function WorkspaceDefault() {
 
             {/* SESSION HISTORY PANEL */}
             <div className="h-48 shrink-0 mx-3 md:mx-0">
-              <SessionHistoryPanel
-                refreshKey={historyRefreshKey}
-                className={wsDark ? "border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.35)]" : ""}
-              />
+              <SessionHistoryPanel refreshKey={historyRefreshKey} />
             </div>
 
             {/* NOTES PANEL */}
-            <div
-              className={cn(
-                "flex-1 min-h-0 rounded-xl flex flex-col overflow-hidden mx-3 md:mx-0 pb-2 md:pb-0 backdrop-blur-md border shadow-sm",
-                wsDark
-                  ? "bg-[#141c28]/95 border-white/[0.07] shadow-[0_10px_40px_rgba(0,0,0,0.4),0_0_0_1px_rgba(255,255,255,0.03)]"
-                  : "bg-muted/40 border-border",
-              )}
-            >
-              <div
-                className={cn(
-                  "h-10 flex items-center gap-2 px-3 shrink-0 border-b",
-                  wsDark ? "border-white/[0.06] bg-black/20" : "border-border bg-muted/30",
-                )}
-              >
-                <StickyNote className="w-3.5 h-3.5 text-amber-400/90 shrink-0" />
+            <div className="flex-1 min-h-0 bg-white rounded-xl border border-border shadow-sm flex flex-col overflow-hidden mx-3 md:mx-0 pb-2 md:pb-0">
+              <div className="h-10 border-b border-border bg-muted/20 flex items-center gap-2 px-3 shrink-0">
+                <StickyNote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Notes</span>
                 {notes && (
                   <span className="text-[9px] text-muted-foreground/50 italic">cleared on end</span>
                 )}
-                <div
-                  className={cn(
-                    "ml-auto flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
-                    wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
-                  )}
-                >
-                  <Type className="w-3 h-3 text-muted-foreground/45 ml-1.5" />
+                <div className="ml-auto flex items-center gap-0.5 border border-border/60 rounded-md overflow-hidden bg-muted/30 shrink-0">
+                  <Type className="w-3 h-3 text-muted-foreground/50 ml-1.5" />
                   {(["sm", "md", "lg"] as const).map((sz) => (
                     <button
                       key={sz}
                       onClick={() => setTextSize(sz)}
                       className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
                         textSize === sz
-                          ? "bg-primary text-primary-foreground shadow-[0_0_10px_rgba(56,189,248,0.2)]"
-                          : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                          ? "bg-primary text-white"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                       }`}
                       title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
                     >
@@ -1879,34 +1661,12 @@ export default function WorkspaceDefault() {
                   ))}
                 </div>
               </div>
-              <div
-                className={cn(
-                  "px-3 py-2 border-b space-y-1.5 shrink-0",
-                  wsDark ? "border-white/[0.05] bg-black/15" : "border-border bg-muted/25",
-                )}
-              >
-                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Quick fields</p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground/90">
-                  <span className="inline-flex items-center gap-1">
-                    <Hash className="w-3 h-3 text-sky-400/90 shrink-0" aria-hidden />
-                    Claim #
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3 text-amber-400/90 shrink-0" aria-hidden />
-                    Patient allergy
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-violet-400/90 shrink-0" aria-hidden />
-                    Appt. time
-                  </span>
-                </div>
-              </div>
               <div className="flex-1 overflow-y-auto scroll-smooth min-h-0">
                 <textarea
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  placeholder="Private notes — cleared when the session ends…"
-                  className="w-full h-full resize-none leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/40 text-foreground"
+                  placeholder={"Claim #\nPatient allergy\nAppt. time\n\nPrivate — cleared when session ends"}
+                  className="w-full h-full resize-none leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/35 text-foreground"
                   style={TEXT_SIZE_VARS[textSize]}
                   spellCheck={false}
                 />
@@ -1918,68 +1678,42 @@ export default function WorkspaceDefault() {
         </div>
 
         {/* BOTTOM TOOLBAR */}
-        <div
-          className={cn(
-            "shrink-0 z-10 border-t backdrop-blur-xl",
-            wsDark
-              ? "border-white/[0.08] bg-card/50 supports-[backdrop-filter]:bg-card/40"
-              : "border-border bg-white/90 supports-[backdrop-filter]:bg-white/80",
-          )}
-        >
+        <div className="bg-white border-t border-border shrink-0 z-10">
 
-          {/* ROW 1: Input source toggle + device/info
-               Mobile: mode toggle on line 1; selector wraps to line 2
-               Desktop: mode + selector on one line */}
-          <div
-            className={cn(
-              "flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 pt-3 pb-2 border-b",
-              wsDark ? "border-white/[0.06]" : "border-border/40",
-            )}
-          >
+          {/* ROW 1: Input source toggle + device/info + VU meter
+               Mobile: mode toggle + VU on line 1, selector on line 2
+               Desktop: all three on one line */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 pt-3 pb-2 border-b border-border/40">
             {/* Mode toggle — order-1 always */}
-            <div
-              className={cn(
-                "flex items-center rounded-lg border overflow-hidden shrink-0 order-1",
-                wsDark ? "border-white/10 bg-muted/25" : "border-border/60 bg-muted/30",
-              )}
-            >
+            <div className="flex items-center rounded-lg border border-border/60 overflow-hidden bg-muted/30 shrink-0 order-1">
               <button
                 disabled={transcription.isRecording}
                 onClick={() => setInputMode("mic")}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all",
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   inputMode === "mic"
-                    ? wsDark
-                      ? "bg-card text-primary shadow-[inset_0_0_0_1px_rgba(56,189,248,0.35),0_0_16px_rgba(56,189,248,0.12)]"
-                      : "bg-white text-primary shadow-sm"
-                    : wsDark
-                      ? "text-muted-foreground/55 hover:text-foreground/90"
-                      : "text-muted-foreground hover:text-foreground",
-                )}
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <Mic2 className={cn("w-3.5 h-3.5", inputMode === "mic" && wsDark && "text-sky-400")} />
+                <Mic2 className="w-3.5 h-3.5" />
                 Mic
               </button>
               <button
                 disabled={transcription.isRecording}
                 onClick={() => setInputMode("tab")}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all",
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   inputMode === "tab"
-                    ? wsDark
-                      ? "bg-card text-primary shadow-[inset_0_0_0_1px_rgba(56,189,248,0.35),0_0_16px_rgba(56,189,248,0.12)]"
-                      : "bg-white text-primary shadow-sm"
-                    : wsDark
-                      ? "text-muted-foreground/55 hover:text-foreground/90"
-                      : "text-muted-foreground hover:text-foreground",
-                )}
+                    ? "bg-white text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <Monitor className={cn("w-3.5 h-3.5", inputMode === "tab" && wsDark && "text-sky-400")} />
+                <Monitor className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Tab </span>Audio
               </button>
             </div>
 
-            {/* Restored original sound-level meter */}
+            {/* VU meter — order-2 on mobile (sits right of toggle on line 1),
+                          order-3 on desktop (rightmost) */}
             <div className="w-16 sm:w-24 shrink-0 ml-auto order-2 sm:order-3">
               <AudioMeter level={transcription.micLevel} label="" />
             </div>
@@ -1987,7 +1721,7 @@ export default function WorkspaceDefault() {
             {/* Mic: device selector (idle) → active source badge (recording)
                 order-3 on mobile (wraps to full-width line 2), order-2 on desktop */}
             {inputMode === "mic" && (
-              <div className="w-full sm:flex-1 sm:min-w-0 sm:max-w-xs order-3 sm:order-2 sm:ml-auto">
+              <div className="w-full sm:flex-1 sm:min-w-0 sm:max-w-xs order-3 sm:order-2">
                 {transcription.isRecording ? (
                   <span className="text-xs text-green-600 font-medium flex items-center gap-1.5">
                     <Mic2 className="w-3.5 h-3.5 shrink-0" />
@@ -1998,10 +1732,7 @@ export default function WorkspaceDefault() {
                     value={selectedDeviceId}
                     onChange={(e) => setSelectedDeviceId(e.target.value)}
                     disabled={transcription.isRecording}
-                    className={cn(
-                      "h-8 text-xs w-full",
-                      wsDark ? "bg-card/80 border border-white/10" : "bg-white border border-border",
-                    )}
+                    className="h-8 text-xs w-full bg-muted/30"
                   >
                     {devices.map((d) => (
                       <option key={d.deviceId} value={d.deviceId}>
@@ -2015,7 +1746,7 @@ export default function WorkspaceDefault() {
 
             {/* Tab Audio: how-to hint — order-3 on mobile, order-2 on desktop */}
             {inputMode === "tab" && (
-              <div className="w-full sm:flex-1 sm:min-w-0 sm:w-auto order-3 sm:order-2 sm:ml-auto">
+              <div className="w-full sm:flex-1 sm:min-w-0 sm:w-auto order-3 sm:order-2">
                 {!transcription.isRecording ? (
                   <ol className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-[10px] text-muted-foreground">
                     <li className="flex items-center gap-1">
@@ -2053,10 +1784,7 @@ export default function WorkspaceDefault() {
                 value={langA}
                 onChange={(e) => setLangA(e.target.value)}
                 disabled={transcription.isRecording}
-                className={cn(
-                  "h-9 text-sm flex-1 sm:w-[130px] sm:flex-none min-w-0 border",
-                  wsDark ? "bg-card/90 border-white/10" : "bg-white border-border",
-                )}
+                className="h-9 text-sm flex-1 sm:w-[130px] sm:flex-none bg-white border-border min-w-0"
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
@@ -2065,10 +1793,7 @@ export default function WorkspaceDefault() {
                 value={langB}
                 onChange={(e) => setLangB(e.target.value)}
                 disabled={transcription.isRecording}
-                className={cn(
-                  "h-9 text-sm flex-1 sm:w-[130px] sm:flex-none min-w-0 border",
-                  wsDark ? "bg-card/90 border-white/10" : "bg-white border-border",
-                )}
+                className="h-9 text-sm flex-1 sm:w-[130px] sm:flex-none bg-white border-border min-w-0"
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
@@ -2088,10 +1813,10 @@ export default function WorkspaceDefault() {
                   <button
                     onClick={handleToggleRecording}
                     disabled={transcription.isStarting}
-                    className={`w-full sm:w-auto h-11 sm:px-10 rounded-full flex items-center justify-center gap-2.5 font-semibold text-[15px] shadow-md transition-all duration-200 active:scale-95 disabled:opacity-70 ${
+                    className={`w-full sm:w-auto h-11 sm:px-10 rounded-full flex items-center justify-center gap-2.5 font-semibold text-[15px] shadow-md transition-all active:scale-95 disabled:opacity-70 ${
                       transcription.isRecording
                         ? "bg-destructive text-white hover:bg-destructive/90"
-                        : "bg-primary text-primary-foreground hover:bg-primary/92 hover:shadow-[0_0_28px_rgba(56,189,248,0.45)] hover:scale-[1.02]"
+                        : "bg-primary text-white hover:bg-primary/90"
                     }`}
                   >
                     <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${transcription.isRecording ? "bg-white animate-pulse" : "bg-white/80"}`} />

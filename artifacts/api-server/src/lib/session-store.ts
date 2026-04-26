@@ -8,11 +8,6 @@ export interface SessionSnapshot {
   micLabel:    string;
   transcript:  string;
   translation: string;
-  /** Parallel rows per finalized segment (from client buffers). Preferred for admin UI so embedded newlines in speech do not split rows. */
-  transcriptLines?: string[];
-  translationLines?: string[];
-  /** Monotonic per client session — stale snapshot PUTs (out-of-order HTTP) are ignored. */
-  snapshotSeq?: number;
   updatedAt:   number;
 }
 

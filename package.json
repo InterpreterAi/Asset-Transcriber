@@ -15,11 +15,9 @@
     "db:push": "pnpm --filter @workspace/db run push",
     "db:push:force": "pnpm --filter @workspace/db run push-force",
     "db:push:railway": "bash scripts/railway-db-push.sh",
-    "broadcast": "pnpm --filter @workspace/api-server run email:send-promo-offer",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "validate:package-json": "node scripts/validate-all-package-json.mjs",
-    "verify:hetzner-cores": "node scripts/verify-hetzner-translate-cores.mjs"
+    "validate:package-json": "node scripts/validate-all-package-json.mjs"
   },
   "private": true,
   "dependencies": {

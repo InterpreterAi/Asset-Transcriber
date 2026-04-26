@@ -2,7 +2,7 @@
  * Account panel “Plan testing” — keep in sync with `ADMIN_TEST_PLAN_TYPES` in
  * `artifacts/api-server/src/routes/payments.ts` (`POST /api/payments/test-activate-plan`).
  *
- * Eight canonical tiers: OpenAI (`trial`, `basic`, `professional`, `platinum`) and Hetzner machine `*-libre`.
+ * Eight canonical tiers: OpenAI (`trial`, `basic`, `professional`, `platinum`) and Libre `*-libre`.
  */
 export type WorkspacePlanTestOption = {
   planType: string;
@@ -11,10 +11,8 @@ export type WorkspacePlanTestOption = {
 };
 
 const TRIAL_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial-openai", label: "Trial · OpenAI (7d)", group: "trial" },
-  { planType: "trial-hetzner", label: "Trial · Hetzner (7d)", group: "trial" },
-  { planType: "trial-libre", label: "Trial · Mixed (1-4 OpenAI, then Hetzner)", group: "trial" },
-  { planType: "trial", label: "Trial · OpenAI (legacy)", group: "trial" },
+  { planType: "trial", label: "Trial · OpenAI", group: "trial" },
+  { planType: "trial-libre", label: "Trial · Libre", group: "trial" },
 ];
 
 const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
@@ -25,9 +23,9 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "basic", label: "Basic · OpenAI", group: "paid" },
   { planType: "professional", label: "Professional · OpenAI", group: "paid" },
   { planType: "platinum", label: "Platinum · OpenAI", group: "paid" },
-  { planType: "basic-libre", label: "Basic · Hetzner", group: "paid" },
-  { planType: "professional-libre", label: "Professional · Hetzner", group: "paid" },
-  { planType: "platinum-libre", label: "Platinum · Hetzner", group: "paid" },
+  { planType: "basic-libre", label: "Basic · Libre", group: "paid" },
+  { planType: "professional-libre", label: "Professional · Libre", group: "paid" },
+  { planType: "platinum-libre", label: "Platinum · Libre", group: "paid" },
 ];
 
 /** PayPal checkout SKUs (OpenAI stack). */

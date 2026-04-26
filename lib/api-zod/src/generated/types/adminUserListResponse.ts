@@ -5,10 +5,8 @@
  * AI Transcription & Translation App API
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPaidBillingRollup } from "./adminPaidBillingRollup";
 import type { AdminUser } from "./adminUser";
 
 export interface AdminUserListResponse {
   users: AdminUser[];
-  paidBillingRollup: AdminPaidBillingRollup;
 }

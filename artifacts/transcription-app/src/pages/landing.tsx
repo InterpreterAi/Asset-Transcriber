@@ -28,22 +28,6 @@ function SpeakerBadge({ n, color }: { n: number; color: string }) {
   );
 }
 
-function BrandWordmark({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={`flex items-center ${compact ? "gap-1.5" : "gap-2"} min-w-0`}>
-      <div className="w-5 h-5 rounded-md bg-primary/15 text-primary flex items-center justify-center shrink-0">
-        <Zap className="w-3 h-3" />
-      </div>
-      <div className="flex flex-col min-w-0 leading-none">
-        <span className={`font-mono font-semibold ${compact ? "text-[12px]" : "text-[14px]"} tracking-[0.16em] uppercase text-foreground/95 whitespace-nowrap`}>
-          Interpreter<span className="text-sky-500 tracking-[0.12em]">AI</span>
-        </span>
-        <span className="mt-1 h-0.5 w-8 rounded-full bg-gradient-to-r from-sky-400 to-violet-500 opacity-90" aria-hidden />
-      </div>
-    </div>
-  );
-}
-
 // ── Demo transcript row ────────────────────────────────────────────────────────
 function DemoRow({
   speaker,
@@ -110,7 +94,7 @@ function AppPreview() {
               <div className="w-3 h-3 rounded-full bg-[#FFBC2E]" />
               <div className="w-3 h-3 rounded-full bg-[#28C840]" />
             </div>
-            <BrandWordmark compact />
+            <span className="font-bold text-[13px] tracking-tight text-foreground">InterpreterAI</span>
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 border border-violet-200">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
               English ↔ Spanish
@@ -302,13 +286,16 @@ export default function Landing() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-foreground overflow-x-hidden relative">
-      <div className="absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(80%_60%_at_50%_0%,rgba(32,140,255,0.22),rgba(245,245,247,0)_70%)] pointer-events-none" />
-      <div className="absolute inset-x-0 top-[180px] h-[340px] bg-[radial-gradient(60%_55%_at_55%_10%,rgba(34,197,94,0.12),rgba(245,245,247,0)_70%)] pointer-events-none" />
+    <div className="min-h-screen bg-[#f5f5f7] text-foreground overflow-x-hidden">
 
       {/* ── NAV ──────────────────────────────────────────────────────────── */}
-      <nav className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between relative z-10">
-        <BrandWordmark />
+      <nav className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-sm">
+            <Mic2 className="w-4 h-4 text-white" />
+          </div>
+          <span className="font-display font-bold text-[17px] tracking-tight">InterpreterAI</span>
+        </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setLocation("/terms")} className="hidden sm:block text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</button>
           <button onClick={() => setLocation("/privacy")} className="hidden sm:block text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</button>
@@ -322,9 +309,9 @@ export default function Landing() {
       </nav>
 
       {/* ── SECTION 1 — HERO ─────────────────────────────────────────────── */}
-      <section className="max-w-4xl mx-auto px-5 pt-14 pb-10 text-center relative z-10">
+      <section className="max-w-4xl mx-auto px-5 pt-14 pb-10 text-center">
         <motion.div {...fade(0)}>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100/90 text-violet-700 text-xs font-semibold border border-violet-200 shadow-sm mb-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold border border-violet-200 mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
             Real-Time AI for Professional Interpreters
           </div>
@@ -341,7 +328,7 @@ export default function Landing() {
           <div className="flex flex-col items-center gap-3">
             <button
               onClick={() => setLocation("/signup")}
-              className="flex items-center justify-center gap-2 px-10 py-4 bg-gradient-to-r from-blue-500 to-sky-500 text-white rounded-full font-semibold text-[17px] shadow-[0_10px_32px_rgba(37,99,235,0.35)] hover:from-blue-600 hover:to-sky-600 active:scale-95 transition-all w-full sm:w-auto max-w-xs sm:max-w-none"
+              className="flex items-center justify-center gap-2 px-10 py-4 bg-primary text-white rounded-full font-semibold text-[17px] shadow-xl hover:bg-primary/90 active:scale-95 transition-all w-full sm:w-auto max-w-xs sm:max-w-none"
             >
               Start Free Trial <ChevronRight className="w-4 h-4" />
             </button>
@@ -364,7 +351,7 @@ export default function Landing() {
       </section>
 
       {/* ── SECTION 2 — APP PREVIEW ───────────────────────────────────────── */}
-      <section className="max-w-5xl mx-auto px-3 sm:px-5 pb-8 relative z-10">
+      <section className="max-w-5xl mx-auto px-3 sm:px-5 pb-8">
         <motion.div {...fade(0.1)}>
           <AppPreview />
         </motion.div>

@@ -8,8 +8,6 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS trial_active_reminder_sent_at timestamp,
   ADD COLUMN IF NOT EXISTS translation_architecture_update_email_sent_at timestamp,
   ADD COLUMN IF NOT EXISTS stability_baseline_update_email_sent_at timestamp,
-  ADD COLUMN IF NOT EXISTS glossary_feature_announcement_email_sent_at timestamp,
-  ADD COLUMN IF NOT EXISTS promo_offer_sent_at timestamp,
   ADD COLUMN IF NOT EXISTS email_reminders_enabled boolean NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS requires_email_verification boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS getting_started_email_sent_at timestamp,

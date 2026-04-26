@@ -33,7 +33,6 @@ import {
   transcriptionSessionStartLimiter,
   translationLimiter,
 } from "./middlewares/apiRateLimits.js";
-import { trialAiHardWallMiddleware } from "./middlewares/trialAiHardWall.js";
 import { jsonParseErrorHandler } from "./middlewares/jsonParseError.js";
 import { aiUsageMonitorMiddleware } from "./middlewares/aiUsageMonitor.js";
 import { blockUnauthenticatedAiRequests } from "./middlewares/unauthenticatedAiBlock.js";
@@ -328,7 +327,6 @@ app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api", sessionHeartbeatLimiter);
 app.use("/api", transcriptionSessionStartLimiter);
-app.use("/api", trialAiHardWallMiddleware);
 app.use("/api", translationLimiter);
 app.use("/api", aiCostLimiter);
 app.use("/api/admin", adminIpGuard);

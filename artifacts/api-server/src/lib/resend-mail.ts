@@ -27,12 +27,6 @@ type SendParams = {
   text?: string;
 };
 
-function applySenderOverride(from: string): string {
-  const override = process.env.SENDER_EMAIL?.trim();
-  if (!override) return from;
-  return override;
-}
-
 export type SendEmailResult = {
   ok: boolean;
   /** Resend message id when `ok` */
@@ -44,11 +38,10 @@ export type SendEmailResult = {
 };
 
 async function deliverWithResult(params: SendParams): Promise<SendEmailResult> {
-  const effectiveFrom = applySenderOverride(params.from);
   const key = process.env.RESEND_API_KEY?.trim();
   if (!key) {
     logger.warn(
-      { to: params.to, subject: params.subject, from: effectiveFrom },
+      { to: params.to, subject: params.subject, from: params.from },
       "RESEND_API_KEY not set — email not sent",
     );
     return { ok: false, exceptionMessage: "RESEND_API_KEY not set" };
@@ -57,7 +50,7 @@ async function deliverWithResult(params: SendParams): Promise<SendEmailResult> {
   try {
     const client = new Resend(key);
     const result = await client.emails.send({
-      from: effectiveFrom,
+      from: params.from,
       to: params.to,
       subject: params.subject,
       html: params.html,
@@ -70,7 +63,7 @@ async function deliverWithResult(params: SendParams): Promise<SendEmailResult> {
         {
           to: params.to,
           subject: params.subject,
-          from: effectiveFrom,
+          from: params.from,
           resendError: e,
           statusCode: e.statusCode,
           errorName: e.name,
@@ -93,14 +86,14 @@ async function deliverWithResult(params: SendParams): Promise<SendEmailResult> {
         to: params.to,
         subject: params.subject,
         messageId,
-        from: effectiveFrom,
+        from: params.from,
       },
       "Resend email sent successfully",
     );
     return { ok: true, messageId };
   } catch (err) {
     logger.error(
-      { err, to: params.to, subject: params.subject, from: effectiveFrom },
+      { err, to: params.to, subject: params.subject, from: params.from },
       "Resend send failed (exception)",
     );
     return {

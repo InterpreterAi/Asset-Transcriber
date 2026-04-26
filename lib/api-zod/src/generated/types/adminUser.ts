@@ -41,25 +41,4 @@ export interface AdminUser {
   /** One entry per shared login IP this user has used; each entry lists every account on that IP so you can see duplicates at a glance. Empty when none.
    */
   sharedLoginIpClusters: AdminSharedLoginIpCluster[];
-  /** Admin-only paid subscription window start (subscription_started_at, or created_at when start missing).
-   */
-  paidBillingPeriodStartAt?: Date | null;
-  /** Admin-only paid subscription window end (subscription_period_ends_at, or start + 30 days when end missing).
-   */
-  paidBillingPeriodEndAt?: Date | null;
-  /** Admin-only calendar days in the billing window (capped at 366). */
-  paidBillingPeriodDays?: number | null;
-  /** Admin-only daily cap as hours (daily_limit_minutes / 60). */
-  paidBillingDailyCapHours?: number | null;
-  /** Admin-only max hours if user used full daily cap every day of the billing window. */
-  paidBillingEligibleHours?: number | null;
-  /** Admin-only billable minutes from sessions whose started_at falls in the billing window. */
-  paidBillingMinutesUsedInPeriod?: number | null;
-  /** Admin-only hours used this billing window (same basis as minutes). */
-  paidBillingHoursUsedInPeriod?: number | null;
-  /** Admin-only linear extrapolation to window end, capped at eligible hours (pace from elapsed time in window).
-   */
-  paidBillingProjectedHoursAtPeriodEnd?: number | null;
-  paidBillingUsesSignupProxyForStart?: boolean | null;
-  paidBillingUsesEstimatedPeriodEnd?: boolean | null;
 }
