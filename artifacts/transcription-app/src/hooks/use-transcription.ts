@@ -2652,7 +2652,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
       let switchedInThisMessage = false;
-      const questionTailPivotSeenInMessage = new Set<string>();
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2679,38 +2678,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               pendingQuestionTailSwitchRef.current = null;
               continue;
             }
-            const questionTailBoundaryActive =
+            const guardQuestionTail =
+              weakNow &&
               endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
               !sawSonioxEndpoint;
-            const guardQuestionTail = questionTailBoundaryActive || weakNow;
             if (guardQuestionTail) {
-              const hasFinalEvidenceForSidInMessage = tokens.some(
-                (tok, idx) =>
-                  tok.is_final &&
-                  !isSonioxEndpointToken(tok) &&
-                  sameSpeaker(effSpk[idx], sid),
-              );
-              if (questionTailBoundaryActive) {
-                if (!questionTailPivotSeenInMessage.has(sid)) {
-                  questionTailPivotSeenInMessage.add(sid);
-                  const pending = pendingQuestionTailSwitchRef.current;
-                  if (!pending || pending.sid !== sid) {
-                    pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
-                  } else {
-                    pending.seen += 1;
-                  }
-                }
-                const pendingSeen = pendingQuestionTailSwitchRef.current?.seen ?? 0;
-                if (pendingSeen < 2 || !hasFinalEvidenceForSidInMessage) continue;
-              } else {
-                const pending = pendingQuestionTailSwitchRef.current;
-                if (!pending || pending.sid !== sid) {
-                  pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
-                  continue;
-                }
-                pending.seen += 1;
-                if (pending.seen < 2) continue;
+              const pending = pendingQuestionTailSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+                continue;
               }
+              pending.seen += 1;
+              if (pending.seen < 2) continue;
             } else if (weakNow) {
               pendingQuestionTailSwitchRef.current = null;
               continue;
