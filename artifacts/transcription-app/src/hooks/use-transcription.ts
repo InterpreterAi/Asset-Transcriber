@@ -2657,12 +2657,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
             const runCharsNow = speakerPivotRunCharsInMessage(tokens, effSpk, ti);
+            const activeRowStableChars =
+              (activeBubbleRef.current?.textContent ?? "").trim().length +
+              getBufferedFinalTextForActiveBubble().length;
             const confirmedAcrossMessages =
               pendingSpeakerSwitchRef.current?.sid === sid &&
               (pendingSpeakerSwitchRef.current.seen >= 2);
             const hasEndpointConfidence = sawSonioxEndpoint && runCharsNow >= 20;
-            const shouldSwitch =
-              !weakNow && (confirmedAcrossMessages || hasEndpointConfidence);
+            // Keep normal diarization behavior for real speaker turns.
+            // Only gate weak pivots when the current row is already long/stable
+            // (the problematic "same speaker tail split" case).
+            const shouldSwitch = !weakNow
+              ? true
+              : (
+                activeRowStableChars < 56 ||
+                confirmedAcrossMessages ||
+                hasEndpointConfidence ||
+                runCharsNow >= 36
+              );
             if (shouldSwitch) {
               closeActiveSegmentBoundary("speaker_change");
               currentSpeakerRef.current = sid;
