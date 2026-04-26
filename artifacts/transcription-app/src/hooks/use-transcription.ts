@@ -2304,9 +2304,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // dispatch below. This ensures any poll fetch already in-flight will be
     // rejected by the post-fetch `finalizing` guard when it returns.
     stopTranslationInterval();
-    // Speaker change: keep finalizing false so in-flight live responses can still paint this row
-    // before the closing final request returns (hardFinalRequested stays off until final succeeds).
-    if (activeBubbleStateRef.current && closeKind !== "speaker_change") {
+    // Also freeze on speaker_change: otherwise late live responses can leak a
+    // few chars from the next segment into this just-closed row.
+    if (activeBubbleStateRef.current) {
       activeBubbleStateRef.current.finalizing = true;
     }
 
@@ -2383,11 +2383,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
-    // Sticky translation state: on speaker_change keep prior segment request alive
-    // until final text is committed, so we don't clear/lose previous row mid-switch.
-    if (closeKind === "session_end") {
-      activeBubbleStateRef.current?.liveTranslationAbort?.abort();
-    }
+    // Once a segment is closed, abort any live translation request tied to that
+    // segment so next-speaker text can never append into the previous row.
+    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current = undefined;
     pendingSpeakerEvidenceRef.current = null;
     activeBubbleRef.current   = null;
