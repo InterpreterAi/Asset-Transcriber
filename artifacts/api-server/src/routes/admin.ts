@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   db,
+  pool,
   usersTable,
   trialConsumedEmailsTable,
   feedbackTable,
@@ -15,15 +16,68 @@ import {
 import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt, inArray, notInArray } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
-import { getTrialDaysRemaining, isTrialLikePlanType, TRIAL_LIKE_PLAN_TYPES } from "../lib/usage.js";
-import { billingProductKeyFromPlanType, subscriptionPeriodEndFallback } from "../lib/paypal.js";
+import {
+  effectivePlanTypeForTranslation,
+  getTrialDaysRemaining,
+  isTrialLikePlanType,
+  userUsesMachineTranslationStack,
+  TRIAL_LIKE_PLAN_TYPES,
+} from "../lib/usage.js";
+import {
+  billingPlanTierDisplayName,
+  billingProductKeyFromPlanType,
+  subscriptionPeriodEndFallback,
+} from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { sendSubscriptionConfirmationEmail, sendTrialExtensionActivatedEmail } from "../lib/transactional-email.js";
 import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
+
+/** Same 30-day fallback as PayPal when `subscription_period_ends_at` is missing (admin UI uses this for estimates). */
+const BILLING_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
+
+function paidBillingWindowForUser(
+  u: (typeof usersTable)["$inferSelect"],
+  minutesInPeriod: number,
+): Record<string, string | number | boolean> | null {
+  if (u.isAdmin || isTrialLikePlanType(u.planType)) return null;
+  const start = new Date(u.subscriptionStartedAt ?? u.createdAt);
+  const end = new Date(
+    u.subscriptionPeriodEndsAt?.getTime() ?? start.getTime() + BILLING_FALLBACK_MS,
+  );
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return null;
+  if (end.getTime() <= start.getTime()) return null;
+  const periodMs = end.getTime() - start.getTime();
+  const daysInPeriod = Math.min(366, Math.max(1, Math.ceil(periodMs / 86_400_000)));
+  const dailyCapMin = Number(u.dailyLimitMinutes);
+  if (!Number.isFinite(dailyCapMin) || dailyCapMin <= 0) return null;
+  const dailyHours = dailyCapMin / 60;
+  const eligibleHours = dailyHours * daysInPeriod;
+  const now = Date.now();
+  const sliceEnd = Math.min(now, end.getTime());
+  const elapsedMs = Math.max(0, sliceEnd - start.getTime());
+  /** Avoid divide-by-zero on brand-new periods; extrapolate from at least ~1h elapsed. */
+  const elapsedDays = Math.max(elapsedMs / 86_400_000, 1 / 24);
+  const usedHours = minutesInPeriod / 60;
+  const projectedHours = Math.min(eligibleHours, (usedHours / elapsedDays) * daysInPeriod);
+
+  return {
+    paidBillingPeriodStartAt: start.toISOString(),
+    paidBillingPeriodEndAt: end.toISOString(),
+    paidBillingPeriodDays: daysInPeriod,
+    paidBillingDailyCapHours: Math.round((dailyCapMin / 60) * 100) / 100,
+    paidBillingEligibleHours: Math.round(eligibleHours * 10) / 10,
+    paidBillingMinutesUsedInPeriod: Math.round(minutesInPeriod * 10) / 10,
+    paidBillingHoursUsedInPeriod: Math.round(usedHours * 10) / 10,
+    paidBillingProjectedHoursAtPeriodEnd: Math.round(projectedHours * 10) / 10,
+    paidBillingUsesSignupProxyForStart: !u.subscriptionStartedAt,
+    paidBillingUsesEstimatedPeriodEnd: !u.subscriptionPeriodEndsAt,
+  };
+}
 
 // ── Cost constants ─────────────────────────────────────────────────────────
 // SONIOX_COST_PER_MIN is only used for estimating live (not-yet-ended) session
@@ -46,6 +100,147 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-libre":       0,
 };
 
+type ActiveSessionRow = {
+  sessionId: number;
+  userId: number;
+  startedAt: Date;
+  langPair: string | null;
+  username: string;
+  email: string | null;
+  planType: string | null;
+  trialEndsAt: Date | null;
+  dailyLimitMinutes: number | null;
+  subscriptionStatus: string | null;
+  subscriptionPlan: string | null;
+};
+
+type CoreLaneColor = "blue" | "violet";
+type EnrichedCorePlacement = {
+  coreLane: 1 | 2;
+  coreLaneColor: CoreLaneColor;
+  coreNodeLabel: string;
+};
+
+function isPaidPlanForCoreRouting(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  return (
+    p === "basic-libre" ||
+    p === "professional-libre" ||
+    p === "platinum-libre" ||
+    p === "basic" ||
+    p === "professional" ||
+    p === "platinum" ||
+    p === "unlimited"
+  );
+}
+
+function resolveCoreNodeLabelAndColor(): { coreNodeLabel: string; coreLaneColor: CoreLaneColor } {
+  const rawNodeId = Number.parseInt((process.env.HETZNER_NODE_ID ?? "1").trim(), 10);
+  const nodeId = Number.isFinite(rawNodeId) && rawNodeId >= 1 ? rawNodeId : 1;
+  return {
+    coreNodeLabel: `HZ-${nodeId}`,
+    coreLaneColor: nodeId === 1 ? "blue" : "violet",
+  };
+}
+
+function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCorePlacement> {
+  const out = new Map<number, EnrichedCorePlacement>();
+  const node = resolveCoreNodeLabelAndColor();
+
+  const sorted = [...rows].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  const machineRows = sorted.filter((r) => userUsesMachineTranslationStack(r));
+  const paidMachine = machineRows.filter((r) => isPaidPlanForCoreRouting(r.planType));
+  const trialMachine = machineRows.filter((r) => !isPaidPlanForCoreRouting(r.planType));
+
+  function place(sessionId: number, lane: 1 | 2) {
+    out.set(sessionId, { coreLane: lane, coreLaneColor: node.coreLaneColor, coreNodeLabel: node.coreNodeLabel });
+  }
+
+  // Mirrors server two-lane router: paid → lane 1, trial machine → lane 2.
+  for (const row of paidMachine) {
+    place(row.sessionId, 1);
+  }
+  for (const row of trialMachine) {
+    place(row.sessionId, 2);
+  }
+  return out;
+}
+
+/** Human-readable live `/translate` path + Hetzner lane (matches `userUsesMachineTranslationStack` + core router). */
+function buildTranslationRouteDetail(
+  r: ActiveSessionRow,
+  translationStack: "libre" | "openai",
+  coreLane: 1 | 2 | null,
+): string {
+  if (translationStack === "openai") {
+    const eff = effectivePlanTypeForTranslation(r).trim().toLowerCase();
+    if (eff === "trial-libre" && getTrialDaysRemaining(r) >= 4) {
+      return "Live /translate: OpenAI (trial-libre days 1–4; Hetzner after day 4)";
+    }
+    return "Live /translate: OpenAI";
+  }
+  if (coreLane === 1) {
+    return "Live /translate: Hetzner · Core 1 (paid · :5001)";
+  }
+  if (coreLane === 2) {
+    return "Live /translate: Hetzner · Core 2 (trial · :5002)";
+  }
+  return "Live /translate: Hetzner (lane assigning…)";
+}
+
+/**
+ * Per-user open-session counts and ordinal (detect duplicate DB rows for one customer).
+ */
+function enrichActiveSessionRows<T extends ActiveSessionRow>(
+  rows: T[],
+): Array<
+  T & {
+    openSessionsForUser: number;
+    openSessionOrdinal: number;
+    translationStack: "libre" | "openai";
+    translationRouteDetail: string;
+    coreLane: 1 | 2 | null;
+    coreLaneColor: CoreLaneColor | null;
+    coreNodeLabel: string | null;
+  }
+> {
+  const corePlacementBySessionId = computeCorePlacement(rows);
+  const byUser = new Map<number, T[]>();
+  for (const r of rows) {
+    const list = byUser.get(r.userId) ?? [];
+    list.push(r);
+    byUser.set(r.userId, list);
+  }
+  for (const list of byUser.values()) {
+    list.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  }
+  const ordinalBySessionId = new Map<number, number>();
+  for (const list of byUser.values()) {
+    list.forEach((r, i) => {
+      ordinalBySessionId.set(r.sessionId, i + 1);
+    });
+  }
+  return rows.map((r) => ({
+    ...r,
+    openSessionsForUser: byUser.get(r.userId)?.length ?? 1,
+    openSessionOrdinal: ordinalBySessionId.get(r.sessionId) ?? 1,
+    translationStack: userUsesMachineTranslationStack(r) ? "libre" : "openai",
+    coreLane: corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null,
+    coreLaneColor: corePlacementBySessionId.get(r.sessionId)?.coreLaneColor ?? null,
+    coreNodeLabel: corePlacementBySessionId.get(r.sessionId)?.coreNodeLabel ?? null,
+  }));
+}
+
+function liveSessionSummaryFromEnriched(
+  enriched: Array<{ userId: number; openSessionsForUser: number }>,
+): { totalSessions: number; usersWithMultipleOpen: number } {
+  const usersWithMulti = new Set<number>();
+  for (const r of enriched) {
+    if (r.openSessionsForUser > 1) usersWithMulti.add(r.userId);
+  }
+  return { totalSessions: enriched.length, usersWithMultipleOpen: usersWithMulti.size };
+}
+
 // ── List users ───────────────────────────────────────────────────────────────
 router.get("/users", requireAdmin, async (_req, res) => {
   // Batch-reset daily usage for anyone whose lastUsageResetAt is before today's midnight (America/New_York).
@@ -57,7 +252,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
-  const [users, shareCounts, todayUsageRows, loginIpStats, userLoginIps] = await Promise.all([
+  const [users, shareCounts, todayUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
@@ -111,7 +306,35 @@ router.get("/users", requireAdmin, async (_req, res) => {
           sql`trim(${loginEventsTable.ipAddress}) <> ''`,
         ),
       ),
+    pool.query<{
+      user_id: number;
+      minutes_in_period: string | number;
+    }>(`
+      SELECT u.id AS user_id,
+        COALESCE((
+          SELECT SUM(
+            CASE
+              WHEN s.ended_at IS NULL THEN COALESCE(s.audio_seconds_processed, 0)::double precision
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)::double precision
+            END
+          ) / 60.0
+          FROM sessions s
+          WHERE s.user_id = u.id
+            AND s.started_at >= COALESCE(u.subscription_started_at, u.created_at)
+            AND s.started_at < COALESCE(
+              u.subscription_period_ends_at,
+              COALESCE(u.subscription_started_at, u.created_at) + interval '30 days'
+            )
+        ), 0)::double precision AS minutes_in_period
+      FROM users u
+      WHERE u.is_admin = false
+        AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai')
+    `),
   ]);
+
+  const paidMinuteMap = new Map<number, number>(
+    paidBillingRows.rows.map((r) => [Number(r.user_id), Number(r.minutes_in_period)]),
+  );
 
   const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
   const todayUsageMap = new Map(todayUsageRows.map((r) => [r.userId, Number(r.minutesToday)]));
@@ -199,43 +422,67 @@ router.get("/users", requireAdmin, async (_req, res) => {
     return out.sort((a, b) => b.accountCount - a.accountCount || a.ip.localeCompare(b.ip));
   }
 
+  let paidBillingRollupEligible = 0;
+  let paidBillingRollupUsed = 0;
+  let paidBillingRollupProjected = 0;
+  let paidBillingRollupUserCount = 0;
+
+  const userPayloads = users.map((u) => {
+    const dup = loginIpDupMetrics(u.id);
+    const sharedLoginIpClusters = sharedLoginIpClustersForUser(u.id);
+    const minutesInPaidWindow = paidMinuteMap.get(u.id) ?? 0;
+    const paidBilling = paidBillingWindowForUser(u, minutesInPaidWindow);
+    if (paidBilling) {
+      paidBillingRollupUserCount++;
+      paidBillingRollupEligible += Number(paidBilling.paidBillingEligibleHours);
+      paidBillingRollupUsed += Number(paidBilling.paidBillingHoursUsedInPeriod);
+      paidBillingRollupProjected += Number(paidBilling.paidBillingProjectedHoursAtPeriodEnd);
+    }
+    return {
+      id:                 u.id,
+      username:           u.username,
+      email:              u.email ?? null,
+      isAdmin:            u.isAdmin,
+      isActive:           u.isActive,
+      planType:           u.planType,
+      trialStartedAt:     u.trialStartedAt,
+      trialEndsAt:        u.trialEndsAt,
+      subscriptionStatus: u.subscriptionStatus ?? null,
+      subscriptionPlan:   u.subscriptionPlan ?? null,
+      subscriptionStartedAt: u.subscriptionStartedAt ?? null,
+      subscriptionPeriodEndsAt: u.subscriptionPeriodEndsAt ?? null,
+      paypalSubscriptionId: u.paypalSubscriptionId ?? null,
+      stripeSubscriptionId: u.stripeSubscriptionId ?? null,
+      trialDaysRemaining: getTrialDaysRemaining(u),
+      dailyLimitMinutes:  u.dailyLimitMinutes,
+      // Live-accurate "today" usage for admin table/pills.
+      minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
+      totalMinutesUsed:   u.totalMinutesUsed,
+      totalSessions:      u.totalSessions,
+      totalShares:        shareMap.get(u.id) ?? 0,
+      defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
+      defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
+      lastActivityAt:     u.lastActivity ?? null,
+      createdAt:          u.createdAt,
+      /** Max distinct accounts seen on any single login IP for this user (1 = no sharing detected). */
+      sharedLoginIpMaxAccounts: dup.sharedLoginIpMaxAccounts,
+      /** Login IPs (successful) that also appear for other accounts — sample for review. */
+      sharedLoginIps:           dup.sharedLoginIps,
+      sharedLoginIpClusters,
+      ...(paidBilling ?? {}),
+    };
+  });
+
   res.json({
-    users: users.map((u) => {
-      const dup = loginIpDupMetrics(u.id);
-      const sharedLoginIpClusters = sharedLoginIpClustersForUser(u.id);
-      return {
-        id:                 u.id,
-        username:           u.username,
-        email:              u.email ?? null,
-        isAdmin:            u.isAdmin,
-        isActive:           u.isActive,
-        planType:           u.planType,
-        trialStartedAt:     u.trialStartedAt,
-        trialEndsAt:        u.trialEndsAt,
-        subscriptionStatus: u.subscriptionStatus ?? null,
-        subscriptionPlan:   u.subscriptionPlan ?? null,
-        subscriptionStartedAt: u.subscriptionStartedAt ?? null,
-        subscriptionPeriodEndsAt: u.subscriptionPeriodEndsAt ?? null,
-        paypalSubscriptionId: u.paypalSubscriptionId ?? null,
-        stripeSubscriptionId: u.stripeSubscriptionId ?? null,
-        trialDaysRemaining: getTrialDaysRemaining(u),
-        dailyLimitMinutes:  u.dailyLimitMinutes,
-        // Live-accurate "today" usage for admin table/pills.
-        minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
-        totalMinutesUsed:   u.totalMinutesUsed,
-        totalSessions:      u.totalSessions,
-        totalShares:        shareMap.get(u.id) ?? 0,
-        defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
-        defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
-        lastActivityAt:     u.lastActivity ?? null,
-        createdAt:          u.createdAt,
-        /** Max distinct accounts seen on any single login IP for this user (1 = no sharing detected). */
-        sharedLoginIpMaxAccounts: dup.sharedLoginIpMaxAccounts,
-        /** Login IPs (successful) that also appear for other accounts — sample for review. */
-        sharedLoginIps:           dup.sharedLoginIps,
-        sharedLoginIpClusters,
-      };
-    }),
+    users: userPayloads,
+    paidBillingRollup: {
+      paidUsersInRollup: paidBillingRollupUserCount,
+      totalEligibleHoursThisPeriod: Math.round(paidBillingRollupEligible * 10) / 10,
+      totalHoursUsedThisPeriod: Math.round(paidBillingRollupUsed * 10) / 10,
+      totalProjectedHoursAtPeriodEnd: Math.round(paidBillingRollupProjected * 10) / 10,
+      description:
+        "Admin-only estimate: non-admin paid plans. Billing window = subscription_started_at (or signup created_at) through subscription_period_ends_at (or start + 30 days). Eligible hours = (daily_limit_minutes/60) × days in that window. Session minutes counted when session started inside the window. Projected at renewal caps at eligible total and extrapolates from pace so far in the window.",
+    },
   });
 });
 
@@ -330,7 +577,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
       )),
 
-    // Open (live) sessions — all users (admins testing transcription show up here)
+    // Open (live) sessions — customer accounts only (aligns with /active-sessions; admin test tabs excluded)
     db.select({
       sessionId:  sessionsTable.id,
       userId:     sessionsTable.userId,
@@ -339,10 +586,14 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       username:   usersTable.username,
       email:      usersTable.email,
       planType:   usersTable.planType,
+      trialEndsAt: usersTable.trialEndsAt,
+      dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      subscriptionStatus: usersTable.subscriptionStatus,
+      subscriptionPlan: usersTable.subscriptionPlan,
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
-      .where(isNull(sessionsTable.endedAt))
+      .where(and(isNull(sessionsTable.endedAt), sql`${usersTable.isAdmin} = false`))
       .orderBy(sessionsTable.startedAt),
 
     // All non-admin users for MRR calculation
@@ -428,6 +679,9 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   const costPerSession =
     sessionsTodayCustomer > 0 ? +(totalCostToday / sessionsTodayCustomer).toFixed(4) : 0;
 
+  const enrichedLive = enrichActiveSessionRows(activeSessionRows);
+  const liveSessionSummary = liveSessionSummaryFromEnriched(enrichedLive);
+
   res.json({
     activeUsers:       Number(activeRow[0]?.count  ?? 0),
     /** Every row in `users` (admins included). */
@@ -450,19 +704,27 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     costPerSession,
     payingUsers:   payingCount,
     trialUsers:    trialCount,
-    // Live sessions
-    activeSessions: activeSessionRows.map(s => ({
-      sessionId:       s.sessionId,
-      userId:          s.userId,
-      username:        s.username,
-      email:           s.email ?? null,
-      planType:        s.planType,
-      langPair:        s.langPair ?? null,
-      startedAt:       s.startedAt,
-      durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-      hasSnapshot:     sessionStore.has(s.sessionId),
-      micLabel:        sessionStore.get(s.sessionId)?.micLabel ?? null,
+    // Live sessions (customer accounts; duplicate opens per user surfaced in UI)
+    activeSessions: enrichedLive.map(s => ({
+      sessionId:            s.sessionId,
+      userId:               s.userId,
+      username:             s.username,
+      email:                s.email ?? null,
+      planType:             s.planType,
+      langPair:             s.langPair ?? null,
+      startedAt:            s.startedAt,
+      durationSeconds:      Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+      hasSnapshot:          sessionStore.has(s.sessionId),
+      micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
+      openSessionsForUser:  s.openSessionsForUser,
+      openSessionOrdinal:   s.openSessionOrdinal,
+      translationStack:        s.translationStack,
+      translationRouteDetail:  s.translationRouteDetail,
+      coreLane:                  s.coreLane,
+      coreLaneColor:             s.coreLaneColor,
+      coreNodeLabel:             s.coreNodeLabel,
     })),
+    liveSessionSummary,
   });
 });
 
@@ -481,6 +743,10 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     usageMonthRow,
     conversionRows,
     topUsersRows,
+    hetznerHoursMonthRow,
+    openAiHoursMonthRow,
+    paidUsersNowRow,
+    churnSignalsRow,
   ] = await Promise.all([
     // New signups per day — last 30 days
     db.select({
@@ -594,6 +860,82 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
           0
         )`))
       .limit(10),
+
+    // Hetzner MT usage hours MTD (machine-translation plans; includes live elapsed audio time).
+    db.select({
+      hours: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 3600.0`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonthNy}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`LOWER(${usersTable.planType}) LIKE '%-libre'`,
+      )),
+
+    // OpenAI usage hours MTD (non-machine plans; transcription and translation hours tracked separately in UI formula).
+    db.select({
+      transcriptionHours: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 3600.0`,
+      translationHours: sql<number>`
+        COALESCE(
+          SUM(
+            CASE
+              WHEN s.ended_at IS NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
+              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
+            END
+          ),
+          0
+        ) / 3600.0`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonthNy}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`LOWER(${usersTable.planType}) NOT LIKE '%-libre'`,
+      )),
+
+    // Active paid base (current).
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(and(
+        sql`${usersTable.isAdmin} = false`,
+        notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
+      )),
+
+    // Monthly churn signals among paid users.
+    db.select({ count: sql<number>`COUNT(*)` })
+      .from(usersTable)
+      .where(and(
+        sql`${usersTable.isAdmin} = false`,
+        notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
+        sql`(
+          COALESCE(${usersTable.subscriptionStatus}, '') ILIKE 'cancel%'
+          OR COALESCE(${usersTable.subscriptionStatus}, '') ILIKE 'inactive%'
+          OR ${usersTable.isActive} = false
+        )`,
+      )),
   ]);
 
   // Fill missing days with 0 for growth chart (last 30 days)
@@ -619,10 +961,35 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
   // Month cost: completed sessions only (no live-session adjustment needed for monthly view)
   const realCostMonth      = +(minutesMonth * SONIOX_COST_PER_MIN).toFixed(4);
 
+  const hetznerTranslationHoursMtd = +Number(hetznerHoursMonthRow[0]?.hours ?? 0).toFixed(2);
+  const openAiTranscriptionHoursMtd = +Number(openAiHoursMonthRow[0]?.transcriptionHours ?? 0).toFixed(2);
+  const openAiTranslationHoursMtd = +Number(openAiHoursMonthRow[0]?.translationHours ?? 0).toFixed(2);
+  const hetznerSavingsMtd = +(hetznerTranslationHoursMtd * 0.35).toFixed(2);
+  const estimatedOpenAiBurnMtd = +(
+    openAiTranscriptionHoursMtd * 0.15 +
+    openAiTranslationHoursMtd * 0.35
+  ).toFixed(2);
+  const serverUtilizationPerDollar = +(hetznerTranslationHoursMtd / 13).toFixed(3);
+  const effectiveHetznerCostPerHour = hetznerTranslationHoursMtd > 0
+    ? +(13 / hetznerTranslationHoursMtd).toFixed(3)
+    : 0;
+  const churnPercentMonthly = (() => {
+    const paidNow = Number(paidUsersNowRow[0]?.count ?? 0);
+    const churnCount = Number(churnSignalsRow[0]?.count ?? 0);
+    return paidNow > 0 ? +((churnCount / paidNow) * 100).toFixed(2) : 0;
+  })();
+
   const planMap = new Map(conversionRows.map(r => [r.planType, Number(r.count)]));
-  const trialCount  = planMap.get("trial") ?? 0;
-  const payingCount = [...planMap.entries()].filter(([k]) => k !== "trial").reduce((s, [, v]) => s + v, 0);
+  const trialCount  = [...planMap.entries()]
+    .filter(([k]) => isTrialLikePlanType(k))
+    .reduce((s, [, v]) => s + v, 0);
+  const payingCount = [...planMap.entries()].filter(([k]) => !isTrialLikePlanType(k)).reduce((s, [, v]) => s + v, 0);
   const totalCount  = trialCount + payingCount;
+  const activeMrr = [...planMap.entries()].reduce((sum, [planType, count]) => {
+    const price = PLAN_PRICES[planType] ?? 0;
+    return sum + price * count;
+  }, 0);
+  const ltvEstimate = churnPercentMonthly > 0 ? +(activeMrr / churnPercentMonthly).toFixed(2) : null;
 
   res.json({
     userGrowth:  growthChart,
@@ -633,6 +1000,18 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       costToday:       realCostToday,
       costMonth:       realCostMonth,
       sessionsToday:   sessionsTodayCount,
+    },
+    businessMetrics: {
+      hetznerSavingsMtd,
+      hetznerTranslationHoursMtd,
+      estimatedOpenAiBurnMtd,
+      openAiTranscriptionHoursMtd,
+      openAiTranslationHoursMtd,
+      serverUtilizationPerDollar,
+      effectiveHetznerCostPerHour,
+      ltvEstimate,
+      churnPercentMonthly,
+      activeMrr,
     },
     conversion: {
       totalUsers:     totalCount,
@@ -809,6 +1188,10 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       username:   usersTable.username,
       email:      usersTable.email,
       planType:   usersTable.planType,
+      trialEndsAt: usersTable.trialEndsAt,
+      dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      subscriptionStatus: usersTable.subscriptionStatus,
+      subscriptionPlan: usersTable.subscriptionPlan,
     })
     .from(sessionsTable)
     .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
@@ -818,19 +1201,28 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
     ))
     .orderBy(sessionsTable.startedAt);
 
+  const enriched = enrichActiveSessionRows(rows);
   res.json({
-    activeSessions: rows.map(s => ({
-      sessionId:       s.sessionId,
-      userId:          s.userId,
-      username:        s.username,
-      email:           s.email ?? null,
-      planType:        s.planType,
-      langPair:        s.langPair ?? null,
-      startedAt:       s.startedAt,
-      durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-      hasSnapshot:     sessionStore.has(s.sessionId),
-      micLabel:        sessionStore.get(s.sessionId)?.micLabel ?? null,
+    activeSessions: enriched.map(s => ({
+      sessionId:            s.sessionId,
+      userId:               s.userId,
+      username:             s.username,
+      email:                s.email ?? null,
+      planType:             s.planType,
+      langPair:             s.langPair ?? null,
+      startedAt:            s.startedAt,
+      durationSeconds:      Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+      hasSnapshot:          sessionStore.has(s.sessionId),
+      micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
+      openSessionsForUser:  s.openSessionsForUser,
+      openSessionOrdinal:   s.openSessionOrdinal,
+      translationStack:        s.translationStack,
+      translationRouteDetail:  s.translationRouteDetail,
+      coreLane:                s.coreLane,
+      coreLaneColor:           s.coreLaneColor,
+      coreNodeLabel:           s.coreNodeLabel,
     })),
+    liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
   });
 });
 
@@ -909,13 +1301,31 @@ router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
 router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
   const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+  const effectiveDurationSecondsSql = sql<number>`
+    CASE
+      WHEN ${sessionsTable.endedAt} IS NULL
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${sessionsTable.startedAt}))))
+      WHEN COALESCE(${sessionsTable.durationSeconds}, 0) > 0
+        THEN ${sessionsTable.durationSeconds}
+      WHEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0) > 0
+        THEN ${sessionsTable.audioSecondsProcessed}
+      -- Machine-stack historical fallback: session had heartbeats but stale-close stored zero duration.
+      WHEN ${sessionsTable.lastActivityAt} IS NOT NULL
+        AND EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt})) >= 90
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt}))))
+      -- Backfill historical rows that show 0 min despite real translated activity.
+      WHEN COALESCE(${sessionsTable.translationTokens}, 0) > 0
+        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.endedAt} - ${sessionsTable.startedAt}))))
+      ELSE 0
+    END
+  `;
 
   const rows = await db
     .select({
       id:              sessionsTable.id,
       startedAt:       sessionsTable.startedAt,
       endedAt:         sessionsTable.endedAt,
-      durationSeconds: sessionsTable.durationSeconds,
+      durationSeconds: effectiveDurationSecondsSql,
       langPair:        sessionsTable.langPair,
       lastActivityAt:  sessionsTable.lastActivityAt,
     })
@@ -929,12 +1339,9 @@ router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
       id:              s.id,
       startedAt:       s.startedAt,
       endedAt:         s.endedAt ?? null,
-      durationSeconds: s.durationSeconds ?? (
-        s.endedAt ? null
-          : Math.round((Date.now() - s.startedAt.getTime()) / 1000)
-      ),
+      durationSeconds: s.durationSeconds ?? 0,
       langPair:       s.langPair ?? null,
-      minutesUsed:    s.durationSeconds ? +(s.durationSeconds / 60).toFixed(2) : null,
+      minutesUsed:    +(Math.max(0, Number(s.durationSeconds ?? 0)) / 60).toFixed(2),
       isLive:         !s.endedAt,
     })),
   });
@@ -958,13 +1365,27 @@ router.put("/config/languages", requireAdmin, async (req, res) => {
     defaultLangB?:     string;
   };
 
-  if (enabledLanguages && enabledLanguages.length < 2) {
-    res.status(400).json({ error: "At least 2 languages must be enabled" });
+  const allowed = new Set(ALL_LANGUAGES.map(l => l.value));
+  let nextEnabled = enabledLanguages;
+  if (enabledLanguages) {
+    nextEnabled = [...new Set(enabledLanguages)].filter(c => allowed.has(c));
+    if (nextEnabled.length < 2) {
+      res.status(400).json({ error: "At least 2 configured languages must be enabled" });
+      return;
+    }
+  }
+
+  if (defaultLangA && !allowed.has(defaultLangA)) {
+    res.status(400).json({ error: "defaultLangA must be one of the configured languages" });
+    return;
+  }
+  if (defaultLangB && !allowed.has(defaultLangB)) {
+    res.status(400).json({ error: "defaultLangB must be one of the configured languages" });
     return;
   }
 
   updateLangConfig({
-    ...(enabledLanguages && { enabledLanguages }),
+    ...(nextEnabled && { enabledLanguages: nextEnabled }),
     ...(defaultLangA    && { defaultLangA }),
     ...(defaultLangB    && { defaultLangB }),
   });
@@ -1001,6 +1422,7 @@ router.post("/users", requireAdmin, async (req, res) => {
     passwordHash,
     isAdmin: isAdmin ?? false,
     isActive: true,
+    planType: "trial-libre",
     trialStartedAt,
     trialEndsAt,
     dailyLimitMinutes: dailyLimitMinutes ?? TRIAL_DAILY_LIMIT_MINUTES,
@@ -1057,9 +1479,11 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     defaultLangB?: string;
   };
 
-  /** Eight canonical tiers; legacy `*-openai` / `unlimited` rows still work until migrated. */
+  /** Canonical tiers (includes explicit `trial-hetzner` as full Hetzner trial). */
   const ADMIN_ASSIGNABLE_PLAN_TYPES = new Set([
     "trial",
+    "trial-openai",
+    "trial-hetzner",
     "trial-libre",
     "basic",
     "basic-libre",
@@ -1083,9 +1507,13 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   if (isActive !== undefined)             updates.isActive = isActive;
   if (isAdmin !== undefined)              updates.isAdmin = isAdmin;
   if (dailyLimitMinutes !== undefined)    updates.dailyLimitMinutes = dailyLimitMinutes;
-  if (planType)                           updates.planType = planType.toLowerCase();
+  if (planType) updates.planType = planType.toLowerCase();
   if (password)                           updates.passwordHash = await hashPassword(password);
-  if (trialEndsAt !== undefined && trialEndsAt) updates.trialEndsAt = new Date(trialEndsAt);
+  let trialEndsAtParsed: Date | null = null;
+  if (trialEndsAt !== undefined && trialEndsAt) {
+    trialEndsAtParsed = new Date(trialEndsAt);
+    updates.trialEndsAt = trialEndsAtParsed;
+  }
   if (minutesUsedToday !== undefined && minutesUsedToday >= 0) updates.minutesUsedToday = minutesUsedToday;
   if (defaultLangA && defaultLangA.trim()) (updates as Record<string, unknown>).defaultLangA = defaultLangA.trim();
   if (defaultLangB && defaultLangB.trim()) (updates as Record<string, unknown>).defaultLangB = defaultLangB.trim();
@@ -1099,8 +1527,18 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  const effectivePlanLower = (planType ?? existing.planType).trim().toLowerCase();
+  const planTypeEffectiveInput = planType ?? existing.planType;
+  const effectivePlanLower = planTypeEffectiveInput.trim().toLowerCase();
   const subscriptionDatesApply = !isTrialLikePlanType(effectivePlanLower);
+  if (
+    trialEndsAtParsed &&
+    Number.isFinite(trialEndsAtParsed.getTime()) &&
+    trialEndsAtParsed.getTime() > Date.now() &&
+    isTrialLikePlanType(effectivePlanLower)
+  ) {
+    // Immediate access after admin trial extension: restore today's available minutes.
+    updates.minutesUsedToday = 0;
+  }
 
   if (planType) {
     const pt = planType.toLowerCase();
@@ -1173,6 +1611,47 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
   }
 
   const user = result[0]!;
+  const previousPlanType = (existing.planType ?? "").trim().toLowerCase();
+  const nextPlanType = (user.planType ?? "").trim().toLowerCase();
+  const previousTrialEndsAtMs = existing.trialEndsAt?.getTime() ?? null;
+  const nextTrialEndsAtMs = user.trialEndsAt?.getTime() ?? null;
+  const nowMs = Date.now();
+  const trialDateWasExplicitlyProvided = trialEndsAt !== undefined;
+  const trialDateMovedLater =
+    previousTrialEndsAtMs !== null &&
+    nextTrialEndsAtMs !== null &&
+    nextTrialEndsAtMs > previousTrialEndsAtMs;
+  const explicitTrialExtension =
+    trialDateWasExplicitlyProvided &&
+    trialDateMovedLater &&
+    nextTrialEndsAtMs !== null &&
+    nextTrialEndsAtMs > nowMs;
+  const switchedIntoMixedTrial =
+    nextPlanType === "trial-libre" &&
+    previousPlanType !== "trial-libre";
+
+  // Email users only for:
+  // 1) explicit extension of trial end date to a later future date, or
+  // 2) an explicit switch into the mixed trial plan.
+  const shouldSendTrialActivationEmail =
+    isTrialLikePlanType(nextPlanType) &&
+    (explicitTrialExtension || switchedIntoMixedTrial);
+
+  if (shouldSendTrialActivationEmail) {
+    const email = user.email?.trim().toLowerCase();
+    if (email) {
+      const daysRemaining = getTrialDaysRemaining(user);
+      if (daysRemaining > 0) {
+        void sendTrialExtensionActivatedEmail(
+          email,
+          user.username ?? null,
+          user.trialEndsAt!,
+          TRIAL_DAILY_LIMIT_MINUTES,
+          user.id,
+        );
+      }
+    }
+  }
   const [shareAgg] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(shareEventsTable)
@@ -1405,9 +1884,9 @@ router.post("/support/:id/reply", requireAdmin, async (req, res) => {
     message:  message.trim(),
   }).returning();
 
-  // Re-open if resolved when admin replies
+  // Re-open on any non-open status (legacy closed statuses included) when admin replies.
   await db.update(supportTicketsTable)
-    .set({ updatedAt: new Date() })
+    .set({ status: "open", updatedAt: new Date() })
     .where(eq(supportTicketsTable.id, ticketId));
 
   // Email user
@@ -1575,8 +2054,10 @@ router.get("/system-monitor", requireAdmin, async (_req, res) => {
     db.select({ count: sql<number>`COUNT(*)::int` }).from(usersTable)
       .where(and(gt(usersTable.lastActivity, since5min), sql`${usersTable.isAdmin} = false`)),
 
-    db.select({ count: sql<number>`COUNT(*)::int` }).from(sessionsTable)
-      .where(isNull(sessionsTable.endedAt)),
+    db.select({ count: sql<number>`COUNT(*)::int` })
+      .from(sessionsTable)
+      .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
+      .where(and(isNull(sessionsTable.endedAt), sql`${usersTable.isAdmin} = false`)),
 
     db.select({ count: sql<number>`COUNT(*)::int` }).from(loginEventsTable)
       .where(and(gte(loginEventsTable.createdAt, startOfToday), eq(loginEventsTable.success, false))),
@@ -1602,7 +2083,8 @@ router.get("/system-monitor", requireAdmin, async (_req, res) => {
 
   res.json({
     activeUsers:            activeUsersRow[0]?.count           ?? 0,
-    activeSessions:         Math.max(activeSessionsRow[0]?.count ?? 0, sessionStore.size),
+    /** Customer open sessions only (matches admin Live Sessions list). */
+    activeSessions:         activeSessionsRow[0]?.count ?? 0,
     failedLoginsToday:      failedLoginsRow[0]?.count          ?? 0,
     successfulLoginsToday:  successLoginsRow[0]?.count         ?? 0,
     apiErrorsToday:         apiErrorsRow[0]?.count             ?? 0,
@@ -1784,6 +2266,52 @@ router.get("/login-events/summary", requireAdmin, async (req, res) => {
     lastHour:    lastHour[0]?.c ?? 0,
     byReason,
   });
+});
+
+/** Resend “subscription is active” email (e.g. after a missed webhook). Optional `force: true` sends even if already recorded. */
+router.post("/resend-subscription-confirmation", requireAdmin, async (req, res) => {
+  const { email, force } = req.body as { email?: string; force?: boolean };
+  const em = email?.trim().toLowerCase();
+  if (!em || !em.includes("@")) {
+    res.status(400).json({ error: "email is required" });
+    return;
+  }
+
+  const [u] = await db.select().from(usersTable).where(eq(usersTable.email, em)).limit(1);
+  if (!u) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const key = billingProductKeyFromPlanType(u.planType ?? "");
+  if (!key) {
+    res.status(400).json({ error: "User plan does not map to a paid subscription tier" });
+    return;
+  }
+
+  if (u.subscriptionConfirmationSentAt && !force) {
+    res.status(409).json({ error: "Confirmation already recorded; pass force: true to resend" });
+    return;
+  }
+
+  const ok = await sendSubscriptionConfirmationEmail(
+    em,
+    billingPlanTierDisplayName(key),
+    "Your next billing date is available in your PayPal account",
+    u.username,
+    u.id,
+  );
+  if (!ok) {
+    res.status(503).json({ error: "Email not sent (check RESEND_API_KEY and Resend logs)" });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({ subscriptionConfirmationSentAt: new Date() })
+    .where(eq(usersTable.id, u.id));
+
+  res.json({ ok: true });
 });
 
 export default router;

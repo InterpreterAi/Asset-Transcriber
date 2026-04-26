@@ -10,6 +10,7 @@ export * from "./adminCreateUserRequest";
 export * from "./adminFeedbackItem";
 export * from "./adminFeedbackItemRecommend";
 export * from "./adminFeedbackListResponse";
+export * from "./adminPaidBillingRollup";
 export * from "./adminSharedLoginIpAccount";
 export * from "./adminSharedLoginIpCluster";
 export * from "./adminUpdateUserRequest";

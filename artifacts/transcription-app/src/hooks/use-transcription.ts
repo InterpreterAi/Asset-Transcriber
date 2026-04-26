@@ -46,12 +46,22 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   const fLow = fTrim.toLowerCase();
   const nLow = n.toLowerCase();
   if (fLow.endsWith(nLow)) return fTrim;
+  // NF is a case-insensitive extension of everything already in finals — use the longer hypothesis.
   if (n.startsWith(fTrim) || nLow.startsWith(fLow)) return n;
   const maxLen = Math.min(fTrim.length, n.length);
   for (let k = maxLen; k >= 1; k--) {
     if (fTrim.slice(-k) === n.slice(0, k)) return fTrim + n.slice(k);
   }
   return fTrim + n;
+}
+
+/** When two merge strategies disagree, keep the longer non-empty string so finalize never prefers a truncated buffer. */
+function longerTranscriptSnapshot(a: string, b: string): string {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (!ta) return tb;
+  if (!tb) return ta;
+  return ta.length >= tb.length ? ta : tb;
 }
 
 /**
@@ -73,6 +83,47 @@ function shouldPreferPreviousLiveTranslation(
   const sn = sourceNowCollapsed.trim();
   const sc = sourceCommittedCollapsed.trim();
   return sn.length >= sc.length - 2;
+}
+
+function ratioScriptMatches(re: RegExp, s: string): number {
+  if (!s) return 0;
+  const chars = [...s];
+  const letters = chars.filter(ch => /\p{L}/u.test(ch));
+  if (letters.length === 0) return 0;
+  let hits = 0;
+  for (const ch of letters) {
+    if (re.test(ch)) hits++;
+  }
+  return hits / letters.length;
+}
+
+/**
+ * Heuristic guard for live updates:
+ * keep existing live translation when the incoming text clearly does not match the target script.
+ * Finalized passes are still allowed to fully replace.
+ */
+function looksReasonablyLikeTargetLanguage(text: string, targetLangBcp47: string): boolean {
+  const t = text.trim();
+  if (t.length < 3) return true;
+  const base = targetLangBcp47.trim().toLowerCase().split("-")[0] ?? "";
+
+  const arabicRatio = ratioScriptMatches(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/u, t);
+  const cyrRatio = ratioScriptMatches(/[\u0400-\u04FF]/u, t);
+  const thaiRatio = ratioScriptMatches(/[\u0E00-\u0E7F]/u, t);
+  const devRatio = ratioScriptMatches(/[\u0900-\u097F]/u, t);
+  const hangulRatio = ratioScriptMatches(/\p{Script=Hangul}/u, t);
+  const hanRatio = ratioScriptMatches(/\p{Script=Han}/u, t);
+  const latinRatio = ratioScriptMatches(/\p{Script=Latin}/u, t);
+
+  if (base === "ar" || base === "fa" || base === "ur") return arabicRatio >= 0.35 || latinRatio >= 0.45;
+  if (base === "ru" || base === "uk" || base === "bg") return cyrRatio >= 0.4 || latinRatio >= 0.45;
+  if (base === "th") return thaiRatio >= 0.35 || latinRatio >= 0.45;
+  if (base === "hi") return devRatio >= 0.35 || latinRatio >= 0.45;
+  if (base === "ko") return hangulRatio >= 0.3 || latinRatio >= 0.45;
+  if (base === "zh" || base === "ja") return hanRatio >= 0.2 || latinRatio >= 0.45;
+
+  // Latin-family targets (en/es/fr/de/it/pt/nl/pl/id/vi/tr/...):
+  return latinRatio >= 0.45 || (arabicRatio < 0.2 && cyrRatio < 0.2 && thaiRatio < 0.2 && devRatio < 0.2);
 }
 
 /**
@@ -104,7 +155,8 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+/** Coalesce rapid final-token bursts into one DOM write; lower = snappier transcript (still merged with queued text for liveBufferRef). */
+const FINAL_TEXT_RENDER_BUFFER_MS = 32;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -115,11 +167,8 @@ const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * OPENAI_VERIFIED_TRANSLATION_CO
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
 const SPEAKER_COLORS = [
-  // slot 1 — Blue
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-100 mb-1",
-  // slot 2 — Green
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-green-50 text-green-600 border border-green-100 mb-1",
-  // slot 3 — Orange
   "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-50 text-orange-600 border border-orange-100 mb-1",
 ] as const;
 
@@ -466,7 +515,8 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
 ]);
 
 /**
- * THE FINAL BOSS — the one canonical InterpreterAI release (no other “final boss”; earlier baseline is `legacy-final-boss`).
+ * **Final Boss 3** — client pipeline (canonical InterpreterAI release; earlier baseline is `legacy-final-boss`).
+ * Server `POST /translate` runs **Final Boss 3 · OpenAI** or **Final Boss 3 · Libre** by plan only; this hook stays plan-agnostic.
  * Rollback: `git checkout final-boss`. Older pipeline snapshot: `git checkout legacy-final-boss` (superseded; had transcript phrase rewrites).
  * Original column: exact ASR mirror — no client-side rephrasing or “similar meaning” fixes.
  * Translation: live debounce + per-bubble abort; speaker-change full final;
@@ -612,7 +662,7 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
 //
-// Primary: POST /api/transcription/translate (OpenAI on API server).
+// Primary: POST /api/transcription/translate (OpenAI or LibreTranslate on API server per plan).
 // On primary API failure we now skip that update (no public fallback) to avoid
 // mixed-language corruption during live interpreter use.
 //
@@ -622,8 +672,31 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
 //   • HTTP 401 / 403             → try public fallback before surfacing error (except daily limit → hard stop)
 //   • Other 4xx                  → no retry (bad request)
 //   • Fatal 503 codes            → try public fallback before surfacing error
+type TranslationEngineHint = "hetzner" | "libre" | "openai" | "passthrough";
+
+/** Avoid keeping English-looking live text when machine translate returns Spanish for en↔es. */
+function shouldPreferPreviousLiveTranslationWithTarget(
+  prevShown: string,
+  next: string,
+  sourceNowCollapsed: string,
+  sourceCommittedCollapsed: string,
+  targetLangBcp47: string,
+  engineHint: TranslationEngineHint | undefined,
+): boolean {
+  const base = targetLangBcp47.trim().toLowerCase().split("-")[0] ?? "";
+  if (engineHint === "hetzner" || engineHint === "libre") {
+    const esHint =
+      /[áéíóúñü¿¡]|\b(el|la|los|las|de|que|para|qué|paciente|necesita|necesitan|colonoscop)\w*\b/i;
+    const nextEs = esHint.test(next);
+    const prevEs = esHint.test(prevShown);
+    if (base === "es" && nextEs && !prevEs && next.trim().length >= 10) return false;
+    if (base === "es" && prevEs && !nextEs && prevShown.trim().length >= 10) return true;
+  }
+  return shouldPreferPreviousLiveTranslation(prevShown, next, sourceNowCollapsed, sourceCommittedCollapsed);
+}
+
 type PrimaryTranslationResult =
-  | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[] }
+  | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[]; translationEngine?: TranslationEngineHint }
   | { outcome: "daily_limit"; message: string }
   | { outcome: "try_fallback"; userMessage?: string };
 
@@ -649,6 +722,7 @@ async function translateViaPrimaryApi(
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",
+    "HETZNERTRANSLATE_FAILED",
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",
@@ -684,11 +758,16 @@ async function translateViaPrimaryApi(
       });
       clearTimeout(timeoutId);
       if (r.ok) {
-        const d = await r.json() as { translated?: string; appliedGlossaryTerms?: string[] };
+        const d = await r.json() as {
+          translated?: string;
+          appliedGlossaryTerms?: string[];
+          translationEngine?: TranslationEngineHint;
+        };
         return {
           outcome: "ok",
           text: d.translated?.trim() ?? "",
           appliedGlossaryTerms: Array.isArray(d.appliedGlossaryTerms) ? d.appliedGlossaryTerms : undefined,
+          translationEngine: d.translationEngine,
         };
       }
 
@@ -715,10 +794,10 @@ async function translateViaPrimaryApi(
             outcome:     "try_fallback",
             userMessage:
               j?.error ??
-              "Translation is temporarily unavailable. Basic/Professional use LibreTranslate — check network or LIBRETRANSLATE_URL on the API server.",
+              "Translation is temporarily unavailable. Hetzner translate could not be reached from the API server (check Hetzner host and remove stale LIBRETRANSLATE_* pointing at Railway).",
           };
         }
-        await new Promise<void>(res => setTimeout(res, 700 * attempt));
+        await new Promise<void>(res => setTimeout(res, 220 * attempt));
         continue;
       }
 
@@ -777,7 +856,7 @@ async function translateViaPrimaryApi(
       if (externalSignal?.aborted) {
         return { outcome: "ok", text: "" };
       }
-      await new Promise<void>(res => setTimeout(res, 700 * attempt));
+      await new Promise<void>(res => setTimeout(res, 220 * attempt));
     }
   }
   return {
@@ -799,7 +878,18 @@ type FetchTranslationResult = {
   replaceStreamColumn: boolean;
   dailyLimitReached?: boolean;
   dailyLimitMessage?: string;
+  /** From API: Libre MT output must not go through aggressive client polish (drops clauses). */
+  translationEngine?: TranslationEngineHint;
+  /** One-line copy for the translation cell when primary fails (e.g. Libre 503). */
+  translationFailedMessage?: string;
 };
+
+/** Single-line, bounded length for in-cell failure text (avoid layout blow-ups). */
+function translationFailureCellText(message: string): string {
+  const one = message.replace(/\s+/g, " ").trim();
+  const max = 360;
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
 
 async function fetchTranslation(
   text: string,
@@ -812,7 +902,11 @@ async function fetchTranslation(
   if (primary.outcome === "ok") {
     const applied = primary.appliedGlossaryTerms ?? [];
     if (applied.length) options?.onGlossaryApplied?.(applied);
-    return { text: primary.text, replaceStreamColumn: false };
+    return {
+      text: primary.text,
+      replaceStreamColumn: false,
+      translationEngine: primary.translationEngine,
+    };
   }
   if (primary.outcome === "daily_limit") {
     return {
@@ -826,7 +920,14 @@ async function fetchTranslation(
   // Public fallback can introduce mixed-language or delayed rewrites.
   // Keep interpreter output stable: if primary fails, skip this update.
   if (primary.userMessage) onTranslationIssue?.(primary.userMessage);
-  return { text: "", replaceStreamColumn: false };
+  const rawMsg = primary.userMessage?.trim();
+  return {
+    text: "",
+    replaceStreamColumn: false,
+    translationFailedMessage: rawMsg
+      ? translationFailureCellText(rawMsg)
+      : "Translation unavailable.",
+  };
 }
 
 // ── Admin click-to-copy ────────────────────────────────────────────────────────
@@ -1393,8 +1494,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
+  /** Trailing debounce for live translate API (coalesces WS bursts). 0 = fire as soon as the timer yields (closest to public-Libre snappiness); aborts drop superseded calls. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 0;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1578,9 +1679,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
-          if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
-            onAdminSnapshotBuffersUpdatedRef.current?.();
+          const pin = options?.adminSnapshotLineIndex;
+            if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
+            translationBufRef.current[pin] = text.trim();
+              onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         }
         scrollPanel();
@@ -1588,11 +1690,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const dispatchLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
-    const myTargetLang = targetOppositeInPair(dispatchLang, pair);
+    const detectedSourceLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
+    const dispatchLang = state.segmentSourceLang ?? detectedSourceLang;
+    const myTargetLang = state.segmentTargetLang ?? targetOppositeInPair(dispatchLang, pair);
+    // Lock segment direction on first resolved source so mixed-language tails never flip the target.
     if (!state.translationLocked) {
-      state.segmentSourceLang = dispatchLang;
-      state.segmentTargetLang = myTargetLang;
+      if (state.segmentSourceLang === null) state.segmentSourceLang = dispatchLang;
+      if (state.segmentTargetLang === null) state.segmentTargetLang = myTargetLang;
     }
     const { transTextEl } = state;
 
@@ -1606,8 +1710,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
-          if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
+          const pin = options?.adminSnapshotLineIndex;
+          if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
+            translationBufRef.current[pin] = text.trim();
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         }
@@ -1744,10 +1849,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       useStreamingDelta = false;
     }
 
-    // Finals that include digits: never tail + streamingDelta. Overlap clipping
-    // (sourceTailAfterPrefix) can split number chains and mergeStreamingTranslation
-    // then drops digits vs Soniox; full segment is cheap for short numeric spans.
-    if (isFinal && /\d/.test(text)) {
+    // Interruption-safe finalization (Final Boss 3 behavior):
+    // finalized segments must always complete as one full segment request, never as a live tail.
+    // This prevents abandoned/blank translations when a new speaker opens another segment.
+    if (isFinal) {
       apiText = text;
       useStreamingDelta = false;
       requestIsFinal = true;
@@ -1769,13 +1874,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
-        const maxFetchAttempts = requestIsFinal ? 3 : 1;
+        const maxFetchAttempts = requestIsFinal ? 2 : 1;
         let translated = "";
+        let translationEngineHint: TranslationEngineHint | undefined;
+        let lastTranslationFailureMessage: string | undefined;
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {
-            await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
+            await new Promise<void>(res => setTimeout(res, 90 * fetchAttempt));
           }
-          if (requestSegmentId !== state.segmentId) return;
+          // Live (non-final) work is obsolete if the user moved to a new segment; finals must finish to fill admin buffers.
+          if (!isFinal && activeBubbleStateRef.current?.segmentId !== requestSegmentId) return;
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
           if (!requestIsFinal && state.hardFinalRequested) return;
@@ -1800,11 +1908,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             return;
           }
           translated = tr.text;
+          translationEngineHint = tr.translationEngine ?? translationEngineHint;
+          if (tr.translationFailedMessage) lastTranslationFailureMessage = tr.translationFailedMessage;
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
-          await new Promise<void>(res => setTimeout(res, 450));
-          if (requestSegmentId !== state.segmentId) return;
+          await new Promise<void>(res => setTimeout(res, 60));
           if (!transTextEl.isConnected) return;
           if (state.translationLocked) return;
           const trRetry = await fetchTranslation(
@@ -1812,45 +1921,77 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             dispatchLang,
             myTargetLang,
             (m) => translationConfigReporterRef.current(m),
-            { streamingDelta: false, isFinal: true, onGlossaryApplied: t => glossaryNotifyRef.current(t) },
+            {
+              streamingDelta: false,
+              isFinal: true,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+            },
           );
           if (trRetry.dailyLimitReached) {
             dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
             return;
           }
           translated = trRetry.text;
+          translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
+          if (trRetry.translationFailedMessage) lastTranslationFailureMessage = trRetry.translationFailedMessage;
         }
-        if (requestSegmentId !== state.segmentId) return;
-
-        if (state.translationLocked) return;
-        if (!requestIsFinal && state.hardFinalRequested) return;
-        if (!isFinal && state.finalizing) return;
-
         if (!translated?.trim()) {
+          if (transTextEl.isConnected) {
+            const shown = (transTextEl.textContent ?? "").trim();
+            if (!shown || shown === "…") {
+              applyTranslationTypography(
+                transTextEl,
+                lastTranslationFailureMessage ?? "Retrying translation…",
+              );
+            }
+          }
           return;
         }
 
+        /** Polished final text for this API response (admin buffer must receive this even if DOM is obsolete). */
+        let adminOutTrim: string | null = null;
         if (requestIsFinal) {
           const rawFinal = translated.trim();
-          let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
-          if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
-            out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
+          // Libre / passthrough: server already finalized; aggressive interpreter polish drops clauses and
+          // confuses MT phrasing — keep whitespace hygiene only (matches dedupeConsecutiveTranslationTokens).
+          const useLightweightFinalPolish =
+            translationEngineHint === "hetzner" ||
+            translationEngineHint === "libre" ||
+            translationEngineHint === "passthrough";
+          let out: string;
+          if (useLightweightFinalPolish) {
+            out = dedupeConsecutiveTranslationTokens(rawFinal);
+          } else {
+            out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
+            if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
+              out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
+            }
           }
-          const outTrim = out.trim();
+          adminOutTrim = out.trim();
           const resolvedAdminIdx =
             typeof adminBufRowIdx === "number" &&
             adminBufRowIdx >= 0 &&
             adminBufRowIdx < translationBufRef.current.length
               ? adminBufRowIdx
               : null;
-          // Pin admin dashboard row to this finalized segment (next segment can finalize before translate returns).
           if (resolvedAdminIdx !== null) {
-            translationBufRef.current[resolvedAdminIdx] = outTrim;
+            translationBufRef.current[resolvedAdminIdx] = adminOutTrim;
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
+        }
 
+        if (!transTextEl.isConnected) {
+          scrollPanel();
+          return;
+        }
+
+        if (state.translationLocked) return;
+        if (!requestIsFinal && state.hardFinalRequested) return;
+        if (!isFinal && state.finalizing) return;
+
+        if (requestIsFinal && adminOutTrim !== null) {
+          const out = adminOutTrim;
           if (mySeq <= state.lastShownSeq) return;
-          if (!transTextEl.isConnected) return;
 
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
@@ -1865,15 +2006,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             state.hardFinalRequested = true;
             state.translationLocked = true;
           }
-          if (resolvedAdminIdx === null && translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = outTrim;
-            onAdminSnapshotBuffersUpdatedRef.current?.();
-          }
         } else {
           if (mySeq <= state.lastShownSeq) return;
           if (!transTextEl.isConnected) return;
           if (useStreamingDelta) {
-            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
+            const prevShown = (transTextEl.textContent ?? "").trim();
+            const incoming = translated.trim();
+            if (
+              prevShown &&
+              !requestIsFinal &&
+              looksReasonablyLikeTargetLanguage(prevShown, myTargetLang) &&
+              !looksReasonablyLikeTargetLanguage(incoming, myTargetLang)
+            ) {
+              return;
+            }
+            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
             applyTranslationTypography(transTextEl, merged);
@@ -1890,9 +2037,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const prevShown = (transTextEl.textContent ?? "").trim();
             const srcNow = collapseWs(text);
             const srcCommitted = collapseWs(state.streamCommittedSource);
-            const chosen = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted)
+            let chosen = shouldPreferPreviousLiveTranslationWithTarget(
+              prevShown,
+              out,
+              srcNow,
+              srcCommitted,
+              myTargetLang,
+              translationEngineHint,
+            )
               ? prevShown
               : out;
+            const baseSrc = dispatchLang.split("-")[0]!.toLowerCase();
+            const baseTgt = myTargetLang.split("-")[0]!.toLowerCase();
+            if (
+              prevShown &&
+              !requestIsFinal &&
+              baseTgt === "en" &&
+              baseSrc !== "en" &&
+              srcNow.length >= srcCommitted.length - 2 &&
+              !chosen.toLowerCase().includes(prevShown.toLowerCase()) &&
+              !prevShown.toLowerCase().includes(chosen.toLowerCase())
+            ) {
+              // Same speaker resumed after pause: keep prior translation and append fresh part.
+              chosen = mergeStreamingTranslation(prevShown, chosen);
+            }
+            if (
+              prevShown &&
+              !requestIsFinal &&
+              looksReasonablyLikeTargetLanguage(prevShown, myTargetLang) &&
+              !looksReasonablyLikeTargetLanguage(chosen, myTargetLang)
+            ) {
+              return;
+            }
             state.lastShownSeq = mySeq;
             state.lastShownLen = chosen.length;
             applyTranslationTypography(transTextEl, chosen);
@@ -1903,9 +2079,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
 
+        // softFinalize used isFinal=true but internal heuristics sometimes used a live (non-final) API path —
+        // ensure the pinned admin row matches on-screen text if the buffer slot is still empty.
+        if (
+          isFinal &&
+          typeof adminBufRowIdx === "number" &&
+          adminBufRowIdx >= 0 &&
+          adminBufRowIdx < translationBufRef.current.length &&
+          !(translationBufRef.current[adminBufRowIdx] ?? "").trim()
+        ) {
+          const domT = (state.transTextEl.textContent ?? "").trim();
+          if (domT) {
+            translationBufRef.current[adminBufRowIdx] = domT;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
+        }
+
         scrollPanel();
       } catch {
-        /* HIPAA — never log speech context */
+        if (transTextEl.isConnected) {
+          const shown = (transTextEl.textContent ?? "").trim();
+          if (!shown || shown === "…") {
+            applyTranslationTypography(transTextEl, "Translation error — try again.");
+          }
+        }
       } finally {
         if (
           !isFinal &&
@@ -2077,14 +2274,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     // Translation source for the final API call:
-    // - session_end: prefer liveBuffer (final + merged NF) so trailing NF-only words still translate.
-    // - speaker_change: merge this row's final + NF (same as live column) but do not use liveBufferRef —
-    //   at this instant it can already include the *next* speaker's hypothesis after the pivot.
+    // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
+    //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
+    // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
+    const fromLiveBuf = liveBufferRef.current.trim();
     const finalText =
       closeKind === "speaker_change"
         ? domWithNfMerged
-        : liveBufferRef.current.trim() || domWithNfMerged;
+        : longerTranscriptSnapshot(domWithNfMerged, fromLiveBuf);
     if (finalText.trim().length > 0) {
+      liveBufferRef.current = finalText;
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
       // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
@@ -2126,7 +2325,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
-    activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    // Sticky translation state: on speaker_change keep prior segment request alive
+    // until final text is committed, so we don't clear/lose previous row mid-switch.
+    if (closeKind === "session_end") {
+      activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    }
     currentSpeakerRef.current = undefined;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
@@ -2375,9 +2578,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
 
-      // ── FINAL tokens (exclude Soniox &lt;end&gt; marker from transcript + counts) ──
+      // ── FINAL tokens (exclude Soniox <end> marker from transcript + counts) ──
+      // Soniox sends incremental messages: each response’s `tokens` are *new* since last message
+      // (see soniox_examples soniox_realtime.py — finals are appended client-side per response).
+      // Do NOT slice with a cross-message index into `finals` (that dropped every final after the first WS frame).
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
-      const newFinals = finals.slice(finalCountRef.current);
+      const newFinals = finals;
       const newFinalSet = new Set(newFinals);
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
@@ -2423,7 +2629,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       scheduleFinalTextRenderFlush();
 
-      finalCountRef.current = finals.length;
+      finalCountRef.current += newFinals.length;
       scrollPanel();
 
       // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
@@ -2817,12 +3023,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── getSnapshot ────────────────────────────────────────────────────────────
-  // Returns accumulated finalized transcript and translation text for this
-  // session. Used by workspace to push snapshots to the server every 5 s.
-  const getSnapshot = useCallback((): { transcript: string; translation: string } => ({
-    transcript:  transcriptBufRef.current.join("\n"),
-    translation: translationBufRef.current.join("\n"),
-  }), []);
+  // Returns accumulated finalized transcript and translation (parallel arrays + joined strings).
+  // Arrays are sent to the API so admin sees one row per segment even if speech contains "\\n".
+  const getSnapshot = useCallback(
+    (): {
+      transcript: string;
+      translation: string;
+      transcriptLines: string[];
+      translationLines: string[];
+    } => {
+      const tr = [...transcriptBufRef.current];
+      const tl = [...translationBufRef.current];
+      return {
+        transcript: tr.join("\n"),
+        translation: tl.join("\n"),
+        transcriptLines: tr,
+        translationLines: tl,
+      };
+    },
+    [],
+  );
 
   /** Billable audio minutes in the current open session (PCM sent ÷ 60). Server `minutesUsedToday` excludes until stop. */
   const getApproxBillableMinutesThisSession = useCallback(

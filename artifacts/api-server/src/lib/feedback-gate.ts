@@ -43,6 +43,23 @@ export function isMandatoryFeedbackRequiredByUsage(user: User): boolean {
   return used >= threshold - 1e-6;
 }
 
+/**
+ * Same gate as {@link isMandatoryFeedbackRequiredByUsage}, but includes live
+ * billable minutes from open sessions so in-session usage cannot bypass the
+ * half-daily feedback prompt.
+ */
+export function isMandatoryFeedbackRequiredByUsageWithLive(
+  user: User,
+  liveBillableMinutes: number,
+): boolean {
+  if (!isMandatoryFeedbackEligible(user)) return false;
+  const used = Number(user.minutesUsedToday);
+  const live = Math.max(0, Number(liveBillableMinutes));
+  const threshold = getMandatoryFeedbackThresholdMinutes(Number(user.dailyLimitMinutes));
+  if (!Number.isFinite(used) || !Number.isFinite(threshold)) return false;
+  return used + live >= threshold - 1e-6;
+}
+
 export async function hasSubmittedMandatoryFeedbackToday(userId: number): Promise<boolean> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })

@@ -32,11 +32,11 @@ interface SupportPanelProps {
 
 function StatusBadge({ status }: { status: string }) {
   return status === "resolved" ? (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 px-2 py-0.5 rounded-full">
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-100/80 text-green-800 border border-green-200 dark:bg-green-500/12 dark:text-green-300 dark:border-green-500/30 px-2 py-0.5 rounded-full">
       <CheckCircle className="w-2.5 h-2.5" /> Resolved
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full">
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100/80 text-amber-800 border border-amber-200 dark:bg-amber-500/12 dark:text-amber-300 dark:border-amber-500/30 px-2 py-0.5 rounded-full">
       <Clock className="w-2.5 h-2.5" /> Open
     </span>
   );
@@ -136,10 +136,8 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
       if (data.reply) {
         setTicketDetail(d => d ? { ...d, replies: [...d.replies, data.reply!], status: "open" } : d);
       }
-      // Update ticket status in list if it was reopened
-      if (data.reopened) {
-        setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: "open" } : t));
-      }
+      // Keep list status consistent after any successful reply.
+      setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: "open" } : t));
       setReplyText("");
     } catch {
       setReplyError("Network error. Please try again.");
@@ -151,9 +149,9 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
   const openCount = tickets.filter(t => t.status === "open").length;
 
   return (
-    <div className="w-full md:w-80 bg-white border-r border-border flex flex-col overflow-hidden shrink-0 z-10">
+    <div className="w-full md:w-80 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-hidden shrink-0 z-10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]">
       {/* Header */}
-      <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
+      <div className="h-[52px] border-b border-border dark:border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-muted/10 dark:bg-black/20">
         <div className="flex items-center gap-2">
           <LifeBuoy className="w-4 h-4 text-primary" />
           <span className="font-semibold text-sm">Support</span>
@@ -167,7 +165,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border shrink-0">
+      <div className="flex border-b border-border dark:border-white/[0.08] shrink-0">
         <button
           onClick={() => setTab("new")}
           className={`flex-1 py-2.5 text-xs font-semibold transition-all ${tab === "new" ? "border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
@@ -245,9 +243,9 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                     placeholder="Describe your issue in detail..."
                     required
                     rows={5}
-                    className="w-full text-sm rounded-xl border border-border bg-background px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
+                    className="w-full text-sm rounded-xl border border-border dark:border-white/10 bg-background dark:bg-muted/30 px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
                   />
-                  <p className="text-[10px] text-muted-foreground text-right">{message.length}/1000</p>
+                  <p className="text-[10px] text-muted-foreground/80 dark:text-muted-foreground text-right">{message.length}/1000</p>
                 </div>
 
                 <Button type="submit" isLoading={submitting} className="w-full text-sm h-9">
@@ -284,7 +282,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                   <div key={ticket.id}>
                     {/* Ticket row */}
                     <button
-                      className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-start gap-2"
+                      className="w-full px-4 py-3 text-left hover:bg-muted/40 dark:hover:bg-white/[0.05] transition-colors flex items-start gap-2"
                       onClick={() => toggleTicket(ticket.id)}
                     >
                       <div className="flex-1 min-w-0">
@@ -304,7 +302,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
 
                     {/* Expanded thread */}
                     {expandedId === ticket.id && (
-                      <div className="bg-gray-50 border-t border-border">
+                      <div className="bg-muted/30 dark:bg-black/25 border-t border-border dark:border-white/[0.06]">
                         {detailLoading ? (
                           <div className="flex justify-center py-6">
                             <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" />
@@ -312,7 +310,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                         ) : ticketDetail && (
                           <div className="px-4 py-3 space-y-3">
                             {/* Original message */}
-                            <div className="bg-white rounded-xl border border-border p-3">
+                            <div className="bg-white dark:bg-[#18212e] rounded-xl border border-border dark:border-white/[0.08] p-3">
                               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Your message</p>
                               <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{ticketDetail.message}</p>
                             </div>
@@ -320,7 +318,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                             {/* Replies */}
                             {ticketDetail.replies.length > 0 ? (
                               ticketDetail.replies.map(reply => (
-                                <div key={reply.id} className={`rounded-xl border p-3 ${reply.isAdmin ? "bg-blue-50 border-blue-100" : "bg-white border-border"}`}>
+                                <div key={reply.id} className={`rounded-xl border p-3 ${reply.isAdmin ? "bg-blue-50 border-blue-100 dark:bg-sky-500/10 dark:border-sky-400/25" : "bg-white border-border dark:bg-[#18212e] dark:border-white/[0.08]"}`}>
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
                                     {reply.isAdmin ? <><span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />Support Team</> : "You"}
                                     <span className="ml-auto normal-case font-normal">{format(new Date(reply.createdAt), "MMM d, HH:mm")}</span>
@@ -347,7 +345,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                                 onChange={e => setReplyText(e.target.value)}
                                 placeholder="Write a follow-up message..."
                                 rows={3}
-                                className="w-full text-xs rounded-xl border border-border bg-white px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
+                                className="w-full text-xs text-foreground rounded-xl border border-border dark:border-white/10 bg-white dark:bg-[#18212e] px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
                               />
                               <Button
                                 size="sm"
