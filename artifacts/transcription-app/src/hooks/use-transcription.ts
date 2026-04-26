@@ -374,22 +374,10 @@ function isWeakSpeakerPivotInMessage(
   return tokLen < 3 && chars < 28;
 }
 
-function speakerPivotRunCharsInMessage(
-  tokens: SonioxToken[],
-  effectiveSpeakers: (string | undefined)[],
-  pivotIndex: number,
-): number {
-  const sid = effectiveSpeakers[pivotIndex];
-  if (!sid) return 0;
-  let start = pivotIndex;
-  let end = pivotIndex + 1;
-  while (start > 0 && effectiveSpeakers[start - 1] === sid) start--;
-  while (end < effectiveSpeakers.length && effectiveSpeakers[end] === sid) end++;
-  let chars = 0;
-  for (let i = start; i < end; i++) {
-    chars += (tokens[i]?.text ?? "").length;
-  }
-  return chars;
+function endsWithQuestionLikeBoundary(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  return /[?؟]\s*$/.test(t);
 }
 
 // ── Language-pair helpers ──────────────────────────────────────────────────────
@@ -1484,8 +1472,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
-  /** Confirmation buffer for speaker flips across WS messages. */
-  const pendingSpeakerSwitchRef = useRef<{ sid: string; seen: number } | null>(null);
+  /** Narrow guard for question-tail flicker (same speaker split into extra row). */
+  const pendingQuestionTailSwitchRef = useRef<{ sid: string; seen: number } | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -2376,7 +2364,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     }
     currentSpeakerRef.current = undefined;
-    pendingSpeakerSwitchRef.current = null;
+    pendingQuestionTailSwitchRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -2394,7 +2382,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
-    pendingSpeakerSwitchRef.current = null;
+    pendingQuestionTailSwitchRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
@@ -2446,7 +2434,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
-    pendingSpeakerSwitchRef.current = null;
+    pendingQuestionTailSwitchRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
@@ -2633,7 +2621,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
-      const pivotSeenThisMessage = new Set<string>();
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2642,48 +2629,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (sid !== undefined) {
           if (!activeBubbleRef.current) {
             currentSpeakerRef.current = sid;
-            pendingSpeakerSwitchRef.current = null;
+            pendingQuestionTailSwitchRef.current = null;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
-            if (!pivotSeenThisMessage.has(sid)) {
-              pivotSeenThisMessage.add(sid);
-              const pending = pendingSpeakerSwitchRef.current;
-              if (!pending || pending.sid !== sid) {
-                pendingSpeakerSwitchRef.current = { sid, seen: 1 };
-              } else {
-                pending.seen += 1;
-              }
-            }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
-            const runCharsNow = speakerPivotRunCharsInMessage(tokens, effSpk, ti);
-            const activeRowStableChars =
+            const activeRowText =
               (activeBubbleRef.current?.textContent ?? "").trim().length +
               getBufferedFinalTextForActiveBubble().length;
-            const confirmedAcrossMessages =
-              pendingSpeakerSwitchRef.current?.sid === sid &&
-              (pendingSpeakerSwitchRef.current.seen >= 2);
-            const hasEndpointConfidence = sawSonioxEndpoint && runCharsNow >= 20;
-            // Keep normal diarization behavior for real speaker turns.
-            // Only gate weak pivots when the current row is already long/stable
-            // (the problematic "same speaker tail split" case).
-            const shouldSwitch = !weakNow
-              ? true
-              : (
-                activeRowStableChars < 56 ||
-                confirmedAcrossMessages ||
-                hasEndpointConfidence ||
-                runCharsNow >= 36
-              );
-            if (shouldSwitch) {
-              closeActiveSegmentBoundary("speaker_change");
-              currentSpeakerRef.current = sid;
-              pendingSpeakerSwitchRef.current = null;
-              activeBubbleRef.current = createBubble(sid);
-              setHasTranscript(true);
+            const guardQuestionTail =
+              weakNow &&
+              activeRowText >= 56 &&
+              endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
+              !sawSonioxEndpoint;
+            if (guardQuestionTail) {
+              const pending = pendingQuestionTailSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+                continue;
+              }
+              pending.seen += 1;
+              if (pending.seen < 2) continue;
+            } else if (weakNow) {
+              pendingQuestionTailSwitchRef.current = null;
+              continue;
             }
+            closeActiveSegmentBoundary("speaker_change");
+            currentSpeakerRef.current = sid;
+            pendingQuestionTailSwitchRef.current = null;
+            activeBubbleRef.current = createBubble(sid);
+            setHasTranscript(true);
           } else {
-            pendingSpeakerSwitchRef.current = null;
+            pendingQuestionTailSwitchRef.current = null;
           }
         }
         if (!activeBubbleRef.current) continue;
@@ -2870,7 +2847,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setTranslationServiceError(null);
       setAudioInfo("");
       currentSpeakerRef.current      = undefined;
-      pendingSpeakerSwitchRef.current = null;
+      pendingQuestionTailSwitchRef.current = null;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
       activeBubbleStateRef.current   = null;
