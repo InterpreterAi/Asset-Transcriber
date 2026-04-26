@@ -282,8 +282,8 @@ function fmtDuration(secs: number | null | undefined) {
 
 function lastSeen(date: string | null | undefined) {
   if (!date) return (
-    <span className="flex items-center gap-1.5 text-gray-400">
-      <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />
+    <span className="flex items-center gap-1.5 text-muted-foreground">
+      <span className="w-2 h-2 rounded-full bg-gray-400/70 dark:bg-white/35 shrink-0" />
       Never
     </span>
   );
@@ -361,11 +361,11 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
     );
   }
   if (!trialEndsAt) return (
-    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
+    <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
   );
   const daysLeft = Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
   if (daysLeft <= 0) return (
-    <span className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">Expired</span>
+    <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
   );
   if (daysLeft <= 3) return (
     <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -393,7 +393,7 @@ function detectAudioDevice(label: string | null | undefined) {
     return { type: "Bluetooth",  badgeCls: "bg-sky-50 text-sky-700 border-sky-100",      icon: <Bluetooth className="w-3 h-3" /> };
   }
   if (l.includes("built-in") || l.includes("built in") || l.includes("internal") || l.includes("macbook") || l.includes("laptop")) {
-    return { type: "Built-in",   badgeCls: "bg-gray-100 text-gray-600 border-gray-200",  icon: <Mic       className="w-3 h-3" /> };
+    return { type: "Built-in",   badgeCls: "bg-gray-100 text-gray-600 border-gray-200 dark:bg-white/10 dark:text-slate-200 dark:border-white/20",  icon: <Mic       className="w-3 h-3" /> };
   }
   return   { type: "Microphone", badgeCls: "bg-green-50 text-green-700 border-green-100", icon: <Mic      className="w-3 h-3" /> };
 }
@@ -429,7 +429,7 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
   if (activeSession) {
     return (
       <div className="flex flex-col gap-1">
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300">
           <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Recording
         </span>
         {activeSession.translationRouteDetail && (
@@ -453,8 +453,8 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
     );
   }
   if (!lastActivityAt) return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-400">
-      <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />Offline
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-300">
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-slate-300" />Offline
     </span>
   );
   const minsAgo = (Date.now() - new Date(lastActivityAt).getTime()) / 60000;
@@ -464,8 +464,8 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
     </span>
   );
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">
-      <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />Offline
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-300">
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-slate-300" />Offline
     </span>
   );
 }
@@ -1377,7 +1377,7 @@ export default function Admin() {
                 )}
               </h2>
               {pollLiveSessions && liveSessionsPollError && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50/90 px-3 py-2.5 text-xs text-red-950">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50/90 dark:bg-red-500/10 px-3 py-2.5 text-xs text-red-950 dark:text-red-200">
                   <span>
                     Live session poll failed (network, timeout, or 429). Last good snapshot is kept when available; stats still refresh on the slower interval.
                   </span>
@@ -1503,14 +1503,14 @@ export default function Admin() {
 
           const metricCards = [
             { label: "Active Users",           value: m?.activeUsers ?? 0,             sub: "last 5 min",   icon: <Activity className="w-4 h-4" />,    color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",      alert: false },
-            { label: "Active Sessions",        value: m?.activeSessions ?? 0,          sub: "live now",     icon: <Radio className="w-4 h-4" />,       color: "text-red-600 bg-red-50",        alert: (m?.activeSessions ?? 0) > 0 },
-            { label: "Failed Logins Today",    value: m?.failedLoginsToday ?? 0,       sub: "since midnight", icon: <XCircle className="w-4 h-4" />,   color: "text-red-600 bg-red-50",        alert: (m?.failedLoginsToday ?? 0) >= 5 },
+            { label: "Active Sessions",        value: m?.activeSessions ?? 0,          sub: "live now",     icon: <Radio className="w-4 h-4" />,       color: "text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-500/15",        alert: (m?.activeSessions ?? 0) > 0 },
+            { label: "Failed Logins Today",    value: m?.failedLoginsToday ?? 0,       sub: "since midnight", icon: <XCircle className="w-4 h-4" />,   color: "text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-500/15",        alert: (m?.failedLoginsToday ?? 0) >= 5 },
             { label: "Successful Logins",      value: m?.successfulLoginsToday ?? 0,   sub: "since midnight", icon: <LogIn className="w-4 h-4" />,     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15", alert: false },
-            { label: "API Errors Today",       value: m?.apiErrorsToday ?? 0,          sub: "since midnight", icon: <Server className="w-4 h-4" />,    color: "text-amber-600 bg-amber-50",    alert: (m?.apiErrorsToday ?? 0) >= 10 },
+            { label: "API Errors Today",       value: m?.apiErrorsToday ?? 0,          sub: "since midnight", icon: <Server className="w-4 h-4" />,    color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",    alert: (m?.apiErrorsToday ?? 0) >= 10 },
             { label: "Proxy Failures",         value: m?.proxyFailuresToday ?? 0,      sub: "since midnight", icon: <Zap className="w-4 h-4" />,       color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  alert: (m?.proxyFailuresToday ?? 0) > 0 },
             { label: "Session Expirations",    value: m?.sessionExpirationsToday ?? 0, sub: "401 errors today", icon: <ShieldAlert className="w-4 h-4" />, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15", alert: (m?.sessionExpirationsToday ?? 0) >= 20 },
-            { label: "Sessions Started",       value: m?.sessionsStartedToday ?? 0,    sub: "since midnight", icon: <Play className="w-4 h-4" />,      color: "text-teal-600 bg-teal-50",      alert: false },
-            { label: "Sessions Ended",         value: m?.sessionsEndedToday ?? 0,      sub: "since midnight", icon: <LogOut className="w-4 h-4" />,    color: "text-gray-600 bg-gray-100",     alert: false },
+            { label: "Sessions Started",       value: m?.sessionsStartedToday ?? 0,    sub: "since midnight", icon: <Play className="w-4 h-4" />,      color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",      alert: false },
+            { label: "Sessions Ended",         value: m?.sessionsEndedToday ?? 0,      sub: "since midnight", icon: <LogOut className="w-4 h-4" />,    color: "text-gray-600 bg-gray-100 dark:text-slate-200 dark:bg-white/10",     alert: false },
           ];
 
           function eventIcon(type: SystemEvent["type"]) {
@@ -1631,10 +1631,10 @@ export default function Admin() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-semibold text-foreground">{ev.title}</span>
                               {ev.type === "login_failure" && (
-                                <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium">failure</span>
+                                <span className="text-[10px] bg-red-50 text-red-600 dark:bg-red-500/12 dark:text-red-300 px-1.5 py-0.5 rounded-full font-medium">failure</span>
                               )}
                               {ev.type === "proxy_failure" && (
-                                <span className="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded-full font-medium">proxy</span>
+                                <span className="text-[10px] bg-orange-50 text-orange-600 dark:bg-orange-500/12 dark:text-orange-300 px-1.5 py-0.5 rounded-full font-medium">proxy</span>
                               )}
                               {ev.type === "api_error" && (
                                 <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-mono">{String(ev.meta.statusCode ?? "")}</span>
@@ -1651,7 +1651,7 @@ export default function Admin() {
                     </div>
                   )}
                   {filtered.length > 0 && (
-                    <div className="px-4 py-2 border-t border-border bg-gray-50 text-[11px] text-muted-foreground flex items-center justify-between">
+                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a] text-[11px] text-muted-foreground flex items-center justify-between">
                       <span>Showing {filtered.length} event{filtered.length !== 1 ? "s" : ""} from the last 24 hours</span>
                       <span className="text-primary font-medium">Auto-refreshes every 15 s</span>
                     </div>
@@ -1673,7 +1673,7 @@ export default function Admin() {
                 <div className="flex flex-wrap gap-1.5">
                   {(["all", "trial", "paying", "inactive", "high", "dupIp"] as const).map(f => (
                     <button key={f} onClick={() => setUserFilter(f)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : f === "dupIp" && filterCounts.dupIp > 0 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/60" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${userFilter === f ? "bg-primary text-white" : f === "dupIp" && filterCounts.dupIp > 0 ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/60 dark:bg-amber-500/15 dark:text-amber-200 dark:ring-amber-500/30" : "bg-gray-100 text-muted-foreground hover:bg-gray-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/15"}`}
                     >
                       {f === "all"      && `All (${filterCounts.all})`}
                       {f === "trial"    && `Trial (${filterCounts.trial})`}
@@ -1824,7 +1824,7 @@ export default function Admin() {
 
             {/* Create form */}
             {showCreate && (
-              <div className="p-5 bg-gray-50 border-b border-border">
+              <div className="p-5 bg-gray-50 dark:bg-[#131d2a] border-b border-border dark:border-white/[0.08]">
                 <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Username</label>
@@ -1850,7 +1850,7 @@ export default function Admin() {
             {/* Table */}
             <div className="overflow-x-auto bg-card">
               <table className="w-full text-sm text-left min-w-[1180px]">
-                <thead className="bg-gray-50/80 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border">
+                <thead className="bg-gray-50/80 dark:bg-[#131d2a] text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border dark:border-white/[0.08]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">User</th>
                     <th className="px-4 py-3 font-semibold">Risk</th>
@@ -1884,7 +1884,7 @@ export default function Admin() {
                     return (
                       <tr
                         key={u.id}
-                        className={`hover:bg-blue-50/30 transition-colors cursor-pointer ${dupAccent ? "bg-amber-50/25" : ""}`}
+                        className={`hover:bg-blue-50/30 dark:hover:bg-sky-500/8 transition-colors cursor-pointer ${dupAccent ? "bg-amber-50/25 dark:bg-amber-500/8" : ""}`}
                         style={
                           dupAccent
                             ? {
@@ -1931,7 +1931,7 @@ export default function Admin() {
 
                         {/* Account Status */}
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${u.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${u.isActive ? "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300" : "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300"}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-green-500" : "bg-red-500"}`} />
                             {u.isActive ? "Active" : "Disabled"}
                           </span>
@@ -1940,7 +1940,7 @@ export default function Admin() {
                         {/* Plan */}
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1">
-                            <code className="text-[10px] font-mono text-foreground bg-gray-100 px-1.5 py-0.5 rounded self-start">
+                            <code className="text-[10px] font-mono text-foreground bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded self-start">
                               {u.planType}
                             </code>
                             {trialBadge(u.trialEndsAt, u.planType ?? "trial")}
@@ -2011,7 +2011,7 @@ export default function Admin() {
                         {/* Today */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-14 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="w-14 h-1.5 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
                               <div className="h-full bg-primary rounded-full" style={{ width: `${todayPct}%` }} />
                             </div>
                             <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -2046,7 +2046,7 @@ export default function Admin() {
                         {/* Total */}
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatMinutes(u.totalMinutesUsed)}
-                          <span className="text-gray-400 text-[10px]"> ({u.totalSessions} sess)</span>
+                          <span className="text-muted-foreground/70 text-[10px]"> ({u.totalSessions} sess)</span>
                           {u.totalShares > 0 && (
                             <span className="ml-1.5 text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold" title="Total shares">
                               {u.totalShares} shares
@@ -2090,7 +2090,7 @@ export default function Admin() {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 bg-gray-50/50 border-t border-border text-[11px] text-muted-foreground space-y-0.5">
+            <div className="px-4 py-2 bg-gray-50/50 dark:bg-[#131d2a] border-t border-border dark:border-white/[0.08] text-[11px] text-muted-foreground space-y-0.5">
               <div>Click a row to view session history.</div>
               <div>
                 <strong className="text-foreground">Risk</strong> is a compact shared-IP indicator only; full account/IP mapping and disable actions are in <strong className="text-foreground">IP Watch</strong>.
@@ -2167,7 +2167,7 @@ export default function Admin() {
               </div>
 
               {/* Default pair selectors */}
-              <div className="mb-5 p-4 bg-gray-50 rounded-xl flex flex-wrap gap-4">
+              <div className="mb-5 p-4 bg-gray-50 dark:bg-[#131d2a] rounded-xl flex flex-wrap gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Default Language A</label>
                   <select
@@ -2258,9 +2258,9 @@ export default function Admin() {
                 {item.recommend && (
                   <div className="mb-2.5">
                     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                      item.recommend === "yes"   ? "bg-green-50 text-green-700 border-green-100" :
-                      item.recommend === "no"    ? "bg-red-50 text-red-700 border-red-100" :
-                                                   "bg-amber-50 text-amber-700 border-amber-100"
+                      item.recommend === "yes"   ? "bg-green-50 text-green-700 border-green-100 dark:bg-green-500/12 dark:text-green-300 dark:border-green-500/30" :
+                      item.recommend === "no"    ? "bg-red-50 text-red-700 border-red-100 dark:bg-red-500/12 dark:text-red-300 dark:border-red-500/30" :
+                                                   "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-500/12 dark:text-amber-300 dark:border-amber-500/30"
                     }`}>
                       {item.recommend === "yes" ? "👍 Would recommend" : item.recommend === "no" ? "👎 Wouldn't recommend" : "🤔 Not sure"}
                     </span>
@@ -2390,7 +2390,7 @@ export default function Admin() {
                   {/* Filter chips */}
                   {(["all", "open", "resolved"] as const).map(f => (
                     <button key={f} onClick={() => setSupportFilter(f)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200"}`}>
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all capitalize ${supportFilter === f ? "bg-primary text-white" : "bg-gray-100 text-muted-foreground hover:bg-gray-200 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/15"}`}>
                       {f}
                     </button>
                   ))}
@@ -2422,7 +2422,7 @@ export default function Admin() {
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 px-1.5 py-0.5 rounded">#{ticket.id}</span>
+                              <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded">#{ticket.id}</span>
                               {ticket.status === "resolved" ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 px-2 py-0.5 rounded-full">
                                   <CheckCircle className="w-2.5 h-2.5" /> Resolved
@@ -2559,9 +2559,9 @@ export default function Admin() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
                     { label: "Total logins (24h)", value: loginEventsSummary?.total24h ?? "—",    color: "bg-blue-50 text-blue-700",   icon: <Activity className="w-4 h-4" /> },
-                    { label: "Successful",          value: loginEventsSummary?.success24h ?? "—",  color: "bg-green-50 text-green-700", icon: <CheckCircle className="w-4 h-4" /> },
-                    { label: "Failed",              value: loginEventsSummary?.failures24h ?? "—", color: "bg-red-50 text-red-700",     icon: <AlertTriangle className="w-4 h-4" /> },
-                    { label: "2FA verified",        value: loginEventsSummary?.twoFa24h ?? "—",    color: "bg-violet-50 text-violet-700", icon: <Lock className="w-4 h-4" /> },
+                    { label: "Successful",          value: loginEventsSummary?.success24h ?? "—",  color: "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300", icon: <CheckCircle className="w-4 h-4" /> },
+                    { label: "Failed",              value: loginEventsSummary?.failures24h ?? "—", color: "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300",     icon: <AlertTriangle className="w-4 h-4" /> },
+                    { label: "2FA verified",        value: loginEventsSummary?.twoFa24h ?? "—",    color: "bg-violet-50 text-violet-700 dark:bg-violet-500/12 dark:text-violet-300", icon: <Lock className="w-4 h-4" /> },
                   ].map(c => (
                     <Card key={c.label} className="p-4 flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.color}`}>{c.icon}</div>
@@ -2601,7 +2601,7 @@ export default function Admin() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="border-b border-border bg-gray-50">
+                          <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Result</th>
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">User</th>
@@ -2646,7 +2646,7 @@ export default function Admin() {
                     </div>
                   )}
                   {loginEventsData?.events?.length ? (
-                    <div className="px-4 py-2 border-t border-border bg-gray-50">
+                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
                       <p className="text-[11px] text-muted-foreground">
                         Showing {loginEventsData.events.length} most recent events · auto-refreshes every 30s
                       </p>
@@ -2664,7 +2664,7 @@ export default function Admin() {
                         return (
                           <div key={r.reason ?? "unknown"} className="flex items-center gap-3">
                             <span className="w-36 text-xs capitalize text-foreground">{(r.reason ?? "unknown").replace(/_/g, " ")}</span>
-                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="flex-1 h-2 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
                               <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                             <span className="text-xs font-semibold text-foreground w-6 text-right">{r.count}</span>
@@ -2683,10 +2683,10 @@ export default function Admin() {
             {/* Summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Total (24h)",      value: errorsSummary?.total24h ?? "—",        color: "bg-red-50 text-red-700",    icon: <AlertTriangle className="w-4 h-4" /> },
-                { label: "Login Failures",   value: errorsSummary?.loginFailures24h ?? "—", color: "bg-amber-50 text-amber-700", icon: <Lock className="w-4 h-4" /> },
-                { label: "Rate Limited",     value: errorsSummary?.rateLimited24h ?? "—",   color: "bg-violet-50 text-violet-700", icon: <StopCircle className="w-4 h-4" /> },
-                { label: "Server Errors",    value: errorsSummary?.serverErrors24h ?? "—",  color: "bg-orange-50 text-orange-700", icon: <Activity className="w-4 h-4" /> },
+                { label: "Total (24h)",      value: errorsSummary?.total24h ?? "—",        color: "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300",    icon: <AlertTriangle className="w-4 h-4" /> },
+                { label: "Login Failures",   value: errorsSummary?.loginFailures24h ?? "—", color: "bg-amber-50 text-amber-700 dark:bg-amber-500/12 dark:text-amber-300", icon: <Lock className="w-4 h-4" /> },
+                { label: "Rate Limited",     value: errorsSummary?.rateLimited24h ?? "—",   color: "bg-violet-50 text-violet-700 dark:bg-violet-500/12 dark:text-violet-300", icon: <StopCircle className="w-4 h-4" /> },
+                { label: "Server Errors",    value: errorsSummary?.serverErrors24h ?? "—",  color: "bg-orange-50 text-orange-700 dark:bg-orange-500/12 dark:text-orange-300", icon: <Activity className="w-4 h-4" /> },
               ].map(c => (
                 <Card key={c.label} className="p-4 flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${c.color}`}>{c.icon}</div>
@@ -2730,7 +2730,7 @@ export default function Admin() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-border bg-gray-50">
+                      <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Type</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Endpoint</th>
