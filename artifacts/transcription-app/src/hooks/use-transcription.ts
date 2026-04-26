@@ -1059,55 +1059,6 @@ function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): str
   return `${prev} ${piece}`;
 }
 
-/**
- * Libre/Hetzner live fragments often overlap the already-shown tail (or re-send a growing prefix).
- * OpenAI-style streaming stays cleaner; strip overlap before append so segment boundaries do not
- * pick up the next line’s opening words in the previous cell.
- */
-function stripLeadingOverlapFromPrev(prevDisplayed: string, candidate: string): string {
-  const prev = prevDisplayed.trim();
-  const next = candidate.trim();
-  if (!prev || !next) return next;
-  const a = prev.split(/\s+/).filter(Boolean);
-  const b = next.split(/\s+/).filter(Boolean);
-  if (a.length && b.length) {
-    const maxOv = Math.min(a.length, b.length, 16);
-    for (let ov = maxOv; ov >= 1; ov--) {
-      if (a.slice(-ov).join(" ").toLowerCase() === b.slice(0, ov).join(" ").toLowerCase()) {
-        return b.slice(ov).join(" ").trim();
-      }
-    }
-  }
-  const maxChar = Math.min(prev.length, next.length, 120);
-  for (let k = maxChar; k >= 1; k--) {
-    if (prev.slice(-k).toLowerCase() === next.slice(0, k).toLowerCase()) {
-      return next.slice(k).trim();
-    }
-  }
-  return next;
-}
-
-function mergeMachineStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = newPiece.trim();
-  const prev = prevDisplayed.trim();
-  if (!piece) return prev;
-  if (!prev || prev === "…") return piece;
-
-  const pl = prev.toLowerCase();
-  const nl = piece.toLowerCase();
-  if (nl.startsWith(pl) && piece.length >= prev.length - 2) return piece;
-  if (pl.startsWith(nl) && prev.length >= piece.length + 8) return prev;
-
-  const dedupedPiece = stripLeadingOverlapFromPrev(prev, piece);
-  if (!dedupedPiece) return prev;
-  return mergeStreamingTranslation(prev, dedupedPiece);
-}
-
-/** Same live merge rules for OpenAI and machine stacks (segment-boundary bleed fix). */
-function useOverlapAwareTranslationMerge(h: TranslationEngineHint | undefined): boolean {
-  return h === "hetzner" || h === "libre" || h === "openai";
-}
-
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -2127,9 +2078,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ) {
               return;
             }
-            const merged = useOverlapAwareTranslationMerge(translationEngineHint)
-              ? mergeMachineStreamingTranslation(transTextEl.textContent ?? "", incoming)
-              : mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
+            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
             applyTranslationTypography(transTextEl, merged);
@@ -2139,17 +2088,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             state.needsFullFinalTranslation = false;
             state.lastConfirmedSourceTranslated = text;
           } else {
-            const rawOut = dedupeConsecutiveTranslationTokens(translated.trim());
-            if (!rawOut.trim()) {
+            const out = dedupeConsecutiveTranslationTokens(translated.trim());
+            if (!out.trim()) {
               return;
             }
             const prevShown = (transTextEl.textContent ?? "").trim();
-            const out = useOverlapAwareTranslationMerge(translationEngineHint)
-              ? (() => {
-                  const stripped = stripLeadingOverlapFromPrev(prevShown, rawOut);
-                  return stripped.trim() || rawOut;
-                })()
-              : rawOut;
             const srcNow = collapseWs(text);
             const srcCommitted = collapseWs(state.streamCommittedSource);
             let chosen = shouldPreferPreviousLiveTranslationWithTarget(
@@ -2174,9 +2117,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               !prevShown.toLowerCase().includes(chosen.toLowerCase())
             ) {
               // Same speaker resumed after pause: keep prior translation and append fresh part.
-              chosen = useOverlapAwareTranslationMerge(translationEngineHint)
-                ? mergeMachineStreamingTranslation(prevShown, chosen)
-                : mergeStreamingTranslation(prevShown, chosen);
+              chosen = mergeStreamingTranslation(prevShown, chosen);
             }
             if (
               prevShown &&
