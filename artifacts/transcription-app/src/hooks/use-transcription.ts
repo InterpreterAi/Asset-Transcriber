@@ -2674,12 +2674,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               pendingQuestionTailSwitchRef.current = null;
               continue;
             }
-            const activeRowText =
-              (activeBubbleRef.current?.textContent ?? "").trim().length +
-              getBufferedFinalTextForActiveBubble().length;
             const guardQuestionTail =
               weakNow &&
-              activeRowText >= 56 &&
               endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
               !sawSonioxEndpoint;
             if (guardQuestionTail) {
