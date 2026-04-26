@@ -312,7 +312,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                         ) : ticketDetail && (
                           <div className="px-4 py-3 space-y-3">
                             {/* Original message */}
-                            <div className="bg-white rounded-xl border border-border p-3">
+                            <div className="bg-white dark:bg-[#18212e] rounded-xl border border-border dark:border-white/[0.08] p-3">
                               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Your message</p>
                               <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{ticketDetail.message}</p>
                             </div>
@@ -320,7 +320,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                             {/* Replies */}
                             {ticketDetail.replies.length > 0 ? (
                               ticketDetail.replies.map(reply => (
-                                <div key={reply.id} className={`rounded-xl border p-3 ${reply.isAdmin ? "bg-blue-50 border-blue-100" : "bg-white border-border"}`}>
+                                <div key={reply.id} className={`rounded-xl border p-3 ${reply.isAdmin ? "bg-blue-50 border-blue-100 dark:bg-sky-500/10 dark:border-sky-400/25" : "bg-white border-border dark:bg-[#18212e] dark:border-white/[0.08]"}`}>
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
                                     {reply.isAdmin ? <><span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />Support Team</> : "You"}
                                     <span className="ml-auto normal-case font-normal">{format(new Date(reply.createdAt), "MMM d, HH:mm")}</span>
@@ -347,7 +347,7 @@ export function SupportPanel({ userEmail, onClose }: SupportPanelProps) {
                                 onChange={e => setReplyText(e.target.value)}
                                 placeholder="Write a follow-up message..."
                                 rows={3}
-                                className="w-full text-xs rounded-xl border border-border bg-white px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
+                                className="w-full text-xs text-foreground rounded-xl border border-border dark:border-white/10 bg-white dark:bg-[#18212e] px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none transition-all"
                               />
                               <Button
                                 size="sm"
