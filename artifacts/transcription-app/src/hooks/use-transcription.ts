@@ -300,6 +300,29 @@ function effectiveSpeakersForTokenBoundaries(tokens: SonioxToken[]): (string | u
   return out;
 }
 
+function endsWithQuestionLikeBoundary(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  return /[?؟]\s*$/.test(t);
+}
+
+function isWeakSpeakerPivotInMessage(
+  tokens: SonioxToken[],
+  effectiveSpeakers: (string | undefined)[],
+  pivotIndex: number,
+): boolean {
+  const sid = effectiveSpeakers[pivotIndex];
+  if (!sid) return true;
+  let start = pivotIndex;
+  let end = pivotIndex + 1;
+  while (start > 0 && effectiveSpeakers[start - 1] === sid) start--;
+  while (end < effectiveSpeakers.length && effectiveSpeakers[end] === sid) end++;
+  const tokLen = end - start;
+  let chars = 0;
+  for (let i = start; i < end; i++) chars += (tokens[i]?.text ?? "").length;
+  return tokLen < 3 && chars < 28;
+}
+
 // ── Language-pair helpers ──────────────────────────────────────────────────────
 // Compare two BCP-47 codes loosely (e.g. "zh-CN" matches "zh").
 function matchesLang(detected: string, selected: string): boolean {
@@ -1340,6 +1363,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
+  const pendingQuestionTailSwitchRef = useRef<{ sid: string; seen: number } | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -2128,6 +2152,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current = undefined;
+    pendingQuestionTailSwitchRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -2145,6 +2170,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
+    pendingQuestionTailSwitchRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
@@ -2196,6 +2222,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
+    pendingQuestionTailSwitchRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
@@ -2387,13 +2414,33 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (sid !== undefined) {
           if (!activeBubbleRef.current) {
             currentSpeakerRef.current = sid;
+            pendingQuestionTailSwitchRef.current = null;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
+            const questionTailBoundary =
+              weakNow &&
+              endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
+              !sawSonioxEndpoint;
+            if (questionTailBoundary) {
+              const pending = pendingQuestionTailSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+                continue;
+              }
+              pending.seen += 1;
+              if (pending.seen < 2) continue;
+            } else {
+              pendingQuestionTailSwitchRef.current = null;
+            }
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
+            pendingQuestionTailSwitchRef.current = null;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
+          } else {
+            pendingQuestionTailSwitchRef.current = null;
           }
         }
         if (!activeBubbleRef.current) continue;
@@ -2580,6 +2627,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setTranslationServiceError(null);
       setAudioInfo("");
       currentSpeakerRef.current      = undefined;
+      pendingQuestionTailSwitchRef.current = null;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
       activeBubbleStateRef.current   = null;
