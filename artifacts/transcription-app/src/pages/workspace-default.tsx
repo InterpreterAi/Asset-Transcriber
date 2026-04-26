@@ -15,6 +15,7 @@ import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
+import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
@@ -143,7 +144,6 @@ export default function WorkspaceDefault() {
   const snapshotSeqRef = useRef(0);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
-    workspaceChrome: wsDark ? "dark" : "light",
     translationEnabled: user?.translationEnabled ?? true,
     dailyCapRef,
     onRecordingStopped: () => {
@@ -1977,6 +1977,11 @@ export default function WorkspaceDefault() {
                 <Monitor className={cn("w-3.5 h-3.5", inputMode === "tab" && wsDark && "text-sky-400")} />
                 <span className="hidden sm:inline">Tab </span>Audio
               </button>
+            </div>
+
+            {/* Restored original sound-level meter */}
+            <div className="w-16 sm:w-24 shrink-0 ml-auto order-2 sm:order-3">
+              <AudioMeter level={transcription.micLevel} label="" />
             </div>
 
             {/* Mic: device selector (idle) → active source badge (recording)
