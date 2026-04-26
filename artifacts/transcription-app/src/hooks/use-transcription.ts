@@ -2651,6 +2651,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals;
       const newFinalSet = new Set(newFinals);
+      let switchedFromQuestionTailInMessage = false;
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -2669,35 +2670,37 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               pendingQuestionTailSwitchRef.current = null;
               continue;
             }
-            if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
-              pendingQuestionTailSwitchRef.current = null;
-              continue;
-            }
             const weakNow = isWeakSpeakerPivotInMessage(tokens, effSpk, ti);
             const rapidBounce = (Date.now() - lastSpeakerSwitchAtMsRef.current) < 1800;
             const questionTailBoundary =
               endsWithQuestionLikeBoundary(activeBubbleRef.current?.textContent ?? "") &&
               !sawSonioxEndpoint;
-            if (rapidBounce && weakNow && questionTailBoundary) {
-              pendingQuestionTailSwitchRef.current = null;
-              continue;
-            }
-            const guardQuestionTail =
-              weakNow &&
-              questionTailBoundary;
-            if (guardQuestionTail) {
-              const pending = pendingQuestionTailSwitchRef.current;
-              if (!pending || pending.sid !== sid) {
-                pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+
+            if (questionTailBoundary) {
+              if (switchedFromQuestionTailInMessage) continue;
+              if (pivotLooksLikeFlickerToCurrent(tokens, effSpk, ti, currentSpeakerRef.current)) {
+                pendingQuestionTailSwitchRef.current = null;
                 continue;
               }
-              pending.seen += 1;
-              if (pending.seen < 2) continue;
+              if (rapidBounce && weakNow) {
+                pendingQuestionTailSwitchRef.current = null;
+                continue;
+              }
+              if (weakNow) {
+                const pending = pendingQuestionTailSwitchRef.current;
+                if (!pending || pending.sid !== sid) {
+                  pendingQuestionTailSwitchRef.current = { sid, seen: 1 };
+                  continue;
+                }
+                pending.seen += 1;
+                if (pending.seen < 2) continue;
+              }
             }
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
             lastSpeakerSwitchAtMsRef.current = Date.now();
             pendingQuestionTailSwitchRef.current = null;
+            if (questionTailBoundary) switchedFromQuestionTailInMessage = true;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
           } else {
