@@ -108,6 +108,7 @@ export function effectivePlanTypeForTranslation(user: User): string {
   const p = (user.planType ?? "trial-libre").trim().toLowerCase();
   const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
   const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();
+  const originalPlanWasOpenAi = p.includes("openai");
   if (
     sub === "active" &&
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
@@ -119,6 +120,9 @@ export function effectivePlanTypeForTranslation(user: User): string {
       if (sp === "professional") return "professional-libre";
       if (sp === "platinum") return "platinum";
       if (sp === "unlimited") return "unlimited";
+    }
+    if (originalPlanWasOpenAi && (sp === "basic" || sp === "professional" || sp === "platinum")) {
+      return `${sp}-openai`;
     }
     return sp;
   }
