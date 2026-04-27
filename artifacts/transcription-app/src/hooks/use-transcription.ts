@@ -2668,6 +2668,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 confirm.messageStreak >= 6;
               // Verified switching: never open a new bubble unless token content is suitable.
               if (speakerConfirmed && tokenSuitable) {
+                // Emergency override: never close/open a segment when speaker is effectively unchanged.
+                if (currentSpeakerRef.current !== undefined && sameSpeaker(sid, currentSpeakerRef.current)) {
+                  pendingSpeakerSwitchRef.current = null;
+                  continue;
+                }
                 closeActiveSegmentBoundary("speaker_change");
                 currentSpeakerRef.current = sid;
                 activeBubbleRef.current = createBubble(sid);
