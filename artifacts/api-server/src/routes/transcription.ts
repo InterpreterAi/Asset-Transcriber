@@ -1395,12 +1395,31 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
+  const effectivePlanTypeResolved = effectivePlanTypeForTranslation(translateUser);
+  const planLower = effectivePlanTypeResolved.trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
   // OpenAI-labeled plans are hard-forced to OpenAI and must never call machine/Hetzner.
   const prefersMachineStack = planUsesMachineTranslationStack(planLower);
   const forcedOpenAiPlan = planLower.includes("openai");
   const useMachineTranslation = forcedOpenAiPlan ? false : prefersMachineStack;
+
+  // Debug-only: remove or gate once paid OpenAI vs Hetzner routing is confirmed in production logs.
+  logger.info(
+    {
+      msg: "translate_routing_debug",
+      userId: translateUser.id,
+      rawPlanType: translateUser.planType,
+      effectivePlanTypeForTranslation: effectivePlanTypeResolved,
+      subscriptionStatus: translateUser.subscriptionStatus ?? null,
+      subscriptionPlan: translateUser.subscriptionPlan ?? null,
+      isTrialLikePlanType: isTrialLikePlanType(translateUser.planType),
+      planLower,
+      forcedOpenAiPlan,
+      prefersMachineStack,
+      useMachineTranslation,
+    },
+    "POST /translate engine routing",
+  );
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({
