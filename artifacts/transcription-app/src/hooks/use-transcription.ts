@@ -1919,6 +1919,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       if (!useLibreClient) {
+        /** Live full-text paints can be large; defer DOM to rAF so WS/onmessage keeps tighter wall-clock vs speaker pending (time+streak gate). */
+        let openAiLivePaintDeferred = false;
         try {
           const maxFetchAttempts = requestIsFinal ? 3 : 1;
           let translated = "";
@@ -2046,11 +2048,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!outRaw.trim()) return;
             state.lastShownSeq = mySeq;
             state.lastShownLen = outRaw.length;
-            applyTranslationTypography(transTextEl, outRaw);
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
             state.lastConfirmedSourceTranslated = text;
+            openAiLivePaintDeferred = true;
+            requestAnimationFrame(() => {
+              if (!isRecRef.current) return;
+              if (activeBubbleStateRef.current?.segmentId !== requestSegmentId) return;
+              if (!transTextEl.isConnected) return;
+              if (state.translationLocked) return;
+              if (!requestIsFinal && state.hardFinalRequested) return;
+              if (!isFinal && state.finalizing) return;
+              if (liveAbortForThisRequest?.signal.aborted) return;
+              if (mySeq !== state.lastShownSeq) return;
+              applyTranslationTypography(transTextEl, outRaw);
+              scrollPanel();
+            });
           }
 
           if (
@@ -2067,7 +2081,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
           }
 
-          scrollPanel();
+          if (!openAiLivePaintDeferred) {
+            scrollPanel();
+          }
         } catch {
           if (isFinal && !lockOnFinal) {
             const stRecover = activeBubbleStateRef.current;
