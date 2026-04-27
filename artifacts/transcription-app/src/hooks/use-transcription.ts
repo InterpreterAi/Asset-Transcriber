@@ -2428,11 +2428,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     pcmBacklogRef.current = [];
 
     if (audioCtxRef.current) {
-      try {
-        await audioCtxRef.current.close();
-      } catch {
-        // Browser can throw if context is already closed/interrupted.
-      }
+      await audioCtxRef.current.close();
       audioCtxRef.current = null;
     }
 
@@ -2665,14 +2661,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               const speakerConfirmed =
                 !!confirm &&
                 confirm.sid === sid &&
-                confirm.messageStreak >= 6;
+                (confirm.messageStreak >= 3 || (nowMs - confirm.firstMs >= 500 && confirm.messageStreak >= 2));
               // Verified switching: never open a new bubble unless token content is suitable.
               if (speakerConfirmed && tokenSuitable) {
-                // Emergency override: never close/open a segment when speaker is effectively unchanged.
-                if (currentSpeakerRef.current !== undefined && sameSpeaker(sid, currentSpeakerRef.current)) {
-                  pendingSpeakerSwitchRef.current = null;
-                  continue;
-                }
                 closeActiveSegmentBoundary("speaker_change");
                 currentSpeakerRef.current = sid;
                 activeBubbleRef.current = createBubble(sid);
@@ -2688,16 +2679,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
         if (!activeBubbleRef.current) continue;
-        // Keep rendering into current bubble while a switch is pending (silent merge).
-        if (handledByPendingSwitchLogic && pendingSpeakerSwitchRef.current?.sid === sid) {
-          if (t.is_final && newFinalSet.has(t)) {
-            finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
-            if (activeBubbleStateRef.current) {
-              activeBubbleStateRef.current.finalTokensSeen += 1;
-            }
-          }
-          continue;
-        }
         if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
@@ -2713,7 +2694,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const pendingAfter = pendingSpeakerSwitchRef.current;
       if (
         pendingAfter &&
-        pendingAfter.messageStreak < 6 &&
+        pendingAfter.messageStreak < 3 &&
         currentSpeakerSeenInMessage &&
         activeBubbleRef.current
       ) {
