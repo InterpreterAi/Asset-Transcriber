@@ -4,6 +4,15 @@ import type { User } from "@workspace/db";
 import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 
+export type TranslationRoutingUser = {
+  planType: string | null | undefined;
+  trialEndsAt: Date | string | null | undefined;
+  dailyLimitMinutes: number | string | null | undefined;
+  subscriptionStatus?: string | null | undefined;
+  subscriptionPlan?: string | null | undefined;
+  isAdmin?: boolean | null | undefined;
+};
+
 export async function touchActivity(userId: number): Promise<void> {
   await db
     .update(usersTable)
@@ -31,7 +40,7 @@ export function getTrialDaysRemaining(user: User): number {
 }
 
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
-export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre"] as const;
+export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre", "trial-hetzner"] as const;
 
 /** Trial-like plans: default signup `trial-libre` (Final Boss 3), legacy `trial` / `trial-openai`, or `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
@@ -56,6 +65,12 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
     return false;
   }
   return true;
+}
+
+/** Runtime translation engine selector for /translate. */
+export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {
+  const eff = effectivePlanTypeForTranslation(user as User);
+  return planUsesMachineTranslationStack(eff);
 }
 
 function isPaidTranslationPlan(eff: string): boolean {
@@ -108,6 +123,14 @@ export function effectivePlanTypeForTranslation(user: User): string {
     return sp;
   }
   return p;
+}
+
+/** Trial-only throttle guard used by trial AI hard wall middleware. */
+export function appliesStrictTrialAiThrottle(user: TranslationRoutingUser): boolean {
+  if (user.isAdmin) return false;
+  const eff = effectivePlanTypeForTranslation(user as User);
+  if (isPaidTranslationPlan(eff)) return false;
+  return isTrialLikePlanType(user.planType) && !isTrialExpired(user as User);
 }
 
 /**
