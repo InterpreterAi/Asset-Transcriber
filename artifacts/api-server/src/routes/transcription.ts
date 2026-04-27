@@ -1490,7 +1490,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user row. Never from client flags.
-  // `trial-libre`: OpenAI for the first four trial days (≥4 days until trial_ends_at), then machine; other `*-libre` → machine.
+  // Routing is absolute by effective plan type (no time-window crossover between OpenAI and machine stacks).
   const prefersMachineStack = userUsesMachineTranslationStack(translateUser);
   const useMachineTranslation = prefersMachineStack;
 

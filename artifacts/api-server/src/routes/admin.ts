@@ -17,7 +17,6 @@ import { eq, sql, gt, isNull, isNotNull, and, desc, gte, lt, inArray, notInArray
 import { requireAdmin } from "../middlewares/requireAuth.js";
 import { hashPassword } from "../lib/password.js";
 import {
-  effectivePlanTypeForTranslation,
   getTrialDaysRemaining,
   isTrialLikePlanType,
   userUsesMachineTranslationStack,
@@ -100,17 +99,9 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-libre":       0,
 };
 
-/**
- * Analytics stack split must mirror live translation routing, not just `%-libre`.
- * `trial-libre` is OpenAI early, then machine in the final 3 trial days.
- */
+/** Analytics stack split mirrors strict live translation routing by effective plan family. */
 const MACHINE_STACK_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'professional-libre', 'platinum-libre')
-  OR (
-    LOWER(${usersTable.planType}) = 'trial-libre'
-    AND ${usersTable.trialEndsAt} IS NOT NULL
-    AND ${usersTable.trialEndsAt} < (timezone('America/New_York', NOW()) + interval '4 days')
-  )
+  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'trial-libre', 'basic-libre', 'professional-libre', 'platinum-libre')
 )`;
 const OPENAI_STACK_ANALYTICS_WHERE = sql`NOT (${MACHINE_STACK_ANALYTICS_WHERE})`;
 
@@ -187,10 +178,6 @@ function buildTranslationRouteDetail(
   coreLane: 1 | 2 | null,
 ): string {
   if (translationStack === "openai") {
-    const eff = effectivePlanTypeForTranslation(r).trim().toLowerCase();
-    if (eff === "trial-libre" && getTrialDaysRemaining(r) >= 4) {
-      return "Live /translate: OpenAI (trial-libre days 1–4; Hetzner after day 4)";
-    }
     return "Live /translate: OpenAI";
   }
   if (coreLane === 1) {

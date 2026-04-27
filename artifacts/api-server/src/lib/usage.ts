@@ -81,17 +81,11 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
 }
 
 /**
- * Live translation routing: which stack `/translate` should call for this account row.
- * `trial-libre` stays on OpenAI until fewer than four full calendar days remain before `trial_ends_at`,
- * then uses the machine stack for the last three days. `trial-hetzner` is machine for the full trial.
- * Paid-effective types (subscription lag) follow
- * {@link planUsesMachineTranslationStack} only.
+ * Live translation routing: strict engine isolation by effective plan type.
+ * OpenAI plans always use OpenAI. Hetzner/machine plans always use machine.
  */
 export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {
   const eff = effectivePlanTypeForTranslation(user).trim().toLowerCase();
-  if (eff === "trial-libre" && !isTrialExpired(user)) {
-    if (getTrialDaysRemaining(user) >= 4) return false;
-  }
   return planUsesMachineTranslationStack(eff);
 }
 
