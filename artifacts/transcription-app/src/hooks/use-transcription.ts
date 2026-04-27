@@ -163,8 +163,6 @@ const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
 // Segments close on stabilized speaker_id change (see effectiveSpeakersForTokenBoundaries + ws.onmessage).
-/** Wall-clock gap for the 2-message speaker switch shortcut; below this only streak ≥3 confirms (reduces false splits during pauses). */
-const SPEAKER_TIME_CONFIRM_MIN_MS = 750;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -1465,8 +1463,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const pendingSpeakerSwitchRef = useRef<{
     sid: string;
+    /** Consecutive WS messages that include this alternate sid (suitable tokens); resets if sid flickers away or reverts to currentSpeaker. */
     messageStreak: number;
-    firstMs: number;
     bufferedFinalText: string;
   } | null>(null);
   /** OpenAI stack only (33fd0887): brief silence → one full-segment translate before `<end>`. */
@@ -2897,7 +2895,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const newFinals = looksCumulative ? finals.slice(prevFinalSigs.length) : finals;
       const newFinalSet = new Set(newFinals);
       lastFinalTokenSigsRef.current = finalsSig;
-      const nowMs = Date.now();
       const pendingSidAtStart = pendingSpeakerSwitchRef.current?.sid;
       let pendingSidSeenInMessage = false;
       let pendingSidCountedInMessage = false;
@@ -2932,7 +2929,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 pendingSpeakerSwitchRef.current = {
                   sid,
                   messageStreak: 1,
-                  firstMs: nowMs,
                   bufferedFinalText: "",
                 };
                 pendingSidCountedInMessage = true;
@@ -2948,11 +2944,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 if (ps && ps.sid === sid) ps.bufferedFinalText += t.text;
               }
               const confirm = pendingSpeakerSwitchRef.current;
+              // Require the same alternate sid in ≥3 consecutive messages (no wall-clock shortcut) so
+              // brief Soniox speaker_id flicker during pauses does not split one narrator into two segments.
               const speakerConfirmed =
-                !!confirm &&
-                confirm.sid === sid &&
-                (confirm.messageStreak >= 3 ||
-                  (nowMs - confirm.firstMs >= SPEAKER_TIME_CONFIRM_MIN_MS && confirm.messageStreak >= 2));
+                !!confirm && confirm.sid === sid && confirm.messageStreak >= 3;
               // Verified switching: never open a new bubble unless token content is suitable.
               if (speakerConfirmed && tokenSuitable) {
                 closeActiveSegmentBoundary("speaker_change");
