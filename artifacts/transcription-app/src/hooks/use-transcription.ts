@@ -1017,51 +1017,6 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-/** Last `n` whitespace-separated tokens; shorter inputs unchanged (normalized spacing). */
-function clipToLastNWords(raw: string, n: number): string {
-  if (n < 1) return raw.trim();
-  const words = raw.trim().split(/\s+/).filter(Boolean);
-  if (words.length <= n) return words.join(" ");
-  return words.slice(-n).join(" ");
-}
-
-/**
- * Live path sends only the last N source words; the model returns that tail’s translation only.
- * Never replace the whole cell with `windowTrans` (that erases pre-pause text).
- */
-function mergeWindowedLiveTranslation(prev: string, windowTrans: string): string {
-  const a = collapseWs(prev);
-  const b = collapseWs(windowTrans);
-  if (!b) return a;
-  if (!a) return b;
-  const aw = a.split(/\s+/).filter(Boolean);
-  const bw = b.split(/\s+/).filter(Boolean);
-  if (bw.length === 0) return a;
-
-  let maxOverlap = 0;
-  const maxK = Math.min(aw.length, bw.length);
-  for (let k = maxK; k >= 1; k--) {
-    let ok = true;
-    for (let i = 0; i < k; i++) {
-      if (aw[aw.length - k + i]!.toLowerCase() !== bw[i]!.toLowerCase()) {
-        ok = false;
-        break;
-      }
-    }
-    if (ok) {
-      maxOverlap = k;
-      break;
-    }
-  }
-  if (maxOverlap > 0) {
-    return collapseWs([...aw.slice(0, -maxOverlap), ...bw].join(" "));
-  }
-  return collapseWs(`${a} ${b}`);
-}
-
-/** Matches final-boss-2 windowed live translate (`clipToLastNWords` on the hook). */
-const OPENAI_FB2_LIVE_WINDOW_WORDS = 18;
-
 function endsWithPhraseBoundary(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
@@ -1755,10 +1710,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
-        // Stable-only UI: live passthrough updates keep bookkeeping; cell paints on final.
-        if (isFinal) {
-          applyTranslationTypography(transTextEl, text);
-        }
+        applyTranslationTypography(transTextEl, text);
         state.streamCommittedSource = text;
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
@@ -1789,10 +1741,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
-        // Stable-only UI: same-language live updates keep bookkeeping; cell paints on final.
-        if (isFinal) {
-          applyTranslationTypography(transTextEl, text);
-        }
+        applyTranslationTypography(transTextEl, text);
         state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
@@ -1948,14 +1897,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         requestIsFinal = true;
       }
     } else {
-      // OpenAI-only (final-boss-2 / 33fd0887): never send streaming deltas; windowed live text only.
-      if (isFinal) {
-        apiText = text;
-        requestIsFinal = true;
-      } else {
-        apiText = clipToLastNWords(text, OPENAI_FB2_LIVE_WINDOW_WORDS);
-        requestIsFinal = false;
-      }
+      // OpenAI-only: full segment source on every call; live = same full text as final, UI replaces each response.
+      apiText = text;
+      requestIsFinal = isFinal;
       useStreamingDelta = false;
     }
 
@@ -2100,15 +2044,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (mySeq <= state.lastShownSeq) return;
             const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
             if (!outRaw.trim()) return;
-            const prevTr = (transTextEl.textContent ?? "").trim();
-            const sourceWindowed =
-              !requestIsFinal &&
-              apiText.trim().length > 0 &&
-              text.trim().length > apiText.trim().length + 2;
-            const toShow = sourceWindowed ? mergeWindowedLiveTranslation(prevTr, outRaw) : outRaw;
             state.lastShownSeq = mySeq;
-            state.lastShownLen = toShow.length;
-            // Stable-only UI: live OpenAI merge is bookkeeping-only; the cell updates on final only.
+            state.lastShownLen = outRaw.length;
+            applyTranslationTypography(transTextEl, outRaw);
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
@@ -2302,10 +2240,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
-            // Stable-only UI: streaming/live merge stays off-DOM until final.
-            if (requestIsFinal) {
-              applyTranslationTypography(transTextEl, merged);
-            }
+            applyTranslationTypography(transTextEl, merged);
             state.pendingDisplayTranslation = "";
             const committed = state.streamCommittedSource.trim();
             state.streamCommittedSource = committed ? `${committed} ${text}` : text;
@@ -2353,10 +2288,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             state.lastShownSeq = mySeq;
             state.lastShownLen = chosen.length;
-            // Stable-only UI: live MT preview stays off-DOM until final.
-            if (requestIsFinal) {
-              applyTranslationTypography(transTextEl, chosen);
-            }
+            applyTranslationTypography(transTextEl, chosen);
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
