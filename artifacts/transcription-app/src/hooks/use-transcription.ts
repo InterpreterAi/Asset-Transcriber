@@ -1755,7 +1755,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
-        applyTranslationTypography(transTextEl, text);
+        // Stable-only UI: live passthrough updates keep bookkeeping; cell paints on final.
+        if (isFinal) {
+          applyTranslationTypography(transTextEl, text);
+        }
         state.streamCommittedSource = text;
         if (isFinal && lockOnFinal) {
           state.translationLocked = true;
@@ -1786,7 +1789,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
         state.lastShownSeq = mySeq;
         state.lastShownLen = text.length;
-        applyTranslationTypography(transTextEl, text);
+        // Stable-only UI: same-language live updates keep bookkeeping; cell paints on final.
+        if (isFinal) {
+          applyTranslationTypography(transTextEl, text);
+        }
         state.streamCommittedSource = text;
         if (isFinal) {
           state.translationLocked = true;
@@ -2102,7 +2108,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const toShow = sourceWindowed ? mergeWindowedLiveTranslation(prevTr, outRaw) : outRaw;
             state.lastShownSeq = mySeq;
             state.lastShownLen = toShow.length;
-            applyTranslationTypography(transTextEl, toShow);
+            // Stable-only UI: live OpenAI merge is bookkeeping-only; the cell updates on final only.
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
@@ -2296,7 +2302,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", incoming);
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
-            applyTranslationTypography(transTextEl, merged);
+            // Stable-only UI: streaming/live merge stays off-DOM until final.
+            if (requestIsFinal) {
+              applyTranslationTypography(transTextEl, merged);
+            }
             state.pendingDisplayTranslation = "";
             const committed = state.streamCommittedSource.trim();
             state.streamCommittedSource = committed ? `${committed} ${text}` : text;
@@ -2344,7 +2353,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             state.lastShownSeq = mySeq;
             state.lastShownLen = chosen.length;
-            applyTranslationTypography(transTextEl, chosen);
+            // Stable-only UI: live MT preview stays off-DOM until final.
+            if (requestIsFinal) {
+              applyTranslationTypography(transTextEl, chosen);
+            }
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
