@@ -1441,6 +1441,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
+  const pendingSpeakerSwitchRef = useRef<{
+    sid: string;
+    messageStreak: number;
+    firstMs: number;
+    bufferedFinalText: string;
+  } | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -2333,6 +2339,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     }
     currentSpeakerRef.current = undefined;
+    pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -2350,6 +2357,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
+    pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
@@ -2402,6 +2410,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
+    pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
@@ -2598,29 +2607,78 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const newFinals = looksCumulative ? finals.slice(prevFinalSigs.length) : finals;
       const newFinalSet = new Set(newFinals);
       lastFinalTokenSigsRef.current = finalsSig;
+      const nowMs = Date.now();
+      const pendingSidAtStart = pendingSpeakerSwitchRef.current?.sid;
+      let pendingSidSeenInMessage = false;
+      let pendingSidCountedInMessage = false;
+      let currentSpeakerSeenInMessage = false;
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
         const t = tokens[ti]!;
         const sid = effSpk[ti];
         const tokenSuitable = !isSonioxEndpointToken(t) && hasVisibleText(t.text);
+        let handledByPendingSwitchLogic = false;
         if (sid !== undefined) {
+          if (
+            currentSpeakerRef.current !== undefined &&
+            sameSpeaker(sid, currentSpeakerRef.current) &&
+            tokenSuitable
+          ) {
+            currentSpeakerSeenInMessage = true;
+          }
           if (!activeBubbleRef.current) {
             if (tokenSuitable) {
               currentSpeakerRef.current = sid;
+              pendingSpeakerSwitchRef.current = null;
               activeBubbleRef.current = createBubble(sid);
               setHasTranscript(true);
             }
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
             if (tokenSuitable) {
-              closeActiveSegmentBoundary("speaker_change");
-              currentSpeakerRef.current = sid;
-              activeBubbleRef.current = createBubble(sid);
-              setHasTranscript(true);
+              handledByPendingSwitchLogic = true;
+              const pending = pendingSpeakerSwitchRef.current;
+              if (!pending || pending.sid !== sid) {
+                pendingSpeakerSwitchRef.current = {
+                  sid,
+                  messageStreak: 1,
+                  firstMs: nowMs,
+                  bufferedFinalText: "",
+                };
+                pendingSidCountedInMessage = true;
+              } else if (!pendingSidCountedInMessage) {
+                pending.messageStreak += 1;
+                pendingSidCountedInMessage = true;
+              }
+              if (pendingSpeakerSwitchRef.current?.sid === sid) {
+                pendingSidSeenInMessage = true;
+              }
+              if (t.is_final && newFinalSet.has(t)) {
+                const ps = pendingSpeakerSwitchRef.current;
+                if (ps && ps.sid === sid) ps.bufferedFinalText += t.text;
+              }
+              const confirm = pendingSpeakerSwitchRef.current;
+              const speakerConfirmed =
+                !!confirm &&
+                confirm.sid === sid &&
+                (confirm.messageStreak >= 3 || (nowMs - confirm.firstMs >= 500 && confirm.messageStreak >= 2));
+              if (speakerConfirmed) {
+                closeActiveSegmentBoundary("speaker_change");
+                currentSpeakerRef.current = sid;
+                activeBubbleRef.current = createBubble(sid);
+                setHasTranscript(true);
+                if (activeBubbleRef.current && confirm.bufferedFinalText) {
+                  finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: confirm.bufferedFinalText });
+                }
+                pendingSpeakerSwitchRef.current = null;
+              }
             }
+          } else {
+            pendingSpeakerSwitchRef.current = null;
           }
         }
         if (!activeBubbleRef.current) continue;
+        if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
           finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
@@ -2628,6 +2686,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleStateRef.current.finalTokensSeen += 1;
           }
         }
+      }
+      if (pendingSidAtStart && !pendingSidSeenInMessage) {
+        pendingSpeakerSwitchRef.current = null;
+      }
+      const pendingAfter = pendingSpeakerSwitchRef.current;
+      if (
+        pendingAfter &&
+        pendingAfter.messageStreak < 3 &&
+        currentSpeakerSeenInMessage &&
+        activeBubbleRef.current
+      ) {
+        if (pendingAfter.bufferedFinalText) {
+          finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: pendingAfter.bufferedFinalText });
+        }
+        pendingSpeakerSwitchRef.current = null;
       }
 
       // Detect language from ANY token in this message — final OR non-final.
@@ -2804,6 +2877,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setTranslationServiceError(null);
       setAudioInfo("");
       currentSpeakerRef.current      = undefined;
+      pendingSpeakerSwitchRef.current = null;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
       activeBubbleStateRef.current   = null;
