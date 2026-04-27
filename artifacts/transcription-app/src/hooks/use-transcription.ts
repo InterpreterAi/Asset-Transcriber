@@ -1441,8 +1441,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
-  /** Confirm speaker pivots across WS messages before opening a new bubble. */
-  const pendingSpeakerConfirmRef = useRef<{ sid: string; count: number; firstMs: number } | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -2335,7 +2333,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     }
     currentSpeakerRef.current = undefined;
-    pendingSpeakerConfirmRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -2353,7 +2350,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
-    pendingSpeakerConfirmRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
@@ -2406,7 +2402,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
-    pendingSpeakerConfirmRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
@@ -2613,31 +2608,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (!activeBubbleRef.current) {
             if (tokenSuitable) {
               currentSpeakerRef.current = sid;
-              pendingSpeakerConfirmRef.current = null;
               activeBubbleRef.current = createBubble(sid);
               setHasTranscript(true);
             }
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
             if (tokenSuitable) {
-              const nowMs = Date.now();
-              const pending = pendingSpeakerConfirmRef.current;
-              if (!pending || pending.sid !== sid) {
-                pendingSpeakerConfirmRef.current = { sid, count: 1, firstMs: nowMs };
-              } else {
-                pending.count += 1;
-              }
-              const p = pendingSpeakerConfirmRef.current;
-              const confirmed = !!p && (p.count >= 4 || (nowMs - p.firstMs >= 500 && p.count >= 2));
-              if (confirmed) {
-                closeActiveSegmentBoundary("speaker_change");
-                currentSpeakerRef.current = sid;
-                pendingSpeakerConfirmRef.current = null;
-                activeBubbleRef.current = createBubble(sid);
-                setHasTranscript(true);
-              }
+              closeActiveSegmentBoundary("speaker_change");
+              currentSpeakerRef.current = sid;
+              activeBubbleRef.current = createBubble(sid);
+              setHasTranscript(true);
             }
-          } else {
-            pendingSpeakerConfirmRef.current = null;
           }
         }
         if (!activeBubbleRef.current) continue;
@@ -2824,7 +2804,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setTranslationServiceError(null);
       setAudioInfo("");
       currentSpeakerRef.current      = undefined;
-      pendingSpeakerConfirmRef.current = null;
       activeBubbleRef.current        = null;
       activeBubbleNFRef.current      = null;
       activeBubbleStateRef.current   = null;
