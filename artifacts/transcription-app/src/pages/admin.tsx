@@ -539,8 +539,12 @@ export default function Admin() {
   type AdminTheme = "dark" | "light";
   const [adminTheme, setAdminTheme] = useState<AdminTheme>(() => {
     if (typeof window === "undefined") return "dark";
-    const v = localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
-    return v === "light" || v === "dark" ? v : "dark";
+    try {
+      const v = localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
+      return v === "light" || v === "dark" ? v : "dark";
+    } catch {
+      return "dark";
+    }
   });
   useEffect(() => {
     try {

@@ -2428,7 +2428,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     pcmBacklogRef.current = [];
 
     if (audioCtxRef.current) {
-      await audioCtxRef.current.close();
+      try {
+        await audioCtxRef.current.close();
+      } catch {
+        // Browser can throw if context is already closed/interrupted.
+      }
       audioCtxRef.current = null;
     }
 

@@ -124,8 +124,12 @@ export default function WorkspaceDefault() {
   type WorkspaceChromeTheme = "dark" | "light";
   const [workspaceTheme, setWorkspaceTheme] = useState<WorkspaceChromeTheme>(() => {
     if (typeof window === "undefined") return "dark";
-    const s = localStorage.getItem(WORKSPACE_THEME_STORAGE_KEY);
-    return s === "light" || s === "dark" ? s : "dark";
+    try {
+      const s = localStorage.getItem(WORKSPACE_THEME_STORAGE_KEY);
+      return s === "light" || s === "dark" ? s : "dark";
+    } catch {
+      return "dark";
+    }
   });
   useEffect(() => {
     try {
@@ -616,7 +620,7 @@ export default function WorkspaceDefault() {
 
   const handleToggleRecording = () => {
     if (transcription.isRecording) {
-      transcription.stop();
+      void transcription.stop().catch(() => { /* stop should never crash UI */ });
       // Stop tab stream tracks when we stop recording
       if (tabStream) {
         tabStream.getTracks().forEach(t => t.stop());
@@ -667,7 +671,7 @@ export default function WorkspaceDefault() {
       const audioTracks = displayStream.getAudioTracks();
       if (audioTracks.length === 0) {
         // User shared a tab/window but didn't enable "Share tab audio"
-        transcription.stop();
+        void transcription.stop().catch(() => { /* stop should never crash UI */ });
         return;
       }
 
@@ -677,7 +681,7 @@ export default function WorkspaceDefault() {
 
       // If the user clicks "Stop sharing" in the browser chrome, clean up
       audioTracks[0]!.addEventListener("ended", () => {
-        transcription.stop();
+        void transcription.stop().catch(() => { /* stop should never crash UI */ });
         setTabStream(null);
         queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       });
