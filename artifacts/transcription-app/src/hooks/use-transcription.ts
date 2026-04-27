@@ -1570,8 +1570,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). 0 = fire as soon as the timer yields (closest to public-Libre snappiness); aborts drop superseded calls. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 0;
+  /** Libre: 0ms (snappy). OpenAI: 500ms — final-boss-2 coalescing for WS-scheduled live translate only. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE = 0;
+  const LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI = 500;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1597,6 +1598,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (liveTranslationDebounceTimerRef.current !== null) {
       clearTimeout(liveTranslationDebounceTimerRef.current);
     }
+    const debounceMs = clientUsesLibreEngineRef.current
+      ? LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE
+      : LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI;
     liveTranslationDebounceTimerRef.current = setTimeout(() => {
       liveTranslationDebounceTimerRef.current = null;
       const p = liveTranslationDebouncePayloadRef.current;
@@ -1611,7 +1615,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         { skipOpenAiLiveDebounce: true },
         p.segmentId,
       );
-    }, LIVE_TRANSLATION_DEBOUNCE_MS);
+    }, debounceMs);
   }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
@@ -1968,7 +1972,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         try {
           const maxFetchAttempts = requestIsFinal ? 3 : 1;
           let translated = "";
-          let lastTranslationFailureMessage: string | undefined;
           for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
             if (fetchAttempt > 0) {
               await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
@@ -1997,7 +2000,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               return;
             }
             translated = tr.text;
-            if (tr.translationFailedMessage) lastTranslationFailureMessage = tr.translationFailedMessage;
             if (translated?.trim()) break;
           }
           if (!translated?.trim() && isFinal && text.trim().length >= 3) {
@@ -2021,16 +2023,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               return;
             }
             translated = trRetry.text;
-            if (trRetry.translationFailedMessage) lastTranslationFailureMessage = trRetry.translationFailedMessage;
           }
           if (!translated?.trim()) {
-            if (transTextEl.isConnected) {
-              const shown = (transTextEl.textContent ?? "").trim();
-              if (!shown || shown === "…") {
-                applyTranslationTypography(
-                  transTextEl,
-                  lastTranslationFailureMessage ?? "Retrying translation…",
-                );
+            if (isFinal && !lockOnFinal) {
+              const stEmpty = activeBubbleStateRef.current;
+              if (stEmpty && stEmpty.segmentId === requestSegmentId) {
+                stEmpty.hardFinalRequested = false;
               }
             }
             return;
@@ -2214,13 +2212,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (trRetry.translationFailedMessage) lastTranslationFailureMessage = trRetry.translationFailedMessage;
         }
         if (!translated?.trim()) {
-          if (transTextEl.isConnected) {
-            const shown = (transTextEl.textContent ?? "").trim();
-            if (!shown || shown === "…") {
-              applyTranslationTypography(
-                transTextEl,
-                lastTranslationFailureMessage ?? "Retrying translation…",
-              );
+          if (isFinal && !lockOnFinal) {
+            const stEmpty = activeBubbleStateRef.current;
+            if (stEmpty && stEmpty.segmentId === requestSegmentId) {
+              stEmpty.hardFinalRequested = false;
             }
           }
           return;
