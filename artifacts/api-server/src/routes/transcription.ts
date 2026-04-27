@@ -1397,9 +1397,10 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
   // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
-  // `trial-libre` / `*-libre` → machine stack always. `trial`, `basic`, `professional`, `platinum`, … → OpenAI when configured.
+  // OpenAI-labeled plans are hard-forced to OpenAI and must never call machine/Hetzner.
   const prefersMachineStack = planUsesMachineTranslationStack(planLower);
-  const useMachineTranslation = prefersMachineStack;
+  const forcedOpenAiPlan = planLower.includes("openai");
+  const useMachineTranslation = forcedOpenAiPlan ? false : prefersMachineStack;
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({
