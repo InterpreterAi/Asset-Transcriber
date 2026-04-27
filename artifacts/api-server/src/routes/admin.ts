@@ -100,6 +100,20 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-libre":       0,
 };
 
+/**
+ * Analytics stack split must mirror live translation routing, not just `%-libre`.
+ * `trial-libre` is OpenAI early, then machine in the final 3 trial days.
+ */
+const MACHINE_STACK_ANALYTICS_WHERE = sql`(
+  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'professional-libre', 'platinum-libre')
+  OR (
+    LOWER(${usersTable.planType}) = 'trial-libre'
+    AND ${usersTable.trialEndsAt} IS NOT NULL
+    AND ${usersTable.trialEndsAt} < (timezone('America/New_York', NOW()) + interval '4 days')
+  )
+)`;
+const OPENAI_STACK_ANALYTICS_WHERE = sql`NOT (${MACHINE_STACK_ANALYTICS_WHERE})`;
+
 type ActiveSessionRow = {
   sessionId: number;
   userId: number;
@@ -861,7 +875,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
         )`))
       .limit(10),
 
-    // Hetzner MT usage hours MTD (machine-translation plans; includes live elapsed audio time).
+    // Hetzner MT usage hours MTD (machine-translation routes only; mirrors live routing semantics).
     db.select({
       hours: sql<number>`
         COALESCE(
@@ -880,10 +894,10 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
         sql`${usersTable.isAdmin} = false`,
-        sql`LOWER(${usersTable.planType}) LIKE '%-libre'`,
+        MACHINE_STACK_ANALYTICS_WHERE,
       )),
 
-    // OpenAI usage hours MTD (non-machine plans; transcription and translation hours tracked separately in UI formula).
+    // OpenAI usage hours MTD (complement of machine route split above).
     db.select({
       transcriptionHours: sql<number>`
         COALESCE(
@@ -913,7 +927,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
         sql`${usersTable.isAdmin} = false`,
-        sql`LOWER(${usersTable.planType}) NOT LIKE '%-libre'`,
+        OPENAI_STACK_ANALYTICS_WHERE,
       )),
 
     // Active paid base (current).
