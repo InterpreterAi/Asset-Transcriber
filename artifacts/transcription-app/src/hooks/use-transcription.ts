@@ -2665,7 +2665,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               const speakerConfirmed =
                 !!confirm &&
                 confirm.sid === sid &&
-                (confirm.messageStreak >= 3 || (nowMs - confirm.firstMs >= 500 && confirm.messageStreak >= 2));
+                confirm.messageStreak >= 6;
               // Verified switching: never open a new bubble unless token content is suitable.
               if (speakerConfirmed && tokenSuitable) {
                 closeActiveSegmentBoundary("speaker_change");
@@ -2683,6 +2683,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
         if (!activeBubbleRef.current) continue;
+        // Keep rendering into current bubble while a switch is pending (silent merge).
+        if (handledByPendingSwitchLogic && pendingSpeakerSwitchRef.current?.sid === sid) {
+          if (t.is_final && newFinalSet.has(t)) {
+            finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
+            if (activeBubbleStateRef.current) {
+              activeBubbleStateRef.current.finalTokensSeen += 1;
+            }
+          }
+          continue;
+        }
         if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
@@ -2698,7 +2708,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const pendingAfter = pendingSpeakerSwitchRef.current;
       if (
         pendingAfter &&
-        pendingAfter.messageStreak < 3 &&
+        pendingAfter.messageStreak < 6 &&
         currentSpeakerSeenInMessage &&
         activeBubbleRef.current
       ) {
