@@ -132,14 +132,26 @@ type StableSnapshotRow = { idx: number; src: string; tgt: string };
  * so admin never sees in-flight partial artifacts.
  */
 function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
-  const transcriptLines = snapshot.transcriptLines;
-  const translationLines = snapshot.translationLines;
-  if (!Array.isArray(transcriptLines) || !Array.isArray(translationLines)) return [];
-  if (transcriptLines.length === 0 || transcriptLines.length !== translationLines.length) return [];
+  const splitLines = (v: string) =>
+    String(v ?? "")
+      .split(/\r?\n/)
+      .map((x) => x.trim())
+      .filter(Boolean);
 
-  const src = transcriptLines.map(v => String(v).trim());
-  const tgt = translationLines.map(v => String(v).trim());
-  const lastExclusive = isLive ? Math.max(0, src.length - 1) : src.length;
+  const src =
+    Array.isArray(snapshot.transcriptLines) && snapshot.transcriptLines.length > 0
+      ? snapshot.transcriptLines.map(v => String(v).trim()).filter(Boolean)
+      : splitLines(snapshot.transcript);
+  const tgt =
+    Array.isArray(snapshot.translationLines) && snapshot.translationLines.length > 0
+      ? snapshot.translationLines.map(v => String(v).trim()).filter(Boolean)
+      : splitLines(snapshot.translation);
+  if (src.length === 0 || tgt.length === 0) return [];
+
+  // Keep monitor stable: use contiguous aligned prefix only.
+  // If one side lags briefly, still show the shared prefix instead of blanking everything.
+  const aligned = Math.min(src.length, tgt.length);
+  const lastExclusive = isLive ? Math.max(0, aligned - 1) : aligned;
 
   const rows: StableSnapshotRow[] = [];
   for (let i = 0; i < lastExclusive; i++) {
