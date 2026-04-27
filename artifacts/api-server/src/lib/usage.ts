@@ -4,15 +4,6 @@ import type { User } from "@workspace/db";
 import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 
-/** Row fields used for trial window, PayPal lag, and translation stack routing (nullable like DB + admin joins). */
-export type TranslationRoutingUser = {
-  planType: string | null | undefined;
-  trialEndsAt: Date | string | null | undefined;
-  dailyLimitMinutes: number | string | null | undefined;
-  subscriptionStatus?: string | null | undefined;
-  subscriptionPlan?: string | null | undefined;
-};
-
 export async function touchActivity(userId: number): Promise<void> {
   await db
     .update(usersTable)
@@ -28,11 +19,10 @@ export function resetDailyUsageIfNeeded(user: User): boolean {
   return appCalendarDayChanged(lastReset, now);
 }
 
-export function getTrialDaysRemaining(user: TranslationRoutingUser): number {
+export function getTrialDaysRemaining(user: User): number {
   const daily = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(daily) || daily <= 0) return 0;
   const now = new Date();
-  if (user.trialEndsAt == null) return 0;
   const end = new Date(user.trialEndsAt);
   if (!Number.isFinite(end.getTime()) || end.getTime() <= 0) return 0;
   const diff = end.getTime() - now.getTime();
@@ -41,7 +31,7 @@ export function getTrialDaysRemaining(user: TranslationRoutingUser): number {
 }
 
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
-export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre", "trial-hetzner"] as const;
+export const TRIAL_LIKE_PLAN_TYPES = ["trial", "trial-openai", "trial-libre"] as const;
 
 /** Trial-like plans: default signup `trial-libre` (Final Boss 3), legacy `trial` / `trial-openai`, or `trial-libre`. */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
@@ -51,42 +41,21 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 
 /**
  * True when POST /translate must use the Libre/machine stack (not OpenAI).
- * Admin-assigned OpenAI plans (`trial`, `basic`, `professional`, `platinum`, `*-openai`) must route to OpenAI.
- * Libre routes are explicit `*-libre` plans (including default signup `trial-libre`).
+ * Final Boss 3: default signup is `trial-libre`; Basic and Professional (any *basic* / *professional* plan_type)
+ * use Libre; only trial (legacy OpenAI trial), trial-openai, platinum family, and unlimited use OpenAI.
  */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (
-    p === "trial-hetzner" ||
-    p === "trial-libre" ||
-    p === "basic-libre" ||
-    p === "professional-libre" ||
-    p === "platinum-libre"
-  ) {
-    return true;
-  }
-  if (
     p === "trial" ||
     p === "trial-openai" ||
-    p === "basic" ||
-    p === "basic-openai" ||
-    p === "professional" ||
-    p === "professional-openai" ||
     p === "platinum" ||
+    p === "platinum-libre" ||
     p === "unlimited"
   ) {
     return false;
   }
-  return p.endsWith("-libre");
-}
-
-/**
- * Live translation routing: strict engine isolation by effective plan type.
- * OpenAI plans always use OpenAI. Hetzner/machine plans always use machine.
- */
-export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {
-  const eff = effectivePlanTypeForTranslation(user).trim().toLowerCase();
-  return planUsesMachineTranslationStack(eff);
+  return true;
 }
 
 function isPaidTranslationPlan(eff: string): boolean {
@@ -105,25 +74,11 @@ function isPaidTranslationPlan(eff: string): boolean {
   );
 }
 
-/**
- * Trial (non-paid-effective) accounts: stricter AI/transcription rate limits and outbound Hetzner concurrency.
- * Admins and paid-effective rows (subscription lag) are excluded.
- */
-export function appliesStrictTrialAiThrottle(
-  user: TranslationRoutingUser & { isAdmin?: boolean | null },
-): boolean {
-  if (user.isAdmin) return false;
-  const eff = effectivePlanTypeForTranslation(user).trim().toLowerCase();
-  if (isPaidTranslationPlan(eff)) return false;
-  return isTrialLikePlanType(user.planType) && !isTrialExpired(user);
-}
-
 /** True only when the user is on a trial-like plan, was granted a real trial window, and that window has ended. */
-export function isTrialExpired(user: TranslationRoutingUser): boolean {
+export function isTrialExpired(user: User): boolean {
   if (!isTrialLikePlanType(user.planType)) return false;
   const daily = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(daily) || daily <= 0) return false;
-  if (user.trialEndsAt == null) return false;
   const end = new Date(user.trialEndsAt);
   if (!Number.isFinite(end.getTime()) || end.getTime() <= 0) return false;
   return new Date() > end;
@@ -134,8 +89,8 @@ export function isTrialExpired(user: TranslationRoutingUser): boolean {
  * already reflect paid Basic/Professional/Platinum. Use the subscription row for translation gating/engine
  * only in that case so paid tiers keep machine or OpenAI translation.
  */
-export function effectivePlanTypeForTranslation(user: TranslationRoutingUser): string {
-  const p = (user.planType ?? "trial-openai").trim().toLowerCase();
+export function effectivePlanTypeForTranslation(user: User): string {
+  const p = (user.planType ?? "trial-libre").trim().toLowerCase();
   const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
   const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();
   if (
@@ -143,7 +98,7 @@ export function effectivePlanTypeForTranslation(user: TranslationRoutingUser): s
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
-    // Webhook-lag mapping: mixed-trial rows map Basic/Prof to Libre stacks; Platinum/Unlimited → OpenAI.
+    // Final Boss 3: trial-libre → paid maps Basic/Prof to Libre stacks; Platinum/Unlimited → OpenAI.
     if (p === "trial-libre") {
       if (sp === "basic") return "basic-libre";
       if (sp === "professional") return "professional-libre";
@@ -218,13 +173,6 @@ export async function getUserWithResetCheck(userId: number): Promise<User | unde
 export function buildUserInfo(user: User) {
   const trialDaysRemaining = getTrialDaysRemaining(user);
   const trialExpired = isTrialExpired(user);
-  const isPaidPlan = !isTrialLikePlanType(user.planType);
-  const paidPeriodEnd =
-    user.subscriptionPeriodEndsAt != null ? new Date(user.subscriptionPeriodEndsAt) : null;
-  const paidCycleDaysRemaining =
-    isPaidPlan && paidPeriodEnd && Number.isFinite(paidPeriodEnd.getTime())
-      ? Math.max(0, Math.ceil((paidPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-      : null;
   const dailyLimit = Number(user.dailyLimitMinutes);
   const usedToday = Number(user.minutesUsedToday);
   const minutesRemainingToday = Math.max(
@@ -237,14 +185,13 @@ export function buildUserInfo(user: User) {
     email: user.email ?? undefined,
     isAdmin: user.isAdmin,
     isActive: user.isActive,
-    planType: user.planType ?? "trial-openai",
+    planType: user.planType ?? "trial-libre",
     translationEnabled: translationEnabledForUser(user),
     emailVerified: user.emailVerified ?? false,
     trialStartedAt: user.trialStartedAt,
     trialEndsAt: user.trialEndsAt,
     trialDaysRemaining,
     trialExpired,
-    paidCycleDaysRemaining,
     dailyLimitMinutes: Number.isFinite(dailyLimit) ? dailyLimit : user.dailyLimitMinutes,
     minutesUsedToday: Number.isFinite(usedToday) ? usedToday : user.minutesUsedToday,
     minutesRemainingToday,

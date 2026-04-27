@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
-import { CONFIGURED_BASE as hetznerTranslateBase } from "../lib/hetzner-translate.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -13,7 +12,7 @@ import {
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
-  userUsesMachineTranslationStack,
+  planUsesMachineTranslationStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -43,10 +42,6 @@ import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
-  registerSessionStartForCoreRouting,
-  unregisterSessionForCoreRouting,
-} from "../lib/hetzner-core-router.js";
-import {
   hasSubmittedMandatoryFeedbackToday,
   isMandatoryFeedbackRequiredByUsage,
   UNLIMITED_DAILY_CAP_MINUTES,
@@ -57,7 +52,6 @@ import {
   applyUserGlossaryStrict,
   buildUserGlossaryHintLines,
   ensureGlossaryTranslationsFromSource,
-  filterUserGlossaryForTarget,
   type UserGlossaryRow,
 } from "../lib/user-glossary.js";
 
@@ -78,17 +72,10 @@ import {
 // OpenAI processes it, result is returned to the browser, nothing is retained.
 //
 
-// ── Final Boss 3 — translation release (named product snapshot) ────────────
-//
-// **Final Boss 3 · OpenAI** — `POST /translate` when `useMachineTranslation` is false: interpreter
-// prompts, `callOpenAI`, retries, `finalizeTranslationOutput` (incl. leak repair where enabled).
-//
-// **Final Boss 3 · Libre** — same route when `useMachineTranslation` is true: `translateBasicProfessional`
-// in `basic-pro-translate.ts` → `hetzner-translate.ts` (Hetzner LibreTranslate-compatible `/translate`).
-//
-// Both stacks are **shipped for soak testing** (~1 week feedback): avoid drive-by edits; change only on
-// explicit user request or P0 bug. Tier routing: `userUsesMachineTranslationStack` / `usage.ts`.
-// Client STT = Soniox for all plans; engine switch is server-only.
+// ── Final Boss 3 (named product snapshot) ─────────────────────────────────
+// `planUsesMachineTranslationStack` → LibreTranslate only (see usage.ts): default `trial-libre`, Basic/Prof tiers,
+// legacy basic/prof plan_types, etc. OpenAI stack: legacy trials `trial`/`trial-openai`, `platinum`, `unlimited`,
+// `platinum-libre`. Shared masking where applicable; client STT = Soniox for everyone.
 
 /** LibreTranslate may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {
@@ -376,7 +363,6 @@ async function closeOpenSessionWithBillingIfNeeded(
   }
 
   sessionStore.delete(sessionId);
-  unregisterSessionForCoreRouting(sessionId);
 
   const user = await getUserWithResetCheck(userId);
   if (!user) {
@@ -546,12 +532,7 @@ async function sweepStaleSessions(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - STALE_SESSION_MS);
     const stale = await db
-      .select({
-        id: sessionsTable.id,
-        startedAt: sessionsTable.startedAt,
-        userId: sessionsTable.userId,
-        audioSecondsProcessed: sessionsTable.audioSecondsProcessed,
-      })
+      .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt, userId: sessionsTable.userId })
       .from(sessionsTable)
       .where(and(
         isNull(sessionsTable.endedAt),
@@ -560,14 +541,21 @@ async function sweepStaleSessions(): Promise<void> {
 
     if (stale.length === 0) return;
 
+    const now = new Date();
     for (const s of stale) {
-      // Close abandoned sessions with the last known processed-audio value from heartbeat,
-      // so real usage never lands in history as a zero-minute session.
-      await closeOpenSessionWithBillingIfNeeded(
-        s.id,
-        s.userId,
-        Number(s.audioSecondsProcessed ?? 0),
-      );
+      // Do not bill wall-clock time: the client never reported processed audio (tab close / refresh).
+      // Daily limits must reflect only audio seconds credited via POST /session/stop.
+      await db
+        .update(sessionsTable)
+        .set({
+          endedAt:               now,
+          durationSeconds:        0,
+          audioSecondsProcessed: 0,
+          sonioxCost:            "0",
+          totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
+        })
+        .where(eq(sessionsTable.id, s.id));
+      sessionStore.delete(s.id);
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -784,13 +772,6 @@ function latinPairLooksUntranslated(source: string, translated: string): boolean
   if (outWords.length >= 6) return overlapRatio >= 0.78;
   if (outWords.length >= 3) return overlapRatio >= 0.9;
   return false;
-}
-
-function isEnglishSpanishPair(sourceBase: string, targetBase: string): boolean {
-  return (
-    (sourceBase === "en" && targetBase === "es") ||
-    (sourceBase === "es" && targetBase === "en")
-  );
 }
 
 function matchesExpectedTargetLanguage(
@@ -1078,8 +1059,6 @@ router.post("/session/start", requireAuth, async (req, res) => {
     .insert(sessionsTable)
     .values({ userId: userForCap.id, startedAt: new Date(), lastActivityAt: new Date(), langPair })
     .returning();
-  const createdSessionId = result[0]!.id;
-  registerSessionStartForCoreRouting(createdSessionId, userForCap.planType);
 
   void touchActivity(userForCap.id);
 
@@ -1095,7 +1074,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
       )
     );
 
-  res.json({ sessionId: createdSessionId, message: "Session started" });
+  res.json({ sessionId: result[0]!.id, message: "Session started" });
 });
 
 // ── /session/heartbeat ──────────────────────────────────────────────────────
@@ -1156,7 +1135,6 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
       .limit(1);
     const rawSec = Number(capRow?.audioSecondsProcessed ?? 0);
     await closeOpenSessionWithBillingIfNeeded(sessionId, userId, rawSec);
-    unregisterSessionForCoreRouting(sessionId);
     res.json({ ok: true, dailyLimitReached: true, sessionEnded: true });
     return;
   }
@@ -1214,17 +1192,13 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 // The snapshot is held in-memory only (sessionStore) — never persisted to DB.
 // langPair is recorded to the sessions table for historical reporting.
 router.put("/session/snapshot", requireAuth, async (req, res) => {
-  const { sessionId, langA, langB, micLabel, transcript, translation, transcriptLines, translationLines, snapshotSeq } = req.body as {
+  const { sessionId, langA, langB, micLabel, transcript, translation } = req.body as {
     sessionId?:   number;
     langA?:       string;
     langB?:       string;
     micLabel?:    string;
     transcript?:  string;
     translation?: string;
-    transcriptLines?: string[];
-    translationLines?: string[];
-    /** Client increments each push; ignore PUTs with lower seq (out-of-order requests). */
-    snapshotSeq?: number;
   };
 
   if (!sessionId || !langA || !langB) {
@@ -1257,62 +1231,13 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
       .where(eq(sessionsTable.id, sessionId));
   }
 
-  const existingSnap = sessionStore.get(sessionId);
-  const seqIn =
-    typeof snapshotSeq === "number" && Number.isFinite(snapshotSeq) ? Math.floor(snapshotSeq) : undefined;
-  if (
-    seqIn !== undefined &&
-    existingSnap?.snapshotSeq !== undefined &&
-    seqIn < existingSnap.snapshotSeq
-  ) {
-    res.json({ ok: true, stale: true });
-    return;
-  }
-
-  const tlIn = Array.isArray(transcriptLines) ? transcriptLines.map(String) : undefined;
-  const trlIn = Array.isArray(translationLines) ? translationLines.map(String) : undefined;
-  const hasAlignedIncomingLines =
-    Array.isArray(tlIn) &&
-    Array.isArray(trlIn) &&
-    tlIn.length > 0 &&
-    tlIn.length === trlIn.length;
-
-  const prevTl = Array.isArray(existingSnap?.transcriptLines) ? existingSnap.transcriptLines : undefined;
-  const prevTrl = Array.isArray(existingSnap?.translationLines) ? existingSnap.translationLines : undefined;
-  const hasAlignedPrevLines =
-    Array.isArray(prevTl) &&
-    Array.isArray(prevTrl) &&
-    prevTl.length > 0 &&
-    prevTl.length === prevTrl.length;
-
-  let transcriptOut = transcript ?? "";
-  let translationOut = translation ?? "";
-  let transcriptLinesOut: string[] | undefined;
-  let translationLinesOut: string[] | undefined;
-  if (hasAlignedIncomingLines) {
-    transcriptLinesOut = tlIn;
-    translationLinesOut = trlIn;
-    transcriptOut = tlIn.join("\n");
-    translationOut = trlIn.join("\n");
-  } else if (hasAlignedPrevLines) {
-    // Never downgrade a good aligned snapshot to a mismatched one.
-    transcriptLinesOut = [...prevTl];
-    translationLinesOut = [...prevTrl];
-    transcriptOut = transcriptLinesOut.join("\n");
-    translationOut = translationLinesOut.join("\n");
-  }
-
   // Update in-memory snapshot (admin-visible only, never persisted).
   sessionStore.set(sessionId, {
     langA,
     langB,
     micLabel:    micLabel    ?? "Microphone",
-    transcript:  transcriptOut,
-    translation: translationOut,
-    ...(transcriptLinesOut && translationLinesOut
-      ? { transcriptLines: transcriptLinesOut, translationLines: translationLinesOut }
-      : {}),
-    ...(seqIn !== undefined ? { snapshotSeq: seqIn } : {}),
+    transcript:  transcript  ?? "",
+    translation: translation ?? "",
     updatedAt:   Date.now(),
   });
 
@@ -1320,7 +1245,7 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
   diagCounter.dashboardUpdates += 1;
   const lastTranslated = diagLastTranslatedBySession.get(sessionId);
   const dashboardHasLastSegment =
-    Boolean(lastTranslated?.translated) && translationOut.includes(lastTranslated!.translated);
+    Boolean(lastTranslated?.translated) && (translation ?? "").includes(lastTranslated!.translated);
   logger.info(
     {
       ts: diagNowIso(),
@@ -1353,24 +1278,6 @@ router.get("/sessions", requireAuth, async (req, res) => {
   }
 
   const fromDate = periodStart(period);
-  const effectiveDurationSecondsSql = sql<number>`
-    CASE
-      WHEN ${sessionsTable.endedAt} IS NULL
-        THEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0)
-      WHEN COALESCE(${sessionsTable.durationSeconds}, 0) > 0
-        THEN ${sessionsTable.durationSeconds}
-      WHEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0) > 0
-        THEN ${sessionsTable.audioSecondsProcessed}
-      -- Machine-stack historical fallback: session had heartbeats but stale-close stored zero duration.
-      WHEN ${sessionsTable.lastActivityAt} IS NOT NULL
-        AND EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt})) >= 90
-        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt}))))
-      -- Backfill historical rows that were finalized with 0 duration despite real activity.
-      WHEN COALESCE(${sessionsTable.translationTokens}, 0) > 0
-        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.endedAt} - ${sessionsTable.startedAt}))))
-      ELSE 0
-    END
-  `;
 
   // Sessions list filtered by period
   const baseWhere = fromDate
@@ -1382,7 +1289,7 @@ router.get("/sessions", requireAuth, async (req, res) => {
       id:              sessionsTable.id,
       startedAt:       sessionsTable.startedAt,
       endedAt:         sessionsTable.endedAt,
-      durationSeconds: effectiveDurationSecondsSql,
+      durationSeconds: sessionsTable.durationSeconds,
       langPair:        sessionsTable.langPair,
     })
     .from(sessionsTable)
@@ -1396,7 +1303,7 @@ router.get("/sessions", requireAuth, async (req, res) => {
 
   const aggCols = {
     count:        sql<number>`count(*)::int`,
-    totalSeconds: sql<number>`coalesce(sum(${effectiveDurationSecondsSql}),0)::int`,
+    totalSeconds: sql<number>`coalesce(sum(duration_seconds),0)::int`,
   };
 
   const [[periodAgg], [lifetime], [today], [week]] = await Promise.all([
@@ -1431,7 +1338,7 @@ router.get("/sessions", requireAuth, async (req, res) => {
   });
 });
 
-// ── /translate — Final Boss 3 · OpenAI vs Libre (see file header) ───────────
+// ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
   // isFinal: when true, the client sends the full segment after finalize — we add
   // FINAL SEGMENT CORRECTION instructions so the model treats the message as the
@@ -1489,9 +1396,9 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const planLower = effectivePlanTypeForTranslation(translateUser).trim().toLowerCase();
-  // Engine split is strictly from this request's authenticated user row. Never from client flags.
-  // Routing is absolute by effective plan type (no time-window crossover between OpenAI and machine stacks).
-  const prefersMachineStack = userUsesMachineTranslationStack(translateUser);
+  // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
+  // `trial-libre` / `*-libre` → machine stack always. `trial`, `basic`, `professional`, `platinum`, … → OpenAI when configured.
+  const prefersMachineStack = planUsesMachineTranslationStack(planLower);
   const useMachineTranslation = prefersMachineStack;
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
@@ -1518,15 +1425,12 @@ router.post("/translate", requireAuth, async (req, res) => {
     })
     .from(glossaryEntriesTable)
     .where(eq(glossaryEntriesTable.userId, userIdEarly));
-  const userGlossary: UserGlossaryRow[] = filterUserGlossaryForTarget(
-    userGlossaryRows.map(r => ({
-      term: r.term,
-      translation: r.translation,
-      enforceMode: r.enforceMode === "hint" ? "hint" : "strict",
-      priority: Number.isFinite(r.priority) ? Math.trunc(r.priority) : 0,
-    })),
-    tgtLang,
-  );
+  const userGlossary: UserGlossaryRow[] = userGlossaryRows.map(r => ({
+    term: r.term,
+    translation: r.translation,
+    enforceMode: r.enforceMode === "hint" ? "hint" : "strict",
+    priority: Number.isFinite(r.priority) ? Math.trunc(r.priority) : 0,
+  }));
 
   // ── Same-language guard (server-side failsafe) ─────────────────────────────
   // If the resolved source and target share the same base language code, no
@@ -1542,13 +1446,9 @@ router.post("/translate", requireAuth, async (req, res) => {
       (!useMachineTranslation || (isFinalSegment && userGlossary.length > 0));
     if (applyUserGlossarySameLang) {
       out = applyUserGlossaryStrict(out, userGlossary, applied);
-      out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied, tgtLang);
+      out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
     }
-    res.json({
-      translated: out,
-      appliedGlossaryTerms: applied,
-      translationEngine: "passthrough" as const,
-    });
+    res.json({ translated: out, appliedGlossaryTerms: applied });
     return;
   }
 
@@ -1652,7 +1552,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       isNull(sessionsTable.langPair),
     ));
 
-  // Final Boss 3 · Libre — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
+  // Final Boss 3 — `*-libre` tiers: protected terms + digits → LibreTranslate (no built-in TERM_* glossary mask).
   // Personal glossary strict pass: finalized segments only, and only if the user has at least one entry.
   if (useMachineTranslation) {
     try {
@@ -1665,41 +1565,44 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      const routingSessionId = typeof incomingSessionId === "number" ? incomingSessionId : undefined;
-      const raw = await translateBasicProfessional(
-        textForOpenAI,
-        srcLang,
-        tgtLang,
-        numMask.slotToDigits,
-        { sessionId: routingSessionId, planType: planLower },
-      );
-      const restored = restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(raw ?? "")));
+      const restoredFromRaw = (r: string) =>
+        restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(r ?? "")));
+      let raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+      let restored = restoredFromRaw(raw);
       let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
         skipLeakRepair: true,
       });
-      if (isEnglishSpanishPair(srcCode, tgtCode) && latinPairLooksUntranslated(phraseNormalized, translated)) {
-        logger.warn(
-          { srcLang, tgtLang, textLen: phraseNormalized.length },
-          "Machine EN<->ES output looked untranslated; retrying once",
-        );
-        const retryRaw = await translateBasicProfessional(
-          textForOpenAI,
-          srcLang,
-          tgtLang,
-          numMask.slotToDigits,
-          { sessionId: routingSessionId, planType: planLower },
-        );
-        const retryRestored = restoreTranslationOutput(
-          normalizeMachineTranslationPlaceholders(String(retryRaw ?? "")),
-        );
-        const retryTranslated = await finalizeTranslationOutput(retryRestored, srcCode, tgtCode, tgtLangResolved, {
-          skipLeakRepair: true,
-        });
-        if (retryTranslated.trim()) translated = retryTranslated;
-      }
       if (!translated.trim() && restored.trim()) {
         translated = postProcessTranslatedText(restored, srcCode, tgtCode);
         if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
+      }
+      // Retry masked segment once (transient MT failure); then last resort unmasked phrase (placeholders may not round-trip).
+      if (!translated.trim() && phraseNormalized.trim().length >= 2) {
+        logger.warn(
+          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
+          "Machine translation empty after mask/restore; retrying masked segment",
+        );
+        raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+        restored = restoredFromRaw(raw);
+        translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
+          skipLeakRepair: true,
+        });
+        if (!translated.trim() && restored.trim()) {
+          translated = postProcessTranslatedText(restored, srcCode, tgtCode);
+          if (tgtCode === "ar") translated = polishArabicTranslationOutput(translated);
+        }
+      }
+      if (!translated.trim() && text.trim().length >= 1) {
+        logger.warn(
+          { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
+          "Machine translation returned empty after retry",
+        );
+        res.status(503).json({
+          error:
+            "Translation is temporarily unavailable (machine translation fallback). No OpenAI key: set OPENAI_API_KEY for full quality, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
+          code: "LIBRETRANSLATE_FAILED",
+        });
+        return;
       }
       const appliedMt: string[] = [];
       let outMt = translated;
@@ -1707,7 +1610,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
       if (applyUserGlossaryMt) {
         outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
-        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt, tgtLang);
+        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
       }
       diagCounter.translationSegments += 1;
       diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outMt });
@@ -1722,150 +1625,22 @@ router.post("/translate", requireAuth, async (req, res) => {
         },
         "TRANSCRIPTION_DIAG",
       );
-      res.json({
-        translated: outMt,
-        appliedGlossaryTerms: appliedMt,
-        translationEngine: "hetzner" as const,
-      });
+      res.json({ translated: outMt, appliedGlossaryTerms: appliedMt });
     } catch (err: unknown) {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "Machine translation failed",
+        "Machine translation fallback failed (OpenAI not configured on server)",
       );
       res.status(503).json({
         error:
-          `Translation unavailable (Hetzner). Cannot reach ${hetznerTranslateBase}. Ensure the translate server is up and reachable from the API, or set LIBRETRANSLATE_INTERNAL_URL to a valid http(s) base (not railway.internal; no /translate suffix).`,
-        code: "HETZNERTRANSLATE_FAILED",
+          "Translation is temporarily unavailable (machine translation fallback). Set OPENAI_API_KEY, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
+        code: "LIBRETRANSLATE_FAILED",
       });
     }
     return;
   }
 
-  // OpenAI strict-isolation path: keep the same shape as machine flow (single-pass translation + shared post-processing),
-  // but run it on OpenAI only. This avoids Hetzner-like behavioral coupling while preserving final output stages.
-  if (!useMachineTranslation) {
-    interface OpenAiPlainResult {
-      text: string;
-      promptTokens: number;
-      completionTokens: number;
-    }
-
-    async function callOpenAiPlainTranslateV2(): Promise<OpenAiPlainResult> {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
-      try {
-        const systemPrompt =
-          `You are a translation engine.\n` +
-          `Translate the user text from ${srcName} to ${tgtName}.\n` +
-          `Output only translated text in ${tgtName}. Do not explain.`;
-        const resp = await openai.chat.completions.create(
-          {
-            model: "gpt-4o-mini",
-            temperature: 0,
-            max_tokens: 16_384,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: textForOpenAI },
-            ],
-          },
-          { signal: controller.signal },
-        );
-        clearTimeout(timeoutId);
-        const choice = resp.choices[0];
-        return {
-          text: choice?.message?.content?.trim() ?? "",
-          promptTokens: resp.usage?.prompt_tokens ?? 0,
-          completionTokens: resp.usage?.completion_tokens ?? 0,
-        };
-      } catch (err) {
-        clearTimeout(timeoutId);
-        throw err;
-      }
-    }
-
-    function accumulateOpenAiCostV2(promptTokens: number, completionTokens: number): void {
-      const callCost = +(
-        promptTokens * OPENAI_INPUT_COST_PER_TOKEN + completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
-      ).toFixed(8);
-      void db
-        .update(sessionsTable)
-        .set({
-          translationTokens: sql`COALESCE(translation_tokens, 0) + ${promptTokens + completionTokens}`,
-          translationCost: sql`COALESCE(translation_cost,   0) + ${callCost}`,
-        })
-        .where(and(
-          eq(sessionsTable.userId, userId),
-          isNull(sessionsTable.endedAt),
-        ));
-    }
-
-    try {
-      logger.info(
-        {
-          ts: diagNowIso(),
-          stage: "translation_request_sent",
-          sessionId: diagSid,
-          segmentId: diagSegId,
-        },
-        "TRANSCRIPTION_DIAG",
-      );
-
-      const openAiResult = await callOpenAiPlainTranslateV2();
-      accumulateOpenAiCostV2(openAiResult.promptTokens, openAiResult.completionTokens);
-
-      const restoredOpenAi = restoreTranslationOutput(String(openAiResult.text ?? ""));
-      let translatedOpenAi = await finalizeTranslationOutput(restoredOpenAi, srcCode, tgtCode, tgtLangResolved, {
-        interim: !isFinalSegment,
-      });
-      if (!translatedOpenAi.trim() && restoredOpenAi.trim()) {
-        translatedOpenAi = postProcessTranslatedText(restoredOpenAi, srcCode, tgtCode);
-        if (tgtCode === "ar") translatedOpenAi = polishArabicTranslationOutput(translatedOpenAi);
-      }
-
-      const appliedOpenAi: string[] = [];
-      let outOpenAi = translatedOpenAi;
-      const applyUserGlossaryOpenAi =
-        glossaryStrictMode && (!streamingDelta || isFinalSegment) && userGlossary.length > 0;
-      if (applyUserGlossaryOpenAi) {
-        outOpenAi = applyUserGlossaryStrict(outOpenAi, userGlossary, appliedOpenAi);
-        outOpenAi = ensureGlossaryTranslationsFromSource(outOpenAi, phraseNormalized, userGlossary, appliedOpenAi, tgtLang);
-      }
-
-      diagCounter.translationSegments += 1;
-      diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outOpenAi });
-      logger.info(
-        {
-          ts: diagNowIso(),
-          stage: "translation_response_received",
-          sessionId: diagSid,
-          segmentId: diagSegId,
-          translatedLength: outOpenAi.length,
-          counters: diagCounter,
-        },
-        "TRANSCRIPTION_DIAG",
-      );
-
-      res.json({
-        translated: outOpenAi,
-        appliedGlossaryTerms: appliedOpenAi,
-        translationEngine: "openai" as const,
-      });
-    } catch (err: unknown) {
-      logger.error(
-        { err, srcLang, tgtLang, textLen: text.length },
-        "OpenAI plain translation failed",
-      );
-      res.status(503).json({
-        error:
-          "Translation unavailable (OpenAI). Check OPENAI_API_KEY and API connectivity.",
-        code: "OPENAI_TRANSLATE_FAILED",
-      });
-    }
-    return;
-  }
-
-  // Final Boss 3 · OpenAI — interpreter stack below (`callOpenAI` + shared masking/glossary).
   const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
   const globalMemoryHints = await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode);
   for (const h of globalMemoryHints) {
@@ -2148,28 +1923,6 @@ router.post("/translate", requireAuth, async (req, res) => {
         interim: !isFinalSegment,
       }),
     };
-    if (isEnglishSpanishPair(srcCode, tgtCode) && latinPairLooksUntranslated(phraseNormalized, result.text)) {
-      logger.warn(
-        { srcLang, tgtLang, textLen: phraseNormalized.length },
-        "OpenAI EN<->ES output looked untranslated; retrying once with strict language lock",
-      );
-      const enEsRetryPrompt =
-        buildSystemPrompt(true, streamingDelta) +
-        placeholderRules +
-        finalSegmentBlock;
-      const enEsRetry = await callOpenAI(enEsRetryPrompt, userMessageForModel);
-      accumulateCost(enEsRetry.promptTokens, enEsRetry.completionTokens);
-      const enEsRetryText = await finalizeTranslationOutput(
-        restoreTranslationOutput(enEsRetry.text),
-        srcCode,
-        tgtCode,
-        tgtLangResolved,
-        { interim: !isFinalSegment },
-      );
-      if (enEsRetryText.trim()) {
-        result = { ...enEsRetry, text: enEsRetryText };
-      }
-    }
 
     // Model often stops after the first clause on long turns — one automatic full retry.
     // Live cumulative updates (!isFinal): never run a second OpenAI call here — it doubled latency per word.
@@ -2331,7 +2084,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     let outAi = result.text;
     if (glossaryStrictMode) {
       outAi = applyUserGlossaryStrict(outAi, userGlossary, appliedAi);
-      outAi = ensureGlossaryTranslationsFromSource(outAi, phraseNormalized, userGlossary, appliedAi, tgtLang);
+      outAi = ensureGlossaryTranslationsFromSource(outAi, phraseNormalized, userGlossary, appliedAi);
     }
 
     diagCounter.translationSegments += 1;
@@ -2348,11 +2101,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       "TRANSCRIPTION_DIAG",
     );
 
-    res.json({
-      translated: outAi,
-      appliedGlossaryTerms: appliedAi,
-      translationEngine: "openai" as const,
-    });
+    res.json({ translated: outAi, appliedGlossaryTerms: appliedAi });
   } catch (err: unknown) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
     const upstreamStatus =
