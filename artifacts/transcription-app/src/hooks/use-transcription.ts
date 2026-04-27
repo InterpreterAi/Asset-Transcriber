@@ -2662,7 +2662,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 !!confirm &&
                 confirm.sid === sid &&
                 (confirm.messageStreak >= 3 || (nowMs - confirm.firstMs >= 500 && confirm.messageStreak >= 2));
-              if (speakerConfirmed) {
+              // Verified switching: never open a new bubble unless token content is suitable.
+              if (speakerConfirmed && tokenSuitable) {
                 closeActiveSegmentBoundary("speaker_change");
                 currentSpeakerRef.current = sid;
                 activeBubbleRef.current = createBubble(sid);
