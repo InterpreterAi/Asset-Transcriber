@@ -1742,6 +1742,129 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
+  // OpenAI strict-isolation path: keep the same shape as machine flow (single-pass translation + shared post-processing),
+  // but run it on OpenAI only. This avoids Hetzner-like behavioral coupling while preserving final output stages.
+  if (!useMachineTranslation) {
+    interface OpenAiPlainResult {
+      text: string;
+      promptTokens: number;
+      completionTokens: number;
+    }
+
+    async function callOpenAiPlainTranslateV2(): Promise<OpenAiPlainResult> {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const systemPrompt =
+          `You are a translation engine.\n` +
+          `Translate the user text from ${srcName} to ${tgtName}.\n` +
+          `Output only translated text in ${tgtName}. Do not explain.`;
+        const resp = await openai.chat.completions.create(
+          {
+            model: "gpt-4o-mini",
+            temperature: 0,
+            max_tokens: 16_384,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: textForOpenAI },
+            ],
+          },
+          { signal: controller.signal },
+        );
+        clearTimeout(timeoutId);
+        const choice = resp.choices[0];
+        return {
+          text: choice?.message?.content?.trim() ?? "",
+          promptTokens: resp.usage?.prompt_tokens ?? 0,
+          completionTokens: resp.usage?.completion_tokens ?? 0,
+        };
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    }
+
+    function accumulateOpenAiCostV2(promptTokens: number, completionTokens: number): void {
+      const callCost = +(
+        promptTokens * OPENAI_INPUT_COST_PER_TOKEN + completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
+      ).toFixed(8);
+      void db
+        .update(sessionsTable)
+        .set({
+          translationTokens: sql`COALESCE(translation_tokens, 0) + ${promptTokens + completionTokens}`,
+          translationCost: sql`COALESCE(translation_cost,   0) + ${callCost}`,
+        })
+        .where(and(
+          eq(sessionsTable.userId, userId),
+          isNull(sessionsTable.endedAt),
+        ));
+    }
+
+    try {
+      logger.info(
+        {
+          ts: diagNowIso(),
+          stage: "translation_request_sent",
+          sessionId: diagSid,
+          segmentId: diagSegId,
+        },
+        "TRANSCRIPTION_DIAG",
+      );
+
+      const openAiResult = await callOpenAiPlainTranslateV2();
+      accumulateOpenAiCostV2(openAiResult.promptTokens, openAiResult.completionTokens);
+
+      const restoredOpenAi = restoreTranslationOutput(String(openAiResult.text ?? ""));
+      let translatedOpenAi = await finalizeTranslationOutput(restoredOpenAi, srcCode, tgtCode, tgtLangResolved, {
+        interim: !isFinalSegment,
+      });
+      if (!translatedOpenAi.trim() && restoredOpenAi.trim()) {
+        translatedOpenAi = postProcessTranslatedText(restoredOpenAi, srcCode, tgtCode);
+        if (tgtCode === "ar") translatedOpenAi = polishArabicTranslationOutput(translatedOpenAi);
+      }
+
+      const appliedOpenAi: string[] = [];
+      let outOpenAi = translatedOpenAi;
+      const applyUserGlossaryOpenAi =
+        glossaryStrictMode && (!streamingDelta || isFinalSegment) && userGlossary.length > 0;
+      if (applyUserGlossaryOpenAi) {
+        outOpenAi = applyUserGlossaryStrict(outOpenAi, userGlossary, appliedOpenAi);
+        outOpenAi = ensureGlossaryTranslationsFromSource(outOpenAi, phraseNormalized, userGlossary, appliedOpenAi, tgtLang);
+      }
+
+      diagCounter.translationSegments += 1;
+      diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outOpenAi });
+      logger.info(
+        {
+          ts: diagNowIso(),
+          stage: "translation_response_received",
+          sessionId: diagSid,
+          segmentId: diagSegId,
+          translatedLength: outOpenAi.length,
+          counters: diagCounter,
+        },
+        "TRANSCRIPTION_DIAG",
+      );
+
+      res.json({
+        translated: outOpenAi,
+        appliedGlossaryTerms: appliedOpenAi,
+        translationEngine: "openai" as const,
+      });
+    } catch (err: unknown) {
+      logger.error(
+        { err, srcLang, tgtLang, textLen: text.length },
+        "OpenAI plain translation failed",
+      );
+      res.status(503).json({
+        error:
+          "Translation unavailable (OpenAI). Check OPENAI_API_KEY and API connectivity.",
+        code: "OPENAI_TRANSLATE_FAILED",
+      });
+    }
+    return;
+  }
+
   // Final Boss 3 · OpenAI — interpreter stack below (`callOpenAI` + shared masking/glossary).
   const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
   const globalMemoryHints = await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode);
