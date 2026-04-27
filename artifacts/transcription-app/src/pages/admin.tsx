@@ -314,9 +314,9 @@ function lastSeen(date: string | null | undefined) {
 const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial-openai", label: "Trial · OpenAI (7 days, full OpenAI)" },
   { value: "trial", label: "Trial · OpenAI (legacy)" },
-  { value: "basic", label: "Basic · OpenAI" },
-  { value: "professional", label: "Professional · OpenAI" },
-  { value: "platinum", label: "Platinum · OpenAI" },
+  { value: "basic-openai", label: "Basic · OpenAI" },
+  { value: "professional-openai", label: "Professional · OpenAI" },
+  { value: "platinum-openai", label: "Platinum · OpenAI" },
 ];
 
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [

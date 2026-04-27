@@ -92,6 +92,7 @@ const PLAN_PRICES: Record<string, number> = {
   "professional-libre": 99,
   "professional-openai": 99,
   platinum:            179,
+  "platinum-openai":   179,
   "platinum-libre":    179,
   unlimited:           179,
   trial:               0,
@@ -1487,10 +1488,13 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     "trial-hetzner",
     "trial-libre",
     "basic",
+    "basic-openai",
     "basic-libre",
     "professional",
+    "professional-openai",
     "professional-libre",
     "platinum",
+    "platinum-openai",
     "platinum-libre",
   ]);
   if (planType && !ADMIN_ASSIGNABLE_PLAN_TYPES.has(planType.toLowerCase())) {

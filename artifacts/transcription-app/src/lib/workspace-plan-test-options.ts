@@ -2,7 +2,7 @@
  * Account panel “Plan testing” — keep in sync with `ADMIN_TEST_PLAN_TYPES` in
  * `artifacts/api-server/src/routes/payments.ts` (`POST /api/payments/test-activate-plan`).
  *
- * Eight canonical tiers: OpenAI (`trial`, `basic`, `professional`, `platinum`) and Hetzner machine `*-libre`.
+ * Paid OpenAI tiers use explicit `*-openai` plan_type; Hetzner uses `*-libre`. Legacy bare `basic`/`professional`/`platinum` may still exist in DB.
  */
 export type WorkspacePlanTestOption = {
   planType: string;
@@ -22,9 +22,9 @@ const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
 ];
 
 const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "basic", label: "Basic · OpenAI", group: "paid" },
-  { planType: "professional", label: "Professional · OpenAI", group: "paid" },
-  { planType: "platinum", label: "Platinum · OpenAI", group: "paid" },
+  { planType: "basic-openai", label: "Basic · OpenAI", group: "paid" },
+  { planType: "professional-openai", label: "Professional · OpenAI", group: "paid" },
+  { planType: "platinum-openai", label: "Platinum · OpenAI", group: "paid" },
   { planType: "basic-libre", label: "Basic · Hetzner", group: "paid" },
   { planType: "professional-libre", label: "Professional · Hetzner", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Hetzner", group: "paid" },

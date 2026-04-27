@@ -499,10 +499,13 @@ const ADMIN_TEST_PLAN_TYPES = [
   "trial-hetzner",
   "trial-libre",
   "basic",
+  "basic-openai",
   "basic-libre",
   "professional",
+  "professional-openai",
   "professional-libre",
   "platinum",
+  "platinum-openai",
   "platinum-libre",
 ] as const;
 
@@ -524,13 +527,13 @@ function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number 
   ) {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
-  if (planType === "basic" || planType === "basic-libre") {
+  if (planType === "basic" || planType === "basic-openai" || planType === "basic-libre") {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
-  if (planType === "professional" || planType === "professional-libre") {
+  if (planType === "professional" || planType === "professional-openai" || planType === "professional-libre") {
     return paypalPlanConfig("professional").dailyLimitMinutes;
   }
-  if (planType === "platinum" || planType === "platinum-libre") {
+  if (planType === "platinum" || planType === "platinum-openai" || planType === "platinum-libre") {
     return paypalPlanConfig("platinum").dailyLimitMinutes;
   }
   return TRIAL_DAILY_LIMIT_MINUTES;

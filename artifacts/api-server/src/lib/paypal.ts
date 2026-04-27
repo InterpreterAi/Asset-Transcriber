@@ -185,7 +185,7 @@ export function billingProductKeyFromPlanType(planType: string): BillingPlanType
   if (p === "trial" || p === "trial-openai" || p === "trial-libre") return null;
   if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic") return "basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
-  if (p === "platinum" || p === "platinum-libre" || p === "unlimited") return "platinum";
+  if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return "platinum";
   return null;
 }
 

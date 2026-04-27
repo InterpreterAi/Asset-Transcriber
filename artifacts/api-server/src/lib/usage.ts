@@ -84,6 +84,7 @@ function isPaidTranslationPlan(eff: string): boolean {
     e === "professional-openai" ||
     e === "professional-libre" ||
     e === "platinum" ||
+    e === "platinum-openai" ||
     e === "platinum-libre" ||
     e === "unlimited"
   );
