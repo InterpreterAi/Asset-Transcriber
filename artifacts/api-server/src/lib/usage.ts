@@ -135,7 +135,7 @@ export function isTrialExpired(user: TranslationRoutingUser): boolean {
  * only in that case so paid tiers keep machine or OpenAI translation.
  */
 export function effectivePlanTypeForTranslation(user: TranslationRoutingUser): string {
-  const p = (user.planType ?? "trial-libre").trim().toLowerCase();
+  const p = (user.planType ?? "trial-openai").trim().toLowerCase();
   const sub = (user.subscriptionStatus ?? "").trim().toLowerCase();
   const sp = (user.subscriptionPlan ?? "").trim().toLowerCase();
   if (
@@ -143,7 +143,7 @@ export function effectivePlanTypeForTranslation(user: TranslationRoutingUser): s
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
-    // Final Boss 3: trial-libre → paid maps Basic/Prof to Libre stacks; Platinum/Unlimited → OpenAI.
+    // Webhook-lag mapping: mixed-trial rows map Basic/Prof to Libre stacks; Platinum/Unlimited → OpenAI.
     if (p === "trial-libre") {
       if (sp === "basic") return "basic-libre";
       if (sp === "professional") return "professional-libre";
@@ -237,7 +237,7 @@ export function buildUserInfo(user: User) {
     email: user.email ?? undefined,
     isAdmin: user.isAdmin,
     isActive: user.isActive,
-    planType: user.planType ?? "trial-libre",
+    planType: user.planType ?? "trial-openai",
     translationEnabled: translationEnabledForUser(user),
     emailVerified: user.emailVerified ?? false,
     trialStartedAt: user.trialStartedAt,
