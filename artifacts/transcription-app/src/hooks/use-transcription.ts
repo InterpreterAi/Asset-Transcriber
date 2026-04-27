@@ -501,6 +501,13 @@ function scriptEntryLangs(scriptName: string): string[] {
 
 /** BCP-47 bases using Latin script — shared polish with English/Portuguese/Spanish (any en↔X pair). */
 const LATIN_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Latin"));
+
+function pairIsLatinLatinOnly(pair: { a: string; b: string }): boolean {
+  const ba = pair.a.split("-")[0]!.toLowerCase();
+  const bb = pair.b.split("-")[0]!.toLowerCase();
+  return LATIN_SCRIPT_TARGET_LANGS.has(ba) && LATIN_SCRIPT_TARGET_LANGS.has(bb);
+}
+
 /** ar, fa, ur */
 const ARABIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Arabic"));
 const CYRILLIC_SCRIPT_TARGET_LANGS = new Set(scriptEntryLangs("Cyrillic"));
@@ -516,7 +523,10 @@ const CJK_TARGET_LANG_BASES = new Set<string>([
 
 /**
  * **Final Boss 3** — client pipeline (canonical InterpreterAI release; earlier baseline is `legacy-final-boss`).
- * Server `POST /translate` runs **Final Boss 3 · OpenAI** or **Final Boss 3 · Libre** by plan only; this hook stays plan-agnostic.
+ * Server `POST /translate` runs **Final Boss 3 · OpenAI** or **Final Boss 3 · Libre** by plan only.
+ * When `options.clientUsesLibreEngine` is false (OpenAI stack), translation dispatch matches **final-boss-2**
+ * (33fd0887): no `streamingDelta`, windowed live previews, final-boss-2 soft-finalize transcript source.
+ * When true (Hetzner/Libre machine stack), behavior is unchanged.
  * Rollback: `git checkout final-boss`. Older pipeline snapshot: `git checkout legacy-final-boss` (superseded; had transcript phrase rewrites).
  * Original column: exact ASR mirror — no client-side rephrasing or “similar meaning” fixes.
  * Translation: live debounce + per-bubble abort; speaker-change full final;
@@ -1007,6 +1017,51 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+/** Last `n` whitespace-separated tokens; shorter inputs unchanged (normalized spacing). */
+function clipToLastNWords(raw: string, n: number): string {
+  if (n < 1) return raw.trim();
+  const words = raw.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= n) return words.join(" ");
+  return words.slice(-n).join(" ");
+}
+
+/**
+ * Live path sends only the last N source words; the model returns that tail’s translation only.
+ * Never replace the whole cell with `windowTrans` (that erases pre-pause text).
+ */
+function mergeWindowedLiveTranslation(prev: string, windowTrans: string): string {
+  const a = collapseWs(prev);
+  const b = collapseWs(windowTrans);
+  if (!b) return a;
+  if (!a) return b;
+  const aw = a.split(/\s+/).filter(Boolean);
+  const bw = b.split(/\s+/).filter(Boolean);
+  if (bw.length === 0) return a;
+
+  let maxOverlap = 0;
+  const maxK = Math.min(aw.length, bw.length);
+  for (let k = maxK; k >= 1; k--) {
+    let ok = true;
+    for (let i = 0; i < k; i++) {
+      if (aw[aw.length - k + i]!.toLowerCase() !== bw[i]!.toLowerCase()) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      maxOverlap = k;
+      break;
+    }
+  }
+  if (maxOverlap > 0) {
+    return collapseWs([...aw.slice(0, -maxOverlap), ...bw].join(" "));
+  }
+  return collapseWs(`${a} ${b}`);
+}
+
+/** Matches final-boss-2 windowed live translate (`clipToLastNWords` on the hook). */
+const OPENAI_FB2_LIVE_WINDOW_WORDS = 18;
+
 function endsWithPhraseBoundary(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
@@ -1314,6 +1369,8 @@ interface BubbleTransState {
   earlyHintSent:         boolean;
   /** Word count at the last non-final preview dispatch (LIVE_PREVIEW_WORD_STEP gating). */
   lastPreviewWordsSent:  number;
+  /** Source char length at last non-final preview (Latin/Latin char-step gate; OpenAI stack). */
+  lastPreviewCharsSent:  number;
   /** Count of finalized tokens committed in this segment. */
   finalTokensSeen:       number;
   /** Last observed raw NF text used for append-only NF rendering. */
@@ -1369,6 +1426,11 @@ export type UseTranscriptionOptions = {
   dailyCapRef?: MutableRefObject<{ minutesUsedToday: number; dailyLimitMinutes: number } | null>;
   /** Called after `stop()` finishes (any reason — manual stop, inactivity, daily cap, errors). */
   onRecordingStopped?: () => void;
+  /**
+   * Mirrors server machine stack (`planUsesLibreEngine`). When false, OpenAI-only client translation
+   * path (final-boss-2 reference); when true, existing Libre/Hetzner live + final behavior (unchanged).
+   */
+  clientUsesLibreEngine?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1377,9 +1439,12 @@ export type UseTranscriptionOptions = {
  * Translation engine (OpenAI vs machine) is chosen server-side per authenticated user on each request.
  */
 export function useTranscription(isAdmin = false, options?: UseTranscriptionOptions) {
-  /** Live preview: first dispatch after enough finals + words, then every N words (not every Soniox frame). Tuned for earlier first paint without extra final polish passes. */
-  const EARLY_HINT_MIN_WORDS = 8;
-  const LIVE_PREVIEW_WORD_STEP = 6;
+  /** When true, keep Final Boss 3 live/final translation behavior (Libre/Hetzner). When false, OpenAI-only final-boss-2 client path. */
+  const clientUsesLibreEngineRef = useRef(options?.clientUsesLibreEngine ?? true);
+  useEffect(() => {
+    clientUsesLibreEngineRef.current = options?.clientUsesLibreEngine ?? true;
+  }, [options?.clientUsesLibreEngine]);
+
   const isAdminRef = useRef(isAdmin);
   useEffect(() => { isAdminRef.current = isAdmin; }, [isAdmin]);
 
@@ -1447,6 +1512,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     firstMs: number;
     bufferedFinalText: string;
   } | null>(null);
+  /** OpenAI stack only (33fd0887): brief silence → one full-segment translate before `<end>`. */
+  const silenceQuickFinalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSilenceQuickFinalKeyRef = useRef<string>("");
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -1796,74 +1864,89 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
+    const useLibreClient = clientUsesLibreEngineRef.current;
+
     let requestIsFinal = isFinal;
     let apiText: string;
     let useStreamingDelta = false;
-    if (isFinal && options?.forceFullSegmentFinal) {
-      apiText = text;
-      useStreamingDelta = false;
-      requestIsFinal = true;
-    } else if (isFinal) {
-      const committed = collapseWs(state.streamCommittedSource);
-      const finalSrc = collapseWs(text);
-      const cl = committed.toLowerCase();
-      const fl = finalSrc.toLowerCase();
-      const finalizedIsPrefixTruncation =
-        finalSrc.length >= 1 &&
-        committed.length > finalSrc.length &&
-        (committed.startsWith(finalSrc) || cl.startsWith(fl));
 
-      if (finalizedIsPrefixTruncation) {
+    if (useLibreClient) {
+      if (isFinal && options?.forceFullSegmentFinal) {
         apiText = text;
         useStreamingDelta = false;
         requestIsFinal = true;
-      } else {
-        const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-        if (monotonic && !tail.trim()) {
-          const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
-          const visiblyTranslated = translationCellLooksFilled(state.transTextEl);
-          const sourceLen = text.trim().length;
-          if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (sourceLen > 24 && visibleLen < 8) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (!visiblyTranslated) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
+      } else if (isFinal) {
+        const committed = collapseWs(state.streamCommittedSource);
+        const finalSrc = collapseWs(text);
+        const cl = committed.toLowerCase();
+        const fl = finalSrc.toLowerCase();
+        const finalizedIsPrefixTruncation =
+          finalSrc.length >= 1 &&
+          committed.length > finalSrc.length &&
+          (committed.startsWith(finalSrc) || cl.startsWith(fl));
+
+        if (finalizedIsPrefixTruncation) {
+          apiText = text;
+          useStreamingDelta = false;
+          requestIsFinal = true;
+        } else {
+          const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
+          if (monotonic && !tail.trim()) {
+            const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
+            const visiblyTranslated = translationCellLooksFilled(state.transTextEl);
+            const sourceLen = text.trim().length;
+            if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
+              apiText = text;
+              useStreamingDelta = false;
+              requestIsFinal = true;
+            } else if (sourceLen > 24 && visibleLen < 8) {
+              apiText = text;
+              useStreamingDelta = false;
+              requestIsFinal = true;
+            } else if (!visiblyTranslated) {
+              apiText = text;
+              useStreamingDelta = false;
+              requestIsFinal = true;
+            } else {
+              // Never lock without an API pass — preview can look “filled” while the final source still needs a real translate.
+              apiText = text;
+              useStreamingDelta = false;
+              requestIsFinal = true;
+            }
+          }
+          if (monotonic && tail.trim()) {
+            apiText = tail;
+            useStreamingDelta = true;
+            requestIsFinal = false;
           } else {
-            // Never lock without an API pass — preview can look “filled” while the final source still needs a real translate.
             apiText = text;
             useStreamingDelta = false;
             requestIsFinal = true;
           }
         }
-        if (monotonic && tail.trim()) {
-          apiText = tail;
-          useStreamingDelta = true;
-          requestIsFinal = false;
-        } else {
-          apiText = text;
-          useStreamingDelta = false;
-          requestIsFinal = true;
-        }
+      } else {
+        apiText = text;
+        useStreamingDelta = false;
+      }
+
+      // Interruption-safe finalization (Final Boss 3 behavior):
+      // finalized segments must always complete as one full segment request, never as a live tail.
+      // This prevents abandoned/blank translations when a new speaker opens another segment.
+      if (isFinal) {
+        apiText = text;
+        useStreamingDelta = false;
+        requestIsFinal = true;
       }
     } else {
-      apiText = text;
+      // OpenAI-only (final-boss-2 / 33fd0887): never send streaming deltas; windowed live text only.
+      if (isFinal) {
+        apiText = text;
+        requestIsFinal = true;
+      } else {
+        apiText = clipToLastNWords(text, OPENAI_FB2_LIVE_WINDOW_WORDS);
+        requestIsFinal = false;
+      }
       useStreamingDelta = false;
-    }
-
-    // Interruption-safe finalization (Final Boss 3 behavior):
-    // finalized segments must always complete as one full segment request, never as a live tail.
-    // This prevents abandoned/blank translations when a new speaker opens another segment.
-    if (isFinal) {
-      apiText = text;
-      useStreamingDelta = false;
-      requestIsFinal = true;
     }
 
     let liveAbortForThisRequest: AbortController | undefined;
@@ -1881,6 +1964,193 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const adminBufRowIdx = options?.adminSnapshotLineIndex;
 
     void (async () => {
+      if (!useLibreClient) {
+        try {
+          const maxFetchAttempts = requestIsFinal ? 3 : 1;
+          let translated = "";
+          let lastTranslationFailureMessage: string | undefined;
+          for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
+            if (fetchAttempt > 0) {
+              await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
+            }
+            if (!isFinal && activeBubbleStateRef.current?.segmentId !== requestSegmentId) return;
+            if (!transTextEl.isConnected) return;
+            if (state.translationLocked) return;
+            if (!requestIsFinal && state.hardFinalRequested) return;
+            if (!isFinal && state.finalizing) return;
+            if (liveAbortForThisRequest?.signal.aborted) return;
+
+            const tr = await fetchTranslation(
+              apiText,
+              dispatchLang,
+              myTargetLang,
+              (m) => translationConfigReporterRef.current(m),
+              {
+                streamingDelta: false,
+                isFinal: requestIsFinal,
+                signal: liveAbortForThisRequest?.signal,
+                onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              },
+            );
+            if (tr.dailyLimitReached) {
+              dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+              return;
+            }
+            translated = tr.text;
+            if (tr.translationFailedMessage) lastTranslationFailureMessage = tr.translationFailedMessage;
+            if (translated?.trim()) break;
+          }
+          if (!translated?.trim() && isFinal && text.trim().length >= 3) {
+            await new Promise<void>(res => setTimeout(res, 120));
+            if (requestSegmentId !== state.segmentId) return;
+            if (!transTextEl.isConnected) return;
+            if (state.translationLocked) return;
+            const trRetry = await fetchTranslation(
+              text,
+              dispatchLang,
+              myTargetLang,
+              (m) => translationConfigReporterRef.current(m),
+              {
+                streamingDelta: false,
+                isFinal: true,
+                onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              },
+            );
+            if (trRetry.dailyLimitReached) {
+              dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+              return;
+            }
+            translated = trRetry.text;
+            if (trRetry.translationFailedMessage) lastTranslationFailureMessage = trRetry.translationFailedMessage;
+          }
+          if (!translated?.trim()) {
+            if (transTextEl.isConnected) {
+              const shown = (transTextEl.textContent ?? "").trim();
+              if (!shown || shown === "…") {
+                applyTranslationTypography(
+                  transTextEl,
+                  lastTranslationFailureMessage ?? "Retrying translation…",
+                );
+              }
+            }
+            return;
+          }
+
+          let adminOutTrim: string | null = null;
+          if (requestIsFinal) {
+            const rawFinal = translated.trim();
+            let out = maybePolishTranslationForTarget(rawFinal, myTargetLang);
+            if (rawFinal.length > 80 && out.length < Math.floor(rawFinal.length * 0.88)) {
+              out = dedupeAdjacentParaphraseSentences(dedupeConsecutiveTranslationTokens(rawFinal));
+            }
+            adminOutTrim = out.trim();
+            const resolvedAdminIdx =
+              typeof adminBufRowIdx === "number" &&
+              adminBufRowIdx >= 0 &&
+              adminBufRowIdx < translationBufRef.current.length
+                ? adminBufRowIdx
+                : null;
+            if (resolvedAdminIdx !== null) {
+              translationBufRef.current[resolvedAdminIdx] = adminOutTrim;
+              onAdminSnapshotBuffersUpdatedRef.current?.();
+            }
+          }
+
+          if (!transTextEl.isConnected) {
+            scrollPanel();
+            return;
+          }
+          if (state.translationLocked) return;
+          if (!requestIsFinal && state.hardFinalRequested) return;
+          if (!isFinal && state.finalizing) return;
+
+          if (requestIsFinal && adminOutTrim !== null) {
+            const out = adminOutTrim;
+            if (mySeq <= state.lastShownSeq) return;
+            state.lastShownSeq = mySeq;
+            state.lastShownLen = out.length;
+            applyTranslationTypography(transTextEl, out);
+            state.pendingDisplayTranslation = "";
+            state.streamCommittedSource = text;
+            state.needsFullFinalTranslation = false;
+            if (!lockOnFinal) {
+              state.lastConfirmedSourceTranslated = text;
+            }
+            if (lockOnFinal) {
+              state.hardFinalRequested = true;
+              state.translationLocked = true;
+              if (translationBufRef.current.length > 0) {
+                const pin =
+                  typeof adminBufRowIdx === "number" &&
+                  adminBufRowIdx >= 0 &&
+                  adminBufRowIdx < translationBufRef.current.length
+                    ? adminBufRowIdx
+                    : translationBufRef.current.length - 1;
+                translationBufRef.current[pin] = out.trim();
+                onAdminSnapshotBuffersUpdatedRef.current?.();
+              }
+            } else if (isFinal) {
+              state.hardFinalRequested = false;
+            }
+          } else {
+            if (mySeq <= state.lastShownSeq) return;
+            const outRaw = dedupeConsecutiveTranslationTokens(translated.trim());
+            if (!outRaw.trim()) return;
+            const prevTr = (transTextEl.textContent ?? "").trim();
+            const sourceWindowed =
+              !requestIsFinal &&
+              apiText.trim().length > 0 &&
+              text.trim().length > apiText.trim().length + 2;
+            const toShow = sourceWindowed ? mergeWindowedLiveTranslation(prevTr, outRaw) : outRaw;
+            state.lastShownSeq = mySeq;
+            state.lastShownLen = toShow.length;
+            applyTranslationTypography(transTextEl, toShow);
+            state.pendingDisplayTranslation = "";
+            state.streamCommittedSource = text;
+            state.needsFullFinalTranslation = false;
+            state.lastConfirmedSourceTranslated = text;
+          }
+
+          if (
+            isFinal &&
+            typeof adminBufRowIdx === "number" &&
+            adminBufRowIdx >= 0 &&
+            adminBufRowIdx < translationBufRef.current.length &&
+            !(translationBufRef.current[adminBufRowIdx] ?? "").trim()
+          ) {
+            const domT = (state.transTextEl.textContent ?? "").trim();
+            if (domT) {
+              translationBufRef.current[adminBufRowIdx] = domT;
+              onAdminSnapshotBuffersUpdatedRef.current?.();
+            }
+          }
+
+          scrollPanel();
+        } catch {
+          if (isFinal && !lockOnFinal) {
+            const stRecover = activeBubbleStateRef.current;
+            if (stRecover && stRecover.segmentId === requestSegmentId) {
+              stRecover.hardFinalRequested = false;
+            }
+          }
+          if (transTextEl.isConnected) {
+            const shown = (transTextEl.textContent ?? "").trim();
+            if (!shown || shown === "…") {
+              applyTranslationTypography(transTextEl, "Translation error — try again.");
+            }
+          }
+        } finally {
+          if (
+            !isFinal &&
+            liveAbortForThisRequest &&
+            state.liveTranslationAbort === liveAbortForThisRequest
+          ) {
+            state.liveTranslationAbort = null;
+          }
+        }
+        return;
+      }
+
       try {
         const maxFetchAttempts = requestIsFinal ? 2 : 1;
         let translated = "";
@@ -2216,6 +2486,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastLiveSourceTs:      Date.now(),
       earlyHintSent:         false,
       lastPreviewWordsSent:  0,
+      lastPreviewCharsSent:   0,
       finalTokensSeen:       0,
       lastNfRawText:         "",
       lastConfirmedSource:   "",
@@ -2249,6 +2520,47 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
+
+    if (!clientUsesLibreEngineRef.current) {
+      stopTranslationInterval();
+      if (activeBubbleStateRef.current && closeKind !== "speaker_change") {
+        activeBubbleStateRef.current.finalizing = true;
+      }
+      if (activeBubbleNFRef.current) {
+        activeBubbleNFRef.current.textContent = "";
+      }
+      if (!styleUpgradedRef.current) {
+        styleUpgradedRef.current = true;
+        const p = activeBubbleRef.current.parentElement;
+        if (p) p.className = CLS.textFin;
+      }
+      const domFinal = (activeBubbleRef.current.textContent ?? "").trim();
+      const finalText =
+        closeKind === "speaker_change"
+          ? domFinal
+          : liveBufferRef.current.trim() || domFinal;
+      if (finalText.trim().length > 0) {
+        liveBufferRef.current = finalText;
+        transcriptBufRef.current.push(finalText);
+        translationBufRef.current.push("");
+        const adminSnapshotLineIndex = transcriptBufRef.current.length - 1;
+        onAdminSnapshotBuffersUpdatedRef.current?.();
+        const segId = activeBubbleStateRef.current?.segmentId;
+        dispatchTranslation(
+          finalText,
+          detectedLangRef.current,
+          true,
+          {
+            lockOnFinal: true,
+            suppressEarlyHardFinal: closeKind === "speaker_change",
+            skipOpenAiLiveDebounce: true,
+            adminSnapshotLineIndex,
+          },
+          segId,
+        );
+      }
+      return;
+    }
 
     // Stop polling AND mark as finalizing synchronously, before the async
     // dispatch below. This ensures any poll fetch already in-flight will be
@@ -2332,6 +2644,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
+    if (!clientUsesLibreEngineRef.current) {
+      finalizeLiveBubble(closeKind);
+      activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+      currentSpeakerRef.current = undefined;
+      pendingSpeakerSwitchRef.current = null;
+      activeBubbleRef.current = null;
+      activeBubbleNFRef.current = null;
+      activeBubbleStateRef.current = null;
+      styleUpgradedRef.current = false;
+      return;
+    }
     finalizeLiveBubble(closeKind);
     // Sticky translation state: on speaker_change keep prior segment request alive
     // until final text is committed, so we don't clear/lose previous row mid-switch.
@@ -2352,6 +2675,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // inactivity / max-session auto-stop for non-admin users.
   const doClear = useCallback(() => {
     cancelOpenAiLiveDebounce();
+    if (silenceQuickFinalTimerRef.current !== null) {
+      clearTimeout(silenceQuickFinalTimerRef.current);
+      silenceQuickFinalTimerRef.current = null;
+    }
+    lastSilenceQuickFinalKeyRef.current = "";
     flushFinalTextRenderQueue();
     stopTranslationInterval();
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
@@ -2405,6 +2733,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
+    if (silenceQuickFinalTimerRef.current !== null) {
+      clearTimeout(silenceQuickFinalTimerRef.current);
+      silenceQuickFinalTimerRef.current = null;
+    }
+    lastSilenceQuickFinalKeyRef.current = "";
     stopTranslationInterval();
     finalizeLiveBubble();
 
@@ -2744,7 +3077,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
       const nfEl = activeBubbleNFRef.current;
+      const useLibreStack = clientUsesLibreEngineRef.current;
       if (nfText) {
+        if (!useLibreStack) {
+          lastSilenceQuickFinalKeyRef.current = "";
+          if (silenceQuickFinalTimerRef.current !== null) {
+            clearTimeout(silenceQuickFinalTimerRef.current);
+            silenceQuickFinalTimerRef.current = null;
+          }
+        }
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
           const prev = stNf.lastNfRawText;
@@ -2782,42 +3123,137 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       flushFinalTextRenderQueue();
 
-      // Word-step live preview (not every Soniox frame): steadier than full mirror.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
-      if (
-        st &&
-        !st.translationLocked &&
-        !st.finalizing &&
-        st.finalTokensSeen >= 2 &&
-        hintSource.length >= 20 &&
-        wordsNow >= EARLY_HINT_MIN_WORDS &&
-        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
-      ) {
-        const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
-        st.earlyHintSent = true;
-        st.lastPreviewWordsSent = wordsNow;
-      }
 
-      // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
-      if (sawSonioxEndpoint) {
-        const stEnd = activeBubbleStateRef.current;
-        const srcEnd = liveBufferRef.current.trim();
-        if (stEnd && srcEnd && !stEnd.translationLocked) {
-          dispatchTranslation(
-            srcEnd,
-            detectedLangRef.current,
-            true,
-            {
-              lockOnFinal: false,
-              suppressEarlyHardFinal: true,
-              forceFullSegmentFinal: true,
-              skipOpenAiLiveDebounce: true,
-            },
-            stEnd.segmentId,
-          );
+      if (useLibreStack) {
+        // Libre/Hetzner: Final Boss 3 live preview gates (unchanged).
+        if (
+          st &&
+          !st.translationLocked &&
+          !st.finalizing &&
+          st.finalTokensSeen >= 2 &&
+          hintSource.length >= 20 &&
+          wordsNow >= 8 &&
+          (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= 6)
+        ) {
+          const lang = st.segmentSourceLang ?? detectedLangRef.current;
+          scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
+          st.earlyHintSent = true;
+          st.lastPreviewWordsSent = wordsNow;
+        }
+
+        if (sawSonioxEndpoint) {
+          const stEnd = activeBubbleStateRef.current;
+          const srcEnd = liveBufferRef.current.trim();
+          if (stEnd && srcEnd && !stEnd.translationLocked) {
+            dispatchTranslation(
+              srcEnd,
+              detectedLangRef.current,
+              true,
+              {
+                lockOnFinal: false,
+                suppressEarlyHardFinal: true,
+                forceFullSegmentFinal: true,
+                skipOpenAiLiveDebounce: true,
+              },
+              stEnd.segmentId,
+            );
+          }
+        }
+      } else {
+        // OpenAI-only: final-boss-2 (33fd0887) live gates + silence quick-final + `<end>` dispatch.
+        const OPENAI_FB2_EARLY_HINT_MIN_WORDS = 1;
+        const OPENAI_FB2_LIVE_PREVIEW_WORD_STEP = 1;
+        const OPENAI_FB2_LIVE_PREVIEW_CHAR_STEP_LATIN = 16;
+        const liveHintSourceReady =
+          st !== null &&
+          (st.finalTokensSeen >= 1 || (wordsNow >= 1 && hintSource.length >= 3));
+        const latinLivePair = pairIsLatinLatinOnly(langPairRef.current);
+        const wordStepOk =
+          !st?.earlyHintSent || wordsNow - st!.lastPreviewWordsSent >= OPENAI_FB2_LIVE_PREVIEW_WORD_STEP;
+        const charStepOk =
+          Boolean(st) &&
+          latinLivePair &&
+          (!st!.earlyHintSent ||
+            hintSource.length - st!.lastPreviewCharsSent >= OPENAI_FB2_LIVE_PREVIEW_CHAR_STEP_LATIN);
+        const previewStepOk = latinLivePair ? wordStepOk || charStepOk : wordStepOk;
+        if (
+          st &&
+          !st.translationLocked &&
+          !st.finalizing &&
+          liveHintSourceReady &&
+          hintSource.length >= 3 &&
+          wordsNow >= OPENAI_FB2_EARLY_HINT_MIN_WORDS &&
+          previewStepOk
+        ) {
+          const lang = st.segmentSourceLang ?? detectedLangRef.current;
+          scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
+          st.earlyHintSent = true;
+          st.lastPreviewWordsSent = wordsNow;
+          st.lastPreviewCharsSent = hintSource.length;
+        }
+
+        if (sawSonioxEndpoint) {
+          const stEnd = activeBubbleStateRef.current;
+          const srcEnd = liveBufferRef.current.trim();
+          if (stEnd && srcEnd && !stEnd.translationLocked) {
+            dispatchTranslation(
+              srcEnd,
+              detectedLangRef.current,
+              true,
+              {
+                lockOnFinal: false,
+                suppressEarlyHardFinal: false,
+                skipOpenAiLiveDebounce: true,
+              },
+              stEnd.segmentId,
+            );
+          }
+        } else {
+          const stQ = activeBubbleStateRef.current;
+          const srcQ = liveBufferRef.current.trim();
+          const nfTrim = nfText.trim();
+          if (nfTrim.length > 0) {
+            if (silenceQuickFinalTimerRef.current !== null) {
+              clearTimeout(silenceQuickFinalTimerRef.current);
+              silenceQuickFinalTimerRef.current = null;
+            }
+          } else if (stQ && !stQ.translationLocked && !stQ.finalizing && srcQ.length >= 5) {
+            const silentMs = Date.now() - stQ.lastLiveSourceTs;
+            if (silentMs >= 380) {
+              const key = `${stQ.segmentId}|${srcQ}`;
+              if (lastSilenceQuickFinalKeyRef.current !== key) {
+                lastSilenceQuickFinalKeyRef.current = key;
+                if (silenceQuickFinalTimerRef.current !== null) {
+                  clearTimeout(silenceQuickFinalTimerRef.current);
+                }
+                silenceQuickFinalTimerRef.current = setTimeout(() => {
+                  silenceQuickFinalTimerRef.current = null;
+                  if (!isRecRef.current) return;
+                  const stN = activeBubbleStateRef.current;
+                  if (!stN || stN.segmentId !== stQ.segmentId || stN.translationLocked || stN.finalizing) {
+                    return;
+                  }
+                  const srcNow = liveBufferRef.current.trim();
+                  if (srcNow !== srcQ) return;
+                  if ((activeBubbleNFRef.current?.textContent ?? "").trim().length > 0) return;
+                  dispatchTranslationRef.current(
+                    srcNow,
+                    detectedLangRef.current,
+                    true,
+                    {
+                      lockOnFinal: false,
+                      suppressEarlyHardFinal: true,
+                      skipOpenAiLiveDebounce: true,
+                    },
+                    stN.segmentId,
+                  );
+                }, 100);
+              }
+            }
+          }
         }
       }
 

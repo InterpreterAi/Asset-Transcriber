@@ -24,7 +24,14 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { cn, formatMinutes, isTrialLikePlanType, workspacePlanDisplayName, workspacePlanTierKey } from "@/lib/utils";
+import {
+  cn,
+  formatMinutes,
+  isTrialLikePlanType,
+  planUsesLibreEngine,
+  workspacePlanDisplayName,
+  workspacePlanTierKey,
+} from "@/lib/utils";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
 import {
   PRICING_PLANS,
@@ -149,6 +156,7 @@ export default function WorkspaceDefault() {
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
+    clientUsesLibreEngine: planUsesLibreEngine(user?.planType),
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
