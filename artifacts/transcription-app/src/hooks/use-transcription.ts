@@ -163,6 +163,8 @@ const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
 const OPENAI_OUTPUT_COST_PER_TOKEN = 0.00000060 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
 // Segments close on stabilized speaker_id change (see effectiveSpeakersForTokenBoundaries + ws.onmessage).
+/** Wall-clock gap for the 2-message speaker switch shortcut; below this only streak ≥3 confirms (reduces false splits during pauses). */
+const SPEAKER_TIME_CONFIRM_MIN_MS = 750;
 // ── Speaker color palette ──────────────────────────────────────────────────────
 // Slot numbers start at 1. Index = slot - 1.
 const MAX_SPEAKERS = 3;
@@ -2949,7 +2951,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               const speakerConfirmed =
                 !!confirm &&
                 confirm.sid === sid &&
-                (confirm.messageStreak >= 3 || (nowMs - confirm.firstMs >= 500 && confirm.messageStreak >= 2));
+                (confirm.messageStreak >= 3 ||
+                  (nowMs - confirm.firstMs >= SPEAKER_TIME_CONFIRM_MIN_MS && confirm.messageStreak >= 2));
               // Verified switching: never open a new bubble unless token content is suitable.
               if (speakerConfirmed && tokenSuitable) {
                 closeActiveSegmentBoundary("speaker_change");
