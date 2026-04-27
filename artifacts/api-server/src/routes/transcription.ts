@@ -1642,6 +1642,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
+  const skipLeakRepairForOpenAi = forcedOpenAiPlan;
+
   const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
   const globalMemoryHints = await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode);
   for (const h of globalMemoryHints) {
@@ -1922,6 +1924,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       ...result,
       text: await finalizeTranslationOutput(restoreTranslationOutput(result.text), srcCode, tgtCode, tgtLangResolved, {
         interim: !isFinalSegment,
+        skipLeakRepair: skipLeakRepairForOpenAi,
       }),
     };
 
@@ -1957,6 +1960,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         srcCode,
         tgtCode,
         tgtLangResolved,
+        { skipLeakRepair: skipLeakRepairForOpenAi },
       );
       const incompleteFirst = translationProbablyIncomplete(
         phraseNormalized,
@@ -2001,6 +2005,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         srcCode,
         tgtCode,
         tgtLangResolved,
+        { skipLeakRepair: skipLeakRepairForOpenAi },
       );
       if (refusalRetryRestored && !translationNeedsStrictInterpreterRetry(refusalRetryRestored, text)) {
         result = { ...refusalRetry, text: refusalRetryRestored };
@@ -2025,6 +2030,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           srcCode,
           tgtCode,
           tgtLangResolved,
+          { skipLeakRepair: skipLeakRepairForOpenAi },
         );
         if (refusalRetry2Restored && !translationNeedsStrictInterpreterRetry(refusalRetry2Restored, text)) {
           result = { ...refusalRetry2, text: refusalRetry2Restored };
@@ -2062,6 +2068,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         srcCode,
         tgtCode,
         tgtLangResolved,
+        { skipLeakRepair: skipLeakRepairForOpenAi },
       );
 
       if (retryRestored && matchesExpectedTargetLanguage(retryRestored, tgtCode, srcCode, text)) {
