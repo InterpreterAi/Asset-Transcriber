@@ -1599,7 +1599,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         );
         res.status(503).json({
           error:
-            "Translation is temporarily unavailable (machine translation fallback). No OpenAI key: set OPENAI_API_KEY for full quality, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
+            "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server (LIBRETRANSLATE_URL or configured Hetzner host).",
           code: "LIBRETRANSLATE_FAILED",
         });
         return;
@@ -1630,11 +1630,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       const status = isAxiosError(err) ? err.response?.status : undefined;
       logger.error(
         { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "Machine translation fallback failed (OpenAI not configured on server)",
+        "Hetzner machine translation failed",
       );
       res.status(503).json({
         error:
-          "Translation is temporarily unavailable (machine translation fallback). Set OPENAI_API_KEY, or ensure LibreTranslate is reachable (LIBRETRANSLATE_URL or public endpoints).",
+          "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server (LIBRETRANSLATE_URL or configured Hetzner host).",
         code: "LIBRETRANSLATE_FAILED",
       });
     }
