@@ -55,15 +55,6 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   return fTrim + n;
 }
 
-/** When two merge strategies disagree, keep the longer non-empty string so finalize never prefers a truncated buffer. */
-function longerTranscriptSnapshot(a: string, b: string): string {
-  const ta = a.trim();
-  const tb = b.trim();
-  if (!ta) return tb;
-  if (!tb) return ta;
-  return ta.length >= tb.length ? ta : tb;
-}
-
 /**
  * Opt-in STT diagnostics (browser console only; may contain PHI — dev machines only).
  * `localStorage.setItem("interpreterai_stt_diag", "1")` then reload.
@@ -2381,15 +2372,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Capture NF *before* clearing: Soniox often keeps the tail of long digit chains non-final until
-    // the next token arrives — speaker_change used to read only `finalSpan`, so those digits never
-    // entered transcriptBuf / final translate (session_end already used liveBuffer, which merges NF).
-    const finBeforeNfClear = (activeBubbleRef.current.textContent ?? "").trimEnd();
-    const nfBeforeClear = (activeBubbleNFRef.current?.textContent ?? "").trim();
-    const domFinalSpanOnly = finBeforeNfClear.trim();
-    const domWithNfMerged =
-      nfBeforeClear.length > 0 ? mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim() : domFinalSpanOnly;
-
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
     }
@@ -2402,15 +2384,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (p) p.className = CLS.textFin;
     }
 
-    // Translation source for the final API call:
-    // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
-    //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
-    // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
-    const fromLiveBuf = liveBufferRef.current.trim();
+    const domFinal = (activeBubbleRef.current.textContent ?? "").trim();
     const finalText =
       closeKind === "speaker_change"
-        ? domWithNfMerged
-        : longerTranscriptSnapshot(domWithNfMerged, fromLiveBuf);
+        ? domFinal
+        : liveBufferRef.current.trim() || domFinal;
     if (finalText.trim().length > 0) {
       liveBufferRef.current = finalText;
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
