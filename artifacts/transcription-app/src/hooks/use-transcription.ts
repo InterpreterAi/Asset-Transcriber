@@ -1590,42 +1590,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const rawCandidate = validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
-    if (
-      uniquePairMemberForLang(vRaw, pair) === null &&
-      uniquePairMemberForLang(vSon, pair) === null &&
-      uniquePairMemberForLang(sonioxHint, pair) === null
-    ) {
-      console.info(
-        "[translation_call]",
-        `time=${new Date(Date.now()).toISOString()}`,
-        `segment_id=${state.segmentId}`,
-        "reason=language_passthrough",
-        `is_final=${isFinal ? "true" : "false"}`,
-        `buffer_words=${words}`,
-        `buffer_chars=${chars}`,
-        "estimated_tokens=0",
-      );
-      state.seq += 1;
-      const mySeq = state.seq;
-      const { transTextEl } = state;
-      if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
-        state.lastShownSeq = mySeq;
-        state.lastShownLen = text.length;
-        applyTranslationTypography(transTextEl, text);
-        state.streamCommittedSource = text;
-        if (isFinal && lockOnFinal) {
-          state.translationLocked = true;
-          const pin = options?.adminSnapshotLineIndex;
-            if (typeof pin === "number" && pin >= 0 && pin < translationBufRef.current.length) {
-            translationBufRef.current[pin] = text.trim();
-              onAdminSnapshotBuffersUpdatedRef.current?.();
-          }
-        }
-        scrollPanel();
-      }
-      return;
-    }
-
     const detectedSourceLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
     const dispatchLang = detectedSourceLang;
     const myTargetLang = targetOppositeInPair(dispatchLang, pair);
