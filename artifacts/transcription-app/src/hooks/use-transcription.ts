@@ -1406,6 +1406,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
+  /** Snapshot of `liveBufferRef` at WS message start (Libre/Hetzner speaker switch: detect strict growth vs break). */
+  const liveBufferBeforeWsMessageRef = useRef<string>("");
   /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
   const OPENAI_LIVE_DEBOUNCE_MS = 0;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2726,6 +2728,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
+      liveBufferBeforeWsMessageRef.current = liveBufferRef.current.trim();
+      let libreNfSpeechBoundaryThisMessage = false;
+
       logSttDiagWsRaw(evt.data, tokens);
 
       const effSpkRaw = effectiveSpeakersForTokenBoundaries(tokens);
@@ -2814,8 +2819,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               // brief Soniox speaker_id flicker during pauses does not split one narrator into two segments.
               const speakerConfirmed =
                 !!confirm && confirm.sid === sid && confirm.messageStreak >= 3;
-              // Verified switching: never open a new bubble unless token content is suitable.
-              if (speakerConfirmed && tokenSuitable) {
+              // OpenAI: confirm in-loop. Libre/Hetzner: defer to post–liveBuffer merge so we can require a
+              // real speech-flow break (endpoint / revision / NF boundary) before splitting mid-narration.
+              if (speakerConfirmed && tokenSuitable && !clientUsesLibreEngineRef.current) {
                 closeActiveSegmentBoundary("speaker_change");
                 currentSpeakerRef.current = sid;
                 activeBubbleRef.current = createBubble(sid);
@@ -2916,11 +2922,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
           } else {
             // Revised hypothesis (not a strict extension of the last NF string).
+            if (clientUsesLibreEngineRef.current) libreNfSpeechBoundaryThisMessage = true;
             nfEl.textContent = nfText;
           }
           stNf.lastNfRawText = nfText;
         }
       } else if (nfEl) {
+        if (clientUsesLibreEngineRef.current) {
+          const stPreClear = activeBubbleStateRef.current;
+          if (stPreClear && (stPreClear.lastNfRawText ?? "").trim().length > 0) {
+            libreNfSpeechBoundaryThisMessage = true;
+          }
+        }
         nfEl.textContent = "";
         const stNf = activeBubbleStateRef.current;
         if (stNf) stNf.lastNfRawText = "";
@@ -2930,6 +2943,48 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
       const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
       liveBufferRef.current = rawLive;
+
+      // Libre/Hetzner: require Soniox `<end>`, transcript revision/shrink, NF boundary, or non–strict-growth
+      // before closing a segment on sid streak — avoids splitting one continuous narrator line on sid flicker.
+      if (clientUsesLibreEngineRef.current) {
+        const pend = pendingSpeakerSwitchRef.current;
+        if (
+          pend &&
+          pend.messageStreak >= 3 &&
+          currentSpeakerRef.current !== undefined &&
+          !sameSpeaker(pend.sid, currentSpeakerRef.current)
+        ) {
+          const before = liveBufferBeforeWsMessageRef.current;
+          const after = liveBufferRef.current.trim();
+          const hadEndpoint = sawSonioxEndpoint;
+          const textFlowBreak =
+            before.length > 0 &&
+            (!after.startsWith(before) || after.length < before.length);
+          const MIN_CHARS_FOR_MONOTONE_BLOCK = 12;
+          const monotonicAccumulationOnly =
+            before.length >= MIN_CHARS_FOR_MONOTONE_BLOCK &&
+            after.startsWith(before) &&
+            after.length > before.length;
+          const blockLibreSpeakerSwitch =
+            !hadEndpoint &&
+            !textFlowBreak &&
+            !libreNfSpeechBoundaryThisMessage &&
+            monotonicAccumulationOnly;
+          if (!blockLibreSpeakerSwitch) {
+            const sid = pend.sid;
+            const buf = pend.bufferedFinalText;
+            closeActiveSegmentBoundary("speaker_change");
+            currentSpeakerRef.current = sid;
+            activeBubbleRef.current = createBubble(sid);
+            setHasTranscript(true);
+            if (activeBubbleRef.current && buf) {
+              finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: buf });
+            }
+            pendingSpeakerSwitchRef.current = null;
+          }
+        }
+      }
+
       const confirmedSource = finalText.trim();
       if (activeBubbleStateRef.current) {
         activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
