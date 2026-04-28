@@ -1431,7 +1431,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   /** Libre: 0ms (snappy). OpenAI: 500ms — final-boss-2 coalescing for WS-scheduled live translate only. */
   const LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE = 0;
-  const LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI = 500;
+  const LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI = 100;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
