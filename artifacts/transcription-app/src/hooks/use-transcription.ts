@@ -1247,10 +1247,6 @@ interface BubbleTransState {
   pendingDisplayTranslation: string;
   /** Once true, ignore any late interim responses for this segment. */
   hardFinalRequested: boolean;
-  /** Locked source language for this segment (set once from first visible token with a language tag). */
-  segmentSourceLang:     string | null;
-  /** Locked target language (opposite side of selected pair). */
-  segmentTargetLang:     string | null;
   /**
    * Live path skipped a truncated API response but still advanced `streamCommittedSource`.
    * Finalize must run a full translate — otherwise `sourceTailAfterPrefix` sees no tail and locks
@@ -1416,7 +1412,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         skipOpenAiLiveDebounce?: boolean;
         suppressEarlyHardFinal?: boolean;
         forceFullSegmentFinal?: boolean;
-        finalDirectionCorrectionAttempted?: boolean;
       },
       segmentIdLock?: string,
     ) => void
@@ -1570,7 +1565,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       skipOpenAiLiveDebounce?: boolean;
       suppressEarlyHardFinal?: boolean;
       forceFullSegmentFinal?: boolean;
-      finalDirectionCorrectionAttempted?: boolean;
       /** Row index in transcriptBuf/translationBuf for this finalized segment (admin snapshot); avoids writing into the wrong line when the next segment finalizes before this translate returns. */
       adminSnapshotLineIndex?: number;
     },
@@ -1593,10 +1587,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const pair = langPairRef.current;
     const sonioxHint = lang;
-    const rawCandidate =
-      state.segmentSourceLang !== null
-        ? state.segmentSourceLang
-        : validateLangByScript(sonioxHint, text, pair);
+    const rawCandidate = validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
     if (
@@ -1636,38 +1627,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     const detectedSourceLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
-    const dispatchLang = state.segmentSourceLang ?? detectedSourceLang;
-    const myTargetLang = state.segmentTargetLang ?? targetOppositeInPair(dispatchLang, pair);
-
-    // Final-only correction: keep live behavior untouched, but for finalized text recompute direction
-    // from the full segment and re-dispatch once when the target side changes.
-    if (isFinal && !options?.finalDirectionCorrectionAttempted) {
-      const finalValidated = validateLangByScript(sonioxHint, text, pair);
-      const finalSourceLang = snapSourceLanguageToPair(finalValidated, sonioxHint, text, pair);
-      const finalTargetLang = targetOppositeInPair(finalSourceLang, pair);
-      if (!matchesLang(finalTargetLang, myTargetLang)) {
-        state.segmentSourceLang = finalSourceLang;
-        state.segmentTargetLang = finalTargetLang;
-        dispatchTranslationRef.current(
-          text,
-          finalSourceLang,
-          true,
-          {
-            ...options,
-            skipOpenAiLiveDebounce: true,
-            finalDirectionCorrectionAttempted: true,
-          },
-          requestSegmentId,
-        );
-        return;
-      }
-    }
-
-    // Lock segment direction on first resolved source so mixed-language tails never flip the target.
-    if (!state.translationLocked) {
-      if (state.segmentSourceLang === null) state.segmentSourceLang = dispatchLang;
-      if (state.segmentTargetLang === null) state.segmentTargetLang = myTargetLang;
-    }
+    const dispatchLang = detectedSourceLang;
+    const myTargetLang = targetOppositeInPair(dispatchLang, pair);
     const { transTextEl } = state;
 
     if (matchesLang(dispatchLang, myTargetLang)) {
@@ -2326,8 +2287,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastTruncationRetryHintAtMs: 0,
       pendingDisplayTranslation: "",
       hardFinalRequested: false,
-      segmentSourceLang:     null,
-      segmentTargetLang:     null,
       needsFullFinalTranslation: false,
       segmentSpeakerStickyReleased: false,
     };
@@ -2659,27 +2618,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
   }, [stop]);
 
-  /** Lock segment translation direction from the first visible token that carries a language tag. */
-  const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
-    const st = activeBubbleStateRef.current;
-    if (!st || st.segmentSourceLang !== null) return;
-    const first = tokens.find(
-      t =>
-        hasVisibleText(t.text) &&
-        !isSonioxEndpointToken(t) &&
-        t.language !== undefined &&
-        t.language !== null &&
-        String(t.language).trim() !== "",
-    );
-    if (!first?.language) return;
-    const pair = langPairRef.current;
-    const allTokenText = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
-    const validated = validateLangByScript(first.language, allTokenText, pair);
-    const snapped = snapSourceLanguageToPair(validated, first.language, allTokenText, pair);
-    st.segmentSourceLang = snapped;
-    st.segmentTargetLang = targetOppositeInPair(snapped, pair);
-  }, []);
-
   // ── buildWs ───────────────────────────────────────────────────────────────
   // Soniox streaming: speaker boundaries use effectiveSpeakersForTokenBoundaries() to ignore
   // diarization flicker during fast bilingual turns (short A→B→A runs stay one segment).
@@ -2964,8 +2902,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
 
-      tryLockSegmentDirectionFromTokens(tokens);
-
       flushFinalTextRenderQueue();
 
       const st = activeBubbleStateRef.current;
@@ -2983,7 +2919,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           wordsNow >= 8 &&
           (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= 6)
         ) {
-          const lang = st.segmentSourceLang ?? detectedLangRef.current;
+          const lang = detectedLangRef.current;
           scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
           st.earlyHintSent = true;
           st.lastPreviewWordsSent = wordsNow;
@@ -3033,7 +2969,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           wordsNow >= OPENAI_FB2_EARLY_HINT_MIN_WORDS &&
           previewStepOk
         ) {
-          const lang = st.segmentSourceLang ?? detectedLangRef.current;
+          const lang = detectedLangRef.current;
           scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
           st.earlyHintSent = true;
           st.lastPreviewWordsSent = wordsNow;
@@ -3141,7 +3077,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
     flushFinalTextRenderQueue,
-    tryLockSegmentDirectionFromTokens,
     scheduleDebouncedLiveTranslation,
   ]);
 
