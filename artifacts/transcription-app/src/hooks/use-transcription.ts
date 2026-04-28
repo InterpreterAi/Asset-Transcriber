@@ -115,6 +115,7 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+const SAME_SPEAKER_PAUSE_SEGMENT_MS = 3000;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -1383,6 +1384,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
+  /** Wall-clock of the last WS message that carried tokens. */
+  const lastTokenAtMsRef = useRef(0);
+  /** Armed after >=3s silence while a segment is active; consumed by next same-speaker token. */
+  const sameSpeakerPauseReadyRef = useRef<{ speakerId: string } | null>(null);
   /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
   const OPENAI_LIVE_DEBOUNCE_MS = 0;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2068,7 +2073,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [scrollPanel]);
 
   /** session_end = user pressed Stop (not silence timers — those are removed). */
-  type SegmentCloseKind = "session_end" | "speaker_change";
+  type SegmentCloseKind = "session_end" | "speaker_change" | "time_gap";
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -2086,7 +2091,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stopTranslationInterval();
     // Speaker change: keep finalizing false so in-flight live responses can still paint this row
     // before the closing final request returns (hardFinalRequested stays off until final succeeds).
-    if (activeBubbleStateRef.current && closeKind !== "speaker_change") {
+    if (activeBubbleStateRef.current && closeKind !== "speaker_change" && closeKind !== "time_gap") {
       activeBubbleStateRef.current.finalizing = true;
     }
 
@@ -2141,9 +2146,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         true,
         {
           lockOnFinal: true,
-          suppressEarlyHardFinal: closeKind === "speaker_change",
+          suppressEarlyHardFinal: closeKind === "speaker_change" || closeKind === "time_gap",
           skipOpenAiLiveDebounce: true,
-          forceFullSegmentFinal: closeKind === "speaker_change",
+          forceFullSegmentFinal: closeKind === "speaker_change" || closeKind === "time_gap",
           adminSnapshotLineIndex,
         },
         segId,
@@ -2182,6 +2187,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
+    lastTokenAtMsRef.current       = 0;
+    sameSpeakerPauseReadyRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
@@ -2237,6 +2244,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
     finalCountRef.current         = 0;
+    lastTokenAtMsRef.current      = 0;
+    sameSpeakerPauseReadyRef.current = null;
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -2404,6 +2413,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
+      const nowMs = Date.now();
 
       logSttDiagWsRaw(evt.data, tokens);
 
@@ -2411,6 +2421,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
+
+      // Silence-trigger layer only: arm a pending split after >=3s token gap while a segment is active.
+      if (
+        activeBubbleRef.current &&
+        currentSpeakerRef.current &&
+        lastTokenAtMsRef.current > 0 &&
+        nowMs - lastTokenAtMsRef.current >= SAME_SPEAKER_PAUSE_SEGMENT_MS
+      ) {
+        sameSpeakerPauseReadyRef.current = { speakerId: currentSpeakerRef.current };
+      }
 
       // ── FINAL tokens (exclude Soniox &lt;end&gt; marker from transcript + counts) ──
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
@@ -2426,7 +2446,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
+          } else if (sameSpeaker(sid, currentSpeakerRef.current)) {
+            const pauseReady = sameSpeakerPauseReadyRef.current;
+            if (pauseReady && sameSpeaker(sid, pauseReady.speakerId)) {
+              closeActiveSegmentBoundary("time_gap");
+              currentSpeakerRef.current = sid;
+              activeBubbleRef.current = createBubble(sid);
+              setHasTranscript(true);
+              sameSpeakerPauseReadyRef.current = null;
+            }
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+            sameSpeakerPauseReadyRef.current = null;
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
@@ -2442,6 +2472,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
       }
+      lastTokenAtMsRef.current = nowMs;
 
       // Detect language from ANY token in this message — final OR non-final.
       // Checking NF tokens too is critical: Soniox often reports language on the
@@ -2622,6 +2653,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current   = null;
       styleUpgradedRef.current       = false;
       liveBufferRef.current          = "";
+      lastTokenAtMsRef.current       = 0;
+      sameSpeakerPauseReadyRef.current = null;
       finalCountRef.current          = 0;
       detectedLangRef.current        = "en";
       resetSpeakerMap();
