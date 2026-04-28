@@ -115,7 +115,6 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
-const SAME_SPEAKER_GAP_THRESHOLD_MS = 3000;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -1384,7 +1383,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
-  const lastTokenAtMsRef = useRef(0);
   /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
   const OPENAI_LIVE_DEBOUNCE_MS = 0;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2070,7 +2068,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [scrollPanel]);
 
   /** session_end = user pressed Stop (not silence timers — those are removed). */
-  type SegmentCloseKind = "session_end" | "speaker_change" | "time_gap";
+  type SegmentCloseKind = "session_end" | "speaker_change";
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -2188,7 +2186,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
-    lastTokenAtMsRef.current       = 0;
     finalCountRef.current          = 0;
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
@@ -2240,7 +2237,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
     finalCountRef.current         = 0;
-    lastTokenAtMsRef.current      = 0;
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -2408,7 +2404,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
-      const nowMs = Date.now();
 
       logSttDiagWsRaw(evt.data, tokens);
 
@@ -2431,15 +2426,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
-          } else if (
-            sameSpeaker(sid, currentSpeakerRef.current) &&
-            lastTokenAtMsRef.current > 0 &&
-            nowMs - lastTokenAtMsRef.current > SAME_SPEAKER_GAP_THRESHOLD_MS
-          ) {
-            closeActiveSegmentBoundary("time_gap");
-            currentSpeakerRef.current = sid;
-            activeBubbleRef.current = createBubble(sid);
-            setHasTranscript(true);
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
@@ -2456,7 +2442,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
       }
-      lastTokenAtMsRef.current = nowMs;
 
       // Detect language from ANY token in this message — final OR non-final.
       // Checking NF tokens too is critical: Soniox often reports language on the
@@ -2637,7 +2622,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current   = null;
       styleUpgradedRef.current       = false;
       liveBufferRef.current          = "";
-      lastTokenAtMsRef.current       = 0;
       finalCountRef.current          = 0;
       detectedLangRef.current        = "en";
       resetSpeakerMap();
