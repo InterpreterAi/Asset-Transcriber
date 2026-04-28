@@ -1380,6 +1380,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     /** Consecutive WS messages that include this alternate sid (suitable tokens); resets if sid flickers away or reverts to currentSpeaker. */
     messageStreak: number;
     bufferedFinalText: string;
+    /** Libre/Hetzner only: `detectedLangRef` snapshot at message start when this pending sid streak began. */
+    langAtPendingStart?: string;
   } | null>(null);
   /** OpenAI stack only (33fd0887): brief silence → one full-segment translate before `<end>`. */
   const silenceQuickFinalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1408,6 +1410,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const liveBufferRef        = useRef<string>("");
   /** Snapshot of `liveBufferRef` at WS message start (Libre/Hetzner speaker switch: detect strict growth vs break). */
   const liveBufferBeforeWsMessageRef = useRef<string>("");
+  /** Snapshot of `detectedLangRef` at WS message start (Libre/Hetzner: language-change override for speaker switch). */
+  const detectedLangBeforeWsMessageRef = useRef<string>("en");
   /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
   const OPENAI_LIVE_DEBOUNCE_MS = 0;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2729,6 +2733,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (tokens.length === 0) return;
 
       liveBufferBeforeWsMessageRef.current = liveBufferRef.current.trim();
+      detectedLangBeforeWsMessageRef.current = detectedLangRef.current;
       let libreNfSpeechBoundaryThisMessage = false;
 
       logSttDiagWsRaw(evt.data, tokens);
@@ -2801,6 +2806,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   sid,
                   messageStreak: 1,
                   bufferedFinalText: "",
+                  ...(clientUsesLibreEngineRef.current
+                    ? { langAtPendingStart: detectedLangBeforeWsMessageRef.current }
+                    : {}),
                 };
                 pendingSidCountedInMessage = true;
               } else if (!pendingSidCountedInMessage) {
@@ -2965,11 +2973,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             before.length >= MIN_CHARS_FOR_MONOTONE_BLOCK &&
             after.startsWith(before) &&
             after.length > before.length;
+          const langChangedForLibreSwitch =
+            typeof pend.langAtPendingStart === "string" &&
+            !matchesLang(detectedLangRef.current, pend.langAtPendingStart);
+          /** Same alternate sid in ≥4 consecutive messages (stricter than streak-3 confirm) — real handoff, not one-off flicker. */
+          const sidStableAcrossMessages = pend.messageStreak >= 4;
+          const allowDespiteMonotonicGrowth =
+            langChangedForLibreSwitch || sidStableAcrossMessages;
           const blockLibreSpeakerSwitch =
             !hadEndpoint &&
             !textFlowBreak &&
             !libreNfSpeechBoundaryThisMessage &&
-            monotonicAccumulationOnly;
+            monotonicAccumulationOnly &&
+            !allowDespiteMonotonicGrowth;
           if (!blockLibreSpeakerSwitch) {
             const sid = pend.sid;
             const buf = pend.bufferedFinalText;
