@@ -86,6 +86,8 @@ const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 /** Coalesce rapid final-token bursts into one DOM write; lower = snappier transcript (still merged with queued text for liveBufferRef). */
 const FINAL_TEXT_RENDER_BUFFER_MS = 32;
+/** Same-speaker pause boundary: long silence starts a new segment with the same speaker label. */
+const SAME_SPEAKER_GAP_THRESHOLD_MS = 3000;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -1382,6 +1384,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const finalCountRef     = useRef(0);
   /** Tracks previous message finals signature to reconcile cumulative vs incremental framing safely. */
   const lastFinalTokenSigsRef = useRef<string[]>([]);
+  const lastTokenAtMsRef = useRef<number>(0);
   const detectedLangRef      = useRef<string>("en");
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
@@ -1413,6 +1416,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         skipOpenAiLiveDebounce?: boolean;
         suppressEarlyHardFinal?: boolean;
         forceFullSegmentFinal?: boolean;
+        finalDirectionCorrectionAttempted?: boolean;
       },
       segmentIdLock?: string,
     ) => void
@@ -1566,6 +1570,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       skipOpenAiLiveDebounce?: boolean;
       suppressEarlyHardFinal?: boolean;
       forceFullSegmentFinal?: boolean;
+      finalDirectionCorrectionAttempted?: boolean;
       /** Row index in transcriptBuf/translationBuf for this finalized segment (admin snapshot); avoids writing into the wrong line when the next segment finalizes before this translate returns. */
       adminSnapshotLineIndex?: number;
     },
@@ -1633,6 +1638,31 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const detectedSourceLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
     const dispatchLang = state.segmentSourceLang ?? detectedSourceLang;
     const myTargetLang = state.segmentTargetLang ?? targetOppositeInPair(dispatchLang, pair);
+
+    // Final-only correction: keep live behavior untouched, but for finalized text recompute direction
+    // from the full segment and re-dispatch once when the target side changes.
+    if (isFinal && !options?.finalDirectionCorrectionAttempted) {
+      const finalValidated = validateLangByScript(sonioxHint, text, pair);
+      const finalSourceLang = snapSourceLanguageToPair(finalValidated, sonioxHint, text, pair);
+      const finalTargetLang = targetOppositeInPair(finalSourceLang, pair);
+      if (!matchesLang(finalTargetLang, myTargetLang)) {
+        state.segmentSourceLang = finalSourceLang;
+        state.segmentTargetLang = finalTargetLang;
+        dispatchTranslationRef.current(
+          text,
+          finalSourceLang,
+          true,
+          {
+            ...options,
+            skipOpenAiLiveDebounce: true,
+            finalDirectionCorrectionAttempted: true,
+          },
+          requestSegmentId,
+        );
+        return;
+      }
+    }
+
     // Lock segment direction on first resolved source so mixed-language tails never flip the target.
     if (!state.translationLocked) {
       if (state.segmentSourceLang === null) state.segmentSourceLang = dispatchLang;
@@ -2309,7 +2339,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [scrollPanel]);
 
   /** session_end = user pressed Stop (not silence timers — those are removed). */
-  type SegmentCloseKind = "session_end" | "speaker_change";
+  type SegmentCloseKind = "session_end" | "speaker_change" | "time_gap";
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -2323,7 +2353,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (!clientUsesLibreEngineRef.current) {
       stopTranslationInterval();
-      if (activeBubbleStateRef.current && closeKind !== "speaker_change") {
+      if (activeBubbleStateRef.current && closeKind === "session_end") {
         activeBubbleStateRef.current.finalizing = true;
       }
       if (activeBubbleNFRef.current) {
@@ -2336,7 +2366,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       const domFinal = (activeBubbleRef.current.textContent ?? "").trim();
       const finalText =
-        closeKind === "speaker_change"
+        closeKind === "speaker_change" || closeKind === "time_gap"
           ? domFinal
           : liveBufferRef.current.trim() || domFinal;
       if (finalText.trim().length > 0) {
@@ -2352,7 +2382,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           true,
           {
             lockOnFinal: true,
-            suppressEarlyHardFinal: closeKind === "speaker_change",
+            suppressEarlyHardFinal: closeKind !== "session_end",
             skipOpenAiLiveDebounce: true,
             adminSnapshotLineIndex,
           },
@@ -2368,7 +2398,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stopTranslationInterval();
     // Speaker change: keep finalizing false so in-flight live responses can still paint this row
     // before the closing final request returns (hardFinalRequested stays off until final succeeds).
-    if (activeBubbleStateRef.current && closeKind !== "speaker_change") {
+    if (activeBubbleStateRef.current && closeKind === "session_end") {
       activeBubbleStateRef.current.finalizing = true;
     }
 
@@ -2386,7 +2416,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const domFinal = (activeBubbleRef.current.textContent ?? "").trim();
     const finalText =
-      closeKind === "speaker_change"
+      closeKind === "speaker_change" || closeKind === "time_gap"
         ? domFinal
         : liveBufferRef.current.trim() || domFinal;
     if (finalText.trim().length > 0) {
@@ -2410,9 +2440,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         true,
         {
           lockOnFinal: true,
-          suppressEarlyHardFinal: closeKind === "speaker_change",
+          suppressEarlyHardFinal: closeKind !== "session_end",
           skipOpenAiLiveDebounce: true,
-          forceFullSegmentFinal: closeKind === "speaker_change",
+          forceFullSegmentFinal: closeKind !== "session_end",
           adminSnapshotLineIndex,
         },
         segId,
@@ -2477,6 +2507,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current      = null;
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
+    lastTokenAtMsRef.current       = 0;
     finalCountRef.current          = 0;
     lastFinalTokenSigsRef.current  = [];
     transcriptBufRef.current       = [];
@@ -2534,6 +2565,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
+    lastTokenAtMsRef.current      = 0;
     finalCountRef.current         = 0;
     lastFinalTokenSigsRef.current = [];
 
@@ -2703,6 +2735,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
+      const nowMs = Date.now();
 
       logSttDiagWsRaw(evt.data, tokens);
 
@@ -2756,6 +2789,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             sameSpeaker(sid, currentSpeakerRef.current) &&
             tokenSuitable
           ) {
+            if (
+              lastTokenAtMsRef.current > 0 &&
+              nowMs - lastTokenAtMsRef.current > SAME_SPEAKER_GAP_THRESHOLD_MS &&
+              activeBubbleRef.current
+            ) {
+              closeActiveSegmentBoundary("time_gap");
+              currentSpeakerRef.current = sid;
+              pendingSpeakerSwitchRef.current = null;
+              activeBubbleRef.current = createBubble(sid);
+              setHasTranscript(true);
+            }
             currentSpeakerSeenInMessage = true;
           }
           if (!activeBubbleRef.current) {
@@ -2820,6 +2864,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (sawSonioxEndpoint && activeBubbleStateRef.current) {
         activeBubbleStateRef.current.segmentSpeakerStickyReleased = true;
       }
+      lastTokenAtMsRef.current = nowMs;
       if (pendingSidAtStart && !pendingSidSeenInMessage) {
         pendingSpeakerSwitchRef.current = null;
       }
@@ -3120,6 +3165,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current   = null;
       styleUpgradedRef.current       = false;
       liveBufferRef.current          = "";
+      lastTokenAtMsRef.current       = 0;
       finalCountRef.current          = 0;
       lastFinalTokenSigsRef.current  = [];
       detectedLangRef.current        = "en";
