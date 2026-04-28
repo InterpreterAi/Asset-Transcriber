@@ -1356,6 +1356,12 @@ interface BubbleTransState {
    * with a partial translation still on screen.
    */
   needsFullFinalTranslation: boolean;
+  /**
+   * After Soniox `<end>` on this row (`sawSonioxEndpoint`), true so the next utterance may change speaker.
+   * While false, WS handling maps `effSpk` tokens that disagree with `currentSpeakerRef` to the current
+   * speaker so stable-but-wrong mid-sentence sid from diarization does not open a new segment.
+   */
+  segmentSpeakerStickyReleased: boolean;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -2455,6 +2461,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
+      segmentSpeakerStickyReleased: false,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -2874,7 +2881,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       logSttDiagWsRaw(evt.data, tokens);
 
-      const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
+      const effSpkRaw = effectiveSpeakersForTokenBoundaries(tokens);
+      const stickyState = activeBubbleStateRef.current;
+      const curSpkForSticky = currentSpeakerRef.current;
+      const segmentSidSticky =
+        stickyState !== null &&
+        !stickyState.segmentSpeakerStickyReleased &&
+        curSpkForSticky !== undefined &&
+        activeBubbleRef.current !== null;
+      const effSpk = segmentSidSticky
+        ? effSpkRaw.map(s =>
+            s !== undefined && !sameSpeaker(s, curSpkForSticky) ? curSpkForSticky : s,
+          )
+        : effSpkRaw;
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       resetInactivityRef.current?.();
@@ -2973,6 +2992,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             activeBubbleStateRef.current.finalTokensSeen += 1;
           }
         }
+      }
+      if (sawSonioxEndpoint && activeBubbleStateRef.current) {
+        activeBubbleStateRef.current.segmentSpeakerStickyReleased = true;
       }
       if (pendingSidAtStart && !pendingSidSeenInMessage) {
         pendingSpeakerSwitchRef.current = null;
