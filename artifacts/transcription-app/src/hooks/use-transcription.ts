@@ -1259,6 +1259,10 @@ interface BubbleTransState {
    * speaker so stable-but-wrong mid-sentence sid from diarization does not open a new segment.
    */
   segmentSpeakerStickyReleased: boolean;
+  /** Libre/Hetzner only: lock direction on first valid dispatch for this segment. */
+  segmentSourceLang: string | null;
+  /** Libre/Hetzner only: cached opposite target paired with segmentSourceLang. */
+  segmentTargetLang: string | null;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1591,8 +1595,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
     const detectedSourceLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
-    const dispatchLang = detectedSourceLang;
-    const myTargetLang = targetOppositeInPair(dispatchLang, pair);
+    if (!state.segmentSourceLang) {
+      state.segmentSourceLang = detectedSourceLang;
+      state.segmentTargetLang = targetOppositeInPair(detectedSourceLang, pair);
+    }
+    const dispatchLang = state.segmentSourceLang ?? detectedSourceLang;
+    const myTargetLang = state.segmentTargetLang ?? targetOppositeInPair(dispatchLang, pair);
     const { transTextEl } = state;
 
     if (matchesLang(dispatchLang, myTargetLang)) {
@@ -2253,6 +2261,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       hardFinalRequested: false,
       needsFullFinalTranslation: false,
       segmentSpeakerStickyReleased: false,
+      segmentSourceLang: null,
+      segmentTargetLang: null,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -2978,10 +2988,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   silenceQuickFinalTimerRef.current = null;
                   if (!isRecRef.current) return;
                   const stN = activeBubbleStateRef.current;
+                  const srcNow = liveBufferRef.current.trim();
                   if (!stN || stN.segmentId !== stQ.segmentId || stN.translationLocked || stN.finalizing) {
                     return;
                   }
-                  const srcNow = liveBufferRef.current.trim();
                   if (srcNow !== srcQ) return;
                   if ((activeBubbleNFRef.current?.textContent ?? "").trim().length > 0) return;
                   dispatchTranslationRef.current(
