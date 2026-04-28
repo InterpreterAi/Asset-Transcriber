@@ -135,16 +135,15 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
   const splitLines = (v: string) =>
     String(v ?? "")
       .split(/\r?\n/)
-      .map((x) => x.trim())
-      .filter(Boolean);
+      .map((x) => x.trim());
 
   const src =
     Array.isArray(snapshot.transcriptLines) && snapshot.transcriptLines.length > 0
-      ? snapshot.transcriptLines.map(v => String(v).trim()).filter(Boolean)
+      ? snapshot.transcriptLines.map(v => String(v).trim())
       : splitLines(snapshot.transcript);
   const tgt =
     Array.isArray(snapshot.translationLines) && snapshot.translationLines.length > 0
-      ? snapshot.translationLines.map(v => String(v).trim()).filter(Boolean)
+      ? snapshot.translationLines.map(v => String(v).trim())
       : splitLines(snapshot.translation);
   if (src.length === 0 || tgt.length === 0) return [];
 
