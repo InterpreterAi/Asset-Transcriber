@@ -119,6 +119,7 @@ const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
+let globalWriteSeq = 0;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
 const OPENAI_INPUT_COST_PER_TOKEN = 0.00000015 * OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO;
@@ -1312,6 +1313,8 @@ interface BubbleTransState {
    * with a partial translation still on screen.
    */
   needsFullFinalTranslation: boolean;
+  debugLastText: string;
+  debugLastSeq: number;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1470,7 +1473,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   >(() => {});
   // setInterval handle.
   const finalRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string }>>([]);
+  const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string; source?: "flush" | "pending" }>>([]);
   const segmentSeqRef = useRef(0);
   const translationDiagRef = useRef<TranslationDiag>({
     callCount: 0,
@@ -1533,9 +1536,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const q = finalRenderQueueRef.current;
     if (q.length === 0) return;
     finalRenderQueueRef.current = [];
-    for (const { target, text } of q) {
+    for (const { target, text, source } of q) {
       if (!target.isConnected) continue;
-      target.textContent = (target.textContent ?? "") + text;
+      const previousText = target.textContent ?? "";
+      const newText = previousText + text;
+      const seq = ++globalWriteSeq;
+      const state = activeBubbleStateRef.current;
+      console.log("[WRITE]", {
+        seq,
+        source: source ?? "flush",
+        text: newText,
+        length: newText.length,
+        prevLength: previousText.length,
+        newLength: newText.length,
+        prevText: previousText,
+        newText,
+      });
+      if (previousText.length > newText.length) {
+        console.warn("[SHRINK OVERWRITE DETECTED]", {
+          seq,
+          source: source ?? "flush",
+          before: previousText,
+          after: newText,
+          prevText: previousText,
+          newText,
+        });
+      }
+      console.log("[ORDER CHECK]", { seq, lastSeq: state?.debugLastSeq ?? 0 });
+      if (state) {
+        state.debugLastSeq = seq;
+        state.debugLastText = newText;
+      }
+      target.textContent = newText;
     }
   }, []);
 
@@ -2106,6 +2138,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
+      debugLastText: "",
+      debugLastSeq: 0,
     };
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
@@ -2147,6 +2181,35 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       nfBeforeClear.length > 0 ? mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim() : domFinalSpanOnly;
 
     if (activeBubbleNFRef.current) {
+      const previousText = activeBubbleNFRef.current.textContent ?? "";
+      const newText = "";
+      const seq = ++globalWriteSeq;
+      const state = activeBubbleStateRef.current;
+      console.log("[WRITE]", {
+        seq,
+        source: "finalize",
+        text: newText,
+        length: newText.length,
+        prevLength: previousText.length,
+        newLength: newText.length,
+        prevText: previousText,
+        newText,
+      });
+      if (previousText.length > newText.length) {
+        console.warn("[SHRINK OVERWRITE DETECTED]", {
+          seq,
+          source: "finalize",
+          before: previousText,
+          after: newText,
+          prevText: previousText,
+          newText,
+        });
+      }
+      console.log("[ORDER CHECK]", { seq, lastSeq: state?.debugLastSeq ?? 0 });
+      if (state) {
+        state.debugLastSeq = seq;
+        state.debugLastText = newText;
+      }
       activeBubbleNFRef.current.textContent = "";
     }
 
@@ -2549,7 +2612,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   activeBubbleRef.current = createBubble(sid);
                   setHasTranscript(true);
                   if (activeBubbleRef.current && confirm.bufferedFinalText) {
-                    finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: confirm.bufferedFinalText });
+                    finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: confirm.bufferedFinalText, source: "pending" });
                   }
                   pendingSpeakerSwitchRef.current = null;
                 }
@@ -2569,7 +2632,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
-          finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
+          finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text, source: "flush" });
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
           }
@@ -2587,7 +2650,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleRef.current
         ) {
           if (pendingAfter.bufferedFinalText) {
-            finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: pendingAfter.bufferedFinalText });
+            finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: pendingAfter.bufferedFinalText, source: "pending" });
           }
           pendingSpeakerSwitchRef.current = null;
         }
@@ -2639,14 +2702,103 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const prev = stNf.lastNfRawText;
           if (nfText.startsWith(prev)) {
             const suffix = nfText.slice(prev.length);
-            if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+            if (suffix) {
+              const previousText = nfEl.textContent ?? "";
+              const newText = previousText + suffix;
+              const seq = ++globalWriteSeq;
+              const state = activeBubbleStateRef.current;
+              console.log("[WRITE]", {
+                seq,
+                source: "nf",
+                text: newText,
+                length: newText.length,
+                prevLength: previousText.length,
+                newLength: newText.length,
+                prevText: previousText,
+                newText,
+              });
+              if (previousText.length > newText.length) {
+                console.warn("[SHRINK OVERWRITE DETECTED]", {
+                  seq,
+                  source: "nf",
+                  before: previousText,
+                  after: newText,
+                  prevText: previousText,
+                  newText,
+                });
+              }
+              console.log("[ORDER CHECK]", { seq, lastSeq: state?.debugLastSeq ?? 0 });
+              if (state) {
+                state.debugLastSeq = seq;
+                state.debugLastText = newText;
+              }
+              nfEl.textContent = newText;
+            }
           } else {
             // Revised hypothesis (not a strict extension of the last NF string).
+            const previousText = nfEl.textContent ?? "";
+            const newText = nfText;
+            const seq = ++globalWriteSeq;
+            const state = activeBubbleStateRef.current;
+            console.log("[WRITE]", {
+              seq,
+              source: "nf",
+              text: newText,
+              length: newText.length,
+              prevLength: previousText.length,
+              newLength: newText.length,
+              prevText: previousText,
+              newText,
+            });
+            if (previousText.length > newText.length) {
+              console.warn("[SHRINK OVERWRITE DETECTED]", {
+                seq,
+                source: "nf",
+                before: previousText,
+                after: newText,
+                prevText: previousText,
+                newText,
+              });
+            }
+            console.log("[ORDER CHECK]", { seq, lastSeq: state?.debugLastSeq ?? 0 });
+            if (state) {
+              state.debugLastSeq = seq;
+              state.debugLastText = newText;
+            }
             nfEl.textContent = nfText;
           }
           stNf.lastNfRawText = nfText;
         }
       } else if (nfEl) {
+        const previousText = nfEl.textContent ?? "";
+        const newText = "";
+        const seq = ++globalWriteSeq;
+        const state = activeBubbleStateRef.current;
+        console.log("[WRITE]", {
+          seq,
+          source: "nf",
+          text: newText,
+          length: newText.length,
+          prevLength: previousText.length,
+          newLength: newText.length,
+          prevText: previousText,
+          newText,
+        });
+        if (previousText.length > newText.length) {
+          console.warn("[SHRINK OVERWRITE DETECTED]", {
+            seq,
+            source: "nf",
+            before: previousText,
+            after: newText,
+            prevText: previousText,
+            newText,
+          });
+        }
+        console.log("[ORDER CHECK]", { seq, lastSeq: state?.debugLastSeq ?? 0 });
+        if (state) {
+          state.debugLastSeq = seq;
+          state.debugLastText = newText;
+        }
         nfEl.textContent = "";
         const stNf = activeBubbleStateRef.current;
         if (stNf) stNf.lastNfRawText = "";
