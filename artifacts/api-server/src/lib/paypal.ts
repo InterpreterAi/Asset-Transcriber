@@ -183,7 +183,7 @@ export async function fetchPayPalSubscription(subscriptionId: string): Promise<u
 export function billingProductKeyFromPlanType(planType: string): BillingPlanType | null {
   const p = planType.trim().toLowerCase();
   if (p === "trial" || p === "trial-openai" || p === "trial-libre") return null;
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent") return "basic";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return "platinum";
   return null;

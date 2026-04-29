@@ -59,6 +59,7 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
     p === "trial" ||
     p === "trial-openai" ||
     p === "morsy-urgent" ||
+    p === "legacy2" ||
     p === "platinum" ||
     p === "platinum-libre" ||
     p === "unlimited"
@@ -146,7 +147,7 @@ export function appliesStrictTrialAiThrottle(user: TranslationRoutingUser): bool
  */
 export function translationEnabledForUser(user: User): boolean {
   const eff = effectivePlanTypeForTranslation(user);
-  if (eff === "morsy-urgent") return false;
+  if (eff === "morsy-urgent" || eff === "legacy2") return false;
   if (isPaidTranslationPlan(eff)) return true;
   if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   return false;
