@@ -2421,12 +2421,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       for (let ti = 0; ti < tokens.length; ti++) {
         const t = tokens[ti]!;
         const sid = effSpk[ti];
+        const hasRenderableText = !isSonioxEndpointToken(t) && hasVisibleText(t.text);
         if (sid !== undefined) {
-          if (!activeBubbleRef.current) {
+          if (!activeBubbleRef.current && hasRenderableText) {
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
             setHasTranscript(true);
-          } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
+          } else if (
+            hasRenderableText &&
+            t.is_final &&
+            !sameSpeaker(sid, currentSpeakerRef.current)
+          ) {
             closeActiveSegmentBoundary("speaker_change");
             currentSpeakerRef.current = sid;
             activeBubbleRef.current = createBubble(sid);
