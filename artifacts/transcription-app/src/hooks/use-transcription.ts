@@ -1630,14 +1630,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         : validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
-    const dispatchLang =
+    const chosenSource =
       majoritySourceFromFirstWords(text, sonioxHint, pair) ??
       uniquePairMemberForLang(validateLangByScript(sonioxHint, text, pair), pair) ??
       uniquePairMemberForLang(sonioxHint, pair) ??
       pair.a;
+    const dispatchLang = state.segmentSourceLang ?? chosenSource;
     let myTargetLang = targetOppositeInPair(dispatchLang, pair);
     if (!state.translationLocked) {
-      state.segmentSourceLang = dispatchLang;
+      if (state.segmentSourceLang === null) state.segmentSourceLang = dispatchLang;
       state.segmentTargetLang = myTargetLang;
     }
     const { transTextEl } = state;
