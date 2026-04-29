@@ -314,6 +314,7 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial-openai", label: "Trial · OpenAI (7 days, full OpenAI)" },
   { value: "trial", label: "Trial · OpenAI (legacy)" },
   { value: "basic-openai", label: "Basic · OpenAI" },
+  { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy STT, no translation)" },
   { value: "professional-openai", label: "Professional · OpenAI" },
   { value: "platinum-openai", label: "Platinum · OpenAI" },
 ];

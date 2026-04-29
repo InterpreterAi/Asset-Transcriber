@@ -24,7 +24,7 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 export function workspacePlanDisplayName(planType: string | undefined | null): string {
   const p = (planType ?? "").toLowerCase();
   if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "Trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic") return "Basic";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent") return "Basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "Unlimited";
   return "Unlimited";
 }
@@ -33,7 +33,7 @@ export function workspacePlanDisplayName(planType: string | undefined | null): s
 export function workspacePlanTierKey(planType: string | null | undefined): "trial" | "basic" | "professional" | "platinum" {
   const p = (planType ?? "").toLowerCase();
   if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic") return "basic";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent") return "basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   return "platinum";
 }

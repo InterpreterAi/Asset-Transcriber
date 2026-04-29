@@ -86,6 +86,7 @@ const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
 
 const PLAN_PRICES: Record<string, number> = {
   basic: 59,
+  "morsy-urgent":      59,
   "basic-libre":       59,
   "basic-openai":      59,
   professional:        99,
@@ -1488,6 +1489,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     "trial-hetzner",
     "trial-libre",
     "basic",
+    "morsy-urgent",
     "basic-openai",
     "basic-libre",
     "professional",

@@ -499,6 +499,7 @@ const ADMIN_TEST_PLAN_TYPES = [
   "trial-hetzner",
   "trial-libre",
   "basic",
+  "morsy-urgent",
   "basic-openai",
   "basic-libre",
   "professional",
@@ -527,7 +528,7 @@ function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number 
   ) {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
-  if (planType === "basic" || planType === "basic-openai" || planType === "basic-libre") {
+  if (planType === "basic" || planType === "morsy-urgent" || planType === "basic-openai" || planType === "basic-libre") {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
   if (planType === "professional" || planType === "professional-openai" || planType === "professional-libre") {
@@ -563,6 +564,18 @@ router.post("/test-activate-plan", requireAuth, async (req: any, res) => {
     }
 
     const dailyLimitMinutes = dailyLimitMinutesForAdminTestPlan(planType);
+
+    if (planType === "morsy-urgent") {
+      await db
+        .update(usersTable)
+        .set({
+          planType,
+          // Keep admin-customized limits and billing dates untouched.
+        })
+        .where(eq(usersTable.id, userId));
+      res.json({ ok: true, planType, dailyLimitMinutes: user.dailyLimitMinutes });
+      return;
+    }
 
     if (isTrialLikePlanType(planType)) {
       const now = new Date();
