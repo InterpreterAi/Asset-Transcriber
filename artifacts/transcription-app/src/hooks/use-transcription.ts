@@ -2634,17 +2634,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       const nfEl = activeBubbleNFRef.current;
       const stNf = activeBubbleStateRef.current;
-      if (nfEl && stNf) {
-        const prev = stNf.lastNfRawText;
-        if (nfText && nfText.startsWith(prev)) {
-          const suffix = nfText.slice(prev.length);
-          if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
-          stNf.lastNfRawText = nfText;
-        } else if (!nfText) {
-          // Keep already shown preview text stable during short NF drops.
-          stNf.lastNfRawText = "";
-        }
-      }
+      if (nfEl) nfEl.textContent = "";
+      if (stNf) stNf.lastNfRawText = "";
 
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
