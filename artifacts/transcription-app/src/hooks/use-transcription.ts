@@ -116,6 +116,8 @@ const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
+const FAST_SWITCH_MIN_STREAK = 2;
+const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -2517,7 +2519,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 const speakerConfirmed =
                   !!confirm &&
                   confirm.sid === sid &&
-                  (confirm.messageStreak >= 3 || (nowMs - confirm.firstMs >= 500 && confirm.messageStreak >= 2));
+                  (
+                    confirm.messageStreak >= FAST_SWITCH_MIN_STREAK ||
+                    (nowMs - confirm.firstMs >= FAST_SWITCH_MIN_AGE_MS && confirm.messageStreak >= 1)
+                  );
                 if (speakerConfirmed && tokenSuitable) {
                   closeActiveSegmentBoundary("speaker_change");
                   currentSpeakerRef.current = sid;
