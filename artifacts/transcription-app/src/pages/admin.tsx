@@ -126,9 +126,9 @@ interface SessionDetail {
 type StableSnapshotRow = { idx: number; src: string; tgt: string };
 
 /**
- * Build admin monitor rows directly from snapshot lines.
- * Keep original row indices so admin can inspect boundary issues as they happen.
- * Do not delay or require strict alignment; show best-effort pairs with blanks when one side lags.
+ * Build admin monitor rows from snapshot lines while keeping row indices stable.
+ * For live sessions, hide only the newest row (one-row delay) to reduce in-flight noise.
+ * Keep best-effort pairing per row index so admin sees the same row structure users see.
  */
 function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
   const splitLines = (v: string) =>
@@ -144,11 +144,12 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
     Array.isArray(snapshot.translationLines) && snapshot.translationLines.length > 0
       ? snapshot.translationLines.map(v => String(v).trim())
       : splitLines(snapshot.translation);
-  const maxRows = Math.max(src.length, tgt.length);
-  if (maxRows === 0) return [];
+  const totalRows = Math.max(src.length, tgt.length);
+  const visibleRows = isLive ? Math.max(0, totalRows - 1) : totalRows;
+  if (visibleRows === 0) return [];
 
   const rows: StableSnapshotRow[] = [];
-  for (let i = 0; i < maxRows; i++) {
+  for (let i = 0; i < visibleRows; i++) {
     const s = src[i] ?? "";
     const t = tgt[i] ?? "";
     if (!s && !t) continue;
@@ -2931,7 +2932,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Live monitor mode: rows are shown as they arrive (including partial rows) so you can debug user issues in real time.
+                  Stable monitor mode: rows keep user row indices and hide only the newest in-flight row for cleaner live debugging.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
