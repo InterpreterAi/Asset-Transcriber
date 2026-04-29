@@ -115,6 +115,7 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -1375,6 +1376,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
+  const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
   const pendingSpeakerSwitchRef = useRef<{
     sid: string;
     messageStreak: number;
@@ -2185,6 +2187,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current = undefined;
+    lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
@@ -2203,6 +2206,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
+    lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
@@ -2255,6 +2259,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     currentSpeakerRef.current     = undefined;
+    lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
@@ -2454,6 +2459,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         let handledByPendingSwitchLogic = false;
         if (sid !== undefined) {
           if (
+            activeBubbleRef.current &&
+            tokenSuitable &&
+            sameSpeaker(sid, currentSpeakerRef.current)
+          ) {
+            const lastTokenAt = lastSpeakerSpeechTokenAtMsRef.current;
+            if (lastTokenAt > 0 && nowMs - lastTokenAt >= SAME_SPEAKER_PAUSE_SPLIT_MS) {
+              // Same speaker resumed after a long silence: start a fresh segment.
+              closeActiveSegmentBoundary("speaker_change");
+              currentSpeakerRef.current = sid;
+              activeBubbleRef.current = createBubble(sid);
+              setHasTranscript(true);
+            }
+            lastSpeakerSpeechTokenAtMsRef.current = nowMs;
+          }
+          if (
             useMorsyUrgentSpeakerGate &&
             currentSpeakerRef.current !== undefined &&
             sameSpeaker(sid, currentSpeakerRef.current) &&
@@ -2464,6 +2484,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (!activeBubbleRef.current) {
             if (!useMorsyUrgentSpeakerGate || tokenSuitable) {
               currentSpeakerRef.current = sid;
+              if (tokenSuitable) lastSpeakerSpeechTokenAtMsRef.current = nowMs;
               pendingSpeakerSwitchRef.current = null;
               activeBubbleRef.current = createBubble(sid);
               setHasTranscript(true);
@@ -2500,6 +2521,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 if (speakerConfirmed && tokenSuitable) {
                   closeActiveSegmentBoundary("speaker_change");
                   currentSpeakerRef.current = sid;
+                  lastSpeakerSpeechTokenAtMsRef.current = nowMs;
                   activeBubbleRef.current = createBubble(sid);
                   setHasTranscript(true);
                   if (activeBubbleRef.current && confirm.bufferedFinalText) {
@@ -2511,6 +2533,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             } else {
               closeActiveSegmentBoundary("speaker_change");
               currentSpeakerRef.current = sid;
+              if (tokenSuitable) lastSpeakerSpeechTokenAtMsRef.current = nowMs;
               activeBubbleRef.current = createBubble(sid);
               setHasTranscript(true);
             }
