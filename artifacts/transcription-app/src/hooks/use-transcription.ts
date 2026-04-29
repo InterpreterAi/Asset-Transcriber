@@ -2422,9 +2422,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const t = tokens[ti]!;
         const sid = effSpk[ti];
         const isRealSpeechToken =
-          !isSonioxEndpointToken(t) &&
-          hasVisibleText(t.text) &&
-          /[\p{L}\p{N}]/u.test(t.text ?? "");
+          !isSonioxEndpointToken(t) && t.text && t.text.trim().length > 0;
         if (sid !== undefined && isRealSpeechToken) {
           if (!activeBubbleRef.current) {
             currentSpeakerRef.current = sid;
