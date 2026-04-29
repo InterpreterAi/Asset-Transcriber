@@ -213,6 +213,7 @@ export const generalApiLimiter = rateLimit({
     if (req.method === "OPTIONS") return true;
     const p = apiRequestPath(req);
     if (p === "/api/healthz") return true;
+    if (p.startsWith("/api/auth")) return true;
     // Admin dashboards poll aggressively; do not let the default 60/IP/min cap blank the UI with 429s.
     if (p.startsWith("/api/admin")) return true;
     if (isSessionHeartbeatPost(req)) return true;
