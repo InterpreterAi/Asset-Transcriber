@@ -1284,6 +1284,8 @@ export type UseTranscriptionOptions = {
   onAdminSnapshotBuffersUpdated?: () => void;
   /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
   translationEnabled?: boolean;
+  /** Controls how the translation column looks when translation is disabled. */
+  translationUiMode?: "upsell" | "hidden";
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1312,6 +1314,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationEnabledRef.current = options?.translationEnabled ?? true;
   }, [options?.translationEnabled]);
+  const translationUiModeRef = useRef<"upsell" | "hidden">(options?.translationUiMode ?? "upsell");
+  useEffect(() => {
+    translationUiModeRef.current = options?.translationUiMode ?? "upsell";
+  }, [options?.translationUiMode]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2016,7 +2022,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const transTextP = document.createElement("p");
     const translationOn = translationEnabledRef.current;
     transTextP.className   = translationOn ? CLS.transPend : CLS.transDisabled;
-    transTextP.textContent = translationOn ? "" : TRANSLATION_PLATINUM_PLACEHOLDER;
+    transTextP.textContent = translationOn
+      ? ""
+      : (translationUiModeRef.current === "hidden" ? "" : TRANSLATION_PLATINUM_PLACEHOLDER);
     applyTextStyle(transTextP);
     transRow.appendChild(transTextP);
     transRow.appendChild(makeCopyBtn(() => transTextP.textContent ?? ""));
