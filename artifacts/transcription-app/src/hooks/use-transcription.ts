@@ -2572,6 +2572,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
+            if (activeBubbleStateRef.current.finalTokensSeen === 1) {
+              flushFinalTextRenderQueue();
+            }
           }
         }
       }
