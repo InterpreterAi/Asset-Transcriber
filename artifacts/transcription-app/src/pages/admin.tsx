@@ -126,10 +126,9 @@ interface SessionDetail {
 type StableSnapshotRow = { idx: number; src: string; tgt: string };
 
 /**
- * Show only stable aligned pairs in admin monitor.
- * Keep original row indices so admin view does not reindex/shift rows.
- * For live sessions, intentionally hide only the newest row (one-segment delay)
- * so admin never sees in-flight partial artifacts.
+ * Build admin monitor rows directly from snapshot lines.
+ * Keep original row indices so admin can inspect boundary issues as they happen.
+ * Do not delay or require strict alignment; show best-effort pairs with blanks when one side lags.
  */
 function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
   const splitLines = (v: string) =>
@@ -145,19 +144,14 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
     Array.isArray(snapshot.translationLines) && snapshot.translationLines.length > 0
       ? snapshot.translationLines.map(v => String(v).trim())
       : splitLines(snapshot.translation);
-  if (src.length === 0 || tgt.length === 0) return [];
-
-  // Keep monitor stable: use contiguous aligned prefix only.
-  // If one side lags briefly, still show the shared prefix instead of blanking everything.
-  const aligned = Math.min(src.length, tgt.length);
-  const lastExclusive = isLive ? Math.max(0, aligned - 1) : aligned;
+  const maxRows = Math.max(src.length, tgt.length);
+  if (maxRows === 0) return [];
 
   const rows: StableSnapshotRow[] = [];
-  for (let i = 0; i < lastExclusive; i++) {
+  for (let i = 0; i < maxRows; i++) {
     const s = src[i] ?? "";
     const t = tgt[i] ?? "";
-    // Keep contiguous aligned prefix only; never skip holes or rows shift.
-    if (!s || !t) break;
+    if (!s && !t) continue;
     rows.push({ idx: i + 1, src: s, tgt: t });
   }
   return rows;
@@ -2937,7 +2931,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally one segment delayed to avoid duplicate/blank artifacts.
+                  Live monitor mode: rows are shown as they arrive (including partial rows) so you can debug user issues in real time.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
@@ -2951,7 +2945,7 @@ export default function Admin() {
                     if (stableRows.length === 0) {
                       return (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                          Waiting for stable aligned segment pairs (source + translation). Live monitor intentionally hides the newest in-flight row.
+                          Waiting for transcript/translation lines from this session.
                         </div>
                       );
                     }
