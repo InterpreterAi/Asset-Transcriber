@@ -2139,11 +2139,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
     //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
     // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
-    const fromLiveBuf = liveBufferRef.current.trim();
-    const finalText =
-      closeKind === "speaker_change"
-        ? domWithNfMerged
-        : longerTranscriptSnapshot(domWithNfMerged, fromLiveBuf);
+    const finalText = domWithNfMerged;
     if (finalText.trim().length > 0) {
       liveBufferRef.current = finalText;
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
