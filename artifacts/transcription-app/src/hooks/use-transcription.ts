@@ -114,7 +114,7 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+const FINAL_TEXT_RENDER_BUFFER_MS = 12;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
