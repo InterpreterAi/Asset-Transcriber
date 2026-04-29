@@ -248,6 +248,10 @@ function isDailyCapReachedWithLiveExtra(
   return used + live >= cap - 1e-6;
 }
 
+function trialLimitBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean {
+  return user.isAdmin === true;
+}
+
 async function maybeSendDailyLimitReachedEmail(
   user: {
     id: number;
@@ -310,7 +314,12 @@ async function closeOpenSessionWithBillingIfNeeded(
   if (userForCap) {
     const cap = Number(userForCap.dailyLimitMinutes);
     const used = Number(userForCap.minutesUsedToday);
-    if (Number.isFinite(cap) && cap > 0 && cap < UNLIMITED_DAILY_CAP_MINUTES) {
+    if (
+      !trialLimitBypassedForAdmin(userForCap) &&
+      Number.isFinite(cap) &&
+      cap > 0 &&
+      cap < UNLIMITED_DAILY_CAP_MINUTES
+    ) {
       const maxCreditMin = Math.max(0, cap - used);
       creditSeconds = Math.min(creditSeconds, Math.floor(maxCreditMin * 60));
     }
@@ -469,13 +478,13 @@ router.post("/token", requireAuth, async (req, res) => {
     if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
     // Only block on trial expiry when the user is still on the trial plan
-    if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
+    if (!trialLimitBypassedForAdmin(user) && isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
       res.status(403).json({ error: "Trial expired — please upgrade." });
       return;
     }
 
     const liveBillable = await sumOpenSessionsBillableMinutes(user.id);
-    if (isDailyCapReachedWithLiveExtra(user, liveBillable)) {
+    if (!trialLimitBypassedForAdmin(user) && isDailyCapReachedWithLiveExtra(user, liveBillable)) {
       res.status(403).json({
         error: isTrialLikePlanType(user.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
         code: "DAILY_LIMIT_REACHED",
@@ -1011,7 +1020,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
   if (!user) { res.status(401).json({ error: "Not authenticated" }); return; }
   if (!user.isActive) { res.status(403).json({ error: "Account is disabled" }); return; }
 
-  if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
+  if (!trialLimitBypassedForAdmin(user) && isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
     res.status(403).json({ error: "Trial expired — please upgrade." });
     return;
   }
@@ -1031,7 +1040,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   const userForCap = (await getUserWithResetCheck(user.id)) ?? user;
   const liveAfterOrphans = await sumOpenSessionsBillableMinutes(userForCap.id);
-  if (isDailyCapReachedWithLiveExtra(userForCap, liveAfterOrphans)) {
+  if (!trialLimitBypassedForAdmin(userForCap) && isDailyCapReachedWithLiveExtra(userForCap, liveAfterOrphans)) {
     res.status(403).json({
       error: isTrialLikePlanType(userForCap.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",
@@ -1127,7 +1136,7 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     return;
   }
   const liveBillable = await sumOpenSessionsBillableMinutes(userId);
-  if (isDailyCapReachedWithLiveExtra(hbUser, liveBillable)) {
+  if (!trialLimitBypassedForAdmin(hbUser) && isDailyCapReachedWithLiveExtra(hbUser, liveBillable)) {
     const [capRow] = await db
       .select({ audioSecondsProcessed: sessionsTable.audioSecondsProcessed })
       .from(sessionsTable)
@@ -1387,7 +1396,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const translateLiveBillable = await sumOpenSessionsBillableMinutes(translateUser.id);
-  if (isDailyCapReachedWithLiveExtra(translateUser, translateLiveBillable)) {
+  if (!trialLimitBypassedForAdmin(translateUser) && isDailyCapReachedWithLiveExtra(translateUser, translateLiveBillable)) {
     res.status(403).json({
       error: isTrialLikePlanType(translateUser.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",
