@@ -1388,6 +1388,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const lastTokenAtMsRef = useRef(0);
   /** Armed after >=3s silence while a segment is active; consumed by next same-speaker token. */
   const sameSpeakerPauseReadyRef = useRef<{ speakerId: string } | null>(null);
+  const silenceQuickFinalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSilenceQuickFinalKeyRef = useRef("");
   /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
   const OPENAI_LIVE_DEBOUNCE_MS = 0;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2235,6 +2237,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
+    if (silenceQuickFinalTimerRef.current !== null) {
+      clearTimeout(silenceQuickFinalTimerRef.current);
+      silenceQuickFinalTimerRef.current = null;
+    }
+    lastSilenceQuickFinalKeyRef.current = "";
     stopTranslationInterval();
     finalizeLiveBubble();
 
@@ -2420,6 +2427,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
+      if (sawSonioxEndpoint && silenceQuickFinalTimerRef.current !== null) {
+        clearTimeout(silenceQuickFinalTimerRef.current);
+        silenceQuickFinalTimerRef.current = null;
+      }
       resetInactivityRef.current?.();
 
       // Silence-trigger layer only: arm a pending split after >=3s token gap while a segment is active.
@@ -2588,6 +2599,51 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             },
             stEnd.segmentId,
           );
+        }
+      } else {
+        // Brief silence with no NF tail: start full-segment translate early.
+        const stQ = activeBubbleStateRef.current;
+        const srcQ = liveBufferRef.current.trim();
+        const nfTrim = nfText.trim();
+        if (nfTrim.length > 0) {
+          lastSilenceQuickFinalKeyRef.current = "";
+          if (silenceQuickFinalTimerRef.current !== null) {
+            clearTimeout(silenceQuickFinalTimerRef.current);
+            silenceQuickFinalTimerRef.current = null;
+          }
+        } else if (stQ && !stQ.translationLocked && !stQ.finalizing && srcQ.length >= 5) {
+          const silentMs = Date.now() - stQ.lastLiveSourceTs;
+          if (silentMs >= 380) {
+            const key = `${stQ.segmentId}|${srcQ}`;
+            if (lastSilenceQuickFinalKeyRef.current !== key) {
+              lastSilenceQuickFinalKeyRef.current = key;
+              if (silenceQuickFinalTimerRef.current !== null) {
+                clearTimeout(silenceQuickFinalTimerRef.current);
+              }
+              silenceQuickFinalTimerRef.current = setTimeout(() => {
+                silenceQuickFinalTimerRef.current = null;
+                if (!isRecRef.current) return;
+                const stN = activeBubbleStateRef.current;
+                if (!stN || stN.segmentId !== stQ.segmentId || stN.translationLocked || stN.finalizing) {
+                  return;
+                }
+                const srcNow = liveBufferRef.current.trim();
+                if (srcNow !== srcQ) return;
+                if ((activeBubbleNFRef.current?.textContent ?? "").trim().length > 0) return;
+                dispatchTranslationRef.current(
+                  srcNow,
+                  detectedLangRef.current,
+                  true,
+                  {
+                    lockOnFinal: false,
+                    suppressEarlyHardFinal: true,
+                    skipOpenAiLiveDebounce: true,
+                  },
+                  stN.segmentId,
+                );
+              }, 100);
+            }
+          }
         }
       }
 
