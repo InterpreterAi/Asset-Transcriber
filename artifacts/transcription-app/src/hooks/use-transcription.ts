@@ -2633,9 +2633,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
       const nfEl = activeBubbleNFRef.current;
-      const stNf = activeBubbleStateRef.current;
-      if (nfEl) nfEl.textContent = "";
-      if (stNf) stNf.lastNfRawText = "";
+      if (nfText) {
+        const stNf = activeBubbleStateRef.current;
+        if (nfEl && stNf) {
+          const prev = stNf.lastNfRawText;
+          if (nfText.startsWith(prev)) {
+            const suffix = nfText.slice(prev.length);
+            if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+          } else {
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
+          }
+          stNf.lastNfRawText = nfText;
+        }
+      } else if (nfEl) {
+        nfEl.textContent = "";
+        const stNf = activeBubbleStateRef.current;
+        if (stNf) stNf.lastNfRawText = "";
+      }
 
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
