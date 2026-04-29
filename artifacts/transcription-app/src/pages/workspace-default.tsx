@@ -157,6 +157,7 @@ export default function WorkspaceDefault() {
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
     translationUiMode: (user?.planType ?? "").toLowerCase() === "morsy-urgent" ? "hidden" : "upsell",
+    segmentBehaviorMode: (user?.planType ?? "").toLowerCase() === "morsy-urgent" ? "morsy-urgent-cbf" : "default",
     clientUsesLibreEngine: planUsesLibreEngine(user?.planType),
     dailyCapRef,
     onRecordingStopped: () => {
