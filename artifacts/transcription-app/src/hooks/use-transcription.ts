@@ -2593,16 +2593,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (nfText.startsWith(prev)) {
             const suffix = nfText.slice(prev.length);
             if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+            stNf.lastNfRawText = nfText;
           } else {
-            // Revised hypothesis (not a strict extension of the last NF string).
-            nfEl.textContent = nfText;
+            // Never shrink/replace already rendered live text; keep append-only behavior.
+            // This avoids the "text disappears after being shown" issue on hypothesis rewrites.
+            if (prev.length === 0) {
+              nfEl.textContent = (nfEl.textContent ?? "") + nfText;
+              stNf.lastNfRawText = nfText;
+            }
           }
-          stNf.lastNfRawText = nfText;
         }
-      } else if (nfEl) {
-        nfEl.textContent = "";
-        const stNf = activeBubbleStateRef.current;
-        if (stNf) stNf.lastNfRawText = "";
       }
 
       // ── Update live translation buffer ────────────────────────────────────
