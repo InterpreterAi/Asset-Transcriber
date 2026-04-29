@@ -158,8 +158,6 @@ export default function WorkspaceDefault() {
     translationEnabled: user?.translationEnabled ?? true,
     translationUiMode: (user?.planType ?? "").toLowerCase() === "morsy-urgent" ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
-    freezeLiveTranslationDuringPendingSwitch:
-      planUsesLibreEngine(user?.planType) && (user?.planType ?? "").toLowerCase() !== "morsy-urgent",
     clientUsesLibreEngine: planUsesLibreEngine(user?.planType),
     dailyCapRef,
     onRecordingStopped: () => {

@@ -1288,8 +1288,6 @@ export type UseTranscriptionOptions = {
   translationUiMode?: "upsell" | "hidden";
   /** Optional segment behavior profile for plan-specific stability experiments. */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
-  /** If true, pauses live translation while speaker-switch confirmation is pending. */
-  freezeLiveTranslationDuringPendingSwitch?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1326,13 +1324,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
-  const freezeLiveTranslationDuringPendingSwitchRef = useRef(
-    options?.freezeLiveTranslationDuringPendingSwitch ?? false,
-  );
-  useEffect(() => {
-    freezeLiveTranslationDuringPendingSwitchRef.current =
-      options?.freezeLiveTranslationDuringPendingSwitch ?? false;
-  }, [options?.freezeLiveTranslationDuringPendingSwitch]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2637,14 +2628,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
-      const pendingSwitchActive =
-        freezeLiveTranslationDuringPendingSwitchRef.current &&
-        pendingSpeakerSwitchRef.current !== null;
       if (
         st &&
         !st.translationLocked &&
         !st.finalizing &&
-        !pendingSwitchActive &&
         st.finalTokensSeen >= 2 &&
         hintSource.length >= 20 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
@@ -2660,7 +2647,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (sawSonioxEndpoint) {
         const stEnd = activeBubbleStateRef.current;
         const srcEnd = liveBufferRef.current.trim();
-        if (stEnd && srcEnd && !stEnd.translationLocked && !pendingSwitchActive) {
+        if (stEnd && srcEnd && !stEnd.translationLocked) {
           dispatchTranslation(
             srcEnd,
             detectedLangRef.current,
