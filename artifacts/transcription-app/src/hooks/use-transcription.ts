@@ -985,6 +985,17 @@ function tokenOverlapRatio(a: string, b: string): number {
   return hit / Math.max(ta.length, tb.length);
 }
 
+function looksLikeUntranslatedCopy(source: string, candidate: string): boolean {
+  const s = collapseWs(source);
+  const c = collapseWs(candidate);
+  if (!s || !c) return false;
+  if (s.length < 12 || c.length < 12) return false;
+  if (s === c) return true;
+  if (s.includes(c) || c.includes(s)) return true;
+  const r = Math.max(tokenOverlapRatio(s, c), tokenOverlapRatio(c, s));
+  return r >= 0.88;
+}
+
 /** Split on closing sentence punctuation (Latin, Arabic, CJK full-width) for paraphrase dedupe. */
 const INTERPRETER_SENTENCE_SPLIT_RE = /(?<=[.!?؟。！？])\s+/u;
 
@@ -1857,6 +1868,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           translated = trRetry.text;
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
+        }
+        if (translated?.trim() && looksLikeUntranslatedCopy(text, translated)) {
+          const trOppRetry = await fetchTranslation(
+            text,
+            dispatchLang,
+            myTargetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              streamingDelta: false,
+              isFinal: requestIsFinal,
+              signal: liveAbortForThisRequest?.signal,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+            },
+          );
+          if (trOppRetry.dailyLimitReached) {
+            dailyLimitShutdownRef.current(trOppRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            return;
+          }
+          if (trOppRetry.text?.trim() && !looksLikeUntranslatedCopy(text, trOppRetry.text)) {
+            translated = trOppRetry.text;
+            translationEngineHint = trOppRetry.translationEngine ?? translationEngineHint;
+          }
         }
         if (requestSegmentId !== state.segmentId) return;
 
