@@ -1334,8 +1334,8 @@ export type UseTranscriptionOptions = {
   translationUiMode?: "upsell" | "hidden";
   /** Optional segment behavior profile for plan-specific stability experiments. */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
-  /** Optional safety mode: keep transcript NF append-only (never shrink/replace already shown text). */
-  keepNfAppendOnly?: boolean;
+  /** Optional legacy behavior mode for legacy2 (Apr 27 checkpoint). */
+  legacy2Apr27Mode?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1372,10 +1372,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
-  const keepNfAppendOnlyRef = useRef(options?.keepNfAppendOnly ?? false);
+  const legacy2Apr27ModeRef = useRef(options?.legacy2Apr27Mode ?? false);
   useEffect(() => {
-    keepNfAppendOnlyRef.current = options?.keepNfAppendOnly ?? false;
-  }, [options?.keepNfAppendOnly]);
+    legacy2Apr27ModeRef.current = options?.legacy2Apr27Mode ?? false;
+  }, [options?.legacy2Apr27Mode]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2168,9 +2168,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
     //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
     // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
-    const finalText = domWithNfMerged;
+    const finalText =
+      legacy2Apr27ModeRef.current && closeKind !== "speaker_change"
+        ? liveBufferRef.current.trim() || domWithNfMerged
+        : domWithNfMerged;
     if (finalText.trim().length > 0) {
-      liveBufferRef.current = finalText;
+      if (!legacy2Apr27ModeRef.current) {
+        liveBufferRef.current = finalText;
+      }
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
       // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
@@ -2650,27 +2655,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             stNf.lastNfRawText = nfText;
           } else {
-            if (keepNfAppendOnlyRef.current) {
-              // Legacy2 safety path: avoid shrinking/replacing already shown transcript text.
-              if (prev.length === 0) {
-                nfEl.textContent = (nfEl.textContent ?? "") + nfText;
-                stNf.lastNfRawText = nfText;
-              }
-            } else {
-              // Revised hypothesis (not a strict extension of the last NF string).
-              nfEl.textContent = nfText;
-              stNf.lastNfRawText = nfText;
-            }
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
+            stNf.lastNfRawText = nfText;
           }
         }
       } else if (nfEl) {
         const stNf = activeBubbleStateRef.current;
-        if (keepNfAppendOnlyRef.current) {
-          if (stNf) stNf.lastNfRawText = "";
-        } else {
-          nfEl.textContent = "";
-          if (stNf) stNf.lastNfRawText = "";
-        }
+        nfEl.textContent = "";
+        if (stNf) stNf.lastNfRawText = "";
       }
 
       // ── Update live translation buffer ────────────────────────────────────

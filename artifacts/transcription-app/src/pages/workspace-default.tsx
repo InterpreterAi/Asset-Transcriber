@@ -158,7 +158,7 @@ export default function WorkspaceDefault() {
     translationEnabled: user?.translationEnabled ?? true,
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
-    keepNfAppendOnly: (user?.planType ?? "").toLowerCase() === "legacy2",
+    legacy2Apr27Mode: (user?.planType ?? "").toLowerCase() === "legacy2",
     clientUsesLibreEngine: planUsesLibreEngine(user?.planType),
     dailyCapRef,
     onRecordingStopped: () => {
