@@ -621,6 +621,38 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
   return matchesLang(sourceMember, pair.a) ? pair.b : pair.a;
 }
 
+/**
+ * First-words majority hint:
+ * inspect the first 3 words and use a 2-of-3 majority to choose source language.
+ * Returns null when no clear majority is available.
+ */
+function majoritySourceFromFirstWords(
+  text: string,
+  sonioxHint: string,
+  pair: { a: string; b: string },
+): string | null {
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .map(w => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter(Boolean)
+    .slice(0, 3);
+  if (words.length < 3) return null;
+
+  let aVotes = 0;
+  let bVotes = 0;
+  for (const w of words) {
+    const vw = validateLangByScript(sonioxHint, w, pair);
+    const u = uniquePairMemberForLang(vw, pair) ?? uniquePairMemberForLang(sonioxHint, pair);
+    if (!u) continue;
+    if (matchesLang(u, pair.a) && !matchesLang(u, pair.b)) aVotes += 1;
+    else if (matchesLang(u, pair.b) && !matchesLang(u, pair.a)) bVotes += 1;
+  }
+  if (aVotes >= 2 && aVotes > bVotes) return pair.a;
+  if (bVotes >= 2 && bVotes > aVotes) return pair.b;
+  return null;
+}
+
 // ── Translation fetch ──────────────────────────────────────────────────────────
 // sourceLang: BCP-47 code auto-detected by Soniox (e.g. "en", "ar", "fr").
 // targetLang: BCP-47 code resolved from the language pair (always the opposite).
@@ -1633,7 +1665,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const dispatchLang = snapSourceLanguageToPair(rawCandidate, sonioxHint, text, pair);
+    const dispatchLang =
+      majoritySourceFromFirstWords(text, sonioxHint, pair) ??
+      uniquePairMemberForLang(validateLangByScript(sonioxHint, text, pair), pair) ??
+      uniquePairMemberForLang(sonioxHint, pair) ??
+      pair.a;
     const myTargetLang = targetOppositeInPair(dispatchLang, pair);
     if (!state.translationLocked) {
       state.segmentSourceLang = dispatchLang;
