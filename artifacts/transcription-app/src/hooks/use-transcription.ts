@@ -1334,6 +1334,8 @@ export type UseTranscriptionOptions = {
   translationUiMode?: "upsell" | "hidden";
   /** Optional segment behavior profile for plan-specific stability experiments. */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
+  /** Optional safety mode: keep transcript NF append-only (never shrink/replace already shown text). */
+  keepNfAppendOnly?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1370,6 +1372,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
+  const keepNfAppendOnlyRef = useRef(options?.keepNfAppendOnly ?? false);
+  useEffect(() => {
+    keepNfAppendOnlyRef.current = options?.keepNfAppendOnly ?? false;
+  }, [options?.keepNfAppendOnly]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2642,16 +2648,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (suffix) {
               nfEl.textContent = (nfEl.textContent ?? "") + suffix;
             }
+            stNf.lastNfRawText = nfText;
           } else {
-            // Revised hypothesis (not a strict extension of the last NF string).
-            nfEl.textContent = nfText;
+            if (keepNfAppendOnlyRef.current) {
+              // Legacy2 safety path: avoid shrinking/replacing already shown transcript text.
+              if (prev.length === 0) {
+                nfEl.textContent = (nfEl.textContent ?? "") + nfText;
+                stNf.lastNfRawText = nfText;
+              }
+            } else {
+              // Revised hypothesis (not a strict extension of the last NF string).
+              nfEl.textContent = nfText;
+              stNf.lastNfRawText = nfText;
+            }
           }
-          stNf.lastNfRawText = nfText;
         }
       } else if (nfEl) {
-        nfEl.textContent = "";
         const stNf = activeBubbleStateRef.current;
-        if (stNf) stNf.lastNfRawText = "";
+        if (keepNfAppendOnlyRef.current) {
+          if (stNf) stNf.lastNfRawText = "";
+        } else {
+          nfEl.textContent = "";
+          if (stNf) stNf.lastNfRawText = "";
+        }
       }
 
       // ── Update live translation buffer ────────────────────────────────────
