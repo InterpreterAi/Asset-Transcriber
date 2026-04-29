@@ -1291,6 +1291,8 @@ export type UseTranscriptionOptions = {
   translationUiMode?: "upsell" | "hidden";
   /** Optional segment behavior profile for plan-specific stability experiments. */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
+  /** Mirrors plan engine split; false = OpenAI plans, true = Libre/Hetzner plans. */
+  clientUsesLibreEngine?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1327,6 +1329,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
+  const clientUsesLibreEngineRef = useRef(options?.clientUsesLibreEngine ?? true);
+  useEffect(() => {
+    clientUsesLibreEngineRef.current = options?.clientUsesLibreEngine ?? true;
+  }, [options?.clientUsesLibreEngine]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2614,6 +2620,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
       const nfEl = activeBubbleNFRef.current;
+      const openAiNoShrinkLiveTranscript = !clientUsesLibreEngineRef.current;
       if (nfText) {
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
@@ -2621,16 +2628,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (nfText.startsWith(prev)) {
             const suffix = nfText.slice(prev.length);
             if (suffix) nfEl.textContent = (nfEl.textContent ?? "") + suffix;
+            stNf.lastNfRawText = nfText;
           } else {
-            // Revised hypothesis (not a strict extension of the last NF string).
-            nfEl.textContent = nfText;
+            if (openAiNoShrinkLiveTranscript) {
+              // OpenAI-only guard: avoid replacing with shorter revised NF hypotheses,
+              // which causes visible "text disappeared" flicker in the transcript row.
+              if (prev.length === 0) {
+                nfEl.textContent = (nfEl.textContent ?? "") + nfText;
+                stNf.lastNfRawText = nfText;
+              }
+            } else {
+              // Revised hypothesis (not a strict extension of the last NF string).
+              nfEl.textContent = nfText;
+              stNf.lastNfRawText = nfText;
+            }
           }
-          stNf.lastNfRawText = nfText;
         }
       } else if (nfEl) {
-        nfEl.textContent = "";
-        const stNf = activeBubbleStateRef.current;
-        if (stNf) stNf.lastNfRawText = "";
+        if (!openAiNoShrinkLiveTranscript) {
+          nfEl.textContent = "";
+          const stNf = activeBubbleStateRef.current;
+          if (stNf) stNf.lastNfRawText = "";
+        }
       }
 
       // ── Update live translation buffer ────────────────────────────────────
