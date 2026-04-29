@@ -2481,6 +2481,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (useMorsyUrgentSpeakerGate) {
               if (tokenSuitable) {
                 handledByPendingSwitchLogic = true;
+                if (freezeLiveTranslationDuringPendingSwitchRef.current) {
+                  cancelOpenAiLiveDebounce();
+                  const stLive = activeBubbleStateRef.current;
+                  stLive?.liveTranslationAbort?.abort();
+                  if (stLive) stLive.liveTranslationAbort = null;
+                }
                 const pending = pendingSpeakerSwitchRef.current;
                 if (!pending || pending.sid !== sid) {
                   pendingSpeakerSwitchRef.current = {
@@ -2709,6 +2715,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     return ws;
   }, [
     stop,
+    cancelOpenAiLiveDebounce,
     closeActiveSegmentBoundary,
     createBubble,
     scrollPanel,
