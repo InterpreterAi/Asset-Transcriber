@@ -1630,47 +1630,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         : validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
-    if (
-      uniquePairMemberForLang(vRaw, pair) === null &&
-      uniquePairMemberForLang(vSon, pair) === null &&
-      uniquePairMemberForLang(sonioxHint, pair) === null
-    ) {
-      console.info(
-        "[translation_call]",
-        `time=${new Date(Date.now()).toISOString()}`,
-        `segment_id=${state.segmentId}`,
-        "reason=language_passthrough",
-        `is_final=${isFinal ? "true" : "false"}`,
-        `buffer_words=${words}`,
-        `buffer_chars=${chars}`,
-        "estimated_tokens=0",
-      );
-      state.seq += 1;
-      const mySeq = state.seq;
-      const { transTextEl } = state;
-      if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
-        state.lastShownSeq = mySeq;
-        state.lastShownLen = text.length;
-        applyTranslationTypography(transTextEl, text);
-        state.streamCommittedSource = text;
-        if (isFinal && lockOnFinal) {
-          state.translationLocked = true;
-          if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
-            onAdminSnapshotBuffersUpdatedRef.current?.();
-          }
-        }
-        scrollPanel();
-      }
-      return;
-    }
-
     const dispatchLang =
       majoritySourceFromFirstWords(text, sonioxHint, pair) ??
       uniquePairMemberForLang(validateLangByScript(sonioxHint, text, pair), pair) ??
       uniquePairMemberForLang(sonioxHint, pair) ??
       pair.a;
-    const myTargetLang = targetOppositeInPair(dispatchLang, pair);
+    let myTargetLang = targetOppositeInPair(dispatchLang, pair);
     if (!state.translationLocked) {
       state.segmentSourceLang = dispatchLang;
       state.segmentTargetLang = myTargetLang;
@@ -1678,23 +1643,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const { transTextEl } = state;
 
     if (matchesLang(dispatchLang, myTargetLang)) {
-      state.seq += 1;
-      const mySeq = state.seq;
-      if (mySeq > state.lastShownSeq && transTextEl.isConnected && !state.translationLocked) {
-        state.lastShownSeq = mySeq;
-        state.lastShownLen = text.length;
-        applyTranslationTypography(transTextEl, text);
-        state.streamCommittedSource = text;
-        if (isFinal) {
-          state.translationLocked = true;
-          if (translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = text.trim();
-            onAdminSnapshotBuffersUpdatedRef.current?.();
-          }
-        }
-        scrollPanel();
+      // Hard guard: translation target must always be the opposite side.
+      myTargetLang = matchesLang(dispatchLang, pair.a) ? pair.b : pair.a;
+      if (!state.translationLocked) {
+        state.segmentTargetLang = myTargetLang;
       }
-      return;
     }
 
     const reason: TranslationTriggerReason = isFinal ? "segment_finalize" : "early_hint";
