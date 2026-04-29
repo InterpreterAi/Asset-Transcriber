@@ -1334,8 +1334,8 @@ export type UseTranscriptionOptions = {
   translationUiMode?: "upsell" | "hidden";
   /** Optional segment behavior profile for plan-specific stability experiments. */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
-  /** Optional legacy behavior mode for legacy2 (Apr 27 checkpoint). */
-  legacy2Apr27Mode?: boolean;
+  /** Optional legacy behavior mode for legacy2 (Apr 24 Hetzner checkpoint). */
+  legacy2Apr24HetznerMode?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1372,10 +1372,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
-  const legacy2Apr27ModeRef = useRef(options?.legacy2Apr27Mode ?? false);
+  const legacy2Apr24HetznerModeRef = useRef(options?.legacy2Apr24HetznerMode ?? false);
   useEffect(() => {
-    legacy2Apr27ModeRef.current = options?.legacy2Apr27Mode ?? false;
-  }, [options?.legacy2Apr27Mode]);
+    legacy2Apr24HetznerModeRef.current = options?.legacy2Apr24HetznerMode ?? false;
+  }, [options?.legacy2Apr24HetznerMode]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2168,14 +2168,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
     //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
     // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
-    const finalText =
-      legacy2Apr27ModeRef.current && closeKind !== "speaker_change"
-        ? liveBufferRef.current.trim() || domWithNfMerged
-        : domWithNfMerged;
+    const finalText = legacy2Apr24HetznerModeRef.current
+      ? (
+          closeKind === "speaker_change"
+            ? domWithNfMerged
+            : longerTranscriptSnapshot(domWithNfMerged, liveBufferRef.current.trim())
+        )
+      : domWithNfMerged;
     if (finalText.trim().length > 0) {
-      if (!legacy2Apr27ModeRef.current) {
-        liveBufferRef.current = finalText;
-      }
+      liveBufferRef.current = finalText;
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
       // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
       // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
