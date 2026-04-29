@@ -2079,7 +2079,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
-    const activeRowEl = activeBubbleRef.current.closest(`.${CLS.row}`) as HTMLElement | null;
 
     // Stop polling AND mark as finalizing synchronously, before the async
     // dispatch below. This ensures any poll fetch already in-flight will be
@@ -2149,8 +2148,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         },
         segId,
       );
-    } else {
-      activeRowEl?.remove();
     }
   }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
