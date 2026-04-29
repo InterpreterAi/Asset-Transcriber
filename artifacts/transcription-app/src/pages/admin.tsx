@@ -315,6 +315,7 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial", label: "Trial · OpenAI (legacy)" },
   { value: "basic-openai", label: "Basic · OpenAI" },
   { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy STT, no translation)" },
+  { value: "legacy2", label: "Basic · Legacy 2 (Final Boss 3 STT, no translation)" },
   { value: "professional-openai", label: "Professional · OpenAI" },
   { value: "platinum-openai", label: "Platinum · OpenAI" },
 ];
