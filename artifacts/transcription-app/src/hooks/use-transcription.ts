@@ -716,6 +716,7 @@ async function translateViaPrimaryApi(
       externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
     }
     try {
+      const terminologyMode = readTerminologyMode() === "hybrid" ? "hybrid" : "full";
       const r = await fetch("/api/transcription/translate", {
         method:      "POST",
         headers:     { "Content-Type": "application/json" },
@@ -728,7 +729,7 @@ async function translateViaPrimaryApi(
           streamingDelta: Boolean(options?.streamingDelta),
           isFinal:        Boolean(options?.isFinal),
           glossaryStrictMode: readGlossaryStrictEnabled(),
-          terminologyMode: readTerminologyMode(),
+          terminologyMode,
         }),
       });
       clearTimeout(timeoutId);
@@ -1457,7 +1458,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
   /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
-  const OPENAI_LIVE_DEBOUNCE_MS = 0;
+  const OPENAI_LIVE_DEBOUNCE_MS = 300;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
     null,

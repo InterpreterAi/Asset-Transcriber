@@ -1700,10 +1700,10 @@ router.post("/translate", requireAuth, async (req, res) => {
       termHints.map(h => `  ${h}`).join("\n") + "\n"
     : "";
   const strictTerminologyRule =
-    `STRICT TERMINOLOGY RULES:\n` +
-    `- Always translate medical terms fully into ${tgtName}.\n` +
-    `- Do NOT leave English terms unless explicitly specified.\n` +
-    `- Maintain consistency for repeated terms.\n` +
+    `STRICT TERMINOLOGY ENFORCEMENT:\n` +
+    `- You MUST translate ALL medical, legal, and insurance terms into ${tgtName}.\n` +
+    `- Do NOT leave English terms unless they are proper names.\n` +
+    `- Apply this consistently for every segment.\n` +
     `- If a glossary is provided, you MUST follow it exactly.\n` +
     (terminologyMode === "hybrid"
       ? `- Hybrid mode is enabled: for glossary-matched terms, render as "source-term (target-term)".\n`
