@@ -1339,8 +1339,6 @@ export type UseTranscriptionOptions = {
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
   /** Optional legacy behavior mode for legacy2 (Apr 24 Hetzner checkpoint). */
   legacy2Apr24HetznerMode?: boolean;
-  /** Hint from workspace user plan so client-side translation timing can differ by engine path. */
-  clientUsesLibreEngine?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1377,10 +1375,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
-  const clientUsesLibreEngineRef = useRef(options?.clientUsesLibreEngine ?? false);
-  useEffect(() => {
-    clientUsesLibreEngineRef.current = options?.clientUsesLibreEngine ?? false;
-  }, [options?.clientUsesLibreEngine]);
   const legacy2Apr24HetznerModeRef = useRef(options?.legacy2Apr24HetznerMode ?? false);
   useEffect(() => {
     legacy2Apr24HetznerModeRef.current = options?.legacy2Apr24HetznerMode ?? false;
@@ -1497,8 +1491,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   });
 
   /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI = 52;
-  const LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE = 300;
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1538,7 +1531,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         { skipOpenAiLiveDebounce: true },
         p.segmentId,
       );
-    }, clientUsesLibreEngineRef.current ? LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE : LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI);
+    }, LIVE_TRANSLATION_DEBOUNCE_MS);
   }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
