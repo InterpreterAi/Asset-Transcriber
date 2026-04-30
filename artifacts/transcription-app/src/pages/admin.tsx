@@ -124,7 +124,7 @@ interface SessionDetail {
 }
 
 type StableSnapshotRow = { idx: number; src: string; tgt: string };
-const LIVE_MONITOR_DELAY_ROWS = 2;
+const LIVE_MONITOR_DELAY_ROWS = 3;
 
 /**
  * Show only strict aligned source↔translation pairs in admin monitor.
@@ -2939,7 +2939,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally slightly delayed to avoid duplicate/blank/shift artifacts.
+                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally delayed to keep rows aligned and avoid duplicate/blank/shift artifacts.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
