@@ -124,11 +124,12 @@ interface SessionDetail {
 }
 
 type StableSnapshotRow = { idx: number; src: string; tgt: string };
+const LIVE_MONITOR_DELAY_ROWS = 2;
 
 /**
  * Show only strict aligned source↔translation pairs in admin monitor.
  * Keep original row indices so admin view does not reindex/shift rows.
- * For live sessions, intentionally hide only the newest row (one-segment delay)
+ * For live sessions, intentionally hide newest rows (small delay)
  * so admin never sees in-flight partial artifacts.
  */
 function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
@@ -150,7 +151,7 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
   // Keep monitor stable: use contiguous aligned prefix only.
   // If one side lags briefly, still show the shared prefix instead of blanking everything.
   const aligned = Math.min(src.length, tgt.length);
-  const lastExclusive = isLive ? Math.max(0, aligned - 1) : aligned;
+  const lastExclusive = isLive ? Math.max(0, aligned - LIVE_MONITOR_DELAY_ROWS) : aligned;
 
   const rows: StableSnapshotRow[] = [];
   for (let i = 0; i < lastExclusive; i++) {
@@ -2938,7 +2939,7 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally one segment delayed to avoid duplicate/blank artifacts.
+                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally slightly delayed to avoid duplicate/blank/shift artifacts.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
