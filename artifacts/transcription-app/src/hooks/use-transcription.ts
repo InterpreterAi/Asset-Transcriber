@@ -1295,6 +1295,8 @@ interface BubbleTransState {
   lastConfirmedSourceTranslated: string;
   /** Last live source sent to translator (prevents tight same-text loops). */
   lastRequestedLiveSource: string;
+  /** Last source length dispatched in live mode (used for minimal growth guard). */
+  lastSentLength: number;
   /** When last live source request was sent. */
   lastRequestedLiveAtMs: number;
   /** Throttle WS hint retries when source matches bookkeeping but translation cell is still empty. */
@@ -1498,7 +1500,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
   const LIVE_TRANSLATION_DEBOUNCE_MS_OPENAI = 52;
-  const LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE = 300;
+  const LIVE_TRANSLATION_DEBOUNCE_MS_LIBRE = 0;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -1531,6 +1533,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (!isRecRef.current) return;
       const st = activeBubbleStateRef.current;
       if (!st || st.segmentId !== p.segmentId || st.translationLocked || st.finalizing) return;
+      if (clientUsesLibreEngineRef.current && p.text.length - st.lastSentLength < 10) return;
+      st.lastSentLength = p.text.length;
       dispatchTranslationRef.current(
         p.text.trim(),
         p.lang,
@@ -2114,6 +2118,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastConfirmedSource:   "",
       lastConfirmedSourceTranslated: "",
       lastRequestedLiveSource: "",
+      lastSentLength: 0,
       lastRequestedLiveAtMs: 0,
       lastEmptyCellHintDispatchAtMs: 0,
       lastTruncationRetryHintAtMs: 0,
