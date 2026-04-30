@@ -1362,6 +1362,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     streamingDelta: rawStreamingDelta,
     isFinal: rawIsFinal,
     glossaryStrictMode: rawGlossaryStrict,
+    terminologyMode: rawTerminologyMode,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1374,10 +1375,15 @@ router.post("/translate", requireAuth, async (req, res) => {
     isFinal?: boolean;
     /** When not `false`, run regex enforcement on translated output (default: on). */
     glossaryStrictMode?: boolean;
+    /** OpenAI terminology behavior mode: full translation vs hybrid labels. */
+    terminologyMode?: string;
   };
   const streamingDelta = Boolean(rawStreamingDelta);
   const isFinalSegment = Boolean(rawIsFinal);
   const glossaryStrictMode = rawGlossaryStrict !== false;
+  const terminologyMode = String(rawTerminologyMode ?? "full").trim().toLowerCase() === "hybrid"
+    ? "hybrid"
+    : "full";
 
   if (!text?.trim() || !srcLang || !tgtLang) {
     res.status(400).json({ error: "text, srcLang, and tgtLang are required" });
@@ -1693,6 +1699,26 @@ router.post("/translate", requireAuth, async (req, res) => {
     ? `- Use these exact glossary translations for the following terms:\n` +
       termHints.map(h => `  ${h}`).join("\n") + "\n"
     : "";
+  const strictTerminologyRule =
+    `STRICT TERMINOLOGY RULES:\n` +
+    `- Always translate medical terms fully into ${tgtName}.\n` +
+    `- Do NOT leave English terms unless explicitly specified.\n` +
+    `- Maintain consistency for repeated terms.\n` +
+    `- If a glossary is provided, you MUST follow it exactly.\n` +
+    (terminologyMode === "hybrid"
+      ? `- Hybrid mode is enabled: for glossary-matched terms, render as "source-term (target-term)".\n`
+      : `- Full translation mode is enabled: render glossary-matched terms using target language only.\n`) +
+    "\n";
+  const userGlossaryRule = userGlossary.length > 0
+    ? (
+      `Terminology glossary:\n` +
+      userGlossary
+        .map(g => `- ${String(g.term ?? "").trim()} = ${String(g.translation ?? "").trim()}`)
+        .filter(line => !line.endsWith("= "))
+        .join("\n") +
+      "\n\n"
+    )
+    : "";
 
   const finalSegmentBlock =
     isFinalSegment && !streamingDelta ? finalSegmentCorrectionPrompt(tgtName) : "";
@@ -1863,6 +1889,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- Legal/court: use precise legal equivalents in ${tgtName}; translate English legal vocabulary completely (no English insertions in Arabic, Hindi, Cyrillic, CJK, etc.).\n` +
     `- Insurance/claims/accident: use standard ${tgtName} terms (collision, liability, claim, deductible, at-fault, premium, coverage, adjuster, settlement, etc.) whenever the speaker uses those concepts.\n` +
     `- Do NOT leave medical/legal/insurance English terms untranslated unless the term is a proper name, geographic name, or proprietary brand.\n` +
+    strictTerminologyRule +
+    userGlossaryRule +
     arabicSourceRule +
     termRule +
     finalSegmentBlock +
@@ -2118,9 +2146,10 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     const appliedAi: string[] = [];
     let outAi = result.text;
+    // OpenAI terminology behavior is enforced in-prompt (request level only).
+    // Keep applied list empty here; no post-response glossary rewriting for OpenAI.
     if (glossaryStrictMode) {
-      outAi = applyUserGlossaryStrict(outAi, userGlossary, appliedAi);
-      outAi = ensureGlossaryTranslationsFromSource(outAi, phraseNormalized, userGlossary, appliedAi);
+      void glossaryStrictMode;
     }
 
     diagCounter.translationSegments += 1;

@@ -7,6 +7,7 @@ import {
   wrapAsciiDigitRunsWithLtrSpans,
 } from "@/lib/wrap-ltr-numbers";
 import { readGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
+import { readTerminologyMode } from "@/lib/terminology-mode-storage";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -727,6 +728,7 @@ async function translateViaPrimaryApi(
           streamingDelta: Boolean(options?.streamingDelta),
           isFinal:        Boolean(options?.isFinal),
           glossaryStrictMode: readGlossaryStrictEnabled(),
+          terminologyMode: readTerminologyMode(),
         }),
       });
       clearTimeout(timeoutId);
