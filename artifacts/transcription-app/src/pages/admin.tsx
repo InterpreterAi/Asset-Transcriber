@@ -148,8 +148,8 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
       : splitLines(snapshot.translation);
   if (src.length === 0 || tgt.length === 0) return [];
 
-  // Keep monitor stable: use contiguous aligned prefix only.
-  // If one side lags briefly, still show the shared prefix instead of blanking everything.
+  // Keep monitor stable: use aligned rows only.
+  // If one side lags briefly on one row, skip that row but continue showing later settled rows.
   const aligned = Math.min(src.length, tgt.length);
   const lastExclusive = isLive ? Math.max(0, aligned - LIVE_MONITOR_DELAY_ROWS) : aligned;
 
@@ -157,8 +157,8 @@ function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): St
   for (let i = 0; i < lastExclusive; i++) {
     const s = src[i] ?? "";
     const t = tgt[i] ?? "";
-    // Keep contiguous aligned prefix only; never skip holes or rows shift.
-    if (!s || !t) break;
+    // Preserve original row indices while skipping temporary holes.
+    if (!s || !t) continue;
     rows.push({ idx: i + 1, src: s, tgt: t });
   }
   return rows;
