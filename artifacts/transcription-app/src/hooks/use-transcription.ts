@@ -56,15 +56,6 @@ function mergeFinalWithNonFinalHypothesis(finalPart: string, nf: string): string
   return fTrim + n;
 }
 
-/** When two merge strategies disagree, keep the longer non-empty string so finalize never prefers a truncated buffer. */
-function longerTranscriptSnapshot(a: string, b: string): string {
-  const ta = a.trim();
-  const tb = b.trim();
-  if (!ta) return tb;
-  if (!tb) return ta;
-  return ta.length >= tb.length ? ta : tb;
-}
-
 /**
  * Live (non-final) translation: if the source is still growing or stable, do not replace a longer
  * on-screen translation with a shorter API response — MT sometimes returns a partial. When the source
@@ -1346,8 +1337,6 @@ export type UseTranscriptionOptions = {
   translationUiMode?: "upsell" | "hidden";
   /** Optional segment behavior profile for plan-specific stability experiments. */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
-  /** Optional legacy behavior mode for legacy2 (Apr 24 Hetzner checkpoint). */
-  legacy2Apr24HetznerMode?: boolean;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1389,10 +1378,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
   }, [options?.segmentBehaviorMode]);
-  const legacy2Apr24HetznerModeRef = useRef(options?.legacy2Apr24HetznerMode ?? false);
-  useEffect(() => {
-    legacy2Apr24HetznerModeRef.current = options?.legacy2Apr24HetznerMode ?? false;
-  }, [options?.legacy2Apr24HetznerMode]);
   const segmentBoundaryGuardsRef = useRef(options?.segmentBoundaryGuards ?? false);
   useEffect(() => {
     segmentBoundaryGuardsRef.current = options?.segmentBoundaryGuards ?? false;
@@ -2214,14 +2199,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Capture NF *before* clearing: Soniox often keeps the tail of long digit chains non-final until
-    // the next token arrives — speaker_change used to read only `finalSpan`, so those digits never
-    // entered transcriptBuf / final translate (session_end already used liveBuffer, which merges NF).
-    const finBeforeNfClear = (activeBubbleRef.current.textContent ?? "").trimEnd();
-    const nfBeforeClear = (activeBubbleNFRef.current?.textContent ?? "").trim();
-    const domFinalSpanOnly = finBeforeNfClear.trim();
-    const domWithNfMerged =
-      nfBeforeClear.length > 0 ? mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim() : domFinalSpanOnly;
+    // Final transcript + final translate source: committed finals only (`activeBubbleRef` is the
+    // final span; NF is a sibling — not read or merged here; avoids NF/revision shrink on boundary).
+    const finalText = (activeBubbleRef.current?.textContent ?? "").trim();
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -2234,18 +2214,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const p = activeBubbleRef.current.parentElement;
       if (p) p.className = CLS.textFin;
     }
-
-    // Translation source for the final API call:
-    // - session_end: `liveBufferRef` is updated per WS frame; a bad merge there must not win over the
-    //   flushed final span + NF span (longer snapshot preserves words that were correct in the DOM).
-    // - speaker_change: merge this row's final + NF only — liveBufferRef can already include the next speaker.
-    const finalText = legacy2Apr24HetznerModeRef.current
-      ? (
-          closeKind === "speaker_change"
-            ? domWithNfMerged
-            : longerTranscriptSnapshot(domWithNfMerged, liveBufferRef.current.trim())
-        )
-      : domWithNfMerged;
     if (finalText.trim().length > 0) {
       liveBufferRef.current = finalText;
       // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
