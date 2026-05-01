@@ -159,7 +159,7 @@ export default function WorkspaceDefault() {
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
     legacy2Apr24HetznerMode: (user?.planType ?? "").toLowerCase() === "legacy2",
-    clientUsesLibreEngine: planUsesLibreEngine(user?.planType),
+    segmentBoundaryGuards: Boolean(user && !planUsesLibreEngine(user.planType)),
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });

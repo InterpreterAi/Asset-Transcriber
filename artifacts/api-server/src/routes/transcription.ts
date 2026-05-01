@@ -1359,6 +1359,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     tgtLang,
     sessionId: incomingSessionId,
     segmentId: incomingSegmentId,
+    /** Client-side translation dispatch ordinal for diagnostics / ordering (optional). */
+    clientSeq: _incomingClientSeq,
     streamingDelta: rawStreamingDelta,
     isFinal: rawIsFinal,
     glossaryStrictMode: rawGlossaryStrict,
@@ -1369,6 +1371,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     tgtLang?: string;
     sessionId?: number;
     segmentId?: string;
+    clientSeq?: number;
     /** Client sends only a new source tail while live-transcribing; model returns only that fragment's translation. */
     streamingDelta?: boolean;
     /** Full segment after pause/speaker change — prompt asks for authoritative polished translation. */

@@ -681,6 +681,9 @@ type TranslateApiOptions = {
   isFinal?: boolean;
   /** Abort stops this request (superseded live translate or segment teardown). */
   signal?: AbortSignal;
+  /** Client correlation for duplicate-account / segment-boundary diagnostics (OpenAI-path guards); server ignores if unused. */
+  segmentId?: string;
+  clientSeq?: number;
 };
 
 async function translateViaPrimaryApi(
@@ -730,6 +733,8 @@ async function translateViaPrimaryApi(
           isFinal:        Boolean(options?.isFinal),
           glossaryStrictMode: readGlossaryStrictEnabled(),
           terminologyMode,
+          ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
+          ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
         }),
       });
       clearTimeout(timeoutId);
@@ -1267,6 +1272,10 @@ function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: st
 // a previous segment can NEVER write into a later segment's DOM element.
 interface BubbleTransState {
   segmentId:          string;
+  /** True after segment boundary close — blocks late live flush/translate for this segment (final responses still allowed). */
+  isClosed:           boolean;
+  /** Highest translation dispatch seq successfully applied to DOM (OpenAI-path stale-response guard). */
+  lastAppliedSeq:     number;
   transTextEl:       HTMLParagraphElement;
   seq:               number;   // incremented on every dispatch FOR THIS bubble
   lastShownSeq:      number;   // highest seq whose result was written to DOM
@@ -1346,6 +1355,11 @@ export type UseTranscriptionOptions = {
   dailyCapRef?: MutableRefObject<{ minutesUsedToday: number; dailyLimitMinutes: number } | null>;
   /** Called after `stop()` finishes (any reason — manual stop, inactivity, daily cap, errors). */
   onRecordingStopped?: () => void;
+  /**
+   * When true (OpenAI translation stack only — pass `!planUsesLibreEngine(planType)` from workspace),
+   * enables segment-boundary guards on final-token flush queue and translation responses.
+   */
+  segmentBoundaryGuards?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1379,6 +1393,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     legacy2Apr24HetznerModeRef.current = options?.legacy2Apr24HetznerMode ?? false;
   }, [options?.legacy2Apr24HetznerMode]);
+  const segmentBoundaryGuardsRef = useRef(options?.segmentBoundaryGuards ?? false);
+  useEffect(() => {
+    segmentBoundaryGuardsRef.current = options?.segmentBoundaryGuards ?? false;
+  }, [options?.segmentBoundaryGuards]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -1479,7 +1497,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   >(() => {});
   // setInterval handle.
   const finalRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string }>>([]);
+  const finalRenderQueueRef = useRef<Array<{ target: HTMLSpanElement; text: string; segmentId?: string }>>([]);
+  /** Resolve BubbleTransState by segment id for flush-queue guards (OpenAI path only). */
+  const segmentStateByIdRef = useRef<Map<string, BubbleTransState>>(new Map());
   const segmentSeqRef = useRef(0);
   const translationDiagRef = useRef<TranslationDiag>({
     callCount: 0,
@@ -1523,7 +1543,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (!p) return;
       if (!isRecRef.current) return;
       const st = activeBubbleStateRef.current;
-      if (!st || st.segmentId !== p.segmentId || st.translationLocked || st.finalizing) return;
+      if (
+        !st ||
+        st.segmentId !== p.segmentId ||
+        st.translationLocked ||
+        st.finalizing ||
+        (segmentBoundaryGuardsRef.current && st.isClosed)
+      ) {
+        return;
+      }
       dispatchTranslationRef.current(
         p.text.trim(),
         p.lang,
@@ -1542,8 +1570,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const q = finalRenderQueueRef.current;
     if (q.length === 0) return;
     finalRenderQueueRef.current = [];
-    for (const { target, text } of q) {
+    for (const item of q) {
+      const { target, text, segmentId } = item;
       if (!target.isConnected) continue;
+      if (segmentBoundaryGuardsRef.current && segmentId) {
+        const st = segmentStateByIdRef.current.get(segmentId);
+        if (!st || st.isClosed || st.segmentId !== segmentId) continue;
+      }
       target.textContent = (target.textContent ?? "") + text;
     }
   }, []);
@@ -1559,8 +1592,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const getBufferedFinalTextForActiveBubble = useCallback((): string => {
     const active = activeBubbleRef.current;
     if (!active) return "";
+    const activeSegId = segmentBoundaryGuardsRef.current ? activeBubbleStateRef.current?.segmentId : undefined;
     let pending = "";
     for (const item of finalRenderQueueRef.current) {
+      if (segmentBoundaryGuardsRef.current && activeSegId && item.segmentId && item.segmentId !== activeSegId) {
+        continue;
+      }
       if (item.target === active) pending += item.text;
     }
     return pending;
@@ -1635,6 +1672,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!translationEnabledRef.current) return;
 
     if (state.translationLocked) return;
+    if (segmentBoundaryGuardsRef.current && !isFinal && (state.finalizing || state.isClosed)) return;
     const lockOnFinal = options?.lockOnFinal ?? true;
     if (isFinal && lockOnFinal && !options?.suppressEarlyHardFinal) {
       state.hardFinalRequested = true;
@@ -1727,6 +1765,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stNow = activeBubbleStateRef.current;
         if (!stNow || stNow.segmentId !== p.segmentId) return;
         if (stNow.translationLocked || stNow.finalizing) return;
+        if (segmentBoundaryGuardsRef.current && stNow.isClosed) return;
         dispatchTranslationRef.current(
           p.text,
           p.lang,
@@ -1837,6 +1876,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (!requestIsFinal && state.hardFinalRequested) return;
           if (!isFinal && state.finalizing) return;
           if (liveAbortForThisRequest?.signal.aborted) return;
+          if (segmentBoundaryGuardsRef.current) {
+            if (state.isClosed && !requestIsFinal) return;
+            if (!requestIsFinal && mySeq < state.lastAppliedSeq) return;
+          }
 
           const tr = await fetchTranslation(
             apiText,
@@ -1849,6 +1892,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               isFinal: requestIsFinal,
               signal:   liveAbortForThisRequest?.signal,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(segmentBoundaryGuardsRef.current
+                ? { segmentId: state.segmentId, clientSeq: mySeq }
+                : {}),
             },
           );
           if (tr.dailyLimitReached) {
@@ -1869,7 +1915,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             dispatchLang,
             myTargetLang,
             (m) => translationConfigReporterRef.current(m),
-            { streamingDelta: false, isFinal: true, onGlossaryApplied: t => glossaryNotifyRef.current(t) },
+            {
+              streamingDelta: false,
+              isFinal: true,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(segmentBoundaryGuardsRef.current
+                ? { segmentId: state.segmentId, clientSeq: mySeq }
+                : {}),
+            },
           );
           if (trRetry.dailyLimitReached) {
             dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
@@ -1889,6 +1942,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               isFinal: requestIsFinal,
               signal: liveAbortForThisRequest?.signal,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(segmentBoundaryGuardsRef.current
+                ? { segmentId: state.segmentId, clientSeq: mySeq }
+                : {}),
             },
           );
           if (trOppRetry.dailyLimitReached) {
@@ -1905,6 +1961,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (state.translationLocked) return;
         if (!requestIsFinal && state.hardFinalRequested) return;
         if (!isFinal && state.finalizing) return;
+        if (segmentBoundaryGuardsRef.current) {
+          if (state.isClosed && !requestIsFinal) return;
+          if (mySeq < state.lastAppliedSeq) return;
+        }
 
         if (!translated?.trim()) {
           return;
@@ -1943,6 +2003,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
+          if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
           applyTranslationTypography(transTextEl, out);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
@@ -1965,6 +2026,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
+            if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
             applyTranslationTypography(transTextEl, merged);
             state.pendingDisplayTranslation = "";
             const committed = state.streamCommittedSource.trim();
@@ -1984,6 +2046,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               : out;
             state.lastShownSeq = mySeq;
             state.lastShownLen = chosen.length;
+            if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
             applyTranslationTypography(transTextEl, chosen);
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
@@ -2090,6 +2153,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current      = nfSpan;
     activeBubbleStateRef.current   = {
       segmentId: `seg-${++segmentSeqRef.current}`,
+      isClosed: false,
+      lastAppliedSeq: 0,
       transTextEl:  transTextP,
       seq:          0,
       lastShownSeq:      0,
@@ -2116,6 +2181,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentTargetLang:     null,
       needsFullFinalTranslation: false,
     };
+    if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
+      segmentStateByIdRef.current.set(activeBubbleStateRef.current.segmentId, activeBubbleStateRef.current);
+    }
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
@@ -2222,6 +2290,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!activeBubbleRef.current) return;
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
+      activeBubbleStateRef.current.isClosed = true;
+    }
     currentSpeakerRef.current = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
@@ -2240,6 +2311,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue();
     stopTranslationInterval();
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    segmentStateByIdRef.current.clear();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
@@ -2294,6 +2366,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalizeLiveBubble();
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
+      activeBubbleStateRef.current.isClosed = true;
+    }
     currentSpeakerRef.current     = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
@@ -2564,7 +2639,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   activeBubbleRef.current = createBubble(sid);
                   setHasTranscript(true);
                   if (activeBubbleRef.current && confirm.bufferedFinalText) {
-                    finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: confirm.bufferedFinalText });
+                    finalRenderQueueRef.current.push({
+                      target: activeBubbleRef.current,
+                      text: confirm.bufferedFinalText,
+                      ...(segmentBoundaryGuardsRef.current && activeBubbleStateRef.current
+                        ? { segmentId: activeBubbleStateRef.current.segmentId }
+                        : {}),
+                    });
                   }
                   pendingSpeakerSwitchRef.current = null;
                 }
@@ -2584,7 +2665,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
-          finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: t.text });
+          finalRenderQueueRef.current.push({
+            target: activeBubbleRef.current,
+            text: t.text,
+            ...(segmentBoundaryGuardsRef.current && activeBubbleStateRef.current
+              ? { segmentId: activeBubbleStateRef.current.segmentId }
+              : {}),
+          });
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
           }
@@ -2602,7 +2689,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleRef.current
         ) {
           if (pendingAfter.bufferedFinalText) {
-            finalRenderQueueRef.current.push({ target: activeBubbleRef.current, text: pendingAfter.bufferedFinalText });
+            finalRenderQueueRef.current.push({
+              target: activeBubbleRef.current,
+              text: pendingAfter.bufferedFinalText,
+              ...(segmentBoundaryGuardsRef.current && activeBubbleStateRef.current
+                ? { segmentId: activeBubbleStateRef.current.segmentId }
+                : {}),
+            });
           }
           pendingSpeakerSwitchRef.current = null;
         }
@@ -2697,6 +2790,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st &&
         !st.translationLocked &&
         !st.finalizing &&
+        !(segmentBoundaryGuardsRef.current && st.isClosed) &&
         st.finalTokensSeen >= 2 &&
         hintSource.length >= 20 &&
         wordsNow >= EARLY_HINT_MIN_WORDS &&
