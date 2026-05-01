@@ -265,6 +265,46 @@ interface SystemEvent {
   meta:        Record<string, unknown>;
 }
 
+interface TrialIdentityWatchMatch {
+  peerUserId: number;
+  peerUsername: string;
+  peerEmail: string | null;
+  peerPlanType: string;
+  peerCreatedAt: string;
+  sharedIpCount: number;
+  sharedUserAgentCount: number;
+  score: number;
+  confidence: "none" | "low" | "medium" | "high";
+  reasons: string[];
+}
+
+interface TrialIdentityWatchRow {
+  trialUserId: number;
+  trialUsername: string;
+  trialEmail: string | null;
+  trialPlanType: string;
+  trialCreatedAt: string;
+  trialAgeHours: number;
+  loginSignal: {
+    successfulLoginIpCount: number;
+    successfulLoginUserAgentCount: number;
+    latestSuccessfulLoginAt: string | null;
+  };
+  matches: TrialIdentityWatchMatch[];
+}
+
+interface TrialIdentityWatchResponse {
+  generatedAt: string;
+  totals: {
+    trialUsers: number;
+    flaggedTrials: number;
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  };
+  rows: TrialIdentityWatchRow[];
+}
+
 interface AdminReferralRow {
   id: number;
   referrerId: number;
@@ -532,6 +572,18 @@ export default function Admin() {
     };
   }, [sharedLoginIpIndex]);
   const { data: feedbackData } = useAdminListFeedback({ query: { queryKey: getAdminListFeedbackQueryKey(), enabled: !!me?.isAdmin } });
+  const { data: trialIdentityWatchData, isFetching: trialIdentityWatchRefreshing } = useQuery({
+    queryKey: ["admin-trial-identity-watch"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/trial-identity-watch", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch trial identity watch");
+      return res.json() as Promise<TrialIdentityWatchResponse>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "ipWatch",
+    refetchInterval: mainTab === "ipWatch" ? 10_000 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 5_000,
+  });
 
   const { data: statsData, refetch: refetchStats } = useQuery({
     queryKey: ["admin-stats"],
@@ -1196,7 +1248,16 @@ export default function Admin() {
     { id: "analytics",  label: "Analytics",  icon: <TrendingUp className="w-4 h-4" />,     badge: null },
     { id: "monitor",    label: "Monitor",    icon: <Monitor className="w-4 h-4" />,         badge: sessions.length > 0 ? sessions.length : null },
     { id: "users",      label: "Users",      icon: <Users className="w-4 h-4" />,           badge: allUsers.length },
-    { id: "ipWatch",    label: "IP Watch",   icon: <ShieldAlert className="w-4 h-4" />,     badge: sharedLoginIpIndex.length > 0 ? sharedLoginIpIndex.length : null },
+    {
+      id: "ipWatch",
+      label: "IP Watch",
+      icon: <ShieldAlert className="w-4 h-4" />,
+      badge: (trialIdentityWatchData?.totals.highConfidence ?? 0) > 0
+        ? trialIdentityWatchData?.totals.highConfidence
+        : sharedLoginIpIndex.length > 0
+          ? sharedLoginIpIndex.length
+          : null,
+    },
     { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
     { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
     { id: "referrals",  label: "Referrals",  icon: <Gift className="w-4 h-4" />,            badge: referralsAdminData?.totals.pendingReferrals ?? null },
@@ -2145,64 +2206,138 @@ export default function Admin() {
 
         {/* ── IP WATCH TAB ─────────────────────────────────────────────────── */}
         {mainTab === "ipWatch" && (
-          <Card className="overflow-hidden border-border shadow-sm bg-card">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold">Shared IP Watch</h3>
-                <p className="text-xs text-muted-foreground">
-                  Successful login IPs used by 2+ accounts. Auto-refreshes every 10s while this tab is open.
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {sharedIpStats.accountsInSharedIps} users across {sharedIpStats.flaggedIps} shared IPs
-                  ({sharedIpStats.totalMemberships} total account memberships)
-                </p>
+          <div className="space-y-4">
+            <Card className="overflow-hidden border-border shadow-sm bg-card">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Trial Identity Watch</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Auto-checks every 10s for new trial users that look linked to existing accounts.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {trialIdentityWatchData?.totals.trialUsers ?? 0} trials · {trialIdentityWatchData?.totals.flaggedTrials ?? 0} flagged ·{" "}
+                    {(trialIdentityWatchData?.totals.highConfidence ?? 0) + (trialIdentityWatchData?.totals.mediumConfidence ?? 0)} high/medium
+                  </p>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-900 dark:bg-red-500/15 dark:text-red-200 border border-red-200 dark:border-red-500/30">
+                  High {(trialIdentityWatchData?.totals.highConfidence ?? 0)}
+                </span>
               </div>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30">
-                {sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}
-              </span>
-            </div>
-            {sharedLoginIpIndex.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No shared-IP clusters detected.</div>
-            ) : (
-              <div className="divide-y divide-border max-h-[70vh] overflow-y-auto">
-                {sharedLoginIpIndex.map((c) => {
-                  const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
-                  return (
-                    <div
-                      key={c.ip}
-                      className="px-4 py-3"
-                      style={{ borderLeft: `4px solid hsl(${accent.hue} 56% 44%)` }}
-                    >
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <code className="text-xs font-mono bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/30">{c.ip}</code>
-                        <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">Tag {accent.label}</span>
-                        <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
-                        {usersRefreshing && (
-                          <span className="text-[10px] text-primary/90">Updating…</span>
-                        )}
+              {(trialIdentityWatchData?.rows.length ?? 0) === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No linked-trial signals right now.
+                </div>
+              ) : (
+                <div className="divide-y divide-border max-h-[55vh] overflow-y-auto">
+                  {(trialIdentityWatchData?.rows ?? []).map((row) => {
+                    const best = row.matches[0];
+                    const tone =
+                      best?.confidence === "high"
+                        ? "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/12 dark:text-red-200 dark:border-red-500/30"
+                        : best?.confidence === "medium"
+                          ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/12 dark:text-amber-200 dark:border-amber-500/30"
+                          : "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-500/12 dark:text-blue-200 dark:border-blue-500/30";
+                    return (
+                      <div key={row.trialUserId} className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-semibold">Trial #{row.trialUserId} {row.trialUsername}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tone}`}>
+                            {best?.confidence?.toUpperCase() ?? "NONE"} · {best?.score ?? 0}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {row.trialAgeHours}h old · {row.loginSignal.successfulLoginIpCount} IP · {row.loginSignal.successfulLoginUserAgentCount} UA
+                          </span>
+                          {trialIdentityWatchRefreshing && <span className="text-[10px] text-primary/90">Updating…</span>}
+                        </div>
+                        <div className="mt-2 space-y-1.5">
+                          {row.matches.slice(0, 3).map((m) => (
+                            <div key={`${row.trialUserId}-${m.peerUserId}`} className="text-xs border border-border rounded-md px-2 py-1.5 bg-muted/20 flex flex-wrap items-center gap-2">
+                              <span className="font-medium">Match #{m.peerUserId} {m.peerUsername}</span>
+                              <span className="text-muted-foreground">
+                                score {m.score} · ip x{m.sharedIpCount} · ua x{m.sharedUserAgentCount}
+                              </span>
+                              <span className="text-muted-foreground truncate max-w-[420px]" title={m.reasons.join(", ")}>
+                                {m.reasons.join(", ")}
+                              </span>
+                              <button
+                                type="button"
+                                className="ml-auto text-[11px] font-medium px-2 py-0.5 rounded border border-border hover:bg-muted"
+                                onClick={() => {
+                                  const peer = allUsers.find((x) => x.id === m.peerUserId);
+                                  if (peer) openEditUser(peer);
+                                }}
+                              >
+                                Open user
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {c.accounts.map((a) => (
-                          <button
-                            key={a.id}
-                            type="button"
-                            className="text-[11px] font-medium px-2 py-0.5 rounded border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-500/20"
-                            title={a.email ?? `User #${a.id}`}
-                            onClick={() => {
-                              const peer = allUsers.find((x) => x.id === a.id);
-                              if (peer) openEditUser(peer);
-                            }}
-                          >
-                            #{a.id} {a.username}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            <Card className="overflow-hidden border-border shadow-sm bg-card">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Shared IP Watch</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Successful login IPs used by 2+ accounts. Auto-refreshes every 10s while this tab is open.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {sharedIpStats.accountsInSharedIps} users across {sharedIpStats.flaggedIps} shared IPs
+                    ({sharedIpStats.totalMemberships} total account memberships)
+                  </p>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30">
+                  {sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}
+                </span>
               </div>
-            )}
-          </Card>
+              {sharedLoginIpIndex.length === 0 ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">No shared-IP clusters detected.</div>
+              ) : (
+                <div className="divide-y divide-border max-h-[35vh] overflow-y-auto">
+                  {sharedLoginIpIndex.map((c) => {
+                    const accent = sharedIpRowAccent(c.accounts.map((a) => a.id));
+                    return (
+                      <div
+                        key={c.ip}
+                        className="px-4 py-3"
+                        style={{ borderLeft: `4px solid hsl(${accent.hue} 56% 44%)` }}
+                      >
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <code className="text-xs font-mono bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-500/30">{c.ip}</code>
+                          <span className="text-[10px] font-bold text-amber-900 dark:text-amber-200">Tag {accent.label}</span>
+                          <span className="text-[10px] text-muted-foreground">{c.accountCount} accounts</span>
+                          {usersRefreshing && (
+                            <span className="text-[10px] text-primary/90">Updating…</span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {c.accounts.map((a) => (
+                            <button
+                              key={a.id}
+                              type="button"
+                              className="text-[11px] font-medium px-2 py-0.5 rounded border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/12 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-500/20"
+                              title={a.email ?? `User #${a.id}`}
+                              onClick={() => {
+                                const peer = allUsers.find((x) => x.id === a.id);
+                                if (peer) openEditUser(peer);
+                              }}
+                            >
+                              #{a.id} {a.username}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
         )}
 
         {/* ── LANGUAGES TAB ────────────────────────────────────────────────── */}

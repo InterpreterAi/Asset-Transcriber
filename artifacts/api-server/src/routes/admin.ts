@@ -122,6 +122,25 @@ type ActiveSessionRow = {
   subscriptionPlan: string | null;
 };
 
+type FraudWatchUserLite = {
+  id: number;
+  username: string;
+  email: string | null;
+  planType: string;
+  createdAt: Date;
+  googleAccountId: string | null;
+  paypalSubscriptionId: string | null;
+  stripeSubscriptionId: string | null;
+};
+
+type FraudWatchLoginLite = {
+  userId: number | null;
+  ip: string | null;
+  ua: string | null;
+  success: boolean;
+  createdAt: Date;
+};
+
 type CoreLaneColor = "blue" | "violet";
 type EnrichedCorePlacement = {
   coreLane: 1 | 2;
@@ -243,6 +262,25 @@ function liveSessionSummaryFromEnriched(
     if (r.openSessionsForUser > 1) usersWithMulti.add(r.userId);
   }
   return { totalSessions: enriched.length, usersWithMultipleOpen: usersWithMulti.size };
+}
+
+function normalizeForCompare(v: string | null | undefined): string {
+  return (v ?? "").trim().toLowerCase();
+}
+
+function setIntersectionCount(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let small = a;
+  let big = b;
+  if (a.size > b.size) {
+    small = b;
+    big = a;
+  }
+  let count = 0;
+  for (const item of small) {
+    if (big.has(item)) count += 1;
+  }
+  return count;
 }
 
 // ── List users ───────────────────────────────────────────────────────────────
@@ -487,6 +525,178 @@ router.get("/users", requireAdmin, async (_req, res) => {
       description:
         "Admin-only estimate: non-admin paid plans. Billing window = subscription_started_at (or signup created_at) through subscription_period_ends_at (or start + 30 days). Eligible hours = (daily_limit_minutes/60) × days in that window. Session minutes counted when session started inside the window. Projected at renewal caps at eligible total and extrapolates from pace so far in the window.",
     },
+  });
+});
+
+router.get("/trial-identity-watch", requireAdmin, async (_req, res) => {
+  const [users, loginEvents] = await Promise.all([
+    db
+      .select({
+        id: usersTable.id,
+        username: usersTable.username,
+        email: usersTable.email,
+        planType: usersTable.planType,
+        createdAt: usersTable.createdAt,
+        googleAccountId: usersTable.googleAccountId,
+        paypalSubscriptionId: usersTable.paypalSubscriptionId,
+        stripeSubscriptionId: usersTable.stripeSubscriptionId,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.isAdmin, false)),
+    db
+      .select({
+        userId: loginEventsTable.userId,
+        ip: loginEventsTable.ipAddress,
+        ua: loginEventsTable.userAgent,
+        success: loginEventsTable.success,
+        createdAt: loginEventsTable.createdAt,
+      })
+      .from(loginEventsTable)
+      .where(and(isNotNull(loginEventsTable.userId), eq(loginEventsTable.success, true))),
+  ]);
+
+  const allUsers = users as FraudWatchUserLite[];
+  const allLogins = loginEvents as FraudWatchLoginLite[];
+  const trialUsers = allUsers.filter((u) => isTrialLikePlanType(u.planType));
+
+  const ipsByUser = new Map<number, Set<string>>();
+  const uasByUser = new Map<number, Set<string>>();
+  const latestLoginAtByUser = new Map<number, Date | null>();
+  for (const row of allLogins) {
+    const uid = row.userId;
+    if (uid == null) continue;
+    const ip = normalizeForCompare(row.ip);
+    const ua = normalizeForCompare(row.ua);
+    if (ip) {
+      const set = ipsByUser.get(uid) ?? new Set<string>();
+      set.add(ip);
+      ipsByUser.set(uid, set);
+    }
+    if (ua) {
+      const set = uasByUser.get(uid) ?? new Set<string>();
+      set.add(ua);
+      uasByUser.set(uid, set);
+    }
+    const prev = latestLoginAtByUser.get(uid) ?? null;
+    if (!prev || row.createdAt > prev) latestLoginAtByUser.set(uid, row.createdAt);
+  }
+
+  const nowMs = Date.now();
+  const matches = trialUsers.map((trial) => {
+    const trialIps = ipsByUser.get(trial.id) ?? new Set<string>();
+    const trialUas = uasByUser.get(trial.id) ?? new Set<string>();
+    const trialCreatedMs = trial.createdAt.getTime();
+    const candidates = allUsers
+      .filter((peer) => peer.id !== trial.id)
+      .map((peer) => {
+        const peerIps = ipsByUser.get(peer.id) ?? new Set<string>();
+        const peerUas = uasByUser.get(peer.id) ?? new Set<string>();
+        const sharedIpCount = setIntersectionCount(trialIps, peerIps);
+        const sharedUaCount = setIntersectionCount(trialUas, peerUas);
+        const sameGoogle =
+          normalizeForCompare(trial.googleAccountId) &&
+          normalizeForCompare(trial.googleAccountId) === normalizeForCompare(peer.googleAccountId);
+        const samePaypal =
+          normalizeForCompare(trial.paypalSubscriptionId) &&
+          normalizeForCompare(trial.paypalSubscriptionId) === normalizeForCompare(peer.paypalSubscriptionId);
+        const sameStripe =
+          normalizeForCompare(trial.stripeSubscriptionId) &&
+          normalizeForCompare(trial.stripeSubscriptionId) === normalizeForCompare(peer.stripeSubscriptionId);
+        const sameEmail =
+          normalizeForCompare(trial.email) &&
+          normalizeForCompare(trial.email) === normalizeForCompare(peer.email);
+
+        let score = 0;
+        const reasons: string[] = [];
+        if (sameGoogle) {
+          score += 100;
+          reasons.push("same_google_account_id");
+        }
+        if (samePaypal) {
+          score += 100;
+          reasons.push("same_paypal_subscription_id");
+        }
+        if (sameStripe) {
+          score += 100;
+          reasons.push("same_stripe_subscription_id");
+        }
+        if (sameEmail) {
+          score += 100;
+          reasons.push("same_email");
+        }
+        if (sharedIpCount > 0) {
+          score += 35;
+          reasons.push(`shared_ip_x${sharedIpCount}`);
+        }
+        if (sharedUaCount > 0) {
+          score += 15;
+          reasons.push(`shared_user_agent_x${sharedUaCount}`);
+        }
+        if (sharedIpCount > 0 && sharedUaCount > 0) {
+          score += 20;
+          reasons.push("shared_ip_and_user_agent");
+        }
+        const signupGapMs = Math.abs(trialCreatedMs - peer.createdAt.getTime());
+        if (sharedIpCount > 0 && signupGapMs <= 24 * 60 * 60 * 1000) {
+          score += 15;
+          reasons.push("shared_ip_signup_within_24h");
+        }
+
+        let confidence: "none" | "low" | "medium" | "high" = "none";
+        if (score >= 90) confidence = "high";
+        else if (score >= 55) confidence = "medium";
+        else if (score >= 35) confidence = "low";
+
+        return {
+          peerUserId: peer.id,
+          peerUsername: peer.username,
+          peerEmail: peer.email ?? null,
+          peerPlanType: peer.planType,
+          peerCreatedAt: peer.createdAt,
+          sharedIpCount,
+          sharedUserAgentCount: sharedUaCount,
+          score,
+          confidence,
+          reasons,
+        };
+      })
+      .filter((c) => c.score >= 35)
+      .sort((a, b) => b.score - a.score || b.sharedIpCount - a.sharedIpCount || a.peerUserId - b.peerUserId)
+      .slice(0, 8);
+
+    return {
+      trialUserId: trial.id,
+      trialUsername: trial.username,
+      trialEmail: trial.email ?? null,
+      trialPlanType: trial.planType,
+      trialCreatedAt: trial.createdAt,
+      trialAgeHours: Math.max(0, Math.round(((nowMs - trialCreatedMs) / (60 * 60 * 1000)) * 10) / 10),
+      loginSignal: {
+        successfulLoginIpCount: trialIps.size,
+        successfulLoginUserAgentCount: trialUas.size,
+        latestSuccessfulLoginAt: latestLoginAtByUser.get(trial.id) ?? null,
+      },
+      matches: candidates,
+    };
+  });
+
+  const sorted = matches.sort(
+    (a, b) => (b.matches[0]?.score ?? 0) - (a.matches[0]?.score ?? 0) || a.trialUserId - b.trialUserId,
+  );
+  const high = sorted.filter((r) => (r.matches[0]?.confidence ?? "none") === "high").length;
+  const medium = sorted.filter((r) => (r.matches[0]?.confidence ?? "none") === "medium").length;
+  const low = sorted.filter((r) => (r.matches[0]?.confidence ?? "none") === "low").length;
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    totals: {
+      trialUsers: trialUsers.length,
+      flaggedTrials: sorted.filter((r) => r.matches.length > 0).length,
+      highConfidence: high,
+      mediumConfidence: medium,
+      lowConfidence: low,
+    },
+    rows: sorted,
   });
 });
 
