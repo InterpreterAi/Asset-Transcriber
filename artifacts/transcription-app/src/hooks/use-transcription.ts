@@ -2220,11 +2220,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const finBeforeNfClear = (activeBubbleRef.current.textContent ?? "").trimEnd();
     const nfBeforeClear = (activeBubbleNFRef.current?.textContent ?? "").trim();
     const domFinalSpanOnly = finBeforeNfClear.trim();
-    let domWithNfMerged = domFinalSpanOnly;
-    if (nfBeforeClear.length > 0) {
-      const merged = mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear);
-      domWithNfMerged = merged.length >= finBeforeNfClear.length ? merged : finBeforeNfClear;
-    }
+    const domWithNfMerged =
+      nfBeforeClear.length > 0 ? mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim() : domFinalSpanOnly;
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -2755,11 +2752,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             stNf.lastNfRawText = nfText;
           } else {
-            // DO NOT allow shorter overwrite
-            if (nfText.length >= prev.length) {
-              nfEl.textContent = nfText;
-              stNf.lastNfRawText = nfText;
-            }
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
+            stNf.lastNfRawText = nfText;
           }
         }
       } else if (nfEl) {
