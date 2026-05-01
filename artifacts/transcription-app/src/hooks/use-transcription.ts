@@ -1593,6 +1593,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // getSnapshot() returns parallel arrays + joined strings (admin aligns rows without splitting on embedded newlines). Cleared when recording stops.
   const transcriptBufRef  = useRef<string[]>([]);
   const translationBufRef = useRef<string[]>([]);
+  /** Maps segmentId → row index in transcriptBuf/translationBuf so Soniox endpoint finals and softFinalize share one admin row per segment. */
+  const adminSegmentRowIndexRef = useRef<Map<string, number>>(new Map());
 
   // ── Session safety timers ──────────────────────────────────────────────────
   // inactivityTimerRef: fires stop() after 5 min of no speech tokens.
@@ -1844,7 +1846,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     state.seq += 1;
     const mySeq = state.seq;
-    const adminBufRowIdx = options?.adminSnapshotLineIndex;
 
     void (async () => {
       try {
@@ -1971,15 +1972,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
           }
           const outTrim = out.trim();
+          const explicitIdx = options?.adminSnapshotLineIndex;
+          const mappedIdx =
+            typeof explicitIdx === "number" &&
+            explicitIdx >= 0 &&
+            explicitIdx < translationBufRef.current.length
+              ? explicitIdx
+              : adminSegmentRowIndexRef.current.get(requestSegmentId);
           const resolvedAdminIdx =
-            typeof adminBufRowIdx === "number" &&
-            adminBufRowIdx >= 0 &&
-            adminBufRowIdx < translationBufRef.current.length
-              ? adminBufRowIdx
+            typeof mappedIdx === "number" &&
+            mappedIdx >= 0 &&
+            mappedIdx < translationBufRef.current.length
+              ? mappedIdx
               : null;
-          // Pin admin dashboard row to this finalized segment (next segment can finalize before translate returns).
+          // Pin admin dashboard row to this finalized segment (never overwrite the previous row when
+          // Soniox endpoint finalizes without softFinalize having pushed a line yet).
           if (resolvedAdminIdx !== null) {
             translationBufRef.current[resolvedAdminIdx] = outTrim;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          } else if (text.trim().length > 0) {
+            const line = text.trim();
+            transcriptBufRef.current.push(line);
+            translationBufRef.current.push(outTrim);
+            adminSegmentRowIndexRef.current.set(requestSegmentId, transcriptBufRef.current.length - 1);
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
 
@@ -1999,10 +2014,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (lockOnFinal) {
             state.hardFinalRequested = true;
             state.translationLocked = true;
-          }
-          if (resolvedAdminIdx === null && translationBufRef.current.length > 0) {
-            translationBufRef.current[translationBufRef.current.length - 1] = outTrim;
-            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
         } else {
           if (mySeq <= state.lastShownSeq) return;
@@ -2216,18 +2227,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     if (finalText.trim().length > 0) {
       liveBufferRef.current = finalText;
-      // Accumulate for admin snapshot — one translation row per transcript row (live DOM first,
-      // then async final overwrites the same slot). Otherwise translationBuf lags or misses rows
-      // and the admin modal looks like a "gap" vs what the user saw in aligned bubbles.
-      transcriptBufRef.current.push(finalText);
-      // Admin snapshot: start with an empty translation slot so we never copy a stale
-      // prior-row translation from the DOM before this segment's cell is updated. Live
-      // passthrough and the final API pass overwrite translationBufRef[length-1] in place.
-      translationBufRef.current.push("");
-      const adminSnapshotLineIndex = transcriptBufRef.current.length - 1;
-      onAdminSnapshotBuffersUpdatedRef.current?.();
-      // Always pass live Soniox hint; dispatch snaps to the pair + opposite target (never same-lang tgt).
       const segId = activeBubbleStateRef.current?.segmentId;
+      const map = adminSegmentRowIndexRef.current;
+      let adminSnapshotLineIndex: number;
+      if (segId && map.has(segId)) {
+        adminSnapshotLineIndex = map.get(segId)!;
+        transcriptBufRef.current[adminSnapshotLineIndex] = finalText;
+        while (translationBufRef.current.length <= adminSnapshotLineIndex) {
+          translationBufRef.current.push("");
+        }
+      } else {
+        transcriptBufRef.current.push(finalText);
+        translationBufRef.current.push("");
+        adminSnapshotLineIndex = transcriptBufRef.current.length - 1;
+        if (segId) map.set(segId, adminSnapshotLineIndex);
+      }
+      onAdminSnapshotBuffersUpdatedRef.current?.();
       // Final pass: on speaker_change, defer hardFinal until response so live in-flight is not dropped.
       dispatchTranslation(
         finalText,
@@ -2291,6 +2306,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalCountRef.current          = 0;
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
+    adminSegmentRowIndexRef.current.clear();
     translationDiagRef.current = {
       callCount: 0,
       estimatedTokensTotal: 0,
@@ -2412,6 +2428,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     // Clear snapshot accumulators — session is over.
     transcriptBufRef.current  = [];
     translationBufRef.current = [];
+    adminSegmentRowIndexRef.current.clear();
 
     // Clear columns for regular users when they manually stop a session.
     if (!isAdminRef.current) doClear();
@@ -2775,6 +2792,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stEnd = activeBubbleStateRef.current;
         const srcEnd = liveBufferRef.current.trim();
         if (stEnd && srcEnd && !stEnd.translationLocked) {
+          const map = adminSegmentRowIndexRef.current;
+          const seg = stEnd.segmentId;
+          let adminSnapshotLineIndex: number | undefined;
+          if (map.has(seg)) {
+            const idx = map.get(seg)!;
+            if (idx >= 0 && idx < transcriptBufRef.current.length) {
+              transcriptBufRef.current[idx] = srcEnd;
+              adminSnapshotLineIndex = idx;
+            } else {
+              map.delete(seg);
+            }
+          }
+          if (adminSnapshotLineIndex === undefined) {
+            transcriptBufRef.current.push(srcEnd);
+            translationBufRef.current.push("");
+            adminSnapshotLineIndex = transcriptBufRef.current.length - 1;
+            map.set(seg, adminSnapshotLineIndex);
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
           dispatchTranslation(
             srcEnd,
             detectedLangRef.current,
@@ -2784,6 +2820,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               suppressEarlyHardFinal: true,
               forceFullSegmentFinal: true,
               skipOpenAiLiveDebounce: true,
+              adminSnapshotLineIndex,
             },
             stEnd.segmentId,
           );
@@ -2874,6 +2911,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       setSessionId(sessionRes.sessionId);
       transcriptBufRef.current  = [];
       translationBufRef.current = [];
+      adminSegmentRowIndexRef.current.clear();
       startTimeRef.current = Date.now();
       audioPcmSecondsRef.current = 0;
 
