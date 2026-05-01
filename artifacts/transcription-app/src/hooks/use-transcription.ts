@@ -1356,8 +1356,8 @@ export type UseTranscriptionOptions = {
   /** Called after `stop()` finishes (any reason — manual stop, inactivity, daily cap, errors). */
   onRecordingStopped?: () => void;
   /**
-   * When true (OpenAI translation stack only — pass `!planUsesLibreEngine(planType)` from workspace),
-   * enables segment-boundary guards on final-token flush queue and translation responses.
+   * When true (workspace passes this for signed-in users), enables segment-boundary guards on
+   * final-token flush queue and translation responses for both OpenAI and machine (Hetzner/Libre) stacks.
    */
   segmentBoundaryGuards?: boolean;
 };
