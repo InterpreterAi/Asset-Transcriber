@@ -1201,14 +1201,18 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 // The snapshot is held in-memory only (sessionStore) — never persisted to DB.
 // langPair is recorded to the sessions table for historical reporting.
 router.put("/session/snapshot", requireAuth, async (req, res) => {
-  const { sessionId, langA, langB, micLabel, transcript, translation } = req.body as {
-    sessionId?:   number;
-    langA?:       string;
-    langB?:       string;
-    micLabel?:    string;
-    transcript?:  string;
+  const body = req.body as {
+    sessionId?: number;
+    langA?: string;
+    langB?: string;
+    micLabel?: string;
+    transcript?: string;
     translation?: string;
+    transcriptLines?: unknown;
+    translationLines?: unknown;
+    snapshotSeq?: unknown;
   };
+  const { sessionId, langA, langB, micLabel, transcript, translation } = body;
 
   if (!sessionId || !langA || !langB) {
     res.status(400).json({ error: "sessionId, langA, and langB are required" });
@@ -1240,14 +1244,44 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
       .where(eq(sessionsTable.id, sessionId));
   }
 
+  function normalizeSnapshotLines(v: unknown): string[] | undefined {
+    if (!Array.isArray(v)) return undefined;
+    return v.map((x) => String(x ?? ""));
+  }
+
+  const incomingSeqRaw = body.snapshotSeq;
+  const incomingSeq =
+    typeof incomingSeqRaw === "number" && Number.isFinite(incomingSeqRaw)
+      ? incomingSeqRaw
+      : typeof incomingSeqRaw === "string" && /^\d+$/.test(incomingSeqRaw.trim())
+        ? Number.parseInt(incomingSeqRaw.trim(), 10)
+        : null;
+
+  const prevSnap = sessionStore.get(sessionId);
+  if (
+    prevSnap?.snapshotSeq != null &&
+    incomingSeq != null &&
+    incomingSeq < prevSnap.snapshotSeq
+  ) {
+    res.json({ ok: true, ignoredStaleSnapshot: true });
+    return;
+  }
+
+  const transcriptLines = normalizeSnapshotLines(body.transcriptLines);
+  const translationLines = normalizeSnapshotLines(body.translationLines);
+  const resolvedSnapshotSeq = incomingSeq != null ? incomingSeq : prevSnap?.snapshotSeq;
+
   // Update in-memory snapshot (admin-visible only, never persisted).
   sessionStore.set(sessionId, {
     langA,
     langB,
-    micLabel:    micLabel    ?? "Microphone",
-    transcript:  transcript  ?? "",
+    micLabel: micLabel ?? "Microphone",
+    transcript: transcript ?? "",
     translation: translation ?? "",
-    updatedAt:   Date.now(),
+    ...(transcriptLines && transcriptLines.length > 0 ? { transcriptLines } : {}),
+    ...(translationLines && translationLines.length > 0 ? { translationLines } : {}),
+    ...(resolvedSnapshotSeq != null ? { snapshotSeq: resolvedSnapshotSeq } : {}),
+    updatedAt: Date.now(),
   });
 
   const diagCounter = ensureDiagCounter(sessionId);

@@ -124,42 +124,44 @@ interface SessionDetail {
 }
 
 type StableSnapshotRow = { idx: number; src: string; tgt: string };
-const LIVE_MONITOR_DELAY_ROWS = 3;
+
+/** Shown when the translation cell has not arrived yet — keeps transcript rows visible and aligned. */
+const ADMIN_SNAPSHOT_PENDING_CELL = "\u2014";
 
 /**
- * Show only strict aligned source↔translation pairs in admin monitor.
- * Keep original row indices so admin view does not reindex/shift rows.
- * For live sessions, intentionally hide newest rows (small delay)
- * so admin never sees in-flight partial artifacts.
+ * One admin table row per finalized segment index. Prefer parallel snapshot arrays from the client
+ * so speech cannot split rows on embedded newlines. Pad lengths so transcript and translation columns stay paired.
+ * Empty translation for a non-empty source shows a placeholder instead of hiding the row.
  */
-function buildStableSnapshotRows(snapshot: SessionSnapshot, isLive: boolean): StableSnapshotRow[] {
+function buildStableSnapshotRows(snapshot: SessionSnapshot): StableSnapshotRow[] {
   const splitLines = (v: string) =>
     String(v ?? "")
       .split(/\r?\n/)
       .map((x) => x.trim());
 
-  const src =
+  let src =
     Array.isArray(snapshot.transcriptLines) && snapshot.transcriptLines.length > 0
-      ? snapshot.transcriptLines.map(v => String(v).trim())
+      ? snapshot.transcriptLines.map((v) => String(v ?? ""))
       : splitLines(snapshot.transcript);
-  const tgt =
+  let tgt =
     Array.isArray(snapshot.translationLines) && snapshot.translationLines.length > 0
-      ? snapshot.translationLines.map(v => String(v).trim())
-      : splitLines(snapshot.translation);
-  if (src.length === 0 || tgt.length === 0) return [];
+      ? snapshot.translationLines.map((v) => String(v ?? ""))
+      : splitLines(snapshot.translation ?? "");
 
-  // Keep monitor stable: use aligned rows only.
-  // If one side lags briefly on one row, skip that row but continue showing later settled rows.
-  const aligned = Math.min(src.length, tgt.length);
-  const lastExclusive = isLive ? Math.max(0, aligned - LIVE_MONITOR_DELAY_ROWS) : aligned;
+  const nPad = Math.max(src.length, tgt.length);
+  while (src.length < nPad) src.push("");
+  while (tgt.length < nPad) tgt.push("");
 
   const rows: StableSnapshotRow[] = [];
-  for (let i = 0; i < lastExclusive; i++) {
-    const s = src[i] ?? "";
-    const t = tgt[i] ?? "";
-    // Preserve original row indices while skipping temporary holes.
-    if (!s || !t) continue;
-    rows.push({ idx: i + 1, src: s, tgt: t });
+  for (let i = 0; i < nPad; i++) {
+    const s = (src[i] ?? "").trim();
+    const t = (tgt[i] ?? "").trim();
+    if (!s && !t) continue;
+    rows.push({
+      idx: i + 1,
+      src: s || ADMIN_SNAPSHOT_PENDING_CELL,
+      tgt: t || ADMIN_SNAPSHOT_PENDING_CELL,
+    });
   }
   return rows;
 }
@@ -3074,21 +3076,25 @@ export default function Admin() {
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Stable monitor mode: only strict source↔translation pairs are shown. Live view is intentionally delayed to keep rows aligned and avoid duplicate/blank/shift artifacts.
+                  Each row is one finalized segment: original and translation stay paired. An em dash means translation is still loading for that line.
                 </p>
               </div>
               <div className="p-4 sm:p-5 pt-2">
                 {viewLoading ? (
                   <div className="text-sm text-muted-foreground italic">Loading…</div>
-                ) : sessionDetail?.snapshot &&
-                  (sessionDetail.snapshot.transcript.trim() || (sessionDetail.snapshot.translation ?? "").trim()) ? (
+                ) : sessionDetail?.snapshot ? (
                   (() => {
                     const snap = sessionDetail.snapshot;
-                    const stableRows = buildStableSnapshotRows(snap, Boolean(sessionDetail?.isLive));
+                    const stableRows = buildStableSnapshotRows(snap);
                     if (stableRows.length === 0) {
                       return (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-                          Waiting for transcript/translation lines from this session.
+                        <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                          <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                            <Mic className="w-4 h-4 text-primary" />
+                            <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
+                          </div>
+                          <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
+                          <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
                         </div>
                       );
                     }
@@ -3133,7 +3139,10 @@ export default function Admin() {
                                   <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
                                     {srcLine}
                                   </td>
-                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap align-top" dir="auto">
+                                  <td
+                                    className={`px-3 py-2.5 leading-relaxed whitespace-pre-wrap align-top ${tgtLine === ADMIN_SNAPSHOT_PENDING_CELL ? "text-muted-foreground italic" : "text-foreground"}`}
+                                    dir="auto"
+                                  >
                                     {tgtLine}
                                   </td>
                                 </tr>
@@ -3144,15 +3153,6 @@ export default function Admin() {
                       </div>
                     );
                   })()
-                ) : sessionDetail?.snapshot ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
-                    <div className="relative w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Mic className="w-4 h-4 text-primary" />
-                      <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-ping" />
-                    </div>
-                    <p className="text-sm text-muted-foreground">Waiting for speech input…</p>
-                    <p className="text-xs text-muted-foreground/60">Start speaking and the transcript will appear automatically.</p>
-                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
                     <AlertCircle className="w-8 h-8 text-amber-400" />

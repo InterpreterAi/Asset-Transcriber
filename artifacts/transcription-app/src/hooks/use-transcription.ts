@@ -1590,7 +1590,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── Snapshot accumulators for admin "View Session" ────────────────────────
   // Finalized transcript/translation lines are appended here on each segment.
-  // getSnapshot() returns them joined. Cleared when recording stops.
+  // getSnapshot() returns parallel arrays + joined strings (admin aligns rows without splitting on embedded newlines). Cleared when recording stops.
   const transcriptBufRef  = useRef<string[]>([]);
   const translationBufRef = useRef<string[]>([]);
 
@@ -3085,12 +3085,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── getSnapshot ────────────────────────────────────────────────────────────
-  // Returns accumulated finalized transcript and translation text for this
-  // session. Used by workspace to push snapshots to the server every 5 s.
-  const getSnapshot = useCallback((): { transcript: string; translation: string } => ({
-    transcript:  transcriptBufRef.current.join("\n"),
-    translation: translationBufRef.current.join("\n"),
-  }), []);
+  // Returns accumulated finalized transcript/translation for admin snapshots.
+  // Parallel arrays are padded to equal length so each segment stays paired.
+  const getSnapshot = useCallback((): {
+    transcript: string;
+    translation: string;
+    transcriptLines: string[];
+    translationLines: string[];
+  } => {
+    const src = [...transcriptBufRef.current];
+    const tgt = [...translationBufRef.current];
+    const n = Math.max(src.length, tgt.length);
+    while (src.length < n) src.push("");
+    while (tgt.length < n) tgt.push("");
+    return {
+      transcript: src.join("\n"),
+      translation: tgt.join("\n"),
+      transcriptLines: src,
+      translationLines: tgt,
+    };
+  }, []);
 
   /** Billable audio minutes in the current open session (PCM sent ÷ 60). Server `minutesUsedToday` excludes until stop. */
   const getApproxBillableMinutesThisSession = useCallback(
