@@ -6,7 +6,7 @@ import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { InviteModal } from "@/components/InviteModal";
 import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, Trash2, Copy, Check, Type, Monitor,
+  Globe, Languages, Trash2, Copy, Check, Type, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
   Hash, Sparkles, Sun, Moon,
@@ -24,6 +24,7 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
+import { InterpreterAnalyticsDashboard } from "@/components/InterpreterAnalyticsDashboard";
 import {
   cn,
   formatMinutes,
@@ -127,12 +128,15 @@ export default function WorkspaceDefault() {
     };
   }, [user]);
 
-  const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-workspace-theme";
+  const WORKSPACE_THEME_STORAGE_KEY = "interpreterai-theme";
+  const WIDE_WORKSPACE_STORAGE_KEY = "interpreterai-wide-workspace";
   type WorkspaceChromeTheme = "dark" | "light";
   const [workspaceTheme, setWorkspaceTheme] = useState<WorkspaceChromeTheme>(() => {
     if (typeof window === "undefined") return "dark";
     try {
-      const s = localStorage.getItem(WORKSPACE_THEME_STORAGE_KEY);
+      const s =
+        localStorage.getItem(WORKSPACE_THEME_STORAGE_KEY) ??
+        localStorage.getItem("interpreterai-workspace-theme");
       return s === "light" || s === "dark" ? s : "dark";
     } catch {
       return "dark";
@@ -144,8 +148,27 @@ export default function WorkspaceDefault() {
     } catch {
       /* ignore quota / private mode */
     }
+    document.documentElement.classList.toggle("dark", workspaceTheme === "dark");
   }, [workspaceTheme]);
   const wsDark = workspaceTheme === "dark";
+
+  const [analyticsDashboardOpen, setAnalyticsDashboardOpen] = useState(false);
+
+  const [wideWorkspace, setWideWorkspace] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(WIDE_WORKSPACE_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(WIDE_WORKSPACE_STORAGE_KEY, wideWorkspace ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [wideWorkspace]);
 
   const snapshotCtxRef = useRef<{
     transcription: ReturnType<typeof useTranscription> | null;
@@ -756,6 +779,11 @@ export default function WorkspaceDefault() {
       {showInviteModal && (
         <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
       )}
+      <InterpreterAnalyticsDashboard
+        open={analyticsDashboardOpen}
+        onClose={() => setAnalyticsDashboardOpen(false)}
+        wsDark={wsDark}
+      />
 
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
@@ -903,7 +931,7 @@ export default function WorkspaceDefault() {
           {[
             { id: "profile",  icon: <User className="w-5 h-5" />,      title: "Profile" },
             { id: "mic",      icon: <Mic2 className="w-5 h-5" />,      title: "Audio" },
-            { id: "lang",     icon: <Globe className="w-5 h-5" />,     title: "Languages" },
+            { id: "lang",     icon: <Languages className="w-5 h-5" />, title: "Languages" },
             { id: "glossary", icon: <BookOpen className="w-5 h-5" />,  title: "Glossary" },
             { id: "support",  icon: <LifeBuoy className="w-5 h-5" />,  title: "Support" },
           ].map(({ id, icon, title }) => (
@@ -924,6 +952,25 @@ export default function WorkspaceDefault() {
               <span className="text-sm font-medium md:hidden">{title}</span>
             </button>
           ))}
+          <button
+            type="button"
+            className={cn(
+              "flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all",
+              analyticsDashboardOpen
+                ? wsDark
+                  ? "bg-sky-500/15 text-sky-300 border border-sky-400/20 md:border-0"
+                  : "bg-primary/10 text-primary"
+                : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            )}
+            onClick={() => {
+              setAnalyticsDashboardOpen(true);
+              setSettingsOpen(false);
+            }}
+            title="Analytics Dashboard"
+          >
+            <Globe className="w-5 h-5 shrink-0" />
+            <span className="text-sm font-medium md:hidden">Analytics</span>
+          </button>
           {user.isAdmin && (
             <button
               className="flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
@@ -1528,6 +1575,24 @@ export default function WorkspaceDefault() {
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
+              onClick={() => setWideWorkspace((w) => !w)}
+              className={cn(
+                "hidden sm:flex items-center justify-center w-9 h-9 rounded-lg border transition-colors shrink-0",
+                wideWorkspace
+                  ? wsDark
+                    ? "border-sky-400/40 bg-sky-500/15 text-sky-300"
+                    : "border-primary/40 bg-primary/10 text-primary"
+                  : wsDark
+                    ? "border-white/10 text-muted-foreground hover:bg-white/10"
+                    : "border-border text-muted-foreground hover:bg-muted",
+              )}
+              title={wideWorkspace ? "Show notes & session history" : "Wide workspace — hide notes & history"}
+              aria-label={wideWorkspace ? "Show side panel" : "Hide side panel"}
+            >
+              {wideWorkspace ? <PanelRightOpen className="w-4 h-4" /> : <PanelRightClose className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
               onClick={() => setWorkspaceTheme(wsDark ? "light" : "dark")}
               className={cn(
                 "flex items-center justify-center w-9 h-9 rounded-lg border transition-colors shrink-0",
@@ -1590,11 +1655,6 @@ export default function WorkspaceDefault() {
                     <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
                   </>
               }
-              {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-                <span className="hidden lg:inline text-muted-foreground/80">
-                  · {user.paidCycleDaysRemaining} day{user.paidCycleDaysRemaining === 1 ? "" : "s"} left
-                </span>
-              )}
             </div>
             {isTrialLikePlanType(user.planType) && (
               <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
@@ -1607,6 +1667,22 @@ export default function WorkspaceDefault() {
                   ? "Trial Expired"
                   : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`
                 }</span>
+              </div>
+            )}
+            {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
+              <div
+                className={cn(
+                  "hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5",
+                  wsDark
+                    ? "bg-emerald-500/12 text-emerald-200 border-emerald-400/25"
+                    : "bg-emerald-50 text-emerald-800 border-emerald-200",
+                )}
+              >
+                <Clock className="w-3 h-3 shrink-0" />
+                <span>
+                  {user.paidCycleDaysRemaining.toLocaleString()} day
+                  {user.paidCycleDaysRemaining === 1 ? "" : "s"} left · billing period
+                </span>
               </div>
             )}
           </div>
@@ -1813,18 +1889,17 @@ export default function WorkspaceDefault() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN — drawer on mobile, always-visible on md+ */}
-          <div className={`
-            ${showLeftPanel ? "translate-x-0" : "translate-x-full"}
-            md:translate-x-0
-            fixed md:relative
-            top-0 right-0 md:right-auto
-            h-full
-            z-30 md:z-auto
-            w-[85vw] md:w-[42%] lg:w-[40%]
-            shrink-0 flex flex-col gap-2 min-h-0
-            transition-transform duration-200 ease-in-out
-          `}>
+          {/* RIGHT COLUMN — drawer on mobile, always-visible on md+ (hide when wide workspace) */}
+          <div
+            className={
+              wideWorkspace
+                ? "hidden"
+                : cn(
+                    showLeftPanel ? "translate-x-0" : "translate-x-full",
+                    "md:translate-x-0 fixed md:relative top-0 right-0 md:right-auto h-full z-30 md:z-auto w-[85vw] md:w-[42%] lg:w-[40%] shrink-0 flex flex-col gap-2 min-h-0 transition-transform duration-200 ease-in-out",
+                  )
+            }
+          >
 
             {/* Mobile close button */}
             <div

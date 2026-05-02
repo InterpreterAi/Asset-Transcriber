@@ -46,7 +46,14 @@ import {
   isMandatoryFeedbackRequiredByUsage,
   UNLIMITED_DAILY_CAP_MINUTES,
 } from "../lib/feedback-gate.js";
-import { appCalendarDateAndHour, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
+import {
+  appCalendarDateAndHour,
+  appCalendarDayIsoKeyForDaysAgo,
+  appCalendarIsoDateContaining,
+  startOfAppDay,
+  startOfAppDayMinusDays,
+  startOfAppMonth,
+} from "@workspace/app-timezone";
 import { sendDailyLimitReachedEmail } from "../lib/transactional-email.js";
 import {
   applyUserGlossaryStrict,
@@ -302,10 +309,17 @@ async function maybeSendDailyLimitReachedEmail(
  * Close one session and bill Soniox minutes to the user (same rules as POST /session/stop).
  * Idempotent: if already ended, returns closed: false and does not double-bill.
  */
+type SessionStopAnalytics = {
+  wordCount?: number | null;
+  languageSwitchCount?: number | null;
+  avgLatencyMs?: number | null;
+};
+
 async function closeOpenSessionWithBillingIfNeeded(
   sessionId: number,
   userId: number,
   durationSecondsRaw: number,
+  analytics?: SessionStopAnalytics | null,
 ): Promise<{ closed: boolean; minutesUsed: number }> {
   const rawSeconds = Math.min(Math.max(0, Math.floor(Number(durationSecondsRaw) || 0)), MAX_SESSION_AUDIO_SECONDS);
 
@@ -328,6 +342,19 @@ async function closeOpenSessionWithBillingIfNeeded(
   const minutesUsed = creditSeconds / 60;
   const sonioxCost = +(minutesUsed * SONIOX_COST_PER_MIN).toFixed(6);
 
+  const wc =
+    analytics?.wordCount != null && Number.isFinite(Number(analytics.wordCount))
+      ? Math.max(0, Math.floor(Number(analytics.wordCount)))
+      : undefined;
+  const lc =
+    analytics?.languageSwitchCount != null && Number.isFinite(Number(analytics.languageSwitchCount))
+      ? Math.max(0, Math.floor(Number(analytics.languageSwitchCount)))
+      : undefined;
+  const al =
+    analytics?.avgLatencyMs != null && Number.isFinite(Number(analytics.avgLatencyMs))
+      ? Math.max(0, Math.floor(Number(analytics.avgLatencyMs)))
+      : undefined;
+
   const updated = await db
     .update(sessionsTable)
     .set({
@@ -336,6 +363,9 @@ async function closeOpenSessionWithBillingIfNeeded(
       audioSecondsProcessed: creditSeconds,
       sonioxCost:            String(sonioxCost),
       totalSessionCost:      sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+      ...(wc !== undefined ? { wordCount: wc } : {}),
+      ...(lc !== undefined ? { languageSwitchCount: lc } : {}),
+      ...(al !== undefined ? { avgLatencyMs: al } : {}),
     })
     .where(
       and(
@@ -1176,17 +1206,50 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
 
 // ── /session/stop ──────────────────────────────────────────────────────────
 router.post("/session/stop", requireAuth, async (req, res) => {
-  const { sessionId, durationSeconds } = req.body as { sessionId?: number; durationSeconds?: number };
+  const body = req.body as {
+    sessionId?: number;
+    durationSeconds?: number;
+    wordCount?: unknown;
+    languageSwitchCount?: unknown;
+    avgLatencyMs?: unknown;
+  };
+  const { sessionId, durationSeconds } = body;
   if (!sessionId || durationSeconds === undefined) {
     res.status(400).json({ error: "sessionId and durationSeconds are required" });
     return;
   }
 
   const audioSeconds = Math.min(Math.max(0, Math.floor(Number(durationSeconds) || 0)), MAX_SESSION_AUDIO_SECONDS);
+  const analytics: SessionStopAnalytics = {
+    wordCount:
+      typeof body.wordCount === "number" && Number.isFinite(body.wordCount)
+        ? body.wordCount
+        : typeof body.wordCount === "string" && /^\d+$/.test(body.wordCount.trim())
+          ? Number.parseInt(body.wordCount.trim(), 10)
+          : undefined,
+    languageSwitchCount:
+      typeof body.languageSwitchCount === "number" && Number.isFinite(body.languageSwitchCount)
+        ? body.languageSwitchCount
+        : typeof body.languageSwitchCount === "string" && /^\d+$/.test(String(body.languageSwitchCount).trim())
+          ? Number.parseInt(String(body.languageSwitchCount).trim(), 10)
+          : undefined,
+    avgLatencyMs:
+      typeof body.avgLatencyMs === "number" && Number.isFinite(body.avgLatencyMs)
+        ? body.avgLatencyMs
+        : typeof body.avgLatencyMs === "string" && /^\d+$/.test(String(body.avgLatencyMs).trim())
+          ? Number.parseInt(String(body.avgLatencyMs).trim(), 10)
+          : undefined,
+  };
+  const hasAnalytics =
+    analytics.wordCount != null ||
+    analytics.languageSwitchCount != null ||
+    analytics.avgLatencyMs != null;
+
   const { closed, minutesUsed } = await closeOpenSessionWithBillingIfNeeded(
     sessionId,
     req.session.userId!,
     audioSeconds,
+    hasAnalytics ? analytics : null,
   );
   if (!closed) {
     res.json({ message: "Session already ended", minutesUsed: 0, alreadyEnded: true });
@@ -1194,6 +1257,156 @@ router.post("/session/stop", requireAuth, async (req, res) => {
   }
 
   res.json({ message: "Session stopped", minutesUsed });
+});
+
+// ── /session/analytics-dashboard ─────────────────────────────────────────────
+// Personal usage aggregates for the 🌍 Analytics Dashboard (workspace UI).
+router.get("/session/analytics-dashboard", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const user = await getUserWithResetCheck(userId);
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const now = new Date();
+  const todayStart = startOfAppDay(now);
+  const weekStart = startOfAppDayMinusDays(now, 6);
+  const monthStart = startOfAppMonth(now);
+
+  const capMin = Number(user.dailyLimitMinutes) || 0;
+  const usedTodayMin = Number(user.minutesUsedToday) || 0;
+  const unlimitedCap = capMin >= UNLIMITED_DAILY_CAP_MINUTES;
+  const remainingTodayMin = unlimitedCap ? null : Math.max(0, capMin - usedTodayMin);
+  const pctDailyUsed =
+    !unlimitedCap && capMin > 0 ? Math.min(100, (usedTodayMin / capMin) * 100) : 0;
+  const warnDaily = !unlimitedCap && pctDailyUsed >= 80;
+
+  const horizon = startOfAppDayMinusDays(now, 89);
+  const rows = await db
+    .select({
+      startedAt: sessionsTable.startedAt,
+      endedAt: sessionsTable.endedAt,
+      durationSeconds: sessionsTable.durationSeconds,
+      langPair: sessionsTable.langPair,
+      wordCount: sessionsTable.wordCount,
+      avgLatencyMs: sessionsTable.avgLatencyMs,
+      languageSwitchCount: sessionsTable.languageSwitchCount,
+    })
+    .from(sessionsTable)
+    .where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, horizon)))
+    .orderBy(desc(sessionsTable.startedAt))
+    .limit(900);
+
+  let sessionsToday = 0;
+  let sessionsWeek = 0;
+  let sessionsMonth = 0;
+  let minutesToday = 0;
+  let minutesWeek = 0;
+  let minutesMonth = 0;
+  let wordsMonth = 0;
+  let latencyWeighted = 0;
+  let latencySessions = 0;
+  let switchesMonth = 0;
+  let completedMonth = 0;
+  let durSumMonthSec = 0;
+  const pairCounts = new Map<string, number>();
+  const dailyMinutes = new Map<string, number>();
+
+  for (const r of rows) {
+    const started = r.startedAt;
+    const ended = r.endedAt != null;
+    const durSec = Math.max(0, Number(r.durationSeconds ?? 0));
+    const mins = durSec / 60;
+    const dayKey = appCalendarIsoDateContaining(started);
+
+    dailyMinutes.set(dayKey, (dailyMinutes.get(dayKey) ?? 0) + mins);
+
+    if (started.getTime() >= todayStart.getTime()) {
+      sessionsToday += 1;
+      minutesToday += mins;
+    }
+    if (started.getTime() >= weekStart.getTime()) {
+      sessionsWeek += 1;
+      minutesWeek += mins;
+    }
+    if (started.getTime() >= monthStart.getTime()) {
+      sessionsMonth += 1;
+      minutesMonth += mins;
+      if (ended) {
+        completedMonth += 1;
+        durSumMonthSec += durSec;
+      }
+      const wc = r.wordCount != null ? Number(r.wordCount) : 0;
+      if (wc > 0) wordsMonth += wc;
+      const sw = r.languageSwitchCount != null ? Number(r.languageSwitchCount) : 0;
+      switchesMonth += Math.max(0, sw);
+      const lat = r.avgLatencyMs != null ? Number(r.avgLatencyMs) : null;
+      if (lat != null && lat > 0 && lat < 120_000) {
+        latencyWeighted += lat;
+        latencySessions += 1;
+      }
+      const lp = (r.langPair ?? "").trim() || "—";
+      pairCounts.set(lp, (pairCounts.get(lp) ?? 0) + 1);
+    }
+  }
+
+  const trendDays = 14;
+  const trend: { date: string; minutes: number }[] = [];
+  for (let d = trendDays - 1; d >= 0; d--) {
+    const key = appCalendarDayIsoKeyForDaysAgo(now, d);
+    trend.push({ date: key, minutes: +(dailyMinutes.get(key) ?? 0).toFixed(3) });
+  }
+
+  const pairTotal = [...pairCounts.values()].reduce((a, b) => a + b, 0);
+  const langPairs = [...pairCounts.entries()]
+    .map(([pair, count]) => ({
+      pair,
+      count,
+      pct: pairTotal > 0 ? Math.round((count / pairTotal) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const avgSessionDurMinMonth =
+    completedMonth > 0 ? durSumMonthSec / 60 / completedMonth : 0;
+  const avgLatencyMs =
+    latencySessions > 0 ? Math.round(latencyWeighted / latencySessions) : null;
+  const wpmMonth =
+    minutesMonth > 0.05 ? Math.round(wordsMonth / minutesMonth) : null;
+
+  res.json({
+    generatedAt: now.toISOString(),
+    limits: {
+      dailyLimitMinutes: capMin,
+      minutesUsedToday: usedTodayMin,
+      minutesRemainingToday: remainingTodayMin,
+      pctDailyUsed: Math.round(pctDailyUsed * 10) / 10,
+      warnDaily,
+      unlimitedDaily: unlimitedCap,
+    },
+    sessions: {
+      today: sessionsToday,
+      week: sessionsWeek,
+      month: sessionsMonth,
+      minutesWeek: Math.round(minutesWeek * 10) / 10,
+      minutesMonth: Math.round(minutesMonth * 10) / 10,
+      avgDurationMinutesMonth: Math.round(avgSessionDurMinMonth * 10) / 10,
+    },
+    words: {
+      transcribedMonth: wordsMonth,
+      wpmEstimatedMonth: wpmMonth,
+    },
+    performance: {
+      avgTranslationLatencyMs: avgLatencyMs,
+      languageSwitchesMonth: switchesMonth,
+    },
+    trendDailyMinutes: trend,
+    langPairs,
+    totalsFromServer: {
+      totalSessionsAccount: Number(user.totalSessions) || 0,
+      totalMinutesAccount: Number(user.totalMinutesUsed) || 0,
+    },
+  });
 });
 
 // ── /session/snapshot ──────────────────────────────────────────────────────

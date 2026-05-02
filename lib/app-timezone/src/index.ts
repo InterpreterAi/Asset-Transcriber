@@ -43,6 +43,11 @@ export function appCalendarDayIsoKeyForDaysAgo(ref: Date, daysAgo: number): stri
     .toISODate()!;
 }
 
+/** `YYYY-MM-DD` (app TZ) for the calendar day containing instant `ref`. */
+export function appCalendarIsoDateContaining(ref: Date): string {
+  return DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE).toISODate()!;
+}
+
 /** Current calendar date (`YYYY-MM-DD`) and clock hour (0–23) in the app timezone. */
 export function appCalendarDateAndHour(ref: Date = new Date()): { dateIso: string; hour: number } {
   const dt = DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE);

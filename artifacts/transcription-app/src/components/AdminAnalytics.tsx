@@ -133,7 +133,7 @@ function StatCard({ icon, label, value, sub, color }: {
   icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string;
 }) {
   return (
-    <div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-white">
+    <div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-card dark:bg-muted/35 dark:border-white/[0.08] shadow-sm dark:shadow-none">
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
         {icon}
       </div>
@@ -177,7 +177,7 @@ function RangeFilter({ value, onChange }: { value: RangeState; onChange: (r: Ran
             className={`px-3 py-1.5 text-xs font-medium transition-colors
               ${value.key === opt.key
                 ? "bg-primary text-white"
-                : "bg-white text-muted-foreground hover:bg-muted"}`}
+                : "bg-muted/60 dark:bg-muted/30 text-muted-foreground hover:bg-muted dark:hover:bg-muted/50"}`}
           >
             {opt.label}
           </button>
@@ -190,7 +190,7 @@ function RangeFilter({ value, onChange }: { value: RangeState; onChange: (r: Ran
             max={today}
             value={value.from}
             onChange={e => onChange({ ...value, from: e.target.value })}
-            className="border border-border rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+            className="border border-border rounded-md px-2 py-1 text-xs bg-background dark:bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <span>→</span>
           <input
@@ -198,7 +198,7 @@ function RangeFilter({ value, onChange }: { value: RangeState; onChange: (r: Ran
             max={today}
             value={value.to}
             onChange={e => onChange({ ...value, to: e.target.value })}
-            className="border border-border rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+            className="border border-border rounded-md px-2 py-1 text-xs bg-background dark:bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
       )}

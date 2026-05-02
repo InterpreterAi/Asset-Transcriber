@@ -60,6 +60,12 @@ export interface SessionResponse {
 export interface StopSessionRequest {
   sessionId: number;
   durationSeconds: number;
+  /** Client-measured finalized transcript word count */
+  wordCount?: number;
+  /** Speaker-change boundary count for this session */
+  languageSwitchCount?: number;
+  /** Average translation round-trip latency (ms) */
+  avgLatencyMs?: number;
 }
 
 export interface UsageInfo {

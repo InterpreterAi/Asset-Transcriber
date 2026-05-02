@@ -409,10 +409,10 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   if (!isTrialLikePlanType(plan)) {
     const engine = planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI";
     return (
-      <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap">
+      <span className="text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25">
         <span>{workspacePlanDisplayName(plan)}</span>
-        <span className="text-[9px] font-normal opacity-80">· {engine}</span>
-        <span className="text-[9px] font-mono opacity-60">({plan})</span>
+        <span className="text-[9px] font-normal opacity-90">· {engine}</span>
+        <span className="text-[9px] font-mono opacity-75">({plan})</span>
       </span>
     );
   }
@@ -424,12 +424,12 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
     <span className="text-xs text-red-600 dark:text-red-300 font-semibold bg-red-50 dark:bg-red-500/12 px-2 py-0.5 rounded-full">Expired</span>
   );
   if (daysLeft <= 3) return (
-    <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-100 dark:border-amber-400/30">
       <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
     </span>
   );
   return (
-    <span className="text-xs text-violet-600 font-semibold bg-violet-50 px-2 py-0.5 rounded-full">
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-900 border border-violet-200 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/25">
       {daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
     </span>
   );
@@ -3272,34 +3272,34 @@ export default function Admin() {
                         </div>
                         {/* Fields grid */}
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                          <div className="flex items-center justify-between rounded px-2.5 py-1.5 border bg-muted/50 dark:bg-muted/25 border-border dark:border-white/10">
                             <span className="text-muted-foreground font-medium">Start</span>
                             <span className="font-mono text-foreground">{format(new Date(s.startedAt), "HH:mm:ss")}</span>
                           </div>
-                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                          <div className="flex items-center justify-between rounded px-2.5 py-1.5 border bg-muted/50 dark:bg-muted/25 border-border dark:border-white/10">
                             <span className="text-muted-foreground font-medium">End</span>
                             <span className="font-mono text-foreground">
-                              {s.endedAt ? format(new Date(s.endedAt), "HH:mm:ss") : <span className="text-red-500">ongoing</span>}
+                              {s.endedAt ? format(new Date(s.endedAt), "HH:mm:ss") : <span className="text-red-500 dark:text-red-400">ongoing</span>}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                          <div className="flex items-center justify-between rounded px-2.5 py-1.5 border bg-muted/50 dark:bg-muted/25 border-border dark:border-white/10">
                             <span className="text-muted-foreground font-medium">Duration</span>
                             <span className="font-semibold text-foreground">{fmtDuration(s.durationSeconds)}</span>
                           </div>
-                          <div className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                          <div className="flex items-center justify-between rounded px-2.5 py-1.5 border bg-muted/50 dark:bg-muted/25 border-border dark:border-white/10">
                             <span className="text-muted-foreground font-medium">Language Pair</span>
                             <span className="text-foreground flex items-center gap-1">
                               {s.langPair ? <><Globe className="w-3 h-3 text-primary" />{s.langPair}</> : <span className="text-muted-foreground">—</span>}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between bg-blue-50 rounded px-2.5 py-1.5 col-span-2">
-                            <span className="text-blue-700 font-medium flex items-center gap-1.5">
+                          <div className="flex items-center justify-between rounded px-2.5 py-1.5 col-span-2 border bg-sky-500/10 dark:bg-sky-500/15 border-sky-300/40 dark:border-sky-400/25">
+                            <span className="text-sky-900 dark:text-sky-100 font-medium flex items-center gap-1.5">
                               <Timer className="w-3 h-3" />Transcription Minutes
                             </span>
-                            <span className="font-bold text-blue-800">
+                            <span className="font-bold text-sky-950 dark:text-sky-50 tabular-nums">
                               {minUsed != null ? `${minUsed.toFixed(2)} min` : "—"}
                               {minUsed != null && (
-                                <span className="font-normal text-blue-500 ml-2">≈ ${(minUsed * 0.0027).toFixed(4)}</span>
+                                <span className="font-normal text-sky-700 dark:text-sky-300 ml-2">≈ ${(minUsed * 0.0027).toFixed(4)}</span>
                               )}
                             </span>
                           </div>
@@ -3312,7 +3312,7 @@ export default function Admin() {
             </div>
 
             {/* Drawer footer */}
-            <div className="px-5 py-3 border-t border-border bg-gray-50 flex items-center justify-between">
+            <div className="px-5 py-3 border-t border-border bg-muted/40 dark:bg-muted/20 flex items-center justify-between">
               <p className="text-[11px] text-muted-foreground">
                 Showing last 100 sessions · Cost rate: $0.0027/min
               </p>
