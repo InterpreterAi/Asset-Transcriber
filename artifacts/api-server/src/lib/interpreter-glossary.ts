@@ -64,6 +64,43 @@ function resolveGlossaryDataDir(): string {
   return path.join(MODULE_DIR, "data");
 }
 
+/** Skip “translation equals English” warnings for short all-caps glosses (often proper nouns / acronyms). */
+function isLikelyAcronymOrSymbolEnglishGloss(en: string): boolean {
+  const core = en.replace(/[^A-Za-z0-9]/g, "");
+  if (core.length <= 1) return true;
+  if (core.length <= 12 && core === core.toUpperCase()) return true;
+  return false;
+}
+
+const MAX_GLOSSARY_GAP_LOG_SAMPLES = 12;
+
+type RawTranslationGap = {
+  missingLangs: InterpreterGlossaryLangCode[];
+  equalsEnglishLangs: InterpreterGlossaryLangCode[];
+};
+
+/** Detect JSON gaps before English fallback materialization (load-time validation). */
+export function rawTranslationGapsForEntry(
+  canonicalKey: string,
+  raw: Partial<Record<InterpreterGlossaryLangCode, string>>,
+): RawTranslationGap {
+  const en = raw.en?.trim() || canonicalKey.trim();
+  const missingLangs: InterpreterGlossaryLangCode[] = [];
+  const equalsEnglishLangs: InterpreterGlossaryLangCode[] = [];
+  for (const code of INTERPRETER_GLOSSARY_LANG_CODES) {
+    if (code === "en") continue;
+    const v = raw[code]?.trim();
+    if (!v) {
+      missingLangs.push(code);
+      continue;
+    }
+    if (v.toLowerCase() === en.toLowerCase() && !isLikelyAcronymOrSymbolEnglishGloss(en)) {
+      equalsEnglishLangs.push(code);
+    }
+  }
+  return { missingLangs, equalsEnglishLangs };
+}
+
 /** Ensures every workspace language has a restore string; defaults to canonical English. */
 function materializeTranslations(
   canonicalKey: string,
@@ -112,6 +149,16 @@ function loadAndIndex(): void {
       logger.error({ err: e, fp }, "Failed to parse glossary JSON");
       continue;
     }
+
+    let fileMissingCells = 0;
+    let fileEqualsEnCells = 0;
+    let fileEntriesWithAnyGap = 0;
+    const gapLogSamples: Array<{
+      canonicalKey: string;
+      missingLangs: InterpreterGlossaryLangCode[];
+      equalsEnglishLangs: InterpreterGlossaryLangCode[];
+    }> = [];
+
     for (const [canonicalKey, row] of Object.entries(raw)) {
       if (!row?.translations || typeof row.translations !== "object") continue;
       const category = row.category;
@@ -122,6 +169,15 @@ function loadAndIndex(): void {
         category !== "insurance"
       ) {
         continue;
+      }
+      const { missingLangs, equalsEnglishLangs } = rawTranslationGapsForEntry(canonicalKey, row.translations);
+      if (missingLangs.length > 0 || equalsEnglishLangs.length > 0) {
+        fileEntriesWithAnyGap += 1;
+        fileMissingCells += missingLangs.length;
+        fileEqualsEnCells += equalsEnglishLangs.length;
+        if (gapLogSamples.length < MAX_GLOSSARY_GAP_LOG_SAMPLES) {
+          gapLogSamples.push({ canonicalKey, missingLangs, equalsEnglishLangs });
+        }
       }
       const translations = materializeTranslations(canonicalKey, row.translations);
       const entryIndex = entries.length;
@@ -142,6 +198,23 @@ function loadAndIndex(): void {
         seenSurfaces.add(dedupe);
         phraseRows.push({ surface: t, entryIndex });
       }
+    }
+
+    const gapCells = fileMissingCells + fileEqualsEnCells;
+    if (gapCells > 0) {
+      logger.warn(
+        {
+          msg: "interpreter_glossary_incomplete_translations",
+          file: fname,
+          path: fp,
+          entriesWithGap: fileEntriesWithAnyGap,
+          totalCategoryEntries: Object.keys(raw).length,
+          missingLanguageCells: fileMissingCells,
+          equalsEnglishCells: fileEqualsEnCells,
+          samples: gapLogSamples,
+        },
+        "Interpreter glossary: non-English targets may receive English on TERM_* restore unless each language is populated in JSON",
+      );
     }
   }
 
