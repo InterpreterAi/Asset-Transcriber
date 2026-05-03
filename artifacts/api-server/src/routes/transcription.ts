@@ -9,6 +9,8 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
   effectivePlanTypeForTranslation,
+  getBillableMinutesUsedToday,
+  getPersonalAnalyticsTrackingWindow,
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
@@ -48,8 +50,8 @@ import {
 } from "../lib/feedback-gate.js";
 import {
   appCalendarDateAndHour,
-  appCalendarDayIsoKeyForDaysAgo,
   appCalendarIsoDateContaining,
+  iterateAppCalendarIsoDatesInclusive,
   startOfAppDay,
   startOfAppDayMinusDays,
   startOfAppMonth,
@@ -1263,150 +1265,179 @@ router.post("/session/stop", requireAuth, async (req, res) => {
 // Personal usage aggregates for the 🌍 Analytics Dashboard (workspace UI).
 router.get("/session/analytics-dashboard", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
-  const user = await getUserWithResetCheck(userId);
-  if (!user) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-
-  const now = new Date();
-  const todayStart = startOfAppDay(now);
-  const weekStart = startOfAppDayMinusDays(now, 6);
-  const monthStart = startOfAppMonth(now);
-
-  const capMin = Number(user.dailyLimitMinutes) || 0;
-  const usedTodayMin = Number(user.minutesUsedToday) || 0;
-  const unlimitedCap = capMin >= UNLIMITED_DAILY_CAP_MINUTES;
-  const remainingTodayMin = unlimitedCap ? null : Math.max(0, capMin - usedTodayMin);
-  const pctDailyUsed =
-    !unlimitedCap && capMin > 0 ? Math.min(100, (usedTodayMin / capMin) * 100) : 0;
-  const warnDaily = !unlimitedCap && pctDailyUsed >= 80;
-
-  const horizon = startOfAppDayMinusDays(now, 89);
-  const rows = await db
-    .select({
-      startedAt: sessionsTable.startedAt,
-      endedAt: sessionsTable.endedAt,
-      durationSeconds: sessionsTable.durationSeconds,
-      langPair: sessionsTable.langPair,
-      wordCount: sessionsTable.wordCount,
-      avgLatencyMs: sessionsTable.avgLatencyMs,
-      languageSwitchCount: sessionsTable.languageSwitchCount,
-    })
-    .from(sessionsTable)
-    .where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, horizon)))
-    .orderBy(desc(sessionsTable.startedAt))
-    .limit(900);
-
-  let sessionsToday = 0;
-  let sessionsWeek = 0;
-  let sessionsMonth = 0;
-  let minutesToday = 0;
-  let minutesWeek = 0;
-  let minutesMonth = 0;
-  let wordsMonth = 0;
-  let latencyWeighted = 0;
-  let latencySessions = 0;
-  let switchesMonth = 0;
-  let completedMonth = 0;
-  let durSumMonthSec = 0;
-  const pairCounts = new Map<string, number>();
-  const dailyMinutes = new Map<string, number>();
-
-  for (const r of rows) {
-    const started = r.startedAt;
-    const ended = r.endedAt != null;
-    const durSec = Math.max(0, Number(r.durationSeconds ?? 0));
-    const mins = durSec / 60;
-    const dayKey = appCalendarIsoDateContaining(started);
-
-    dailyMinutes.set(dayKey, (dailyMinutes.get(dayKey) ?? 0) + mins);
-
-    if (started.getTime() >= todayStart.getTime()) {
-      sessionsToday += 1;
-      minutesToday += mins;
+  try {
+    const user = await getUserWithResetCheck(userId);
+    if (!user) {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
     }
-    if (started.getTime() >= weekStart.getTime()) {
-      sessionsWeek += 1;
-      minutesWeek += mins;
-    }
-    if (started.getTime() >= monthStart.getTime()) {
-      sessionsMonth += 1;
-      minutesMonth += mins;
-      if (ended) {
-        completedMonth += 1;
-        durSumMonthSec += durSec;
+
+    const now = new Date();
+    const todayStart = startOfAppDay(now);
+    const weekStart = startOfAppDayMinusDays(now, 6);
+    const monthStart = startOfAppMonth(now);
+    const tracking = getPersonalAnalyticsTrackingWindow(user, now);
+
+    const capMin = Number(user.dailyLimitMinutes) || 0;
+    const usedTodayMin = await getBillableMinutesUsedToday(userId);
+    const unlimitedCap = capMin >= UNLIMITED_DAILY_CAP_MINUTES;
+    const remainingTodayMin = unlimitedCap ? null : Math.max(0, capMin - usedTodayMin);
+    const pctDailyUsed =
+      !unlimitedCap && capMin > 0 ? Math.min(100, (usedTodayMin / capMin) * 100) : 0;
+    const warnDaily = !unlimitedCap && pctDailyUsed >= 80;
+
+    const twoYearsAgo = startOfAppDayMinusDays(now, 729);
+    const horizonTs = Math.min(monthStart.getTime(), tracking.start.getTime(), twoYearsAgo.getTime());
+    const horizon = new Date(horizonTs);
+
+    // Columns word_count / avg_latency_ms / language_switch_count may be absent on older DBs — select billable-only fields.
+    const rows = await db
+      .select({
+        startedAt: sessionsTable.startedAt,
+        endedAt: sessionsTable.endedAt,
+        durationSeconds: sessionsTable.durationSeconds,
+        langPair: sessionsTable.langPair,
+        audioSecondsProcessed: sessionsTable.audioSecondsProcessed,
+      })
+      .from(sessionsTable)
+      .where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, horizon)))
+      .orderBy(desc(sessionsTable.startedAt))
+      .limit(5000);
+
+    const billableMins = (r: (typeof rows)[number]): number => {
+      const audio = Math.max(0, Number(r.audioSecondsProcessed ?? 0));
+      const dur = Math.max(0, Number(r.durationSeconds ?? 0));
+      const sec = r.endedAt != null ? (audio > 0 ? audio : dur) : audio;
+      return Math.max(0, sec) / 60;
+    };
+
+    const toDate = (v: Date | string): Date => (v instanceof Date ? v : new Date(v));
+
+    let sessionsToday = 0;
+    let sessionsWeek = 0;
+    let sessionsMonth = 0;
+    let sessionsTracking = 0;
+    let minutesToday = 0;
+    let minutesWeek = 0;
+    let minutesMonth = 0;
+    let minutesTracking = 0;
+    let completedMonth = 0;
+    let durSumMonthSec = 0;
+    let completedTracking = 0;
+    let durSumTrackingSec = 0;
+    const pairCounts = new Map<string, number>();
+    const dailyMinutes = new Map<string, number>();
+
+    const trackStartMs = tracking.start.getTime();
+    const trackEndMs = tracking.end.getTime();
+
+    for (const r of rows) {
+      const started = toDate(r.startedAt);
+      const startedMs = started.getTime();
+      if (!Number.isFinite(startedMs)) continue;
+
+      const ended = r.endedAt != null;
+      const durSec = Math.max(0, Number(r.durationSeconds ?? 0));
+      const audioSec = Math.max(0, Number(r.audioSecondsProcessed ?? 0));
+      const billSec = r.endedAt != null ? (audioSec > 0 ? audioSec : durSec) : audioSec;
+      const mins = billableMins(r);
+      const dayKey = appCalendarIsoDateContaining(started);
+
+      dailyMinutes.set(dayKey, (dailyMinutes.get(dayKey) ?? 0) + mins);
+
+      if (startedMs >= todayStart.getTime()) {
+        sessionsToday += 1;
+        minutesToday += mins;
       }
-      const wc = r.wordCount != null ? Number(r.wordCount) : 0;
-      if (wc > 0) wordsMonth += wc;
-      const sw = r.languageSwitchCount != null ? Number(r.languageSwitchCount) : 0;
-      switchesMonth += Math.max(0, sw);
-      const lat = r.avgLatencyMs != null ? Number(r.avgLatencyMs) : null;
-      if (lat != null && lat > 0 && lat < 120_000) {
-        latencyWeighted += lat;
-        latencySessions += 1;
+      if (startedMs >= weekStart.getTime()) {
+        sessionsWeek += 1;
+        minutesWeek += mins;
       }
-      const lp = (r.langPair ?? "").trim() || "—";
-      pairCounts.set(lp, (pairCounts.get(lp) ?? 0) + 1);
+      if (startedMs >= monthStart.getTime()) {
+        sessionsMonth += 1;
+        minutesMonth += mins;
+        if (ended) {
+          completedMonth += 1;
+          durSumMonthSec += billSec;
+        }
+        const lp = (r.langPair ?? "").trim() || "—";
+        pairCounts.set(lp, (pairCounts.get(lp) ?? 0) + 1);
+      }
+      if (startedMs >= trackStartMs && startedMs <= trackEndMs) {
+        sessionsTracking += 1;
+        minutesTracking += mins;
+        if (ended) {
+          completedTracking += 1;
+          durSumTrackingSec += billSec;
+        }
+      }
     }
+
+    const monthDayKeys = iterateAppCalendarIsoDatesInclusive(monthStart, now);
+    const trend: { date: string; minutes: number }[] = monthDayKeys.map((key) => ({
+      date: key,
+      minutes: +(dailyMinutes.get(key) ?? 0).toFixed(3),
+    }));
+
+    const pairTotal = [...pairCounts.values()].reduce((a, b) => a + b, 0);
+    const langPairs = [...pairCounts.entries()]
+      .map(([pair, count]) => ({
+        pair,
+        count,
+        pct: pairTotal > 0 ? Math.round((count / pairTotal) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const avgSessionDurMinMonth =
+      completedMonth > 0 ? durSumMonthSec / 60 / completedMonth : 0;
+    const avgSessionDurMinTracking =
+      completedTracking > 0 ? durSumTrackingSec / 60 / completedTracking : 0;
+
+    res.json({
+      generatedAt: now.toISOString(),
+      limits: {
+        dailyLimitMinutes: capMin,
+        minutesUsedToday: usedTodayMin,
+        minutesRemainingToday: remainingTodayMin,
+        pctDailyUsed: Math.round(pctDailyUsed * 10) / 10,
+        warnDaily,
+        unlimitedDaily: unlimitedCap,
+      },
+      sessions: {
+        today: sessionsToday,
+        week: sessionsWeek,
+        month: sessionsMonth,
+        minutesWeek: Math.round(minutesWeek * 10) / 10,
+        minutesMonth: Math.round(minutesMonth * 10) / 10,
+        avgDurationMinutesMonth: Math.round(avgSessionDurMinMonth * 10) / 10,
+      },
+      trackingPeriod: {
+        label: tracking.label,
+        start: tracking.start.toISOString(),
+        end: tracking.end.toISOString(),
+        sessions: sessionsTracking,
+        minutes: Math.round(minutesTracking * 10) / 10,
+        avgDurationMinutes: Math.round(avgSessionDurMinTracking * 10) / 10,
+      },
+      words: {
+        transcribedMonth: 0,
+        wpmEstimatedMonth: null,
+      },
+      performance: {
+        avgTranslationLatencyMs: null,
+        languageSwitchesMonth: 0,
+      },
+      trendDailyMinutes: trend,
+      langPairs,
+      totalsFromServer: {
+        totalSessionsAccount: Number(user.totalSessions) || 0,
+        totalMinutesAccount: Number(user.totalMinutesUsed) || 0,
+      },
+    });
+  } catch (err) {
+    logger.error({ err, userId }, "GET /session/analytics-dashboard failed");
+    res.status(500).json({ error: "Failed to load analytics dashboard" });
   }
-
-  const trendDays = 14;
-  const trend: { date: string; minutes: number }[] = [];
-  for (let d = trendDays - 1; d >= 0; d--) {
-    const key = appCalendarDayIsoKeyForDaysAgo(now, d);
-    trend.push({ date: key, minutes: +(dailyMinutes.get(key) ?? 0).toFixed(3) });
-  }
-
-  const pairTotal = [...pairCounts.values()].reduce((a, b) => a + b, 0);
-  const langPairs = [...pairCounts.entries()]
-    .map(([pair, count]) => ({
-      pair,
-      count,
-      pct: pairTotal > 0 ? Math.round((count / pairTotal) * 1000) / 10 : 0,
-    }))
-    .sort((a, b) => b.count - a.count);
-
-  const avgSessionDurMinMonth =
-    completedMonth > 0 ? durSumMonthSec / 60 / completedMonth : 0;
-  const avgLatencyMs =
-    latencySessions > 0 ? Math.round(latencyWeighted / latencySessions) : null;
-  const wpmMonth =
-    minutesMonth > 0.05 ? Math.round(wordsMonth / minutesMonth) : null;
-
-  res.json({
-    generatedAt: now.toISOString(),
-    limits: {
-      dailyLimitMinutes: capMin,
-      minutesUsedToday: usedTodayMin,
-      minutesRemainingToday: remainingTodayMin,
-      pctDailyUsed: Math.round(pctDailyUsed * 10) / 10,
-      warnDaily,
-      unlimitedDaily: unlimitedCap,
-    },
-    sessions: {
-      today: sessionsToday,
-      week: sessionsWeek,
-      month: sessionsMonth,
-      minutesWeek: Math.round(minutesWeek * 10) / 10,
-      minutesMonth: Math.round(minutesMonth * 10) / 10,
-      avgDurationMinutesMonth: Math.round(avgSessionDurMinMonth * 10) / 10,
-    },
-    words: {
-      transcribedMonth: wordsMonth,
-      wpmEstimatedMonth: wpmMonth,
-    },
-    performance: {
-      avgTranslationLatencyMs: avgLatencyMs,
-      languageSwitchesMonth: switchesMonth,
-    },
-    trendDailyMinutes: trend,
-    langPairs,
-    totalsFromServer: {
-      totalSessionsAccount: Number(user.totalSessions) || 0,
-      totalMinutesAccount: Number(user.totalMinutesUsed) || 0,
-    },
-  });
 });
 
 // ── /session/snapshot ──────────────────────────────────────────────────────

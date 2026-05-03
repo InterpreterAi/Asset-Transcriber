@@ -55,6 +55,14 @@ export type AnalyticsDashboardPayload = {
     totalSessionsAccount: number;
     totalMinutesAccount: number;
   };
+  trackingPeriod: {
+    label: string;
+    start: string;
+    end: string;
+    sessions: number;
+    minutes: number;
+    avgDurationMinutes: number;
+  };
 };
 
 function fmtMs(ms: number | null | undefined) {
@@ -112,7 +120,10 @@ export function InterpreterAnalyticsDashboard({
     setErr(null);
     void fetch(`${BASE}/api/transcription/session/analytics-dashboard`, { credentials: "include" })
       .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error?.trim() || `HTTP ${r.status}`);
+        }
         return r.json() as Promise<AnalyticsDashboardPayload>;
       })
       .then(setData)
@@ -267,12 +278,44 @@ export function InterpreterAnalyticsDashboard({
                         </p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-muted-foreground">This month</p>
+                        <p className="text-[10px] text-muted-foreground">This month (calendar)</p>
                         <p className="font-semibold tabular-nums">{data.sessions.month} sessions</p>
                         <p className="text-xs text-muted-foreground tabular-nums">
                           {formatMinutes(data.sessions.minutesMonth)} transcribed
                         </p>
                       </div>
+                    </div>
+                    <div className="rounded-lg border border-border/60 dark:border-white/10 bg-background/40 px-2.5 py-2 mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {data.trackingPeriod.label}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(data.trackingPeriod.start).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                        {" — "}
+                        {new Date(data.trackingPeriod.end).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                      <p className="text-sm">
+                        <span className="font-semibold tabular-nums">{data.trackingPeriod.sessions}</span>{" "}
+                        sessions ·{" "}
+                        <span className="font-semibold tabular-nums">
+                          {formatMinutes(data.trackingPeriod.minutes)}
+                        </span>{" "}
+                        transcribed
+                        {data.trackingPeriod.avgDurationMinutes > 0 && (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · avg {data.trackingPeriod.avgDurationMinutes.toFixed(1)} min/session
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/50 dark:border-white/10">
                       Account lifetime:{" "}
@@ -364,7 +407,7 @@ export function InterpreterAnalyticsDashboard({
 
               <section className="space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Daily usage (last 14 days)
+                  Daily usage (this month, app calendar)
                 </h3>
                 <div className={cn("rounded-xl border p-3 h-56", cardBg)}>
                   <ResponsiveContainer width="100%" height="100%">

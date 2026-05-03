@@ -1,8 +1,9 @@
 import { db, usersTable, sessionsTable } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 import type { User } from "@workspace/db";
-import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
+import { appCalendarDayChanged, startOfAppDay, startOfAppMonth } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
+import { subscriptionPeriodEndFallback } from "./paypal.js";
 
 export type TranslationRoutingUser = {
   planType: string | null | undefined;
@@ -37,6 +38,61 @@ export function getTrialDaysRemaining(user: User): number {
   const diff = end.getTime() - now.getTime();
   if (!Number.isFinite(diff)) return 0;
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+}
+
+/** Calendar days until paid subscription period end (PayPal next billing or start + 30d). Trials / admins → null. */
+export function getPaidCycleDaysRemaining(user: User): number | null {
+  if (user.isAdmin) return null;
+  if (isTrialLikePlanType(user.planType)) return null;
+
+  const startedRaw = user.subscriptionStartedAt ?? user.createdAt;
+  if (!startedRaw) return null;
+  const startDate = new Date(startedRaw as Date | string);
+  if (!Number.isFinite(startDate.getTime())) return null;
+
+  const endDate = user.subscriptionPeriodEndsAt
+    ? new Date(user.subscriptionPeriodEndsAt as Date | string)
+    : subscriptionPeriodEndFallback(startDate);
+  if (!Number.isFinite(endDate.getTime())) return null;
+  if (endDate.getTime() <= startDate.getTime()) return null;
+
+  const now = Date.now();
+  if (now >= endDate.getTime()) return 0;
+
+  return Math.max(0, Math.ceil((endDate.getTime() - now) / 86_400_000));
+}
+
+/**
+ * Personal analytics "period" window: active trial → trial start→min(now,trial end);
+ * paid → subscription start→min(now, period end); otherwise calendar month-to-date.
+ */
+export function getPersonalAnalyticsTrackingWindow(
+  user: User,
+  now: Date = new Date(),
+): { start: Date; end: Date; label: string } {
+  const monthStart = startOfAppMonth(now);
+  const nowMs = now.getTime();
+
+  if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) {
+    return { start: monthStart, end: now, label: "This calendar month" };
+  }
+
+  if (isTrialLikePlanType(user.planType)) {
+    const trialStart = new Date(user.trialStartedAt);
+    const trialEnd = new Date(user.trialEndsAt);
+    const start = Number.isFinite(trialStart.getTime()) ? trialStart : monthStart;
+    const endMs = Number.isFinite(trialEnd.getTime()) ? Math.min(nowMs, trialEnd.getTime()) : nowMs;
+    return { start, end: new Date(endMs), label: "Current trial (since start)" };
+  }
+
+  const subStart = new Date(user.subscriptionStartedAt ?? user.createdAt);
+  const start = Number.isFinite(subStart.getTime()) ? subStart : monthStart;
+  const periodEnd = user.subscriptionPeriodEndsAt
+    ? new Date(user.subscriptionPeriodEndsAt)
+    : subscriptionPeriodEndFallback(start);
+  const endMs =
+    Number.isFinite(periodEnd.getTime()) ? Math.min(nowMs, periodEnd.getTime()) : nowMs;
+  return { start, end: new Date(endMs), label: "Current billing period (since subscribe)" };
 }
 
 /** DB `plan_type` values treated as trial for expiry, reminders, and admin filters. */
@@ -223,6 +279,7 @@ export function buildUserInfo(user: User) {
     trialEndsAt: user.trialEndsAt,
     trialDaysRemaining,
     trialExpired,
+    paidCycleDaysRemaining: getPaidCycleDaysRemaining(user),
     dailyLimitMinutes: Number.isFinite(dailyLimit) ? dailyLimit : user.dailyLimitMinutes,
     minutesUsedToday: Number.isFinite(usedToday) ? usedToday : user.minutesUsedToday,
     minutesRemainingToday,

@@ -48,6 +48,22 @@ export function appCalendarIsoDateContaining(ref: Date): string {
   return DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE).toISODate()!;
 }
 
+/** Each app-calendar `YYYY-MM-DD` from the start of `start`'s day through the start of `end`'s day (inclusive). */
+export function iterateAppCalendarIsoDatesInclusive(start: Date, end: Date): string[] {
+  const keys: string[] = [];
+  const d0 = DateTime.fromJSDate(start).setZone(APP_TIME_ZONE).startOf("day");
+  const endD = DateTime.fromJSDate(end).setZone(APP_TIME_ZONE).startOf("day");
+  if (!d0.isValid || !endD.isValid) return keys;
+  let cursor = d0;
+  let guard = 0;
+  while (cursor <= endD && guard < 370) {
+    keys.push(cursor.toISODate()!);
+    cursor = cursor.plus({ days: 1 });
+    guard += 1;
+  }
+  return keys;
+}
+
 /** Current calendar date (`YYYY-MM-DD`) and clock hour (0–23) in the app timezone. */
 export function appCalendarDateAndHour(ref: Date = new Date()): { dateIso: string; hour: number } {
   const dt = DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE);
