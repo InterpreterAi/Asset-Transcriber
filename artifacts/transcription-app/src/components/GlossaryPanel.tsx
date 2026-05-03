@@ -110,8 +110,8 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
   };
 
   return (
-    <div className="w-full md:w-72 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-hidden shrink-0 z-10 dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]">
-      <div className="h-[52px] border-b border-border dark:border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-muted/15 dark:bg-muted/30">
+    <div className="w-full md:w-72 bg-card border-r-2 border-border dark:border-r dark:border-white/[0.08] flex flex-col overflow-hidden shrink-0 z-10 dark:shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]">
+      <div className="h-[52px] border-b-2 border-border dark:border-b dark:border-white/[0.08] flex items-center justify-between px-4 shrink-0 bg-muted/20 dark:bg-muted/30">
         <div className="flex items-center gap-2">
           <BookOpen className="w-4 h-4 text-primary" />
           <span className="font-semibold text-sm">My Glossary</span>
@@ -124,7 +124,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
         </button>
       </div>
 
-      <div className="p-3 border-b border-border dark:border-white/[0.06] bg-muted/25 dark:bg-muted/35 shrink-0 space-y-2">
+      <div className="p-3 border-b-2 border-border dark:border-b dark:border-white/[0.06] bg-muted/30 dark:bg-muted/35 shrink-0 space-y-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
           Add source phrases and your preferred target wording. Every row is sent as a{" "}
           <span className="font-medium text-foreground/80">prompt hint</span>.{" "}
@@ -136,7 +136,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
         <label className="flex items-start gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
-            className="mt-0.5 rounded border-border"
+            className="mt-0.5 rounded border-2 border-border text-primary accent-primary"
             checked={glossaryStrict}
             onChange={e => {
               const v = e.target.checked;
@@ -154,7 +154,10 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
         </label>
       </div>
 
-      <form onSubmit={(e) => void handleAdd(e)} className="p-3 border-b border-border dark:border-white/[0.06] shrink-0 space-y-2">
+      <form
+        onSubmit={(e) => void handleAdd(e)}
+        className="p-3 border-b-2 border-border dark:border-b dark:border-white/[0.06] shrink-0 space-y-2 bg-muted/25 dark:bg-transparent"
+      >
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Add Entry</p>
         {error && (
           <p className="text-[10px] text-destructive bg-destructive/10 rounded px-2 py-1">{error}</p>
@@ -163,14 +166,14 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
           value={term}
           onChange={e => setTerm(e.target.value)}
           placeholder='Source term(s), comma-separated'
-          className="w-full h-8 px-2.5 text-xs rounded-lg border border-border bg-background shadow-sm dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
+          className="w-full h-8 px-2.5 text-xs rounded-lg border-2 border-border bg-background shadow-inner dark:border dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
           required
         />
         <input
           value={translation}
           onChange={e => setTranslation(e.target.value)}
           placeholder={translationPlaceholder}
-          className="w-full h-8 px-2.5 text-xs rounded-lg border border-border bg-background shadow-sm dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
+          className="w-full h-8 px-2.5 text-xs rounded-lg border-2 border-border bg-background shadow-inner dark:border dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
           dir="auto"
           required
         />
@@ -178,7 +181,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
           <select
             value={enforceMode}
             onChange={e => setEnforceMode(e.target.value === "hint" ? "hint" : "strict")}
-            className="flex-1 h-8 px-2 text-xs font-semibold text-foreground rounded-lg border border-border bg-background shadow-sm dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
+            className="flex-1 h-8 px-2 text-xs font-semibold text-foreground rounded-lg border-2 border-border bg-background shadow-inner dark:border dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
             aria-label="Enforcement mode"
           >
             <option value="strict">Strict (hint + output fix)</option>
@@ -190,7 +193,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
             onChange={e => setPriority(e.target.value)}
             placeholder="Priority"
             title="Manual priority (higher first). Optional."
-            className="w-24 h-8 px-2 text-xs text-foreground rounded-lg border border-border bg-background shadow-sm dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring shrink-0"
+            className="w-24 h-8 px-2 text-xs text-foreground rounded-lg border-2 border-border bg-background shadow-inner dark:border dark:border-white/10 dark:bg-muted/30 dark:shadow-none outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring shrink-0"
           />
         </div>
         <button
@@ -205,22 +208,22 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
         </button>
       </form>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+      <div className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-muted/10 dark:bg-transparent min-h-[8rem]">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
+          <div className="flex items-center justify-center py-8 rounded-lg border-2 border-dashed border-border dark:border-white/[0.08]">
             <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40" />
           </div>
         ) : entries.length === 0 ? (
-          <div className="py-8 text-center">
-            <BookOpen className="w-8 h-8 mx-auto mb-2 text-muted-foreground/20" />
-            <p className="text-xs text-muted-foreground/60">No glossary entries yet</p>
-            <p className="text-[10px] text-muted-foreground/40 mt-0.5">Add your first term above</p>
+          <div className="py-8 px-2 text-center rounded-lg border-2 border-dashed border-border bg-background/80 dark:border-white/[0.12] dark:bg-transparent">
+            <BookOpen className="w-8 h-8 mx-auto mb-2 text-muted-foreground/35" />
+            <p className="text-xs text-muted-foreground">No glossary entries yet</p>
+            <p className="text-[10px] text-muted-foreground/80 mt-0.5">Add your first term above</p>
           </div>
         ) : (
           entries.map(entry => (
             <div
               key={entry.id}
-              className="group flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border/50 dark:border-white/10 bg-muted/20 dark:bg-muted/10 hover:bg-muted/40 dark:hover:bg-white/[0.06] transition-colors"
+              className="group flex items-center gap-2 px-2.5 py-2 rounded-lg border-2 border-border dark:border dark:border-white/10 bg-muted/25 dark:bg-muted/10 hover:bg-muted/45 dark:hover:bg-white/[0.06] transition-colors"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
