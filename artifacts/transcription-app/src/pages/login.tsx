@@ -195,8 +195,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-[#f5f5f7]">
-      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+    <div className="public-marketing-surface min-h-screen flex items-center justify-center relative overflow-hidden bg-[#f5f5f7] text-slate-900">
+      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "radial-gradient(#000 1px, transparent 1px)", backgroundSize: "24px 24px" }} aria-hidden />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -206,14 +206,14 @@ export default function Login() {
       >
         <div className="text-center mb-10">
           <button onClick={() => setLocation("/")} className="inline-block" aria-label="Go to homepage">
-            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-border hover:shadow-md transition-shadow">
+            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-slate-200/80 hover:shadow-md transition-shadow">
               {step === "2fa"
                 ? <ShieldCheck className="w-8 h-8 text-primary" />
                 : <Mic2 className="w-8 h-8 text-primary" />}
             </div>
           </button>
-          <h1 className="text-3xl font-display font-semibold text-foreground mb-2 tracking-tight">InterpreterAI</h1>
-          <p className="text-muted-foreground text-sm">
+          <h1 className="text-3xl font-display font-semibold text-slate-900 mb-2 tracking-tight">InterpreterAI</h1>
+          <p className="text-slate-600 text-sm">
             {step === "2fa" ? "Two-factor authentication" : "Professional Transcription & Translation"}
           </p>
         </div>
@@ -221,10 +221,10 @@ export default function Login() {
         <AnimatePresence mode="wait">
           {step === "credentials" && (
             <motion.div key="credentials" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }}>
-              <Card className="p-8 bg-white border border-border shadow-md rounded-2xl">
+              <Card className="p-8 bg-white border border-slate-200/90 shadow-md rounded-2xl">
                 <a
                   href="/api/auth/google"
-                  className="flex items-center justify-center gap-2.5 w-full h-12 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 shadow-sm mb-5"
+                  className="flex items-center justify-center gap-2.5 w-full h-12 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-5"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -236,8 +236,8 @@ export default function Login() {
                 </a>
 
                 <div className="relative mb-5">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-                  <div className="relative flex justify-center text-[11px] text-muted-foreground uppercase tracking-wider"><span className="bg-white px-2">or sign in with email</span></div>
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+                  <div className="relative flex justify-center text-[11px] text-slate-500 uppercase tracking-wider"><span className="bg-white px-2">or sign in with email</span></div>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
@@ -253,14 +253,14 @@ export default function Login() {
                   )}
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Email or Username</label>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Email or Username</label>
                     <div className="relative">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400" />
                       <Input
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         placeholder="you@example.com"
-                        className="pl-10 h-12 bg-gray-50 border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary"
+                        className="pl-10 h-12 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400 focus-visible:ring-primary/20 focus-visible:border-primary"
                         required
                       />
                     </div>
@@ -268,19 +268,19 @@ export default function Login() {
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between ml-1">
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Password</label>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Password</label>
                       <button type="button" onClick={() => setLocation("/forgot-password")} className="text-xs text-primary hover:underline">
                         Forgot password?
                       </button>
                     </div>
                     <div className="relative">
-                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" />
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400" />
                       <Input
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="pl-10 h-12 bg-gray-50 border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary"
+                        className="pl-10 h-12 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400 focus-visible:ring-primary/20 focus-visible:border-primary"
                         required
                       />
                     </div>
@@ -308,26 +308,26 @@ export default function Login() {
                 </form>
               </Card>
 
-              <p className="text-center text-sm text-muted-foreground mt-5">
+              <p className="text-center text-sm text-slate-600 mt-5">
                 Don't have an account?{" "}
                 <button onClick={() => setLocation("/signup")} className="font-semibold text-primary hover:underline">
                   Start free trial
                 </button>
               </p>
               <div className="flex items-center justify-center gap-5 mt-4">
-                <button onClick={() => setLocation("/terms")} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Terms of Use</button>
-                <button onClick={() => setLocation("/privacy")} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</button>
+                <button onClick={() => setLocation("/terms")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Terms of Use</button>
+                <button onClick={() => setLocation("/privacy")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Privacy Policy</button>
               </div>
             </motion.div>
           )}
 
           {step === "2fa" && (
             <motion.div key="2fa" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }}>
-              <Card className="p-8 bg-white border border-border shadow-md rounded-2xl">
+              <Card className="p-8 bg-white border border-slate-200/90 shadow-md rounded-2xl">
                 <div className="mb-5">
-                  <h2 className="text-lg font-semibold text-foreground mb-1">Verification required</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Open your authenticator app and enter the 6-digit code for <span className="font-medium text-foreground">InterpreterAI</span>.
+                  <h2 className="text-lg font-semibold text-slate-900 mb-1">Verification required</h2>
+                  <p className="text-sm text-slate-600">
+                    Open your authenticator app and enter the 6-digit code for <span className="font-medium text-slate-900">InterpreterAI</span>.
                   </p>
                 </div>
 
@@ -339,7 +339,7 @@ export default function Login() {
                   )}
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">
                       6-Digit Code
                     </label>
                     <Input
@@ -349,7 +349,7 @@ export default function Login() {
                       placeholder="000000"
                       inputMode="numeric"
                       autoComplete="one-time-code"
-                      className="h-14 text-center text-2xl font-mono tracking-[0.5em] bg-gray-50 border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary"
+                      className="h-14 text-center text-2xl font-mono tracking-[0.5em] bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400 focus-visible:ring-primary/20 focus-visible:border-primary"
                       maxLength={6}
                       required
                     />
@@ -369,14 +369,14 @@ export default function Login() {
 
                 <button
                   onClick={() => { setStep("credentials"); setError(""); setOtpValue(""); }}
-                  className="mt-5 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mx-auto"
+                  className="mt-5 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 transition-colors mx-auto"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   Back to sign in
                 </button>
               </Card>
 
-              <p className="text-center text-xs text-muted-foreground mt-5">
+              <p className="text-center text-xs text-slate-600 mt-5">
                 Lost access to your authenticator?{" "}
                 <a href="mailto:support@interpreterai.org" className="text-primary hover:underline">Contact support</a>
               </p>

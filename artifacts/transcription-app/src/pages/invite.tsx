@@ -30,11 +30,11 @@ export default function InvitePage() {
   }, [search, setLocation]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] gap-4">
-      <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-border">
+    <div className="public-marketing-surface min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] text-slate-900 gap-4">
+      <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-200/80">
         <Mic2 className="w-7 h-7 text-primary" />
       </div>
-      <p className="text-sm text-muted-foreground">Opening your invitation…</p>
+      <p className="text-sm text-slate-600">Opening your invitation…</p>
     </div>
   );
 }

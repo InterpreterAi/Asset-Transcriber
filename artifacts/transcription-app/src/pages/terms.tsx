@@ -4,9 +4,9 @@ import { ArrowLeft, Mic2 } from "lucide-react";
 export default function Terms() {
   const [, setLocation] = useLocation();
   return (
-    <div className="min-h-screen bg-[#f5f5f7] py-12 px-6">
+    <div className="public-marketing-surface min-h-screen bg-[#f5f5f7] text-slate-900 py-12 px-6">
       <div className="max-w-3xl mx-auto">
-        <button onClick={() => setLocation("/")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-8 transition-colors">
+        <button onClick={() => setLocation("/")} className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 mb-8 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
         <div className="flex items-center gap-3 mb-8">

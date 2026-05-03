@@ -92,6 +92,48 @@
   --shadow-md: 0 4px 16px 0 rgba(0,0,0,0.10), 0 2px 6px 0 rgba(0,0,0,0.06);
 }
 
+/**
+ * Marketing + auth pages: always use light tokens so they match the original site
+ * even when `html` has `.dark` for the workspace default.
+ */
+.public-marketing-surface {
+  color-scheme: light;
+  --background: 0 0% 97%;
+  --foreground: 220 13% 13%;
+  --border: 220 13% 87%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 13% 13%;
+  --card-border: 220 13% 90%;
+  --sidebar: 220 13% 93%;
+  --sidebar-foreground: 220 13% 35%;
+  --sidebar-border: 220 13% 85%;
+  --sidebar-primary: 0 84% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 13% 88%;
+  --sidebar-accent-foreground: 220 13% 20%;
+  --sidebar-ring: 0 84% 55%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 13% 13%;
+  --popover-border: 220 13% 87%;
+  --primary: 211 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 13% 95%;
+  --secondary-foreground: 220 13% 25%;
+  --muted: 220 13% 95%;
+  --muted-foreground: 220 9% 55%;
+  --accent: 220 13% 93%;
+  --accent-foreground: 220 13% 20%;
+  --destructive: 0 84% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 13% 83%;
+  --ring: 211 100% 50%;
+  --chart-1: 211 100% 50%;
+  --chart-2: 145 63% 42%;
+  --chart-3: 27 95% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+}
+
 .dark {
   --background: 220 13% 9%;
   --foreground: 220 13% 95%;

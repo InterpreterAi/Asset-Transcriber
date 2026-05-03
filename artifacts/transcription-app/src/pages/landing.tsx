@@ -302,7 +302,7 @@ export default function Landing() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-foreground overflow-x-hidden relative">
+    <div className="public-marketing-surface min-h-screen bg-[#f5f5f7] text-slate-900 overflow-x-hidden relative">
       <div className="absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(80%_60%_at_50%_0%,rgba(32,140,255,0.22),rgba(245,245,247,0)_70%)] pointer-events-none" />
       <div className="absolute inset-x-0 top-[180px] h-[340px] bg-[radial-gradient(60%_55%_at_55%_10%,rgba(34,197,94,0.12),rgba(245,245,247,0)_70%)] pointer-events-none" />
 

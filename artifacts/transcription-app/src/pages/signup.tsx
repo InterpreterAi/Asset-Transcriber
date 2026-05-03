@@ -100,8 +100,8 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7] relative overflow-hidden px-4">
-      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "radial-gradient(#000 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+    <div className="public-marketing-surface min-h-screen flex items-center justify-center bg-[#f5f5f7] text-slate-900 relative overflow-hidden px-4">
+      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "radial-gradient(#000 1px, transparent 1px)", backgroundSize: "24px 24px" }} aria-hidden />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -111,12 +111,12 @@ export default function Signup() {
       >
         <div className="text-center mb-8">
           <button onClick={() => setLocation("/")} className="inline-block">
-            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-sm border border-border">
+            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-sm border border-slate-200/80">
               <Mic2 className="w-7 h-7 text-primary" />
             </div>
           </button>
-          <h1 className="text-2xl font-display font-semibold tracking-tight mb-1">Create your account</h1>
-          <p className="text-sm text-muted-foreground">7-day free trial · No credit card required</p>
+          <h1 className="text-2xl font-display font-semibold tracking-tight mb-1 text-slate-900">Create your account</h1>
+          <p className="text-sm text-slate-600">7-day free trial · No credit card required</p>
           {referrerUserId && (
             <p className="text-xs font-medium text-primary mt-1.5 bg-primary/8 px-3 py-1 rounded-full inline-block border border-primary/20">
               You were invited by a colleague
@@ -124,19 +124,19 @@ export default function Signup() {
           )}
         </div>
 
-        <Card className="p-7 bg-white border border-border shadow-md rounded-2xl">
+        <Card className="p-7 bg-white border border-slate-200/90 shadow-md rounded-2xl">
           {verificationSent ? (
             <div className="text-center space-y-4 py-2">
               <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto border border-primary/20">
                 <Mail className="w-7 h-7 text-primary" />
               </div>
-              <h2 className="text-lg font-semibold text-foreground">Check your email</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <h2 className="text-lg font-semibold text-slate-900">Check your email</h2>
+              <p className="text-sm text-slate-600 leading-relaxed">
                 We sent a verification link to{" "}
-                <span className="font-medium text-foreground">{pendingEmail || email}</span>.
+                <span className="font-medium text-slate-900">{pendingEmail || email}</span>.
                 Verify your email to activate InterpreterAI, then sign in.
               </p>
-              <p className="text-xs text-muted-foreground">The link expires in 24 hours.</p>
+              <p className="text-xs text-slate-600">The link expires in 24 hours.</p>
               <Button type="button" className="w-full h-11 mt-2" onClick={() => setLocation("/login")}>
                 Go to sign in
               </Button>
@@ -145,7 +145,7 @@ export default function Signup() {
             <>
           <a
             href={referrerUserId ? `/api/auth/google?ref=${referrerUserId}` : "/api/auth/google"}
-            className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 shadow-sm mb-4"
+            className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-4"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -157,8 +157,8 @@ export default function Signup() {
           </a>
 
           <div className="relative mb-4">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-            <div className="relative flex justify-center text-[11px] text-muted-foreground uppercase tracking-wider"><span className="bg-white px-2">or sign up with email</span></div>
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+            <div className="relative flex justify-center text-[11px] text-slate-500 uppercase tracking-wider"><span className="bg-white px-2">or sign up with email</span></div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -169,7 +169,7 @@ export default function Signup() {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Email</label>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Email</label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[17px] h-[17px] text-muted-foreground" />
                 <Input
@@ -177,28 +177,28 @@ export default function Signup() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="pl-10 h-11 bg-gray-50 border-gray-200"
+                  className="pl-10 h-11 bg-muted/50 border-border text-foreground placeholder:text-muted-foreground"
                   required
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Password</label>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[17px] h-[17px] text-muted-foreground" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[17px] h-[17px] text-slate-400" />
                 <Input
                   type={showPw ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Min. 8 characters"
-                  className="pl-10 pr-10 h-11 bg-gray-50 border-gray-200"
+                  className="pl-10 pr-10 h-11 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors"
                 >
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -206,15 +206,15 @@ export default function Signup() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Confirm Password</label>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Confirm Password</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[17px] h-[17px] text-muted-foreground" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[17px] h-[17px] text-slate-400" />
                 <Input
                   type={showPw ? "text" : "password"}
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   placeholder="Repeat password"
-                  className="pl-10 h-11 bg-gray-50 border-gray-200"
+                  className="pl-10 h-11 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400"
                   required
                 />
               </div>
@@ -231,13 +231,13 @@ export default function Signup() {
               </div>
             ) : null}
 
-            <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+            <p className="text-[11px] text-slate-600 text-center leading-relaxed">
               By signing up you agree to our{" "}
-              <button type="button" onClick={() => setLocation("/terms")} className="underline hover:text-foreground">
+              <button type="button" onClick={() => setLocation("/terms")} className="underline hover:text-slate-900">
                 Terms of Use
               </button>{" "}
               and{" "}
-              <button type="button" onClick={() => setLocation("/privacy")} className="underline hover:text-foreground">
+              <button type="button" onClick={() => setLocation("/privacy")} className="underline hover:text-slate-900">
                 Privacy Policy
               </button>
             </p>
@@ -250,7 +250,7 @@ export default function Signup() {
           )}
         </Card>
 
-        <p className="text-center text-sm text-muted-foreground mt-5">
+        <p className="text-center text-sm text-slate-600 mt-5">
           Already have an account?{" "}
           <button onClick={() => setLocation("/login")} className="font-semibold text-primary hover:underline">
             Log in
