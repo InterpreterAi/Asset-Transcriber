@@ -77,6 +77,23 @@ export function getPersonalAnalyticsTrackingWindow(
     return { start: monthStart, end: now, label: "This calendar month" };
   }
 
+  const subStatus = (user.subscriptionStatus ?? "").trim().toLowerCase();
+  const subPlan = (user.subscriptionPlan ?? "").trim().toLowerCase();
+  const hasActivePaidSubscription =
+    subStatus === "active" &&
+    (subPlan === "basic" || subPlan === "professional" || subPlan === "platinum" || subPlan === "unlimited");
+
+  if (isTrialLikePlanType(user.planType) && hasActivePaidSubscription) {
+    const subStart = new Date(user.subscriptionStartedAt ?? user.createdAt);
+    const start = Number.isFinite(subStart.getTime()) ? subStart : monthStart;
+    const periodEnd = user.subscriptionPeriodEndsAt
+      ? new Date(user.subscriptionPeriodEndsAt)
+      : subscriptionPeriodEndFallback(start);
+    const endMs =
+      Number.isFinite(periodEnd.getTime()) ? Math.min(nowMs, periodEnd.getTime()) : nowMs;
+    return { start, end: new Date(endMs), label: "Current billing period (since subscribe)" };
+  }
+
   if (isTrialLikePlanType(user.planType)) {
     const trialStart = new Date(user.trialStartedAt);
     const trialEnd = new Date(user.trialEndsAt);
