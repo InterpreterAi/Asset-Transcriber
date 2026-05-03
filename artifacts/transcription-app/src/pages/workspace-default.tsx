@@ -1160,7 +1160,7 @@ export default function WorkspaceDefault() {
                           className={`px-2 py-1 rounded-md text-[9px] font-semibold border transition-colors disabled:opacity-50 leading-tight text-left max-w-[8.5rem] ${
                             active
                               ? "border-primary bg-primary/10 text-primary"
-                              : "border-border dark:border-white/10 bg-white dark:bg-[#1f2733] hover:bg-muted dark:hover:bg-white/[0.08] text-foreground"
+                              : "border-border dark:border-white/10 bg-card text-foreground hover:bg-muted dark:bg-muted/25 dark:hover:bg-white/[0.08]"
                           }`}
                         >
                           {testPlanLoading === o.planType ? "…" : o.label}
@@ -1748,7 +1748,7 @@ export default function WorkspaceDefault() {
               "flex-1 rounded-xl flex flex-col min-h-0 overflow-hidden backdrop-blur-md",
               wsDark
                 ? "bg-card/80 border border-white/[0.08] shadow-[0_12px_48px_rgba(0,0,0,0.45),0_0_0_1px_rgba(255,255,255,0.04)]"
-                : "bg-white border border-border shadow-sm",
+                : "bg-card border border-border shadow-sm",
             )}
           >
 

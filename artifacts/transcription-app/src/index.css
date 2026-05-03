@@ -51,6 +51,7 @@
 }
 
 :root {
+  color-scheme: light;
   --background: 0 0% 97%;
   --foreground: 220 13% 13%;
   --border: 220 13% 87%;
@@ -135,13 +136,14 @@
 }
 
 .dark {
-  --background: 220 13% 9%;
-  --foreground: 220 13% 95%;
+  color-scheme: dark;
+  --background: 220 13% 8%;
+  --foreground: 220 13% 96%;
   --border: 220 13% 16%;
-  --card: 220 13% 12%;
-  --card-foreground: 220 13% 95%;
+  --card: 220 13% 11%;
+  --card-foreground: 220 13% 96%;
   --card-border: 220 13% 16%;
-  --sidebar: 220 13% 12%;
+  --sidebar: 220 13% 11%;
   --sidebar-foreground: 220 13% 65%;
   --sidebar-border: 220 13% 16%;
   --sidebar-primary: 0 84% 55%;
@@ -149,7 +151,7 @@
   --sidebar-accent: 220 13% 18%;
   --sidebar-accent-foreground: 220 13% 95%;
   --sidebar-ring: 0 84% 55%;
-  --popover: 220 13% 12%;
+  --popover: 220 13% 11%;
   --popover-foreground: 220 13% 95%;
   --popover-border: 220 13% 16%;
   --primary: 211 100% 50%;
@@ -182,6 +184,15 @@
 @layer base {
   * {
     @apply border-border;
+  }
+  /**
+   * Native <select> / number inputs otherwise follow OS dark appearance when
+   * prefers-color-scheme is dark, even if the app is in light mode — solid black “blocks”.
+   */
+  select,
+  input[type="number"] {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
   body {
     @apply bg-background text-foreground antialiased selection:bg-primary/30 selection:text-primary-foreground;
