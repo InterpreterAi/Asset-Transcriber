@@ -6,7 +6,7 @@ import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { InviteModal } from "@/components/InviteModal";
 import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Globe, Languages, Trash2, Copy, Check, Type, Monitor, PanelRightClose, PanelRightOpen,
+  Languages, Trash2, Copy, Check, Type, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
   Hash, Sparkles, Sun, Moon,
@@ -24,7 +24,6 @@ import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
-import { InterpreterAnalyticsDashboard } from "@/components/InterpreterAnalyticsDashboard";
 import {
   cn,
   formatMinutes,
@@ -151,8 +150,6 @@ export default function WorkspaceDefault() {
     document.documentElement.classList.toggle("dark", workspaceTheme === "dark");
   }, [workspaceTheme]);
   const wsDark = workspaceTheme === "dark";
-
-  const [analyticsDashboardOpen, setAnalyticsDashboardOpen] = useState(false);
 
   const [wideWorkspace, setWideWorkspace] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -779,12 +776,6 @@ export default function WorkspaceDefault() {
       {showInviteModal && (
         <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
       )}
-      <InterpreterAnalyticsDashboard
-        open={analyticsDashboardOpen}
-        onClose={() => setAnalyticsDashboardOpen(false)}
-        wsDark={wsDark}
-      />
-
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -952,25 +943,6 @@ export default function WorkspaceDefault() {
               <span className="text-sm font-medium md:hidden">{title}</span>
             </button>
           ))}
-          <button
-            type="button"
-            className={cn(
-              "flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all",
-              analyticsDashboardOpen
-                ? wsDark
-                  ? "bg-sky-500/15 text-sky-300 border border-sky-400/20 md:border-0"
-                  : "bg-primary/10 text-primary"
-                : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            )}
-            onClick={() => {
-              setAnalyticsDashboardOpen(true);
-              setSettingsOpen(false);
-            }}
-            title="Analytics Dashboard"
-          >
-            <Globe className="w-5 h-5 shrink-0" />
-            <span className="text-sm font-medium md:hidden">Analytics</span>
-          </button>
           {user.isAdmin && (
             <button
               className="flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all"
@@ -1643,18 +1615,56 @@ export default function WorkspaceDefault() {
             </button>
             <div
               className={cn(
-                "px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1 sm:gap-1.5 border",
+                "px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground flex items-center gap-1 sm:gap-1.5 border min-w-0",
                 wsDark ? "bg-muted/40 border-white/[0.08]" : "bg-muted border-border/50",
               )}
             >
               <Clock className="w-3 h-3 shrink-0" />
-              {usageShowsUnlimitedCap
-                ? <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} today · Unlimited</span>
-                : <>
-                    <span className="sm:hidden">{formatMinutes(user.minutesRemainingToday)}</span>
-                    <span className="hidden sm:inline">{formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today</span>
+              <span className="min-w-0 max-sm:truncate leading-tight sm:whitespace-normal">
+                {usageShowsUnlimitedCap ? (
+                  <>
+                    <span className="hidden sm:inline">
+                      {formatMinutes(user.minutesUsedToday)} today · Unlimited
+                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
+                        <>
+                          {" "}
+                          <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
+                            · {user.paidCycleDaysRemaining.toLocaleString()}d left
+                          </span>
+                        </>
+                      )}
+                    </span>
+                    <span className="sm:hidden">
+                      {formatMinutes(user.minutesUsedToday)}
+                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
+                        <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
+                          {" "}· {user.paidCycleDaysRemaining}d
+                        </span>
+                      )}
+                    </span>
                   </>
-              }
+                ) : (
+                  <>
+                    <span className="sm:hidden">
+                      {formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)}
+                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
+                        <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
+                          {" "}· {user.paidCycleDaysRemaining}d
+                        </span>
+                      )}
+                    </span>
+                    <span className="hidden sm:inline">
+                      {formatMinutes(user.minutesUsedToday)} / {formatMinutes(user.dailyLimitMinutes)} today
+                      {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
+                        <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
+                          {" "}· {user.paidCycleDaysRemaining.toLocaleString()} day
+                          {user.paidCycleDaysRemaining === 1 ? "" : "s"} left
+                        </span>
+                      )}
+                    </span>
+                  </>
+                )}
+              </span>
             </div>
             {isTrialLikePlanType(user.planType) && (
               <div className={`hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5 ${
@@ -1667,22 +1677,6 @@ export default function WorkspaceDefault() {
                   ? "Trial Expired"
                   : `${user.trialDaysRemaining} day${user.trialDaysRemaining === 1 ? "" : "s"} left`
                 }</span>
-              </div>
-            )}
-            {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
-              <div
-                className={cn(
-                  "hidden sm:flex px-2.5 py-1 rounded-full text-xs font-medium border items-center gap-1.5",
-                  wsDark
-                    ? "bg-emerald-500/12 text-emerald-200 border-emerald-400/25"
-                    : "bg-emerald-50 text-emerald-800 border-emerald-200",
-                )}
-              >
-                <Clock className="w-3 h-3 shrink-0" />
-                <span>
-                  {user.paidCycleDaysRemaining.toLocaleString()} day
-                  {user.paidCycleDaysRemaining === 1 ? "" : "s"} left · billing period
-                </span>
               </div>
             )}
           </div>

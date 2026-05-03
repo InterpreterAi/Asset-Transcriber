@@ -511,15 +511,6 @@ components:
           type: integer
         durationSeconds:
           type: integer
-        wordCount:
-          type: integer
-          description: Optional finalized transcript word count (client-measured).
-        languageSwitchCount:
-          type: integer
-          description: Optional count of speaker-change boundaries in the session.
-        avgLatencyMs:
-          type: integer
-          description: Optional average translation round-trip latency in milliseconds.
       required:
         - sessionId
         - durationSeconds

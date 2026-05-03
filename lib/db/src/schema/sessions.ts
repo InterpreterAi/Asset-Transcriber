@@ -18,11 +18,6 @@ export const sessionsTable = pgTable("sessions", {
   translationTokens:     integer("translation_tokens").default(0),
   translationCost:       numeric("translation_cost",   { precision: 10, scale: 6 }).default("0"),
   totalSessionCost:      numeric("total_session_cost", { precision: 10, scale: 6 }).default("0"),
-
-  /** Client-reported finalized transcript metrics (optional; populated on session/stop when sent). */
-  wordCount:             integer("word_count"),
-  languageSwitchCount:   integer("language_switch_count"),
-  avgLatencyMs:          integer("avg_latency_ms"),
 });
 
 export type Session = typeof sessionsTable.$inferSelect;

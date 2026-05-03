@@ -1595,11 +1595,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const translationBufRef = useRef<string[]>([]);
   /** Maps segmentId → row index in transcriptBuf/translationBuf so Soniox endpoint finals and softFinalize share one admin row per segment. */
   const adminSegmentRowIndexRef = useRef<Map<string, number>>(new Map());
-  /** Speaker-change boundaries this session (admin/analytics `language_switch_count`). */
-  const sessionLangSwitchCountRef = useRef(0);
-  /** Translation round-trip samples (ms) for analytics avg latency. */
-  const translationLatencySamplesRef = useRef<number[]>([]);
-
   // ── Session safety timers ──────────────────────────────────────────────────
   // inactivityTimerRef: fires stop() after 5 min of no speech tokens.
   // maxSessionTimerRef: fires stop() after 3 hours unconditionally.
@@ -1853,7 +1848,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
-        const translationLatencyMarkMs = Date.now();
         const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
         let translationEngineHint: TranslationEngineHint | undefined;
@@ -1955,13 +1949,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (segmentBoundaryGuardsRef.current) {
           if (state.isClosed && !requestIsFinal) return;
           if (mySeq < state.lastAppliedSeq) return;
-        }
-
-        if (translated?.trim()) {
-          const dt = Date.now() - translationLatencyMarkMs;
-          if (dt > 0 && dt < 180_000) {
-            translationLatencySamplesRef.current.push(dt);
-          }
         }
 
         if (!translated?.trim()) {
@@ -2283,9 +2270,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
-    if (closeKind === "speaker_change") {
-      sessionLangSwitchCountRef.current += 1;
-    }
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
@@ -2322,8 +2306,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
     adminSegmentRowIndexRef.current.clear();
-    sessionLangSwitchCountRef.current = 0;
-    translationLatencySamplesRef.current = [];
     translationDiagRef.current = {
       callCount: 0,
       estimatedTokensTotal: 0,
@@ -2449,8 +2431,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptBufRef.current  = [];
     translationBufRef.current = [];
     adminSegmentRowIndexRef.current.clear();
-    sessionLangSwitchCountRef.current = 0;
-    translationLatencySamplesRef.current = [];
 
     // Clear columns for regular users when they manually stop a session.
     if (!isAdminRef.current) doClear();
@@ -2934,8 +2914,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       transcriptBufRef.current  = [];
       translationBufRef.current = [];
       adminSegmentRowIndexRef.current.clear();
-      sessionLangSwitchCountRef.current = 0;
-      translationLatencySamplesRef.current = [];
       startTimeRef.current = Date.now();
       audioPcmSecondsRef.current = 0;
 

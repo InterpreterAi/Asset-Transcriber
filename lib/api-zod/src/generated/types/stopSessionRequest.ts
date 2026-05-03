@@ -9,7 +9,4 @@
 export interface StopSessionRequest {
   sessionId: number;
   durationSeconds: number;
-  wordCount?: number;
-  languageSwitchCount?: number;
-  avgLatencyMs?: number;
 }
