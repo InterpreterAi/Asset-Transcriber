@@ -317,6 +317,36 @@ type SessionStopAnalytics = {
   avgLatencyMs?: number | null;
 };
 
+/** Walk drizzle/pg nested errors for Postgres SQLSTATE. */
+function pgErrorMessageChain(err: unknown): string {
+  const parts: string[] = [];
+  let e: unknown = err;
+  for (let i = 0; i < 10 && e != null; i++) {
+    if (e instanceof Error && e.message) parts.push(e.message);
+    else if (typeof e === "object" && e !== null && "message" in e) {
+      parts.push(String((e as { message: unknown }).message));
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return parts.join(" | ");
+}
+
+function pgSqlstate42703InChain(err: unknown): boolean {
+  let e: unknown = err;
+  for (let i = 0; i < 10 && e != null; i++) {
+    const code = (e as { code?: string }).code;
+    if (code === "42703") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return /\b42703\b/.test(pgErrorMessageChain(err));
+}
+
+/** Optional analytics columns not migrated yet on this DB (undefined_column). */
+function isMissingOptionalSessionAnalyticsColumnErr(err: unknown): boolean {
+  if (!pgSqlstate42703InChain(err)) return false;
+  return /\b(word_count|language_switch_count|avg_latency_ms)\b/i.test(pgErrorMessageChain(err));
+}
+
 async function closeOpenSessionWithBillingIfNeeded(
   sessionId: number,
   userId: number,
@@ -357,26 +387,47 @@ async function closeOpenSessionWithBillingIfNeeded(
       ? Math.max(0, Math.floor(Number(analytics.avgLatencyMs)))
       : undefined;
 
-  const updated = await db
-    .update(sessionsTable)
-    .set({
-      endedAt:               new Date(),
-      durationSeconds:       creditSeconds,
-      audioSecondsProcessed: creditSeconds,
-      sonioxCost:            String(sonioxCost),
-      totalSessionCost:      sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
-      ...(wc !== undefined ? { wordCount: wc } : {}),
-      ...(lc !== undefined ? { languageSwitchCount: lc } : {}),
-      ...(al !== undefined ? { avgLatencyMs: al } : {}),
-    })
-    .where(
-      and(
-        eq(sessionsTable.id, sessionId),
-        eq(sessionsTable.userId, userId),
-        isNull(sessionsTable.endedAt),
-      ),
-    )
-    .returning({ id: sessionsTable.id });
+  const closeWhere = and(
+    eq(sessionsTable.id, sessionId),
+    eq(sessionsTable.userId, userId),
+    isNull(sessionsTable.endedAt),
+  );
+  const baseCloseSet = {
+    endedAt:               new Date(),
+    durationSeconds:       creditSeconds,
+    audioSecondsProcessed: creditSeconds,
+    sonioxCost:            String(sonioxCost),
+    totalSessionCost:      sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+  } as const;
+  const analyticsClosePatch = {
+    ...(wc !== undefined ? { wordCount: wc } : {}),
+    ...(lc !== undefined ? { languageSwitchCount: lc } : {}),
+    ...(al !== undefined ? { avgLatencyMs: al } : {}),
+  };
+  const hasAnalyticsPatch = Object.keys(analyticsClosePatch).length > 0;
+
+  let updated: { id: number }[];
+  try {
+    updated = await db
+      .update(sessionsTable)
+      .set(hasAnalyticsPatch ? { ...baseCloseSet, ...analyticsClosePatch } : { ...baseCloseSet })
+      .where(closeWhere)
+      .returning({ id: sessionsTable.id });
+  } catch (err) {
+    if (hasAnalyticsPatch && isMissingOptionalSessionAnalyticsColumnErr(err)) {
+      logger.warn(
+        { sessionId, userId },
+        "Session close: DB missing analytics columns; retrying billing update without word/switch/latency fields",
+      );
+      updated = await db
+        .update(sessionsTable)
+        .set({ ...baseCloseSet })
+        .where(closeWhere)
+        .returning({ id: sessionsTable.id });
+    } else {
+      throw err;
+    }
+  }
 
   if (!updated.length) {
     return { closed: false, minutesUsed: 0 };
