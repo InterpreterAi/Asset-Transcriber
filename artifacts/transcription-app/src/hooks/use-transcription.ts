@@ -2401,23 +2401,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const wallSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
       const pcmSec = Math.floor(audioPcmSecondsRef.current);
       const durationSeconds = Math.max(0, Math.min(pcmSec, wallSec));
-      const snapText = transcriptBufRef.current.join(" ").trim();
-      const wordCount = snapText ? snapText.split(/\s+/).filter(Boolean).length : 0;
-      const latSamples = translationLatencySamplesRef.current;
-      const avgLatencyMs =
-        latSamples.length > 0
-          ? Math.round(latSamples.reduce((a, b) => a + b, 0) / latSamples.length)
-          : undefined;
       try {
         await stopSessionMut.mutateAsync({
           data: {
             sessionId: sessionIdRef.current,
             durationSeconds,
-            ...(wordCount > 0 ? { wordCount } : {}),
-            ...(sessionLangSwitchCountRef.current > 0
-              ? { languageSwitchCount: sessionLangSwitchCountRef.current }
-              : {}),
-            ...(avgLatencyMs !== undefined ? { avgLatencyMs } : {}),
           },
         });
       } catch { /* session stop error — silenced (HIPAA) */ }
