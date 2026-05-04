@@ -2050,6 +2050,33 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
 
+        // softFinalize(session_end) often omits forceFullSegmentFinal; tail + streamingDelta then sets
+        // requestIsFinal=false. The DOM shows the merged translation but admin snapshot buffers were
+        // only updated on requestIsFinal — Libre live updates commit source more granularly than
+        // debounced OpenAI live, so this path is hit more for machine-translation tiers.
+        if (!requestIsFinal && isFinal) {
+          const explicitIdx = options?.adminSnapshotLineIndex;
+          const mappedIdx =
+            typeof explicitIdx === "number" &&
+            explicitIdx >= 0 &&
+            explicitIdx < translationBufRef.current.length
+              ? explicitIdx
+              : adminSegmentRowIndexRef.current.get(requestSegmentId);
+          const resolvedAdminIdx =
+            typeof mappedIdx === "number" &&
+            mappedIdx >= 0 &&
+            mappedIdx < translationBufRef.current.length
+              ? mappedIdx
+              : null;
+          if (resolvedAdminIdx !== null) {
+            const shown = (transTextEl.textContent ?? "").trim();
+            if (shown) {
+              translationBufRef.current[resolvedAdminIdx] = shown;
+              onAdminSnapshotBuffersUpdatedRef.current?.();
+            }
+          }
+        }
+
         scrollPanel();
       } catch {
         /* HIPAA — never log speech context */
