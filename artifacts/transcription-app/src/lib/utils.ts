@@ -39,6 +39,15 @@ export function workspacePlanTierKey(planType: string | null | undefined): "tria
 }
 
 /**
+ * Workspace usage pill / sidebar: Professional and Platinum tiers show "/ unlimited" while the server still enforces
+ * a finite daily cap (payPal plan config). Same for OpenAI and Libre/Hetzner plan_type variants.
+ */
+export function workspaceUsageShowsSlashUnlimited(planType: string | null | undefined): boolean {
+  const t = workspacePlanTierKey(planType);
+  return t === "professional" || t === "platinum";
+}
+
+/**
  * True when the account uses the machine translation stack — mirrors server `planUsesMachineTranslationStack`
  * (Final Boss 3: Libre for default trial, Basic, Professional; OpenAI for legacy OpenAI trials, Platinum, Unlimited).
  */

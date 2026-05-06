@@ -3598,7 +3598,7 @@ export default function Admin() {
                       className="h-9 text-sm"
                     />
                     <div className="flex flex-wrap gap-1">
-                      {[60, 120, 180, 300, 360, 480, 540, 600].map(m => (
+                      {[60, 120, 180, 300, 360, 480, 540, 600, 720].map(m => (
                         <button
                           key={m}
                           type="button"

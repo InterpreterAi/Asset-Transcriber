@@ -41,11 +41,11 @@ export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
     },
     professional: {
       paypalPlanId: professionalPlanId ?? "",
-      dailyLimitMinutes: 540,
+      dailyLimitMinutes: 720,
     },
     platinum: {
       paypalPlanId: platinumPlanId ?? "",
-      dailyLimitMinutes: 540,
+      dailyLimitMinutes: 720,
     },
   };
   return table[planType];

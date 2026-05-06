@@ -33,8 +33,8 @@ export default function Terms() {
           <p>New accounts receive a 7-day free trial with a daily usage limit of 120 minutes (2 hours). Existing users keep the trial limits and duration that were originally assigned to their account. After the trial period, continued access requires a paid subscription. Plans are billed monthly and may be cancelled at any time:</p>
           <ul>
             <li><strong>Basic</strong> – $40/month – up to 5 hours/day</li>
-            <li><strong>Professional</strong> – $80/month – up to 9 hours/day (shown in the product as unlimited-style usage; a daily platform cap still applies)</li>
-            <li><strong>Unlimited</strong> – $120/month – up to 9 hours/day (same cap behavior as Professional; branding may describe unlimited-style usage)</li>
+            <li><strong>Professional</strong> – $80/month – up to 12 hours/day (shown in the product as unlimited-style usage; a daily platform cap still applies)</li>
+            <li><strong>Unlimited</strong> – $120/month – up to 12 hours/day (same cap behavior as Professional; branding may describe unlimited-style usage)</li>
           </ul>
 
           <h2>Acceptable Use</h2>

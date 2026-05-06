@@ -31,6 +31,7 @@ import {
   planUsesLibreEngine,
   workspacePlanDisplayName,
   workspacePlanTierKey,
+  workspaceUsageShowsSlashUnlimited,
 } from "@/lib/utils";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
 import {
@@ -733,7 +734,9 @@ export default function WorkspaceDefault() {
   }
   if (!user) return null;
 
-  const usageShowsUnlimitedCap = user.dailyLimitMinutes >= 9000;
+  /** True unlimited (e.g. admin 9999) or Pro/Platinum: UI shows "/ unlimited" and hides the cap bar; Pro/Platinum still enforce daily cap on server. */
+  const usageShowsUnlimitedCap =
+    user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType);
   const isPaidUser = !isTrialLikePlanType(user.planType);
 
   const isLimitReached =
@@ -1100,7 +1103,7 @@ export default function WorkspaceDefault() {
                 })()}
               </span>
               {usageShowsUnlimitedCap
-                ? <span className="text-emerald-600 font-semibold">Unlimited</span>
+                ? <span className="text-muted-foreground font-medium">/ unlimited</span>
                 : <span className="text-muted-foreground">
                     / {Math.floor(user.dailyLimitMinutes / 60) > 0
                       ? `${Math.floor(user.dailyLimitMinutes / 60)}h`
@@ -1624,7 +1627,7 @@ export default function WorkspaceDefault() {
                 {usageShowsUnlimitedCap ? (
                   <>
                     <span className="hidden sm:inline">
-                      {formatMinutes(user.minutesUsedToday)} today · Unlimited
+                      {formatMinutes(user.minutesUsedToday)} / unlimited today
                       {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
                         <>
                           {" "}
@@ -1635,7 +1638,7 @@ export default function WorkspaceDefault() {
                       )}
                     </span>
                     <span className="sm:hidden">
-                      {formatMinutes(user.minutesUsedToday)}
+                      {formatMinutes(user.minutesUsedToday)} / unlimited
                       {isPaidUser && typeof user.paidCycleDaysRemaining === "number" && (
                         <span className={cn(wsDark ? "text-emerald-300/95" : "text-emerald-800", "font-semibold")}>
                           {" "}· {user.paidCycleDaysRemaining}d
@@ -1700,7 +1703,9 @@ export default function WorkspaceDefault() {
             ) : (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center gap-2 text-sm text-orange-800">
                 <Clock className="w-4 h-4 shrink-0" />
-                You have used all of your allowed minutes for today ({formatMinutes(user.dailyLimitMinutes)} per day).
+                {workspaceUsageShowsSlashUnlimited(user.planType)
+                  ? "You have reached your plan\u2019s daily usage limit. Please try again tomorrow."
+                  : `You have used all of your allowed minutes for today (${formatMinutes(user.dailyLimitMinutes)} per day).`}
               </div>
             )}
           </div>
