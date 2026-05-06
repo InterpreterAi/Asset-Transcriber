@@ -343,6 +343,18 @@ async function migrateSchema() {
           AND plan_type NOT IN ('trial', 'trial-openai', 'trial-libre')
       `);
 
+      // Professional / Platinum paid tiers: 12h/day billable cap (720 min). Preserves admin-style caps (≥9000).
+      await client.query(`
+        UPDATE users
+        SET daily_limit_minutes = 720
+        WHERE LOWER(TRIM(plan_type)) IN (
+          'professional', 'professional-libre', 'professional-openai',
+          'platinum', 'platinum-libre', 'platinum-openai', 'unlimited'
+        )
+          AND daily_limit_minutes > 0
+          AND daily_limit_minutes < 9000
+      `);
+
       await client.query("COMMIT");
       logger.info("Startup schema migration complete");
     } catch (err) {
