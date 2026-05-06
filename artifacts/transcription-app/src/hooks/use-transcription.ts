@@ -106,7 +106,7 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+const FINAL_TEXT_RENDER_BUFFER_MS = 36;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
@@ -1495,8 +1495,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
+  /** Trailing debounce for live translate API (coalesces WS bursts). Tuned ~20–30ms for responsiveness while limiting redundant aborted requests (shared OpenAI + MT). */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 24;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;

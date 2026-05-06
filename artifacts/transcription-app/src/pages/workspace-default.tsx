@@ -99,6 +99,29 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
+/**
+ * Isolated A/B for regression triage (segmentBoundaryGuards / commit 52f39f25).
+ * Product default when unset: guards on for signed-in users (`Boolean(user)`).
+ *
+ * Override (refresh after change):
+ * - URL: `?diag_segment_guards=0` (off) or `?diag_segment_guards=1` (on)
+ * - Or `localStorage.setItem("diag_segment_guards", "0"|"1")`
+ */
+function diagnosticSegmentBoundaryGuards(signedIn: boolean): boolean {
+  if (typeof window === "undefined") return signedIn;
+  try {
+    const q = new URLSearchParams(window.location.search).get("diag_segment_guards");
+    if (q === "0" || q === "false") return false;
+    if (q === "1" || q === "true") return true;
+    const ls = window.localStorage.getItem("diag_segment_guards");
+    if (ls === "0" || ls === "false") return false;
+    if (ls === "1" || ls === "true") return true;
+  } catch {
+      /* ignore */
+  }
+  return signedIn;
+}
+
 // ── Main workspace ─────────────────────────────────────────────────────────────
 export default function WorkspaceDefault() {
   const [, setLocation]   = useLocation();
@@ -175,11 +198,32 @@ export default function WorkspaceDefault() {
   /** Increments each snapshot PUT so the server can drop out-of-order requests (aligned transcript ↔ translation rows). */
   const snapshotSeqRef = useRef(0);
 
+  const segmentBoundaryGuardsEffective = diagnosticSegmentBoundaryGuards(Boolean(user));
+  useEffect(() => {
+    if (!user) return;
+    let source: string = "default";
+    try {
+      const q = new URLSearchParams(window.location.search).get("diag_segment_guards");
+      if (q === "0" || q === "false" || q === "1" || q === "true") source = `query:${q}`;
+      else {
+        const ls = localStorage.getItem("diag_segment_guards");
+        if (ls === "0" || ls === "false" || ls === "1" || ls === "true") source = `localStorage:${ls}`;
+      }
+    } catch {
+      /* ignore */
+    }
+    console.info("[diag_segment_boundary_guards]", {
+      effective: segmentBoundaryGuardsEffective,
+      source,
+      hint: "Compare same dialogue with ?diag_segment_guards=1 vs =0 (full reload). Remove param/storage to restore default.",
+    });
+  }, [user?.id, segmentBoundaryGuardsEffective]);
+
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: user?.translationEnabled ?? true,
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
-    segmentBoundaryGuards: Boolean(user),
+    segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
