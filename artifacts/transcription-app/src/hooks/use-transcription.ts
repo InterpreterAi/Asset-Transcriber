@@ -2236,19 +2236,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Merge NF into the closing source when it does not shorten vs committed finals only — preserves
-    // visible text across rapid speaker interruption (410b4297 had dropped NF entirely).
-    const finBeforeNfClear = (activeBubbleRef.current?.textContent ?? "").trimEnd();
-    const nfBeforeClear = (activeBubbleNFRef.current?.textContent ?? "").trim();
-    const domFinalSpanOnly = finBeforeNfClear.trim();
-    let finalText = domFinalSpanOnly;
-    if (nfBeforeClear.length > 0) {
-      const merged = mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim();
-      finalText = merged.length >= domFinalSpanOnly.length ? merged : domFinalSpanOnly;
-    }
-    if (activeBubbleRef.current && finalText.length > 0 && finalText !== domFinalSpanOnly) {
-      activeBubbleRef.current.textContent = finalText;
-    }
+    // Final transcript + final translate source: committed finals on `activeBubbleRef` only.
+    // NF is cleared below without merging into the final span (avoids duplicate/messy boundary text).
+    const finalText = (activeBubbleRef.current?.textContent ?? "").trim();
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
