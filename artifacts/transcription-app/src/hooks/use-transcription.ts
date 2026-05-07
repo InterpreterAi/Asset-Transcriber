@@ -106,7 +106,7 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
-const FINAL_TEXT_RENDER_BUFFER_MS = 36;
+const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
@@ -1495,8 +1495,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Tuned ~20–30ms for responsiveness while limiting redundant aborted requests (shared OpenAI + MT). */
-  const LIVE_TRANSLATION_DEBOUNCE_MS = 24;
+  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
+  const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
     text: string;
@@ -2236,8 +2236,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Final transcript + final translate source: committed finals on `activeBubbleRef` only.
-    // NF is cleared below without merging into the final span (avoids duplicate/messy boundary text).
+    // Final transcript + final translate source: committed finals only (`activeBubbleRef` is the
+    // final span; NF is a sibling — not read or merged here; avoids NF/revision shrink on boundary).
     const finalText = (activeBubbleRef.current?.textContent ?? "").trim();
 
     if (activeBubbleNFRef.current) {
@@ -2766,11 +2766,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             stNf.lastNfRawText = nfText;
           } else {
-            // Revised hypothesis: do not replace visible NF with a shorter revision (ee3b95ba anti-shrink).
-            if (nfText.length >= prev.length) {
-              nfEl.textContent = nfText;
-              stNf.lastNfRawText = nfText;
-            }
+            // Revised hypothesis (not a strict extension of the last NF string).
+            nfEl.textContent = nfText;
+            stNf.lastNfRawText = nfText;
           }
         }
       } else if (nfEl) {
