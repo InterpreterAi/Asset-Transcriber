@@ -2236,9 +2236,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
-    // Final transcript + final translate source: committed finals only (`activeBubbleRef` is the
-    // final span; NF is a sibling — not read or merged here; avoids NF/revision shrink on boundary).
-    const finalText = (activeBubbleRef.current?.textContent ?? "").trim();
+    // Merge NF into the closing source when it does not shorten vs committed finals only — preserves
+    // visible text across rapid speaker interruption (410b4297 had dropped NF entirely).
+    const finBeforeNfClear = (activeBubbleRef.current?.textContent ?? "").trimEnd();
+    const nfBeforeClear = (activeBubbleNFRef.current?.textContent ?? "").trim();
+    const domFinalSpanOnly = finBeforeNfClear.trim();
+    let finalText = domFinalSpanOnly;
+    if (nfBeforeClear.length > 0) {
+      const merged = mergeFinalWithNonFinalHypothesis(finBeforeNfClear, nfBeforeClear).trim();
+      finalText = merged.length >= domFinalSpanOnly.length ? merged : domFinalSpanOnly;
+    }
+    if (activeBubbleRef.current && finalText.length > 0 && finalText !== domFinalSpanOnly) {
+      activeBubbleRef.current.textContent = finalText;
+    }
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -2766,9 +2776,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             stNf.lastNfRawText = nfText;
           } else {
-            // Revised hypothesis (not a strict extension of the last NF string).
-            nfEl.textContent = nfText;
-            stNf.lastNfRawText = nfText;
+            // Revised hypothesis: do not replace visible NF with a shorter revision (ee3b95ba anti-shrink).
+            if (nfText.length >= prev.length) {
+              nfEl.textContent = nfText;
+              stNf.lastNfRawText = nfText;
+            }
           }
         }
       } else if (nfEl) {
