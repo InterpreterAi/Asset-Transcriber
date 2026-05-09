@@ -853,9 +853,6 @@ function postProcessTranslatedText(
  *
  * `*-openai` plans pass `skipLeakRepair` (no MT/DB fan-out) plus `lightweightArabicStaticLeakPass` to still run
  * the curated regex map for EN→AR only.
- *
- * `*-libre` / Hetzner passes `skipLeakRepair` with `lightweightArabicStaticLeakPass` so EN→AR uses the same static
- * map only — never `repairEnglishDomainLeaksInTranslation` (no MT fan-out).
  */
 async function finalizeTranslationOutput(
   restoredRaw: string,
@@ -1671,7 +1668,6 @@ router.post("/translate", requireAuth, async (req, res) => {
       let restored = restoredFromRaw(raw);
       let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
         skipLeakRepair: true,
-        lightweightArabicStaticLeakPass: true,
       });
       if (!translated.trim() && restored.trim()) {
         translated = postProcessTranslatedText(restored, srcCode, tgtCode);
@@ -1687,7 +1683,6 @@ router.post("/translate", requireAuth, async (req, res) => {
         restored = restoredFromRaw(raw);
         translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
           skipLeakRepair: true,
-          lightweightArabicStaticLeakPass: true,
         });
         if (!translated.trim() && restored.trim()) {
           translated = postProcessTranslatedText(restored, srcCode, tgtCode);
