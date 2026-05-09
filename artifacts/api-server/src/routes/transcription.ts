@@ -59,6 +59,7 @@ import {
   ensureGlossaryTranslationsFromSource,
   type UserGlossaryRow,
 } from "../lib/user-glossary.js";
+import { applyArabicStaticLeakReplacements } from "../lib/en-to-arabic-script-clinical-leaks.js";
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -849,17 +850,31 @@ function postProcessTranslatedText(
  * Shared by OpenAI and machine translation: strip/polish, then (OpenAI only by default) repair embedded English leaks.
  * `*-libre` passes `skipLeakRepair` so each segment does **one** public Libre call — leak repair would fan out dozens
  * of extra requests, hit rate limits, and exceed the browser’s translate timeout (empty column).
+ *
+ * `*-openai` plans pass `skipLeakRepair` (no MT/DB fan-out) plus `lightweightArabicStaticLeakPass` to still run
+ * the curated regex map for EN→AR only.
  */
 async function finalizeTranslationOutput(
   restoredRaw: string,
   srcCode: string,
   tgtCode: string,
   tgtLangBcp47: string,
-  opts?: { interim?: boolean; skipLeakRepair?: boolean },
+  opts?: {
+    interim?: boolean;
+    skipLeakRepair?: boolean;
+    /** When set with `skipLeakRepair`, run only {@link applyArabicStaticLeakReplacements} for EN→AR (no Hetzner calls). */
+    lightweightArabicStaticLeakPass?: boolean;
+  },
 ): Promise<string> {
   let t = postProcessTranslatedText(restoredRaw, srcCode, tgtCode);
   if (!opts?.skipLeakRepair) {
     t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, opts);
+  } else if (
+    opts.lightweightArabicStaticLeakPass &&
+    srcCode === "en" &&
+    tgtCode === "ar"
+  ) {
+    t = applyArabicStaticLeakReplacements(t);
   }
   if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t;
@@ -1726,7 +1741,9 @@ router.post("/translate", requireAuth, async (req, res) => {
   const skipLeakRepairForOpenAi = forcedOpenAiPlan;
 
   const termHints = findTermHints(phraseNormalized, srcLang, tgtLang);
-  const globalMemoryHints = await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode);
+  const globalMemoryHints = isFinalSegment
+    ? await fetchGlobalTermMemoryHints(phraseNormalized, srcCode, tgtCode)
+    : [];
   for (const h of globalMemoryHints) {
     if (!termHints.includes(h)) termHints.push(h);
   }
@@ -2028,6 +2045,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       text: await finalizeTranslationOutput(restoreTranslationOutput(result.text), srcCode, tgtCode, tgtLangResolved, {
         interim: !isFinalSegment,
         skipLeakRepair: skipLeakRepairForOpenAi,
+        lightweightArabicStaticLeakPass: skipLeakRepairForOpenAi,
       }),
     };
 
@@ -2063,7 +2081,10 @@ router.post("/translate", requireAuth, async (req, res) => {
         srcCode,
         tgtCode,
         tgtLangResolved,
-        { skipLeakRepair: skipLeakRepairForOpenAi },
+        {
+          skipLeakRepair: skipLeakRepairForOpenAi,
+          lightweightArabicStaticLeakPass: skipLeakRepairForOpenAi,
+        },
       );
       const incompleteFirst = translationProbablyIncomplete(
         phraseNormalized,
@@ -2108,7 +2129,10 @@ router.post("/translate", requireAuth, async (req, res) => {
         srcCode,
         tgtCode,
         tgtLangResolved,
-        { skipLeakRepair: skipLeakRepairForOpenAi },
+        {
+          skipLeakRepair: skipLeakRepairForOpenAi,
+          lightweightArabicStaticLeakPass: skipLeakRepairForOpenAi,
+        },
       );
       if (refusalRetryRestored && !translationNeedsStrictInterpreterRetry(refusalRetryRestored, text)) {
         result = { ...refusalRetry, text: refusalRetryRestored };
@@ -2133,7 +2157,10 @@ router.post("/translate", requireAuth, async (req, res) => {
           srcCode,
           tgtCode,
           tgtLangResolved,
-          { skipLeakRepair: skipLeakRepairForOpenAi },
+          {
+            skipLeakRepair: skipLeakRepairForOpenAi,
+            lightweightArabicStaticLeakPass: skipLeakRepairForOpenAi,
+          },
         );
         if (refusalRetry2Restored && !translationNeedsStrictInterpreterRetry(refusalRetry2Restored, text)) {
           result = { ...refusalRetry2, text: refusalRetry2Restored };
@@ -2171,7 +2198,10 @@ router.post("/translate", requireAuth, async (req, res) => {
         srcCode,
         tgtCode,
         tgtLangResolved,
-        { skipLeakRepair: skipLeakRepairForOpenAi },
+        {
+          skipLeakRepair: skipLeakRepairForOpenAi,
+          lightweightArabicStaticLeakPass: skipLeakRepairForOpenAi,
+        },
       );
 
       if (retryRestored && matchesExpectedTargetLanguage(retryRestored, tgtCode, srcCode, text)) {
