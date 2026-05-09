@@ -43,7 +43,7 @@ function laneIndex(lane: CoreLane): 0 | 1 {
 
 /** Exclusive paid owner per worker slot `0` = lane 1, `1` = lane 2. Null = no paid claim (trials may use). */
 const slotPaidOwner: [number | null, number | null] = [null, null];
-/** Trial sessions using a slot (including trials sharing a core with paid). */
+/** Trial sessions using a slot (slots with no exclusive paid only). */
 const slotTrialSessions: [Set<number>, Set<number>] = [new Set(), new Set()];
 /** Sticky: sessionId → lane for the lifetime of the session (until expired). */
 const sessionToLane = new Map<number, CoreLane>();
@@ -85,7 +85,10 @@ function allocatePaid(sessionId: number): CoreRoute {
   return { lane, baseUrl: laneToBase[lane] };
 }
 
-/** Trials prefer workers with no exclusive paid; may share CORE2 if both workers are paid-claimed. */
+/**
+ * Trials use only workers with no exclusive paid owner. If both CORE1 and CORE2 are
+ * claimed by paid users, trial Hetzner routing must fail (no sharing with paid).
+ */
 function allocateTrial(sessionId: number): CoreRoute {
   for (const i of [0, 1] as const) {
     if (slotPaidOwner[i] === null) {
@@ -96,11 +99,11 @@ function allocateTrial(sessionId: number): CoreRoute {
       return { lane, baseUrl: laneToBase[lane] };
     }
   }
-  const lane: CoreLane = 2;
-  slotTrialSessions[1].add(sessionId);
-  sessionToLane.set(sessionId, lane);
-  logger.info({ sessionId, lane: 2 }, "Hetzner core router: trial shares CORE2 (both workers exclusive paid)");
-  return { lane, baseUrl: laneToBase[lane] };
+  logger.warn(
+    { sessionId },
+    "Hetzner core router: trial Hetzner blocked — both workers reserved for paid sessions",
+  );
+  throw new Error("HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID");
 }
 
 function stickyStillValid(sessionId: number, paid: boolean, sticky: CoreLane): boolean {
@@ -188,7 +191,7 @@ export function logHetznerCoreRouterStartupHint(): void {
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
       semantics:
-        "paid claims exclusive CORE1/CORE2 first-come; overflow paid share CORE1; trials prefer idle core; evict trials when paid claims",
+        "paid claims exclusive CORE1/CORE2 first-come; overflow paid share CORE1; trials only on idle cores (no trial when both paid); evict trials when paid claims",
     },
     USE_LEGACY_EMERGENCY
       ? "Hetzner core router: LEGACY SINGLE STACK (HETZNER_USE_LEGACY_SINGLE_STACK=1)"
