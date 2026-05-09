@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
+import { unregisterSessionForCoreRouting } from "../lib/hetzner-core-router.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -356,6 +357,8 @@ async function closeOpenSessionWithBillingIfNeeded(
     return { closed: false, minutesUsed: 0 };
   }
 
+  unregisterSessionForCoreRouting(sessionId);
+
   const [stoppedRow] = await db
     .select({
       startedAt:         sessionsTable.startedAt,
@@ -571,6 +574,7 @@ async function sweepStaleSessions(): Promise<void> {
         })
         .where(eq(sessionsTable.id, s.id));
       sessionStore.delete(s.id);
+      unregisterSessionForCoreRouting(s.id);
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -1664,7 +1668,17 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       const restoredFromRaw = (r: string) =>
         restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(r ?? "")));
-      let raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+      const mtRoutingOpts =
+        diagSessionId != null && diagSessionId > 0
+          ? { sessionId: diagSessionId, planType: effectivePlanTypeResolved }
+          : { planType: effectivePlanTypeResolved };
+      let raw = await translateBasicProfessional(
+        textForOpenAI,
+        srcLang,
+        tgtLang,
+        numMask.slotToDigits,
+        mtRoutingOpts,
+      );
       let restored = restoredFromRaw(raw);
       let translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
         skipLeakRepair: true,
@@ -1679,7 +1693,13 @@ router.post("/translate", requireAuth, async (req, res) => {
           { sessionId: diagSid, segmentId: diagSegId, textLen: text.length },
           "Machine translation empty after mask/restore; retrying masked segment",
         );
-        raw = await translateBasicProfessional(textForOpenAI, srcLang, tgtLang, numMask.slotToDigits);
+        raw = await translateBasicProfessional(
+          textForOpenAI,
+          srcLang,
+          tgtLang,
+          numMask.slotToDigits,
+          mtRoutingOpts,
+        );
         restored = restoredFromRaw(raw);
         translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
           skipLeakRepair: true,

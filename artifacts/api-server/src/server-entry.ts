@@ -10,7 +10,7 @@ import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnost
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 import { isOpenAiConfigured } from "./lib/ai-env.js";
 import { logHetznerMachineTranslationStartupHint } from "./lib/hetzner-translate.js";
-import { logHetznerCoreRouterStartupHint } from "./lib/hetzner-core-router.js";
+import { logHetznerCoreRouterStartupHint, unregisterSessionForCoreRouting } from "./lib/hetzner-core-router.js";
 import { isResendConfigured } from "./lib/resend-mail.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
@@ -424,6 +424,9 @@ async function clearStaleSessions() {
 
     if (result.length > 0) {
       logger.info({ count: result.length }, "Closed stale sessions on startup");
+      for (const row of result) {
+        unregisterSessionForCoreRouting(row.id);
+      }
     }
   } catch (err) {
     logger.error({ err }, "Failed to clear stale sessions on startup");

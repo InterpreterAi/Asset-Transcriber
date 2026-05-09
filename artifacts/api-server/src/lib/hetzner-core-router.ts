@@ -1,6 +1,6 @@
 import { logger } from "./logger.js";
 
-/** Two lanes only: **1 = paid** machine MT, **2 = trial** machine MT (fits small RAM hosts). */
+/** Libre worker slot: lane **1** = CORE1 (:5001), lane **2** = CORE2 (:5002). */
 export type CoreLane = 1 | 2;
 export type CoreRoute = { lane: CoreLane; baseUrl: string };
 
@@ -37,81 +37,145 @@ const laneToBase: Record<CoreLane, string> = {
   2: CORE2_BASE,
 };
 
-const sessionLane = new Map<number, CoreLane>();
-const paidActiveSessions = new Set<number>();
+function laneIndex(lane: CoreLane): 0 | 1 {
+  return lane === 1 ? 0 : 1;
+}
 
-function isPaidPlan(planType: string | null | undefined): boolean {
+/** Exclusive paid owner per worker slot `0` = lane 1, `1` = lane 2. Null = no paid claim (trials may use). */
+const slotPaidOwner: [number | null, number | null] = [null, null];
+/** Trial sessions using a slot (including trials sharing a core with paid). */
+const slotTrialSessions: [Set<number>, Set<number>] = [new Set(), new Set()];
+/** Sticky: sessionId → lane for the lifetime of the session (until expired). */
+const sessionToLane = new Map<number, CoreLane>();
+
+export function isPaidMachinePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   return p === "basic-libre" || p === "professional-libre" || p === "platinum-libre";
 }
 
-/** While any paid session is active, trial sessions must not use lane 1. */
-function moveTrialsOffPaidLane(): void {
-  if (paidActiveSessions.size === 0) return;
-  for (const [sid, lane] of sessionLane.entries()) {
-    if (paidActiveSessions.has(sid)) continue;
-    if (lane === 1) {
-      sessionLane.set(sid, 2);
+function clearTrialsFromSlot(idx: 0 | 1): void {
+  const set = slotTrialSessions[idx];
+  for (const sid of set) {
+    sessionToLane.delete(sid);
+  }
+  set.clear();
+}
+
+/** First two paid users each claim an empty worker; further paid share CORE1 (overflow). */
+function allocatePaid(sessionId: number): CoreRoute {
+  for (const i of [0, 1] as const) {
+    if (slotPaidOwner[i] === null) {
+      clearTrialsFromSlot(i);
+      slotPaidOwner[i] = sessionId;
+      const lane = (i + 1) as CoreLane;
+      sessionToLane.set(sessionId, lane);
       logger.info(
-        {
-          sessionId: sid,
-          fromLane: 1,
-          toLane: 2,
-          paidMachineSessions: paidActiveSessions.size,
-        },
-        "Hetzner core router: trial machine session moved off paid lane (paid active)",
+        { sessionId, lane, core: `CORE${i + 1}`, exclusive: true },
+        "Hetzner core router: paid claimed exclusive worker",
       );
+      return { lane, baseUrl: laneToBase[lane] };
     }
   }
+  const lane: CoreLane = 1;
+  sessionToLane.set(sessionId, lane);
+  logger.info(
+    { sessionId, lane: 1, exclusive: false },
+    "Hetzner core router: paid overflow shares CORE1 (both workers have exclusive paid)",
+  );
+  return { lane, baseUrl: laneToBase[lane] };
+}
+
+/** Trials prefer workers with no exclusive paid; may share CORE2 if both workers are paid-claimed. */
+function allocateTrial(sessionId: number): CoreRoute {
+  for (const i of [0, 1] as const) {
+    if (slotPaidOwner[i] === null) {
+      slotTrialSessions[i].add(sessionId);
+      const lane = (i + 1) as CoreLane;
+      sessionToLane.set(sessionId, lane);
+      logger.info({ sessionId, lane }, "Hetzner core router: trial on idle worker");
+      return { lane, baseUrl: laneToBase[lane] };
+    }
+  }
+  const lane: CoreLane = 2;
+  slotTrialSessions[1].add(sessionId);
+  sessionToLane.set(sessionId, lane);
+  logger.info({ sessionId, lane: 2 }, "Hetzner core router: trial shares CORE2 (both workers exclusive paid)");
+  return { lane, baseUrl: laneToBase[lane] };
+}
+
+function stickyStillValid(sessionId: number, paid: boolean, sticky: CoreLane): boolean {
+  const idx = laneIndex(sticky);
+  if (paid) {
+    if (slotPaidOwner[idx] === sessionId) return true;
+    if (sticky === 1 && slotPaidOwner[0] !== null && slotPaidOwner[0] !== sessionId) return true;
+    return false;
+  }
+  return slotTrialSessions[idx].has(sessionId);
+}
+
+function invalidateSticky(sessionId: number): void {
+  sessionToLane.delete(sessionId);
+  slotTrialSessions[0].delete(sessionId);
+  slotTrialSessions[1].delete(sessionId);
 }
 
 /**
- * @param machineTranslationEnabled When false, the session does not use Hetzner (e.g. trial OpenAI phase);
- *   it must not occupy paid/trial core slots.
+ * @param machineTranslationEnabled When false, the session does not use Hetzner;
+ *   release any reservation (legacy hook — same as unregister).
  */
 export function registerSessionStartForCoreRouting(
   sessionId: number,
   planType: string,
   machineTranslationEnabled = true,
 ): void {
-  if (!Number.isFinite(sessionId)) return;
+  if (!Number.isFinite(sessionId) || sessionId <= 0) return;
   if (!machineTranslationEnabled) {
     unregisterSessionForCoreRouting(sessionId);
     return;
   }
-  if (isPaidPlan(planType)) {
-    paidActiveSessions.add(sessionId);
-    sessionLane.set(sessionId, 1);
-    logger.info(
-      { sessionId, planType: planType.trim().toLowerCase(), lane: 1 },
-      "Hetzner core router: paid machine session registered on lane 1",
-    );
-    moveTrialsOffPaidLane();
-    return;
-  }
-  sessionLane.set(sessionId, 2);
+  void selectHetznerCoreRoute(planType, sessionId);
 }
 
+/** Call when a session ends (stop, stale sweep, startup cleanup) so workers can be reclaimed. */
 export function unregisterSessionForCoreRouting(sessionId: number): void {
-  sessionLane.delete(sessionId);
-  paidActiveSessions.delete(sessionId);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) return;
+  sessionToLane.delete(sessionId);
+  for (const i of [0, 1] as const) {
+    if (slotPaidOwner[i] === sessionId) {
+      slotPaidOwner[i] = null;
+    }
+    slotTrialSessions[i].delete(sessionId);
+  }
 }
 
 export function selectHetznerCoreRoute(planType: string, sessionId?: number): CoreRoute {
-  if (typeof sessionId === "number" && Number.isFinite(sessionId)) {
-    const assigned = sessionLane.get(sessionId);
-    if (assigned) {
-      return { lane: assigned, baseUrl: laneToBase[assigned] };
-    }
-    registerSessionStartForCoreRouting(sessionId, planType);
-    const fresh = sessionLane.get(sessionId);
-    if (fresh) {
-      return { lane: fresh, baseUrl: laneToBase[fresh] };
-    }
+  if (USE_LEGACY_EMERGENCY) {
+    return { lane: 1, baseUrl: laneToBase[1] };
   }
 
-  if (isPaidPlan(planType)) {
+  const paid = isPaidMachinePlanType(planType);
+  const sid =
+    typeof sessionId === "number" && Number.isFinite(sessionId) && sessionId > 0 ? sessionId : null;
+
+  if (sid != null) {
+    const sticky = sessionToLane.get(sid);
+    if (sticky != null) {
+      if (stickyStillValid(sid, paid, sticky)) {
+        return { lane: sticky, baseUrl: laneToBase[sticky] };
+      }
+      invalidateSticky(sid);
+    }
+    return paid ? allocatePaid(sid) : allocateTrial(sid);
+  }
+
+  if (paid) {
     return { lane: 1, baseUrl: laneToBase[1] };
+  }
+  if (slotPaidOwner[0] === null) {
+    return { lane: 1, baseUrl: laneToBase[1] };
+  }
+  if (slotPaidOwner[1] === null) {
+    return { lane: 2, baseUrl: laneToBase[2] };
   }
   return { lane: 2, baseUrl: laneToBase[2] };
 }
@@ -123,10 +187,11 @@ export function logHetznerCoreRouterStartupHint(): void {
       twoLaneIsolation,
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
-      semantics: "two lanes: paid → 1, trial machine → 2; paid session forces trials off lane 1",
+      semantics:
+        "paid claims exclusive CORE1/CORE2 first-come; overflow paid share CORE1; trials prefer idle core; evict trials when paid claims",
     },
     USE_LEGACY_EMERGENCY
       ? "Hetzner core router: LEGACY SINGLE STACK (HETZNER_USE_LEGACY_SINGLE_STACK=1)"
-      : "Hetzner core router: two-lane (5001 paid, 5002 trial) — see deploy/MEMORY-BUDGET-2LANE.md",
+      : "Hetzner core router: two workers — paid priority, trial idle fill — see deploy/MEMORY-BUDGET-2LANE.md",
   );
 }
