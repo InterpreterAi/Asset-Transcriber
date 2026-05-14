@@ -26,6 +26,19 @@ export type PricingPlanDefinition = {
   features: readonly string[];
 };
 
+/** Feature row labels for the public pricing comparison table only. */
+export const PRICING_COMPARISON_ROWS: readonly { label: string; basic: string; professional: string; platinum: string }[] = [
+  { label: "Best for", basic: "Periodic sessions", professional: "Daily practice", platinum: "Full-day workflows" },
+  { label: "Daily platform time", basic: "Up to 5 hours", professional: "Generous daily allowance", platinum: "Generous daily allowance" },
+  { label: "OPI & VRI-style workflows", basic: "Included", professional: "Included", platinum: "Included" },
+  { label: "Real-time transcription", basic: "Yes", professional: "Yes", platinum: "Yes" },
+  { label: "Real-time translation assist", basic: "Yes", professional: "Yes", platinum: "Yes" },
+  { label: "Speaker separation", basic: "Yes", professional: "Yes", platinum: "Yes" },
+  { label: "Tab audio capture", basic: "Yes", professional: "Yes", platinum: "Yes" },
+  { label: "Personal glossary", basic: "Yes", professional: "Yes", platinum: "Yes" },
+  { label: "Premium translation tier (in-product)", basic: "—", professional: "—", platinum: "Yes" },
+];
+
 export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
   {
     key: "basic",
