@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+Arabic:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme inline {
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
@@ -99,11 +100,12 @@
  */
 .public-marketing-surface {
   color-scheme: light;
-  --background: 0 0% 97%;
-  --foreground: 220 13% 13%;
-  --border: 220 13% 87%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  --background: 0 0% 98%;
+  --foreground: 222 47% 11%;
+  --border: 220 13% 90%;
   --card: 0 0% 100%;
-  --card-foreground: 220 13% 13%;
+  --card-foreground: 222 47% 11%;
   --card-border: 220 13% 90%;
   --sidebar: 220 13% 93%;
   --sidebar-foreground: 220 13% 35%;
@@ -114,25 +116,73 @@
   --sidebar-accent-foreground: 220 13% 20%;
   --sidebar-ring: 0 84% 55%;
   --popover: 0 0% 100%;
-  --popover-foreground: 220 13% 13%;
+  --popover-foreground: 222 47% 11%;
   --popover-border: 220 13% 87%;
-  --primary: 211 100% 50%;
+  /* Brand primary #2563EB */
+  --primary: 221 83% 53%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 13% 95%;
-  --secondary-foreground: 220 13% 25%;
-  --muted: 220 13% 95%;
-  --muted-foreground: 220 9% 55%;
-  --accent: 220 13% 93%;
-  --accent-foreground: 220 13% 20%;
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 214 95% 97%;
+  --accent-foreground: 222 47% 11%;
   --destructive: 0 84% 55%;
   --destructive-foreground: 0 0% 100%;
   --input: 220 13% 83%;
-  --ring: 211 100% 50%;
-  --chart-1: 211 100% 50%;
+  --ring: 221 83% 53%;
+  --chart-1: 221 83% 53%;
   --chart-2: 145 63% 42%;
   --chart-3: 27 95% 55%;
   --chart-4: 280 65% 60%;
   --chart-5: 340 75% 55%;
+  --marketing-navy: 222 47% 11%;
+  --marketing-blue-deep: 224 76% 48%;
+}
+
+@layer utilities {
+  .marketing-nav-glass {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  }
+
+  .marketing-marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marketing-marquee 55s linear infinite;
+  }
+
+  .marketing-marquee-track-reverse {
+    display: flex;
+    width: max-content;
+    animation: marketing-marquee-reverse 60s linear infinite;
+  }
+
+  .marketing-soft-glow {
+    box-shadow:
+      0 0 0 1px rgba(37, 99, 235, 0.06),
+      0 4px 24px -4px rgba(37, 99, 235, 0.12),
+      0 12px 40px -12px rgba(15, 23, 42, 0.08);
+  }
+}
+
+@keyframes marketing-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes marketing-marquee-reverse {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-marquee-track,
+  .marketing-marquee-track-reverse {
+    animation: none;
+  }
 }
 
 .dark {
