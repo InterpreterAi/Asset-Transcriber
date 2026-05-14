@@ -10,11 +10,10 @@ import {
   Headphones,
   Captions,
   Languages,
-  Timer,
-  BookOpen,
-  GitBranch,
-  Sparkles,
   ArrowRight,
+  Globe2,
+  Phone,
+  Workflow,
 } from "lucide-react";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
@@ -68,19 +67,99 @@ const trustItems = [
   { icon: Headphones, title: "OPI & VRI ready", desc: "Structured for phone-based and remote video sessions." },
 ] as const;
 
-const workflowFeatures = [
-  { icon: Captions, title: "Live captions", body: "Follow the conversation with low-latency text aligned to speech." },
-  { icon: Languages, title: "Real-time translation assistance", body: "Bilingual support to keep pace with rapid exchanges." },
-  { icon: Timer, title: "Long-session support", body: "Built for extended calls without cluttering your workspace." },
-  { icon: BookOpen, title: "Fast terminology recognition", body: "Reference-friendly tooling for specialist vocabulary." },
-  { icon: GitBranch, title: "Bilingual workflow support", body: "Clear separation of source and target columns." },
-  { icon: Sparkles, title: "Session clarity assistance", body: "Reduce visual noise so you can focus on interpreting." },
+/** What the platform provides — workflow-focused, enterprise-safe wording. */
+const capabilityCards = [
+  {
+    icon: Captions,
+    title: "Real-Time Captions",
+    body: "Follow conversations live during fast-paced multilingual sessions.",
+  },
+  {
+    icon: Languages,
+    title: "Translation Assistance",
+    body: "Live language support designed for interpretation workflows.",
+  },
+  {
+    icon: Globe2,
+    title: "31 Supported Languages",
+    body: "Built for multilingual OPI and VRI environments.",
+  },
+  {
+    icon: Phone,
+    title: "OPI & VRI Ready",
+    body: "Designed specifically for remote interpretation sessions.",
+  },
+  {
+    icon: Workflow,
+    title: "Interpreter Workflow Support",
+    body: "Helps reduce fatigue during long bilingual conversations.",
+  },
+  {
+    icon: Shield,
+    title: "Privacy-Focused Infrastructure",
+    body: "Built with secure real-time processing practices.",
+  },
 ] as const;
+
+const howItWorksSteps = [
+  {
+    icon: Captions,
+    title: "Live captions appear",
+    body: "Readable text updates as dialogue progresses—supporting clarity during rapid exchanges.",
+  },
+  {
+    icon: Languages,
+    title: "Translation assistance updates in real time",
+    body: "Assistance columns stay aligned with the session so you can focus on interpretation—not manual note-taking.",
+  },
+  {
+    icon: UserRound,
+    title: "Interpreters remain fully in control",
+    body: "The workspace supports your workflow; session use follows your professional judgment and policies.",
+  },
+  {
+    icon: Globe2,
+    title: "Multilingual coverage",
+    body: "The platform supports 31 languages for varied OPI, VRI, and remote communication contexts.",
+  },
+] as const;
+
+function LanguagesGlobeVisual() {
+  return (
+    <div className="relative mx-auto w-full max-w-[420px] aspect-square" aria-hidden>
+      <div className="absolute inset-[12%] rounded-full bg-gradient-to-br from-primary/20 via-[#3B82F6]/10 to-transparent ring-1 ring-primary/15 shadow-[0_24px_80px_-20px_rgba(37,99,235,0.35)]" />
+      <svg viewBox="0 0 400 400" className="relative w-full h-full text-primary/35">
+        <circle cx="200" cy="200" r="118" fill="none" stroke="currentColor" strokeWidth="1.2" />
+        <ellipse cx="200" cy="200" rx="118" ry="48" fill="none" stroke="currentColor" strokeWidth="1" />
+        <ellipse cx="200" cy="200" rx="48" ry="118" fill="none" stroke="currentColor" strokeWidth="1" />
+        <path
+          d="M82 200h236M200 82v236"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="0.8"
+          strokeDasharray="4 6"
+          opacity="0.5"
+        />
+        <circle cx="200" cy="200" r="4" className="fill-primary/50" />
+      </svg>
+      <div className="absolute inset-0 flex flex-wrap items-center justify-center gap-2 px-10 opacity-90">
+        {["EN", "ES", "FR", "AR", "ZH", "PT", "DE", "JA", "RU", "HI"].map((code) => (
+          <span
+            key={code}
+            className="text-[10px] sm:text-[11px] font-semibold tracking-wide text-primary/80 bg-white/85 border border-primary/12 rounded-md px-2 py-0.5 shadow-sm"
+          >
+            {code}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const timelineSteps = [
   { label: "Workflow research", detail: "Interpreter sessions and feedback inform what we build next." },
   { label: "Platform iteration", detail: "Speed, clarity, and reliability improvements ship continuously." },
-  { label: "Operational discipline", detail: "Monitoring and security practices evolve with the product." },
+  { label: "Operational discipline", detail: "Reliability and security practices evolve with the product." },
 ] as const;
 
 export default function Landing() {
@@ -131,8 +210,8 @@ export default function Landing() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed"
           >
-            Built for OPI and VRI workflows to help interpreters follow fast conversations, terminology, and long multilingual
-            sessions in real time.
+            Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows
+            across 31 supported languages.
           </motion.p>
 
           <motion.div
@@ -156,6 +235,86 @@ export default function Landing() {
             </Link>
           </motion.div>
           <p className="mt-4 text-sm text-muted-foreground">No credit card required to start.</p>
+        </div>
+      </section>
+
+      {/* Capabilities — what the platform does */}
+      <section id="capabilities" className="scroll-mt-28 py-16 sm:py-20 bg-white border-b border-border/60">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <motion.div {...fade(0)} className="text-center max-w-2xl mx-auto mb-12 sm:mb-14">
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">Platform capabilities</h2>
+            <p className="mt-3 text-muted-foreground leading-relaxed text-[17px]">
+              Clear, workflow-centered support for live interpretation—real-time captions, multilingual assistance, and tools aligned
+              with how professional interpreters work.
+            </p>
+          </motion.div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {capabilityCards.map(({ icon: Icon, title, body }, i) => (
+              <motion.div
+                key={title}
+                {...fade(0.04 + i * 0.03)}
+                className="rounded-2xl border border-border/80 bg-[#F8FAFC]/90 p-7 hover:bg-white hover:border-primary/20 hover:shadow-[0_16px_48px_-20px_rgba(37,99,235,0.18)] transition-all duration-300"
+              >
+                <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-5">
+                  <Icon className="w-5 h-5" strokeWidth={1.75} />
+                </div>
+                <h3 className="text-[16px] font-semibold text-foreground tracking-tight">{title}</h3>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{body}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="py-16 sm:py-24 bg-[#F8FAFC] border-b border-border/60">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <motion.div {...fade(0)} className="text-center max-w-3xl mx-auto mb-14">
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-foreground">
+              How InterpreterAI Supports Live Sessions
+            </h2>
+            <p className="mt-4 text-muted-foreground text-lg leading-relaxed">
+              The platform provides real-time captions, translation assistance, and multilingual workflow support designed for
+              professional interpretation environments.
+            </p>
+          </motion.div>
+
+          <div className="grid sm:grid-cols-2 gap-6 lg:gap-8">
+            {howItWorksSteps.map(({ icon: Icon, title, body }, i) => (
+              <motion.div
+                key={title}
+                {...fade(0.06 + i * 0.04)}
+                className="relative flex gap-5 rounded-2xl border border-border bg-white p-7 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.08)]"
+              >
+                <div className="shrink-0 w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm">
+                  <Icon className="w-6 h-6" strokeWidth={1.6} />
+                </div>
+                <div>
+                  <h3 className="text-[16px] font-semibold text-foreground tracking-tight">{title}</h3>
+                  <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{body}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 31 languages */}
+      <section className="py-16 sm:py-24 bg-white overflow-hidden">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            <motion.div {...fade(0)} className="order-2 lg:order-1">
+              <LanguagesGlobeVisual />
+            </motion.div>
+            <motion.div {...fade(0.06)} className="order-1 lg:order-2 text-center lg:text-left">
+              <p className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Coverage</p>
+              <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">31 Supported Languages</h2>
+              <p className="mt-5 text-muted-foreground text-lg leading-relaxed max-w-xl mx-auto lg:mx-0">
+                Built for multilingual interpretation workflows across medical, customer support, and remote communication
+                environments.
+              </p>
+            </motion.div>
+          </div>
         </div>
       </section>
 
@@ -194,8 +353,8 @@ export default function Landing() {
             <p className="text-sm font-semibold text-blue-300/90 uppercase tracking-wider mb-3">Solutions</p>
             <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">OPI &amp; VRI workflows</h2>
             <p className="mt-4 text-lg text-slate-300/95 leading-relaxed">
-              Over-the-phone interpretation (OPI) and video remote interpretation (VRI) both demand speed, legibility, and focus.
-              InterpreterAI is structured as infrastructure—not a novelty layer on top of the browser.
+              Over-the-phone (OPI) and video remote (VRI) sessions need legible real-time captions and calm translation assistance.
+              InterpreterAI is structured as professional workflow infrastructure—built for interpreters, not generic meeting tooling.
             </p>
           </motion.div>
 
@@ -207,8 +366,8 @@ export default function Landing() {
               <Headphones className="w-9 h-9 text-blue-300 mb-4" strokeWidth={1.5} />
               <h3 className="text-xl font-semibold">OPI</h3>
               <p className="mt-3 text-slate-300 leading-relaxed text-[15px]">
-                Over-the-phone interpretation support for rapid, back-and-forth audio—paired with text that keeps the narrative
-                legible while you render speech.
+                Phone-based interpretation support when callers rotate quickly—paired with captions and assistance columns that keep
+                dialogue legible while you interpret.
               </p>
             </motion.div>
             <motion.div
@@ -218,25 +377,12 @@ export default function Landing() {
               <Radio className="w-9 h-9 text-blue-300 mb-4" strokeWidth={1.5} />
               <h3 className="text-xl font-semibold">VRI</h3>
               <p className="mt-3 text-slate-300 leading-relaxed text-[15px]">
-                Video remote interpretation support for multilingual meetings—where visual load is already high and your workspace
-                must stay minimal, fast, and dependable.
+                Remote video sessions where screen space is limited—your workspace stays minimal while real-time captions and
+                assistance support bilingual workflows.
               </p>
             </motion.div>
           </div>
 
-          <div className="mt-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {workflowFeatures.map(({ icon: Icon, title, body }, i) => (
-              <motion.div
-                key={title}
-                {...fade(0.05 + i * 0.02)}
-                className="rounded-xl border border-white/10 bg-white/[0.03] p-6 hover:border-blue-400/20 transition-colors"
-              >
-                <Icon className="w-5 h-5 text-blue-200 mb-3" strokeWidth={1.75} />
-                <h4 className="font-semibold text-white">{title}</h4>
-                <p className="mt-2 text-sm text-slate-400 leading-relaxed">{body}</p>
-              </motion.div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -244,10 +390,10 @@ export default function Landing() {
       <section id="product" className="scroll-mt-28 py-16 sm:py-24 bg-[#F1F5F9]/60">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <motion.div {...fade(0)} className="text-center max-w-2xl mx-auto mb-12">
-            <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">The workspace, refined</h2>
+            <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">Your live session workspace</h2>
             <p className="mt-4 text-muted-foreground text-lg leading-relaxed">
-              A single, quiet surface for transcripts, assistance columns, and reference tooling—so you stay oriented during live
-              sessions.
+              One focused surface for real-time captions, translation assistance, and interpreter workflow support—so you stay
+              oriented during OPI and VRI sessions without unnecessary clutter.
             </p>
           </motion.div>
           <motion.div {...fade(0.08)}>
