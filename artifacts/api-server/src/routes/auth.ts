@@ -34,7 +34,6 @@ import {
   SIGNUP_DISPOSABLE_EMAIL,
   SIGNUP_EMAIL_INVALID,
 } from "../lib/signup-validation.js";
-import { verifyTurnstileForSignup } from "../lib/turnstile.js";
 import { getStaticPublicBaseUrl } from "../lib/authEnv.js";
 import { logLoginEvent } from "../lib/login-events.js";
 import { generateTotpSecret, generateQrDataUrl, verifyTotp } from "../lib/totp.js";
@@ -612,28 +611,13 @@ router.get("/2fa/status", requireAuth, async (req, res) => {
   res.json({ enabled: user?.twoFactorEnabled ?? false });
 });
 
-// ── Signup: public Turnstile site key (safe to expose) ───────────────────────
-router.get("/signup-config", (_req, res) => {
-  const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY?.trim() ?? null;
-  /** True when server will require a Turnstile token (matches verifyTurnstileForSignup secret check). */
-  const requireTurnstile = Boolean(process.env.TURNSTILE_SECRET_KEY?.trim());
-  res.json({ turnstileSiteKey, requireTurnstile });
-});
-
 // ── Sign Up ────────────────────────────────────────────────────────────────
 router.post("/signup", async (req, res) => {
-  const { email, password, referrerUserId, turnstileToken } = req.body as {
+  const { email, password, referrerUserId } = req.body as {
     email?: string;
     password?: string;
     referrerUserId?: number;
-    turnstileToken?: string;
   };
-
-  const turnstile = await verifyTurnstileForSignup(turnstileToken, getClientIp(req));
-  if (!turnstile.ok) {
-    res.status(400).json({ error: turnstile.error ?? "Verification failed." });
-    return;
-  }
 
   if (isTrialLoginBlocked()) {
     res.status(403).json(TRIAL_LOGIN_BLOCKED_JSON);
