@@ -16,9 +16,12 @@ export default function Signup() {
   const [referrerUserId, setReferrerUserId] = useState<number | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
-  type TurnstileCfg = { status: "loading" } | { status: "ready"; siteKey: string | null };
+  type TurnstileCfg =
+    | { status: "loading" }
+    | { status: "ready"; siteKey: string | null; requireTurnstile: boolean };
   const [turnstileCfg, setTurnstileCfg] = useState<TurnstileCfg>({ status: "loading" });
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileLoadError, setTurnstileLoadError] = useState(false);
 
   useEffect(() => {
     const rid = sessionStorage.getItem("referralCode");
@@ -27,16 +30,28 @@ export default function Signup() {
 
   useEffect(() => {
     void fetch("/api/auth/signup-config", { credentials: "include" })
-      .then((r) => r.json() as Promise<{ turnstileSiteKey?: string | null }>)
+      .then((r) => r.json() as Promise<{ turnstileSiteKey?: string | null; requireTurnstile?: boolean }>)
       .then((d) =>
-        setTurnstileCfg({ status: "ready", siteKey: d.turnstileSiteKey?.trim() || null }),
+        setTurnstileCfg({
+          status: "ready",
+          siteKey: d.turnstileSiteKey?.trim() || null,
+          requireTurnstile: Boolean(d.requireTurnstile),
+        }),
       )
-      .catch(() => setTurnstileCfg({ status: "ready", siteKey: null }));
+      .catch(() =>
+        setTurnstileCfg({ status: "ready", siteKey: null, requireTurnstile: false }),
+      );
   }, []);
 
-  const onTurnstileSuccess = useCallback((token: string) => setTurnstileToken(token), []);
+  const onTurnstileSuccess = useCallback((token: string) => {
+    setTurnstileLoadError(false);
+    setTurnstileToken(token);
+  }, []);
   const onTurnstileExpire = useCallback(() => setTurnstileToken(null), []);
-  const onTurnstileError = useCallback(() => setTurnstileToken(null), []);
+  const onTurnstileError = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileLoadError(true);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,8 +69,12 @@ export default function Signup() {
       setError("Please wait for the page to finish loading.");
       return;
     }
-    if (turnstileCfg.status === "ready" && turnstileCfg.siteKey && !turnstileToken?.trim()) {
-      setError("Please complete the verification challenge.");
+    if (turnstileCfg.status === "ready" && turnstileCfg.requireTurnstile && !turnstileCfg.siteKey) {
+      setError("Signup verification is not available. Please contact support.");
+      return;
+    }
+    if (turnstileCfg.status === "ready" && turnstileCfg.requireTurnstile && !turnstileToken?.trim()) {
+      setError("Please complete the verification challenge below.");
       return;
     }
 
@@ -168,6 +187,35 @@ export default function Signup() {
               </div>
             )}
 
+            {turnstileCfg.status === "ready" && turnstileCfg.requireTurnstile && !turnstileCfg.siteKey && (
+              <div className="bg-amber-50 text-amber-950 text-sm p-3 rounded-xl border border-amber-200/80 text-center">
+                Signup verification is not configured correctly. Please try again later or contact support.
+              </div>
+            )}
+
+            {turnstileCfg.status === "ready" && turnstileCfg.requireTurnstile && turnstileCfg.siteKey && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">
+                  Human verification (required)
+                </p>
+                <div className="w-full min-h-[72px] flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-3">
+                  <Turnstile
+                    siteKey={turnstileCfg.siteKey}
+                    options={{ appearance: "always", theme: "light" }}
+                    onSuccess={onTurnstileSuccess}
+                    onExpire={onTurnstileExpire}
+                    onError={onTurnstileError}
+                  />
+                </div>
+                {turnstileLoadError && (
+                  <p className="text-xs text-center text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-2 py-2">
+                    The security check did not load. Try disabling content blockers, use standard (not strict) tracking protection, or
+                    switch networks — then refresh this page.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider ml-1">Email</label>
               <div className="relative">
@@ -219,17 +267,6 @@ export default function Signup() {
                 />
               </div>
             </div>
-
-            {turnstileCfg.status === "ready" && turnstileCfg.siteKey ? (
-              <div className="flex justify-center min-h-[65px]">
-                <Turnstile
-                  siteKey={turnstileCfg.siteKey}
-                  onSuccess={onTurnstileSuccess}
-                  onExpire={onTurnstileExpire}
-                  onError={onTurnstileError}
-                />
-              </div>
-            ) : null}
 
             <p className="text-[11px] text-slate-600 text-center leading-relaxed">
               By signing up you agree to our{" "}

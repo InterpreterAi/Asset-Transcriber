@@ -614,7 +614,10 @@ router.get("/2fa/status", requireAuth, async (req, res) => {
 
 // ── Signup: public Turnstile site key (safe to expose) ───────────────────────
 router.get("/signup-config", (_req, res) => {
-  res.json({ turnstileSiteKey: process.env.TURNSTILE_SITE_KEY?.trim() ?? null });
+  const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY?.trim() ?? null;
+  /** True when server will require a Turnstile token (matches verifyTurnstileForSignup secret check). */
+  const requireTurnstile = Boolean(process.env.TURNSTILE_SECRET_KEY?.trim());
+  res.json({ turnstileSiteKey, requireTurnstile });
 });
 
 // ── Sign Up ────────────────────────────────────────────────────────────────
