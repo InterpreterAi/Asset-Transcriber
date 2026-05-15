@@ -29,7 +29,7 @@ export const usersTable = pgTable("users", {
   promoOfferSentAt: timestamp("promo_offer_sent_at"),
   /** When false, skip trial reminder campaign emails (unsubscribe). Other transactional mail unchanged. */
   emailRemindersEnabled: boolean("email_reminders_enabled").notNull().default(true),
-  /** Email/password signups must verify before login; OAuth signups stay false. */
+  /** Legacy: rows with true and unverified email once blocked login; new email signups are verified at creation. */
   requiresEmailVerification: boolean("requires_email_verification").notNull().default(false),
   gettingStartedEmailSentAt: timestamp("getting_started_email_sent_at"),
   trialExpiredEmailSentAt: timestamp("trial_expired_email_sent_at"),

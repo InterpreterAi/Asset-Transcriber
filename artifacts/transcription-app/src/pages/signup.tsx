@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { motion } from "framer-motion";
 import { Mic2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -13,8 +16,6 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [referrerUserId, setReferrerUserId] = useState<number | null>(null);
-  const [verificationSent, setVerificationSent] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState("");
 
   useEffect(() => {
     const rid = sessionStorage.getItem("referralCode");
@@ -47,8 +48,8 @@ export default function Signup() {
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
-        needsEmailVerification?: boolean;
-        email?: string;
+        accountAutoDisabled?: boolean;
+        message?: string;
       };
       if (!res.ok) {
         if (res.status === 429) {
@@ -59,12 +60,11 @@ export default function Signup() {
 
       sessionStorage.removeItem("referralCode");
 
-      if (data.needsEmailVerification) {
-        setPendingEmail(data.email ?? email);
-        setVerificationSent(true);
-        return;
+      if (data.accountAutoDisabled) {
+        throw new Error(data.message || "This account could not be activated automatically. Contact support if you need help.");
       }
 
+      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       setLocation("/workspace");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");
@@ -94,7 +94,7 @@ export default function Signup() {
             </div>
           </button>
           <h1 className="text-2xl font-display font-semibold tracking-tight mb-1 text-slate-900">Create your account</h1>
-          <p className="text-sm text-slate-600">7-day free trial · No credit card required · Email confirmation to activate</p>
+          <p className="text-sm text-slate-600">7-day free trial · No credit card required · Start in one step</p>
           {referrerUserId && (
             <p className="text-xs font-medium text-primary mt-1.5 bg-primary/8 px-3 py-1 rounded-full inline-block border border-primary/20">
               You were invited by a colleague
@@ -103,24 +103,6 @@ export default function Signup() {
         </div>
 
         <Card className="p-7 bg-white border border-slate-200/90 shadow-md rounded-2xl">
-          {verificationSent ? (
-            <div className="text-center space-y-4 py-2">
-              <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto border border-primary/20">
-                <Mail className="w-7 h-7 text-primary" />
-              </div>
-              <h2 className="text-lg font-semibold text-slate-900">Check your email</h2>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                We sent a verification link to{" "}
-                <span className="font-medium text-slate-900">{pendingEmail || email}</span>. Open it to activate your account, then
-                sign in.
-              </p>
-              <p className="text-xs text-slate-600">The link expires in 24 hours.</p>
-              <Button type="button" className="w-full h-11 mt-2" onClick={() => setLocation("/login")}>
-                Go to sign in
-              </Button>
-            </div>
-          ) : (
-            <>
               <a
                 href={referrerUserId ? `/api/auth/google?ref=${referrerUserId}` : "/api/auth/google"}
                 className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-4"
@@ -217,8 +199,6 @@ export default function Signup() {
                   Create Account
                 </Button>
               </form>
-            </>
-          )}
         </Card>
 
         <p className="text-center text-sm text-slate-600 mt-5">

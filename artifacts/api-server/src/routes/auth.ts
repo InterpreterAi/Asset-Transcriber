@@ -270,23 +270,6 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    if (user.requiresEmailVerification && !user.emailVerified) {
-      void logLoginEvent({
-        userId:       user.id,
-        email:        user.email,
-        ipAddress:    ip,
-        userAgent,
-        success:      false,
-        failureReason: "email_not_verified",
-      });
-      res.status(403).json({
-        error:
-          "Please verify your email before signing in. Check your inbox for a verification link, or request a new one from the login page.",
-        code: "email_not_verified",
-      });
-      return;
-    }
-
     if (trialAccessBlockedForUser(user)) {
       void logLoginEvent({
         userId:        user.id,
@@ -378,6 +361,7 @@ router.post("/login", async (req, res) => {
           trialEndsAt: user.trialEndsAt,
           trialDaysRemaining: 0,
           trialExpired: false,
+          paidCycleDaysRemaining: 0,
           dailyLimitMinutes: Number(user.dailyLimitMinutes) || 0,
           minutesUsedToday: Number(user.minutesUsedToday) || 0,
           minutesRemainingToday: 0,
@@ -702,8 +686,8 @@ router.post("/signup", async (req, res) => {
           passwordHash,
           isAdmin: false,
           isActive: !autoDisabledForSharedIp,
-          emailVerified: false,
-          requiresEmailVerification: true,
+          emailVerified: true,
+          requiresEmailVerification: false,
           planType: "trial-openai",
           trialStartedAt: trial.trialStartedAt,
           trialEndsAt: trial.trialEndsAt,
@@ -744,34 +728,109 @@ router.post("/signup", async (req, res) => {
     `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Trial · Libre / Final Boss 3 (7 days)`,
   );
 
-  const verifyToken = crypto.randomBytes(32).toString("hex");
-  const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, newUser.id));
-  await db.insert(emailVerificationTokensTable).values({
-    userId: newUser.id,
-    token: verifyToken,
-    expiresAt: verifyExpires,
-  });
+  const ip        = getClientIp(req);
+  const userAgent = req.headers["user-agent"] ?? null;
 
-  let verificationEmailSent = true;
-  try {
-    await sendEmailVerificationEmail(normalized, verifyToken, newUser.id);
-  } catch (err) {
-    verificationEmailSent = false;
-    logger.error({ err, userId: newUser.id }, "Signup: sendEmailVerificationEmail failed");
+  if (!newUser.isActive) {
+    res.status(201).json({
+      accountAutoDisabled: true,
+      message:
+        "Your account was created but is temporarily disabled for review because of unusual activity from your network. If you believe this is a mistake, contact support.",
+    });
+    return;
   }
 
-  res.status(201).json({
-    needsEmailVerification: true,
-    email: normalized,
-    accountAutoDisabled: autoDisabledForSharedIp,
-    verificationEmailSent,
-    message: verificationEmailSent
-      ? autoDisabledForSharedIp
-        ? "Account created and verification email sent. This account is temporarily disabled for review due to shared-IP risk."
-        : "Check your email to verify your account before signing in."
-      : "Your account was created, but we could not send the verification email. Check RESEND_API_KEY or use “Resend verification” on the login page.",
+  if (!req.session) {
+    console.error("[auth] POST /api/auth/signup: req.session is missing");
+    logger.error("POST /api/auth/signup: req.session is missing — session middleware order bug?");
+    res.status(500).json({
+      error: "Session not initialized",
+      code: "no_req_session",
+    });
+    return;
+  }
+
+  req.session.userId  = newUser.id;
+  req.session.isAdmin = false;
+  delete req.session.pending2faUserId;
+
+  try {
+    await commitSession(req);
+  } catch (err) {
+    safeAuthLoggerError("Signup: session.save failed — full stack for Railway", err);
+    res.status(500).json({ ...SESSION_PERSIST_FAILED_JSON, code: "session_save_failed" });
+    return;
+  }
+
+  void touchActivity(newUser.id).catch((touchErr) => {
+    logger.warn({ err: touchErr, userId: newUser.id }, "touchActivity after signup failed");
   });
+  void logLoginEvent({
+    userId:    newUser.id,
+    email:     newUser.email,
+    ipAddress: ip,
+    userAgent,
+    success:   true,
+  });
+
+  let userPayload: ReturnType<typeof buildUserInfo> & { sessionsToday: number };
+  try {
+    const freshUser = (await getUserWithResetCheck(newUser.id)) ?? newUser;
+    let sessionsToday = 0;
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const sessionsTodayRows = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(sessionsTable)
+        .where(
+          and(eq(sessionsTable.userId, freshUser.id), gte(sessionsTable.startedAt, todayStart)),
+        );
+      sessionsToday = Number(sessionsTodayRows[0]?.count ?? 0);
+    } catch (countErr) {
+      logger.warn({ err: countErr, userId: newUser.id }, "Signup: sessionsToday count failed");
+    }
+    userPayload = { ...buildUserInfo(freshUser), sessionsToday };
+  } catch (enrichErr) {
+    logger.warn({ err: enrichErr, userId: newUser.id }, "Signup: profile enrichment failed; returning minimal user");
+    try {
+      userPayload = { ...buildUserInfo(newUser), sessionsToday: 0 };
+    } catch (fallbackBuildErr) {
+      safeAuthLoggerError("Signup: buildUserInfo(fallback) failed", fallbackBuildErr);
+      userPayload = {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email ?? undefined,
+        isAdmin: Boolean(newUser.isAdmin),
+        isActive: newUser.isActive,
+        planType: newUser.planType ?? "trial-libre",
+        translationEnabled: false,
+        emailVerified: Boolean(newUser.emailVerified),
+        trialStartedAt: newUser.trialStartedAt,
+        trialEndsAt: newUser.trialEndsAt,
+        trialDaysRemaining: 0,
+        trialExpired: false,
+        paidCycleDaysRemaining: 0,
+        dailyLimitMinutes: Number(newUser.dailyLimitMinutes) || 0,
+        minutesUsedToday: Number(newUser.minutesUsedToday) || 0,
+        minutesRemainingToday: 0,
+        totalMinutesUsed: Number(newUser.totalMinutesUsed) || 0,
+        totalSessions: Number(newUser.totalSessions) || 0,
+        sessionsToday: 0,
+      };
+    }
+  }
+
+  try {
+    res.status(201).json({ user: userPayload });
+  } catch (encodeErr) {
+    logAuthToStderr("Signup res.json", encodeErr);
+    logger.error(errMeta(encodeErr), "Signup: res.json failed (non-JSON-serializable user payload?)");
+    res.status(500).json({
+      error: "Account created but response could not be encoded",
+      code: "signup_response_encode_failed",
+    });
+  }
 });
 
 // ── Verify email (link from transactional email; 24h token) ───────────────
@@ -887,13 +946,6 @@ router.get("/me", requireAuth, async (req, res) => {
   const user = await getUserWithResetCheck(req.session.userId!);
   if (!user) {
     res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
-  if (!user.emailVerified && !user.isAdmin) {
-    res.status(403).json({
-      error: "Please verify your email before accessing InterpreterAI.",
-      code:  "email_not_verified",
-    });
     return;
   }
   const todayStart = new Date();

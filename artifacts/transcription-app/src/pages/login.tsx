@@ -36,8 +36,6 @@ export default function Login() {
   const [verifying, setVerifying] = useState(false);
   const [error, setError]         = useState(oauthError ? (GOOGLE_ERROR_MESSAGES[oauthError] ?? "Sign-in failed.") : "");
   const [verifyBanner, setVerifyBanner] = useState<string | null>(null);
-  const [showResend, setShowResend]     = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
 
   const otpRef = useRef<HTMLInputElement>(null);
 
@@ -49,16 +47,14 @@ export default function Login() {
       setError("");
     } else if (v === "required") {
       setVerifyBanner(null);
-      setError("Please verify your email before accessing InterpreterAI.");
-      setShowResend(true);
+      setError("Please contact support if you need help signing in to InterpreterAI.");
     } else if (v === "invalid" || v === "missing" || v === "error") {
       setVerifyBanner(null);
       setError(
         v === "missing"
-          ? "Verification link is missing. Request a new email below."
-          : "That verification link is invalid or has expired. Request a new one below.",
+          ? "That link was incomplete. Try signing in with your email and password."
+          : "That verification link is invalid or has expired. Try signing in with your email and password.",
       );
-      setShowResend(true);
     }
   }, [search]);
 
@@ -110,12 +106,6 @@ export default function Login() {
           : "";
       const apiHint =
         typeof payload?.hint === "string" && payload.hint.length <= 600 ? payload.hint.trim() : "";
-      if (status === 403 && payload?.code === "email_not_verified") {
-        setShowResend(true);
-        setError(apiMsg || "Please verify your email before signing in.");
-        return;
-      }
-      setShowResend(false);
       // Never show err.message: ApiError.message can embed long server text; only API `error` / `hint`.
       const uncaughtTip =
         payload?.code === "login_uncaught_exception"
@@ -169,29 +159,6 @@ export default function Login() {
   const handleOtpInput = (v: string) => {
     const digits = v.replace(/\D/g, "").slice(0, 6);
     setOtpValue(digits);
-  };
-
-  const handleResendVerification = async () => {
-    if (!username.trim()) {
-      setError("Enter your email address above, then tap resend.");
-      return;
-    }
-    setResendLoading(true);
-    setError("");
-    try {
-      const res = await fetch("/api/auth/resend-verification", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ email: username.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error || "Could not resend email");
-      setVerifyBanner("If your account needs verification, we sent a new email. Check your inbox.");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Could not resend email");
-    } finally {
-      setResendLoading(false);
-    }
   };
 
   return (
@@ -294,17 +261,6 @@ export default function Login() {
                   >
                     Sign In
                   </Button>
-                  {showResend && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full h-11"
-                      isLoading={resendLoading}
-                      onClick={handleResendVerification}
-                    >
-                      Resend verification email
-                    </Button>
-                  )}
                 </form>
               </Card>
 
