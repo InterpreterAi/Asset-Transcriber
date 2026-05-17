@@ -141,10 +141,11 @@ export function effectivePlanTypeForTranslation(user: User): string {
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
-    // Final Boss 3: trial-libre → paid maps Basic/Prof to Libre stacks; Platinum/Unlimited → OpenAI.
+    // Trial · Mixed (`trial-libre`): OpenAI interpreter only — while plan_type is still trial-libre during
+    // subscription lag, resolve paid SKU to *-openai (never basic-libre / professional-libre / Hetzner).
     if (p === "trial-libre") {
-      if (sp === "basic") return "basic-libre";
-      if (sp === "professional") return "professional-libre";
+      if (sp === "basic") return "basic-openai";
+      if (sp === "professional") return "professional-openai";
       if (sp === "platinum") return "platinum";
       if (sp === "unlimited") return "unlimited";
     }
