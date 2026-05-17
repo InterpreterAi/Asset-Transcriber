@@ -73,14 +73,15 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
 
 /**
  * True when POST /translate must use the Libre/machine stack (not OpenAI).
- * Final Boss 3: default signup is `trial-libre`; Basic and Professional (any *basic* / *professional* plan_type)
- * use Libre; only trial (legacy OpenAI trial), trial-openai, platinum family, and unlimited use OpenAI.
+ * Final Boss 3: Basic and Professional (*-libre paid tiers) use Libre/machine; `trial-hetzner` uses machine.
+ * OpenAI interpreter: `trial`, `trial-openai`, `trial-libre` (full trial window), platinum family, unlimited, etc.
  */
 export function planUsesMachineTranslationStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (
     p === "trial" ||
     p === "trial-openai" ||
+    p === "trial-libre" ||
     p === "morsy-urgent" ||
     p === "legacy2" ||
     p === "platinum" ||

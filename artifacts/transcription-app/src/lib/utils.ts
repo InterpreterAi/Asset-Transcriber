@@ -49,13 +49,14 @@ export function workspaceUsageShowsSlashUnlimited(planType: string | null | unde
 
 /**
  * True when the account uses the machine translation stack — mirrors server `planUsesMachineTranslationStack`
- * (Final Boss 3: Libre for default trial, Basic, Professional; OpenAI for legacy OpenAI trials, Platinum, Unlimited).
+ * (Final Boss 3: Libre for Basic/Professional *-libre and `trial-hetzner`; OpenAI for `trial-libre`, legacy OpenAI trials, Platinum, Unlimited).
  */
 export function planUsesLibreEngine(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (
     p === "trial" ||
     p === "trial-openai" ||
+    p === "trial-libre" ||
     p === "legacy2" ||
     p === "platinum" ||
     p === "platinum-libre" ||

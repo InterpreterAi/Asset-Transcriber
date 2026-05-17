@@ -104,7 +104,7 @@ const PLAN_PRICES: Record<string, number> = {
 
 /** Analytics stack split mirrors strict live translation routing by effective plan family. */
 const MACHINE_STACK_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'trial-libre', 'basic-libre', 'professional-libre', 'platinum-libre')
+  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'professional-libre', 'platinum-libre')
 )`;
 const OPENAI_STACK_ANALYTICS_WHERE = sql`NOT (${MACHINE_STACK_ANALYTICS_WHERE})`;
 
@@ -243,15 +243,20 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
       ordinalBySessionId.set(r.sessionId, i + 1);
     });
   }
-  return rows.map((r) => ({
-    ...r,
-    openSessionsForUser: byUser.get(r.userId)?.length ?? 1,
-    openSessionOrdinal: ordinalBySessionId.get(r.sessionId) ?? 1,
-    translationStack: userUsesMachineTranslationStack(r) ? "libre" : "openai",
-    coreLane: corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null,
-    coreLaneColor: corePlacementBySessionId.get(r.sessionId)?.coreLaneColor ?? null,
-    coreNodeLabel: corePlacementBySessionId.get(r.sessionId)?.coreNodeLabel ?? null,
-  }));
+  return rows.map((r) => {
+    const translationStack = userUsesMachineTranslationStack(r) ? "libre" : "openai";
+    const coreLane = corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null;
+    return {
+      ...r,
+      openSessionsForUser: byUser.get(r.userId)?.length ?? 1,
+      openSessionOrdinal: ordinalBySessionId.get(r.sessionId) ?? 1,
+      translationStack,
+      translationRouteDetail: buildTranslationRouteDetail(r, translationStack, coreLane),
+      coreLane,
+      coreLaneColor: corePlacementBySessionId.get(r.sessionId)?.coreLaneColor ?? null,
+      coreNodeLabel: corePlacementBySessionId.get(r.sessionId)?.coreNodeLabel ?? null,
+    };
+  });
 }
 
 function liveSessionSummaryFromEnriched(

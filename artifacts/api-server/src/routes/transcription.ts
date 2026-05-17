@@ -80,7 +80,7 @@ import { applyArabicStaticLeakReplacements } from "../lib/en-to-arabic-script-cl
 //
 
 // ── Final Boss 3 (named product snapshot) ─────────────────────────────────
-// `planUsesMachineTranslationStack` → LibreTranslate only (see usage.ts): default `trial-libre`, Basic/Prof tiers,
+// `planUsesMachineTranslationStack` → LibreTranslate (see usage.ts): `trial-hetzner`, Basic/Prof *-libre tiers;
 // legacy basic/prof plan_types, etc. OpenAI stack: legacy trials `trial`/`trial-openai`, `platinum`, `unlimited`,
 // `platinum-libre`. Shared masking where applicable; client STT = Soniox for everyone.
 
