@@ -6,6 +6,9 @@ import { isTrialExpired, isTrialLikePlanType } from "./usage.js";
 /** Stored on feedback rows; name kept for backwards compatibility with existing DB rows. */
 export const MANDATORY_FEEDBACK_SOURCE = "trial-half-daily-mandatory";
 
+/** Paid accounts: required feedback after a session ends (never mid-call — gated when no open session). */
+export const PAID_POST_SESSION_FEEDBACK_SOURCE = "paid-session-end-mandatory";
+
 /** Minimum comment length to count as satisfying the half-daily mandatory gate (stars alone are not enough). */
 export const MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH = 10;
 
@@ -24,11 +27,19 @@ export function getMandatoryFeedbackThresholdMinutes(dailyLimitMinutes: number):
 }
 
 /**
- * Half-daily mandatory feedback applies to every account with a real daily meter,
- * except expired trials (cannot use the app) and “unlimited” caps.
+ * Half-daily mandatory feedback mid-session: **active trial** accounts only (paid users defer until session end).
  */
 export function isMandatoryFeedbackEligible(user: User): boolean {
-  if (isTrialLikePlanType(user.planType) && isTrialExpired(user)) return false;
+  if (!isTrialLikePlanType(user.planType) || isTrialExpired(user)) return false;
+  const dailyLimit = Number(user.dailyLimitMinutes);
+  if (!Number.isFinite(dailyLimit) || dailyLimit <= 0) return false;
+  if (dailyLimit >= UNLIMITED_DAILY_CAP_MINUTES) return false;
+  return true;
+}
+
+/** Paid (non–trial-like plan_type): same meter rules; blocks next session only after stop (see transcription routes). */
+export function isPaidPostSessionFeedbackEligible(user: User): boolean {
+  if (isTrialLikePlanType(user.planType)) return false;
   const dailyLimit = Number(user.dailyLimitMinutes);
   if (!Number.isFinite(dailyLimit) || dailyLimit <= 0) return false;
   if (dailyLimit >= UNLIMITED_DAILY_CAP_MINUTES) return false;
@@ -60,7 +71,15 @@ export function isMandatoryFeedbackRequiredByUsageWithLive(
   return used + live >= threshold - 1e-6;
 }
 
-export async function hasSubmittedMandatoryFeedbackToday(userId: number): Promise<boolean> {
+export function isPaidPostSessionFeedbackRequiredByUsage(user: User): boolean {
+  if (!isPaidPostSessionFeedbackEligible(user)) return false;
+  const used = Number(user.minutesUsedToday);
+  const threshold = getMandatoryFeedbackThresholdMinutes(Number(user.dailyLimitMinutes));
+  if (!Number.isFinite(used) || !Number.isFinite(threshold)) return false;
+  return used >= threshold - 1e-6;
+}
+
+export async function hasSubmittedTrialMandatoryFeedbackToday(userId: number): Promise<boolean> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(feedbackTable)
@@ -76,6 +95,22 @@ export async function hasSubmittedMandatoryFeedbackToday(userId: number): Promis
             sql`length(trim(coalesce(${feedbackTable.comment}, ''))) >= ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH}`,
           ),
         ),
+      ),
+    );
+  return Number(row?.count ?? 0) > 0;
+}
+
+export async function hasSubmittedPaidPostSessionFeedbackToday(userId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(feedbackTable)
+    .where(
+      and(
+        eq(feedbackTable.userId, userId),
+        gte(feedbackTable.createdAt, startOfAppDay()),
+        gte(feedbackTable.rating, 1),
+        eq(feedbackTable.source, PAID_POST_SESSION_FEEDBACK_SOURCE),
+        sql`length(trim(coalesce(${feedbackTable.comment}, ''))) >= ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH}`,
       ),
     );
   return Number(row?.count ?? 0) > 0;

@@ -4,11 +4,16 @@ import { and, eq, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import {
-  hasSubmittedMandatoryFeedbackToday,
-  isMandatoryFeedbackRequiredByUsage,
+  hasSubmittedPaidPostSessionFeedbackToday,
+  hasSubmittedTrialMandatoryFeedbackToday,
+  isMandatoryFeedbackEligible,
   isMandatoryFeedbackRequiredByUsageWithLive,
+  isMandatoryFeedbackRequiredByUsage,
+  isPaidPostSessionFeedbackEligible,
+  isPaidPostSessionFeedbackRequiredByUsage,
   MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH,
   MANDATORY_FEEDBACK_SOURCE,
+  PAID_POST_SESSION_FEEDBACK_SOURCE,
 } from "../lib/feedback-gate.js";
 import { getUserWithResetCheck } from "../lib/usage.js";
 
@@ -34,11 +39,22 @@ router.get("/status", requireAuth, async (req, res) => {
     return;
   }
   const liveOpenMinutes = await sumOpenSessionsBillableMinutes(user.id);
-  const required = isMandatoryFeedbackRequiredByUsageWithLive(user, liveOpenMinutes);
-  const submitted = required ? await hasSubmittedMandatoryFeedbackToday(user.id) : false;
+
+  const trialRequired =
+    isMandatoryFeedbackEligible(user) &&
+    isMandatoryFeedbackRequiredByUsageWithLive(user, liveOpenMinutes);
+  const trialSubmitted = trialRequired ? await hasSubmittedTrialMandatoryFeedbackToday(user.id) : false;
+
+  const paidRequired =
+    isPaidPostSessionFeedbackEligible(user) &&
+    liveOpenMinutes < 1e-6 &&
+    isPaidPostSessionFeedbackRequiredByUsage(user);
+  const paidSubmitted = paidRequired ? await hasSubmittedPaidPostSessionFeedbackToday(user.id) : false;
+
   res.json({
-    required,
-    submitted,
+    required: trialRequired,
+    submitted: trialSubmitted,
+    paidPostSession: { required: paidRequired, submitted: paidSubmitted },
     source: MANDATORY_FEEDBACK_SOURCE,
   });
 });
@@ -56,13 +72,15 @@ router.post("/", requireAuth, async (req, res) => {
     return;
   }
   if (
-    source === MANDATORY_FEEDBACK_SOURCE &&
-    (comment?.trim().length ?? 0) < MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH
+    source === MANDATORY_FEEDBACK_SOURCE ||
+    source === PAID_POST_SESSION_FEEDBACK_SOURCE
   ) {
-    res.status(400).json({
-      error: `Comment must be at least ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH} characters for required feedback`,
-    });
-    return;
+    if ((comment?.trim().length ?? 0) < MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH) {
+      res.status(400).json({
+        error: `Comment must be at least ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH} characters for required feedback`,
+      });
+      return;
+    }
   }
 
   const userId = req.session.userId!;
@@ -84,6 +102,11 @@ router.post("/", requireAuth, async (req, res) => {
   let resolvedSource: string | null =
     typeof source === "string" && source.trim() ? source.trim() : null;
   if (
+    source === PAID_POST_SESSION_FEEDBACK_SOURCE &&
+    commentLen >= MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH
+  ) {
+    resolvedSource = PAID_POST_SESSION_FEEDBACK_SOURCE;
+  } else if (
     isMandatoryFeedbackRequiredByUsage(userFull) &&
     commentLen >= MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH
   ) {
