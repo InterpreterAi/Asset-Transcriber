@@ -23,6 +23,7 @@ import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
+import { PaidPostSessionFeedbackPrompt } from "@/components/PaidPostSessionFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import {
   cn,
@@ -809,6 +810,12 @@ export default function WorkspaceDefault() {
         trialExpired={user.trialExpired}
         effectiveMinutesUsedToday={effectiveMinutesUsedToday}
         dailyLimitMinutes={user.dailyLimitMinutes}
+      />
+      <PaidPostSessionFeedbackPrompt
+        planType={user.planType}
+        dailyLimitMinutes={user.dailyLimitMinutes}
+        minutesUsedToday={user.minutesUsedToday}
+        isRecording={transcription.isRecording}
       />
       {!(isTrialLikePlanType(user.planType) && !user.trialExpired) && (
         <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />

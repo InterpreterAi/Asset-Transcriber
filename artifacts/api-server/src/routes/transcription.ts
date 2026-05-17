@@ -43,8 +43,12 @@ import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
-  hasSubmittedMandatoryFeedbackToday,
-  isMandatoryFeedbackRequiredByUsage,
+  hasSubmittedPaidPostSessionFeedbackToday,
+  hasSubmittedTrialMandatoryFeedbackToday,
+  isMandatoryFeedbackEligible,
+  isMandatoryFeedbackRequiredByUsageWithLive,
+  isPaidPostSessionFeedbackEligible,
+  isPaidPostSessionFeedbackRequiredByUsage,
   UNLIMITED_DAILY_CAP_MINUTES,
 } from "../lib/feedback-gate.js";
 import {
@@ -500,8 +504,25 @@ router.post("/token", requireAuth, async (req, res) => {
       });
       return;
     }
-    if (isMandatoryFeedbackRequiredByUsage(user)) {
-      const submitted = await hasSubmittedMandatoryFeedbackToday(user.id);
+    if (
+      isMandatoryFeedbackEligible(user) &&
+      isMandatoryFeedbackRequiredByUsageWithLive(user, liveBillable)
+    ) {
+      const submitted = await hasSubmittedTrialMandatoryFeedbackToday(user.id);
+      if (!submitted) {
+        res.status(403).json({
+          error: "Daily feedback required before starting another session.",
+          code: "FEEDBACK_REQUIRED",
+        });
+        return;
+      }
+    }
+    if (
+      isPaidPostSessionFeedbackEligible(user) &&
+      liveBillable < 1e-6 &&
+      isPaidPostSessionFeedbackRequiredByUsage(user)
+    ) {
+      const submitted = await hasSubmittedPaidPostSessionFeedbackToday(user.id);
       if (!submitted) {
         res.status(403).json({
           error: "Daily feedback required before starting another session.",
@@ -1071,8 +1092,25 @@ router.post("/session/start", requireAuth, async (req, res) => {
     });
     return;
   }
-  if (isMandatoryFeedbackRequiredByUsage(userForCap)) {
-    const submitted = await hasSubmittedMandatoryFeedbackToday(userForCap.id);
+  if (
+    isMandatoryFeedbackEligible(userForCap) &&
+    isMandatoryFeedbackRequiredByUsageWithLive(userForCap, liveAfterOrphans)
+  ) {
+    const submitted = await hasSubmittedTrialMandatoryFeedbackToday(userForCap.id);
+    if (!submitted) {
+      res.status(403).json({
+        error: "Daily feedback required before starting another session.",
+        code: "FEEDBACK_REQUIRED",
+      });
+      return;
+    }
+  }
+  if (
+    isPaidPostSessionFeedbackEligible(userForCap) &&
+    liveAfterOrphans < 1e-6 &&
+    isPaidPostSessionFeedbackRequiredByUsage(userForCap)
+  ) {
+    const submitted = await hasSubmittedPaidPostSessionFeedbackToday(userForCap.id);
     if (!submitted) {
       res.status(403).json({
         error: "Daily feedback required before starting another session.",
