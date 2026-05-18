@@ -656,6 +656,37 @@ function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
   );
 }
 
+/**
+ * Narrow SKUs for LIVE-only embedded-English prompt reinforcement (OpenAI path only).
+ * Does not affect finals, machine translation, or other plan_types.
+ */
+function planGetsLiveEmbeddedEnglishPrompt(planLower: string): boolean {
+  const p = planLower.trim().toLowerCase();
+  return (
+    p === "platinum" ||
+    p === "basic-openai" ||
+    p === "professional-openai" ||
+    /^trial-openai/.test(p)
+  );
+}
+
+/** Prompt-only: mixed speech with English domain terms → active target language (all scripts). */
+function liveEmbeddedEnglishSupplementBlock(
+  planLower: string,
+  isFinalSegment: boolean,
+  srcDisplayName: string,
+  tgtDisplayName: string,
+): string {
+  if (isFinalSegment || !planGetsLiveEmbeddedEnglishPrompt(planLower)) return "";
+  return (
+    `EMBEDDED ENGLISH (LIVE INTERIM ONLY):\n` +
+    `- Interpreter speech may mix ${srcDisplayName} with English medical, legal, insurance, or procedural terms (Latin letters).\n` +
+    `- Translate **every** such English domain term into standard ${tgtDisplayName} in the correct script — do not leave English technical wording in the ${tgtDisplayName} column.\n` +
+    `- This applies even when the declared source language is not exclusively English.\n` +
+    `- Preserve proper names, geographic entities, proprietary brands, phone numbers, and addresses per PROPER NAMES and NUMBERS sections below; acronym handling per ACRONYMS AND ABBREVIATIONS below.\n\n`
+  );
+}
+
 /** Neutral professional output register for the target language (medical/legal interpreting). */
 const OUTPUT_REGISTER_ZH_CN =
   "Standard Mandarin in Simplified Chinese script (简体), professional register — no regional slang.";
@@ -1892,6 +1923,13 @@ router.post("/translate", requireAuth, async (req, res) => {
         `- Preserve register (clinical vs lay, formal court vs plain speech) without adding explanations the speaker did not give.\n\n`
       : "";
 
+  const liveEmbeddedEnglishSupplement = liveEmbeddedEnglishSupplementBlock(
+    planLower,
+    isFinalSegment,
+    srcName,
+    tgtName,
+  );
+
   // ── Build system prompt helper ─────────────────────────────────────────────
   // Accepts an optional forceOverride flag for the retry path; when true the
   // language-lock instruction is elevated to the very top of the prompt with
@@ -1946,6 +1984,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     arabicEnTargetBlock +
     englishTargetBlock +
     bidirectionalLiveMirrorBlock +
+    liveEmbeddedEnglishSupplement +
     englishSourceDomainBridge +
     `CORE RULE: Translate only what the speaker said. NEVER add facts, context, explanations, or assumptions they did not utter.\n\n` +
 

@@ -942,6 +942,10 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** Cumulative LIVE-buffer evidence gates — shared by tryLock + dispatchTranslation fallback persist (same spirit as majoritySourceFromFirstWords). */
+const DIRECTION_LOCK_MIN_WORDS = 3;
+const DIRECTION_LOCK_MIN_CHARS = 10;
+
 /** True when the translation cell already shows text we should treat as a real translation (not blank / placeholder-only). */
 function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   const t = (el.textContent ?? "").trim();
@@ -1679,10 +1683,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       uniquePairMemberForLang(validateLangByScript(sonioxHint, text, pair), pair) ??
       uniquePairMemberForLang(sonioxHint, pair) ??
       pair.a;
-    const dispatchLang = state.segmentSourceLang ?? chosenSource;
+    let dispatchLang = state.segmentSourceLang ?? chosenSource;
+
+    // Fallback persist: same cumulative evidence + snap as tryLock — avoids ultra-early poison locks.
+    if (!state.translationLocked && state.segmentSourceLang === null) {
+      const evidenceText = collapseWs(liveBufferRef.current);
+      if (
+        countWords(evidenceText) >= DIRECTION_LOCK_MIN_WORDS &&
+        evidenceText.length >= DIRECTION_LOCK_MIN_CHARS
+      ) {
+        const snappedPersist = snapSourceLanguageToPair(dispatchLang, sonioxHint, evidenceText, pair);
+        state.segmentSourceLang = snappedPersist;
+        dispatchLang = snappedPersist;
+      }
+    }
+
     let myTargetLang = targetOppositeInPair(dispatchLang, pair);
     if (!state.translationLocked) {
-      if (state.segmentSourceLang === null) state.segmentSourceLang = dispatchLang;
       state.segmentTargetLang = myTargetLang;
     }
     const { transTextEl } = state;
@@ -2492,10 +2509,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!st || st.segmentSourceLang !== null) return;
 
     const evidenceText = collapseWs(liveBufferRef.current);
-    const MIN_WORDS_DIRECTION_LOCK = 3;
-    const MIN_CHARS_DIRECTION_LOCK = 10;
-    if (countWords(evidenceText) < MIN_WORDS_DIRECTION_LOCK) return;
-    if (evidenceText.length < MIN_CHARS_DIRECTION_LOCK) return;
+    if (countWords(evidenceText) < DIRECTION_LOCK_MIN_WORDS) return;
+    if (evidenceText.length < DIRECTION_LOCK_MIN_CHARS) return;
 
     const first = tokens.find(
       t =>
