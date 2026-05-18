@@ -2481,10 +2481,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
   }, [stop]);
 
-  /** Lock segment translation direction from the first visible token that carries a language tag. */
+  /**
+   * Lock segment translation direction once cumulative transcript evidence is stable enough.
+   * Uses full {@link liveBufferRef} (final + NF, same as LIVE translate hint) — not only the
+   * current WS frame — so EN↔Latin pairs do not freeze on a tiny early hypothesis.
+   * Matches the spirit of {@link majoritySourceFromFirstWords}: wait until ~3 real words exist.
+   */
   const tryLockSegmentDirectionFromTokens = useCallback((tokens: SonioxToken[]) => {
     const st = activeBubbleStateRef.current;
     if (!st || st.segmentSourceLang !== null) return;
+
+    const evidenceText = collapseWs(liveBufferRef.current);
+    const MIN_WORDS_DIRECTION_LOCK = 3;
+    const MIN_CHARS_DIRECTION_LOCK = 10;
+    if (countWords(evidenceText) < MIN_WORDS_DIRECTION_LOCK) return;
+    if (evidenceText.length < MIN_CHARS_DIRECTION_LOCK) return;
+
     const first = tokens.find(
       t =>
         hasVisibleText(t.text) &&
@@ -2495,9 +2507,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
     if (!first?.language) return;
     const pair = langPairRef.current;
-    const allTokenText = tokens.filter(t => !isSonioxEndpointToken(t)).map(t => t.text).join("");
-    const validated = validateLangByScript(first.language, allTokenText, pair);
-    const snapped = snapSourceLanguageToPair(validated, first.language, allTokenText, pair);
+    const validated = validateLangByScript(first.language, evidenceText, pair);
+    const snapped = snapSourceLanguageToPair(validated, first.language, evidenceText, pair);
     st.segmentSourceLang = snapped;
     st.segmentTargetLang = targetOppositeInPair(snapped, pair);
   }, []);
