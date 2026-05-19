@@ -17,6 +17,10 @@ export type TranslateBasicProfessionalOpts = {
   userEmail?: string | null;
   /** DB-resolved worker lane for session-bound MT (`manual ?? assigned`). Omit for anonymous callers. */
   resolvedLane?: CoreLane;
+  /** Postgres `sessions.hetzner_mt_manual_lane` — outbound proof logs. */
+  manualLane?: number | null;
+  /** Postgres `sessions.hetzner_mt_assigned_lane` — outbound proof logs. */
+  assignedLane?: number | null;
   /** Optional wire trace for `HETZNER_MT_WIRE_DEBUG` — see `hetzner-translate.ts`. */
   wireDebug?: HetznerMtWireDebugMeta;
 };
@@ -38,6 +42,8 @@ export async function translatePlainMachine(
     planType: opts?.planType,
     userEmail: opts?.userEmail,
     resolvedLane: opts?.resolvedLane,
+    manualLane: opts?.manualLane,
+    assignedLane: opts?.assignedLane,
     wireDebug: opts?.wireDebug,
   });
 }

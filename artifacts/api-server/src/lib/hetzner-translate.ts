@@ -71,12 +71,20 @@ export type HetznerMtRoutingHint = {
   userEmail?: string | null;
   /** Required when `sessionId` is set — DB effective lane (`manual ?? assigned`). */
   resolvedLane?: CoreLane;
+  /** Postgres `sessions.hetzner_mt_manual_lane` — proof logs only. */
+  manualLane?: number | null;
+  /** Postgres `sessions.hetzner_mt_assigned_lane` — proof logs only. */
+  assignedLane?: number | null;
   wireDebug?: HetznerMtWireDebugMeta;
 };
 
 /** Logged immediately before each outbound Libre-compatible POST (proof of wire destination). */
 export type HetznerMtOutboundWireContext = {
   sessionId: number | null;
+  /** Effective DB lane when session-bound; null for anonymous `/translate`. */
+  resolvedLane: CoreLane | null;
+  manualLane: number | null;
+  assignedLane: number | null;
   userEmail: string | null;
   planType: string | null;
   selectedLane: number;
@@ -403,6 +411,27 @@ async function postTranslateAtBase(
         },
         ...(useRailwayPrivateDnsLookup(normalizedBase) ? { lookup: railwayPrivateDnsLookup } : {}),
       };
+
+      let proofHostname: string | null = null;
+      try {
+        proofHostname = new URL(finalPostUrl).hostname;
+      } catch {
+        proofHostname = null;
+      }
+      logger.info(
+        {
+          sessionId: outboundCtx?.sessionId ?? null,
+          resolvedLane: outboundCtx?.resolvedLane ?? null,
+          finalPostUrl,
+          hostname: proofHostname,
+          requestId: outboundCtx?.wireRequestId ?? null,
+          manualLane: outboundCtx?.manualLane ?? null,
+          assignedLane: outboundCtx?.assignedLane ?? null,
+          timestamp: Date.now(),
+        },
+        "HETZNER_MT_REAL_HTTP_DESTINATION",
+      );
+
       res = await axios.post(finalPostUrl, body, axiosOpts);
     } catch (err: unknown) {
       const code = isAxiosError(err) ? err.code : undefined;
@@ -536,13 +565,16 @@ export async function callHetznerTranslate(
 
     const outboundCtx: HetznerMtOutboundWireContext = {
       sessionId: sessionBound ? sid : null,
+      resolvedLane: sessionBound ? lane : null,
+      manualLane: routingHint?.manualLane ?? null,
+      assignedLane: routingHint?.assignedLane ?? null,
       userEmail: routingHint?.userEmail?.trim() || null,
       planType: routingHint?.planType?.trim() || null,
       selectedLane: lane,
       routerBaseUrlRaw: routerRaw,
       effectiveBaseForHttp: effectiveBase,
       fallbackToConfiguredPrimary: false,
-      manualOverrideLane: null,
+      manualOverrideLane: routingHint?.manualLane ?? null,
       wireRequestId: wd?.requestId,
       incomingSessionId: wd?.incomingSessionId ?? null,
       resolvedSessionId: wd?.resolvedSessionId ?? null,
