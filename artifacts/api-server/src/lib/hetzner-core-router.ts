@@ -44,8 +44,10 @@ const laneToBase: Record<CoreLane, string> = {
   4: CORE4_BASE,
 };
 
-export function getHetznerLaneBaseUrl(lane: CoreLane): string {
-  return laneToBase[lane];
+export function getHetznerLaneBaseUrl(lane: CoreLane | number | string): string {
+  const n = typeof lane === "string" ? Number.parseInt(lane.trim(), 10) : Number(lane);
+  if (!Number.isInteger(n) || n < 1 || n > 4) return "";
+  return laneToBase[n as CoreLane];
 }
 
 function readFourLaneRouterEnv(): boolean {
@@ -106,24 +108,38 @@ if (!USE_LEGACY_EMERGENCY && readFourLaneRouterEnv() && NUM_SLOTS === 2) {
   );
 }
 
-function urlHostPortKey(baseUrl: string): string | null {
+function urlHostname(baseUrl: string): string | null {
   try {
-    const u = new URL(baseUrl);
-    return u.host;
+    return new URL(baseUrl.trim()).hostname;
   } catch {
     return null;
   }
 }
 
-/** Short admin label: primary worker host → HZ-1, secondary (CORE3 host) → HZ-2, else host snippet. */
+/**
+ * Operator-facing metal bucket: **hostname only** (not host:port).
+ * CORE1/CORE3 env URLs typically end in `:5001` while CORE2/CORE4 use `:5002` on the same machines —
+ * comparing `URL.host` would never classify `:5002` workers as HZ-1/HZ-2.
+ *
+ * - **HZ-1** — same hostname as `HETZNER_CORE1_TRANSLATE_BASE` (primary metal).
+ * - **HZ-2** — same hostname as `HETZNER_CORE3_TRANSLATE_BASE` (secondary metal; CORE4 shares this host).
+ */
 export function hetznerWorkerHostGroupLabel(baseUrl: string): string {
-  const h = urlHostPortKey(baseUrl);
+  const h = urlHostname(baseUrl);
   if (!h) return "HZ";
-  const primary = urlHostPortKey(CORE1_BASE);
-  const secondary = urlHostPortKey(CORE3_BASE);
+  const primary = urlHostname(CORE1_BASE);
+  const secondary = urlHostname(CORE3_BASE);
   if (primary && h === primary) return "HZ-1";
   if (secondary && h === secondary) return "HZ-2";
-  return h.length > 28 ? `${h.slice(0, 28)}…` : h;
+  const hostPort = (() => {
+    try {
+      return new URL(baseUrl.trim()).host;
+    } catch {
+      return null;
+    }
+  })();
+  const snippet = hostPort ?? h;
+  return snippet.length > 28 ? `${snippet.slice(0, 28)}…` : snippet;
 }
 
 export function isPaidMachinePlanType(planType: string | null | undefined): boolean {
@@ -170,6 +186,10 @@ export function logHetznerCoreRouterStartupHint(): void {
   logger.info(
     {
       lanes: laneToBase,
+      hzMetalHostnames: {
+        hz1: urlHostname(CORE1_BASE),
+        hz2: urlHostname(CORE3_BASE),
+      },
       numSlots: NUM_SLOTS,
       fourLaneRouterEnv: fourLaneRequested,
       legacyEmergency: USE_LEGACY_EMERGENCY,
