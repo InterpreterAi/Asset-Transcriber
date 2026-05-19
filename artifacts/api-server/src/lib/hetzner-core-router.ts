@@ -40,6 +40,15 @@ const laneToBase: Record<CoreLane, string> = {
   4: CORE4_BASE,
 };
 
+/** Single source for outbound HTTP + admin: never cache base URL strings per session (see `lastAssignedHetznerLaneBySession`). */
+export function getHetznerLaneBaseUrl(lane: CoreLane): string {
+  return laneToBase[lane];
+}
+
+function authoritativeRoute(lane: CoreLane): CoreRoute {
+  return { lane, baseUrl: laneToBase[lane] };
+}
+
 function readFourLaneRouterEnv(): boolean {
   const v = (process.env.HETZNER_FOUR_LANE_ROUTER ?? "").trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes";
@@ -65,6 +74,28 @@ function computeNumSlots(): 2 | 4 {
 }
 
 const NUM_SLOTS = computeNumSlots();
+
+/** Optional ops guard: when set, CORE3/CORE4 bases must use this hostname (e.g. secondary metal IP). */
+function warnIfCore34SecondaryHostnameMismatch(): void {
+  const expected = process.env.HETZNER_EXPECT_CORE34_SECONDARY_HOSTNAME?.trim();
+  if (!expected || USE_LEGACY_EMERGENCY || NUM_SLOTS !== 4) return;
+  for (const lane of [3, 4] as const) {
+    const url = laneToBase[lane];
+    try {
+      const host = new URL(url).hostname;
+      if (host !== expected) {
+        logger.warn(
+          { lane, url, host, expected },
+          "Hetzner: CORE lane host does not match HETZNER_EXPECT_CORE34_SECONDARY_HOSTNAME — fix env or expectation",
+        );
+      }
+    } catch (err: unknown) {
+      logger.warn({ lane, url, err: err instanceof Error ? err.message : String(err) }, "Hetzner: invalid CORE URL for secondary host check");
+    }
+  }
+}
+
+warnIfCore34SecondaryHostnameMismatch();
 
 if (!USE_LEGACY_EMERGENCY && readFourLaneRouterEnv() && NUM_SLOTS === 2) {
   logger.warn(
@@ -107,8 +138,11 @@ export function hetznerWorkerHostGroupLabel(baseUrl: string): string {
   return h.length > 28 ? `${h.slice(0, 28)}…` : h;
 }
 
-/** Last concrete lane/base chosen for a session (manual, sticky, or allocate). Cleared on unregister. */
-const lastResolvedHetznerRouteBySession = new Map<number, { lane: CoreLane; baseUrl: string }>();
+/**
+ * Last assigned lane only (manual, sticky, or allocate). Admin + logs derive `baseUrl` via `getHetznerLaneBaseUrl(lane)`
+ * so snapshots never diverge from this process's frozen `laneToBase` table after deploy.
+ */
+const lastAssignedHetznerLaneBySession = new Map<number, CoreLane>();
 
 export function getLiveAdminHetznerRoute(sessionId: number): {
   lane: CoreLane;
@@ -116,9 +150,10 @@ export function getLiveAdminHetznerRoute(sessionId: number): {
   nodeLabel: string;
 } | null {
   if (!Number.isFinite(sessionId) || sessionId <= 0) return null;
-  const r = lastResolvedHetznerRouteBySession.get(sessionId);
-  if (!r) return null;
-  return { lane: r.lane, baseUrl: r.baseUrl, nodeLabel: hetznerWorkerHostGroupLabel(r.baseUrl) };
+  const lane = lastAssignedHetznerLaneBySession.get(sessionId);
+  if (lane == null) return null;
+  const baseUrl = getHetznerLaneBaseUrl(lane);
+  return { lane, baseUrl, nodeLabel: hetznerWorkerHostGroupLabel(baseUrl) };
 }
 
 function emitHetznerRouterSelectDebug(
@@ -158,6 +193,7 @@ function finishSelect(
   decision: string,
   opts?: HetznerRouteSelectOpts,
 ): CoreRoute {
+  const authoritative = authoritativeRoute(route.lane);
   const manualActive = sid != null && manualCoreOverrideBySessionId.has(sid);
   const hint = opts?.userEmail?.trim();
   const manualEmail = sid != null ? manualCoreOverrideBySessionId.get(sid)?.userEmail?.trim() : undefined;
@@ -169,8 +205,8 @@ function finishSelect(
       sessionId: sid,
       userEmail,
       planType,
-      selectedLane: route.lane,
-      selectedBaseUrl: route.baseUrl,
+      selectedLane: authoritative.lane,
+      selectedBaseUrl: authoritative.baseUrl,
       manualOverride: manualActive,
       numSlots: NUM_SLOTS,
       decision,
@@ -179,11 +215,11 @@ function finishSelect(
   );
 
   if (sid != null) {
-    lastResolvedHetznerRouteBySession.set(sid, { lane: route.lane, baseUrl: route.baseUrl });
+    lastAssignedHetznerLaneBySession.set(sid, authoritative.lane);
   }
 
-  emitHetznerRouterSelectDebug(planType, sid, route, decision);
-  return route;
+  emitHetznerRouterSelectDebug(planType, sid, authoritative, decision);
+  return authoritative;
 }
 
 /**
@@ -252,12 +288,12 @@ export function setHetznerManualCoreOverride(sessionId: number, lane: CoreLane |
   releaseAutomaticHetznerReservation(sessionId);
   if (lane == null) {
     manualCoreOverrideBySessionId.delete(sessionId);
-    lastResolvedHetznerRouteBySession.delete(sessionId);
+    lastAssignedHetznerLaneBySession.delete(sessionId);
     return;
   }
   const email = userEmail.trim() || "(unknown)";
   manualCoreOverrideBySessionId.set(sessionId, { lane, userEmail: email });
-  lastResolvedHetznerRouteBySession.set(sessionId, { lane, baseUrl: laneToBase[lane] });
+  lastAssignedHetznerLaneBySession.set(sessionId, lane);
 }
 
 /**
@@ -402,7 +438,7 @@ export function registerSessionStartForCoreRouting(
 export function unregisterSessionForCoreRouting(sessionId: number): void {
   if (!Number.isFinite(sessionId) || sessionId <= 0) return;
   manualCoreOverrideBySessionId.delete(sessionId);
-  lastResolvedHetznerRouteBySession.delete(sessionId);
+  lastAssignedHetznerLaneBySession.delete(sessionId);
   releaseAutomaticHetznerReservation(sessionId);
 }
 
@@ -424,7 +460,7 @@ export function selectHetznerCoreRoute(
     const manual = manualCoreOverrideBySessionId.get(sid);
     if (manual != null) {
       const lane = manual.lane;
-      const route = { lane, baseUrl: laneToBase[lane] };
+      const route = authoritativeRoute(lane);
       logger.info(
         {
           tag: "hetzner_manual_override",

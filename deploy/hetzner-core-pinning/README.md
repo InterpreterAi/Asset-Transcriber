@@ -48,6 +48,10 @@ Or set `HETZNER_WORKER_HOST` + `HETZNER_WORKER_SCHEME` for the same defaults as 
 - `HETZNER_CORE4_TRANSLATE_BASE=http://<worker-b>:5002`
 - `HETZNER_FOUR_LANE_ROUTER=1`
 
+Optional boot warning if CORE3/CORE4 hostnames drift: `HETZNER_EXPECT_CORE34_SECONDARY_HOSTNAME=<worker-b-ip-or-dns>`.
+
+**Admin + outbound HTTP** always resolve the worker URL from the frozen `laneToBase` table via lane index (`getHetznerLaneBaseUrl`); per-session state stores **lane only**, so UI and `axios` cannot diverge from this process’s boot-time env.
+
 **Temporary prod verification (verbose):** `HETZNER_ROUTER_ALLOC_DEBUG=1` — logs `hetzner_router_select_debug` on every router decision (`NUM_SLOTS`, `laneToBase`, assigned lane/base). Remove after confirming Railway env and allocation order.
 
 **Rollback:** remove `HETZNER_FOUR_LANE_ROUTER` (or set `0`) → API uses **2-slot** reservation again.

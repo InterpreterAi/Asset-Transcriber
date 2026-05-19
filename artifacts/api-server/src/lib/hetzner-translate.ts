@@ -3,7 +3,7 @@ import * as dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
-import { selectHetznerCoreRoute } from "./hetzner-core-router.js";
+import { getHetznerLaneBaseUrl, selectHetznerCoreRoute } from "./hetzner-core-router.js";
 
 /** Keep sockets warm — fewer TCP handshakes per segment. */
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
@@ -428,10 +428,9 @@ async function postTranslateAtBase(
 
 /** `*-libre` tiers: one POST per segment, `source: auto`, no API key.
  *
- * **Wire path:** each call runs `selectHetznerCoreRoute` then `axios.post` — no cached base URL, no singleton
- * translate client. Keep-alive agents are host-agnostic. If `route.baseUrl` is empty after trim, requests fall
- * back to `CONFIGURED_BASE` (logged as `fallbackToConfiguredPrimary`). Manual overrides are in-memory per API
- * process — multi-replica deploys may show Core3 in admin on one instance while another handles `/translate`.
+ * **Wire path:** each call runs `selectHetznerCoreRoute`, then resolves the POST base with `getHetznerLaneBaseUrl(route.lane)`
+ * (same table as admin — never a stale per-session URL snapshot). If that URL is empty after trim, requests fall
+ * back to `CONFIGURED_BASE` (logged as `fallbackToConfiguredPrimary`). Sticky/manual maps remain in-memory per replica.
  */
 export async function callHetznerTranslate(
   text: string,
@@ -446,7 +445,7 @@ export async function callHetznerTranslate(
     const route = selectHetznerCoreRoute(routingHint?.planType ?? "trial-libre", routingHint?.sessionId, {
       userEmail: routingHint?.userEmail,
     });
-    const routerRaw = route.baseUrl ?? "";
+    const routerRaw = getHetznerLaneBaseUrl(route.lane);
     const trimmedRouterBase = routerRaw.trim();
     const effectiveBase = trimmedRouterBase || CONFIGURED_BASE;
     const fallbackToConfiguredPrimary = !trimmedRouterBase;
