@@ -1,7 +1,7 @@
 import { logger } from "./logger.js";
 
-/** Libre worker slot: lane **1** = CORE1 (:5001), lane **2** = CORE2 (:5002). */
-export type CoreLane = 1 | 2;
+/** Libre worker lane → CORE1..CORE4 (typically :5001/:5002 per Hetzner host). */
+export type CoreLane = 1 | 2 | 3 | 4;
 export type CoreRoute = { lane: CoreLane; baseUrl: string };
 
 /** Emergency: every lane uses the same single LibreTranslate (`:5000`). */
@@ -9,7 +9,7 @@ const USE_LEGACY_EMERGENCY = process.env.HETZNER_USE_LEGACY_SINGLE_STACK === "1"
 
 const LEGACY_TRANSLATE_BASE = (process.env.HETZNER_TRANSLATE_LEGACY_BASE ?? "http://178.156.211.226:5000").trim();
 
-function defaultLaneBases(): Record<CoreLane, string> {
+function defaultLaneBases(): Record<1 | 2, string> {
   const raw = (process.env.HETZNER_WORKER_HOST ?? "178.156.211.226").trim();
   const host = raw.replace(/^https?:\/\//, "").replace(/\/$/, "");
   const scheme = (process.env.HETZNER_WORKER_SCHEME ?? "http").trim().replace(/:+$/, "");
@@ -18,7 +18,7 @@ function defaultLaneBases(): Record<CoreLane, string> {
 }
 
 const def = defaultLaneBases();
-function envOrLane(envVal: string | undefined, lane: CoreLane): string {
+function envOrLane(envVal: string | undefined, lane: 1 | 2): string {
   const t = envVal?.trim();
   return t || def[lane];
 }
@@ -29,22 +29,55 @@ const CORE1_BASE = (
 const CORE2_BASE = (
   USE_LEGACY_EMERGENCY ? LEGACY_TRANSLATE_BASE : envOrLane(process.env.HETZNER_CORE2_TRANSLATE_BASE, 2)
 ).trim();
-
-const twoLaneIsolation = !USE_LEGACY_EMERGENCY;
+/** Defaults duplicate CORE2 until CORE3/CORE4 env set (2-lane mode ignores these URLs). */
+const CORE3_BASE = (USE_LEGACY_EMERGENCY ? LEGACY_TRANSLATE_BASE : process.env.HETZNER_CORE3_TRANSLATE_BASE?.trim() || CORE2_BASE).trim();
+const CORE4_BASE = (USE_LEGACY_EMERGENCY ? LEGACY_TRANSLATE_BASE : process.env.HETZNER_CORE4_TRANSLATE_BASE?.trim() || CORE2_BASE).trim();
 
 const laneToBase: Record<CoreLane, string> = {
   1: CORE1_BASE,
   2: CORE2_BASE,
+  3: CORE3_BASE,
+  4: CORE4_BASE,
 };
 
-function laneIndex(lane: CoreLane): 0 | 1 {
-  return lane === 1 ? 0 : 1;
+function readFourLaneRouterEnv(): boolean {
+  const v = (process.env.HETZNER_FOUR_LANE_ROUTER ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
 }
 
-/** Exclusive paid owner per worker slot `0` = lane 1, `1` = lane 2. Null = no paid claim (trials may use). */
-const slotPaidOwner: [number | null, number | null] = [null, null];
-/** Trial sessions using a slot (slots with no exclusive paid only). */
-const slotTrialSessions: [Set<number>, Set<number>] = [new Set(), new Set()];
+/**
+ * Rollback: unset `HETZNER_FOUR_LANE_ROUTER` or set to `0` → 2-slot reservation semantics (original).
+ * When enabled, requires explicit `HETZNER_CORE3_TRANSLATE_BASE` and `HETZNER_CORE4_TRANSLATE_BASE`.
+ */
+function computeNumSlots(): 2 | 4 {
+  if (USE_LEGACY_EMERGENCY) return 2;
+  if (!readFourLaneRouterEnv()) return 2;
+  const c3 = (process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "").trim();
+  const c4 = (process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim();
+  if (!c3 || !c4) {
+    logger.warn(
+      { hasCore3: Boolean(c3), hasCore4: Boolean(c4) },
+      "Hetzner core router: HETZNER_FOUR_LANE_ROUTER set but CORE3/CORE4 bases incomplete — falling back to 2 lanes",
+    );
+    return 2;
+  }
+  return 4;
+}
+
+const NUM_SLOTS = computeNumSlots();
+
+function laneIndex(lane: CoreLane): number {
+  return lane - 1;
+}
+
+/** Exclusive paid owner per worker slot (index 0 = lane 1 …). Length 4; only first NUM_SLOTS used for allocation. */
+const slotPaidOwner: [number | null, number | null, number | null, number | null] = [null, null, null, null];
+const slotTrialSessions: [Set<number>, Set<number>, Set<number>, Set<number>] = [
+  new Set(),
+  new Set(),
+  new Set(),
+  new Set(),
+];
 /** Sticky: sessionId → lane for the lifetime of the session (until expired). */
 const sessionToLane = new Map<number, CoreLane>();
 
@@ -53,24 +86,25 @@ export function isPaidMachinePlanType(planType: string | null | undefined): bool
   return p === "basic-libre" || p === "professional-libre" || p === "platinum-libre";
 }
 
-function clearTrialsFromSlot(idx: 0 | 1): void {
+function clearTrialsFromSlot(idx: number): void {
   const set = slotTrialSessions[idx];
+  if (!set) return;
   for (const sid of set) {
     sessionToLane.delete(sid);
   }
   set.clear();
 }
 
-/** First two paid users each claim an empty worker; further paid share CORE1 (overflow). */
+/** First NUM_SLOTS paid sessions claim empty workers; further paid share CORE1 (overflow). */
 function allocatePaid(sessionId: number): CoreRoute {
-  for (const i of [0, 1] as const) {
+  for (let i = 0; i < NUM_SLOTS; i++) {
     if (slotPaidOwner[i] === null) {
       clearTrialsFromSlot(i);
       slotPaidOwner[i] = sessionId;
       const lane = (i + 1) as CoreLane;
       sessionToLane.set(sessionId, lane);
       logger.info(
-        { sessionId, lane, core: `CORE${i + 1}`, exclusive: true },
+        { sessionId, lane, core: `CORE${i + 1}`, exclusive: true, numSlots: NUM_SLOTS },
         "Hetzner core router: paid claimed exclusive worker",
       );
       return { lane, baseUrl: laneToBase[lane] };
@@ -79,34 +113,36 @@ function allocatePaid(sessionId: number): CoreRoute {
   const lane: CoreLane = 1;
   sessionToLane.set(sessionId, lane);
   logger.info(
-    { sessionId, lane: 1, exclusive: false },
-    "Hetzner core router: paid overflow shares CORE1 (both workers have exclusive paid)",
+    { sessionId, lane: 1, exclusive: false, numSlots: NUM_SLOTS },
+    "Hetzner core router: paid overflow shares CORE1 (all exclusive slots filled)",
   );
   return { lane, baseUrl: laneToBase[lane] };
 }
 
 /**
- * Trials use only workers with no exclusive paid owner. If both CORE1 and CORE2 are
- * claimed by paid users, trial Hetzner routing must fail (no sharing with paid).
+ * Trials use only workers with no exclusive paid owner. If every slot has an exclusive paid owner,
+ * trial Hetzner routing must fail (no sharing with paid).
  */
 function allocateTrial(sessionId: number): CoreRoute {
-  for (const i of [0, 1] as const) {
+  for (let i = 0; i < NUM_SLOTS; i++) {
     if (slotPaidOwner[i] === null) {
       slotTrialSessions[i].add(sessionId);
       const lane = (i + 1) as CoreLane;
       sessionToLane.set(sessionId, lane);
-      logger.info({ sessionId, lane }, "Hetzner core router: trial on idle worker");
+      logger.info({ sessionId, lane, numSlots: NUM_SLOTS }, "Hetzner core router: trial on idle worker");
       return { lane, baseUrl: laneToBase[lane] };
     }
   }
   logger.warn(
-    { sessionId },
-    "Hetzner core router: trial Hetzner blocked — both workers reserved for paid sessions",
+    { sessionId, numSlots: NUM_SLOTS },
+    "Hetzner core router: trial Hetzner blocked — all workers reserved for paid sessions",
   );
   throw new Error("HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID");
 }
 
 function stickyStillValid(sessionId: number, paid: boolean, sticky: CoreLane): boolean {
+  const laneNum = sticky;
+  if (laneNum < 1 || laneNum > NUM_SLOTS) return false;
   const idx = laneIndex(sticky);
   if (paid) {
     if (slotPaidOwner[idx] === sessionId) return true;
@@ -118,8 +154,9 @@ function stickyStillValid(sessionId: number, paid: boolean, sticky: CoreLane): b
 
 function invalidateSticky(sessionId: number): void {
   sessionToLane.delete(sessionId);
-  slotTrialSessions[0].delete(sessionId);
-  slotTrialSessions[1].delete(sessionId);
+  for (let i = 0; i < 4; i++) {
+    slotTrialSessions[i]!.delete(sessionId);
+  }
 }
 
 /**
@@ -143,11 +180,11 @@ export function registerSessionStartForCoreRouting(
 export function unregisterSessionForCoreRouting(sessionId: number): void {
   if (!Number.isFinite(sessionId) || sessionId <= 0) return;
   sessionToLane.delete(sessionId);
-  for (const i of [0, 1] as const) {
+  for (let i = 0; i < 4; i++) {
     if (slotPaidOwner[i] === sessionId) {
       slotPaidOwner[i] = null;
     }
-    slotTrialSessions[i].delete(sessionId);
+    slotTrialSessions[i]!.delete(sessionId);
   }
 }
 
@@ -174,27 +211,34 @@ export function selectHetznerCoreRoute(planType: string, sessionId?: number): Co
   if (paid) {
     return { lane: 1, baseUrl: laneToBase[1] };
   }
-  if (slotPaidOwner[0] === null) {
-    return { lane: 1, baseUrl: laneToBase[1] };
+  for (let i = 0; i < NUM_SLOTS; i++) {
+    if (slotPaidOwner[i] === null) {
+      const lane = (i + 1) as CoreLane;
+      return { lane, baseUrl: laneToBase[lane] };
+    }
   }
-  if (slotPaidOwner[1] === null) {
-    return { lane: 2, baseUrl: laneToBase[2] };
-  }
-  return { lane: 2, baseUrl: laneToBase[2] };
+  const fallbackLane = NUM_SLOTS as CoreLane;
+  return { lane: fallbackLane, baseUrl: laneToBase[fallbackLane] };
 }
 
 export function logHetznerCoreRouterStartupHint(): void {
+  const fourLaneRequested = readFourLaneRouterEnv();
   logger.info(
     {
       lanes: laneToBase,
-      twoLaneIsolation,
+      numSlots: NUM_SLOTS,
+      fourLaneRouterEnv: fourLaneRequested,
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
       semantics:
-        "paid claims exclusive CORE1/CORE2 first-come; overflow paid share CORE1; trials only on idle cores (no trial when both paid); evict trials when paid claims",
+        NUM_SLOTS === 4
+          ? "4 lanes: paid claims exclusive CORE1–CORE4 first-come; overflow paid share CORE1; trials only on idle cores; rollback unset HETZNER_FOUR_LANE_ROUTER"
+          : "2 lanes: paid claims exclusive CORE1/CORE2 first-come; overflow paid share CORE1; trials only on idle cores (no trial when both paid); evict trials when paid claims",
     },
     USE_LEGACY_EMERGENCY
       ? "Hetzner core router: LEGACY SINGLE STACK (HETZNER_USE_LEGACY_SINGLE_STACK=1)"
-      : "Hetzner core router: two workers — paid priority, trial idle fill — see deploy/MEMORY-BUDGET-2LANE.md",
+      : NUM_SLOTS === 4
+        ? "Hetzner core router: four workers — paid priority, trial idle fill — CORE3/CORE4 via env"
+        : "Hetzner core router: two workers — paid priority, trial idle fill — see deploy/MEMORY-BUDGET-2LANE.md",
   );
 }

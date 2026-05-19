@@ -83,10 +83,13 @@ Defined in `usage.ts`. **`false`** (use **OpenAI** interpreter stack in `transcr
 
 ---
 
-## 4. Hetzner two-core router (`hetzner-core-router.ts`)
+## 4. Hetzner core router (`hetzner-core-router.ts`)
 
-**Lanes:** **CORE1** = lane 1 (:5001), **CORE2** = lane 2 (:5002).  
-**Emergency:** `HETZNER_USE_LEGACY_SINGLE_STACK=1` collapses both lanes to one legacy base — **no reservation semantics**.
+**Lanes:** **CORE1…CORE4** = HTTP bases from `HETZNER_CORE1_TRANSLATE_BASE` … `HETZNER_CORE4_TRANSLATE_BASE` (typically `:5001`/`:5002` per Hetzner host).  
+**Two-lane mode (default):** `NUM_SLOTS = 2` — same reservation semantics as the original router (first two paid claim lanes 1–2; overflow paid → CORE1; trials only on idle slots).  
+**Four-lane mode:** set **`HETZNER_FOUR_LANE_ROUTER=1`** (or `true`/`yes`) **and** non-empty **`HETZNER_CORE3_TRANSLATE_BASE`** + **`HETZNER_CORE4_TRANSLATE_BASE`**. If the flag is set but CORE3/CORE4 are missing, the process logs a warning and **falls back to 2 slots**.  
+**Rollback:** unset `HETZNER_FOUR_LANE_ROUTER` or set `0` → **2-slot** behavior without redeploying older code.  
+**Emergency:** `HETZNER_USE_LEGACY_SINGLE_STACK=1` collapses all lanes to one legacy base — **no reservation semantics**.
 
 ### 4.1 Who is “paid” for **core pinning** only?
 
@@ -100,19 +103,21 @@ Note: **`platinum-libre`** users normally **translate on OpenAI** (`planUsesMach
 
 1. **Sticky lane** in `sessionToLane` if still valid; else invalidate and re-allocate.
 2. **Paid (`isPaidMachinePlanType`):** `allocatePaid`
-   - First two **distinct** paid sessions each claim **one empty slot**; claiming **clears trials** from that slot.
-   - If **both** slots already have a paid owner, **third+ paid** → **overflow on CORE1** (shares CORE1 with first paid’s worker — same base URL lane 1).
+   - First **`NUM_SLOTS`** distinct paid sessions each claim **one empty slot** (lanes 1…`NUM_SLOTS`); claiming **clears trials** from that slot.
+   - If **all** slots have an exclusive paid owner, **next paid** → **overflow on CORE1** (same base URL as lane 1; sticky overflow rule unchanged).
 3. **Trial (not paid by router definition):** `allocateTrial`
    - Use the **first** slot where `slotPaidOwner[i] === null` (idle core).
-   - **If both slots have an exclusive paid owner:** **no** trial placement; throws **`HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID`** (logged as warning). Trial MT then fails before HTTP; `transcription.ts` MT catch returns **503** `LIBRETRANSLATE_FAILED` like other Hetzner errors.
+   - **If every slot has an exclusive paid owner:** **no** trial placement; throws **`HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID`** (logged as warning). Trial MT then fails before HTTP; `transcription.ts` MT catch returns **503** `LIBRETRANSLATE_FAILED` like other Hetzner errors.
 
-**Intended matrix:**
+**Two-slot matrix (unchanged when four-lane off):**
 
 | Exclusive paid sessions on cores | Trial Hetzner (with session id) |
 |----------------------------------|----------------------------------|
 | 0 | Trials may use CORE1 and/or CORE2 (idle slots). |
 | 1 | One core reserved for that paid; **trials only on the other idle core**. |
 | 2 | **No** trial routing to either core; **no** trial fallback onto CORE2 next to second paid. |
+
+**Four-slot mode:** same rules with four idle slots; trials blocked only when **four** exclusives are claimed.
 
 ### 4.3 Anonymous path (`sessionId` absent / invalid)
 
@@ -124,9 +129,9 @@ Used by:
 Behavior:
 
 - If `planType` is **paid** per `isPaidMachinePlanType` → **CORE1** (no slot claim).
-- Else **trial-like anonymous:** prefer CORE1 if slot 0 has no paid owner; else CORE2 if slot 1 has no paid owner; else **CORE2** (last line).
+- Else **trial-like anonymous:** first slot `i` in `0..NUM_SLOTS-1` with no exclusive paid owner → lane `i+1`; else fallback **lane `NUM_SLOTS`**.
 
-This path does **not** throw for “both paid”; it is **not** a trial **session** reservation. Session-based trial blocking applies when `sessionId` is passed through `allocateTrial`.
+This path does **not** throw when all slots are paid-owned; it is **not** a trial **session** reservation. Session-based trial blocking applies when `sessionId` is passed through `allocateTrial`.
 
 ### 4.4 Lifecycle
 
@@ -156,7 +161,7 @@ PayPal **`subscription_plan`** remains `basic` | `professional` | `platinum` for
 | `planUsesMachineTranslationStack`, effective plan | `artifacts/api-server/src/lib/usage.ts` |
 | MT wrapper | `artifacts/api-server/src/lib/basic-pro-translate.ts` |
 | Hetzner HTTP + trial gate | `artifacts/api-server/src/lib/hetzner-translate.ts` |
-| Two-core reservation | `artifacts/api-server/src/lib/hetzner-core-router.ts` |
+| Hetzner core reservation (2- or 4-lane) | `artifacts/api-server/src/lib/hetzner-core-router.ts` |
 | Public machine translate route (anonymous router) | `artifacts/api-server/src/routes/translate.ts` |
 | Leak repair machine calls | `artifacts/api-server/src/lib/english-domain-leak-repair.ts` |
 | Cursor rule / product name | `.cursor/rules/translation-tier-scope.mdc` |

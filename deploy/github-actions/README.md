@@ -21,4 +21,4 @@ pnpm install   # optional if you only need node
 node scripts/verify-hetzner-translate-cores.mjs
 ```
 
-Exit code `0` means both lane `/languages` checks returned HTTP 200.
+Exit code `0` means each configured lane’s `/languages` returned HTTP 200 (always CORE1/CORE2; CORE3/CORE4 too when both env vars are set). Optional secrets: `HETZNER_CORE3_TRANSLATE_BASE`, `HETZNER_CORE4_TRANSLATE_BASE`.

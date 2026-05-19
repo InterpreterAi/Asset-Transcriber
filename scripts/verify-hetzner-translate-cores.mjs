@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Health-check two LibreTranslate lane URLs (GET /languages → 200).
- * Matches `hetzner-core-router.ts` two-lane defaults (5001 paid, 5002 trial).
+ * Health-check LibreTranslate lane URLs (GET /languages → 200).
+ * Always checks CORE1/CORE2; also checks CORE3/CORE4 when both bases are set.
  */
 
 function trimHost(raw) {
@@ -40,16 +40,23 @@ async function checkOne(name, base) {
 
 async function main() {
   if (process.env.HETZNER_USE_LEGACY_SINGLE_STACK === "1") {
-    console.log("[verify-hetzner-cores] HETZNER_USE_LEGACY_SINGLE_STACK=1 — skipping two-lane check.");
+    console.log("[verify-hetzner-cores] HETZNER_USE_LEGACY_SINGLE_STACK=1 — skipping lane check.");
     process.exit(0);
   }
 
   const [d1, d2] = defaults();
   const pick = (v, d) => (v != null && String(v).trim() !== "" ? String(v).trim() : d);
+  /** @type { [string, string][] } */
   const urls = [
-    ["paid-lane", pick(process.env.HETZNER_CORE1_TRANSLATE_BASE, d1)],
-    ["trial-lane", pick(process.env.HETZNER_CORE2_TRANSLATE_BASE, d2)],
+    ["core1", pick(process.env.HETZNER_CORE1_TRANSLATE_BASE, d1)],
+    ["core2", pick(process.env.HETZNER_CORE2_TRANSLATE_BASE, d2)],
   ];
+
+  const raw3 = (process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "").trim();
+  const raw4 = (process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim();
+  if (raw3 && raw4) {
+    urls.push(["core3", raw3], ["core4", raw4]);
+  }
 
   console.log("[verify-hetzner-cores] Checking /languages on each lane…");
   const results = await Promise.all(urls.map(([n, b]) => checkOne(n, b)));
@@ -65,7 +72,7 @@ async function main() {
     );
     process.exit(1);
   }
-  console.log("[verify-hetzner-cores] Both lanes responded OK.");
+  console.log(`[verify-hetzner-cores] All ${urls.length} lane(s) responded OK.`);
 }
 
 void main();

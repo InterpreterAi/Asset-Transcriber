@@ -37,17 +37,24 @@ docker compose -f deploy/hetzner-core-pinning/docker-compose.core-pinning.yml up
 
 Paste from `railway.api.env.example`:
 
-- `HETZNER_CORE1_TRANSLATE_BASE=http://<worker>:5001`
-- `HETZNER_CORE2_TRANSLATE_BASE=http://<worker>:5002`
+- `HETZNER_CORE1_TRANSLATE_BASE=http://<worker-a>:5001`
+- `HETZNER_CORE2_TRANSLATE_BASE=http://<worker-a>:5002`
 
-Or set `HETZNER_WORKER_HOST` + `HETZNER_WORKER_SCHEME` for the same defaults as code.
+Or set `HETZNER_WORKER_HOST` + `HETZNER_WORKER_SCHEME` for the same defaults as code for CORE1/CORE2 only.
+
+**Four lanes (second worker host):** set also:
+
+- `HETZNER_CORE3_TRANSLATE_BASE=http://<worker-b>:5001`
+- `HETZNER_CORE4_TRANSLATE_BASE=http://<worker-b>:5002`
+- `HETZNER_FOUR_LANE_ROUTER=1`
+
+**Rollback:** remove `HETZNER_FOUR_LANE_ROUTER` (or set `0`) → API uses **2-slot** reservation again.
 
 **Single container fallback (`:5000` only):** `HETZNER_USE_LEGACY_SINGLE_STACK=1` on the API.
 
 ## API routing semantics (`hetzner-core-router.ts`)
 
-- **Paid** machine plans → **lane 1** (`:5001`).
-- **Trial** machine traffic → **lane 2** (`:5002`). If a paid session is active, trials are moved off lane 1 if they were ever assigned there.
+See `deploy/TRANSLATION-ENGINES-FULL-SNAPSHOT.md` §4. Default **two** exclusive slots (lanes 1–2); with **`HETZNER_FOUR_LANE_ROUTER=1`** and CORE3/CORE4 set → **four** slots. Paid priority, trial-only-idle-slots, and overflow-paid-on-CORE1 unchanged.
 
 ## Verify
 
