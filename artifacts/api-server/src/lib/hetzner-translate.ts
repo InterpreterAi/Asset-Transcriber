@@ -3,7 +3,7 @@ import * as dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
-import { getHetznerLaneBaseUrl, selectHetznerCoreRoute } from "./hetzner-core-router.js";
+import { getHetznerLaneBaseUrl, getHetznerManualCoreOverride, selectHetznerCoreRoute } from "./hetzner-core-router.js";
 
 /** Keep sockets warm — fewer TCP handshakes per segment. */
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
@@ -58,6 +58,8 @@ export type HetznerMtOutboundWireContext = {
   /** Base URL actually passed into HTTP client after trim (may equal CONFIGURED_BASE if router URL empty). */
   effectiveBaseForHttp: string;
   fallbackToConfiguredPrimary: boolean;
+  /** Admin manual core pin for this session, if any (diagnostics). */
+  manualOverrideLane: number | null;
 };
 
 function railwayWireFingerprint(): { railwayReplicaId: string | null; hostname: string | null } {
@@ -317,6 +319,7 @@ async function postTranslateAtBase(
           sessionId: outboundCtx?.sessionId ?? null,
           userEmail: outboundCtx?.userEmail ?? null,
           planType: outboundCtx?.planType ?? null,
+          manualOverrideLane: outboundCtx?.manualOverrideLane ?? null,
           selectedLane: outboundCtx?.selectedLane ?? null,
           selectedBaseUrl: outboundCtx?.routerBaseUrlRaw ?? null,
           effectiveBaseForHttp: outboundCtx?.effectiveBaseForHttp ?? normalizedBase,
@@ -450,6 +453,10 @@ export async function callHetznerTranslate(
     const effectiveBase = trimmedRouterBase || CONFIGURED_BASE;
     const fallbackToConfiguredPrimary = !trimmedRouterBase;
 
+    const sid = routingHint?.sessionId;
+    const manualOv =
+      typeof sid === "number" && Number.isFinite(sid) && sid > 0 ? getHetznerManualCoreOverride(sid) : null;
+
     if (fallbackToConfiguredPrimary) {
       logger.warn(
         {
@@ -473,6 +480,7 @@ export async function callHetznerTranslate(
       routerBaseUrlRaw: routerRaw,
       effectiveBaseForHttp: effectiveBase,
       fallbackToConfiguredPrimary,
+      manualOverrideLane: manualOv?.lane ?? null,
     };
 
     return postTranslateAtBase(effectiveBase, text, source, target, outboundCtx);
