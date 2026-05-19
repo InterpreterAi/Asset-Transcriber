@@ -19,7 +19,7 @@ import { hashPassword } from "../lib/password.js";
 import {
   getTrialDaysRemaining,
   isTrialLikePlanType,
-  userUsesMachineTranslationStack,
+  liveTranslateUsesMachineTranslation,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
 import {
@@ -184,7 +184,7 @@ function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCor
   const node = resolveCoreNodeLabelAndColor();
 
   const sorted = [...rows].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
-  const machineRows = sorted.filter((r) => userUsesMachineTranslationStack(r));
+  const machineRows = sorted.filter((r) => liveTranslateUsesMachineTranslation(r));
   const paidMachine = machineRows.filter((r) => isPaidPlanForCoreRouting(r.planType));
   const trialMachine = machineRows.filter((r) => !isPaidPlanForCoreRouting(r.planType));
 
@@ -202,7 +202,7 @@ function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCor
   return out;
 }
 
-/** Human-readable live `/translate` path + Hetzner lane (matches `userUsesMachineTranslationStack` + core router). */
+/** Human-readable live `/translate` path + Hetzner lane (matches `liveTranslateUsesMachineTranslation` + core router). */
 function buildTranslationRouteDetail(
   r: ActiveSessionRow,
   translationStack: "libre" | "openai",
@@ -253,7 +253,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     });
   }
   return rows.map((r) => {
-    const translationStack = userUsesMachineTranslationStack(r) ? "libre" : "openai";
+    const translationStack = liveTranslateUsesMachineTranslation(r) ? "libre" : "openai";
     const coreLane = corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null;
     return {
       ...r,
@@ -303,8 +303,16 @@ function packAdminLiveSessionRow(s: {
   translationStack: "libre" | "openai";
   translationRouteDetail: string;
 }) {
-  const hz = hetznerLiveSessionAdminPayload(s.sessionId);
   const libre = s.translationStack === "libre";
+  const hz = libre
+    ? hetznerLiveSessionAdminPayload(s.sessionId)
+    : {
+        hetznerCoreRoutingMode: "auto" as const,
+        hetznerManualCoreLane: null,
+        liveHetznerLane: null,
+        liveHetznerBaseUrl: null,
+        liveHetznerNodeLabel: null,
+      };
   const translationRouteDetail =
     libre && hz.liveHetznerBaseUrl && hz.liveHetznerLane != null && hz.liveHetznerNodeLabel
       ? `Live /translate: Hetzner · ${hz.liveHetznerNodeLabel} · Core ${hz.liveHetznerLane} · ${hz.liveHetznerBaseUrl}`

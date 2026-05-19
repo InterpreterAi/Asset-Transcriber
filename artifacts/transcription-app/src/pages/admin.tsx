@@ -71,7 +71,7 @@ interface AdminStats {
     /** Same user has more than one row with ended_at null — investigate stale session. */
     openSessionsForUser?: number;
     openSessionOrdinal?: number;
-    /** Live POST /translate stack (matches server `userUsesMachineTranslationStack`). */
+    /** Live POST /translate stack (matches server `liveTranslateUsesMachineTranslation`). */
     translationStack?: "libre" | "openai";
     /** Plain-language route + Hetzner core when applicable. */
     translationRouteDetail?: string;

@@ -9,11 +9,10 @@ import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
-  effectivePlanTypeForTranslation,
+  getLiveTranslateEngineRouting,
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
-  planUsesMachineTranslationStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -84,9 +83,8 @@ import { applyArabicStaticLeakReplacements } from "../lib/en-to-arabic-script-cl
 //
 
 // ── Final Boss 3 (named product snapshot) ─────────────────────────────────
-// `planUsesMachineTranslationStack` → LibreTranslate (see usage.ts): `trial-hetzner`, Basic/Prof *-libre tiers;
-// legacy basic/prof plan_types, etc. OpenAI stack: legacy trials `trial`/`trial-openai`, `platinum`, `unlimited`,
-// `platinum-libre`. Shared masking where applicable; client STT = Soniox for everyone.
+// Live `/translate` routing: `getLiveTranslateEngineRouting` (usage.ts) — machine stack for true Libre/Hetzner tiers;
+// `*-openai` effective plans and `trial-libre` raw plan force OpenAI. Client STT = Soniox for everyone.
 
 /** LibreTranslate may mangle TERM_/PROT_ spacing — normalize before restore (MT path only). NUM_* is expanded before MT. */
 function normalizeMachineTranslationPlaceholders(s: string): string {
@@ -1545,18 +1543,15 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  const effectivePlanTypeResolved = effectivePlanTypeForTranslation(translateUser);
-  const planLower = effectivePlanTypeResolved.trim().toLowerCase();
-  const rawPlanLower = (translateUser.planType ?? "").trim().toLowerCase();
-  // Engine split is strictly from this request's authenticated user (planType in DB). Never from client flags.
-  // OpenAI-labeled plans are hard-forced to OpenAI and must never call machine/Hetzner.
-  const prefersMachineStack = planUsesMachineTranslationStack(planLower);
-  const forcedOpenAiPlan = planLower.includes("openai");
-  let useMachineTranslation = forcedOpenAiPlan ? false : prefersMachineStack;
-  // Trial · Mixed (`trial-libre`): OpenAI only — block Hetzner even if effectivePlanType ever resolves to *-libre.
-  if (rawPlanLower === "trial-libre") {
-    useMachineTranslation = false;
-  }
+  const routing = getLiveTranslateEngineRouting(translateUser);
+  const {
+    useMachineTranslation,
+    effectivePlanTypeForTranslation: effectivePlanTypeResolved,
+    planLower,
+    forcedOpenAiPlan,
+    prefersMachineStack,
+    rawPlanLower,
+  } = routing;
 
   // Debug-only: remove or gate once paid OpenAI vs Hetzner routing is confirmed in production logs.
   logger.info(
@@ -1564,6 +1559,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       msg: "translate_routing_debug",
       userId: translateUser.id,
       rawPlanType: translateUser.planType,
+      rawPlanLower,
       effectivePlanTypeForTranslation: effectivePlanTypeResolved,
       subscriptionStatus: translateUser.subscriptionStatus ?? null,
       subscriptionPlan: translateUser.subscriptionPlan ?? null,

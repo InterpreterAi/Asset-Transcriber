@@ -99,6 +99,44 @@ export function userUsesMachineTranslationStack(user: TranslationRoutingUser): b
   return planUsesMachineTranslationStack(eff);
 }
 
+/**
+ * Single source of truth for POST /translate and admin live-session routing.
+ * Applies effective plan, `*-openai` hard force to OpenAI, and `trial-libre` OpenAI-only exception.
+ */
+export type LiveTranslateEngineRouting = {
+  useMachineTranslation: boolean;
+  effectivePlanTypeForTranslation: string;
+  planLower: string;
+  rawPlanLower: string;
+  forcedOpenAiPlan: boolean;
+  prefersMachineStack: boolean;
+};
+
+export function getLiveTranslateEngineRouting(user: TranslationRoutingUser): LiveTranslateEngineRouting {
+  const u = user as User;
+  const effectivePlanTypeResolved = effectivePlanTypeForTranslation(u);
+  const planLower = effectivePlanTypeResolved.trim().toLowerCase();
+  const rawPlanLower = (user.planType ?? "").trim().toLowerCase();
+  const prefersMachineStack = planUsesMachineTranslationStack(planLower);
+  const forcedOpenAiPlan = planLower.includes("openai");
+  let useMachineTranslation = forcedOpenAiPlan ? false : prefersMachineStack;
+  if (rawPlanLower === "trial-libre") {
+    useMachineTranslation = false;
+  }
+  return {
+    useMachineTranslation,
+    effectivePlanTypeForTranslation: effectivePlanTypeResolved,
+    planLower,
+    rawPlanLower,
+    forcedOpenAiPlan,
+    prefersMachineStack,
+  };
+}
+
+export function liveTranslateUsesMachineTranslation(user: TranslationRoutingUser): boolean {
+  return getLiveTranslateEngineRouting(user).useMachineTranslation;
+}
+
 function isPaidTranslationPlan(eff: string): boolean {
   const e = eff.trim().toLowerCase();
   return (
