@@ -10,7 +10,8 @@ import { logSessionAndDatabaseStartupStatus } from "./lib/sessionStartupDiagnost
 import { TRIAL_DAILY_LIMIT_MINUTES } from "./lib/trial-constants.js";
 import { isOpenAiConfigured } from "./lib/ai-env.js";
 import { logHetznerMachineTranslationStartupHint } from "./lib/hetzner-translate.js";
-import { logHetznerCoreRouterStartupHint, unregisterSessionForCoreRouting } from "./lib/hetzner-core-router.js";
+import { logHetznerCoreRouterStartupHint } from "./lib/hetzner-core-router.js";
+import { backfillOpenSessionsHetznerMtLanes } from "./lib/hetzner-mt-db-routing.js";
 import { isResendConfigured } from "./lib/resend-mail.js";
 import { scheduleTrialReminderJob } from "./lib/trial-reminder-job.js";
 import { scheduleOnboardingEmailJob } from "./lib/onboarding-email-job.js";
@@ -113,7 +114,9 @@ async function migrateSchema() {
           soniox_cost              NUMERIC(10, 6) DEFAULT 0,
           translation_tokens       INTEGER DEFAULT 0,
           translation_cost         NUMERIC(10, 6) DEFAULT 0,
-          total_session_cost       NUMERIC(10, 6) DEFAULT 0
+          total_session_cost       NUMERIC(10, 6) DEFAULT 0,
+          hetzner_mt_manual_lane   SMALLINT,
+          hetzner_mt_assigned_lane SMALLINT
         )
       `);
       await client.query(`
@@ -206,6 +209,8 @@ async function migrateSchema() {
 
       // sessions table – columns added after initial release
       await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
+      await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hetzner_mt_manual_lane SMALLINT`);
+      await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hetzner_mt_assigned_lane SMALLINT`);
 
       // Tables that may not exist in older databases
       await client.query(`
@@ -412,9 +417,14 @@ async function requireDatabaseReadyForApi(): Promise<void> {
 // ── Stale session cleanup on startup ─────────────────────────────────────────
 async function clearStaleSessions() {
   try {
+    const now = new Date();
     const result = await db
       .update(sessionsTable)
-      .set({ endedAt: new Date() })
+      .set({
+        endedAt: now,
+        hetznerMtManualLane: null,
+        hetznerMtAssignedLane: null,
+      })
       .where(
         sql`${sessionsTable.endedAt} IS NULL
             AND COALESCE(${sessionsTable.lastActivityAt}, ${sessionsTable.startedAt})
@@ -424,9 +434,6 @@ async function clearStaleSessions() {
 
     if (result.length > 0) {
       logger.info({ count: result.length }, "Closed stale sessions on startup");
-      for (const row of result) {
-        unregisterSessionForCoreRouting(row.id);
-      }
     }
   } catch (err) {
     logger.error({ err }, "Failed to clear stale sessions on startup");
@@ -562,6 +569,7 @@ async function main() {
   // (e.g. 7- vs 14-day cohorts). New trials are set only in auth/signup paths.
   await logSessionAndDatabaseStartupStatus();
   await clearStaleSessions();
+  await backfillOpenSessionsHetznerMtLanes();
   await ensureAdminUser();
   await initStripe();
 

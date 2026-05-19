@@ -3,7 +3,7 @@ import * as dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
-import { getHetznerLaneBaseUrl, getHetznerManualCoreOverride, selectHetznerCoreRoute } from "./hetzner-core-router.js";
+import { getHetznerLaneBaseUrl, selectAnonymousHetznerCoreRoute, type CoreLane } from "./hetzner-core-router.js";
 
 /** Keep sockets warm — fewer TCP handshakes per segment. */
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
@@ -69,6 +69,8 @@ export type HetznerMtRoutingHint = {
   planType?: string;
   sessionId?: number;
   userEmail?: string | null;
+  /** Required when `sessionId` is set — DB effective lane (`manual ?? assigned`). */
+  resolvedLane?: CoreLane;
   wireDebug?: HetznerMtWireDebugMeta;
 };
 
@@ -78,12 +80,11 @@ export type HetznerMtOutboundWireContext = {
   userEmail: string | null;
   planType: string | null;
   selectedLane: number;
-  /** Raw string from `selectHetznerCoreRoute` before trim/fallback. */
+  /** Raw string from `getHetznerLaneBaseUrl(selectedLane)` before validation. */
   routerBaseUrlRaw: string;
-  /** Base URL actually passed into HTTP client after trim (may equal CONFIGURED_BASE if router URL empty). */
+  /** Base URL from `getHetznerLaneBaseUrl(selectedLane)` — never CONFIGURED_BASE fallback when lane-resolved. */
   effectiveBaseForHttp: string;
   fallbackToConfiguredPrimary: boolean;
-  /** Admin manual core pin for this session, if any (diagnostics). */
   manualOverrideLane: number | null;
   wireRequestId?: string;
   incomingSessionId?: number | null;
@@ -488,11 +489,22 @@ async function postTranslateAtBase(
   return first;
 }
 
-/** `*-libre` tiers: one POST per segment, `source: auto`, no API key.
- *
- * **Wire path:** each call runs `selectHetznerCoreRoute`, then resolves the POST base with `getHetznerLaneBaseUrl(route.lane)`
- * (same table as admin — never a stale per-session URL snapshot). If that URL is empty after trim, requests fall
- * back to `CONFIGURED_BASE` (logged as `fallbackToConfiguredPrimary`). Sticky/manual maps remain in-memory per replica.
+function requireValidHetznerMtBaseForLane(lane: CoreLane): string {
+  const raw = getHetznerLaneBaseUrl(lane);
+  const t = raw.trim();
+  if (!t) {
+    throw new Error(`HETZNER_MT_LANE_${lane}_MISSING_BASE_URL`);
+  }
+  try {
+    new URL(t);
+  } catch {
+    throw new Error(`HETZNER_MT_LANE_${lane}_INVALID_BASE_URL`);
+  }
+  return t;
+}
+
+/** `*-libre` tiers: one POST per segment. Session-bound callers **must** pass `resolvedLane` from Postgres.
+ * Anonymous callers (no `sessionId`) use `selectAnonymousHetznerCoreRoute`. **No `CONFIGURED_BASE` fallback** when a lane is chosen.
  */
 export async function callHetznerTranslate(
   text: string,
@@ -504,43 +516,33 @@ export async function callHetznerTranslate(
   const useTrialOutboundGate = plan === "trial-hetzner";
 
   const run = async () => {
-    const route = selectHetznerCoreRoute(routingHint?.planType ?? "trial-libre", routingHint?.sessionId, {
-      userEmail: routingHint?.userEmail,
-    });
-    const routerRaw = getHetznerLaneBaseUrl(route.lane);
-    const trimmedRouterBase = routerRaw.trim();
-    const effectiveBase = trimmedRouterBase || CONFIGURED_BASE;
-    const fallbackToConfiguredPrimary = !trimmedRouterBase;
-
     const sid = routingHint?.sessionId;
-    const manualOv =
-      typeof sid === "number" && Number.isFinite(sid) && sid > 0 ? getHetznerManualCoreOverride(sid) : null;
+    const sessionBound = typeof sid === "number" && Number.isFinite(sid) && sid > 0;
 
-    const wd = routingHint?.wireDebug;
-    if (fallbackToConfiguredPrimary) {
-      logger.warn(
-        {
-          sessionId: routingHint?.sessionId ?? null,
-          planType: routingHint?.planType ?? null,
-          selectedLane: route.lane,
-          routerBaseUrlRaw: routerRaw,
-        },
-        "Hetzner MT: router baseUrl empty after trim — using CONFIGURED_BASE (likely misconfiguration)",
-      );
+    let lane: CoreLane;
+    if (sessionBound) {
+      if (routingHint?.resolvedLane == null) {
+        throw new Error("HETZNER_MT_RESOLVED_LANE_REQUIRED_FOR_SESSION_BOUND_TRANSLATE");
+      }
+      lane = routingHint.resolvedLane;
+    } else {
+      lane = selectAnonymousHetznerCoreRoute(routingHint?.planType ?? "trial-libre").lane;
     }
 
+    const routerRaw = getHetznerLaneBaseUrl(lane);
+    const effectiveBase = requireValidHetznerMtBaseForLane(lane);
+
+    const wd = routingHint?.wireDebug;
+
     const outboundCtx: HetznerMtOutboundWireContext = {
-      sessionId:
-        typeof routingHint?.sessionId === "number" && Number.isFinite(routingHint.sessionId)
-          ? routingHint.sessionId
-          : null,
+      sessionId: sessionBound ? sid : null,
       userEmail: routingHint?.userEmail?.trim() || null,
       planType: routingHint?.planType?.trim() || null,
-      selectedLane: route.lane,
+      selectedLane: lane,
       routerBaseUrlRaw: routerRaw,
       effectiveBaseForHttp: effectiveBase,
-      fallbackToConfiguredPrimary,
-      manualOverrideLane: manualOv?.lane ?? null,
+      fallbackToConfiguredPrimary: false,
+      manualOverrideLane: null,
       wireRequestId: wd?.requestId,
       incomingSessionId: wd?.incomingSessionId ?? null,
       resolvedSessionId: wd?.resolvedSessionId ?? null,
@@ -559,13 +561,12 @@ export async function callHetznerTranslate(
           incomingSessionId: wd?.incomingSessionId ?? null,
           resolvedSessionId: wd?.resolvedSessionId ?? null,
           manualOverrideLane: outboundCtx.manualOverrideLane,
-          selectedLane: route.lane,
+          selectedLane: lane,
           selectedBaseUrl: routerRaw,
           effectiveBaseForHttp: effectiveBase,
           finalPostUrl: `${String(effectiveBase).trim().replace(/\/+$/, "")}/translate`,
-          fallbackToConfiguredPrimary,
-          fallbackReasonPrimary:
-            fallbackToConfiguredPrimary ? "router_lane_base_empty_after_trim_uses_CONFIGURED_BASE" : null,
+          fallbackToConfiguredPrimary: false,
+          fallbackReasonPrimary: null,
           streamingDelta: wd?.streamingDelta ?? null,
           isFinal: wd?.isFinal ?? null,
           mtInvocationIndex: wd?.mtInvocationIndex ?? null,
@@ -574,7 +575,7 @@ export async function callHetznerTranslate(
           textLen: text.length,
           ...railwayWireFingerprint(),
         },
-        "translate_mt_wire (after selectHetznerCoreRoute; HTTP attempts logged as translate_mt_wire_http)",
+        "translate_mt_wire",
       );
     }
 
