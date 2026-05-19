@@ -44,6 +44,30 @@ const laneToBase: Record<CoreLane, string> = {
   4: CORE4_BASE,
 };
 
+/** Falsy trimmed CORE3/CORE4 env → `CORE3_BASE`/`CORE4_BASE` copy `CORE2_BASE` (module load). */
+const core3EnvTrimmedForInit = (process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "").trim();
+const core4EnvTrimmedForInit = (process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim();
+
+logger.info(
+  {
+    tag: "hetzner_lane_table_module_init",
+    /** Final strings wired into `laneToBase` — not env keys. */
+    CORE1_BASE,
+    CORE2_BASE,
+    CORE3_BASE,
+    CORE4_BASE,
+    laneToBase: { ...laneToBase },
+    USE_LEGACY_EMERGENCY,
+    /** If true, CORE3/CORE4 ignored empty env and reused CORE2’s resolved base. */
+    core3ResolvedViaCore2Fallback: !USE_LEGACY_EMERGENCY && !core3EnvTrimmedForInit,
+    core4ResolvedViaCore2Fallback: !USE_LEGACY_EMERGENCY && !core4EnvTrimmedForInit,
+    /** Trimmed env payloads (empty means fallback path ran). */
+    HETZNER_CORE3_TRANSLATE_BASE_trimmed: core3EnvTrimmedForInit || null,
+    HETZNER_CORE4_TRANSLATE_BASE_trimmed: core4EnvTrimmedForInit || null,
+  },
+  "hetzner_lane_table_module_init",
+);
+
 export function getHetznerLaneBaseUrl(lane: CoreLane | number | string): string {
   const n = typeof lane === "string" ? Number.parseInt(lane.trim(), 10) : Number(lane);
   if (!Number.isInteger(n) || n < 1 || n > 4) return "";
