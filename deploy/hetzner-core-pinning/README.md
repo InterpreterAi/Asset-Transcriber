@@ -54,6 +54,8 @@ Optional boot warning if CORE3/CORE4 hostnames drift: `HETZNER_EXPECT_CORE34_SEC
 
 **Temporary prod verification (verbose):** `HETZNER_ROUTER_ALLOC_DEBUG=1` — logs `hetzner_router_select_debug` on every router decision (`NUM_SLOTS`, `laneToBase`, assigned lane/base). Remove after confirming Railway env and allocation order.
 
+**Temporary MT wire trace (very high volume):** `HETZNER_MT_WIRE_DEBUG=1` — logs `translate_mt_wire` (after `selectHetznerCoreRoute`) and `translate_mt_wire_http` (before each outbound Libre POST) with `requestId`, session ids, lanes, `finalPostUrl`, `retryAttempt`, `fallbackReason`, live vs final flags. Unset after diagnosis.
+
 **Rollback:** remove `HETZNER_FOUR_LANE_ROUTER` (or set `0`) → API uses **2-slot** reservation again.
 
 **Single container fallback (`:5000` only):** `HETZNER_USE_LEGACY_SINGLE_STACK=1` on the API.

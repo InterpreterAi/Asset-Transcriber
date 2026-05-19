@@ -47,6 +47,31 @@ export const CONFIGURED_BASE = HARDCODED_PRIMARY_BASE;
 
 const PER_HOST_TIMEOUT_MS = 25_000;
 
+/** Verbose per-request / per-chunk MT wire logs. Set `HETZNER_MT_WIRE_DEBUG=1` — disable after diagnosis (high volume). */
+export function hetznerMtWireDebugEnabled(): boolean {
+  const v = (process.env.HETZNER_MT_WIRE_DEBUG ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** Carried from POST /translate → `callHetznerTranslate` for wire-level tracing (optional). */
+export type HetznerMtWireDebugMeta = {
+  requestId: string;
+  incomingSessionId: number | null;
+  resolvedSessionId: number | null;
+  streamingDelta: boolean;
+  isFinal: boolean;
+  /** First vs empty-output retry inside `/translate` MT handler. */
+  mtInvocationIndex: number;
+  translationPath: "hetzner_mt";
+};
+
+export type HetznerMtRoutingHint = {
+  planType?: string;
+  sessionId?: number;
+  userEmail?: string | null;
+  wireDebug?: HetznerMtWireDebugMeta;
+};
+
 /** Logged immediately before each outbound Libre-compatible POST (proof of wire destination). */
 export type HetznerMtOutboundWireContext = {
   sessionId: number | null;
@@ -60,6 +85,13 @@ export type HetznerMtOutboundWireContext = {
   fallbackToConfiguredPrimary: boolean;
   /** Admin manual core pin for this session, if any (diagnostics). */
   manualOverrideLane: number | null;
+  wireRequestId?: string;
+  incomingSessionId?: number | null;
+  resolvedSessionId?: number | null;
+  streamingDelta?: boolean;
+  isFinal?: boolean;
+  mtInvocationIndex?: number;
+  translationPath?: string;
 };
 
 function railwayWireFingerprint(): { railwayReplicaId: string | null; hostname: string | null } {
@@ -299,7 +331,7 @@ async function postTranslateAtBase(
   const tgt = normalizeTargetLang(target);
   const srcHintBase = normalizeTargetLang(sourceHint);
 
-  const requestOnce = async (sourceCode: string): Promise<string> => {
+  const requestOnce = async (sourceCode: string, retryAttempt: number, fallbackReason: string): Promise<string> => {
     const body: Record<string, unknown> = {
       q: text,
       source: sourceCode,
@@ -313,22 +345,49 @@ async function postTranslateAtBase(
     let res;
     try {
       const wire = railwayWireFingerprint();
-      logger.info(
-        {
-          tag: "hetzner_mt_outbound_request",
-          sessionId: outboundCtx?.sessionId ?? null,
-          userEmail: outboundCtx?.userEmail ?? null,
-          planType: outboundCtx?.planType ?? null,
-          manualOverrideLane: outboundCtx?.manualOverrideLane ?? null,
-          selectedLane: outboundCtx?.selectedLane ?? null,
-          selectedBaseUrl: outboundCtx?.routerBaseUrlRaw ?? null,
-          effectiveBaseForHttp: outboundCtx?.effectiveBaseForHttp ?? normalizedBase,
-          fallbackToConfiguredPrimary: outboundCtx?.fallbackToConfiguredPrimary ?? false,
-          finalPostUrl,
-          ...wire,
-        },
-        "hetzner_mt_outbound_request",
-      );
+      const wireDebug = hetznerMtWireDebugEnabled();
+      const commonWire = {
+        requestId: outboundCtx?.wireRequestId ?? null,
+        sessionId: outboundCtx?.sessionId ?? null,
+        incomingSessionId: outboundCtx?.incomingSessionId ?? null,
+        resolvedSessionId: outboundCtx?.resolvedSessionId ?? null,
+        userEmail: outboundCtx?.userEmail ?? null,
+        planType: outboundCtx?.planType ?? null,
+        manualOverrideLane: outboundCtx?.manualOverrideLane ?? null,
+        selectedLane: outboundCtx?.selectedLane ?? null,
+        selectedBaseUrl: outboundCtx?.routerBaseUrlRaw ?? null,
+        effectiveBaseForHttp: outboundCtx?.effectiveBaseForHttp ?? normalizedBase,
+        fallbackToConfiguredPrimary: outboundCtx?.fallbackToConfiguredPrimary ?? false,
+        streamingDelta: outboundCtx?.streamingDelta ?? null,
+        isFinal: outboundCtx?.isFinal ?? null,
+        mtInvocationIndex: outboundCtx?.mtInvocationIndex ?? null,
+        translationPath: outboundCtx?.translationPath ?? "hetzner_mt",
+        retryAttempt,
+        fallbackReason,
+        sourceCode,
+        finalPostUrl,
+        ...wire,
+      };
+      if (wireDebug) {
+        logger.info({ tag: "translate_mt_wire_http", ...commonWire }, "translate_mt_wire_http");
+      } else {
+        logger.info(
+          {
+            tag: "hetzner_mt_outbound_request",
+            sessionId: outboundCtx?.sessionId ?? null,
+            userEmail: outboundCtx?.userEmail ?? null,
+            planType: outboundCtx?.planType ?? null,
+            manualOverrideLane: outboundCtx?.manualOverrideLane ?? null,
+            selectedLane: outboundCtx?.selectedLane ?? null,
+            selectedBaseUrl: outboundCtx?.routerBaseUrlRaw ?? null,
+            effectiveBaseForHttp: outboundCtx?.effectiveBaseForHttp ?? normalizedBase,
+            fallbackToConfiguredPrimary: outboundCtx?.fallbackToConfiguredPrimary ?? false,
+            finalPostUrl,
+            ...wire,
+          },
+          "hetzner_mt_outbound_request",
+        );
+      }
 
       const axiosOpts: AxiosRequestConfig = {
         timeout: PER_HOST_TIMEOUT_MS,
@@ -403,14 +462,14 @@ async function postTranslateAtBase(
     enEsPair || (tgt === "en" && RETRY_EXPLICIT_SOURCE_TO_EN.has(srcHintBase))
       ? srcHintBase
       : "auto";
-  const first = await requestOnce(primarySourceCode);
+  const first = await requestOnce(primarySourceCode, 0, "initial_http_attempt");
   if (enEsPair && latinPairLooksUntranslated(text, first)) {
     logger.warn(
       { sourceHint: srcHintBase, target: tgt },
       "Hetzner EN<->ES output looked untranslated; retrying once with strict source direction",
     );
     const retrySourceCode = primarySourceCode === srcHintBase ? "auto" : srcHintBase;
-    return requestOnce(retrySourceCode);
+    return requestOnce(retrySourceCode, 1, "en_es_pair_untranslated_heuristic_retry");
   }
   if (
     tgt === "en" &&
@@ -422,9 +481,9 @@ async function postTranslateAtBase(
       "Hetzner MT to English looked off; retrying once with explicit source",
     );
     if (primarySourceCode === srcHintBase) {
-      return requestOnce("auto");
+      return requestOnce("auto", 1, "to_en_not_english_retry_auto_source");
     }
-    return requestOnce(srcHintBase);
+    return requestOnce(srcHintBase, 1, "to_en_not_english_retry_explicit_source");
   }
   return first;
 }
@@ -439,7 +498,7 @@ export async function callHetznerTranslate(
   text: string,
   source: string,
   target: string,
-  routingHint?: { planType?: string; sessionId?: number; userEmail?: string | null },
+  routingHint?: HetznerMtRoutingHint,
 ): Promise<string> {
   const plan = (routingHint?.planType ?? "").trim().toLowerCase();
   const useTrialOutboundGate = plan === "trial-hetzner";
@@ -457,6 +516,7 @@ export async function callHetznerTranslate(
     const manualOv =
       typeof sid === "number" && Number.isFinite(sid) && sid > 0 ? getHetznerManualCoreOverride(sid) : null;
 
+    const wd = routingHint?.wireDebug;
     if (fallbackToConfiguredPrimary) {
       logger.warn(
         {
@@ -481,7 +541,42 @@ export async function callHetznerTranslate(
       effectiveBaseForHttp: effectiveBase,
       fallbackToConfiguredPrimary,
       manualOverrideLane: manualOv?.lane ?? null,
+      wireRequestId: wd?.requestId,
+      incomingSessionId: wd?.incomingSessionId ?? null,
+      resolvedSessionId: wd?.resolvedSessionId ?? null,
+      streamingDelta: wd?.streamingDelta,
+      isFinal: wd?.isFinal,
+      mtInvocationIndex: wd?.mtInvocationIndex,
+      translationPath: wd?.translationPath ?? "hetzner_mt",
     };
+
+    if (hetznerMtWireDebugEnabled()) {
+      logger.info(
+        {
+          tag: "translate_mt_wire",
+          requestId: wd?.requestId ?? null,
+          sessionId: outboundCtx.sessionId,
+          incomingSessionId: wd?.incomingSessionId ?? null,
+          resolvedSessionId: wd?.resolvedSessionId ?? null,
+          manualOverrideLane: outboundCtx.manualOverrideLane,
+          selectedLane: route.lane,
+          selectedBaseUrl: routerRaw,
+          effectiveBaseForHttp: effectiveBase,
+          finalPostUrl: `${String(effectiveBase).trim().replace(/\/+$/, "")}/translate`,
+          fallbackToConfiguredPrimary,
+          fallbackReasonPrimary:
+            fallbackToConfiguredPrimary ? "router_lane_base_empty_after_trim_uses_CONFIGURED_BASE" : null,
+          streamingDelta: wd?.streamingDelta ?? null,
+          isFinal: wd?.isFinal ?? null,
+          mtInvocationIndex: wd?.mtInvocationIndex ?? null,
+          translationPath: outboundCtx.translationPath ?? "hetzner_mt",
+          planType: outboundCtx.planType,
+          textLen: text.length,
+          ...railwayWireFingerprint(),
+        },
+        "translate_mt_wire (after selectHetznerCoreRoute; HTTP attempts logged as translate_mt_wire_http)",
+      );
+    }
 
     return postTranslateAtBase(effectiveBase, text, source, target, outboundCtx);
   };
@@ -509,6 +604,7 @@ export function logHetznerMachineTranslationStartupHint(): void {
       fromEnvOverride: false,
       ignoredEnvOverride: Boolean(rawOverride),
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),
+      hetznerMtWireDebug: hetznerMtWireDebugEnabled(),
     },
     "Hetzner machine translate primary endpoint locked (env override disabled)",
   );

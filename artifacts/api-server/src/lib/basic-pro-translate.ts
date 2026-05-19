@@ -1,4 +1,4 @@
-import { callHetznerTranslate } from "./hetzner-translate.js";
+import { callHetznerTranslate, type HetznerMtWireDebugMeta } from "./hetzner-translate.js";
 
 /**
  * **Final Boss 3 · machine stack** — translation for `*-libre` plans via **Hetzner** (LibreTranslate-compatible API).
@@ -14,6 +14,8 @@ export type TranslateBasicProfessionalOpts = {
   sessionId?: number;
   planType?: string;
   userEmail?: string | null;
+  /** Optional wire trace for `HETZNER_MT_WIRE_DEBUG` — see `hetzner-translate.ts`. */
+  wireDebug?: HetznerMtWireDebugMeta;
 };
 
 /**
@@ -32,6 +34,7 @@ export async function translatePlainMachine(
     sessionId: opts?.sessionId,
     planType: opts?.planType,
     userEmail: opts?.userEmail,
+    wireDebug: opts?.wireDebug,
   });
 }
 
