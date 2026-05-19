@@ -47,6 +47,26 @@ export const CONFIGURED_BASE = HARDCODED_PRIMARY_BASE;
 
 const PER_HOST_TIMEOUT_MS = 25_000;
 
+/** Logged immediately before each outbound Libre-compatible POST (proof of wire destination). */
+export type HetznerMtOutboundWireContext = {
+  sessionId: number | null;
+  userEmail: string | null;
+  planType: string | null;
+  selectedLane: number;
+  /** Raw string from `selectHetznerCoreRoute` before trim/fallback. */
+  routerBaseUrlRaw: string;
+  /** Base URL actually passed into HTTP client after trim (may equal CONFIGURED_BASE if router URL empty). */
+  effectiveBaseForHttp: string;
+  fallbackToConfiguredPrimary: boolean;
+};
+
+function railwayWireFingerprint(): { railwayReplicaId: string | null; hostname: string | null } {
+  return {
+    railwayReplicaId: (process.env.RAILWAY_REPLICA_ID ?? "").trim() || null,
+    hostname: (process.env.HOSTNAME ?? "").trim() || null,
+  };
+}
+
 const railwayPrivateDnsLookup: NonNullable<AxiosRequestConfig["lookup"]> = (
   hostname,
   options,
@@ -272,6 +292,7 @@ async function postTranslateAtBase(
   text: string,
   sourceHint: string,
   target: string,
+  outboundCtx?: HetznerMtOutboundWireContext,
 ): Promise<string> {
   const tgt = normalizeTargetLang(target);
   const srcHintBase = normalizeTargetLang(sourceHint);
@@ -284,27 +305,55 @@ async function postTranslateAtBase(
       format: "text",
     };
 
+    const normalizedBase = String(baseUrl).trim().replace(/\/+$/, "");
+    const finalPostUrl = `${normalizedBase}/translate`;
+
     let res;
     try {
+      const wire = railwayWireFingerprint();
+      logger.info(
+        {
+          tag: "hetzner_mt_outbound_request",
+          sessionId: outboundCtx?.sessionId ?? null,
+          userEmail: outboundCtx?.userEmail ?? null,
+          planType: outboundCtx?.planType ?? null,
+          selectedLane: outboundCtx?.selectedLane ?? null,
+          selectedBaseUrl: outboundCtx?.routerBaseUrlRaw ?? null,
+          effectiveBaseForHttp: outboundCtx?.effectiveBaseForHttp ?? normalizedBase,
+          fallbackToConfiguredPrimary: outboundCtx?.fallbackToConfiguredPrimary ?? false,
+          finalPostUrl,
+          ...wire,
+        },
+        "hetzner_mt_outbound_request",
+      );
+
       const axiosOpts: AxiosRequestConfig = {
         timeout: PER_HOST_TIMEOUT_MS,
         validateStatus: () => true,
-        httpAgent: baseUrl.startsWith("http:") ? HETZNER_HTTP_AGENT : undefined,
-        httpsAgent: baseUrl.startsWith("https:") ? HETZNER_HTTPS_AGENT : undefined,
+        httpAgent: normalizedBase.startsWith("http:") ? HETZNER_HTTP_AGENT : undefined,
+        httpsAgent: normalizedBase.startsWith("https:") ? HETZNER_HTTPS_AGENT : undefined,
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
-        ...(useRailwayPrivateDnsLookup(baseUrl) ? { lookup: railwayPrivateDnsLookup } : {}),
+        ...(useRailwayPrivateDnsLookup(normalizedBase) ? { lookup: railwayPrivateDnsLookup } : {}),
       };
-      res = await axios.post(`${baseUrl}/translate`, body, axiosOpts);
+      res = await axios.post(finalPostUrl, body, axiosOpts);
     } catch (err: unknown) {
       const code = isAxiosError(err) ? err.code : undefined;
       const msg = err instanceof Error ? err.message : String(err);
       logger.error(
-        { baseUrl, code, message: msg, source: sourceCode, target: tgt },
+        {
+          finalPostUrl,
+          normalizedBase,
+          sessionId: outboundCtx?.sessionId ?? null,
+          code,
+          message: msg,
+          source: sourceCode,
+          target: tgt,
+        },
         "Hetzner machine translate request failed",
       );
       throw err;
@@ -312,7 +361,7 @@ async function postTranslateAtBase(
     const contentType = String(res.headers["content-type"] ?? "");
     const payload = parseTranslateBody(res.data);
     logger.info(
-      { baseUrl, source: sourceCode, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
+      { normalizedBase, source: sourceCode, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
       "Hetzner machine translate API response",
     );
 
@@ -321,7 +370,7 @@ async function postTranslateAtBase(
         typeof res.data === "string"
           ? res.data.slice(0, 200)
           : JSON.stringify(res.data ?? "").slice(0, 200);
-      logger.error({ baseUrl, status: res.status, preview }, "Hetzner machine translate non-200 body preview");
+      logger.error({ normalizedBase, status: res.status, preview }, "Hetzner machine translate non-200 body preview");
       throw new Error(`Hetzner translate HTTP ${res.status}`);
     }
     const errMsg = payload.error;
@@ -332,7 +381,7 @@ async function postTranslateAtBase(
     if (typeof out !== "string") {
       const preview = JSON.stringify(res.data ?? "").slice(0, 300);
       logger.error(
-        { baseUrl, contentType, preview },
+        { normalizedBase, contentType, preview },
         "Hetzner translate response missing translatedText",
       );
       throw new Error("Hetzner translate returned no translatedText");
@@ -377,7 +426,13 @@ async function postTranslateAtBase(
   return first;
 }
 
-/** `*-libre` tiers: one POST per segment, `source: auto`, no API key. */
+/** `*-libre` tiers: one POST per segment, `source: auto`, no API key.
+ *
+ * **Wire path:** each call runs `selectHetznerCoreRoute` then `axios.post` — no cached base URL, no singleton
+ * translate client. Keep-alive agents are host-agnostic. If `route.baseUrl` is empty after trim, requests fall
+ * back to `CONFIGURED_BASE` (logged as `fallbackToConfiguredPrimary`). Manual overrides are in-memory per API
+ * process — multi-replica deploys may show Core3 in admin on one instance while another handles `/translate`.
+ */
 export async function callHetznerTranslate(
   text: string,
   source: string,
@@ -391,7 +446,37 @@ export async function callHetznerTranslate(
     const route = selectHetznerCoreRoute(routingHint?.planType ?? "trial-libre", routingHint?.sessionId, {
       userEmail: routingHint?.userEmail,
     });
-    return postTranslateAtBase(route.baseUrl || CONFIGURED_BASE, text, source, target);
+    const routerRaw = route.baseUrl ?? "";
+    const trimmedRouterBase = routerRaw.trim();
+    const effectiveBase = trimmedRouterBase || CONFIGURED_BASE;
+    const fallbackToConfiguredPrimary = !trimmedRouterBase;
+
+    if (fallbackToConfiguredPrimary) {
+      logger.warn(
+        {
+          sessionId: routingHint?.sessionId ?? null,
+          planType: routingHint?.planType ?? null,
+          selectedLane: route.lane,
+          routerBaseUrlRaw: routerRaw,
+        },
+        "Hetzner MT: router baseUrl empty after trim — using CONFIGURED_BASE (likely misconfiguration)",
+      );
+    }
+
+    const outboundCtx: HetznerMtOutboundWireContext = {
+      sessionId:
+        typeof routingHint?.sessionId === "number" && Number.isFinite(routingHint.sessionId)
+          ? routingHint.sessionId
+          : null,
+      userEmail: routingHint?.userEmail?.trim() || null,
+      planType: routingHint?.planType?.trim() || null,
+      selectedLane: route.lane,
+      routerBaseUrlRaw: routerRaw,
+      effectiveBaseForHttp: effectiveBase,
+      fallbackToConfiguredPrimary,
+    };
+
+    return postTranslateAtBase(effectiveBase, text, source, target, outboundCtx);
   };
 
   if (!useTrialOutboundGate) {

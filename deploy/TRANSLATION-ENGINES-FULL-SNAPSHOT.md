@@ -69,6 +69,7 @@ Defined in `usage.ts`. **`false`** (use **OpenAI** interpreter stack in `transcr
 
 - Skips built-in interpreter TERM\_\* glossary mask for speed; personal glossary strict pass only on **final** segments when the user has entries (`transcription.ts` MT block).
 - One POST per segment through `callHetznerTranslate` (unless internal retries).
+- **`hetzner_mt_outbound_request`** log line fires **immediately before** each outbound `axios.post`: `sessionId`, `userEmail`, `planType`, `selectedLane`, `selectedBaseUrl` (router raw), `effectiveBaseForHttp`, **`finalPostUrl`** (exact wire URL), `fallbackToConfiguredPrimary`, optional **`railwayReplicaId`** / **`hostname`** for multi-instance correlation.
 - Primary host configuration is locked in code/env as documented in `hetzner-translate.ts` (Hetzner IP stack); segment routing picks **:5001 / :5002** workers when not in legacy single-stack emergency.
 
 ### 3.1 Trial outbound concurrency (`hetzner-translate.ts`)
@@ -78,7 +79,7 @@ Defined in `usage.ts`. **`false`** (use **OpenAI** interpreter stack in `transcr
 
 ### 3.2 Session-aware routing (`transcription.ts` → `mtRoutingOpts`)
 
-- When the user has a resolvable **open session** owned by them, `translateBasicProfessional` receives `{ sessionId, planType: effectivePlanTypeResolved }`.
+- When the user has a resolvable **open session** owned by them, `translateBasicProfessional` receives `{ sessionId, planType: effectivePlanTypeResolved, userEmail }`.
 - Otherwise `{ planType }` only (no sticky reservation key).
 
 ---
