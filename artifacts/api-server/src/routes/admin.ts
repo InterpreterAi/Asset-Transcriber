@@ -29,14 +29,8 @@ import {
 } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
 import { logger } from "../lib/logger.js";
-import {
-  getHetznerManualCoreOverride,
-  setHetznerManualCoreOverride,
-  unregisterSessionForCoreRouting,
-  selectHetznerCoreRoute,
-  getLiveAdminHetznerRoute,
-  type CoreLane,
-} from "../lib/hetzner-core-router.js";
+import { effectiveMtLane } from "../lib/hetzner-mt-db-routing.js";
+import { getHetznerLaneBaseUrl, hetznerWorkerHostGroupLabel, type CoreLane } from "../lib/hetzner-core-router.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
@@ -129,6 +123,8 @@ type ActiveSessionRow = {
   dailyLimitMinutes: number | null;
   subscriptionStatus: string | null;
   subscriptionPlan: string | null;
+  hetznerMtManualLane: number | null;
+  hetznerMtAssignedLane: number | null;
 };
 
 type FraudWatchUserLite = {
@@ -152,72 +148,42 @@ type FraudWatchLoginLite = {
 
 type CoreLaneColor = "blue" | "violet";
 type EnrichedCorePlacement = {
-  coreLane: 1 | 2;
+  coreLane: CoreLane;
   coreLaneColor: CoreLaneColor;
   coreNodeLabel: string;
 };
 
-function isPaidPlanForCoreRouting(planType: string | null | undefined): boolean {
-  const p = (planType ?? "").trim().toLowerCase();
-  return (
-    p === "basic-libre" ||
-    p === "professional-libre" ||
-    p === "platinum-libre" ||
-    p === "basic" ||
-    p === "professional" ||
-    p === "platinum" ||
-    p === "unlimited"
-  );
-}
-
-function resolveCoreNodeLabelAndColor(): { coreNodeLabel: string; coreLaneColor: CoreLaneColor } {
-  const rawNodeId = Number.parseInt((process.env.HETZNER_NODE_ID ?? "1").trim(), 10);
-  const nodeId = Number.isFinite(rawNodeId) && rawNodeId >= 1 ? rawNodeId : 1;
-  return {
-    coreNodeLabel: `HZ-${nodeId}`,
-    coreLaneColor: nodeId === 1 ? "blue" : "violet",
-  };
-}
-
 function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCorePlacement> {
   const out = new Map<number, EnrichedCorePlacement>();
-  const node = resolveCoreNodeLabelAndColor();
 
-  const sorted = [...rows].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
-  const machineRows = sorted.filter((r) => liveTranslateUsesMachineTranslation(r));
-  const paidMachine = machineRows.filter((r) => isPaidPlanForCoreRouting(r.planType));
-  const trialMachine = machineRows.filter((r) => !isPaidPlanForCoreRouting(r.planType));
+  for (const r of rows) {
+    if (!liveTranslateUsesMachineTranslation(r)) continue;
+    const eff = effectiveMtLane(r.hetznerMtManualLane, r.hetznerMtAssignedLane);
+    if (eff == null) continue;
 
-  function place(sessionId: number, lane: 1 | 2) {
-    out.set(sessionId, { coreLane: lane, coreLaneColor: node.coreLaneColor, coreNodeLabel: node.coreNodeLabel });
-  }
-
-  // Mirrors server two-lane router: paid → lane 1, trial machine → lane 2.
-  for (const row of paidMachine) {
-    place(row.sessionId, 1);
-  }
-  for (const row of trialMachine) {
-    place(row.sessionId, 2);
+    const baseUrlRaw = getHetznerLaneBaseUrl(eff).trim();
+    const coreNodeLabel = baseUrlRaw ? hetznerWorkerHostGroupLabel(baseUrlRaw) : "HZ";
+    const coreLaneColor: CoreLaneColor = eff >= 3 ? "violet" : "blue";
+    out.set(r.sessionId, { coreLane: eff, coreLaneColor, coreNodeLabel });
   }
   return out;
 }
 
-/** Human-readable live `/translate` path + Hetzner lane (matches `liveTranslateUsesMachineTranslation` + core router). */
+/** Human-readable live `/translate` path + Hetzner lane from DB (`sessions.hetzner_mt_*`). */
 function buildTranslationRouteDetail(
   r: ActiveSessionRow,
   translationStack: "libre" | "openai",
-  coreLane: 1 | 2 | null,
+  coreLane: CoreLane | null,
 ): string {
   if (translationStack === "openai") {
     return "Live /translate: OpenAI";
   }
-  if (coreLane === 1) {
-    return "Live /translate: Hetzner · Core 1 (paid · :5001)";
+  if (coreLane != null) {
+    const base = getHetznerLaneBaseUrl(coreLane).trim();
+    const hz = base ? hetznerWorkerHostGroupLabel(base) : "HZ";
+    return `Live /translate: Hetzner · ${hz} · Core ${coreLane}${base ? ` · ${base}` : ""}`;
   }
-  if (coreLane === 2) {
-    return "Live /translate: Hetzner · Core 2 (trial · :5002)";
-  }
-  return "Live /translate: Hetzner (lane assigning…)";
+  return "Live /translate: Hetzner (lane unassigned)";
 }
 
 /**
@@ -231,7 +197,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     openSessionOrdinal: number;
     translationStack: "libre" | "openai";
     translationRouteDetail: string;
-    coreLane: 1 | 2 | null;
+    coreLane: CoreLane | null;
     coreLaneColor: CoreLaneColor | null;
     coreNodeLabel: string | null;
   }
@@ -268,21 +234,42 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
   });
 }
 
-function hetznerLiveSessionAdminPayload(sessionId: number): {
+function hetznerLiveSessionAdminPayloadFromDb(row: {
+  hetznerMtManualLane: number | null;
+  hetznerMtAssignedLane: number | null;
+}): {
   hetznerCoreRoutingMode: "auto" | "manual";
   hetznerManualCoreLane: CoreLane | null;
   liveHetznerLane: CoreLane | null;
   liveHetznerBaseUrl: string | null;
   liveHetznerNodeLabel: string | null;
 } {
-  const man = getHetznerManualCoreOverride(sessionId);
-  const live = getLiveAdminHetznerRoute(sessionId);
+  const manualRaw = row.hetznerMtManualLane;
+  const manualValid =
+    manualRaw != null && Number.isFinite(Number(manualRaw))
+      ? (Math.trunc(Number(manualRaw)) as CoreLane)
+      : null;
+  const mode: "auto" | "manual" =
+    manualValid != null && manualValid >= 1 && manualValid <= 4 ? "manual" : "auto";
+
+  const eff = effectiveMtLane(row.hetznerMtManualLane, row.hetznerMtAssignedLane);
+  if (eff == null) {
+    return {
+      hetznerCoreRoutingMode: mode,
+      hetznerManualCoreLane: mode === "manual" ? manualValid : null,
+      liveHetznerLane: null,
+      liveHetznerBaseUrl: null,
+      liveHetznerNodeLabel: null,
+    };
+  }
+
+  const baseUrl = getHetznerLaneBaseUrl(eff).trim();
   return {
-    hetznerCoreRoutingMode: man ? "manual" : "auto",
-    hetznerManualCoreLane: man?.lane ?? null,
-    liveHetznerLane: live?.lane ?? null,
-    liveHetznerBaseUrl: live?.baseUrl ?? null,
-    liveHetznerNodeLabel: live?.nodeLabel ?? null,
+    hetznerCoreRoutingMode: mode,
+    hetznerManualCoreLane: mode === "manual" ? manualValid : null,
+    liveHetznerLane: eff,
+    liveHetznerBaseUrl: baseUrl || null,
+    liveHetznerNodeLabel: baseUrl ? hetznerWorkerHostGroupLabel(baseUrl) : null,
   };
 }
 
@@ -302,10 +289,15 @@ function packAdminLiveSessionRow(s: {
   openSessionOrdinal: number;
   translationStack: "libre" | "openai";
   translationRouteDetail: string;
+  hetznerMtManualLane: number | null;
+  hetznerMtAssignedLane: number | null;
 }) {
   const libre = s.translationStack === "libre";
   const hz = libre
-    ? hetznerLiveSessionAdminPayload(s.sessionId)
+    ? hetznerLiveSessionAdminPayloadFromDb({
+        hetznerMtManualLane: s.hetznerMtManualLane,
+        hetznerMtAssignedLane: s.hetznerMtAssignedLane,
+      })
     : {
         hetznerCoreRoutingMode: "auto" as const,
         hetznerManualCoreLane: null,
@@ -900,6 +892,8 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       dailyLimitMinutes: usersTable.dailyLimitMinutes,
       subscriptionStatus: usersTable.subscriptionStatus,
       subscriptionPlan: usersTable.subscriptionPlan,
+      hetznerMtManualLane: sessionsTable.hetznerMtManualLane,
+      hetznerMtAssignedLane: sessionsTable.hetznerMtAssignedLane,
     })
       .from(sessionsTable)
       .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
@@ -1031,6 +1025,8 @@ router.get("/stats", requireAdmin, async (_req, res) => {
         openSessionOrdinal: s.openSessionOrdinal,
         translationStack: s.translationStack,
         translationRouteDetail: s.translationRouteDetail,
+        hetznerMtManualLane: s.hetznerMtManualLane,
+        hetznerMtAssignedLane: s.hetznerMtAssignedLane,
       }),
     ),
     liveSessionSummary,
@@ -1501,6 +1497,8 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       dailyLimitMinutes: usersTable.dailyLimitMinutes,
       subscriptionStatus: usersTable.subscriptionStatus,
       subscriptionPlan: usersTable.subscriptionPlan,
+      hetznerMtManualLane: sessionsTable.hetznerMtManualLane,
+      hetznerMtAssignedLane: sessionsTable.hetznerMtAssignedLane,
     })
     .from(sessionsTable)
     .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
@@ -1528,6 +1526,8 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
         openSessionOrdinal: s.openSessionOrdinal,
         translationStack: s.translationStack,
         translationRouteDetail: s.translationRouteDetail,
+        hetznerMtManualLane: s.hetznerMtManualLane,
+        hetznerMtAssignedLane: s.hetznerMtAssignedLane,
       }),
     ),
     liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
@@ -1597,16 +1597,20 @@ router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
   const durationSeconds = Math.round((Date.now() - session.startedAt.getTime()) / 1000);
 
   await db.update(sessionsTable)
-    .set({ endedAt: new Date(), durationSeconds })
+    .set({
+      endedAt: new Date(),
+      durationSeconds,
+      hetznerMtManualLane: null,
+      hetznerMtAssignedLane: null,
+    })
     .where(eq(sessionsTable.id, sessionId));
 
   sessionStore.delete(sessionId);
-  unregisterSessionForCoreRouting(sessionId);
 
   res.json({ ok: true, message: "Session terminated" });
 });
 
-// ── TEMPORARY: manual Hetzner core pin (in-memory; live MT only) ─────────────
+// ── Manual Hetzner core pin (Postgres `sessions.hetzner_mt_manual_lane`; live MT only) ──
 router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (req, res) => {
   const sessionId = Number.parseInt(String(req.params.sessionId), 10);
   if (!Number.isFinite(sessionId) || sessionId <= 0) {
@@ -1622,32 +1626,32 @@ router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (re
     return;
   }
 
-  const rows = await db
-    .select({ email: usersTable.email, planType: usersTable.planType })
+  const open = await db
+    .select({ id: sessionsTable.id })
     .from(sessionsTable)
-    .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
     .where(and(eq(sessionsTable.id, sessionId), isNull(sessionsTable.endedAt)))
     .limit(1);
 
-  if (!rows.length) {
+  if (!open.length) {
     res.status(404).json({ error: "Session not found or already ended" });
     return;
   }
 
-  const email = rows[0]!.email ?? "";
-  const planType = (rows[0]!.planType ?? "trial-libre").trim() || "trial-libre";
-  setHetznerManualCoreOverride(sessionId, lane, email);
+  await db
+    .update(sessionsTable)
+    .set({ hetznerMtManualLane: lane })
+    .where(and(eq(sessionsTable.id, sessionId), isNull(sessionsTable.endedAt)));
 
-  try {
-    selectHetznerCoreRoute(planType, sessionId);
-  } catch (e) {
-    logger.warn(
-      { sessionId, planType, err: e instanceof Error ? e.message : String(e) },
-      "Hetzner: routing refresh after admin core override failed",
-    );
-  }
+  const [after] = await db
+    .select({
+      hetznerMtManualLane: sessionsTable.hetznerMtManualLane,
+      hetznerMtAssignedLane: sessionsTable.hetznerMtAssignedLane,
+    })
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .limit(1);
 
-  const hz = hetznerLiveSessionAdminPayload(sessionId);
+  const hz = hetznerLiveSessionAdminPayloadFromDb(after!);
 
   res.json({
     ok: true,

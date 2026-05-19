@@ -2,10 +2,14 @@ import { Router } from "express";
 import { isAxiosError } from "axios";
 import { randomUUID } from "node:crypto";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
-import { getHetznerManualCoreOverride, unregisterSessionForCoreRouting } from "../lib/hetzner-core-router.js";
+import {
+  effectiveMtLane,
+  assignHetznerMtLaneForNewSessionInTx,
+} from "../lib/hetzner-mt-db-routing.js";
+import { HetznerTrialRoutingBlockedError } from "../lib/hetzner-slot-allocator.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
-import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
+import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable, type User } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
@@ -347,6 +351,8 @@ async function closeOpenSessionWithBillingIfNeeded(
       audioSecondsProcessed: creditSeconds,
       sonioxCost:            String(sonioxCost),
       totalSessionCost:      sql`${sonioxCost} + COALESCE(translation_cost, 0)`,
+      hetznerMtManualLane:   null,
+      hetznerMtAssignedLane: null,
     })
     .where(
       and(
@@ -360,8 +366,6 @@ async function closeOpenSessionWithBillingIfNeeded(
   if (!updated.length) {
     return { closed: false, minutesUsed: 0 };
   }
-
-  unregisterSessionForCoreRouting(sessionId);
 
   const [stoppedRow] = await db
     .select({
@@ -592,10 +596,11 @@ async function sweepStaleSessions(): Promise<void> {
           audioSecondsProcessed: 0,
           sonioxCost:            "0",
           totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
+          hetznerMtManualLane:   null,
+          hetznerMtAssignedLane: null,
         })
         .where(eq(sessionsTable.id, s.id));
       sessionStore.delete(s.id);
-      unregisterSessionForCoreRouting(s.id);
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
   } catch (err) {
@@ -1157,10 +1162,34 @@ router.post("/session/start", requireAuth, async (req, res) => {
     ? `${langName(srcLang)} → ${langName(tgtLang)}`
     : null;
 
-  const result = await db
-    .insert(sessionsTable)
-    .values({ userId: userForCap.id, startedAt: new Date(), lastActivityAt: new Date(), langPair })
-    .returning();
+  let result;
+  try {
+    result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(87236401)`);
+    const inserted = await tx
+      .insert(sessionsTable)
+      .values({
+        userId: userForCap.id,
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+        langPair,
+      })
+      .returning();
+    const row = inserted[0]!;
+    await assignHetznerMtLaneForNewSessionInTx(tx, row.id, userForCap as User);
+    return row;
+    });
+  } catch (e) {
+    if (e instanceof HetznerTrialRoutingBlockedError) {
+      res.status(503).json({
+        error:
+          "Could not start this session on the machine translation tier right now (all Hetzner worker slots are reserved for paid sessions). Try again shortly or contact support.",
+        code: "HETZNER_TRIAL_ROUTING_BLOCKED",
+      });
+      return;
+    }
+    throw e;
+  }
 
   void touchActivity(userForCap.id);
 
@@ -1176,7 +1205,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
       )
     );
 
-  res.json({ sessionId: result[0]!.id, message: "Session started" });
+  res.json({ sessionId: result.id, message: "Session started" });
 });
 
 // ── /session/heartbeat ──────────────────────────────────────────────────────
@@ -1600,7 +1629,11 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const [translateSessionRow] = await db
-    .select({ id: sessionsTable.id })
+    .select({
+      id: sessionsTable.id,
+      hetznerMtManualLane: sessionsTable.hetznerMtManualLane,
+      hetznerMtAssignedLane: sessionsTable.hetznerMtAssignedLane,
+    })
     .from(sessionsTable)
     .where(
       and(
@@ -1794,6 +1827,19 @@ router.post("/translate", requireAuth, async (req, res) => {
   // Personal glossary strict pass: finalized segments only, and only if the user has at least one entry.
   if (useMachineTranslation) {
     try {
+      const effectiveHetznerLane = effectiveMtLane(
+        translateSessionRow.hetznerMtManualLane,
+        translateSessionRow.hetznerMtAssignedLane,
+      );
+      if (effectiveHetznerLane == null) {
+        res.status(503).json({
+          error:
+            "Machine translation routing is not initialized for this session. Start a new recording session and try again.",
+          code: "HETZNER_MT_LANE_UNASSIGNED",
+        });
+        return;
+      }
+
       logger.info(
         {
           ts: diagNowIso(),
@@ -1809,6 +1855,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         sessionId: diagSessionId,
         planType: effectivePlanTypeResolved,
         userEmail: translateUser.email,
+        resolvedLane: effectiveHetznerLane,
         wireDebug: buildHetznerMtWireDebug({
           incomingSessionId,
           diagSessionId,
@@ -1823,7 +1870,9 @@ router.post("/translate", requireAuth, async (req, res) => {
           userId,
           incomingSessionId: incomingSessionId ?? null,
           resolvedSessionId: diagSessionId,
-          manualOverrideLane: getHetznerManualCoreOverride(diagSessionId)?.lane ?? null,
+          hetznerMtManualLane: translateSessionRow.hetznerMtManualLane ?? null,
+          hetznerMtAssignedLane: translateSessionRow.hetznerMtAssignedLane ?? null,
+          effectiveHetznerLane,
           mtWireRequestId: mtRoutingOpts.wireDebug.requestId,
           streamingDelta,
           isFinalSegment,
@@ -1861,6 +1910,7 @@ router.post("/translate", requireAuth, async (req, res) => {
             sessionId: diagSessionId,
             planType: effectivePlanTypeResolved,
             userEmail: translateUser.email,
+            resolvedLane: effectiveHetznerLane,
             wireDebug: buildHetznerMtWireDebug({
               incomingSessionId,
               diagSessionId,

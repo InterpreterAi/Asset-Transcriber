@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, timestamp, text, numeric } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, timestamp, text, numeric, smallint } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const sessionsTable = pgTable("sessions", {
@@ -18,6 +18,11 @@ export const sessionsTable = pgTable("sessions", {
   translationTokens:     integer("translation_tokens").default(0),
   translationCost:       numeric("translation_cost",   { precision: 10, scale: 6 }).default("0"),
   totalSessionCost:      numeric("total_session_cost", { precision: 10, scale: 6 }).default("0"),
+
+  /** Admin-only manual Hetzner worker lane (1–4). Null = follow automatic assignment column. */
+  hetznerMtManualLane: smallint("hetzner_mt_manual_lane"),
+  /** Automatic lane chosen once at session start (MT-eligible sessions). `effective = manual ?? assigned`. */
+  hetznerMtAssignedLane: smallint("hetzner_mt_assigned_lane"),
 });
 
 export type Session = typeof sessionsTable.$inferSelect;
