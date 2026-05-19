@@ -183,6 +183,70 @@ export function selectAnonymousHetznerCoreRoute(planType: string): CoreRoute {
 
 export function logHetznerCoreRouterStartupHint(): void {
   const fourLaneRequested = readFourLaneRouterEnv();
+  const c1Raw = process.env.HETZNER_CORE1_TRANSLATE_BASE ?? null;
+  const c2Raw = process.env.HETZNER_CORE2_TRANSLATE_BASE ?? null;
+  const c3Raw = process.env.HETZNER_CORE3_TRANSLATE_BASE ?? null;
+  const c4Raw = process.env.HETZNER_CORE4_TRANSLATE_BASE ?? null;
+  const c3Trimmed = Boolean((c3Raw ?? "").trim());
+  const c4Trimmed = Boolean((c4Raw ?? "").trim());
+
+  logger.info(
+    {
+      tag: "hetzner_lane_to_base_boot_verify",
+      purpose:
+        "Compare raw Railway env on THIS replica to resolved laneToBase. If admin shows lane 4 + wrong URL, grep this tag per replica.",
+      processIdentity: {
+        pid: process.pid,
+        nodeEnv: process.env.NODE_ENV ?? null,
+        railwayReplicaId: (process.env.RAILWAY_REPLICA_ID ?? "").trim() || null,
+        railwayDeploymentId: (process.env.RAILWAY_DEPLOYMENT_ID ?? "").trim() || null,
+        railwayServiceId: (process.env.RAILWAY_SERVICE_ID ?? "").trim() || null,
+        hostname: (process.env.HOSTNAME ?? "").trim() || null,
+      },
+      hetznerCoreTranslateBaseEnvRaw: {
+        HETZNER_CORE1_TRANSLATE_BASE: c1Raw,
+        HETZNER_CORE2_TRANSLATE_BASE: c2Raw,
+        HETZNER_CORE3_TRANSLATE_BASE: c3Raw,
+        HETZNER_CORE4_TRANSLATE_BASE: c4Raw,
+      },
+      /** When CORE1/CORE2 env unset, `envOrLane` uses these defaults for :5001 / :5002. */
+      hetznerWorkerHostFallbackInputs: {
+        HETZNER_WORKER_HOST: process.env.HETZNER_WORKER_HOST ?? null,
+        HETZNER_WORKER_SCHEME: process.env.HETZNER_WORKER_SCHEME ?? null,
+      },
+      routingFlags: {
+        HETZNER_USE_LEGACY_SINGLE_STACK: USE_LEGACY_EMERGENCY,
+        HETZNER_FOUR_LANE_ROUTER: process.env.HETZNER_FOUR_LANE_ROUTER ?? null,
+        NUM_SLOTS,
+        core3EnvNonEmpty: c3Trimmed,
+        core4EnvNonEmpty: c4Trimmed,
+        /** Empty CORE4 env → `CORE4_BASE` copies `CORE2_BASE` (lane 4 hits primary :5002). */
+        core4ResolvedViaCore2Fallback: !c4Trimmed && !USE_LEGACY_EMERGENCY,
+        core3ResolvedViaCore2Fallback: !c3Trimmed && !USE_LEGACY_EMERGENCY,
+      },
+      resolvedCoreBasesUsedForLaneTable: {
+        CORE1_BASE,
+        CORE2_BASE,
+        CORE3_BASE,
+        CORE4_BASE,
+      },
+      laneToBase: { ...laneToBase },
+      getHetznerLaneBaseUrlResolved: {
+        1: getHetznerLaneBaseUrl(1),
+        2: getHetznerLaneBaseUrl(2),
+        3: getHetznerLaneBaseUrl(3),
+        4: getHetznerLaneBaseUrl(4),
+      },
+      hzMetalHostnames: {
+        hz1: urlHostname(CORE1_BASE),
+        hz2: urlHostname(CORE3_BASE),
+      },
+      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
+      trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 3, 4, 1] : [2, 1],
+    },
+    "hetzner_lane_to_base_boot_verify",
+  );
+
   logger.info(
     {
       lanes: laneToBase,
@@ -196,8 +260,8 @@ export function logHetznerCoreRouterStartupHint(): void {
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
       paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
       trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 3, 4, 1] : [2, 1],
-      core3EnvDefined: Boolean((process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "").trim()),
-      core4EnvDefined: Boolean((process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim()),
+      core3EnvDefined: c3Trimmed,
+      core4EnvDefined: c4Trimmed,
       semantics:
         NUM_SLOTS === 4
           ? "DB session lanes + anonymous tail; 4 workers paid 1→3→4→2"
