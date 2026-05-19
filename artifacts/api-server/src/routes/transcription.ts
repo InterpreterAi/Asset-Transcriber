@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
+import { randomUUID } from "node:crypto";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
 import { getHetznerManualCoreOverride, unregisterSessionForCoreRouting } from "../lib/hetzner-core-router.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
@@ -40,6 +41,7 @@ import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
+import type { HetznerMtWireDebugMeta } from "../lib/hetzner-translate.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
   hasSubmittedPaidPostSessionFeedbackToday,
@@ -1490,6 +1492,29 @@ function parseRequiredTranslateSessionId(raw: unknown): number | null {
   return null;
 }
 
+/** Correlates POST /translate chunks with `translate_mt_wire` / `translate_mt_wire_http` when `HETZNER_MT_WIRE_DEBUG=1`. */
+function buildHetznerMtWireDebug(opts: {
+  incomingSessionId: unknown;
+  diagSessionId: number;
+  streamingDelta: boolean;
+  isFinalSegment: boolean;
+  mtInvocationIndex: number;
+}): HetznerMtWireDebugMeta {
+  const inc =
+    typeof opts.incomingSessionId === "number" && Number.isFinite(opts.incomingSessionId)
+      ? Math.trunc(opts.incomingSessionId)
+      : null;
+  return {
+    requestId: randomUUID(),
+    incomingSessionId: inc,
+    resolvedSessionId: opts.diagSessionId,
+    streamingDelta: opts.streamingDelta,
+    isFinal: opts.isFinalSegment,
+    mtInvocationIndex: opts.mtInvocationIndex,
+    translationPath: "hetzner_mt",
+  };
+}
+
 // ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
   // isFinal: when true, the client sends the full segment after finalize — we add
@@ -1784,6 +1809,13 @@ router.post("/translate", requireAuth, async (req, res) => {
         sessionId: diagSessionId,
         planType: effectivePlanTypeResolved,
         userEmail: translateUser.email,
+        wireDebug: buildHetznerMtWireDebug({
+          incomingSessionId,
+          diagSessionId,
+          streamingDelta,
+          isFinalSegment,
+          mtInvocationIndex: 0,
+        }),
       };
       logger.info(
         {
@@ -1792,6 +1824,10 @@ router.post("/translate", requireAuth, async (req, res) => {
           incomingSessionId: incomingSessionId ?? null,
           resolvedSessionId: diagSessionId,
           manualOverrideLane: getHetznerManualCoreOverride(diagSessionId)?.lane ?? null,
+          mtWireRequestId: mtRoutingOpts.wireDebug.requestId,
+          streamingDelta,
+          isFinalSegment,
+          mtInvocationIndex: 0,
         },
         "POST /translate machine translation session binding",
       );
@@ -1821,7 +1857,18 @@ router.post("/translate", requireAuth, async (req, res) => {
           srcLang,
           tgtLang,
           numMask.slotToDigits,
-          mtRoutingOpts,
+          {
+            sessionId: diagSessionId,
+            planType: effectivePlanTypeResolved,
+            userEmail: translateUser.email,
+            wireDebug: buildHetznerMtWireDebug({
+              incomingSessionId,
+              diagSessionId,
+              streamingDelta,
+              isFinalSegment,
+              mtInvocationIndex: 1,
+            }),
+          },
         );
         restored = restoredFromRaw(raw);
         translated = await finalizeTranslationOutput(restored, srcCode, tgtCode, tgtLangResolved, {
