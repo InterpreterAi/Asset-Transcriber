@@ -78,6 +78,9 @@ interface AdminStats {
     coreLane?: 1 | 2 | null;
     coreLaneColor?: "blue" | "violet" | null;
     coreNodeLabel?: string | null;
+    /** Live API router: manual Hetzner lane pin (in-memory). */
+    hetznerCoreRoutingMode?: "auto" | "manual";
+    hetznerManualCoreLane?: 1 | 2 | 3 | 4 | null;
   }[];
   /** Populated with /stats and fast /active-sessions polls. */
   liveSessionSummary?: {
@@ -908,6 +911,7 @@ export default function Admin() {
   const [sessionDetail,    setSessionDetail]      = useState<SessionDetail | null>(null);
   const [viewLoading,      setViewLoading]        = useState(false);
   const [terminateLoading, setTerminateLoading]   = useState(false);
+  const [hetznerOverrideSavingId, setHetznerOverrideSavingId] = useState<number | null>(null);
   const viewPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchSessionDetail = useCallback(async (sessionId: number) => {
@@ -945,6 +949,29 @@ export default function Admin() {
     } catch { /* ignore */ }
     setTerminateLoading(false);
   };
+
+  const setHetznerCoreRoutingOverride = useCallback(async (sessionId: number, lane: number | null) => {
+    setHetznerOverrideSavingId(sessionId);
+    try {
+      const res = await fetch(`/api/admin/session/${sessionId}/hetzner-core-override`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lane }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(errText || res.statusText);
+      }
+      void refetchStats();
+      void queryClient.invalidateQueries({ queryKey: ["admin-active-sessions"] });
+    } catch (e) {
+      console.error(e);
+      window.alert(e instanceof Error ? e.message : "Failed to update Hetzner core routing");
+    } finally {
+      setHetznerOverrideSavingId(null);
+    }
+  }, [queryClient, refetchStats]);
 
   // ── Language config ────────────────────────────────────────────────────────
   const [langConfigData,    setLangConfigData]    = useState<LangConfigResp | null>(null);
@@ -1582,9 +1609,48 @@ export default function Admin() {
                       {!s.hasSnapshot && !s.micLabel && (
                         <p className="text-xs text-amber-600 mb-1">No active connection — may be a ghost session</p>
                       )}
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
                         <span>Duration: <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span></span>
                         <span>{formatDistanceToNow(new Date(s.startedAt), { addSuffix: true })}</span>
+                      </div>
+                      <div className="mb-3 rounded-lg border border-border/80 bg-muted/30 px-2.5 py-2 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Hetzner core</span>
+                          <span
+                            className={cn(
+                              "text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0",
+                              (s.hetznerCoreRoutingMode ?? "auto") === "manual"
+                                ? "bg-orange-100 text-orange-900 dark:bg-orange-500/20 dark:text-orange-200"
+                                : "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300",
+                            )}
+                          >
+                            {(s.hetznerCoreRoutingMode ?? "auto") === "manual" ? "MANUAL OVERRIDE" : "AUTO"}
+                          </span>
+                        </div>
+                        <select
+                          className={cn(
+                            "w-full h-8 rounded-md border border-input bg-background px-2 text-xs",
+                            s.translationStack !== "libre" && "opacity-50 cursor-not-allowed",
+                          )}
+                          disabled={s.translationStack !== "libre" || hetznerOverrideSavingId === s.sessionId}
+                          title={
+                            s.translationStack !== "libre"
+                              ? "Hetzner routing applies only when live translation uses the Libre (machine) stack."
+                              : "Pins this session to a worker lane for the next MT request. Auto restores sticky + automatic allocation."
+                          }
+                          value={s.hetznerManualCoreLane != null ? String(s.hetznerManualCoreLane) : "auto"}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const lane = v === "auto" ? null : Number.parseInt(v, 10);
+                            void setHetznerCoreRoutingOverride(s.sessionId, Number.isFinite(lane) ? lane : null);
+                          }}
+                        >
+                          <option value="auto">Auto</option>
+                          <option value="1">Core1</option>
+                          <option value="2">Core2</option>
+                          <option value="3">Core3</option>
+                          <option value="4">Core4</option>
+                        </select>
                       </div>
                       <Button
                         variant="outline"

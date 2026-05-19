@@ -28,6 +28,12 @@ import {
   subscriptionPeriodEndFallback,
 } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
+import {
+  getHetznerManualCoreOverride,
+  setHetznerManualCoreOverride,
+  unregisterSessionForCoreRouting,
+  type CoreLane,
+} from "../lib/hetzner-core-router.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
@@ -257,6 +263,31 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
       coreNodeLabel: corePlacementBySessionId.get(r.sessionId)?.coreNodeLabel ?? null,
     };
   });
+}
+
+function hetznerLiveRoutingAdminFields(sessionId: number): {
+  hetznerCoreRoutingMode: "auto" | "manual";
+  hetznerManualCoreLane: CoreLane | null;
+} {
+  const o = getHetznerManualCoreOverride(sessionId);
+  return {
+    hetznerCoreRoutingMode: o ? "manual" : "auto",
+    hetznerManualCoreLane: o ? o.lane : null,
+  };
+}
+
+function parseHetznerAdminCoreLaneBody(body: unknown): CoreLane | null {
+  if (body == null || typeof body !== "object") {
+    throw new Error("Expected JSON body");
+  }
+  const raw = (body as { lane?: unknown }).lane;
+  if (raw === null || raw === undefined) return null;
+  if (raw === "auto") return null;
+  const n = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 4) {
+    throw new Error("lane must be null, \"auto\", or an integer 1–4");
+  }
+  return n as CoreLane;
 }
 
 function liveSessionSummaryFromEnriched(
@@ -942,6 +973,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
       coreLane:                  s.coreLane,
       coreLaneColor:             s.coreLaneColor,
       coreNodeLabel:             s.coreNodeLabel,
+      ...hetznerLiveRoutingAdminFields(s.sessionId),
     })),
     liveSessionSummary,
   });
@@ -1440,6 +1472,7 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
       coreLane:                s.coreLane,
       coreLaneColor:           s.coreLaneColor,
       coreNodeLabel:           s.coreNodeLabel,
+      ...hetznerLiveRoutingAdminFields(s.sessionId),
     })),
     liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
   });
@@ -1512,8 +1545,47 @@ router.post("/session/:sessionId/terminate", requireAdmin, async (req, res) => {
     .where(eq(sessionsTable.id, sessionId));
 
   sessionStore.delete(sessionId);
+  unregisterSessionForCoreRouting(sessionId);
 
   res.json({ ok: true, message: "Session terminated" });
+});
+
+// ── TEMPORARY: manual Hetzner core pin (in-memory; live MT only) ─────────────
+router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (req, res) => {
+  const sessionId = Number.parseInt(String(req.params.sessionId), 10);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) {
+    res.status(400).json({ error: "Invalid session ID" });
+    return;
+  }
+
+  let lane: CoreLane | null;
+  try {
+    lane = parseHetznerAdminCoreLaneBody(req.body);
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : "Invalid body" });
+    return;
+  }
+
+  const rows = await db
+    .select({ email: usersTable.email })
+    .from(sessionsTable)
+    .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
+    .where(and(eq(sessionsTable.id, sessionId), isNull(sessionsTable.endedAt)))
+    .limit(1);
+
+  if (!rows.length) {
+    res.status(404).json({ error: "Session not found or already ended" });
+    return;
+  }
+
+  const email = rows[0]!.email ?? "";
+  setHetznerManualCoreOverride(sessionId, lane, email);
+
+  res.json({
+    ok: true,
+    hetznerCoreRoutingMode: lane == null ? "auto" : "manual",
+    hetznerManualCoreLane: lane,
+  });
 });
 
 // ── Session history for a user ───────────────────────────────────────────────
