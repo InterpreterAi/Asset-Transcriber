@@ -89,7 +89,9 @@ Defined in `usage.ts`. **`false`** (use **OpenAI** interpreter stack in `transcr
 **Two-lane mode (default):** `NUM_SLOTS = 2` — same reservation semantics as the original router (first two paid claim lanes 1–2; overflow paid → CORE1; trials only on idle slots).  
 **Four-lane mode:** set **`HETZNER_FOUR_LANE_ROUTER=1`** (or `true`/`yes`) **and** non-empty **`HETZNER_CORE3_TRANSLATE_BASE`** + **`HETZNER_CORE4_TRANSLATE_BASE`**. If the flag is set but CORE3/CORE4 are missing, the process logs a warning and **falls back to 2 slots**.  
 **Rollback:** unset `HETZNER_FOUR_LANE_ROUTER` or set `0` → **2-slot** behavior without redeploying older code.  
-**Emergency:** `HETZNER_USE_LEGACY_SINGLE_STACK=1` collapses all lanes to one legacy base — **no reservation semantics**.
+**Emergency:** `HETZNER_USE_LEGACY_SINGLE_STACK=1` collapses all lanes to one legacy base — **no reservation semantics**.  
+**Temporary verification:** `HETZNER_ROUTER_ALLOC_DEBUG=1` emits structured **`hetzner_router_select_debug`** on every `selectHetznerCoreRoute` outcome (session id, paid vs trial role, lane, `selectedBaseUrl`, `NUM_SLOTS`, four-lane env flag, CORE3/CORE4 env defined, full `laneToBase`). High volume — enable briefly on the API service only, then unset.  
+**Temporary manual pin:** Admin **`POST /api/admin/session/:sessionId/hetzner-core-override`** with JSON **`{ "lane": null }`** (Auto) or **`{ "lane": 1..4 }`**. Stored **in-memory** on the API process (`Map<sessionId, { lane, userEmail }>`); cleared on **`unregisterSessionForCoreRouting`** (session stop / terminate / stale cleanup). While pinned, **`selectHetznerCoreRoute`** returns that lane **before** sticky/automatic allocation and logs **`hetzner_manual_override`** (session id, lane, base URL, email, plan type). **Multi-instance:** each replica has its own map — use one API instance or accept divergence until a DB-backed pin exists.
 
 ### 4.1 Who is “paid” for **core pinning** only?
 
@@ -107,7 +109,7 @@ Note: **`platinum-libre`** users normally **translate on OpenAI** (`planUsesMach
    - **Two lanes:** claim lanes **1 then 2** in order (unchanged).
    - If **all** exclusive slots are filled, **next paid** → **overflow on CORE1** (lane 1).
 3. **Trial (not paid by router definition):** `allocateTrial`
-   - Use the **first** slot where `slotPaidOwner[i] === null` (idle core).
+   - Use the **first idle** slot in the same physical-spread order **`1 → 3 → 4 → 2`** as paid allocation (when four-lane); two-lane scans **`1 → 2`**.
    - **If every slot has an exclusive paid owner:** **no** trial placement; throws **`HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID`** (logged as warning). Trial MT then fails before HTTP; `transcription.ts` MT catch returns **503** `LIBRETRANSLATE_FAILED` like other Hetzner errors.
 
 **Two-slot matrix (unchanged when four-lane off):**

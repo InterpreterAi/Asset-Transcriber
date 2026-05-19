@@ -48,6 +48,8 @@ Or set `HETZNER_WORKER_HOST` + `HETZNER_WORKER_SCHEME` for the same defaults as 
 - `HETZNER_CORE4_TRANSLATE_BASE=http://<worker-b>:5002`
 - `HETZNER_FOUR_LANE_ROUTER=1`
 
+**Temporary prod verification (verbose):** `HETZNER_ROUTER_ALLOC_DEBUG=1` — logs `hetzner_router_select_debug` on every router decision (`NUM_SLOTS`, `laneToBase`, assigned lane/base). Remove after confirming Railway env and allocation order.
+
 **Rollback:** remove `HETZNER_FOUR_LANE_ROUTER` (or set `0`) → API uses **2-slot** reservation again.
 
 **Single container fallback (`:5000` only):** `HETZNER_USE_LEGACY_SINGLE_STACK=1` on the API.
