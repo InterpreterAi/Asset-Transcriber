@@ -28,10 +28,13 @@ import {
   subscriptionPeriodEndFallback,
 } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
+import { logger } from "../lib/logger.js";
 import {
   getHetznerManualCoreOverride,
   setHetznerManualCoreOverride,
   unregisterSessionForCoreRouting,
+  selectHetznerCoreRoute,
+  getLiveAdminHetznerRoute,
   type CoreLane,
 } from "../lib/hetzner-core-router.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
@@ -265,14 +268,63 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
   });
 }
 
-function hetznerLiveRoutingAdminFields(sessionId: number): {
+function hetznerLiveSessionAdminPayload(sessionId: number): {
   hetznerCoreRoutingMode: "auto" | "manual";
   hetznerManualCoreLane: CoreLane | null;
+  liveHetznerLane: CoreLane | null;
+  liveHetznerBaseUrl: string | null;
+  liveHetznerNodeLabel: string | null;
 } {
-  const o = getHetznerManualCoreOverride(sessionId);
+  const man = getHetznerManualCoreOverride(sessionId);
+  const live = getLiveAdminHetznerRoute(sessionId);
   return {
-    hetznerCoreRoutingMode: o ? "manual" : "auto",
-    hetznerManualCoreLane: o ? o.lane : null,
+    hetznerCoreRoutingMode: man ? "manual" : "auto",
+    hetznerManualCoreLane: man?.lane ?? null,
+    liveHetznerLane: live?.lane ?? null,
+    liveHetznerBaseUrl: live?.baseUrl ?? null,
+    liveHetznerNodeLabel: live?.nodeLabel ?? null,
+  };
+}
+
+/** Live Sessions list row: real router fields for Libre; no heuristic core badges. */
+function packAdminLiveSessionRow(s: {
+  sessionId: number;
+  userId: number;
+  username: string;
+  email: string | null;
+  planType: string;
+  langPair: string | null;
+  startedAt: Date;
+  durationSeconds: number;
+  hasSnapshot: boolean;
+  micLabel: string | null;
+  openSessionsForUser: number;
+  openSessionOrdinal: number;
+  translationStack: "libre" | "openai";
+  translationRouteDetail: string;
+}) {
+  const hz = hetznerLiveSessionAdminPayload(s.sessionId);
+  const libre = s.translationStack === "libre";
+  const translationRouteDetail =
+    libre && hz.liveHetznerBaseUrl && hz.liveHetznerLane != null && hz.liveHetznerNodeLabel
+      ? `Live /translate: Hetzner · ${hz.liveHetznerNodeLabel} · Core ${hz.liveHetznerLane} · ${hz.liveHetznerBaseUrl}`
+      : s.translationRouteDetail;
+  return {
+    sessionId: s.sessionId,
+    userId: s.userId,
+    username: s.username,
+    email: s.email,
+    planType: s.planType,
+    langPair: s.langPair,
+    startedAt: s.startedAt,
+    durationSeconds: s.durationSeconds,
+    hasSnapshot: s.hasSnapshot,
+    micLabel: s.micLabel,
+    openSessionsForUser: s.openSessionsForUser,
+    openSessionOrdinal: s.openSessionOrdinal,
+    translationStack: s.translationStack,
+    translationRouteDetail,
+    ...hz,
   };
 }
 
@@ -955,26 +1007,24 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     payingUsers:   payingCount,
     trialUsers:    trialCount,
     // Live sessions (customer accounts; duplicate opens per user surfaced in UI)
-    activeSessions: enrichedLive.map(s => ({
-      sessionId:            s.sessionId,
-      userId:               s.userId,
-      username:             s.username,
-      email:                s.email ?? null,
-      planType:             s.planType,
-      langPair:             s.langPair ?? null,
-      startedAt:            s.startedAt,
-      durationSeconds:      Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-      hasSnapshot:          sessionStore.has(s.sessionId),
-      micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
-      openSessionsForUser:  s.openSessionsForUser,
-      openSessionOrdinal:   s.openSessionOrdinal,
-      translationStack:        s.translationStack,
-      translationRouteDetail:  s.translationRouteDetail,
-      coreLane:                  s.coreLane,
-      coreLaneColor:             s.coreLaneColor,
-      coreNodeLabel:             s.coreNodeLabel,
-      ...hetznerLiveRoutingAdminFields(s.sessionId),
-    })),
+    activeSessions: enrichedLive.map(s =>
+      packAdminLiveSessionRow({
+        sessionId: s.sessionId,
+        userId: s.userId,
+        username: s.username,
+        email: s.email ?? null,
+        planType: s.planType,
+        langPair: s.langPair ?? null,
+        startedAt: s.startedAt,
+        durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+        hasSnapshot: sessionStore.has(s.sessionId),
+        micLabel: sessionStore.get(s.sessionId)?.micLabel ?? null,
+        openSessionsForUser: s.openSessionsForUser,
+        openSessionOrdinal: s.openSessionOrdinal,
+        translationStack: s.translationStack,
+        translationRouteDetail: s.translationRouteDetail,
+      }),
+    ),
     liveSessionSummary,
   });
 });
@@ -1454,26 +1504,24 @@ router.get("/active-sessions", requireAdmin, async (req, res) => {
 
   const enriched = enrichActiveSessionRows(rows);
   res.json({
-    activeSessions: enriched.map(s => ({
-      sessionId:            s.sessionId,
-      userId:               s.userId,
-      username:             s.username,
-      email:                s.email ?? null,
-      planType:             s.planType,
-      langPair:             s.langPair ?? null,
-      startedAt:            s.startedAt,
-      durationSeconds:      Math.round((Date.now() - s.startedAt.getTime()) / 1000),
-      hasSnapshot:          sessionStore.has(s.sessionId),
-      micLabel:             sessionStore.get(s.sessionId)?.micLabel ?? null,
-      openSessionsForUser:  s.openSessionsForUser,
-      openSessionOrdinal:   s.openSessionOrdinal,
-      translationStack:        s.translationStack,
-      translationRouteDetail:  s.translationRouteDetail,
-      coreLane:                s.coreLane,
-      coreLaneColor:           s.coreLaneColor,
-      coreNodeLabel:           s.coreNodeLabel,
-      ...hetznerLiveRoutingAdminFields(s.sessionId),
-    })),
+    activeSessions: enriched.map(s =>
+      packAdminLiveSessionRow({
+        sessionId: s.sessionId,
+        userId: s.userId,
+        username: s.username,
+        email: s.email ?? null,
+        planType: s.planType,
+        langPair: s.langPair ?? null,
+        startedAt: s.startedAt,
+        durationSeconds: Math.round((Date.now() - s.startedAt.getTime()) / 1000),
+        hasSnapshot: sessionStore.has(s.sessionId),
+        micLabel: sessionStore.get(s.sessionId)?.micLabel ?? null,
+        openSessionsForUser: s.openSessionsForUser,
+        openSessionOrdinal: s.openSessionOrdinal,
+        translationStack: s.translationStack,
+        translationRouteDetail: s.translationRouteDetail,
+      }),
+    ),
     liveSessionSummary: liveSessionSummaryFromEnriched(enriched),
   });
 });
@@ -1567,7 +1615,7 @@ router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (re
   }
 
   const rows = await db
-    .select({ email: usersTable.email })
+    .select({ email: usersTable.email, planType: usersTable.planType })
     .from(sessionsTable)
     .innerJoin(usersTable, eq(sessionsTable.userId, usersTable.id))
     .where(and(eq(sessionsTable.id, sessionId), isNull(sessionsTable.endedAt)))
@@ -1579,12 +1627,27 @@ router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (re
   }
 
   const email = rows[0]!.email ?? "";
+  const planType = (rows[0]!.planType ?? "trial-libre").trim() || "trial-libre";
   setHetznerManualCoreOverride(sessionId, lane, email);
+
+  try {
+    selectHetznerCoreRoute(planType, sessionId);
+  } catch (e) {
+    logger.warn(
+      { sessionId, planType, err: e instanceof Error ? e.message : String(e) },
+      "Hetzner: routing refresh after admin core override failed",
+    );
+  }
+
+  const hz = hetznerLiveSessionAdminPayload(sessionId);
 
   res.json({
     ok: true,
-    hetznerCoreRoutingMode: lane == null ? "auto" : "manual",
-    hetznerManualCoreLane: lane,
+    hetznerCoreRoutingMode: hz.hetznerCoreRoutingMode,
+    hetznerManualCoreLane: hz.hetznerManualCoreLane,
+    liveHetznerLane: hz.liveHetznerLane,
+    liveHetznerBaseUrl: hz.liveHetznerBaseUrl,
+    liveHetznerNodeLabel: hz.liveHetznerNodeLabel,
   });
 });
 

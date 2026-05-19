@@ -1744,8 +1744,12 @@ router.post("/translate", requireAuth, async (req, res) => {
         restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(r ?? "")));
       const mtRoutingOpts =
         diagSessionId != null && diagSessionId > 0
-          ? { sessionId: diagSessionId, planType: effectivePlanTypeResolved }
-          : { planType: effectivePlanTypeResolved };
+          ? {
+              sessionId: diagSessionId,
+              planType: effectivePlanTypeResolved,
+              userEmail: translateUser.email,
+            }
+          : { planType: effectivePlanTypeResolved, userEmail: translateUser.email };
       let raw = await translateBasicProfessional(
         textForOpenAI,
         srcLang,

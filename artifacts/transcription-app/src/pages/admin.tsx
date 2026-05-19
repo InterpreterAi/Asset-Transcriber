@@ -75,9 +75,10 @@ interface AdminStats {
     translationStack?: "libre" | "openai";
     /** Plain-language route + Hetzner core when applicable. */
     translationRouteDetail?: string;
-    coreLane?: 1 | 2 | null;
-    coreLaneColor?: "blue" | "violet" | null;
-    coreNodeLabel?: string | null;
+    /** Effective router snapshot (Libre sessions only); from live API state — not admin heuristic. */
+    liveHetznerLane?: 1 | 2 | 3 | 4 | null;
+    liveHetznerBaseUrl?: string | null;
+    liveHetznerNodeLabel?: string | null;
     /** Live API router: manual Hetzner lane pin (in-memory). */
     hetznerCoreRoutingMode?: "auto" | "manual";
     hetznerManualCoreLane?: 1 | 2 | 3 | 4 | null;
@@ -496,17 +497,16 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
             {activeSession.translationRouteDetail}
           </span>
         )}
-        {activeSession.coreLane ? (
-          <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-              (activeSession.coreLaneColor ?? "blue") === "violet"
-                ? "bg-violet-100 text-violet-800"
-                : "bg-blue-100 text-blue-800"
-            }`}
-          >
-            {activeSession.coreNodeLabel ?? "HZ-1"} · Core {activeSession.coreLane}
-          </span>
-        ) : null}
+        {activeSession.translationStack === "libre" &&
+          activeSession.liveHetznerLane != null &&
+          activeSession.liveHetznerNodeLabel && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-100 text-teal-900 dark:bg-teal-500/15 dark:text-teal-100"
+              title={activeSession.liveHetznerBaseUrl ?? ""}
+            >
+              {activeSession.liveHetznerNodeLabel} · Core {activeSession.liveHetznerLane}
+            </span>
+          )}
         <AudioDeviceInfo label={activeSession.micLabel} />
       </div>
     );
@@ -1577,23 +1577,68 @@ export default function Admin() {
                         >
                           {(s.translationStack ?? "openai") === "openai" ? "OpenAI MT" : "Hetzner MT"}
                         </span>
-                        {s.coreLane ? (
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                              (s.coreLaneColor ?? "blue") === "violet"
-                                ? "bg-violet-100 text-violet-800"
-                                : "bg-blue-100 text-blue-800"
-                            }`}
-                            title="Live Hetzner lane (two-lane: 1 paid · 5001, 2 trial · 5002)"
-                          >
-                            {s.coreNodeLabel ?? "HZ-1"} · Core {s.coreLane}
-                          </span>
-                        ) : null}
                       </div>
-                      {s.translationRouteDetail && (
+                      {(s.translationStack ?? "openai") === "openai" && s.translationRouteDetail && (
                         <p className="text-[10px] text-muted-foreground leading-snug mb-1.5 border-l-2 border-border pl-2">
                           {s.translationRouteDetail}
                         </p>
+                      )}
+                      {(s.translationStack ?? "openai") === "libre" && (
+                        <div className="space-y-1.5 mb-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {s.liveHetznerLane != null && s.liveHetznerNodeLabel ? (
+                              <span
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-teal-100 text-teal-900 dark:bg-teal-500/20 dark:text-teal-100"
+                                title={s.liveHetznerBaseUrl ?? "Resolved worker base URL"}
+                              >
+                                {s.liveHetznerNodeLabel} · Core {s.liveHetznerLane}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground italic">
+                                Router: pending (no Hetzner route resolved yet — awaits next MT request or admin pin)
+                              </span>
+                            )}
+                          </div>
+                          {s.translationRouteDetail && (
+                            <p className="text-[10px] text-muted-foreground leading-snug border-l-2 border-border pl-2">
+                              {s.translationRouteDetail}
+                            </p>
+                          )}
+                          <div className="rounded-lg border border-border/80 bg-muted/30 px-2.5 py-2 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                Hetzner core
+                              </span>
+                              <span
+                                className={cn(
+                                  "text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0",
+                                  (s.hetznerCoreRoutingMode ?? "auto") === "manual"
+                                    ? "bg-orange-100 text-orange-900 dark:bg-orange-500/20 dark:text-orange-200"
+                                    : "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300",
+                                )}
+                              >
+                                {(s.hetznerCoreRoutingMode ?? "auto") === "manual" ? "MANUAL OVERRIDE" : "AUTO"}
+                              </span>
+                            </div>
+                            <select
+                              className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
+                              disabled={hetznerOverrideSavingId === s.sessionId}
+                              title="Pins this session to a worker lane for the next MT request. Auto restores sticky + automatic allocation."
+                              value={s.hetznerManualCoreLane != null ? String(s.hetznerManualCoreLane) : "auto"}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                const lane = v === "auto" ? null : Number.parseInt(v, 10);
+                                void setHetznerCoreRoutingOverride(s.sessionId, Number.isFinite(lane) ? lane : null);
+                              }}
+                            >
+                              <option value="auto">Auto</option>
+                              <option value="1">Core1</option>
+                              <option value="2">Core2</option>
+                              <option value="3">Core3</option>
+                              <option value="4">Core4</option>
+                            </select>
+                          </div>
+                        </div>
                       )}
                       {s.email && <p className="text-xs text-muted-foreground mb-1 truncate">{s.email}</p>}
                       {s.langPair && (
@@ -1612,45 +1657,6 @@ export default function Admin() {
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
                         <span>Duration: <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span></span>
                         <span>{formatDistanceToNow(new Date(s.startedAt), { addSuffix: true })}</span>
-                      </div>
-                      <div className="mb-3 rounded-lg border border-border/80 bg-muted/30 px-2.5 py-2 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Hetzner core</span>
-                          <span
-                            className={cn(
-                              "text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0",
-                              (s.hetznerCoreRoutingMode ?? "auto") === "manual"
-                                ? "bg-orange-100 text-orange-900 dark:bg-orange-500/20 dark:text-orange-200"
-                                : "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300",
-                            )}
-                          >
-                            {(s.hetznerCoreRoutingMode ?? "auto") === "manual" ? "MANUAL OVERRIDE" : "AUTO"}
-                          </span>
-                        </div>
-                        <select
-                          className={cn(
-                            "w-full h-8 rounded-md border border-input bg-background px-2 text-xs",
-                            s.translationStack !== "libre" && "opacity-50 cursor-not-allowed",
-                          )}
-                          disabled={s.translationStack !== "libre" || hetznerOverrideSavingId === s.sessionId}
-                          title={
-                            s.translationStack !== "libre"
-                              ? "Hetzner routing applies only when live translation uses the Libre (machine) stack."
-                              : "Pins this session to a worker lane for the next MT request. Auto restores sticky + automatic allocation."
-                          }
-                          value={s.hetznerManualCoreLane != null ? String(s.hetznerManualCoreLane) : "auto"}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            const lane = v === "auto" ? null : Number.parseInt(v, 10);
-                            void setHetznerCoreRoutingOverride(s.sessionId, Number.isFinite(lane) ? lane : null);
-                          }}
-                        >
-                          <option value="auto">Auto</option>
-                          <option value="1">Core1</option>
-                          <option value="2">Core2</option>
-                          <option value="3">Core3</option>
-                          <option value="4">Core4</option>
-                        </select>
                       </div>
                       <Button
                         variant="outline"
