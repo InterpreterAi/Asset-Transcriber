@@ -8,6 +8,44 @@ import {
 } from "@/lib/wrap-ltr-numbers";
 import { readGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
 import { readTerminologyMode } from "@/lib/terminology-mode-storage";
+import {
+  logSttPipelineReportConsole,
+  recordSttSegmentClose,
+  recordSttWsFrame,
+  recordTranslationDispatch,
+  recordTranslationFetchException,
+  recordTranslationLiveDebounceSchedule,
+  recordTranslationUiBlankAfterFetch,
+  resetSttPipelineInstrumentationSession,
+} from "@/hooks/stt-pipeline-instrumentation";
+import type { PrimaryApiTraceExit } from "@/hooks/live-blank-trace";
+import {
+  liveBlankTraceClusterBlank,
+  liveBlankTraceDispatchStart,
+  liveBlankTraceEnabled,
+  liveBlankTraceFetchAttempt,
+  liveBlankTraceFetchPack,
+  liveBlankTraceGetLastWsSnapshot,
+  liveBlankTraceGuard,
+  liveBlankTracePaintAppliedLive,
+  liveBlankTracePaintSuppressed,
+  liveBlankTracePrimaryApiEvent,
+  liveBlankTraceSessionReset,
+  liveBlankTraceUntranslatedCopy,
+  maybeSnippet,
+} from "@/hooks/live-blank-trace";
+import {
+  liveDirectionTraceApiRequest,
+  liveDirectionTraceDispatchResolve,
+  liveDirectionTraceEnabled,
+  liveDirectionTraceFetchResult,
+  liveDirectionTraceNextSeq,
+  liveDirectionTraceSameLanguageFailure,
+  liveDirectionTraceSessionReset,
+  liveDirectionTraceSnippet,
+  liveDirectionTraceTryLock,
+  liveDirectionTraceWsLang,
+} from "@/hooks/live-direction-trace";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -675,6 +713,8 @@ type TranslateApiOptions = {
   /** Client correlation for duplicate-account / segment-boundary diagnostics (OpenAI-path guards); server ignores if unused. */
   segmentId?: string;
   clientSeq?: number;
+  /** Correlate direction traces across dispatch → fetch → paint */
+  directionTraceId?: string;
 };
 
 async function translateViaPrimaryApi(
@@ -701,6 +741,11 @@ async function translateViaPrimaryApi(
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (externalSignal?.aborted) {
+      liveBlankTracePrimaryApiEvent({
+        exit: "abort_before_attempt",
+        attempt,
+        aborted: true,
+      });
       return { outcome: "ok", text: "" };
     }
 
@@ -711,22 +756,37 @@ async function translateViaPrimaryApi(
     }
     try {
       const terminologyMode = readTerminologyMode() === "hybrid" ? "hybrid" : "full";
+      const bodyObj = {
+        text,
+        srcLang:              sourceLang,
+        tgtLang:              targetLang,
+        streamingDelta:       Boolean(options?.streamingDelta),
+        isFinal:              Boolean(options?.isFinal),
+        glossaryStrictMode:   readGlossaryStrictEnabled(),
+        terminologyMode,
+        ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
+        ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
+      };
+      const bodyJson = JSON.stringify(bodyObj);
+      const dirTraceId = options?.directionTraceId;
+      if (dirTraceId) {
+        liveDirectionTraceApiRequest({
+          correlationId:     dirTraceId,
+          srcLang:           sourceLang,
+          tgtLang:           targetLang,
+          streamingDelta:    Boolean(options?.streamingDelta),
+          isFinal:           Boolean(options?.isFinal),
+          apiPayloadCharLen: bodyJson.length,
+          srcTgtMismatch:    matchesLang(sourceLang, targetLang),
+          bodySnippet:       liveDirectionTraceSnippet(text),
+        });
+      }
       const r = await fetch("/api/transcription/translate", {
         method:      "POST",
         headers:     { "Content-Type": "application/json" },
         credentials: "include",
         signal:      controller.signal,
-        body:        JSON.stringify({
-          text,
-          srcLang:        sourceLang,
-          tgtLang:        targetLang,
-          streamingDelta: Boolean(options?.streamingDelta),
-          isFinal:        Boolean(options?.isFinal),
-          glossaryStrictMode: readGlossaryStrictEnabled(),
-          terminologyMode,
-          ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
-          ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
-        }),
+        body:        bodyJson,
       });
       clearTimeout(timeoutId);
       if (r.ok) {
@@ -735,6 +795,30 @@ async function translateViaPrimaryApi(
           appliedGlossaryTerms?: string[];
           translationEngine?: TranslationEngineHint;
         };
+        const rf = d.translated;
+        let exit: PrimaryApiTraceExit = "http_ok_non_empty";
+        let rawTranslatedLen: number | undefined;
+        let trimmedLen = 0;
+        if (rf === undefined) {
+          exit = "http_ok_translated_missing";
+        } else if (rf === null) {
+          exit = "http_ok_translated_nullish_empty";
+          rawTranslatedLen = 0;
+        } else {
+          const rs = String(rf);
+          rawTranslatedLen = rs.length;
+          trimmedLen = rs.trim().length;
+          if (trimmedLen === 0) {
+            exit = rs.length === 0 ? "http_ok_translated_nullish_empty" : "http_ok_translated_whitespace_only";
+          }
+        }
+        liveBlankTracePrimaryApiEvent({
+          exit,
+          attempt,
+          httpStatus: r.status,
+          rawTranslatedLen,
+          trimmedLen,
+        });
         return {
           outcome: "ok",
           text: d.translated?.trim() ?? "",
@@ -752,6 +836,11 @@ async function translateViaPrimaryApi(
           /* ignore */
         }
         if (j?.code && fatal503Codes.has(j.code)) {
+          liveBlankTracePrimaryApiEvent({
+            exit: "http_503_fatal_try_fallback",
+            attempt,
+            httpStatus: 503,
+          });
           return {
             outcome:     "try_fallback",
             userMessage: j.error ??
@@ -762,6 +851,11 @@ async function translateViaPrimaryApi(
         }
         // Never treat 503 as success with empty text.
         if (attempt === MAX_ATTEMPTS) {
+          liveBlankTracePrimaryApiEvent({
+            exit: "http_503_try_fallback_last_attempt",
+            attempt,
+            httpStatus: 503,
+          });
           return {
             outcome:     "try_fallback",
             userMessage:
@@ -779,14 +873,29 @@ async function translateViaPrimaryApi(
           const j403 = JSON.parse(raw403) as { code?: string; error?: string };
           if (j403.code === "DAILY_LIMIT_REACHED") {
             const m = typeof j403.error === "string" && j403.error.trim() ? j403.error.trim() : DAILY_LIMIT_STOP_MESSAGE;
+            liveBlankTracePrimaryApiEvent({
+              exit: "http_403_daily_limit",
+              attempt,
+              httpStatus: 403,
+            });
             return { outcome: "daily_limit", message: m };
           }
           if (j403.code === "TRANSLATION_PLAN_REQUIRED") {
+            liveBlankTracePrimaryApiEvent({
+              exit: "http_403_translation_plan_ok_empty",
+              attempt,
+              httpStatus: 403,
+            });
             return { outcome: "ok", text: "" };
           }
         } catch {
           /* fall through */
         }
+        liveBlankTracePrimaryApiEvent({
+          exit: "http_403_try_fallback",
+          attempt,
+          httpStatus: 403,
+        });
         return {
           outcome:     "try_fallback",
           userMessage: "Session expired or access denied — refresh the page and sign in again.",
@@ -794,6 +903,11 @@ async function translateViaPrimaryApi(
       }
 
       if (r.status === 401) {
+        liveBlankTracePrimaryApiEvent({
+          exit: "http_401_try_fallback",
+          attempt,
+          httpStatus: 401,
+        });
         return {
           outcome:     "try_fallback",
           userMessage: "Session expired or access denied — refresh the page and sign in again.",
@@ -801,22 +915,45 @@ async function translateViaPrimaryApi(
       }
 
       if (r.status >= 400 && r.status < 500 && r.status !== 429 && r.status !== 503) {
+        liveBlankTracePrimaryApiEvent({
+          exit: "http_4xx_silent_empty",
+          attempt,
+          httpStatus: r.status,
+        });
         return { outcome: "ok", text: "" };
       }
 
       if (attempt === MAX_ATTEMPTS) {
+        liveBlankTracePrimaryApiEvent({
+          exit: "http_5xx_try_fallback_last_attempt",
+          attempt,
+          httpStatus: r.status,
+        });
         return {
           outcome:     "try_fallback",
           userMessage:
             "Translation service returned an error — try again. If it persists, check API logs and OpenAI key/billing.",
         };
       }
-    } catch {
+    } catch (e) {
       clearTimeout(timeoutId);
+      const fetchErrorName =
+        e && typeof e === "object" && "name" in e ? String((e as { name?: string }).name ?? "unknown") : "unknown";
       if (externalSignal?.aborted) {
+        liveBlankTracePrimaryApiEvent({
+          exit: "catch_abort_ok_empty",
+          attempt,
+          aborted: true,
+          fetchErrorName,
+        });
         return { outcome: "ok", text: "" };
       }
       if (attempt === MAX_ATTEMPTS) {
+        liveBlankTracePrimaryApiEvent({
+          exit: "catch_try_fallback_network",
+          attempt,
+          fetchErrorName,
+        });
         return {
           outcome:     "try_fallback",
           userMessage:
@@ -826,11 +963,20 @@ async function translateViaPrimaryApi(
     }
     if (attempt < MAX_ATTEMPTS) {
       if (externalSignal?.aborted) {
+        liveBlankTracePrimaryApiEvent({
+          exit: "abort_before_retry_sleep",
+          attempt,
+          aborted: true,
+        });
         return { outcome: "ok", text: "" };
       }
       await new Promise<void>(res => setTimeout(res, 700 * attempt));
     }
   }
+  liveBlankTracePrimaryApiEvent({
+    exit: "exhausted_try_fallback",
+    attempt: MAX_ATTEMPTS,
+  });
   return {
     outcome:     "try_fallback",
     userMessage: "Translation service unavailable.",
@@ -854,6 +1000,32 @@ type FetchTranslationResult = {
   translationEngine?: TranslationEngineHint;
 };
 
+function traceDispatchGuard(
+  traceId: string,
+  phase: "before_fetch_loop" | "after_fetch_before_paint",
+  code: string,
+  snapshot: {
+    mySeq: number;
+    lastAppliedSeq: number;
+    lastShownSeq: number;
+    requestIsFinal: boolean;
+    isFinalDispatch: boolean;
+    aborted?: boolean;
+    translationLocked?: boolean;
+    hardFinalRequested?: boolean;
+    finalizing?: boolean;
+    isClosed?: boolean;
+  },
+): void {
+  if (!liveBlankTraceEnabled() || !traceId) return;
+  liveBlankTraceGuard({
+    traceId,
+    phase,
+    code,
+    ...snapshot,
+  });
+}
+
 async function fetchTranslation(
   text: string,
   sourceLang: string,
@@ -861,7 +1033,47 @@ async function fetchTranslation(
   onTranslationIssue?: (message: string) => void,
   options?: FetchTranslationOptions,
 ): Promise<FetchTranslationResult> {
+  const dirTraceId = options?.directionTraceId;
   const primary = await translateViaPrimaryApi(text, sourceLang, targetLang, options);
+  if (liveDirectionTraceEnabled() && dirTraceId) {
+    const compareSource = options?.fullSegmentForFallback ?? text;
+    const fullLen = options?.fullSegmentForFallback?.length ?? text.length;
+    const pt = primary.outcome === "ok" ? primary.text : "";
+    const trimmed = pt.trim();
+    const looksEcho = primary.outcome === "ok" && looksLikeUntranslatedCopy(compareSource, pt);
+    const srcTgtEqualBug = matchesLang(sourceLang, targetLang);
+    const sameLanguageSuspect = looksEcho || (trimmed.length > 0 && srcTgtEqualBug);
+    const srcSnip = liveDirectionTraceSnippet(compareSource);
+    const trSnip = liveDirectionTraceSnippet(pt);
+    liveDirectionTraceFetchResult({
+      correlationId:             dirTraceId,
+      requestIsFinal:            Boolean(options?.isFinal),
+      useStreamingDelta:         Boolean(options?.streamingDelta),
+      apiTextLen:                text.length,
+      fullTextLen:               fullLen,
+      translatedTrimLen:         trimmed.length,
+      looksLikeUntranslatedEcho: looksEcho,
+      srcTgtEqualBug,
+      sameLanguageSuspect,
+      ...(srcSnip !== undefined ? { sourceSnippet: srcSnip } : {}),
+      ...(trSnip !== undefined ? { translatedSnippet: trSnip } : {}),
+    });
+  }
+  if (liveBlankTraceEnabled()) {
+    let outcome: "ok_text" | "ok_empty" | "daily_limit" | "try_fallback_empty";
+    if (primary.outcome === "ok") {
+      outcome = primary.text.trim().length > 0 ? "ok_text" : "ok_empty";
+    } else if (primary.outcome === "daily_limit") {
+      outcome = "daily_limit";
+    } else {
+      outcome = "try_fallback_empty";
+    }
+    liveBlankTraceFetchPack({
+      outcome,
+      trimmedResponseLen: primary.outcome === "ok" ? primary.text.trim().length : 0,
+      dailyLimit: primary.outcome === "daily_limit",
+    });
+  }
   if (primary.outcome === "ok") {
     const applied = primary.appliedGlossaryTerms ?? [];
     if (applied.length) options?.onGlossaryApplied?.(applied);
@@ -942,7 +1154,7 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-/** Cumulative LIVE-buffer evidence gates — shared by tryLock + dispatchTranslation fallback persist (same spirit as majoritySourceFromFirstWords). */
+/** Cumulative LIVE-buffer evidence gates for {@link tryLockSegmentDirectionFromTokens} (same spirit as majoritySourceFromFirstWords). */
 const DIRECTION_LOCK_MIN_WORDS = 3;
 const DIRECTION_LOCK_MIN_CHARS = 10;
 
@@ -997,6 +1209,73 @@ function looksLikeUntranslatedCopy(source: string, candidate: string): boolean {
   if (s.includes(c) || c.includes(s)) return true;
   const r = Math.max(tokenOverlapRatio(s, c), tokenOverlapRatio(c, s));
   return r >= 0.88;
+}
+
+function buildDirectionHypothesisTags(p: {
+  hardGuardTriggered: boolean;
+  snappedPersistApplied: boolean;
+  persistGatePassed: boolean;
+  majorityHint: string | null;
+  segmentSourceLangBeforePersist: string | null;
+  langParam: string;
+  dispatchLang: string;
+  fetchAborted: boolean;
+}): ("flip" | "late_lock" | "early_lock" | "stale_lock" | "noisy_mixed" | "race")[] {
+  const t: ("flip" | "late_lock" | "early_lock" | "stale_lock" | "noisy_mixed" | "race")[] = [];
+  if (p.hardGuardTriggered) t.push("flip");
+  if (!p.snappedPersistApplied && !p.persistGatePassed && p.majorityHint === null) t.push("late_lock");
+  if (p.snappedPersistApplied) t.push("early_lock");
+  if (
+    p.segmentSourceLangBeforePersist &&
+    !matchesLang(p.segmentSourceLangBeforePersist, p.langParam)
+  ) {
+    t.push("stale_lock");
+  }
+  if (p.majorityHint && !matchesLang(p.majorityHint, p.dispatchLang)) t.push("noisy_mixed");
+  if (p.fetchAborted) t.push("race");
+  return t;
+}
+
+/** Emit once per LIVE dispatch when API text still looks like source (direction or MT echo). */
+function emitLiveDirectionSameLanguageFailure(args: {
+  correlationId: string;
+  segmentId: string;
+  isFinalDispatch: boolean;
+  sourceFullText: string;
+  translatedAfterRetries: string;
+  srcLangSent: string;
+  tgtLangSent: string;
+  detectedLangRef: string;
+  segmentSourceLang: string | null;
+  dispatchLang: string;
+  chosenSource: string;
+  majorityHint: string | null;
+  useStreamingDelta: boolean;
+  requestIsFinal: boolean;
+  paintOutcome: "painted" | "suppressed_blank" | "suppressed_dedupe_empty" | "suppressed_prefer_prev" | "guard_drop" | "unknown";
+  hypothesisTags: ("flip" | "late_lock" | "early_lock" | "stale_lock" | "noisy_mixed" | "race")[];
+}): void {
+  if (!liveDirectionTraceEnabled() || !args.correlationId) return;
+  if (args.isFinalDispatch) return;
+  const tr = args.translatedAfterRetries.trim();
+  if (!tr || !looksLikeUntranslatedCopy(args.sourceFullText, tr)) return;
+  liveDirectionTraceSameLanguageFailure({
+    correlationId: args.correlationId,
+    segmentId: args.segmentId,
+    sourceText: args.sourceFullText,
+    translatedText: tr,
+    srcLangSent: args.srcLangSent,
+    tgtLangSent: args.tgtLangSent,
+    detectedLangRef: args.detectedLangRef,
+    segmentSourceLang: args.segmentSourceLang,
+    dispatchLang: args.dispatchLang,
+    chosenSource: args.chosenSource,
+    majorityHint: args.majorityHint,
+    useStreamingDelta: args.useStreamingDelta,
+    requestIsFinal: args.requestIsFinal,
+    paintOutcome: args.paintOutcome,
+    hypothesisTags: args.hypothesisTags,
+  });
 }
 
 /** Split on closing sentence punctuation (Latin, Arabic, CJK full-width) for paraphrase dedupe. */
@@ -1541,9 +1820,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       ) {
         return;
       }
+      const freshText = liveBufferRef.current.trim();
+      if (freshText.length < 3) return;
+      const langNow = st.segmentSourceLang ?? detectedLangRef.current;
       dispatchTranslationRef.current(
-        p.text.trim(),
-        p.lang,
+        freshText,
+        langNow,
         false,
         { skipOpenAiLiveDebounce: true },
         p.segmentId,
@@ -1678,39 +1960,104 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         : validateLangByScript(sonioxHint, text, pair);
     const vRaw = validateLangByScript(rawCandidate, text, pair);
     const vSon = validateLangByScript(sonioxHint, text, pair);
+    const majorityHint = majoritySourceFromFirstWords(text, sonioxHint, pair);
+    const validatedSonioxForUnique = validateLangByScript(sonioxHint, text, pair);
+    const uniqueFromValidatedSoniox = uniquePairMemberForLang(validatedSonioxForUnique, pair);
+    const uniqueFromRawSoniox = uniquePairMemberForLang(sonioxHint, pair);
     const chosenSource =
-      majoritySourceFromFirstWords(text, sonioxHint, pair) ??
-      uniquePairMemberForLang(validateLangByScript(sonioxHint, text, pair), pair) ??
-      uniquePairMemberForLang(sonioxHint, pair) ??
+      majorityHint ??
+      uniqueFromValidatedSoniox ??
+      uniqueFromRawSoniox ??
       pair.a;
     let dispatchLang = state.segmentSourceLang ?? chosenSource;
 
-    // Fallback persist: same cumulative evidence + snap as tryLock — avoids ultra-early poison locks.
-    if (!state.translationLocked && state.segmentSourceLang === null) {
-      const evidenceText = collapseWs(liveBufferRef.current);
-      if (
-        countWords(evidenceText) >= DIRECTION_LOCK_MIN_WORDS &&
-        evidenceText.length >= DIRECTION_LOCK_MIN_CHARS
-      ) {
-        const snappedPersist = snapSourceLanguageToPair(dispatchLang, sonioxHint, evidenceText, pair);
-        state.segmentSourceLang = snappedPersist;
-        dispatchLang = snappedPersist;
-      }
-    }
+    const segmentSourceLangBeforePersist = state.segmentSourceLang;
+    const evidenceTextForPersist = collapseWs(liveBufferRef.current);
+    const evidenceWordsAtPersist = countWords(evidenceTextForPersist);
+    const evidenceCharsAtPersist = evidenceTextForPersist.length;
+    const persistGatePassed =
+      !state.translationLocked &&
+      state.segmentSourceLang === null &&
+      evidenceWordsAtPersist >= DIRECTION_LOCK_MIN_WORDS &&
+      evidenceCharsAtPersist >= DIRECTION_LOCK_MIN_CHARS;
+    const snappedPersistApplied = false;
+    const snappedPersistValue: string | null = null;
 
-    let myTargetLang = targetOppositeInPair(dispatchLang, pair);
+    const targetOppositeBeforeHardGuard = targetOppositeInPair(dispatchLang, pair);
+    let myTargetLang = targetOppositeBeforeHardGuard;
     if (!state.translationLocked) {
       state.segmentTargetLang = myTargetLang;
     }
-    const { transTextEl } = state;
 
-    if (matchesLang(dispatchLang, myTargetLang)) {
+    const hardGuardTriggered = matchesLang(dispatchLang, myTargetLang);
+    if (hardGuardTriggered) {
       // Hard guard: translation target must always be the opposite side.
       myTargetLang = matchesLang(dispatchLang, pair.a) ? pair.b : pair.a;
       if (!state.translationLocked) {
         state.segmentTargetLang = myTargetLang;
       }
     }
+
+    const directionCorrelationId = liveDirectionTraceEnabled()
+      ? `dir-${requestSegmentId}-${liveDirectionTraceNextSeq()}`
+      : "";
+
+    const emitDirectionResolve = (phase: "openai_debounce_schedule" | "api_bound") => {
+      if (!directionCorrelationId) return;
+      liveDirectionTraceDispatchResolve({
+        seq: liveDirectionTraceNextSeq(),
+        phase,
+        correlationId: directionCorrelationId,
+        segmentId: requestSegmentId,
+        pairA: pair.a,
+        pairB: pair.b,
+        langParam: sonioxHint,
+        detectedLangRef: detectedLangRef.current,
+        rawCandidate,
+        vRaw,
+        vSon,
+        majorityHint,
+        uniqueFromValidatedSoniox,
+        uniqueFromRawSoniox,
+        chosenSource,
+        segmentSourceLangBeforePersist,
+        persistGatePassed,
+        evidenceWordsAtPersist,
+        evidenceCharsAtPersist,
+        snappedPersistApplied,
+        snappedPersistValue,
+        dispatchLang,
+        targetOppositeBeforeHardGuard,
+        hardGuardTriggered,
+        myTargetLang,
+        dispatchWords: words,
+        dispatchChars: chars,
+        liveBufferLen: liveBufferRef.current.length,
+        translationLocked: state.translationLocked,
+        segmentSourceLangAfter: state.segmentSourceLang,
+        segmentTargetLangAfter: state.segmentTargetLang,
+        isFinal,
+        skipOpenAiLiveDebounce: options?.skipOpenAiLiveDebounce,
+      });
+    };
+
+    const baseDirectionHypothesisTags = buildDirectionHypothesisTags({
+      hardGuardTriggered,
+      snappedPersistApplied,
+      persistGatePassed,
+      majorityHint,
+      segmentSourceLangBeforePersist,
+      langParam: sonioxHint,
+      dispatchLang,
+      fetchAborted: false,
+    });
+
+    const dirFailureTags = (abortedInFlight: boolean) =>
+      abortedInFlight && !baseDirectionHypothesisTags.includes("race")
+        ? [...baseDirectionHypothesisTags, "race" as const]
+        : baseDirectionHypothesisTags;
+
+    const { transTextEl } = state;
 
     const reason: TranslationTriggerReason = isFinal ? "segment_finalize" : "early_hint";
     const estimatedTokens = Math.max(1, Math.round(chars * EST_TOKENS_PER_CHAR));
@@ -1755,6 +2102,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       !isFinal &&
       !options?.skipOpenAiLiveDebounce
     ) {
+      recordTranslationLiveDebounceSchedule(text);
       openaiLiveDebouncePayloadRef.current = { text, lang, segmentId: requestSegmentId };
       if (openaiLiveDebounceTimerRef.current !== null) {
         clearTimeout(openaiLiveDebounceTimerRef.current);
@@ -1769,16 +2117,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!stNow || stNow.segmentId !== p.segmentId) return;
         if (stNow.translationLocked || stNow.finalizing) return;
         if (segmentBoundaryGuardsRef.current && stNow.isClosed) return;
+        const freshText = liveBufferRef.current.trim();
+        if (freshText.length < 3) return;
+        const langNow = stNow.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslationRef.current(
-          p.text,
-          p.lang,
+          freshText,
+          langNow,
           false,
           { skipOpenAiLiveDebounce: true },
           p.segmentId,
         );
       }, OPENAI_LIVE_DEBOUNCE_MS);
+      emitDirectionResolve("openai_debounce_schedule");
       return;
     }
+
+    recordTranslationDispatch({
+      sourceText: text,
+      isFinal,
+    });
 
     let requestIsFinal = isFinal;
     let apiText: string;
@@ -1863,24 +2220,118 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     state.seq += 1;
     const mySeq = state.seq;
 
+    const traceId = liveBlankTraceEnabled()
+      ? `${requestSegmentId}:seq${mySeq}:${Date.now()}`
+      : "";
+    const liveBufAtDispatchStart = liveBufferRef.current.length;
+    const cellBeforeSnapshot = (state.transTextEl.textContent ?? "").trim();
+    const cellHadSnapshot = translationCellLooksFilled(state.transTextEl);
+    const wsSnapDispatch = liveBlankTraceGetLastWsSnapshot();
+
+    if (traceId) {
+      const snApi = maybeSnippet(apiText);
+      const snFull = maybeSnippet(text);
+      liveBlankTraceDispatchStart({
+        traceId,
+        segmentId: requestSegmentId,
+        mySeq,
+        isFinalDispatch: isFinal,
+        requestIsFinal,
+        useStreamingDelta,
+        dispatchWords: words,
+        dispatchCharsFullText: text.length,
+        dispatchCharsApiPayload: apiText.length,
+        dispatchLang,
+        myTargetLang,
+        segmentSourceLang: state.segmentSourceLang,
+        detectedLangRef: detectedLangRef.current,
+        translationCellCharsBefore: cellBeforeSnapshot.length,
+        translationCellHadNonPlaceholderContent: cellHadSnapshot,
+        liveBufferLenAtDispatch: liveBufAtDispatchStart,
+        wsSnapshot: wsSnapDispatch,
+        ...(snApi !== undefined ? { apiPayloadSnippet: snApi } : {}),
+        ...(snFull !== undefined ? { fullSourceSnippet: snFull } : {}),
+      });
+    }
+
+    emitDirectionResolve("api_bound");
+
     void (async () => {
       try {
+        const guardSnap = () => ({
+          mySeq,
+          lastAppliedSeq: state.lastAppliedSeq,
+          lastShownSeq: state.lastShownSeq,
+          requestIsFinal,
+          isFinalDispatch: isFinal,
+          aborted: liveAbortForThisRequest?.signal.aborted ?? false,
+          translationLocked: state.translationLocked,
+          hardFinalRequested: state.hardFinalRequested,
+          finalizing: state.finalizing,
+          isClosed: state.isClosed,
+        });
         const maxFetchAttempts = requestIsFinal ? 3 : 1;
         let translated = "";
         let translationEngineHint: TranslationEngineHint | undefined;
+        const emitSuspectGuardDrop = () => {
+          const tr = translated.trim();
+          if (!tr || !looksLikeUntranslatedCopy(text, tr)) return;
+          emitLiveDirectionSameLanguageFailure({
+            correlationId:       directionCorrelationId,
+            segmentId:           requestSegmentId,
+            isFinalDispatch:     isFinal,
+            sourceFullText:      text,
+            translatedAfterRetries: tr,
+            srcLangSent:         dispatchLang,
+            tgtLangSent:         myTargetLang,
+            detectedLangRef:     detectedLangRef.current,
+            segmentSourceLang:   state.segmentSourceLang,
+            dispatchLang,
+            chosenSource,
+            majorityHint,
+            useStreamingDelta,
+            requestIsFinal,
+            paintOutcome:        "guard_drop",
+            hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
+          });
+        };
         for (let fetchAttempt = 0; fetchAttempt < maxFetchAttempts; fetchAttempt++) {
           if (fetchAttempt > 0) {
             await new Promise<void>(res => setTimeout(res, 400 * fetchAttempt));
           }
-          if (requestSegmentId !== state.segmentId) return;
-          if (!transTextEl.isConnected) return;
-          if (state.translationLocked) return;
-          if (!requestIsFinal && state.hardFinalRequested) return;
-          if (!isFinal && state.finalizing) return;
-          if (liveAbortForThisRequest?.signal.aborted) return;
+          if (requestSegmentId !== state.segmentId) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "segment_mismatch", guardSnap());
+            return;
+          }
+          if (!transTextEl.isConnected) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "dom_detached", guardSnap());
+            return;
+          }
+          if (state.translationLocked) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "translation_locked", guardSnap());
+            return;
+          }
+          if (!requestIsFinal && state.hardFinalRequested) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "hard_final_supersedes_live", guardSnap());
+            return;
+          }
+          if (!isFinal && state.finalizing) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "finalizing_blocks_live", guardSnap());
+            return;
+          }
+          if (liveAbortForThisRequest?.signal.aborted) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "aborted_before_fetch", guardSnap());
+            return;
+          }
           if (segmentBoundaryGuardsRef.current) {
-            if (state.isClosed && !requestIsFinal) return;
-            if (!requestIsFinal && mySeq < state.lastAppliedSeq) return;
+            if (state.isClosed && !requestIsFinal) {
+              traceDispatchGuard(traceId, "before_fetch_loop", "segment_closed_live_blocked", guardSnap());
+              return;
+            }
+            if (!requestIsFinal && mySeq < state.lastAppliedSeq) {
+              traceDispatchGuard(traceId, "before_fetch_loop", "stale_seq_live_superseded", guardSnap());
+              return;
+            }
           }
 
           const tr = await fetchTranslation(
@@ -1894,24 +2345,44 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               isFinal: requestIsFinal,
               signal:   liveAbortForThisRequest?.signal,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(directionCorrelationId ? { directionTraceId: directionCorrelationId } : {}),
               ...(segmentBoundaryGuardsRef.current
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
             },
           );
           if (tr.dailyLimitReached) {
+            traceDispatchGuard(traceId, "before_fetch_loop", "daily_limit_from_primary_response", guardSnap());
             dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
             return;
           }
           translated = tr.text;
           translationEngineHint = tr.translationEngine ?? translationEngineHint;
+          if (traceId) {
+            liveBlankTraceFetchAttempt({
+              traceId,
+              fetchAttempt,
+              requestIsFinal,
+              trimmedLen: tr.text.trim().length,
+              brokeRetryLoop: Boolean(tr.text.trim()),
+            });
+          }
           if (translated?.trim()) break;
         }
         if (!translated?.trim() && isFinal && text.trim().length >= 3) {
           await new Promise<void>(res => setTimeout(res, 450));
-          if (requestSegmentId !== state.segmentId) return;
-          if (!transTextEl.isConnected) return;
-          if (state.translationLocked) return;
+          if (requestSegmentId !== state.segmentId) {
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "segment_mismatch_before_final_retry", guardSnap());
+            return;
+          }
+          if (!transTextEl.isConnected) {
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "dom_detached_before_final_retry", guardSnap());
+            return;
+          }
+          if (state.translationLocked) {
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "translation_locked_before_final_retry", guardSnap());
+            return;
+          }
           const trRetry = await fetchTranslation(
             text,
             dispatchLang,
@@ -1921,12 +2392,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               streamingDelta: false,
               isFinal: true,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(directionCorrelationId ? { directionTraceId: directionCorrelationId } : {}),
               ...(segmentBoundaryGuardsRef.current
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
             },
           );
           if (trRetry.dailyLimitReached) {
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "daily_limit_final_retry_response", guardSnap());
             dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
             return;
           }
@@ -1934,6 +2407,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           translationEngineHint = trRetry.translationEngine ?? translationEngineHint;
         }
         if (translated?.trim() && looksLikeUntranslatedCopy(text, translated)) {
+          if (traceId) {
+            liveBlankTraceUntranslatedCopy({ traceId, retriedOpposite: false });
+          }
           const trOppRetry = await fetchTranslation(
             text,
             dispatchLang,
@@ -1944,31 +2420,122 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               isFinal: requestIsFinal,
               signal: liveAbortForThisRequest?.signal,
               onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(directionCorrelationId ? { directionTraceId: directionCorrelationId } : {}),
               ...(segmentBoundaryGuardsRef.current
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
             },
           );
           if (trOppRetry.dailyLimitReached) {
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "daily_limit_opposite_retry", guardSnap());
             dailyLimitShutdownRef.current(trOppRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
             return;
           }
           if (trOppRetry.text?.trim() && !looksLikeUntranslatedCopy(text, trOppRetry.text)) {
             translated = trOppRetry.text;
             translationEngineHint = trOppRetry.translationEngine ?? translationEngineHint;
+            if (traceId) {
+              liveBlankTraceUntranslatedCopy({
+                traceId,
+                retriedOpposite: true,
+                retryTrimmedLen: trOppRetry.text.trim().length,
+              });
+            }
           }
         }
-        if (requestSegmentId !== state.segmentId) return;
+        if (requestSegmentId !== state.segmentId) {
+          emitSuspectGuardDrop();
+          traceDispatchGuard(traceId, "after_fetch_before_paint", "segment_mismatch_post_processing", guardSnap());
+          return;
+        }
 
-        if (state.translationLocked) return;
-        if (!requestIsFinal && state.hardFinalRequested) return;
-        if (!isFinal && state.finalizing) return;
+        if (state.translationLocked) {
+          emitSuspectGuardDrop();
+          traceDispatchGuard(traceId, "after_fetch_before_paint", "translation_locked_post_processing", guardSnap());
+          return;
+        }
+        if (!requestIsFinal && state.hardFinalRequested) {
+          emitSuspectGuardDrop();
+          traceDispatchGuard(traceId, "after_fetch_before_paint", "hard_final_race_post_processing", guardSnap());
+          return;
+        }
+        if (!isFinal && state.finalizing) {
+          emitSuspectGuardDrop();
+          traceDispatchGuard(traceId, "after_fetch_before_paint", "finalizing_race_post_processing", guardSnap());
+          return;
+        }
         if (segmentBoundaryGuardsRef.current) {
-          if (state.isClosed && !requestIsFinal) return;
-          if (mySeq < state.lastAppliedSeq) return;
+          if (state.isClosed && !requestIsFinal) {
+            emitSuspectGuardDrop();
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "segment_closed_post_processing", guardSnap());
+            return;
+          }
+          if (mySeq < state.lastAppliedSeq) {
+            emitSuspectGuardDrop();
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "stale_seq_post_processing", guardSnap());
+            return;
+          }
         }
 
         if (!translated?.trim()) {
+          recordTranslationUiBlankAfterFetch({
+            lane: requestIsFinal ? "final" : "live",
+            sourceChars: text.length,
+          });
+          if (traceId) {
+            liveBlankTracePaintSuppressed({
+              traceId,
+              code: "blank_after_fetch_no_paint",
+              requestIsFinal,
+              useStreamingDelta,
+              translatedTrimmedLen: 0,
+            });
+          }
+          if (traceId && !requestIsFinal) {
+            const ws = liveBlankTraceGetLastWsSnapshot();
+            const hyp: ("upstream_ws"|"api_empty"|"client_guard"|"race")[] = [];
+            if (
+              ws.multiEffSpeakerFrame ||
+              ws.multiLangTagFrame ||
+              ws.nfFullReplace ||
+              ws.hypothesisShrink ||
+              ws.langFlipThisMsg
+            ) {
+              hyp.push("upstream_ws");
+            }
+            hyp.push("api_empty");
+            if (liveAbortForThisRequest?.signal.aborted) hyp.push("race");
+            liveBlankTraceClusterBlank({
+              traceId,
+              hypothesis: hyp,
+              summary: {
+                requestIsFinal,
+                isFinalDispatch: isFinal,
+                useStreamingDelta,
+                streamingDeltaRequest: useStreamingDelta && !requestIsFinal,
+                dispatchWords: words,
+                apiPayloadChars: apiText.length,
+                fullSourceChars: text.length,
+                cellHadContentAtDispatch: cellHadSnapshot,
+                cellCharsAtDispatch: cellBeforeSnapshot.length,
+                abortedInFlight: liveAbortForThisRequest?.signal.aborted ?? false,
+                liveBufferDeltaSinceDispatch: liveBufferRef.current.length - liveBufAtDispatchStart,
+                wsLagMs: ws.atMs ? Date.now() - ws.atMs : null,
+                multiEffLastWs: ws.multiEffSpeakerFrame,
+                multiLangLastWs: ws.multiLangTagFrame,
+                nfReplaceLastWs: ws.nfFullReplace,
+                shrinkLastWs: ws.hypothesisShrink,
+                langFlipLastWs: ws.langFlipThisMsg,
+                mySeq,
+                lastAppliedSeq: state.lastAppliedSeq,
+                clusterLiveBlankAfterCellHadContent: cellHadSnapshot && !requestIsFinal,
+                clientLikelyCauseHint:
+                  liveAbortForThisRequest?.signal.aborted
+                    ? "D_race_abort"
+                    : "B_api_empty_or_try_fallback_chain_see_primary_api_ring",
+              },
+            });
+          }
           return;
         }
 
@@ -2014,8 +2581,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             onAdminSnapshotBuffersUpdatedRef.current?.();
           }
 
-          if (mySeq <= state.lastShownSeq) return;
-          if (!transTextEl.isConnected) return;
+          if (mySeq <= state.lastShownSeq) {
+            emitSuspectGuardDrop();
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "superseded_seq_final_paint", guardSnap());
+            return;
+          }
+          if (!transTextEl.isConnected) {
+            emitSuspectGuardDrop();
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "dom_detached_final_paint", guardSnap());
+            return;
+          }
 
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
@@ -2032,14 +2607,50 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             state.translationLocked = true;
           }
         } else {
-          if (mySeq <= state.lastShownSeq) return;
-          if (!transTextEl.isConnected) return;
+          if (mySeq <= state.lastShownSeq) {
+            emitSuspectGuardDrop();
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "superseded_seq_live_paint", guardSnap());
+            return;
+          }
+          if (!transTextEl.isConnected) {
+            emitSuspectGuardDrop();
+            traceDispatchGuard(traceId, "after_fetch_before_paint", "dom_detached_live_paint", guardSnap());
+            return;
+          }
           if (useStreamingDelta) {
             const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
             state.lastShownSeq = mySeq;
             state.lastShownLen = merged.length;
             if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
             applyTranslationTypography(transTextEl, merged);
+            if (looksLikeUntranslatedCopy(text, merged)) {
+              emitLiveDirectionSameLanguageFailure({
+                correlationId:       directionCorrelationId,
+                segmentId:           requestSegmentId,
+                isFinalDispatch:     isFinal,
+                sourceFullText:      text,
+                translatedAfterRetries: merged,
+                srcLangSent:         dispatchLang,
+                tgtLangSent:         myTargetLang,
+                detectedLangRef:     detectedLangRef.current,
+                segmentSourceLang:   state.segmentSourceLang,
+                dispatchLang,
+                chosenSource,
+                majorityHint,
+                useStreamingDelta,
+                requestIsFinal,
+                paintOutcome:        "painted",
+                hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
+              });
+            }
+            if (traceId) {
+              liveBlankTracePaintAppliedLive({
+                traceId,
+                useStreamingDelta: true,
+                mergedLen: merged.length,
+                chosenLen: merged.length,
+              });
+            }
             state.pendingDisplayTranslation = "";
             const committed = state.streamCommittedSource.trim();
             state.streamCommittedSource = committed ? `${committed} ${text}` : text;
@@ -2048,18 +2659,89 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           } else {
             const out = dedupeConsecutiveTranslationTokens(translated.trim());
             if (!out.trim()) {
+              if (
+                translated.trim().length > 0 &&
+                looksLikeUntranslatedCopy(text, translated.trim())
+              ) {
+                emitLiveDirectionSameLanguageFailure({
+                  correlationId:       directionCorrelationId,
+                  segmentId:           requestSegmentId,
+                  isFinalDispatch:     isFinal,
+                  sourceFullText:      text,
+                  translatedAfterRetries: translated.trim(),
+                  srcLangSent:         dispatchLang,
+                  tgtLangSent:         myTargetLang,
+                  detectedLangRef:     detectedLangRef.current,
+                  segmentSourceLang:   state.segmentSourceLang,
+                  dispatchLang,
+                  chosenSource,
+                  majorityHint,
+                  useStreamingDelta,
+                  requestIsFinal,
+                  paintOutcome:        "suppressed_dedupe_empty",
+                  hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
+                });
+              }
+              if (traceId) {
+                liveBlankTracePaintSuppressed({
+                  traceId,
+                  code: "dedupe_live_empty",
+                  requestIsFinal,
+                  useStreamingDelta,
+                  translatedTrimmedLen: translated.trim().length,
+                });
+              }
               return;
             }
             const prevShown = (transTextEl.textContent ?? "").trim();
             const srcNow = collapseWs(text);
             const srcCommitted = collapseWs(state.streamCommittedSource);
-            const chosen = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted)
-              ? prevShown
-              : out;
+            const preferPrev = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted);
+            const chosen = preferPrev ? prevShown : out;
+            if (looksLikeUntranslatedCopy(text, out)) {
+              emitLiveDirectionSameLanguageFailure({
+                correlationId:       directionCorrelationId,
+                segmentId:           requestSegmentId,
+                isFinalDispatch:     isFinal,
+                sourceFullText:      text,
+                translatedAfterRetries: out,
+                srcLangSent:         dispatchLang,
+                tgtLangSent:         myTargetLang,
+                detectedLangRef:     detectedLangRef.current,
+                segmentSourceLang:   state.segmentSourceLang,
+                dispatchLang,
+                chosenSource,
+                majorityHint,
+                useStreamingDelta,
+                requestIsFinal,
+                paintOutcome:        preferPrev ? "suppressed_prefer_prev" : "painted",
+                hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
+              });
+            }
+            if (traceId && preferPrev && prevShown.length > 0 && out.trim().length > 0) {
+              liveBlankTracePaintSuppressed({
+                traceId,
+                code: "prefer_previous_live_kept_shorter_offered",
+                requestIsFinal,
+                useStreamingDelta,
+                translatedTrimmedLen: translated.trim().length,
+                chosenWouldBeLen: out.trim().length,
+                prevShownLen: prevShown.length,
+                preferPrev: true,
+              });
+            }
             state.lastShownSeq = mySeq;
             state.lastShownLen = chosen.length;
             if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
             applyTranslationTypography(transTextEl, chosen);
+            if (traceId) {
+              liveBlankTracePaintAppliedLive({
+                traceId,
+                useStreamingDelta: false,
+                mergedLen: chosen.length,
+                chosenLen: chosen.length,
+              });
+            }
             state.pendingDisplayTranslation = "";
             state.streamCommittedSource = text;
             state.needsFullFinalTranslation = false;
@@ -2096,6 +2778,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         scrollPanel();
       } catch {
+        recordTranslationFetchException();
         /* HIPAA — never log speech context */
       } finally {
         if (
@@ -2314,6 +2997,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
+    recordSttSegmentClose(closeKind);
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
@@ -2463,6 +3147,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       `estimated_cost_per_hour_usd=${estimatedHourlyCost.toFixed(4)}`,
       `calls_per_segment=${perSegment || "none"}`,
     );
+    logSttPipelineReportConsole();
     translationDiagRef.current = {
       callCount: 0,
       estimatedTokensTotal: 0,
@@ -2526,6 +3211,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const snapped = snapSourceLanguageToPair(validated, first.language, evidenceText, pair);
     st.segmentSourceLang = snapped;
     st.segmentTargetLang = targetOppositeInPair(snapped, pair);
+    if (liveDirectionTraceEnabled()) {
+      liveDirectionTraceTryLock({
+        seq: liveDirectionTraceNextSeq(),
+        segmentId: st.segmentId,
+        evidenceWords: countWords(evidenceText),
+        evidenceChars: evidenceText.length,
+        segmentSourceLang: snapped,
+        segmentTargetLang: st.segmentTargetLang,
+        firstTokenLang: String(first.language),
+      });
+    }
   }, []);
 
   // ── buildWs ───────────────────────────────────────────────────────────────
@@ -2753,7 +3449,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           allTokenText,
           langPairRef.current,
         );
+        const prevDetected = detectedLangRef.current;
         detectedLangRef.current = validatedLang;
+        if (liveDirectionTraceEnabled() && prevDetected !== validatedLang) {
+          liveDirectionTraceWsLang({
+            seq: liveDirectionTraceNextSeq(),
+            segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+            sonioxTokenLang: String(langToken.language),
+            validatedLang,
+            prevDetectedLangRef: prevDetected,
+          });
+        }
       }
 
       scheduleFinalTextRenderFlush();
@@ -2781,6 +3487,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
       const nfEl = activeBubbleNFRef.current;
+      let nfFullReplaceThisMsg = false;
       if (nfText) {
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
@@ -2793,6 +3500,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             stNf.lastNfRawText = nfText;
           } else {
             // Revised hypothesis (not a strict extension of the last NF string).
+            nfFullReplaceThisMsg = true;
             nfEl.textContent = nfText;
             stNf.lastNfRawText = nfText;
           }
@@ -2817,6 +3525,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
         }
       }
+
+      const joinedHypothesisFromTokens = tokens
+        .filter(t => !isSonioxEndpointToken(t))
+        .map(t => t.text)
+        .join("");
+      recordSttWsFrame({
+        tokens,
+        effSpk,
+        joinedHypothesisFromTokens,
+        detectedLangNow: detectedLangRef.current,
+        liveBufferLen: liveBufferRef.current.length,
+        nfFullReplace: nfFullReplaceThisMsg,
+      });
 
       tryLockSegmentDirectionFromTokens(tokens);
 
@@ -2949,6 +3670,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       detectedLangRef.current        = "en";
       resetSpeakerMap();
       pcmBacklogRef.current          = [];
+
+      resetSttPipelineInstrumentationSession();
+      liveBlankTraceSessionReset();
+      liveDirectionTraceSessionReset();
 
       // Run in parallel for lower latency; if one fails, still await the session
       // promise in `catch` so we can close a DB row that may have been created first.
