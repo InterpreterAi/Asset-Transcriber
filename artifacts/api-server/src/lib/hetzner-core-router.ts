@@ -66,6 +66,17 @@ function computeNumSlots(): 2 | 4 {
 
 const NUM_SLOTS = computeNumSlots();
 
+/**
+ * Slot indices for paid exclusive claims (index i → lane i+1).
+ * With four lanes, default CORE layout is CORE1/CORE2 on host A and CORE3/CORE4 on host B.
+ * Filling 0→1→2→3 concentrates first two paid on host A; instead fill **1, 3, 4, 2** (lanes)
+ * so the second paid lands on host B :5001 before host A :5002.
+ */
+function paidExclusiveSlotIndices(): readonly number[] {
+  if (NUM_SLOTS === 4) return [0, 2, 3, 1];
+  return [0, 1];
+}
+
 function laneIndex(lane: CoreLane): number {
   return lane - 1;
 }
@@ -97,14 +108,21 @@ function clearTrialsFromSlot(idx: number): void {
 
 /** First NUM_SLOTS paid sessions claim empty workers; further paid share CORE1 (overflow). */
 function allocatePaid(sessionId: number): CoreRoute {
-  for (let i = 0; i < NUM_SLOTS; i++) {
-    if (slotPaidOwner[i] === null) {
-      clearTrialsFromSlot(i);
-      slotPaidOwner[i] = sessionId;
-      const lane = (i + 1) as CoreLane;
+  for (const idx of paidExclusiveSlotIndices()) {
+    if (slotPaidOwner[idx] === null) {
+      clearTrialsFromSlot(idx);
+      slotPaidOwner[idx] = sessionId;
+      const lane = (idx + 1) as CoreLane;
       sessionToLane.set(sessionId, lane);
       logger.info(
-        { sessionId, lane, core: `CORE${i + 1}`, exclusive: true, numSlots: NUM_SLOTS },
+        {
+          sessionId,
+          lane,
+          slotIndex: idx,
+          baseUrl: laneToBase[lane],
+          exclusive: true,
+          numSlots: NUM_SLOTS,
+        },
         "Hetzner core router: paid claimed exclusive worker",
       );
       return { lane, baseUrl: laneToBase[lane] };
@@ -230,10 +248,11 @@ export function logHetznerCoreRouterStartupHint(): void {
       fourLaneRouterEnv: fourLaneRequested,
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
+      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
       semantics:
         NUM_SLOTS === 4
-          ? "4 lanes: paid claims exclusive CORE1–CORE4 first-come; overflow paid share CORE1; trials only on idle cores; rollback unset HETZNER_FOUR_LANE_ROUTER"
-          : "2 lanes: paid claims exclusive CORE1/CORE2 first-come; overflow paid share CORE1; trials only on idle cores (no trial when both paid); evict trials when paid claims",
+          ? "4 lanes: paid exclusives fill lanes 1→3→4→2 (spread hosts before CORE2); overflow paid share CORE1; trials idle slots only; rollback unset HETZNER_FOUR_LANE_ROUTER"
+          : "2 lanes: paid claims exclusive CORE1/CORE2 in order; overflow paid share CORE1; trials only on idle cores; evict trials when paid claims",
     },
     USE_LEGACY_EMERGENCY
       ? "Hetzner core router: LEGACY SINGLE STACK (HETZNER_USE_LEGACY_SINGLE_STACK=1)"

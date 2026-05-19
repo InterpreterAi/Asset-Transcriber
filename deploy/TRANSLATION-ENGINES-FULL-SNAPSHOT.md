@@ -103,8 +103,9 @@ Note: **`platinum-libre`** users normally **translate on OpenAI** (`planUsesMach
 
 1. **Sticky lane** in `sessionToLane` if still valid; else invalidate and re-allocate.
 2. **Paid (`isPaidMachinePlanType`):** `allocatePaid`
-   - First **`NUM_SLOTS`** distinct paid sessions each claim **one empty slot** (lanes 1…`NUM_SLOTS`); claiming **clears trials** from that slot.
-   - If **all** slots have an exclusive paid owner, **next paid** → **overflow on CORE1** (same base URL as lane 1; sticky overflow rule unchanged).
+   - **Four lanes:** exclusive slots are claimed in lane order **`1 → 3 → 4 → 2`** (slot indices `0,2,3,1`) so the **second** paid typically lands on **`HETZNER_CORE3_TRANSLATE_BASE`** (second physical host :5001) before **`CORE2`** on the first host — spreads CPU across hosts when `CORE1/CORE2` share host A and `CORE3/CORE4` share host B.
+   - **Two lanes:** claim lanes **1 then 2** in order (unchanged).
+   - If **all** exclusive slots are filled, **next paid** → **overflow on CORE1** (lane 1).
 3. **Trial (not paid by router definition):** `allocateTrial`
    - Use the **first** slot where `slotPaidOwner[i] === null` (idle core).
    - **If every slot has an exclusive paid owner:** **no** trial placement; throws **`HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID`** (logged as warning). Trial MT then fails before HTTP; `transcription.ts` MT catch returns **503** `LIBRETRANSLATE_FAILED` like other Hetzner errors.

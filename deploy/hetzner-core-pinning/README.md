@@ -54,7 +54,7 @@ Or set `HETZNER_WORKER_HOST` + `HETZNER_WORKER_SCHEME` for the same defaults as 
 
 ## API routing semantics (`hetzner-core-router.ts`)
 
-See `deploy/TRANSLATION-ENGINES-FULL-SNAPSHOT.md` §4. Default **two** exclusive slots (lanes 1–2); with **`HETZNER_FOUR_LANE_ROUTER=1`** and CORE3/CORE4 set → **four** slots. Paid priority, trial-only-idle-slots, and overflow-paid-on-CORE1 unchanged.
+See `deploy/TRANSLATION-ENGINES-FULL-SNAPSHOT.md` §4. With four lanes, paid exclusives fill **lanes 1→3→4→2** so the second paid uses CORE3 (second host :5001) before CORE2 on the first host.
 
 ## Verify
 
