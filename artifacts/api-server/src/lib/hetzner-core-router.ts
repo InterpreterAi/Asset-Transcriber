@@ -82,6 +82,45 @@ function hetznerRouterAllocDebugEnabled(): boolean {
   return (process.env.HETZNER_ROUTER_ALLOC_DEBUG ?? "").trim() === "1";
 }
 
+export type HetznerRouteSelectOpts = {
+  /** Pass through from authenticated translate request for `hetzner_route_selected` logs. */
+  userEmail?: string | null;
+};
+
+function urlHostPortKey(baseUrl: string): string | null {
+  try {
+    const u = new URL(baseUrl);
+    return u.host;
+  } catch {
+    return null;
+  }
+}
+
+/** Short admin label: primary worker host → HZ-1, secondary (CORE3 host) → HZ-2, else host snippet. */
+export function hetznerWorkerHostGroupLabel(baseUrl: string): string {
+  const h = urlHostPortKey(baseUrl);
+  if (!h) return "HZ";
+  const primary = urlHostPortKey(CORE1_BASE);
+  const secondary = urlHostPortKey(CORE3_BASE);
+  if (primary && h === primary) return "HZ-1";
+  if (secondary && h === secondary) return "HZ-2";
+  return h.length > 28 ? `${h.slice(0, 28)}…` : h;
+}
+
+/** Last concrete lane/base chosen for a session (manual, sticky, or allocate). Cleared on unregister. */
+const lastResolvedHetznerRouteBySession = new Map<number, { lane: CoreLane; baseUrl: string }>();
+
+export function getLiveAdminHetznerRoute(sessionId: number): {
+  lane: CoreLane;
+  baseUrl: string;
+  nodeLabel: string;
+} | null {
+  if (!Number.isFinite(sessionId) || sessionId <= 0) return null;
+  const r = lastResolvedHetznerRouteBySession.get(sessionId);
+  if (!r) return null;
+  return { lane: r.lane, baseUrl: r.baseUrl, nodeLabel: hetznerWorkerHostGroupLabel(r.baseUrl) };
+}
+
 function emitHetznerRouterSelectDebug(
   planType: string,
   sessionId: number | null,
@@ -104,26 +143,65 @@ function emitHetznerRouterSelectDebug(
       core3EnvDefined: Boolean((process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "").trim()),
       core4EnvDefined: Boolean((process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim()),
       laneToBase: { ...laneToBase },
-      physicalSpreadSlotIndices: [...physicalSpreadSlotIndices()],
+      paidExclusiveSlotOrder: [...physicalSpreadSlotIndices()],
+      trialIdleSlotOrder: [...trialIdleSpreadSlotIndices()],
       legacyEmergency: USE_LEGACY_EMERGENCY,
     },
     "hetzner_router_select_debug",
   );
 }
 
-function finishSelect(planType: string, sid: number | null, route: CoreRoute, decision: string): CoreRoute {
+function finishSelect(
+  planType: string,
+  sid: number | null,
+  route: CoreRoute,
+  decision: string,
+  opts?: HetznerRouteSelectOpts,
+): CoreRoute {
+  const manualActive = sid != null && manualCoreOverrideBySessionId.has(sid);
+  const hint = opts?.userEmail?.trim();
+  const manualEmail = sid != null ? manualCoreOverrideBySessionId.get(sid)?.userEmail?.trim() : undefined;
+  const userEmail = hint || manualEmail || null;
+
+  logger.info(
+    {
+      tag: "hetzner_route_selected",
+      sessionId: sid,
+      userEmail,
+      planType,
+      selectedLane: route.lane,
+      selectedBaseUrl: route.baseUrl,
+      manualOverride: manualActive,
+      numSlots: NUM_SLOTS,
+      decision,
+    },
+    "hetzner_route_selected",
+  );
+
+  if (sid != null) {
+    lastResolvedHetznerRouteBySession.set(sid, { lane: route.lane, baseUrl: route.baseUrl });
+  }
+
   emitHetznerRouterSelectDebug(planType, sid, route, decision);
   return route;
 }
 
 /**
- * Slot indices for first-free scans when NUM_SLOTS===4: lanes **1 → 3 → 4 → 2**
- * (Ashburn :5001, Falkenstein :5001, Falkenstein :5002, then Ashburn :5002).
- * Used for paid exclusives and trial idle picking so load spreads across hosts before CORE2.
+ * Paid exclusive slots: physical hosts first — lanes **1 → 3 → 4 → 2**
+ * (primary :5001, secondary :5001, secondary :5002, primary :5002).
  */
 function physicalSpreadSlotIndices(): readonly number[] {
   if (NUM_SLOTS === 4) return [0, 2, 3, 1];
   return [0, 1];
+}
+
+/**
+ * Trial idle scan: **Core2 first** (trial lane on primary host), then second host (**3 → 4**), then **Core1**.
+ * Skips slots with an exclusive paid owner; uses any idle lane in this order.
+ */
+function trialIdleSpreadSlotIndices(): readonly number[] {
+  if (NUM_SLOTS === 4) return [1, 2, 3, 0];
+  return [1, 0];
 }
 
 function laneIndex(lane: CoreLane): number {
@@ -174,10 +252,30 @@ export function setHetznerManualCoreOverride(sessionId: number, lane: CoreLane |
   releaseAutomaticHetznerReservation(sessionId);
   if (lane == null) {
     manualCoreOverrideBySessionId.delete(sessionId);
+    lastResolvedHetznerRouteBySession.delete(sessionId);
     return;
   }
   const email = userEmail.trim() || "(unknown)";
   manualCoreOverrideBySessionId.set(sessionId, { lane, userEmail: email });
+  lastResolvedHetznerRouteBySession.set(sessionId, { lane, baseUrl: laneToBase[lane] });
+}
+
+/**
+ * After admin clears manual override (Auto), warm automatic reservations immediately so the next MT
+ * chunk sees consistent router state (same API instance only).
+ */
+export function refreshHetznerCoreRoutingAfterAdminOverride(sessionId: number, planType: string): void {
+  if (!Number.isFinite(sessionId) || sessionId <= 0) return;
+  if (USE_LEGACY_EMERGENCY) return;
+  if (manualCoreOverrideBySessionId.has(sessionId)) return;
+  try {
+    selectHetznerCoreRoute(planType, sessionId);
+  } catch (e) {
+    logger.warn(
+      { sessionId, planType, err: e instanceof Error ? e.message : String(e) },
+      "Hetzner: refresh routing after admin override failed",
+    );
+  }
 }
 
 export function isPaidMachinePlanType(planType: string | null | undefined): boolean {
@@ -230,7 +328,7 @@ function allocatePaid(sessionId: number): CoreRoute {
  * trial Hetzner routing must fail (no sharing with paid).
  */
 function allocateTrial(sessionId: number, planType: string): CoreRoute {
-  for (const i of physicalSpreadSlotIndices()) {
+  for (const i of trialIdleSpreadSlotIndices()) {
     if (i >= NUM_SLOTS) continue;
     if (slotPaidOwner[i] === null) {
       slotTrialSessions[i].add(sessionId);
@@ -252,7 +350,7 @@ function allocateTrial(sessionId: number, planType: string): CoreRoute {
         core4EnvDefined: Boolean((process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim()),
         laneToBase: { ...laneToBase },
         slotPaidOwner: [...slotPaidOwner],
-        physicalSpreadSlotIndices: [...physicalSpreadSlotIndices()],
+        trialIdleSpreadSlotIndices: [...trialIdleSpreadSlotIndices()],
       },
       "hetzner_router_select_debug",
     );
@@ -304,15 +402,20 @@ export function registerSessionStartForCoreRouting(
 export function unregisterSessionForCoreRouting(sessionId: number): void {
   if (!Number.isFinite(sessionId) || sessionId <= 0) return;
   manualCoreOverrideBySessionId.delete(sessionId);
+  lastResolvedHetznerRouteBySession.delete(sessionId);
   releaseAutomaticHetznerReservation(sessionId);
 }
 
-export function selectHetznerCoreRoute(planType: string, sessionId?: number): CoreRoute {
+export function selectHetznerCoreRoute(
+  planType: string,
+  sessionId?: number,
+  opts?: HetznerRouteSelectOpts,
+): CoreRoute {
   const sid =
     typeof sessionId === "number" && Number.isFinite(sessionId) && sessionId > 0 ? sessionId : null;
 
   if (USE_LEGACY_EMERGENCY) {
-    return finishSelect(planType, sid, { lane: 1, baseUrl: laneToBase[1] }, "legacy_single_stack");
+    return finishSelect(planType, sid, { lane: 1, baseUrl: laneToBase[1] }, "legacy_single_stack", opts);
   }
 
   const paid = isPaidMachinePlanType(planType);
@@ -335,28 +438,28 @@ export function selectHetznerCoreRoute(planType: string, sessionId?: number): Co
         },
         "hetzner_manual_override",
       );
-      return finishSelect(planType, sid, route, "manual_override");
+      return finishSelect(planType, sid, route, "manual_override", opts);
     }
 
     const sticky = sessionToLane.get(sid);
     if (sticky != null) {
       if (stickyStillValid(sid, paid, sticky)) {
-        return finishSelect(planType, sid, { lane: sticky, baseUrl: laneToBase[sticky] }, "sticky_hit");
+        return finishSelect(planType, sid, { lane: sticky, baseUrl: laneToBase[sticky] }, "sticky_hit", opts);
       }
       invalidateSticky(sid);
     }
     const route = paid ? allocatePaid(sid) : allocateTrial(sid, planType);
-    return finishSelect(planType, sid, route, paid ? "allocate_paid" : "allocate_trial");
+    return finishSelect(planType, sid, route, paid ? "allocate_paid" : "allocate_trial", opts);
   }
 
   if (paid) {
-    return finishSelect(planType, null, { lane: 1, baseUrl: laneToBase[1] }, "anonymous_paid_core1");
+    return finishSelect(planType, null, { lane: 1, baseUrl: laneToBase[1] }, "anonymous_paid_core1", opts);
   }
-  for (const i of physicalSpreadSlotIndices()) {
+  for (const i of trialIdleSpreadSlotIndices()) {
     if (i >= NUM_SLOTS) continue;
     if (slotPaidOwner[i] === null) {
       const lane = (i + 1) as CoreLane;
-      return finishSelect(planType, null, { lane, baseUrl: laneToBase[lane] }, "anonymous_trial_idle_slot");
+      return finishSelect(planType, null, { lane, baseUrl: laneToBase[lane] }, "anonymous_trial_idle_slot", opts);
     }
   }
   const fallbackLane = NUM_SLOTS as CoreLane;
@@ -365,6 +468,7 @@ export function selectHetznerCoreRoute(planType: string, sessionId?: number): Co
     null,
     { lane: fallbackLane, baseUrl: laneToBase[fallbackLane] },
     "anonymous_trial_fallback",
+    opts,
   );
 }
 
@@ -378,18 +482,19 @@ export function logHetznerCoreRouterStartupHint(): void {
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
       paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
+      trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 3, 4, 1] : [2, 1],
       core3EnvDefined: Boolean((process.env.HETZNER_CORE3_TRANSLATE_BASE ?? "").trim()),
       core4EnvDefined: Boolean((process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").trim()),
       hetznerRouterAllocDebug: hetznerRouterAllocDebugEnabled(),
       semantics:
         NUM_SLOTS === 4
-          ? "4 lanes: paid/trial idle picks scan lanes 1→3→4→2; overflow paid share CORE1; rollback unset HETZNER_FOUR_LANE_ROUTER"
-          : "2 lanes: exclusives scan 1→2; overflow paid share CORE1; trials idle cores only",
+          ? "4 lanes: paid exclusives 1→3→4→2; trials idle scan 2→3→4→1; overflow paid share CORE1"
+          : "2 lanes: paid 1→2; trials prefer Core2 idle then Core1; overflow paid share CORE1",
     },
     USE_LEGACY_EMERGENCY
       ? "Hetzner core router: LEGACY SINGLE STACK (HETZNER_USE_LEGACY_SINGLE_STACK=1)"
       : NUM_SLOTS === 4
-        ? "Hetzner core router: four workers — physical spread slot order 1→3→4→2"
-        : "Hetzner core router: two workers — paid priority, trial idle fill — see deploy/MEMORY-BUDGET-2LANE.md",
+        ? "Hetzner core router: four workers — paid 1→3→4→2, trials idle 2→3→4→1"
+        : "Hetzner core router: two workers — paid priority, trials prefer Core2 — see deploy/MEMORY-BUDGET-2LANE.md",
   );
 }

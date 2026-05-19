@@ -13,6 +13,7 @@ import { callHetznerTranslate } from "./hetzner-translate.js";
 export type TranslateBasicProfessionalOpts = {
   sessionId?: number;
   planType?: string;
+  userEmail?: string | null;
 };
 
 /**
@@ -30,6 +31,7 @@ export async function translatePlainMachine(
   return callHetznerTranslate(t, sourceLang, targetLang, {
     sessionId: opts?.sessionId,
     planType: opts?.planType,
+    userEmail: opts?.userEmail,
   });
 }
 

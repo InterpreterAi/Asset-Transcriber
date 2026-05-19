@@ -382,16 +382,15 @@ export async function callHetznerTranslate(
   text: string,
   source: string,
   target: string,
-  routingHint?: { planType?: string; sessionId?: number },
+  routingHint?: { planType?: string; sessionId?: number; userEmail?: string | null },
 ): Promise<string> {
   const plan = (routingHint?.planType ?? "").trim().toLowerCase();
   const useTrialOutboundGate = plan === "trial-hetzner";
 
   const run = async () => {
-    const route = selectHetznerCoreRoute(
-      routingHint?.planType ?? "trial-libre",
-      routingHint?.sessionId,
-    );
+    const route = selectHetznerCoreRoute(routingHint?.planType ?? "trial-libre", routingHint?.sessionId, {
+      userEmail: routingHint?.userEmail,
+    });
     return postTranslateAtBase(route.baseUrl || CONFIGURED_BASE, text, source, target);
   };
 

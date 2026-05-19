@@ -91,7 +91,8 @@ Defined in `usage.ts`. **`false`** (use **OpenAI** interpreter stack in `transcr
 **Rollback:** unset `HETZNER_FOUR_LANE_ROUTER` or set `0` → **2-slot** behavior without redeploying older code.  
 **Emergency:** `HETZNER_USE_LEGACY_SINGLE_STACK=1` collapses all lanes to one legacy base — **no reservation semantics**.  
 **Temporary verification:** `HETZNER_ROUTER_ALLOC_DEBUG=1` emits structured **`hetzner_router_select_debug`** on every `selectHetznerCoreRoute` outcome (session id, paid vs trial role, lane, `selectedBaseUrl`, `NUM_SLOTS`, four-lane env flag, CORE3/CORE4 env defined, full `laneToBase`). High volume — enable briefly on the API service only, then unset.  
-**Temporary manual pin:** Admin **`POST /api/admin/session/:sessionId/hetzner-core-override`** with JSON **`{ "lane": null }`** (Auto) or **`{ "lane": 1..4 }`**. Stored **in-memory** on the API process (`Map<sessionId, { lane, userEmail }>`); cleared on **`unregisterSessionForCoreRouting`** (session stop / terminate / stale cleanup). While pinned, **`selectHetznerCoreRoute`** returns that lane **before** sticky/automatic allocation and logs **`hetzner_manual_override`** (session id, lane, base URL, email, plan type). **Multi-instance:** each replica has its own map — use one API instance or accept divergence until a DB-backed pin exists.
+**Temporary manual pin:** Admin **`POST /api/admin/session/:sessionId/hetzner-core-override`** with JSON **`{ "lane": null }`** (Auto) or **`{ "lane": 1..4 }`**. Stored **in-memory** on the API process (`Map<sessionId, { lane, userEmail }>`); cleared on **`unregisterSessionForCoreRouting`** (session stop / terminate / stale cleanup). While pinned, **`selectHetznerCoreRoute`** returns that lane **before** sticky/automatic allocation and logs **`hetzner_manual_override`** (session id, lane, base URL, email, plan type). After POST, the API runs **`selectHetznerCoreRoute(planType, sessionId)`** once so reservations/`hetzner_route_selected` align immediately on that instance. **Multi-instance:** each replica has its own map — use one API instance or accept divergence until a DB-backed pin exists.  
+**Structured route log:** every **`finishSelect`** emits **`hetzner_route_selected`** with `sessionId`, `userEmail` (from translate hint or manual map), `planType`, `selectedLane`, `selectedBaseUrl`, `manualOverride`, `numSlots`, `decision`.
 
 ### 4.1 Who is “paid” for **core pinning** only?
 
@@ -109,7 +110,7 @@ Note: **`platinum-libre`** users normally **translate on OpenAI** (`planUsesMach
    - **Two lanes:** claim lanes **1 then 2** in order (unchanged).
    - If **all** exclusive slots are filled, **next paid** → **overflow on CORE1** (lane 1).
 3. **Trial (not paid by router definition):** `allocateTrial`
-   - Use the **first idle** slot in the same physical-spread order **`1 → 3 → 4 → 2`** as paid allocation (when four-lane); two-lane scans **`1 → 2`**.
+   - Use the **first idle** slot (no exclusive paid owner) in order **`2 → 3 → 4 → 1`** (four-lane): **Core2 first**, then second physical host (**3, 4**), then **Core1**; two-lane **`2 → 1`**.
    - **If every slot has an exclusive paid owner:** **no** trial placement; throws **`HETZNER_TRIAL_ALL_CORES_RESERVED_FOR_PAID`** (logged as warning). Trial MT then fails before HTTP; `transcription.ts` MT catch returns **503** `LIBRETRANSLATE_FAILED` like other Hetzner errors.
 
 **Two-slot matrix (unchanged when four-lane off):**
@@ -132,7 +133,7 @@ Used by:
 Behavior:
 
 - If `planType` is **paid** per `isPaidMachinePlanType` → **CORE1** (no slot claim).
-- Else **trial-like anonymous:** first slot `i` in `0..NUM_SLOTS-1` with no exclusive paid owner → lane `i+1`; else fallback **lane `NUM_SLOTS`**.
+- Else **trial-like anonymous:** first idle slot in trial scan order **`2 → 3 → 4 → 1`** (four-lane) or **`2 → 1`** (two-lane); else fallback **lane `NUM_SLOTS`**.
 
 This path does **not** throw when all slots are paid-owned; it is **not** a trial **session** reservation. Session-based trial blocking applies when `sessionId` is passed through `allocateTrial`.
 
