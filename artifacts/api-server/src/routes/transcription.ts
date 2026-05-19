@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { isAxiosError } from "axios";
 import { translateBasicProfessional } from "../lib/basic-pro-translate.js";
-import { unregisterSessionForCoreRouting } from "../lib/hetzner-core-router.js";
+import { getHetznerManualCoreOverride, unregisterSessionForCoreRouting } from "../lib/hetzner-core-router.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable } from "@workspace/db";
@@ -1477,6 +1477,19 @@ router.get("/sessions", requireAuth, async (req, res) => {
   });
 });
 
+/** POST /translate requires this — never infer "latest open session" (breaks Hetzner manual override vs MT routing). */
+function parseRequiredTranslateSessionId(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return Math.trunc(raw);
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (/^\d+$/.test(t)) {
+      const n = Number.parseInt(t, 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+  }
+  return null;
+}
+
 // ── /translate ─────────────────────────────────────────────────────────────
 router.post("/translate", requireAuth, async (req, res) => {
   // isFinal: when true, the client sends the full segment after finalize — we add
@@ -1543,6 +1556,55 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
+  const parsedTranslateSessionId = parseRequiredTranslateSessionId(incomingSessionId);
+  if (parsedTranslateSessionId == null) {
+    logger.warn(
+      {
+        msg: "translate_session_id_missing_or_invalid",
+        userId: translateUser.id,
+        incomingSessionId: incomingSessionId ?? null,
+      },
+      "POST /translate rejected: sessionId required — no fallback to latest open session (Hetzner routing)",
+    );
+    res.status(400).json({
+      error:
+        "sessionId is required and must be your active recording session id. Refresh the app if this persists.",
+      code: "TRANSLATE_SESSION_ID_REQUIRED",
+    });
+    return;
+  }
+
+  const [translateSessionRow] = await db
+    .select({ id: sessionsTable.id })
+    .from(sessionsTable)
+    .where(
+      and(
+        eq(sessionsTable.id, parsedTranslateSessionId),
+        eq(sessionsTable.userId, translateUser.id),
+        isNull(sessionsTable.endedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!translateSessionRow) {
+    logger.warn(
+      {
+        msg: "translate_session_invalid_or_closed",
+        userId: translateUser.id,
+        incomingSessionId,
+        resolvedSessionId: parsedTranslateSessionId,
+      },
+      "POST /translate rejected: session not found, wrong owner, or already ended",
+    );
+    res.status(400).json({
+      error: "Invalid sessionId: no matching open session for this account.",
+      code: "TRANSLATE_SESSION_INVALID",
+    });
+    return;
+  }
+
+  const diagSessionId = translateSessionRow.id;
+
   const routing = getLiveTranslateEngineRouting(translateUser);
   const {
     useMachineTranslation,
@@ -1558,6 +1620,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     {
       msg: "translate_routing_debug",
       userId: translateUser.id,
+      incomingSessionId: incomingSessionId ?? null,
+      resolvedSessionId: diagSessionId,
       rawPlanType: translateUser.planType,
       rawPlanLower,
       effectivePlanTypeForTranslation: effectivePlanTypeResolved,
@@ -1672,29 +1736,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const userId = userIdEarly;
 
-  // Diagnostics only: resolve active session and segment IDs, then count stage events.
-  let diagSessionId: number | null =
-    typeof incomingSessionId === "number" && Number.isFinite(incomingSessionId) ? incomingSessionId : null;
-  if (diagSessionId != null) {
-    const [sessionOwned] = await db
-      .select({ id: sessionsTable.id })
-      .from(sessionsTable)
-      .where(and(eq(sessionsTable.id, diagSessionId), eq(sessionsTable.userId, userId)))
-      .limit(1);
-    if (!sessionOwned) {
-      diagSessionId = null;
-    }
-  }
-  if (diagSessionId == null) {
-    const [openSession] = await db
-      .select({ id: sessionsTable.id })
-      .from(sessionsTable)
-      .where(and(eq(sessionsTable.userId, userId), isNull(sessionsTable.endedAt)))
-      .orderBy(desc(sessionsTable.id))
-      .limit(1);
-    diagSessionId = openSession?.id ?? null;
-  }
-  const diagSid = diagSessionId ?? -1;
+  const diagSid = diagSessionId;
   const diagSegId =
     typeof incomingSegmentId === "string" && incomingSegmentId.trim()
       ? incomingSegmentId.trim()
@@ -1738,14 +1780,21 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       const restoredFromRaw = (r: string) =>
         restoreTranslationOutput(normalizeMachineTranslationPlaceholders(String(r ?? "")));
-      const mtRoutingOpts =
-        diagSessionId != null && diagSessionId > 0
-          ? {
-              sessionId: diagSessionId,
-              planType: effectivePlanTypeResolved,
-              userEmail: translateUser.email,
-            }
-          : { planType: effectivePlanTypeResolved, userEmail: translateUser.email };
+      const mtRoutingOpts = {
+        sessionId: diagSessionId,
+        planType: effectivePlanTypeResolved,
+        userEmail: translateUser.email,
+      };
+      logger.info(
+        {
+          msg: "translate_mt_session_binding",
+          userId,
+          incomingSessionId: incomingSessionId ?? null,
+          resolvedSessionId: diagSessionId,
+          manualOverrideLane: getHetznerManualCoreOverride(diagSessionId)?.lane ?? null,
+        },
+        "POST /translate machine translation session binding",
+      );
       let raw = await translateBasicProfessional(
         textForOpenAI,
         srcLang,

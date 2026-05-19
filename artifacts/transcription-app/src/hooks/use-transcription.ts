@@ -710,6 +710,8 @@ type TranslateApiOptions = {
   isFinal?: boolean;
   /** Abort stops this request (superseded live translate or segment teardown). */
   signal?: AbortSignal;
+  /** Open recording session id — required server-side for Hetzner routing (must match admin manual core pin). */
+  sessionId?: number;
   /** Client correlation for duplicate-account / segment-boundary diagnostics (OpenAI-path guards); server ignores if unused. */
   segmentId?: string;
   clientSeq?: number;
@@ -764,6 +766,7 @@ async function translateViaPrimaryApi(
         isFinal:              Boolean(options?.isFinal),
         glossaryStrictMode:   readGlossaryStrictEnabled(),
         terminologyMode,
+        ...(options?.sessionId != null && options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
         ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
         ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
       };
@@ -2258,6 +2261,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     void (async () => {
       try {
+        const recordingSessionId = sessionIdRef.current;
         const guardSnap = () => ({
           mySeq,
           lastAppliedSeq: state.lastAppliedSeq,
@@ -2349,6 +2353,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(segmentBoundaryGuardsRef.current
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
+              ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
             },
           );
           if (tr.dailyLimitReached) {
@@ -2396,6 +2401,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(segmentBoundaryGuardsRef.current
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
+              ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
             },
           );
           if (trRetry.dailyLimitReached) {
@@ -2424,6 +2430,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(segmentBoundaryGuardsRef.current
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
+              ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
             },
           );
           if (trOppRetry.dailyLimitReached) {
