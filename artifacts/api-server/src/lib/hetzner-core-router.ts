@@ -51,6 +51,8 @@ const core4EnvTrimmedForInit = (process.env.HETZNER_CORE4_TRANSLATE_BASE ?? "").
 logger.info(
   {
     tag: "hetzner_lane_table_module_init",
+    railwayReplicaId: (process.env.RAILWAY_REPLICA_ID ?? "").trim() || null,
+    railwayDeploymentId: (process.env.RAILWAY_DEPLOYMENT_ID ?? "").trim() || null,
     /** Final strings wired into `laneToBase` — not env keys. */
     CORE1_BASE,
     CORE2_BASE,
