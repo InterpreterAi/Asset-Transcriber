@@ -1595,7 +1595,7 @@ export default function Admin() {
                               </span>
                             ) : (
                               <span className="text-[10px] text-muted-foreground italic">
-                                Router: pending (no Hetzner route resolved yet — awaits next MT request or admin pin)
+                                Router: pending (no DB lane row yet — start session or check MT eligibility)
                               </span>
                             )}
                           </div>
@@ -1623,7 +1623,7 @@ export default function Admin() {
                             <select
                               className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
                               disabled={hetznerOverrideSavingId === s.sessionId}
-                              title="Pins this session to a worker lane for the next MT request. Auto restores sticky + automatic allocation."
+                              title="Writes sessions.hetzner_mt_manual_lane (Postgres). Effective lane = manual ?? assigned; clears manual for Auto."
                               value={s.hetznerManualCoreLane != null ? String(s.hetznerManualCoreLane) : "auto"}
                               onChange={(e) => {
                                 const v = e.target.value;
