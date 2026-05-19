@@ -1856,6 +1856,8 @@ router.post("/translate", requireAuth, async (req, res) => {
         planType: effectivePlanTypeResolved,
         userEmail: translateUser.email,
         resolvedLane: effectiveHetznerLane,
+        manualLane: translateSessionRow.hetznerMtManualLane ?? null,
+        assignedLane: translateSessionRow.hetznerMtAssignedLane ?? null,
         wireDebug: buildHetznerMtWireDebug({
           incomingSessionId,
           diagSessionId,
@@ -1911,6 +1913,8 @@ router.post("/translate", requireAuth, async (req, res) => {
             planType: effectivePlanTypeResolved,
             userEmail: translateUser.email,
             resolvedLane: effectiveHetznerLane,
+            manualLane: translateSessionRow.hetznerMtManualLane ?? null,
+            assignedLane: translateSessionRow.hetznerMtAssignedLane ?? null,
             wireDebug: buildHetznerMtWireDebug({
               incomingSessionId,
               diagSessionId,
