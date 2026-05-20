@@ -1,6 +1,9 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { installProductionClientGuards } from "./lib/production-client-guard";
+
+installProductionClientGuards();
 
 const THEME_KEY = "interpreterai-theme";
 try {

@@ -446,8 +446,16 @@ function nextDiagSegmentId(sessionId: number): string {
 
 const SONIOX_TEMP_KEY_URL = "https://api.soniox.com/v1/auth/temporary-api-key";
 
+/** Browser-facing Soniox temp keys: short TTL reduces replay window (override with SONIOX_TEMP_KEY_TTL_SECONDS, clamped 60–600). */
+function sonioxTemporaryKeyTtlSeconds(): number {
+  const raw = Number.parseInt(process.env.SONIOX_TEMP_KEY_TTL_SECONDS?.trim() ?? "", 10);
+  if (Number.isFinite(raw)) return Math.min(600, Math.max(60, raw));
+  return 120;
+}
+
 /** Prefer short-lived keys for the browser WebSocket (Soniox-recommended); fall back to master key if the REST call fails. */
 async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: string; expiresIn: number }> {
+  const requestedTtl = sonioxTemporaryKeyTtlSeconds();
   try {
     const res = await fetch(SONIOX_TEMP_KEY_URL, {
       method: "POST",
@@ -457,7 +465,7 @@ async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: strin
       },
       body: JSON.stringify({
         usage_type: "transcribe_websocket",
-        expires_in_seconds: 3600,
+        expires_in_seconds: requestedTtl,
       }),
     });
     if (!res.ok) {
@@ -466,24 +474,24 @@ async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: strin
         { status: res.status, snippet: body.slice(0, 240) },
         "Soniox temporary-api-key failed; using master SONIOX_API_KEY for WebSocket",
       );
-      return { apiKey: masterKey, expiresIn: 3600 };
+      return { apiKey: masterKey, expiresIn: requestedTtl };
     }
     const data = (await res.json()) as { api_key?: string; expires_at?: string };
     if (!data.api_key) {
       logger.warn("Soniox temporary-api-key: missing api_key in body; using master key");
-      return { apiKey: masterKey, expiresIn: 3600 };
+      return { apiKey: masterKey, expiresIn: requestedTtl };
     }
-    let expiresIn = 3600;
+    let expiresIn = requestedTtl;
     if (data.expires_at) {
       const t = Date.parse(data.expires_at);
       if (!Number.isNaN(t)) {
-        expiresIn = Math.max(60, Math.min(3600, Math.round((t - Date.now()) / 1000)));
+        expiresIn = Math.max(60, Math.min(600, Math.round((t - Date.now()) / 1000)));
       }
     }
     return { apiKey: data.api_key, expiresIn };
   } catch (err) {
     logger.warn({ err }, "Soniox temporary-api-key request error; using master key");
-    return { apiKey: masterKey, expiresIn: 3600 };
+    return { apiKey: masterKey, expiresIn: requestedTtl };
   }
 }
 
