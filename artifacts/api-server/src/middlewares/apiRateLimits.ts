@@ -20,6 +20,11 @@ export function isTranscriptionSessionStartPost(req: Request): boolean {
   return p.includes("/transcription/session/start");
 }
 
+export function isTranscriptionTokenPost(req: Request): boolean {
+  if (req.method !== "POST") return false;
+  return apiRequestPath(req) === "/api/transcription/token";
+}
+
 /**
  * Routes that bill or proxy AI / transcription (counted separately from general API limit).
  */
@@ -142,20 +147,20 @@ export const authLimiter = rateLimit({
 });
 
 /**
- * New transcription sessions per user/IP — stops scripted session spam (Soniox cost surface).
- * Separate from the general AI burst limiter.
+ * POST /api/transcription/token — Soniox short-lived browser keys.
+ * Tighter than the generic AI bucket to slow scripted key harvesting / replay attempts.
  */
-export const transcriptionSessionStartLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 15,
+export const transcriptionTokenLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 48,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: rateLimitUserOrIpKey,
   message: {
-    error: "Too many transcription sessions started. Please wait before starting another.",
+    error: "Too many transcription token requests. Please wait a moment before reconnecting.",
   },
-  handler: rateLimitExceededHandler("transcription_session_start"),
-  skip: (req) => req.method === "OPTIONS" || !isTranscriptionSessionStartPost(req),
+  handler: rateLimitExceededHandler("transcription_token"),
+  skip: (req) => req.method === "OPTIONS" || !isTranscriptionTokenPost(req),
 });
 
 /** Session heartbeats only — generous cap so 30s intervals never hit the wall. */

@@ -30,7 +30,7 @@ import {
   loginLimiter,
   sessionHeartbeatLimiter,
   signupLimiter,
-  transcriptionSessionStartLimiter,
+  transcriptionTokenLimiter,
   translationLimiter,
 } from "./middlewares/apiRateLimits.js";
 import { trialAiHardWallMiddleware } from "./middlewares/trialAiHardWall.js";
@@ -301,7 +301,7 @@ app.use("/api", globalAccessBlockMiddleware);
 app.use("/api", trialLoginBlockMiddleware);
 
 // ── Rate limiting (see middlewares/apiRateLimits.ts) ───────────────────────────
-// Stack: login/signup/forgot → auth → heartbeat → session-start cap → AI/transcription
+// Stack: login/signup/forgot → auth → heartbeat → token cap → AI/transcription
 //        → admin IP → general (60/IP/min) → block unauthenticated AI paths → usage log → router.
 
 // ── Activity tracking — fires on every authenticated API request ──────────────
@@ -327,7 +327,7 @@ app.use("/api/auth/resend-verification", resendVerificationLimiter);
 app.use("/api/auth/forgot-password", forgotPasswordLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api", sessionHeartbeatLimiter);
-app.use("/api", transcriptionSessionStartLimiter);
+app.use("/api", transcriptionTokenLimiter);
 app.use("/api", trialAiHardWallMiddleware);
 app.use("/api", translationLimiter);
 app.use("/api", aiCostLimiter);

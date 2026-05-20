@@ -1,6 +1,17 @@
 import cors from "cors";
 import type { CorsOptions } from "cors";
 
+/**
+ * Browser CORS allowlist for credentialed `/api/*` calls.
+ *
+ * - Production: only `CORS_ALLOWED_ORIGINS` (comma-separated) or default `https://app.interpreterai.org`.
+ * - Further hardening: put the public app behind Cloudflare (Bot Fight / rate limits / WAF rules).
+ *   This middleware cannot replace edge WAF; it only validates `Origin` for browser XHR/fetch.
+ *
+ * Note: the realtime STT WebSocket goes directly to Soniox (`wss://stt-rt.soniox.com/...`) with a
+ * short-lived server-minted key — not upgradeable through this Express app. Protect `/api/transcription/token`
+ * with auth + rate limits (see `transcriptionTokenLimiter`).
+ */
 const DEFAULT_PRODUCTION_ORIGINS = ["https://app.interpreterai.org"];
 
 const DEV_ORIGIN_RE =

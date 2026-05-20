@@ -1,6 +1,11 @@
 /**
  * Pure in-memory Hetzner worker slot model used only while computing a new assignment
  * or replaying open-session state from Postgres. Not routing authority.
+ *
+ * Exclusive `slotPaidOwner` records which session “claimed” an empty Libre worker first.
+ * Multiple sessions (trial and/or overflow paid) may **share** the same worker — each Libre
+ * endpoint accepts concurrent `/translate` HTTP calls. Trials are therefore never refused
+ * when “all exclusives” are taken (previously surfaced as HetznerTrialRoutingBlockedError).
  */
 
 import type { CoreLane } from "./hetzner-core-router.js";
@@ -29,15 +34,6 @@ function trialIdleSpreadSlotIndices(numSlots: 2 | 4): readonly number[] {
   return [1, 0];
 }
 
-function clearTrialsFromSlot(state: SlotAllocatorState, idx: number): void {
-  const set = state.slotTrialSessions[idx];
-  if (!set) return;
-  for (const sid of set) {
-    state.sessionToLane.delete(sid);
-  }
-  set.clear();
-}
-
 export function createEmptySlotAllocatorState(numSlots: 2 | 4): SlotAllocatorState {
   return {
     numSlots,
@@ -64,7 +60,6 @@ export function seedCommittedLane(
     return;
   }
   if (state.slotPaidOwner[idx] === null) {
-    clearTrialsFromSlot(state, idx);
     state.slotPaidOwner[idx] = sessionId;
     return;
   }
@@ -82,7 +77,6 @@ export function allocatePaid(state: SlotAllocatorState, sessionId: number): Core
   for (const idx of physicalSpreadSlotIndices(state.numSlots)) {
     if (idx >= state.numSlots) continue;
     if (state.slotPaidOwner[idx] === null) {
-      clearTrialsFromSlot(state, idx);
       state.slotPaidOwner[idx] = sessionId;
       const lane = (idx + 1) as CoreLane;
       state.sessionToLane.set(sessionId, lane);
@@ -95,8 +89,10 @@ export function allocatePaid(state: SlotAllocatorState, sessionId: number): Core
 }
 
 /**
- * Trials use only workers with no exclusive paid owner. If every slot has an exclusive paid owner,
- * trial routing fails (no sharing with paid).
+ * Prefer workers with **no exclusive paid owner** (trialIdleSpreadSlotIndices).
+ * If every slot already has an exclusive paid session (e.g. NUM_SLOTS=2 with two Basics),
+ * **multiplex**: assign to the spread order anyway — LibreTranslate queues concurrent HTTP per worker.
+ * Admin manual `hetzner_mt_manual_lane` is unchanged (comes from DB replay, not this allocator predicate).
  */
 export function allocateTrial(state: SlotAllocatorState, sessionId: number): CoreLane {
   for (const i of trialIdleSpreadSlotIndices(state.numSlots)) {
@@ -108,5 +104,14 @@ export function allocateTrial(state: SlotAllocatorState, sessionId: number): Cor
       return lane;
     }
   }
-  throw new HetznerTrialRoutingBlockedError();
+  for (const i of trialIdleSpreadSlotIndices(state.numSlots)) {
+    if (i >= state.numSlots) continue;
+    state.slotTrialSessions[i]!.add(sessionId);
+    const lane = (i + 1) as CoreLane;
+    state.sessionToLane.set(sessionId, lane);
+    return lane;
+  }
+  const fallbackIdx = Math.max(0, state.numSlots - 1);
+  state.slotTrialSessions[fallbackIdx]!.add(sessionId);
+  return (fallbackIdx + 1) as CoreLane;
 }

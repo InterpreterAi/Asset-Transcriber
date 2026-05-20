@@ -5,6 +5,8 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 const isProduction = process.env.NODE_ENV === "production";
+/** Set `VITE_KEEP_CONSOLE=1` on the build machine to retain console.* in production bundles (debug only). */
+const keepConsole = process.env.VITE_KEEP_CONSOLE === "1";
 
 const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 3000;
@@ -28,14 +30,18 @@ const apiProxyTarget =
 
 export default defineConfig({
   base: basePath,
-  /** Strip console/debugger from production bundles — nothing in DevTools for users. */
+  /** Strip console/debugger from production bundles unless VITE_KEEP_CONSOLE=1 */
   esbuild: {
-    drop: isProduction ? (["console", "debugger"] as const) : [],
+    drop:
+      isProduction && !keepConsole
+        ? (["console", "debugger"] as const)
+        : ([] as ("console" | "debugger")[]),
+    legalComments: isProduction ? "none" : "inline",
   },
   plugins: [
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
+    ...(isProduction ? [] : [runtimeErrorOverlay()]),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
@@ -61,6 +67,54 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    /** No browser source maps in production — avoids leaking TS/React structure. */
+    sourcemap: isProduction ? false : true,
+    minify: isProduction ? "terser" : true,
+    terserOptions: isProduction
+      ? {
+          compress: {
+            passes: 2,
+            ecma: 2022,
+            pure_getters: true,
+            unsafe: false,
+            drop_debugger: true,
+            ...(keepConsole
+              ? {}
+              : {
+                  pure_funcs: [
+                    "console.log",
+                    "console.info",
+                    "console.debug",
+                    "console.trace",
+                    "console.warn",
+                    "console.error",
+                  ],
+                }),
+          },
+          mangle: {
+            safari10: true,
+          },
+          format: {
+            comments: false,
+          },
+        }
+      : {},
+    rollupOptions: {
+      output: isProduction
+        ? {
+            /** Hash-only filenames — harder to guess roles (e.g. websocket vs translate). */
+            chunkFileNames: "assets/[hash].js",
+            entryFileNames: "assets/[hash].js",
+            assetFileNames: "assets/[hash][extname]",
+            manualChunks(id) {
+              if (id.includes("node_modules")) {
+                return "v";
+              }
+            },
+          }
+        : {},
+    },
+    chunkSizeWarningLimit: 900,
   },
   server: {
     port,

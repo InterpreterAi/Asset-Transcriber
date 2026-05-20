@@ -6,7 +6,7 @@ export const blockSensitivePathMiddleware: RequestHandler = (req, res, next) => 
   if (
     p.includes("/.env") ||
     p.endsWith(".env") ||
-    p.endsWith(".env.local") ||
+    p.endsWith(".map") ||
     p.endsWith(".env.production") ||
     p.includes(".git/") ||
     p.endsWith(".pem") ||
