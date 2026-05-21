@@ -24,13 +24,18 @@ export class HetznerTrialRoutingBlockedError extends Error {
   }
 }
 
+/** Paid exclusive fill: lane order 1 → 2 → 3 → 4 — duplicate capacity only; no cross-host skipping. */
 function physicalSpreadSlotIndices(numSlots: 2 | 4): readonly number[] {
-  if (numSlots === 4) return [0, 2, 3, 1];
+  if (numSlots === 4) return [0, 1, 2, 3];
   return [0, 1];
 }
 
+/**
+ * Trial prefers slots with no exclusive paid owner, scanned in lane order matching the original two-core
+ * pattern (lane 2, then lane 1) extended with lanes 3 and 4 the same way: **2 → 1 → 3 → 4**.
+ */
 function trialIdleSpreadSlotIndices(numSlots: 2 | 4): readonly number[] {
-  if (numSlots === 4) return [1, 2, 3, 0];
+  if (numSlots === 4) return [1, 0, 2, 3];
   return [1, 0];
 }
 

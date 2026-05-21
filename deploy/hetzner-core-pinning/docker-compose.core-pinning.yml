@@ -1,4 +1,7 @@
 # Two lanes (paid :5001, trial :5002) — memory-safe defaults for ~4 GB hosts.
+# For HETZNER_FOUR_LANE_ROUTER: replicate this **exact** file (same image + x-libre-env + mem_limit)
+# on a second host; point HETZNER_CORE3/CORE4 at that host's :5001/:5002.
+# See deploy/hetzner-core-pinning/README.md
 # See deploy/MEMORY-BUDGET-2LANE.md
 version: "3.8"
 

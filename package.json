@@ -20,6 +20,7 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "validate:package-json": "node scripts/validate-all-package-json.mjs",
     "verify:hetzner-cores": "node scripts/verify-hetzner-translate-cores.mjs",
+    "benchmark:hetzner-translate-lanes": "node scripts/benchmark-hetzner-translate-lanes.mjs",
     "security:audit-frontend": "node scripts/security-audit-frontend.mjs"
   },
   "private": true,

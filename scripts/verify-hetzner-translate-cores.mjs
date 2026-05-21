@@ -20,6 +20,19 @@ function defaults() {
   return [`${root}:5001`, `${root}:5002`];
 }
 
+/** Same host + port ⇒ same worker socket (parity / duplicate CORE env failure). */
+function normalizedFingerprint(base) {
+  let s = String(base ?? "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+  try {
+    const u = new URL(s);
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return `${u.protocol}//${u.hostname}:${port}`.toLowerCase();
+  } catch {
+    return s.toLowerCase();
+  }
+}
+
 async function checkOne(name, base) {
   const url = `${base.replace(/\/$/, "")}/languages`;
   const ac = new AbortController();
@@ -58,6 +71,22 @@ async function main() {
     urls.push(["core3", raw3], ["core4", raw4]);
   }
 
+  /** @type {Map<string, string>} */
+  const fingerprints = new Map();
+  let duplicateEndpoints = false;
+  for (const [n, b] of urls) {
+    const fp = normalizedFingerprint(b);
+    const prev = fingerprints.get(fp);
+    if (prev != null) {
+      duplicateEndpoints = true;
+      console.error(
+        `[verify-hetzner-cores] PARITY ISSUE: ${n} (${b}) ⇒ same fingerprint as lane ${prev} (${fp}). Four lanes must be four distinct host:port targets.`,
+      );
+    } else {
+      fingerprints.set(fp, n);
+    }
+  }
+
   console.log("[verify-hetzner-cores] Checking /languages on each lane…");
   const results = await Promise.all(urls.map(([n, b]) => checkOne(n, b)));
   let failed = false;
@@ -72,7 +101,13 @@ async function main() {
     );
     process.exit(1);
   }
-  console.log(`[verify-hetzner-cores] All ${urls.length} lane(s) responded OK.`);
+  if (duplicateEndpoints) {
+    console.error(
+      "[verify-hetzner-cores] Exiting — duplicate CORE URLs (check API boot log hetzner_lane_table_module_init: core{3,4}ResolvedViaCore2Fallback).",
+    );
+    process.exit(2);
+  }
+  console.log(`[verify-hetzner-cores] All ${urls.length} lane(s) responded OK with distinct host:port targets.`);
 }
 
 void main();

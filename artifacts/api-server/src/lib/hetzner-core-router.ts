@@ -177,8 +177,9 @@ function authoritativeRoute(lane: CoreLane): CoreRoute {
   return { lane, baseUrl: laneToBase[lane] };
 }
 
+/** Must match trial scan indices in {@link hetzner-slot-allocator} (anonymous path has no DB occupancy view). */
 function trialIdleSpreadSlotIndices(): readonly number[] {
-  if (NUM_SLOTS === 4) return [1, 2, 3, 0];
+  if (NUM_SLOTS === 4) return [1, 0, 2, 3];
   return [1, 0];
 }
 
@@ -267,8 +268,8 @@ export function logHetznerCoreRouterStartupHint(): void {
         hz1: urlHostname(CORE1_BASE),
         hz2: urlHostname(CORE3_BASE),
       },
-      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
-      trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 3, 4, 1] : [2, 1],
+      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 2, 3, 4] : [1, 2],
+      trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 1, 3, 4] : [2, 1],
     },
     "hetzner_lane_to_base_boot_verify",
   );
@@ -284,13 +285,13 @@ export function logHetznerCoreRouterStartupHint(): void {
       fourLaneRouterEnv: fourLaneRequested,
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
-      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
-      trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 3, 4, 1] : [2, 1],
+      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 2, 3, 4] : [1, 2],
+      trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 1, 3, 4] : [2, 1],
       core3EnvDefined: c3Trimmed,
       core4EnvDefined: c4Trimmed,
       semantics:
         NUM_SLOTS === 4
-          ? "DB session lanes + anonymous tail; 4 workers paid 1→3→4→2"
+          ? "DB session lanes + anonymous tail; 4 workers paid 1→2→3→4 trial idle scan 2→1→3→4"
           : "DB session lanes + anonymous tail; 2 workers paid priority",
     },
     USE_LEGACY_EMERGENCY
