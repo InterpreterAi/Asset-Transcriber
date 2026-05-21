@@ -2459,6 +2459,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             mappedIdx < translationBufRef.current.length
               ? mappedIdx
               : null;
+          // Pin admin dashboard row to this finalized segment (never overwrite the previous row when
+          // Soniox endpoint finalizes without softFinalize having pushed a line yet).
+          if (resolvedAdminIdx !== null) {
+            translationBufRef.current[resolvedAdminIdx] = outTrim;
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          } else if (text.trim().length > 0) {
+            const line = text.trim();
+            transcriptBufRef.current.push(line);
+            translationBufRef.current.push(outTrim);
+            adminSegmentRowIndexRef.current.set(requestSegmentId, transcriptBufRef.current.length - 1);
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
 
           if (mySeq <= state.lastShownSeq) {
             emitSuspectGuardDrop();
@@ -2469,21 +2481,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             emitSuspectGuardDrop();
             traceDispatchGuard(traceId, "after_fetch_before_paint", "dom_detached_final_paint", guardSnap());
             return;
-          }
-
-          // Pin admin "View Session" row only after dom/seq guards: stale lower-seq resolves used to overwrite
-          // `translationBufRef` then return (superseded), leaving permanently wrong or blank dashboard text.
-          if (resolvedAdminIdx !== null) {
-            if (outTrim.length > 0) {
-              translationBufRef.current[resolvedAdminIdx] = outTrim;
-              onAdminSnapshotBuffersUpdatedRef.current?.();
-            }
-          } else if (text.trim().length > 0) {
-            const line = text.trim();
-            transcriptBufRef.current.push(line);
-            translationBufRef.current.push(outTrim);
-            adminSegmentRowIndexRef.current.set(requestSegmentId, transcriptBufRef.current.length - 1);
-            onAdminSnapshotBuffersUpdatedRef.current?.();
           }
 
           state.lastShownSeq = mySeq;
