@@ -1169,15 +1169,6 @@ function translationCellLooksFilled(el: HTMLParagraphElement): boolean {
   return true;
 }
 
-/** Append a streaming fragment to what is already shown (placeholder … counts as empty). */
-function mergeStreamingTranslation(prevDisplayed: string, newPiece: string): string {
-  const piece = newPiece.trim();
-  if (!piece) return prevDisplayed.trim();
-  const prev = prevDisplayed.trim();
-  if (!prev || prev === "…") return piece;
-  return `${prev} ${piece}`;
-}
-
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -1486,41 +1477,6 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
-/** Longest common prefix length between two strings (case-insensitive, per code unit). */
-function lcpLenInsensitive(a: string, b: string): number {
-  let i = 0;
-  const n = Math.min(a.length, b.length);
-  while (i < n && a[i].toLowerCase() === b[i].toLowerCase()) i++;
-  return i;
-}
-
-/** Returns the newly appended tail using prefix/overlap matching (case-insensitive). */
-function sourceTailAfterPrefix(fullRaw: string, prefixRaw: string): { tail: string; monotonic: boolean } {
-  const full = fullRaw.trimStart();
-  const prefix = prefixRaw.trimEnd();
-  if (!prefix) return { tail: full, monotonic: true };
-  if (full.startsWith(prefix)) return { tail: full.slice(prefix.length).trimStart(), monotonic: true };
-  const f = full.toLowerCase();
-  const p = prefix.toLowerCase();
-  if (f.startsWith(p)) return { tail: full.slice(p.length).trimStart(), monotonic: true };
-  // Soniox interim hypotheses can revise a little. Accept append overlap:
-  // find the largest suffix of previous source that is a prefix of current.
-  const maxK = Math.min(prefix.length, full.length);
-  for (let k = maxK; k >= 1; k--) {
-    const sfx = p.slice(p.length - k);
-    if (f.startsWith(sfx)) return { tail: full.slice(k).trimStart(), monotonic: true };
-  }
-  // Mid-string edits (e.g. punctuation inserted) break strict prefix but share a long LCP.
-  const lcp = lcpLenInsensitive(full, prefix);
-  const minRecover = Math.max(4, Math.min(32, Math.floor(prefix.length * 0.12) || 8));
-  if (lcp >= minRecover && lcp < full.length) {
-    const tail = full.slice(lcp).trimStart();
-    if (tail.length > 0) return { tail, monotonic: true };
-  }
-  return { tail: "", monotonic: false };
-}
-
-
 /** Live + final: always replace the whole translation cell (innerHTML), never append tokens. */
 function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
@@ -1595,12 +1551,6 @@ interface BubbleTransState {
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
   segmentTargetLang:     string | null;
-  /**
-   * Live path skipped a truncated API response but still advanced `streamCommittedSource`.
-   * Finalize must run a full translate — otherwise `sourceTailAfterPrefix` sees no tail and locks
-   * with a partial translation still on screen.
-   */
-  needsFullFinalTranslation: boolean;
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -1761,7 +1711,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         lockOnFinal?: boolean;
         skipOpenAiLiveDebounce?: boolean;
         suppressEarlyHardFinal?: boolean;
-        forceFullSegmentFinal?: boolean;
       },
       segmentIdLock?: string,
     ) => void
@@ -1922,9 +1871,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
-  // Live: WS ~80ms debounce + per-bubble abort; token dedupe only (adjacent paraphrase dedupe runs in
-  // maybePolish on finals for every target — avoids mangling streaming merges on fast speaker changes).
-  // Speaker change: softFinalize passes forceFullSegmentFinal so the closing row gets one replace, not tail-append.
+  // Live: debounced previews + per-bubble abort. Every finalized segment sends the FULL source sentence
+  // to translate (no tail-only payloads, no streamingDelta merge) — one replace of the translation cell,
+  // then optional lock — avoids mixed-language locked rows from incremental MT tails.
   const dispatchTranslation = useCallback((
     text: string,
     lang: string,
@@ -1933,7 +1882,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lockOnFinal?: boolean;
       skipOpenAiLiveDebounce?: boolean;
       suppressEarlyHardFinal?: boolean;
-      forceFullSegmentFinal?: boolean;
       /** Row index in transcriptBuf/translationBuf for this finalized segment (admin snapshot); avoids writing into the wrong line when the next segment finalizes before this translate returns. */
       adminSnapshotLineIndex?: number;
     },
@@ -2140,75 +2088,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       isFinal,
     });
 
-    let requestIsFinal = isFinal;
-    let apiText: string;
-    let useStreamingDelta = false;
-    if (isFinal && options?.forceFullSegmentFinal) {
-      apiText = text;
-      useStreamingDelta = false;
-      requestIsFinal = true;
-    } else if (isFinal) {
-      const committed = collapseWs(state.streamCommittedSource);
-      const finalSrc = collapseWs(text);
-      const cl = committed.toLowerCase();
-      const fl = finalSrc.toLowerCase();
-      const finalizedIsPrefixTruncation =
-        finalSrc.length >= 1 &&
-        committed.length > finalSrc.length &&
-        (committed.startsWith(finalSrc) || cl.startsWith(fl));
-
-      if (finalizedIsPrefixTruncation) {
-        apiText = text;
-        useStreamingDelta = false;
-        requestIsFinal = true;
-      } else {
-        const { tail, monotonic } = sourceTailAfterPrefix(text, state.streamCommittedSource);
-        if (monotonic && !tail.trim()) {
-          const visibleLen = (state.transTextEl.textContent?.trim() ?? "").length;
-          const visiblyTranslated = translationCellLooksFilled(state.transTextEl);
-          const sourceLen = text.trim().length;
-          if (state.needsFullFinalTranslation || (!visiblyTranslated && sourceLen > 0)) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (sourceLen > 24 && visibleLen < 8) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else if (!visiblyTranslated) {
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          } else {
-            // Never lock without an API pass — preview can look “filled” while the final source still needs a real translate.
-            apiText = text;
-            useStreamingDelta = false;
-            requestIsFinal = true;
-          }
-        }
-        if (monotonic && tail.trim()) {
-          apiText = tail;
-          useStreamingDelta = true;
-          requestIsFinal = false;
-        } else {
-          apiText = text;
-          useStreamingDelta = false;
-          requestIsFinal = true;
-        }
-      }
-    } else {
-      apiText = text;
-      useStreamingDelta = false;
-    }
-
-    // Finals that include digits: never tail + streamingDelta. Overlap clipping
-    // (sourceTailAfterPrefix) can split number chains and mergeStreamingTranslation
-    // then drops digits vs Soniox; full segment is cheap for short numeric spans.
-    if (isFinal && /\d/.test(text)) {
-      apiText = text;
-      useStreamingDelta = false;
-      requestIsFinal = true;
-    }
+    // Full source on every final (and on every live dispatch); never tail-only or streamingDelta —
+    // avoids Frankenstein merges and mixed-language rows before lock.
+    const requestIsFinal = isFinal;
+    const apiText = text;
+    const useStreamingDelta = false;
 
     let liveAbortForThisRequest: AbortController | undefined;
     if (isFinal) {
@@ -2605,7 +2489,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           applyTranslationTypography(transTextEl, out);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
-          state.needsFullFinalTranslation = false;
           if (!lockOnFinal) {
             state.lastConfirmedSourceTranslated = text;
           }
@@ -2624,19 +2507,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             traceDispatchGuard(traceId, "after_fetch_before_paint", "dom_detached_live_paint", guardSnap());
             return;
           }
-          if (useStreamingDelta) {
-            const merged = mergeStreamingTranslation(transTextEl.textContent ?? "", translated.trim());
-            state.lastShownSeq = mySeq;
-            state.lastShownLen = merged.length;
-            if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-            applyTranslationTypography(transTextEl, merged);
-            if (looksLikeUntranslatedCopy(text, merged)) {
+          const out = dedupeConsecutiveTranslationTokens(translated.trim());
+          if (!out.trim()) {
+            if (
+              translated.trim().length > 0 &&
+              looksLikeUntranslatedCopy(text, translated.trim())
+            ) {
               emitLiveDirectionSameLanguageFailure({
                 correlationId:       directionCorrelationId,
                 segmentId:           requestSegmentId,
                 isFinalDispatch:     isFinal,
                 sourceFullText:      text,
-                translatedAfterRetries: merged,
+                translatedAfterRetries: translated.trim(),
                 srcLangSent:         dispatchLang,
                 tgtLangSent:         myTargetLang,
                 detectedLangRef:     detectedLangRef.current,
@@ -2646,141 +2528,73 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 majorityHint,
                 useStreamingDelta,
                 requestIsFinal,
-                paintOutcome:        "painted",
+                paintOutcome:        "suppressed_dedupe_empty",
                 hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
               });
             }
             if (traceId) {
-              liveBlankTracePaintAppliedLive({
-                traceId,
-                useStreamingDelta: true,
-                mergedLen: merged.length,
-                chosenLen: merged.length,
-              });
-            }
-            state.pendingDisplayTranslation = "";
-            const committed = state.streamCommittedSource.trim();
-            state.streamCommittedSource = committed ? `${committed} ${text}` : text;
-            state.needsFullFinalTranslation = false;
-            state.lastConfirmedSourceTranslated = text;
-          } else {
-            const out = dedupeConsecutiveTranslationTokens(translated.trim());
-            if (!out.trim()) {
-              if (
-                translated.trim().length > 0 &&
-                looksLikeUntranslatedCopy(text, translated.trim())
-              ) {
-                emitLiveDirectionSameLanguageFailure({
-                  correlationId:       directionCorrelationId,
-                  segmentId:           requestSegmentId,
-                  isFinalDispatch:     isFinal,
-                  sourceFullText:      text,
-                  translatedAfterRetries: translated.trim(),
-                  srcLangSent:         dispatchLang,
-                  tgtLangSent:         myTargetLang,
-                  detectedLangRef:     detectedLangRef.current,
-                  segmentSourceLang:   state.segmentSourceLang,
-                  dispatchLang,
-                  chosenSource,
-                  majorityHint,
-                  useStreamingDelta,
-                  requestIsFinal,
-                  paintOutcome:        "suppressed_dedupe_empty",
-                  hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
-                });
-              }
-              if (traceId) {
-                liveBlankTracePaintSuppressed({
-                  traceId,
-                  code: "dedupe_live_empty",
-                  requestIsFinal,
-                  useStreamingDelta,
-                  translatedTrimmedLen: translated.trim().length,
-                });
-              }
-              return;
-            }
-            const prevShown = (transTextEl.textContent ?? "").trim();
-            const srcNow = collapseWs(text);
-            const srcCommitted = collapseWs(state.streamCommittedSource);
-            const preferPrev = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted);
-            const chosen = preferPrev ? prevShown : out;
-            if (looksLikeUntranslatedCopy(text, out)) {
-              emitLiveDirectionSameLanguageFailure({
-                correlationId:       directionCorrelationId,
-                segmentId:           requestSegmentId,
-                isFinalDispatch:     isFinal,
-                sourceFullText:      text,
-                translatedAfterRetries: out,
-                srcLangSent:         dispatchLang,
-                tgtLangSent:         myTargetLang,
-                detectedLangRef:     detectedLangRef.current,
-                segmentSourceLang:   state.segmentSourceLang,
-                dispatchLang,
-                chosenSource,
-                majorityHint,
-                useStreamingDelta,
-                requestIsFinal,
-                paintOutcome:        preferPrev ? "suppressed_prefer_prev" : "painted",
-                hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
-              });
-            }
-            if (traceId && preferPrev && prevShown.length > 0 && out.trim().length > 0) {
               liveBlankTracePaintSuppressed({
                 traceId,
-                code: "prefer_previous_live_kept_shorter_offered",
+                code: "dedupe_live_empty",
                 requestIsFinal,
                 useStreamingDelta,
                 translatedTrimmedLen: translated.trim().length,
-                chosenWouldBeLen: out.trim().length,
-                prevShownLen: prevShown.length,
-                preferPrev: true,
               });
             }
-            state.lastShownSeq = mySeq;
-            state.lastShownLen = chosen.length;
-            if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-            applyTranslationTypography(transTextEl, chosen);
-            if (traceId) {
-              liveBlankTracePaintAppliedLive({
-                traceId,
-                useStreamingDelta: false,
-                mergedLen: chosen.length,
-                chosenLen: chosen.length,
-              });
-            }
-            state.pendingDisplayTranslation = "";
-            state.streamCommittedSource = text;
-            state.needsFullFinalTranslation = false;
-            state.lastConfirmedSourceTranslated = text;
+            return;
           }
-        }
-
-        // softFinalize(session_end) often omits forceFullSegmentFinal; tail + streamingDelta then sets
-        // requestIsFinal=false. The DOM shows the merged translation but admin snapshot buffers were
-        // only updated on requestIsFinal — Libre live updates commit source more granularly than
-        // debounced OpenAI live, so this path is hit more for machine-translation tiers.
-        if (!requestIsFinal && isFinal) {
-          const explicitIdx = options?.adminSnapshotLineIndex;
-          const mappedIdx =
-            typeof explicitIdx === "number" &&
-            explicitIdx >= 0 &&
-            explicitIdx < translationBufRef.current.length
-              ? explicitIdx
-              : adminSegmentRowIndexRef.current.get(requestSegmentId);
-          const resolvedAdminIdx =
-            typeof mappedIdx === "number" &&
-            mappedIdx >= 0 &&
-            mappedIdx < translationBufRef.current.length
-              ? mappedIdx
-              : null;
-          if (resolvedAdminIdx !== null) {
-            const shown = (transTextEl.textContent ?? "").trim();
-            if (shown) {
-              translationBufRef.current[resolvedAdminIdx] = shown;
-              onAdminSnapshotBuffersUpdatedRef.current?.();
-            }
+          const prevShown = (transTextEl.textContent ?? "").trim();
+          const srcNow = collapseWs(text);
+          const srcCommitted = collapseWs(state.streamCommittedSource);
+          const preferPrev = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted);
+          const chosen = preferPrev ? prevShown : out;
+          if (looksLikeUntranslatedCopy(text, out)) {
+            emitLiveDirectionSameLanguageFailure({
+              correlationId:       directionCorrelationId,
+              segmentId:           requestSegmentId,
+              isFinalDispatch:     isFinal,
+              sourceFullText:      text,
+              translatedAfterRetries: out,
+              srcLangSent:         dispatchLang,
+              tgtLangSent:         myTargetLang,
+              detectedLangRef:     detectedLangRef.current,
+              segmentSourceLang:   state.segmentSourceLang,
+              dispatchLang,
+              chosenSource,
+              majorityHint,
+              useStreamingDelta,
+              requestIsFinal,
+              paintOutcome:        preferPrev ? "suppressed_prefer_prev" : "painted",
+              hypothesisTags:      dirFailureTags(liveAbortForThisRequest?.signal.aborted ?? false),
+            });
           }
+          if (traceId && preferPrev && prevShown.length > 0 && out.trim().length > 0) {
+            liveBlankTracePaintSuppressed({
+              traceId,
+              code: "prefer_previous_live_kept_shorter_offered",
+              requestIsFinal,
+              useStreamingDelta,
+              translatedTrimmedLen: translated.trim().length,
+              chosenWouldBeLen: out.trim().length,
+              prevShownLen: prevShown.length,
+              preferPrev: true,
+            });
+          }
+          state.lastShownSeq = mySeq;
+          state.lastShownLen = chosen.length;
+          if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
+          applyTranslationTypography(transTextEl, chosen);
+          if (traceId) {
+            liveBlankTracePaintAppliedLive({
+              traceId,
+              useStreamingDelta: false,
+              mergedLen: chosen.length,
+              chosenLen: chosen.length,
+            });
+          }
+          state.pendingDisplayTranslation = "";
+          state.streamCommittedSource = text;
+          state.lastConfirmedSourceTranslated = text;
         }
 
         scrollPanel();
@@ -2908,7 +2722,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       hardFinalRequested: false,
       segmentSourceLang:     null,
       segmentTargetLang:     null,
-      needsFullFinalTranslation: false,
     };
     if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
       segmentStateByIdRef.current.set(activeBubbleStateRef.current.segmentId, activeBubbleStateRef.current);
@@ -2985,7 +2798,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           lockOnFinal: true,
           suppressEarlyHardFinal: closeKind === "speaker_change",
           skipOpenAiLiveDebounce: true,
-          forceFullSegmentFinal: closeKind === "speaker_change",
           adminSnapshotLineIndex,
         },
         segId,
@@ -3601,7 +3413,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             {
               lockOnFinal: false,
               suppressEarlyHardFinal: true,
-              forceFullSegmentFinal: true,
               skipOpenAiLiveDebounce: true,
               adminSnapshotLineIndex,
             },
