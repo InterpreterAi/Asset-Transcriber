@@ -97,22 +97,22 @@ User-defined term → translation pairs used as hints during transcription.
 ---
 
 ### `referrals`
-Tracks the full referral funnel: link click → registration → first session.
+Attributed sign-ups only (invite link **→** signup with ref). **Separate** from **`share_events`** (in-app link copy / share taps on the Invite modal).
 
-| Column | Type | Constraints | Default | Description |
-|--------|------|-------------|---------|-------------|
-| `id` | `serial` | PRIMARY KEY | auto | Referral ID |
-| `referrer_id` | `integer` | NOT NULL, FK→users, CASCADE DELETE | — | User who shared the link |
-| `clicked_at` | `timestamp` | NOT NULL | `now()` | When the link was clicked |
-| `registered_user_id` | `integer` | FK→users, SET NULL | `null` | New user who registered |
-| `registered_at` | `timestamp` | — | `null` | When they registered |
-| `has_started_session` | `boolean` | NOT NULL | `false` | Whether they started a session |
-| `created_at` | `timestamp` | NOT NULL | `now()` | Record creation time |
+| Column | SQL name | Constraints | Description |
+|--------|-----------|-------------|-------------|
+| `referrer_user_id` | `referrer_user_id` | NOT NULL, FK→users | Account that earns credit |
+| `referred_user_id` | `referred_user_id` | NOT NULL, FK→users | New account attributed to them |
+| `status` | `status` | NOT NULL default `pending` | `pending` until first session starts, then **`active`** (see transcription session start handler) |
+| `sessions_count` | `sessions_count` | integer | Incremented when the referred user starts a session |
+| `created_at` | `created_at` | default NOW() | Attribution record time |
 
 **Notes:**
-- One `referrals` row is created per link click (not per user)
-- `registered_user_id` is null until the invitee completes signup
-- `has_started_session` is set to `true` when the invitee calls `/api/transcription/session/start`
+- A row is inserted on **successful email or Google signup** when the client sends referrer id (from `/invite?ref=` → `sessionStorage` / OAuth `ref` query on `/api/auth/google`).
+- Clicks alone are **not** stored here (invite page calls `/api/referrals/click` only to validate the code).
+- “N shares” in admin Users comes from **`share_events`**, which can grow without any **`referrals`** rows.
+
+Legacy bootstrap in `server-entry.ts` referenced an older `referrals` shape; Drizzle/schema and app code expect the columns above (`lib/db/src/schema/referrals.ts`).
 
 ---
 
@@ -212,27 +212,33 @@ WHERE s.ended_at IS NULL
 ORDER BY s.started_at DESC;
 ```
 
-### Referral funnel summary
+### Referral attribution (current schema)
 ```sql
 SELECT
-  COUNT(*) AS total_clicks,
-  COUNT(registered_user_id) AS registrations,
-  COUNT(*) FILTER (WHERE has_started_session) AS activations
+  COUNT(*) AS attributed_signups,
+  COUNT(*) FILTER (WHERE status = 'active') AS started_interpreting_session
 FROM referrals;
 ```
 
-### Top referrers
+### Top referrers by attributed accounts
 ```sql
 SELECT
   u.username,
   u.email,
-  COUNT(*) AS clicks,
-  COUNT(r.registered_user_id) AS registrations,
-  COUNT(*) FILTER (WHERE r.has_started_session) AS activations
+  COUNT(*) AS referrals,
+  COUNT(*) FILTER (WHERE r.status = 'active') AS active_referrals
 FROM referrals r
-JOIN users u ON u.id = r.referrer_id
+JOIN users u ON u.id = r.referrer_user_id
 GROUP BY u.id, u.username, u.email
-ORDER BY activations DESC;
+ORDER BY active_referrals DESC, referrals DESC;
+```
+
+### Invite-share activity (Invite modal — not signup attribution)
+```sql
+SELECT user_id, COUNT(*) AS share_actions
+FROM share_events
+GROUP BY user_id
+ORDER BY share_actions DESC;
 ```
 
 ### Failed login attempts in last 24h
