@@ -2227,7 +2227,12 @@ export default function Admin() {
                           {formatMinutes(u.totalMinutesUsed)}
                           <span className="text-muted-foreground/70 text-[10px]"> ({u.totalSessions} sess)</span>
                           {u.totalShares > 0 && (
-                            <span className="ml-1.5 text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold" title="Total shares">
+                            <span
+                              className="ml-1.5 text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold"
+                              title={
+                                'Invite actions (copied/shared link via in-app Invite). Does not prove a sign-up credited to this user — see Referrals tab for attributed trial accounts.'
+                              }
+                            >
                               {u.totalShares} shares
                             </span>
                           )}
@@ -2571,7 +2576,16 @@ export default function Admin() {
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="font-semibold text-base">Referral tracking</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Manual rewards only. Badge indicates a referrer has reached 3 active referrals.
+                  Rows appear only after someone completes sign-up while carrying that referrer (&quot;invite&quot; flow with{" "}
+                  <code className="text-[10px] font-mono">/invite?ref=…</code> then email/Google with ref). The purple{" "}
+                  <strong className="text-foreground">&quot;N shares&quot;</strong> chip on Users counts link copy/share taps,
+                  not sign-ups — they can diverge heavily.
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <strong className="text-foreground">Pending</strong> = attributed account created, interpreting session not
+                  started yet. <strong className="text-foreground">Active</strong> = they started at least one workspace session.
+                  User rewards tab uses successful (active) count. Manual rewards only — badge highlights referrers with 3+
+                  active referrals.
                 </p>
               </div>
               <div className="overflow-x-auto">

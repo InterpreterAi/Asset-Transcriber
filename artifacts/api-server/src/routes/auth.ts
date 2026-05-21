@@ -715,12 +715,19 @@ router.post("/signup", async (req, res) => {
       .where(eq(usersTable.id, referrerUserId))
       .limit(1);
     if (referrer) {
-      void db.insert(referralsTable).values({
-        referrerUserId: referrer.id,
-        referredUserId: newUser.id,
-        status: "pending",
-        sessionsCount: 0,
-      });
+      try {
+        await db.insert(referralsTable).values({
+          referrerUserId: referrer.id,
+          referredUserId: newUser.id,
+          status: "pending",
+          sessionsCount: 0,
+        });
+      } catch (referralErr) {
+        logger.warn(
+          { ...errMeta(referralErr), referrerUserId: referrer.id, referredUserId: newUser.id },
+          "signup: referral row insert failed (table mismatch or FK); attribution not recorded",
+        );
+      }
     }
   }
 
@@ -1328,12 +1335,19 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
           .where(eq(usersTable.id, oauthReferralUserId))
           .limit(1);
         if (referrer) {
-          void db.insert(referralsTable).values({
-            referrerUserId: referrer.id,
-            referredUserId: user!.id,
-            status: "pending",
-            sessionsCount: 0,
-          });
+          try {
+            await db.insert(referralsTable).values({
+              referrerUserId: referrer.id,
+              referredUserId: user!.id,
+              status: "pending",
+              sessionsCount: 0,
+            });
+          } catch (referralErr) {
+            logger.warn(
+              { ...errMeta(referralErr), referrerUserId: referrer.id, referredUserId: user!.id },
+              "Google signup: referral row insert failed; attribution not recorded",
+            );
+          }
         }
       }
       void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null, user!.id).catch(
