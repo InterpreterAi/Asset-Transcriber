@@ -1,5 +1,5 @@
 /** Client transcription + translation dispatch (single canonical hook). dailyCapRef + heartbeat cap for daily limits. */
-import { useRef, useState, useCallback, useEffect, type MutableRefObject } from "react";
+import { useRef, useState, useCallback, useEffect, useLayoutEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import {
@@ -146,6 +146,8 @@ const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
+/** Distance from scrollbar bottom counts as “following live”; above this we stop auto-scroll. */
+const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
@@ -1668,6 +1670,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
+  /** User is following live tail unless they scroll up; then we skip auto-scroll until they return to bottom. */
+  const userPinnedToBottomRef = useRef(true);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
   const pendingSpeakerSwitchRef = useRef<{
@@ -1861,13 +1865,55 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   };
 
   // ── scrollPanel ────────────────────────────────────────────────────────────
+  // Respect manual scroll-back: live updates scroll only while pinned-to-bottom or when forced (new session tail).
   const scrollPanel = useCallback((force = false) => {
     const el = containerRef.current?.parentElement;
     if (!el) return;
-    if (force) { el.scrollTop = el.scrollHeight; return; }
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
+    if (force) {
+      userPinnedToBottomRef.current = true;
       el.scrollTop = el.scrollHeight;
+      return;
     }
+    if (!userPinnedToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  useLayoutEffect(() => {
+    let cancelled = false;
+    let attachedEl: HTMLElement | null = null;
+    let onScroll: (() => void) | undefined;
+    let raf2 = 0;
+
+    const tryAttach = (): boolean => {
+      const inner = containerRef.current;
+      const scrollParent = inner?.parentElement ?? null;
+      if (!scrollParent || cancelled) return false;
+      attachedEl = scrollParent as HTMLElement;
+      const slack = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
+      onScroll = () => {
+        const d = attachedEl!.scrollHeight - attachedEl!.scrollTop - attachedEl!.clientHeight;
+        userPinnedToBottomRef.current = d <= slack;
+      };
+      attachedEl.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+      return true;
+    };
+
+    const raf1 = requestAnimationFrame(() => {
+      if (cancelled) return;
+      if (!tryAttach()) {
+        raf2 = requestAnimationFrame(() => {
+          if (!cancelled) tryAttach();
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+      if (attachedEl && onScroll) attachedEl.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
@@ -2729,7 +2775,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
-    scrollPanel(true);
+    scrollPanel();
     return finalSpan;
   }, [scrollPanel]);
 
@@ -2862,6 +2908,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       redundantCalls: 0,
     };
     if (containerRef.current) containerRef.current.innerHTML = "";
+    userPinnedToBottomRef.current = true;
     setHasTranscript(false);
     setTranslationServiceError(null);
     if (glossaryFlashTimerRef.current) {
@@ -3633,6 +3680,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         setMicLevel(Math.min(100, Math.sqrt(sum / (samples.length || 1)) * 500));
       };
 
+      userPinnedToBottomRef.current = true;
       isRecRef.current = true;
       setIsRecording(true);
 
