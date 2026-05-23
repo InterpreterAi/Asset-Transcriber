@@ -1673,13 +1673,29 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const routing = getLiveTranslateEngineRouting(translateUser);
   const {
-    useMachineTranslation,
     effectivePlanTypeForTranslation: effectivePlanTypeResolved,
     planLower,
     forcedOpenAiPlan,
     prefersMachineStack,
     rawPlanLower,
   } = routing;
+
+  const experimentalBasicMorsyOpenAiOnly =
+    Boolean((req.body as { experimentalBasicMorsyOpenAiOnly?: boolean }).experimentalBasicMorsyOpenAiOnly);
+
+  /** When BASIC_MORSY_OPENAI_EXPERIMENT=1, Morsy Urgent Intercall experiment client can skip machine translation. */
+  const basicMorsyOpenAiExperimentServerEnabled =
+    String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
+
+  let useMachineTranslation = routing.useMachineTranslation;
+  if (experimentalBasicMorsyOpenAiOnly && basicMorsyOpenAiExperimentServerEnabled) {
+    useMachineTranslation = false;
+  } else if (experimentalBasicMorsyOpenAiOnly && !basicMorsyOpenAiExperimentServerEnabled) {
+    logger.warn(
+      { userId: translateUser.id },
+      "POST /translate: client experimentalBasicMorsyOpenAiOnly ignored — set BASIC_MORSY_OPENAI_EXPERIMENT=1 on API",
+    );
+  }
 
   // Debug-only: remove or gate once paid OpenAI vs Hetzner routing is confirmed in production logs.
   logger.info(
@@ -1698,6 +1714,9 @@ router.post("/translate", requireAuth, async (req, res) => {
       forcedOpenAiPlan,
       prefersMachineStack,
       useMachineTranslation,
+      experimentalBasicMorsyOpenAiOnly,
+      basicMorsyOpenAiExperimentForced:
+        experimentalBasicMorsyOpenAiOnly && basicMorsyOpenAiExperimentServerEnabled,
     },
     "POST /translate engine routing",
   );

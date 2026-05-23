@@ -200,6 +200,28 @@ export default function WorkspaceDefault() {
   const snapshotSeqRef = useRef(0);
 
   const segmentBoundaryGuardsEffective = diagnosticSegmentBoundaryGuards(Boolean(user));
+
+  /**
+   * Basic · Morsy Urgent — Intercall-style orchestration lab (cadence/stability/OpenAI routing flag).
+   * Eligibility: plan `morsy-urgent` or admin QA; not legacy2.
+   */
+  const MORSY_INTERCALL_EXP_LS = "interpreterai_morsy_urgent_intercall_exp";
+  const pt = (user?.planType ?? "").toLowerCase();
+  const morsyIntercallExperimentEligible = Boolean(user?.isAdmin) || pt === "morsy-urgent";
+
+  const [morsyIntercallExperiment, setMorsyIntercallExperiment] = useState(false);
+  useEffect(() => {
+    if (!morsyIntercallExperimentEligible || typeof window === "undefined") {
+      setMorsyIntercallExperiment(false);
+      return;
+    }
+    try {
+      setMorsyIntercallExperiment(localStorage.getItem(MORSY_INTERCALL_EXP_LS) === "1");
+    } catch {
+      setMorsyIntercallExperiment(false);
+    }
+  }, [morsyIntercallExperimentEligible, user?.id]);
+
   useEffect(() => {
     if (!user) return;
     let source: string = "default";
@@ -225,6 +247,8 @@ export default function WorkspaceDefault() {
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
+    experimentMorsyUrgentIntercallOrchestration:
+      Boolean(user) && morsyIntercallExperimentEligible && morsyIntercallExperiment,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -1817,6 +1841,31 @@ export default function WorkspaceDefault() {
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
                 Practice Output
               </span>
+              {morsyIntercallExperimentEligible && (
+                <label
+                  className="flex items-center gap-1 shrink-0 text-[10px] text-muted-foreground cursor-pointer select-none max-w-[11rem]"
+                  title={
+                    "Intercall-style orchestration (stable vs live translation spans, tighter debounce/grace-window endpoint finalize) + experimental OpenAI-only /translate when API BASIC_MORSY_OPENAI_EXPERIMENT=1. Without env=1, routing stays tier-default."
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    className="rounded border-border h-3 w-3 shrink-0"
+                    checked={morsyIntercallExperiment}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      try {
+                        if (on) localStorage.setItem(MORSY_INTERCALL_EXP_LS, "1");
+                        else localStorage.removeItem(MORSY_INTERCALL_EXP_LS);
+                      } catch {
+                        /* storage quota */
+                      }
+                      setMorsyIntercallExperiment(on);
+                    }}
+                  />
+                  <span className="leading-tight">Morsy Intercall lab</span>
+                </label>
+              )}
               {transcription.audioInfo && (
                 <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
                   {transcription.audioInfo}

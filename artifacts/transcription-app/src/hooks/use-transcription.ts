@@ -145,6 +145,12 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
+/** Morsy Urgent Intercall experiment: coarser burst coalescing for OpenAI live translate (aligns with WS micro-batches). */
+const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
+/** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
+const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
+/** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
+const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 /** Distance from scrollbar bottom counts as “following live”; above this we stop auto-scroll. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
@@ -719,6 +725,11 @@ type TranslateApiOptions = {
   clientSeq?: number;
   /** Correlate direction traces across dispatch → fetch → paint */
   directionTraceId?: string;
+  /**
+   * When API has BASIC_MORSY_OPENAI_EXPERIMENT=1, forces OpenAI /translate path (skips Libre/Hetzner).
+   * Sent only when the Basic · Morsy Urgent workspace enables Intercall orchestration experiment.
+   */
+  experimentalBasicMorsyOpenAiOnly?: boolean;
 };
 
 async function translateViaPrimaryApi(
@@ -771,6 +782,9 @@ async function translateViaPrimaryApi(
         ...(options?.sessionId != null && options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
         ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
         ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
+        ...(options?.experimentalBasicMorsyOpenAiOnly === true
+          ? { experimentalBasicMorsyOpenAiOnly: true as const }
+          : {}),
       };
       const bodyJson = JSON.stringify(bodyObj);
       const dirTraceId = options?.directionTraceId;
@@ -1479,26 +1493,31 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
-/** Live + final: always replace the whole translation cell (innerHTML), never append tokens. */
-function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
+/** Sets direction / lang on container and typography + HTML on body (same element for prod; split spans for Intercall experiment). */
+function applyTranslationTypographyCore(rootDirEl: HTMLElement, bodyEl: HTMLElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
-  el.dir             = rtl ? "rtl" : "ltr";
-  el.style.textAlign = rtl ? "right" : "";
+  rootDirEl.dir             = rtl ? "rtl" : "ltr";
+  rootDirEl.style.textAlign = rtl ? "right" : "";
   const html = wrapAsciiDigitRunsWithLtrSpans(newTranslation);
   if (rtl) {
     if (arabicScript) {
-      el.lang      = "ar";
-      el.className = CLS.transText + " ts-arabic";
+      rootDirEl.lang = "ar";
+      bodyEl.className = CLS.transText + " ts-arabic";
     } else {
-      el.lang      = "he";
-      el.className = CLS.transText;
+      rootDirEl.lang = "he";
+      bodyEl.className = CLS.transText;
     }
-    el.innerHTML = html;
+    bodyEl.innerHTML = html;
   } else {
-    el.removeAttribute("lang");
-    el.className = CLS.transText;
-    el.innerHTML = html;
+    rootDirEl.removeAttribute("lang");
+    bodyEl.className = CLS.transText;
+    bodyEl.innerHTML = html;
   }
+}
+
+/** Live + final: replace the translation cell (innerHTML on a single element — see {@link applyTranslationForBubbleState}). */
+function applyTranslationTypography(el: HTMLParagraphElement, newTranslation: string): void {
+  applyTranslationTypographyCore(el, el, newTranslation);
 }
 
 // ── Per-bubble translation state ───────────────────────────────────────────────
@@ -1512,6 +1531,12 @@ interface BubbleTransState {
   /** Highest translation dispatch seq successfully applied to DOM (OpenAI-path stale-response guard). */
   lastAppliedSeq:     number;
   transTextEl:       HTMLParagraphElement;
+  /**
+   * Morsy Intercall orchestration: stable (finalized-only paint target) + volatile live tail.
+   * When null, translations use {@link BubbleTransState.transTextEl} alone (production).
+   */
+  transStableEl:     HTMLSpanElement | null;
+  transLiveEl:       HTMLSpanElement | null;
   seq:               number;   // incremented on every dispatch FOR THIS bubble
   lastShownSeq:      number;   // highest seq whose result was written to DOM
   lastShownLen:      number;   // char length of last shown translation (for stabilization)
@@ -1555,6 +1580,32 @@ interface BubbleTransState {
   segmentTargetLang:     string | null;
 }
 
+/** Intercall experiment (Morsy Urgent): live paints volatile span; final promotes to stable span and clears tail. */
+function applyTranslationForBubbleState(
+  state: BubbleTransState,
+  newTranslation: string,
+  kind: "live" | "final",
+): void {
+  const root = state.transTextEl;
+  const stable = state.transStableEl;
+  const live = state.transLiveEl;
+  if (!stable || !live) {
+    applyTranslationTypography(root, newTranslation);
+    return;
+  }
+  if (kind === "live") {
+    stable.textContent = "";
+    stable.removeAttribute("lang");
+    stable.className = `${CLS.transText} min-w-0`;
+    applyTranslationTypographyCore(root, live, newTranslation);
+  } else {
+    live.textContent = "";
+    live.removeAttribute("lang");
+    live.className = `${CLS.transText} min-w-0 opacity-90`;
+    applyTranslationTypographyCore(root, stable, newTranslation);
+  }
+}
+
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
 
 type TranslationDiag = {
@@ -1587,6 +1638,11 @@ export type UseTranscriptionOptions = {
    * final-token flush queue and translation responses for both OpenAI and machine (Hetzner/Libre) stacks.
    */
   segmentBoundaryGuards?: boolean;
+  /**
+   * Basic · Morsy Urgent only: Intercall-style orchestration (stable/final separation, cadence tuning,
+   * endpoint grace window) plus `experimentalBasicMorsyOpenAiOnly` when `BASIC_MORSY_OPENAI_EXPERIMENT=1`.
+   */
+  experimentMorsyUrgentIntercallOrchestration?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1620,6 +1676,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBoundaryGuardsRef.current = options?.segmentBoundaryGuards ?? false;
   }, [options?.segmentBoundaryGuards]);
+
+  const experimentMorsyUrgentIntercallRef = useRef(options?.experimentMorsyUrgentIntercallOrchestration ?? false);
+  useEffect(() => {
+    experimentMorsyUrgentIntercallRef.current = options?.experimentMorsyUrgentIntercallOrchestration ?? false;
+  }, [options?.experimentMorsyUrgentIntercallOrchestration]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -1700,7 +1761,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
-  /** Live debounce; 0 = every dispatch is immediate (streaming / incremental). */
+  /** OpenAI-path schedule debounce; Intercall experiment uses {@link INTERCALL_OPENAI_LIVE_DEBOUNCE_MS}. */
   const OPENAI_LIVE_DEBOUNCE_MS = 300;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openaiLiveDebouncePayloadRef = useRef<{ text: string; lang: string; segmentId: string } | null>(
@@ -1734,7 +1795,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     redundantCalls: 0,
   });
 
-  /** Trailing debounce for live translate API (coalesces WS bursts). Lower = snappier first translation; too low = redundant aborted requests. */
+  /** Trailing debounce for live translate API (coalesces WS bursts). MT path uses a short window; Morsy Intercall uses {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
   const LIVE_TRANSLATION_DEBOUNCE_MS = 52;
   const liveTranslationDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveTranslationDebouncePayloadRef = useRef<{
@@ -1742,6 +1803,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lang: string;
     segmentId: string;
   } | null>(null);
+
+  /** Intercall: closed segment ids (ordering) for debugging / future row-level policy; not used in prod path. */
+  const intercallFinalizedSegmentIdsRef = useRef<string[]>([]);
+  const intercallEndpointGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelOpenAiLiveDebounce = useCallback(() => {
     if (openaiLiveDebounceTimerRef.current !== null) {
@@ -1754,6 +1819,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       liveTranslationDebounceTimerRef.current = null;
     }
     liveTranslationDebouncePayloadRef.current = null;
+    if (intercallEndpointGraceTimerRef.current !== null) {
+      clearTimeout(intercallEndpointGraceTimerRef.current);
+      intercallEndpointGraceTimerRef.current = null;
+    }
   }, []);
 
   const scheduleDebouncedLiveTranslation = useCallback((text: string, lang: string, segmentId: string) => {
@@ -1786,7 +1855,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         { skipOpenAiLiveDebounce: true },
         p.segmentId,
       );
-    }, LIVE_TRANSLATION_DEBOUNCE_MS);
+    }, experimentMorsyUrgentIntercallRef.current ? INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS : LIVE_TRANSLATION_DEBOUNCE_MS);
   }, []);
 
   const flushFinalTextRenderQueue = useCallback(() => {
@@ -2124,7 +2193,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           { skipOpenAiLiveDebounce: true },
           p.segmentId,
         );
-      }, OPENAI_LIVE_DEBOUNCE_MS);
+      }, experimentMorsyUrgentIntercallRef.current ? INTERCALL_OPENAI_LIVE_DEBOUNCE_MS : OPENAI_LIVE_DEBOUNCE_MS);
       emitDirectionResolve("openai_debounce_schedule");
       return;
     }
@@ -2192,6 +2261,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     void (async () => {
       try {
         const recordingSessionId = sessionIdRef.current;
+        const basicMorsyOpenAiExperimentOpts = experimentMorsyUrgentIntercallRef.current
+          ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
+          : {};
         const guardSnap = () => ({
           mySeq,
           lastAppliedSeq: state.lastAppliedSeq,
@@ -2284,6 +2356,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
+              ...basicMorsyOpenAiExperimentOpts,
             },
           );
           if (tr.dailyLimitReached) {
@@ -2332,6 +2405,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
+              ...basicMorsyOpenAiExperimentOpts,
             },
           );
           if (trRetry.dailyLimitReached) {
@@ -2361,6 +2435,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 ? { segmentId: state.segmentId, clientSeq: mySeq }
                 : {}),
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
+              ...basicMorsyOpenAiExperimentOpts,
             },
           );
           if (trOppRetry.dailyLimitReached) {
@@ -2532,7 +2607,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-          applyTranslationTypography(transTextEl, out);
+          applyTranslationForBubbleState(state, out, "final");
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           if (!lockOnFinal) {
@@ -2629,7 +2704,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = chosen.length;
           if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-          applyTranslationTypography(transTextEl, chosen);
+          applyTranslationForBubbleState(state, chosen, "live");
           if (traceId) {
             liveBlankTracePaintAppliedLive({
               traceId,
@@ -2722,9 +2797,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const transTextP = document.createElement("p");
     const translationOn = translationEnabledRef.current;
     transTextP.className   = translationOn ? CLS.transPend : CLS.transDisabled;
-    transTextP.textContent = translationOn
-      ? ""
-      : (translationUiModeRef.current === "hidden" ? "" : TRANSLATION_PLATINUM_PLACEHOLDER);
+
+    let transStable: HTMLSpanElement | null = null;
+    let transLive: HTMLSpanElement | null = null;
+
+    if (translationOn && experimentMorsyUrgentIntercallRef.current) {
+      transTextP.textContent = "";
+      transStable = document.createElement("span");
+      transLive = document.createElement("span");
+      transStable.className = `${CLS.transText} min-w-0`;
+      transLive.className = `${CLS.transText} min-w-0 opacity-90`;
+      transTextP.appendChild(transStable);
+      transTextP.appendChild(transLive);
+    } else {
+      transTextP.textContent = translationOn
+        ? ""
+        : (translationUiModeRef.current === "hidden" ? "" : TRANSLATION_PLATINUM_PLACEHOLDER);
+    }
     applyTextStyle(transTextP);
     transRow.appendChild(transTextP);
     transRow.appendChild(makeCopyBtn(() => transTextP.textContent ?? ""));
@@ -2745,6 +2834,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       isClosed: false,
       lastAppliedSeq: 0,
       transTextEl:  transTextP,
+      transStableEl: transStable,
+      transLiveEl: transLive,
       seq:          0,
       lastShownSeq:      0,
       lastShownLen:      0,
@@ -2802,9 +2893,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       activeBubbleStateRef.current.finalizing = true;
     }
 
+    let finalText: string;
     // Final transcript + final translate source: committed finals only (`activeBubbleRef` is the
     // final span; NF is a sibling — not read or merged here; avoids NF/revision shrink on boundary).
-    const finalText = (activeBubbleRef.current?.textContent ?? "").trim();
+    finalText = (activeBubbleRef.current?.textContent ?? "").trim();
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -2868,6 +2960,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
       activeBubbleStateRef.current.isClosed = true;
     }
+    if (experimentMorsyUrgentIntercallRef.current && activeBubbleStateRef.current?.segmentId) {
+      intercallFinalizedSegmentIdsRef.current.push(activeBubbleStateRef.current.segmentId);
+    }
     currentSpeakerRef.current = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
@@ -2899,6 +2994,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
     adminSegmentRowIndexRef.current.clear();
+    intercallFinalizedSegmentIdsRef.current = [];
     translationDiagRef.current = {
       callCount: 0,
       estimatedTokensTotal: 0,
@@ -3151,6 +3247,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
 
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
+
+      // Intercall: cancel pending semantic-endpoint final if new audio/context arrived (still growing).
+      if (
+        experimentMorsyUrgentIntercallRef.current &&
+        intercallEndpointGraceTimerRef.current !== null &&
+        !sawSonioxEndpoint
+      ) {
+        clearTimeout(intercallEndpointGraceTimerRef.current);
+        intercallEndpointGraceTimerRef.current = null;
+      }
+
       resetInactivityRef.current?.();
 
       // ── FINAL tokens (exclude Soniox &lt;end&gt; marker from transcript + counts) ──
@@ -3431,9 +3538,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
       if (sawSonioxEndpoint) {
-        const stEnd = activeBubbleStateRef.current;
-        const srcEnd = liveBufferRef.current.trim();
-        if (stEnd && srcEnd && !stEnd.translationLocked) {
+        const semanticEndpointFinalizeForSegment = (stEnd: BubbleTransState, srcEnd: string): void => {
+          if (!srcEnd || stEnd.translationLocked) return;
           const map = adminSegmentRowIndexRef.current;
           const seg = stEnd.segmentId;
           let adminSnapshotLineIndex: number | undefined;
@@ -3465,6 +3571,35 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             },
             stEnd.segmentId,
           );
+        };
+
+        const runSemanticEndpointFinalize = (): void => {
+          const stEnd = activeBubbleStateRef.current;
+          const srcEnd = liveBufferRef.current.trim();
+          if (!stEnd || !srcEnd || stEnd.translationLocked) return;
+          semanticEndpointFinalizeForSegment(stEnd, srcEnd);
+        };
+
+        if (experimentMorsyUrgentIntercallRef.current) {
+          const stCap = activeBubbleStateRef.current;
+          const segForGrace = stCap?.segmentId;
+          const srcSnap = liveBufferRef.current.trim();
+          if (segForGrace && stCap && srcSnap && !stCap.translationLocked) {
+            if (intercallEndpointGraceTimerRef.current !== null) {
+              clearTimeout(intercallEndpointGraceTimerRef.current);
+            }
+            intercallEndpointGraceTimerRef.current = setTimeout(() => {
+              intercallEndpointGraceTimerRef.current = null;
+              flushFinalTextRenderQueue();
+              const stNow = activeBubbleStateRef.current;
+              if (!stNow || stNow.segmentId !== segForGrace || stNow.translationLocked) return;
+              const srcEnd = liveBufferRef.current.trim();
+              if (!srcEnd) return;
+              semanticEndpointFinalizeForSegment(stNow, srcEnd);
+            }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
+          }
+        } else {
+          runSemanticEndpointFinalize();
         }
       }
 
@@ -3535,6 +3670,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       detectedLangRef.current        = "en";
       resetSpeakerMap();
       pcmBacklogRef.current          = [];
+      intercallFinalizedSegmentIdsRef.current = [];
 
       resetSttPipelineInstrumentationSession();
       liveBlankTraceSessionReset();
