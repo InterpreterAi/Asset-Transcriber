@@ -727,7 +727,7 @@ type TranslateApiOptions = {
   directionTraceId?: string;
   /**
    * When API has BASIC_MORSY_OPENAI_EXPERIMENT=1, forces OpenAI /translate path (skips Libre/Hetzner).
-   * Sent only when the Basic · Morsy Urgent workspace enables Intercall orchestration experiment.
+   * Sent only when the workspace loads Morsy Urgent (`planType` morsy-urgent) and the Intercall lab toggle is on.
    */
   experimentalBasicMorsyOpenAiOnly?: boolean;
 };

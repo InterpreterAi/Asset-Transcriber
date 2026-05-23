@@ -14,6 +14,7 @@ import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
+  effectivePlanTypeForTranslation,
   getLiveTranslateEngineRouting,
   getUserWithResetCheck,
   isTrialExpired,
@@ -1570,6 +1571,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     isFinal: rawIsFinal,
     glossaryStrictMode: rawGlossaryStrict,
     terminologyMode: rawTerminologyMode,
+    experimentalBasicMorsyOpenAiOnly: rawExperimentalMorsyOpenAiOnly,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1585,7 +1587,12 @@ router.post("/translate", requireAuth, async (req, res) => {
     glossaryStrictMode?: boolean;
     /** OpenAI terminology behavior mode: full translation vs hybrid labels. */
     terminologyMode?: string;
+    experimentalBasicMorsyOpenAiOnly?: unknown;
   };
+  const experimentalBasicMorsyOpenAiOnly = Boolean(rawExperimentalMorsyOpenAiOnly);
+  const basicMorsyOpenAiExperimentServerEnabled =
+    String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
+
   const streamingDelta = Boolean(rawStreamingDelta);
   const isFinalSegment = Boolean(rawIsFinal);
   const glossaryStrictMode = rawGlossaryStrict !== false;
@@ -1599,12 +1606,30 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const translateUser = await getUserWithResetCheck(req.session.userId!);
-  if (!translateUser || !translationEnabledForUser(translateUser)) {
+  const planLowerForMorsyLab = translateUser
+    ? effectivePlanTypeForTranslation(translateUser).trim().toLowerCase()
+    : "";
+  const morsyUrgentLabTranslateAllowed =
+    Boolean(translateUser) &&
+    planLowerForMorsyLab === "morsy-urgent" &&
+    experimentalBasicMorsyOpenAiOnly &&
+    basicMorsyOpenAiExperimentServerEnabled;
+
+  if (!translateUser || (!translationEnabledForUser(translateUser) && !morsyUrgentLabTranslateAllowed)) {
+    const morsyLabNeedsEnv =
+      Boolean(translateUser) &&
+      planLowerForMorsyLab === "morsy-urgent" &&
+      experimentalBasicMorsyOpenAiOnly &&
+      !basicMorsyOpenAiExperimentServerEnabled;
+
+    const error = morsyLabNeedsEnv
+      ? "Morsy Urgent OpenAI lab: set BASIC_MORSY_OPENAI_EXPERIMENT=1 on this API service, reload the app, and try again."
+      : "Translation is not available for this account. If you are on a trial, it may have ended. " +
+        "Paid plans (Basic, Professional, Platinum) include translation — refresh after checkout or contact support if this persists.";
+
     res.status(403).json({
-      error:
-        "Translation is not available for this account. If you are on a trial, it may have ended. " +
-        "Paid plans (Basic, Professional, Platinum) include translation — refresh after checkout or contact support if this persists.",
-      code: "TRANSLATION_PLAN_REQUIRED",
+      error,
+      code: morsyLabNeedsEnv ? "MORSY_LAB_REQUIRES_API_ENV" : "TRANSLATION_PLAN_REQUIRED",
     });
     return;
   }
@@ -1680,20 +1705,26 @@ router.post("/translate", requireAuth, async (req, res) => {
     rawPlanLower,
   } = routing;
 
-  const experimentalBasicMorsyOpenAiOnly =
-    Boolean((req.body as { experimentalBasicMorsyOpenAiOnly?: boolean }).experimentalBasicMorsyOpenAiOnly);
-
-  /** When BASIC_MORSY_OPENAI_EXPERIMENT=1, Morsy Urgent Intercall experiment client can skip machine translation. */
-  const basicMorsyOpenAiExperimentServerEnabled =
-    String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
-
   let useMachineTranslation = routing.useMachineTranslation;
-  if (experimentalBasicMorsyOpenAiOnly && basicMorsyOpenAiExperimentServerEnabled) {
+  const morsyUrgentOpenAiExperimentApplies =
+    experimentalBasicMorsyOpenAiOnly &&
+    basicMorsyOpenAiExperimentServerEnabled &&
+    planLower === "morsy-urgent";
+  if (morsyUrgentOpenAiExperimentApplies) {
     useMachineTranslation = false;
   } else if (experimentalBasicMorsyOpenAiOnly && !basicMorsyOpenAiExperimentServerEnabled) {
     logger.warn(
       { userId: translateUser.id },
       "POST /translate: client experimentalBasicMorsyOpenAiOnly ignored — set BASIC_MORSY_OPENAI_EXPERIMENT=1 on API",
+    );
+  } else if (
+    experimentalBasicMorsyOpenAiOnly &&
+    basicMorsyOpenAiExperimentServerEnabled &&
+    planLower !== "morsy-urgent"
+  ) {
+    logger.warn(
+      { userId: translateUser.id, planLower },
+      "POST /translate: experimentalBasicMorsyOpenAiOnly ignored — not morsy-urgent",
     );
   }
 
@@ -1715,8 +1746,8 @@ router.post("/translate", requireAuth, async (req, res) => {
       prefersMachineStack,
       useMachineTranslation,
       experimentalBasicMorsyOpenAiOnly,
-      basicMorsyOpenAiExperimentForced:
-        experimentalBasicMorsyOpenAiOnly && basicMorsyOpenAiExperimentServerEnabled,
+      basicMorsyOpenAiExperimentForced: morsyUrgentOpenAiExperimentApplies,
+      morsyUrgentLabTranslateBypass: morsyUrgentLabTranslateAllowed,
     },
     "POST /translate engine routing",
   );

@@ -202,12 +202,11 @@ export default function WorkspaceDefault() {
   const segmentBoundaryGuardsEffective = diagnosticSegmentBoundaryGuards(Boolean(user));
 
   /**
-   * Basic · Morsy Urgent — Intercall-style orchestration lab (cadence/stability/OpenAI routing flag).
-   * Eligibility: plan `morsy-urgent` or admin QA; not legacy2.
+   * Basic · Morsy Urgent only — Intercall orchestration lab (not shown for trial/basic/professional/platinum).
    */
   const MORSY_INTERCALL_EXP_LS = "interpreterai_morsy_urgent_intercall_exp";
   const pt = (user?.planType ?? "").toLowerCase();
-  const morsyIntercallExperimentEligible = Boolean(user?.isAdmin) || pt === "morsy-urgent";
+  const morsyIntercallExperimentEligible = pt === "morsy-urgent";
 
   const [morsyIntercallExperiment, setMorsyIntercallExperiment] = useState(false);
   useEffect(() => {
@@ -243,12 +242,14 @@ export default function WorkspaceDefault() {
   }, [user?.id, segmentBoundaryGuardsEffective]);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
-    translationEnabled: user?.translationEnabled ?? true,
+    translationEnabled:
+      (user?.translationEnabled ?? true) ||
+      (pt === "morsy-urgent" && morsyIntercallExperiment),
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     experimentMorsyUrgentIntercallOrchestration:
-      Boolean(user) && morsyIntercallExperimentEligible && morsyIntercallExperiment,
+      Boolean(user) && pt === "morsy-urgent" && morsyIntercallExperiment,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
