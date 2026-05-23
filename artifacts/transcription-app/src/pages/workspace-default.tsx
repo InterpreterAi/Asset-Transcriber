@@ -242,14 +242,13 @@ export default function WorkspaceDefault() {
   }, [user?.id, segmentBoundaryGuardsEffective]);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
-    translationEnabled:
-      (user?.translationEnabled ?? true) ||
-      (pt === "morsy-urgent" && morsyIntercallExperiment),
+    translationEnabled: (user?.translationEnabled ?? true) || pt === "morsy-urgent",
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     segmentBehaviorMode: "morsy-urgent-cbf",
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     experimentMorsyUrgentIntercallOrchestration:
       Boolean(user) && pt === "morsy-urgent" && morsyIntercallExperiment,
+    morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -1846,7 +1845,7 @@ export default function WorkspaceDefault() {
                 <label
                   className="flex items-center gap-1 shrink-0 text-[10px] text-muted-foreground cursor-pointer select-none max-w-[11rem]"
                   title={
-                    "Intercall-style orchestration (stable vs live translation spans, tighter debounce/grace-window endpoint finalize) + experimental OpenAI-only /translate when API BASIC_MORSY_OPENAI_EXPERIMENT=1. Without env=1, routing stays tier-default."
+        "Intercall-style cadence/UI lab (optional). Morsy Urgent translation uses OpenAI regardless; set API BASIC_MORSY_OPENAI_EXPERIMENT=1 to tag requests with the interpreter bypass hint."
                   }
                 >
                   <input

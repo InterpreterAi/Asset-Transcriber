@@ -1639,10 +1639,15 @@ export type UseTranscriptionOptions = {
    */
   segmentBoundaryGuards?: boolean;
   /**
-   * Basic · Morsy Urgent only: Intercall-style orchestration (stable/final separation, cadence tuning,
-   * endpoint grace window) plus `experimentalBasicMorsyOpenAiOnly` when `BASIC_MORSY_OPENAI_EXPERIMENT=1`.
+   * Basic · Morsy Urgent only: Intercall-style orchestration (cadence tuning, grace window); optional UX lab.
+   * OpenAI routing hint flag is governed by {@link morsyUrgentTranslateAttachOpenAiExperiment}.
    */
   experimentMorsyUrgentIntercallOrchestration?: boolean;
+  /**
+   * When true, POST /translate includes `experimentalBasicMorsyOpenAiOnly` (with `BASIC_MORSY_OPENAI_EXPERIMENT=1`),
+   * for operational correlation. Translation access no longer depends on this.
+   */
+  morsyUrgentTranslateAttachOpenAiExperiment?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -1681,6 +1686,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     experimentMorsyUrgentIntercallRef.current = options?.experimentMorsyUrgentIntercallOrchestration ?? false;
   }, [options?.experimentMorsyUrgentIntercallOrchestration]);
+
+  const morsyUrgentAttachOpenAiExperimentRef = useRef(
+    options?.morsyUrgentTranslateAttachOpenAiExperiment ?? false,
+  );
+  useEffect(() => {
+    morsyUrgentAttachOpenAiExperimentRef.current = options?.morsyUrgentTranslateAttachOpenAiExperiment ?? false;
+  }, [options?.morsyUrgentTranslateAttachOpenAiExperiment]);
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -2261,9 +2273,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     void (async () => {
       try {
         const recordingSessionId = sessionIdRef.current;
-        const basicMorsyOpenAiExperimentOpts = experimentMorsyUrgentIntercallRef.current
-          ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
-          : {};
+        const basicMorsyOpenAiExperimentOpts =
+          experimentMorsyUrgentIntercallRef.current || morsyUrgentAttachOpenAiExperimentRef.current
+            ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
+            : {};
         const guardSnap = () => ({
           mySeq,
           lastAppliedSeq: state.lastAppliedSeq,

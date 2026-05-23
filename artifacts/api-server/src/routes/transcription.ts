@@ -14,7 +14,6 @@ import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
-  effectivePlanTypeForTranslation,
   getLiveTranslateEngineRouting,
   getUserWithResetCheck,
   isTrialExpired,
@@ -1606,30 +1605,12 @@ router.post("/translate", requireAuth, async (req, res) => {
   }
 
   const translateUser = await getUserWithResetCheck(req.session.userId!);
-  const planLowerForMorsyLab = translateUser
-    ? effectivePlanTypeForTranslation(translateUser).trim().toLowerCase()
-    : "";
-  const morsyUrgentLabTranslateAllowed =
-    Boolean(translateUser) &&
-    planLowerForMorsyLab === "morsy-urgent" &&
-    experimentalBasicMorsyOpenAiOnly &&
-    basicMorsyOpenAiExperimentServerEnabled;
-
-  if (!translateUser || (!translationEnabledForUser(translateUser) && !morsyUrgentLabTranslateAllowed)) {
-    const morsyLabNeedsEnv =
-      Boolean(translateUser) &&
-      planLowerForMorsyLab === "morsy-urgent" &&
-      experimentalBasicMorsyOpenAiOnly &&
-      !basicMorsyOpenAiExperimentServerEnabled;
-
-    const error = morsyLabNeedsEnv
-      ? "Morsy Urgent OpenAI lab: set BASIC_MORSY_OPENAI_EXPERIMENT=1 on this API service, reload the app, and try again."
-      : "Translation is not available for this account. If you are on a trial, it may have ended. " +
-        "Paid plans (Basic, Professional, Platinum) include translation — refresh after checkout or contact support if this persists.";
-
+  if (!translateUser || !translationEnabledForUser(translateUser)) {
     res.status(403).json({
-      error,
-      code: morsyLabNeedsEnv ? "MORSY_LAB_REQUIRES_API_ENV" : "TRANSLATION_PLAN_REQUIRED",
+      error:
+        "Translation is not available for this account. If you are on a trial, it may have ended. " +
+        "Paid plans (Basic, Professional, Platinum) include translation — refresh after checkout or contact support if this persists.",
+      code: "TRANSLATION_PLAN_REQUIRED",
     });
     return;
   }
@@ -1747,7 +1728,6 @@ router.post("/translate", requireAuth, async (req, res) => {
       useMachineTranslation,
       experimentalBasicMorsyOpenAiOnly,
       basicMorsyOpenAiExperimentForced: morsyUrgentOpenAiExperimentApplies,
-      morsyUrgentLabTranslateBypass: morsyUrgentLabTranslateAllowed,
     },
     "POST /translate engine routing",
   );
