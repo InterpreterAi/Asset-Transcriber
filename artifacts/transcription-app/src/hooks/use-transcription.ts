@@ -69,6 +69,12 @@ import {
   morsyIsolatedFinalRenderBufferMs,
   nfVisibleTailBeyondCommittedTokenAware,
 } from "@/hooks/morsy-original-transcript-orchestration";
+import {
+  morsyIsolatedSemanticPresentationEnabled,
+  morsyIsolatedVisibleNfDebounceMs,
+  readMorsySemanticLayoutPreferredStacked,
+  stepVisibleCommittedBoundaryUtf16,
+} from "@/hooks/morsy-isolated-semantic-visible";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -526,6 +532,11 @@ function morsyIntercallSandboxStrictOriginalFinalSeparation(segmentMode: Segment
 
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
+/** Basic · Morsy Urgent semantic streaming only: slower diarization pivots → fewer spurious segments. */
+const MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_STREAK = 3;
+const MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_AGE_MS = 520;
+/** Drop “pending alternate speaker” buffer later so short A→B flicker does not steal finals as often. */
+const MORSY_SEMANTIC_ISO_PENDING_FLUSH_MAX_STREAK = 5;
 const EST_TOKENS_PER_CHAR = 0.25;
 /** Mirrors server: gpt-4o-mini list $/token × (verified Apr 3–18 dailies sum / $50). Env extra not applied in browser. */
 const OPENAI_VERIFIED_TRANSLATION_COST_TABLE_RATIO = 51.54 / 50;
@@ -559,6 +570,10 @@ const CLS = {
   transPend:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
   transDisabled: "ts-text text-muted-foreground/55 italic flex-1 min-w-0 text-[0.92em] leading-snug",
 } as const;
+
+/** Basic · Morsy Urgent isolated semantic stream: stacked original/translation (opt-in layout). */
+const CLS_ROW_SEMANTIC_STACK =
+  "group relative grid grid-cols-1 gap-y-5 gap-x-0 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
 
 const TRANSLATION_PLATINUM_PLACEHOLDER =
   "InterpreterAI Translation is available on the Platinum plan.";
@@ -2072,6 +2087,36 @@ interface BubbleTransState {
   morsyEnglishFreezeLastVCollapsed: string;
   /** Collapsed visible original (committed+NF tail) — monotone English growth detector for freeze. */
   morsyEnglishMonotoneTailCollapsed: string;
+  /** UTF-16 offset into {@link BubbleTransState.lockedCommittedFinalOriginal}: immutably visible prefix (never rewinds). */
+  visibleCommittedBoundary: number;
+  /** Canon idle clock for advancing {@link BubbleTransState.visibleCommittedBoundary}. */
+  morsyCanonPromotionLockedLen: number;
+  morsyCanonPromotionQuietSinceMs: number;
+  /** Isolated semantic stream: enqueue target wraps immutable + tentative committed spans (authority still `locked`). */
+  morsySemanticCommittedHostEl: HTMLSpanElement | null;
+  morsySemanticImmutableSpanEl: HTMLSpanElement | null;
+  morsySemanticTentativeSpanEl: HTMLSpanElement | null;
+  /** Visible NF debounce timer id (presentation only — raw staging is {@link BubbleTransState.morsyVisibleNfStagingPaint}). */
+  morsyVisibleNfThrottleTimer: number | null;
+  morsyVisibleNfStagingPaint: string;
+  morsyVisibleNfCommittedPaint: string;
+}
+
+function clearMorsyIsolatedSemanticUiTimers(st: BubbleTransState | null | undefined): void {
+  if (!st || st.morsyVisibleNfThrottleTimer == null) return;
+  window.clearTimeout(st.morsyVisibleNfThrottleTimer);
+  st.morsyVisibleNfThrottleTimer = null;
+}
+
+function syncMorsyIsolatedCommittedHostFromLocks(st: BubbleTransState): void {
+  const imm = st.morsySemanticImmutableSpanEl;
+  const tent = st.morsySemanticTentativeSpanEl;
+  if (!imm || !tent) return;
+  const locked = st.lockedCommittedFinalOriginal;
+  const b = Math.min(Math.max(0, st.visibleCommittedBoundary), locked.length);
+  st.visibleCommittedBoundary = b;
+  imm.textContent = locked.slice(0, b);
+  tent.textContent = locked.slice(b);
 }
 
 /** First punctuated Arabic/Latin/CJK sentence in a live-band remainder (`morsy-intercall-isolated-experiment`). */
@@ -2562,6 +2607,69 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lastDispatchedFinalTokensSeen: 0,
   });
 
+  const flushMorsySemanticIsolatedVisibleNf = useCallback(
+    (st: BubbleTransState, hardRewrite: boolean): boolean => {
+      const nfEl = activeBubbleNFRef.current;
+      if (!nfEl || !nfEl.isConnected) return false;
+      const candidateRaw = st.morsyVisibleNfStagingPaint ?? "";
+      const prevCommitted = st.morsyVisibleNfCommittedPaint;
+      if (
+        !hardRewrite &&
+        prevCommitted &&
+        candidateRaw.length < prevCommitted.length &&
+        !candidateRaw.startsWith(prevCommitted.slice(0, candidateRaw.length))
+      ) {
+        return false;
+      }
+      const longerProbe = Math.max(candidateRaw.length, prevCommitted?.length ?? 0);
+      if (
+        !hardRewrite &&
+        (prevCommitted?.length ?? 0) > 0 &&
+        candidateRaw.length > 0 &&
+        candidateRaw !== prevCommitted &&
+        !candidateRaw.startsWith(prevCommitted ?? "") &&
+        longestCommonUtf16PrefixLen(prevCommitted ?? "", candidateRaw) <
+          Math.max(10, Math.floor(longerProbe * 0.14))
+      ) {
+        return false;
+      }
+      nfEl.textContent = candidateRaw;
+      st.morsyVisibleNfCommittedPaint = candidateRaw;
+      st.lastRenderedNfPaint = candidateRaw;
+      return hardRewrite || (prevCommitted ?? "") !== candidateRaw;
+    },
+    [],
+  );
+
+  const scheduleMorsySemanticIsolatedNfPaint = useCallback(
+    (st: BubbleTransState | null | undefined, hardRewrite: boolean) => {
+      if (!st?.morsySemanticCommittedHostEl) return;
+      const nfEl = activeBubbleNFRef.current;
+      if (!nfEl || !nfEl.isConnected) return;
+      if (st.morsyVisibleNfThrottleTimer != null) {
+        window.clearTimeout(st.morsyVisibleNfThrottleTimer);
+        st.morsyVisibleNfThrottleTimer = null;
+      }
+      if (hardRewrite) {
+        flushMorsySemanticIsolatedVisibleNf(st, true);
+        return;
+      }
+      const segCapture = st.segmentId;
+      const delay = morsyIsolatedVisibleNfDebounceMs(st.morsyVisibleNfStagingPaint ?? "");
+      const id = window.setTimeout(() => {
+        const stNow = activeBubbleStateRef.current;
+        const el = activeBubbleNFRef.current;
+        if (stNow?.segmentId === segCapture) {
+          stNow.morsyVisibleNfThrottleTimer = null;
+        }
+        if (!stNow || stNow.segmentId !== segCapture || !el?.isConnected) return;
+        flushMorsySemanticIsolatedVisibleNf(stNow, false);
+      }, delay);
+      st.morsyVisibleNfThrottleTimer = id;
+    },
+    [flushMorsySemanticIsolatedVisibleNf],
+  );
+
   const cancelOpenAiLiveDebounce = useCallback(() => {
     if (openaiLiveDebounceTimerRef.current !== null) {
       clearTimeout(openaiLiveDebounceTimerRef.current);
@@ -2577,6 +2685,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(intercallEndpointGraceTimerRef.current);
       intercallEndpointGraceTimerRef.current = null;
     }
+    clearMorsyIsolatedSemanticUiTimers(activeBubbleStateRef.current);
     const mos = morsySemanticLiveArmRef.current;
     if (mos.trailingTimer !== null) {
       clearTimeout(mos.trailingTimer);
@@ -2759,7 +2868,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
-        target.textContent = gateSt.lockedCommittedFinalOriginal;
+        if (gateSt.morsySemanticCommittedHostEl) {
+          syncMorsyIsolatedCommittedHostFromLocks(gateSt);
+        } else {
+          target.textContent = gateSt.lockedCommittedFinalOriginal;
+        }
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
             kind:             "flush_append_canonical_dom",
@@ -3945,6 +4058,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const row = document.createElement("div");
     row.className = CLS.row;
+    const planLower = planTypeRef.current.trim();
+    const semanticIsoPresentation = morsyIsolatedSemanticPresentationEnabled({
+      planTypeLower: planLower,
+      segmentBehaviorMode: segmentBehaviorModeRef.current,
+    });
+    if (semanticIsoPresentation && readMorsySemanticLayoutPreferredStacked()) {
+      row.className = CLS_ROW_SEMANTIC_STACK;
+    }
 
     // ── LEFT COLUMN: original ────────────────────────────────────────────────
     const colOrig = document.createElement("div");
@@ -3972,10 +4093,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const p = document.createElement("p");
     p.className = CLS.textFin;
     applyTextStyle(p);
-    const finalSpan = document.createElement("span");
-    const nfSpan    = document.createElement("span");
+    /** Target for queued finals (`activeBubbleRef`) + optional immutable/tentative split under semantic UX. */
+    let finalCommitTarget: HTMLSpanElement;
+    let semanticHostEl: HTMLSpanElement | null = null;
+    let semanticImmEl: HTMLSpanElement | null = null;
+    let semanticTentEl: HTMLSpanElement | null = null;
+    const nfSpan = document.createElement("span");
     nfSpan.className = CLS.nf;
-    p.appendChild(finalSpan);
+    if (semanticIsoPresentation) {
+      semanticHostEl = document.createElement("span");
+      semanticImmEl = document.createElement("span");
+      semanticTentEl = document.createElement("span");
+      semanticHostEl.appendChild(semanticImmEl);
+      semanticHostEl.appendChild(semanticTentEl);
+      p.appendChild(semanticHostEl);
+      finalCommitTarget = semanticHostEl;
+    } else {
+      finalCommitTarget = document.createElement("span");
+      p.appendChild(finalCommitTarget);
+    }
     p.appendChild(nfSpan);
     origRow.appendChild(p);
     origRow.appendChild(makeCopyBtn(() => p.textContent ?? ""));
@@ -4064,6 +4200,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       morsyEnglishFreezePendingBaselineFinalTok: -1,
       morsyEnglishFreezeLastVCollapsed: "",
       morsyEnglishMonotoneTailCollapsed: "",
+      visibleCommittedBoundary: 0,
+      morsyCanonPromotionLockedLen: 0,
+      morsyCanonPromotionQuietSinceMs: Date.now(),
+      morsySemanticCommittedHostEl: semanticHostEl,
+      morsySemanticImmutableSpanEl: semanticImmEl,
+      morsySemanticTentativeSpanEl: semanticTentEl,
+      morsyVisibleNfThrottleTimer: null,
+      morsyVisibleNfStagingPaint: "",
+      morsyVisibleNfCommittedPaint: "",
     };
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
@@ -4073,7 +4218,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
-    return finalSpan;
+    return finalCommitTarget;
   }, []);
 
   /** session_end = user pressed Stop (not silence timers — those are removed). */
@@ -4088,6 +4233,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
+
+    const bubbleStPre = activeBubbleStateRef.current;
+    if (
+      bubbleStPre?.morsySemanticCommittedHostEl &&
+      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+    ) {
+      bubbleStPre.visibleCommittedBoundary = bubbleStPre.lockedCommittedFinalOriginal.length;
+      syncMorsyIsolatedCommittedHostFromLocks(bubbleStPre);
+      clearMorsyIsolatedSemanticUiTimers(bubbleStPre);
+      bubbleStPre.morsyVisibleNfStagingPaint = "";
+      bubbleStPre.morsyVisibleNfCommittedPaint = "";
+    }
 
     // Stop polling AND mark as finalizing synchronously, before the async
     // dispatch below. This ensures any poll fetch already in-flight will be
@@ -4508,6 +4665,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         isolatedOrchWs &&
         transcriptSegIsolationWs &&
         morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
+      const morsySemanticIsoPresentationUx =
+        useMorsyUrgentSpeakerGate &&
+        morsyIsolatedSemanticPresentationEnabled({
+          planTypeLower: planTypeRef.current.trim(),
+          segmentBehaviorMode: segmentBehaviorModeRef.current,
+        });
       const enqueueCanonRollBySeg = isolatedEnqueueCanonRoll ? new Map<string, string>() : null;
       const rollEnqueueForSegment = (segId: string, inc: string): string => {
         if (!enqueueCanonRollBySeg) return inc;
@@ -4602,8 +4765,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   !!confirm &&
                   confirm.sid === sid &&
                   (
-                    confirm.messageStreak >= FAST_SWITCH_MIN_STREAK ||
-                    (nowMs - confirm.firstMs >= FAST_SWITCH_MIN_AGE_MS && confirm.messageStreak >= 1)
+                    confirm.messageStreak >=
+                      (morsySemanticIsoPresentationUx ? MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_STREAK : FAST_SWITCH_MIN_STREAK) ||
+                    (
+                      nowMs - confirm.firstMs >=
+                        (morsySemanticIsoPresentationUx ? MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_AGE_MS : FAST_SWITCH_MIN_AGE_MS)
+                      &&
+                      confirm.messageStreak >= 1
+                    )
                   );
                 if (speakerConfirmed && tokenSuitable) {
                   closeActiveSegmentBoundary("speaker_change");
@@ -4669,9 +4838,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           pendingSpeakerSwitchRef.current = null;
         }
         const pendingAfter = pendingSpeakerSwitchRef.current;
+        const pendingFlushMax =
+          morsySemanticIsoPresentationUx ? MORSY_SEMANTIC_ISO_PENDING_FLUSH_MAX_STREAK : 3;
         if (
           pendingAfter &&
-          pendingAfter.messageStreak < 3 &&
+          pendingAfter.messageStreak < pendingFlushMax &&
           currentSpeakerSeenInMessage &&
           activeBubbleRef.current
         ) {
@@ -4820,42 +4991,57 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
           if (strictOriginalSeparation && isolatedOrchEffective) {
-            const prevRendered = stNf.lastRenderedNfPaint;
-            const d = deltaNfDomMutation(prevRendered, nfPaint);
-            const rewriteWeak =
-              prevRendered.length > 0 &&
-              nfPaint.length > 0 &&
-              !nfPaint.startsWith(prevRendered) &&
-              longestCommonUtf16PrefixLen(prevRendered, nfPaint) <
-                Math.max(8, Math.floor(Math.min(prevRendered.length, nfPaint.length) * 0.14));
-            const npTrim = nfPaint.trim();
-            const clauseReplayRisk =
-              npTrim.length >= 10 &&
-              committedLogical.includes(npTrim) &&
-              !committedLogical.trimEnd().endsWith(npTrim);
-            let forceFullReplace = nfSpeakerChangeForceFull || rewriteWeak || clauseReplayRisk || d.fullReplace;
-            if (!forceFullReplace && d.appendToDom.length === 0 && nfPaint !== prevRendered) forceFullReplace = true;
-            if (morsyIsolatedReconcileDiagEnabled()) {
-              console.info("[morsy_isolated_reconcile]", {
-                kind:             "nf_delta",
-                canonLen:         committedLogical.length,
-                nfPaintPeek:      nfPaint.length > 96 ? `${nfPaint.slice(0, 96)}…` : nfPaint,
-                prevRenderedLen:  prevRendered.length,
-                deltaAppendLen:   d.appendToDom.length,
-                deltaFullReplace: d.fullReplace,
-                forceFullReplace,
-                clauseReplayRisk,
+            const semanticSkinIso =
+              stNf.morsySemanticCommittedHostEl &&
+              morsyIsolatedSemanticPresentationEnabled({
+                planTypeLower: planTypeRef.current.trim(),
+                segmentBehaviorMode: segmentBehaviorModeRef.current,
               });
-            }
-            if (forceFullReplace) {
-              nfEl.textContent = nfPaint;
-              nfFullReplaceThisMsg = true;
+            if (semanticSkinIso) {
+              stNf.morsyVisibleNfStagingPaint = nfPaint;
+              scheduleMorsySemanticIsolatedNfPaint(stNf, nfSpeakerChangeForceFull);
+              stNf.lastNfRawText = nfText;
             } else {
-              nfEl.textContent = (nfEl.textContent ?? "") + d.appendToDom;
+              const prevRendered = stNf.lastRenderedNfPaint;
+              const d = deltaNfDomMutation(prevRendered, nfPaint);
+              const rewriteWeak =
+                prevRendered.length > 0 &&
+                nfPaint.length > 0 &&
+                !nfPaint.startsWith(prevRendered) &&
+                longestCommonUtf16PrefixLen(prevRendered, nfPaint) <
+                  Math.max(8, Math.floor(Math.min(prevRendered.length, nfPaint.length) * 0.14));
+              const npTrim = nfPaint.trim();
+              const clauseReplayRisk =
+                npTrim.length >= 10 &&
+                committedLogical.includes(npTrim) &&
+                !committedLogical.trimEnd().endsWith(npTrim);
+              let forceFullReplace =
+                nfSpeakerChangeForceFull || rewriteWeak || clauseReplayRisk || d.fullReplace;
+              if (!forceFullReplace && d.appendToDom.length === 0 && nfPaint !== prevRendered) {
+                forceFullReplace = true;
+              }
+              if (morsyIsolatedReconcileDiagEnabled()) {
+                console.info("[morsy_isolated_reconcile]", {
+                  kind:             "nf_delta",
+                  canonLen:         committedLogical.length,
+                  nfPaintPeek:      nfPaint.length > 96 ? `${nfPaint.slice(0, 96)}…` : nfPaint,
+                  prevRenderedLen:  prevRendered.length,
+                  deltaAppendLen:   d.appendToDom.length,
+                  deltaFullReplace: d.fullReplace,
+                  forceFullReplace,
+                  clauseReplayRisk,
+                });
+              }
+              if (forceFullReplace) {
+                nfEl.textContent = nfPaint;
+                nfFullReplaceThisMsg = true;
+              } else {
+                nfEl.textContent = (nfEl.textContent ?? "") + d.appendToDom;
+              }
+              stNf.lastRenderedNfPaint = nfPaint;
+              stNf.lastNfRawText = nfText;
+              if (nfSpeakerChangeForceFull) nfFullReplaceThisMsg = true;
             }
-            stNf.lastRenderedNfPaint = nfPaint;
-            stNf.lastNfRawText = nfText;
-            if (nfSpeakerChangeForceFull) nfFullReplaceThisMsg = true;
           } else if (strictOriginalSeparation) {
             const nfVis = nfPaint;
             const prevPaint = nfEl.textContent ?? "";
@@ -4883,6 +5069,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (isolatedOrchWs && strictOriginalSeparation) {
             stNf.lastRenderedNfPaint = "";
             stNf.lastNfTailSpeakerKey = undefined;
+            if (
+              stNf.morsySemanticCommittedHostEl &&
+              morsyIsolatedSemanticPresentationEnabled({
+                planTypeLower: planTypeRef.current.trim(),
+                segmentBehaviorMode: segmentBehaviorModeRef.current,
+              })
+            ) {
+              clearMorsyIsolatedSemanticUiTimers(stNf);
+              stNf.morsyVisibleNfStagingPaint = "";
+              stNf.morsyVisibleNfCommittedPaint = "";
+            }
           }
         }
       }
@@ -4902,6 +5099,52 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (liveBufferRef.current !== activeBubbleStateRef.current.lastLiveSource) {
           activeBubbleStateRef.current.lastLiveSource = liveBufferRef.current;
           activeBubbleStateRef.current.lastLiveSourceTs = Date.now();
+        }
+      }
+
+      const stVisSemantic = activeBubbleStateRef.current;
+      if (
+        stVisSemantic?.morsySemanticCommittedHostEl &&
+        morsyIsolatedSemanticPresentationEnabled({
+          planTypeLower: planTypeRef.current.trim(),
+          segmentBehaviorMode: segmentBehaviorModeRef.current,
+        })
+      ) {
+        const stepRes = stepVisibleCommittedBoundaryUtf16({
+          locked: stVisSemantic.lockedCommittedFinalOriginal,
+          boundaryUtf16: stVisSemantic.visibleCommittedBoundary,
+          scratch: {
+            lockedLenTracked: stVisSemantic.morsyCanonPromotionLockedLen,
+            quietSinceMs: stVisSemantic.morsyCanonPromotionQuietSinceMs,
+          },
+          nowMs,
+        });
+        stVisSemantic.visibleCommittedBoundary = stepRes.boundaryUtf16;
+        stVisSemantic.morsyCanonPromotionLockedLen = stepRes.scratch.lockedLenTracked;
+        stVisSemantic.morsyCanonPromotionQuietSinceMs = stepRes.scratch.quietSinceMs;
+        syncMorsyIsolatedCommittedHostFromLocks(stVisSemantic);
+        if (
+          stepRes.promoted &&
+          !stVisSemantic.translationLocked &&
+          !stVisSemantic.finalizing &&
+          !(segmentBoundaryGuardsRef.current && stVisSemantic.isClosed)
+        ) {
+          const hinted = collapseWs(
+            `${stVisSemantic.lockedCommittedFinalOriginal.trimEnd()}${stVisSemantic.morsyVisibleNfStagingPaint}`,
+          ).trim();
+          const promotedWordsNow = countWords(hinted);
+          if (
+            hinted.length >= 20 &&
+            promotedWordsNow >= EARLY_HINT_MIN_WORDS &&
+            stVisSemantic.finalTokensSeen >= 2
+          ) {
+            morsyIntercallSandboxSemanticStabilizeLive(
+              hinted,
+              promotedWordsNow,
+              stVisSemantic.segmentId,
+              stVisSemantic.finalTokensSeen,
+            );
+          }
         }
       }
 
@@ -5058,6 +5301,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     tryLockSegmentDirectionFromTokens,
     scheduleDebouncedLiveTranslation,
     morsyIntercallSandboxSemanticStabilizeLive,
+    scheduleMorsySemanticIsolatedNfPaint,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
