@@ -1,6 +1,6 @@
 /**
- * Morsy isolated sandbox only: live **preview** translate pacing (semantic stabilization).
- * Does not touch fetch, engines, or rendering — see `morsyIntercallSandboxSemanticStabilizeLive` in `use-transcription.ts`.
+ * Morsy isolated sandbox only: live preview semantic pacing + resolution-aware withhold.
+ * Does not touch fetch, engines, or rendering — `morsyIntercallSandboxSemanticStabilizeLive` in use-transcription.
  */
 
 /** Build: `VITE_KILL_MORSY_SEMANTIC_STABILIZE_LIVE=1` or `true` disables this layer. */
@@ -25,50 +25,77 @@ export function morsySemanticStabilizeLiveKillSwitchEngaged(): boolean {
   return false;
 }
 
-/** Live preview stabilization: only `morsy-intercall-isolated-experiment` when kill switch is off. */
 export function morsyUsesSemanticStabilizedLivePreview(segmentBehaviorMode: string): boolean {
   return segmentBehaviorMode === "morsy-intercall-isolated-experiment" && !morsySemanticStabilizeLiveKillSwitchEngaged();
 }
 
-/** ~290ms baseline (180–300ms range): absorb NF jitter before translator “speaks.” */
+/** ~290ms baseline: NF absorption before translator “speaks”. */
 export const MORSY_SEMANTIC_STABILITY_BASE_MS = 290;
-
-/** Floor when clause punctuation earns a quicker release. */
+/** Floor when clause punctuation earns quicker release. */
 export const MORSY_SEMANTIC_STABILITY_MIN_MS = 170;
-
-/** Extra observe time when hypotheses are unpunctuated and long (thought may still extend). */
+/** Extra observe for long unpunctuated tails. */
 export const MORSY_SEMANTIC_LONG_UNPUNCTUATED_TAIL_ADD_MS = 75;
-
-/** Quiet-time after last speech token (“breath”) before live preview fires. */
+/** Breath after last speech activity. */
 export const MORSY_SEMANTIC_PAUSE_MS = 280;
-
-/** Trailing intent coalesce after stability + gates — calmer than token-reactive 52ms. */
+/** Trailing coalesce after stabilization + gates. */
 export const MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS = 620;
-
-/** Reduce required stability when clause punctuation implies a completeness boundary. */
+/** Discount when EOS clause punctuation implies boundary. */
 export const MORSY_SEMANTIC_PUNCT_STABILITY_DISCOUNT_MS = 85;
 
-/**
- * Without meaningful Soniox finals since last preview, require roughly this many new words
- * (blocks +1/+2 token churn).
- */
-export const MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL = 6;
+/** Without material Soniox finals, require ≥ this many words since last dispatched preview. */
+export const MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL = 8;
 
-/**
- * Treat Soniox finals as relieving withholding only after at least N new finals since last preview,
- * except for the bootstrap case (first live preview).
- */
+/** ≥ this many finals since last preview ⇒ relax resolution withhold (thin “chunk landed” proxy). */
 export const MORSY_SEMANTIC_MATERIAL_FINAL_DELTA = 2;
 
-/** Dangling-tail / mid-clause comma heuristics apply only once the hypothesis has some substance. */
+/** Substantive dangling / pronoun cliffs only after hypothesis has bulk. */
 export const MORSY_SEMANTIC_UNSTABLE_TAIL_MIN_WORDS = 10;
+
+/** Unpunctuated: need interpretation proxy iff below verbose threshold. */
+export const MORSY_SEMANTIC_RESOLUTION_BODY_MIN_WORDS = 14;
+
+/** Very long uninterrupted tail may infer thought-complete despite no punct (last resort). */
+export const MORSY_SEMANTIC_RESOLUTION_VERBOSE_UNPUNCT_WORDS = 24;
 
 const DANGLING_COORD_RE =
   /\b(?:and|or|nor|but|because|although|whether|until|unless|since|than|whose|who|whom|which|what|when|while|where|how|why|if|after|before|once|though|whatever|whenever)\s*$/;
 
 const TRAILING_SPLIT_HYPHEN_RE = /[-–—]\s*$/;
 
-/** Stronger punctuation tail — commit sooner when the hypothesis lands on clear clause boundaries. */
+const AND_ARTICLE_TAIL_RE =
+  /\band\s+(?:the|a|an)\s+[a-zA-ZÀ-ÖØ-öø-ÿ\d'\u0600-\u06FF-]{2,}\s*$/;
+
+const WHO_AUX_OPEN_TAIL_RE =
+  /\bwho\s+(?:was|were|is|are|had|having|would|could|might|must|may|will|gonna)\s*$/i;
+
+/** “because …” with only opener token after “because” (causal VP not yet landed). */
+const BECAUSE_OPENER_TAIL_RE =
+  /\bbecause\s+(?:they|we|you|he|she|it|i|those|these|there|people|everything|nothing|things|nobody|someone)\s*$/i;
+
+const WHILE_PROGRESSIVE_TAIL_RE =
+  /\bwhile\s+(?:they|we|you|he|she|it|i|those|these|there)\s+(?:were|was|had|been|having|are|did|got)\s*$/i;
+
+/** Coordinator + pron cliff (“… and they”). */
+const AND_PRON_TAIL_RE =
+  /\band\s+(?:he|she|they|we|you|it|i|them|those|these)\s*$/i;
+
+/**
+ * Incomplete auxiliary / modal scaffolds at EOS (VP still projecting for ASR).
+ * Deliberately excludes common participles (“going”, “doing”) whose tails are often intentional.
+ */
+const AUX_TAIL_RE =
+  /\b(?:could|would|should|might|must|had|been|having|were|was|being)\s*$/i;
+
+/** Pronoun / deictic cliffs when nothing follows (listener still waiting). */
+const PRON_DEICTIC_TAIL_RE =
+  /\b(?:them|those|these|hers?|herself|himself|themselves|everything|nothing|somewhere|nobody)\s*$/;
+
+/** Loose “clause partly landed without punct” heuristic (Arabic/live proxy only). */
+const INTERPRETER_TAIL_CUE_RE =
+  /\b(?:said|happened|came|went|stopped|finished|wanted|heard|thought|knew|thinks?s?|looks?|looks like|stopped|started|shows?|wanted|means?|thought|left|entered|happened)\s*[.!?…]?$/i;
+
+const GERUND_OR_FINITEISH_RE = /\w{3,}(?:ed|ing|en)\b\s*[.!?…]?\s*$/i;
+
 export function endsWithSemanticClausePunctuation(trimmedHint: string): boolean {
   const t = trimmedHint.trimEnd();
   if (!t.length) return false;
@@ -77,37 +104,71 @@ export function endsWithSemanticClausePunctuation(trimmedHint: string): boolean 
 }
 
 /**
- * Incomplete thoughts we withhold from live Arabic: coordinator tails, dangling hyphen, mid-clause commas.
- * Bypass when {@link isMaterialSonioxFinalAdvance} passes (meaningful finalized chunk landed).
+ * Syntactic + thin resolution withhold—coordinators, dangling relatives, causal scaffolds, pron/aux cliffs,
+ * hyphen splits, mid‑comma tails. Bypass when EOS carries clause punctuation; mid‑comma catches list/appositive drift.
  */
-export function withholdLivePreviewForUnstableTail(trimmedHint: string, wordsNow: number): boolean {
+export function withholdLivePreviewForUnresolvedThought(trimmedHint: string, wordsNow: number): boolean {
   const t = trimmedHint.trim();
   if (!t.length || endsWithSemanticClausePunctuation(t)) return false;
   const tc = t.toLowerCase();
 
-  const commaMidClause =
-    wordsNow >= MORSY_SEMANTIC_UNSTABLE_TAIL_MIN_WORDS && /,\s*$/.test(tc);
-  if (commaMidClause) return true;
-
   if (wordsNow < MORSY_SEMANTIC_UNSTABLE_TAIL_MIN_WORDS) return false;
 
-  return DANGLING_COORD_RE.test(tc) || TRAILING_SPLIT_HYPHEN_RE.test(t);
+  const commaMidClause = /,\s*$/.test(tc);
+  if (commaMidClause) return true;
+
+  if (
+    AND_ARTICLE_TAIL_RE.test(tc) ||
+    WHO_AUX_OPEN_TAIL_RE.test(tc) ||
+    BECAUSE_OPENER_TAIL_RE.test(tc) ||
+    WHILE_PROGRESSIVE_TAIL_RE.test(tc) ||
+    AND_PRON_TAIL_RE.test(tc) ||
+    AUX_TAIL_RE.test(tc) ||
+    PRON_DEICTIC_TAIL_RE.test(tc) ||
+    DANGLING_COORD_RE.test(tc) ||
+    TRAILING_SPLIT_HYPHEN_RE.test(t)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
-/** Required stability ms for this hypothesis (clause punct allows slightly faster intentional release). */
+/**
+ * Without punctuation or Soniox material chunk, refuse “stable text” releases until the hypothesis
+ * plausibly “lands” — human-interpreter-ish confidence proxy only.
+ */
+export function hasResolutionConfidenceForUnpunctuatedLive(trimmedHint: string, wordsNow: number): boolean {
+  const t = trimmedHint.trimEnd();
+  if (!t.length) return false;
+
+  if (endsWithSemanticClausePunctuation(trimmedHint)) return true;
+
+  if (wordsNow >= MORSY_SEMANTIC_RESOLUTION_VERBOSE_UNPUNCT_WORDS) return true;
+
+  if (wordsNow < MORSY_SEMANTIC_RESOLUTION_BODY_MIN_WORDS) return false;
+
+  return INTERPRETER_TAIL_CUE_RE.test(t) || GERUND_OR_FINITEISH_RE.test(t);
+}
+
 export function effectiveSemanticStabilityMs(trimmedHint: string, wordsNow: number): number {
   let ms = MORSY_SEMANTIC_STABILITY_BASE_MS;
   if (endsWithSemanticClausePunctuation(trimmedHint)) {
-    ms = Math.max(MORSY_SEMANTIC_STABILITY_MIN_MS, ms - MORSY_SEMANTIC_PUNCT_STABILITY_DISCOUNT_MS);
-    return ms;
+    return Math.max(MORSY_SEMANTIC_STABILITY_MIN_MS, ms - MORSY_SEMANTIC_PUNCT_STABILITY_DISCOUNT_MS);
   }
   if (wordsNow >= MORSY_SEMANTIC_UNSTABLE_TAIL_MIN_WORDS) {
     ms += MORSY_SEMANTIC_LONG_UNPUNCTUATED_TAIL_ADD_MS;
+    if (
+      !endsWithSemanticClausePunctuation(trimmedHint) &&
+      !hasResolutionConfidenceForUnpunctuatedLive(trimmedHint, wordsNow) &&
+      wordsNow < MORSY_SEMANTIC_RESOLUTION_VERBOSE_UNPUNCT_WORDS
+    ) {
+      ms += 95;
+    }
   }
   return ms;
 }
 
-/** Soniox `finalTokensSeen` jump that counts as semantic chunk relief vs micro-token noise. */
 export function isMaterialSonioxFinalAdvance(
   finalTokensSeen: number,
   lastDispatchedFinalTokensSeen: number,
@@ -119,10 +180,6 @@ export function isMaterialSonioxFinalAdvance(
   return false;
 }
 
-/**
- * Fewer pointless re-dispatches when NF barely edits the same words (hyphen/spacing twitch).
- * Ignored when a material Soniox final landed since last preview (caller should gate).
- */
 export function suppressNearDuplicateLivePreview(
   lastDispatchedNorm: string,
   nextNorm: string,
