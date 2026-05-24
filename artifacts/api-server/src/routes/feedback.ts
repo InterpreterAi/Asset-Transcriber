@@ -4,7 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import {
-  hasSubmittedPaidPostSessionFeedbackToday,
+  hasPaidPostSessionFeedbackGateSatisfied,
   hasSubmittedTrialMandatoryFeedbackToday,
   isMandatoryFeedbackEligible,
   isMandatoryFeedbackRequiredByUsageWithLive,
@@ -49,7 +49,7 @@ router.get("/status", requireAuth, async (req, res) => {
     isPaidPostSessionFeedbackEligible(user) &&
     liveOpenMinutes < 1e-6 &&
     isPaidPostSessionFeedbackRequiredByUsage(user);
-  const paidSubmitted = paidRequired ? await hasSubmittedPaidPostSessionFeedbackToday(user.id) : false;
+  const paidSubmitted = paidRequired ? await hasPaidPostSessionFeedbackGateSatisfied(user.id, user.email ?? null) : false;
 
   res.json({
     required: trialRequired,
