@@ -36,11 +36,17 @@ import {
 } from "@/hooks/live-blank-trace";
 import {
   effectiveSemanticStabilityMs,
+  endsWithSemanticClausePunctuation,
   isMaterialSonioxFinalAdvance,
   morsyUsesSemanticStabilizedLivePreview,
+  MORSY_SEMANTIC_LONG_UNPUNCTUATED_TAIL_ADD_MS,
   MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL,
   MORSY_SEMANTIC_PAUSE_MS,
+  MORSY_SEMANTIC_PUNCT_STABILITY_DISCOUNT_MS,
+  MORSY_SEMANTIC_STABILITY_BASE_MS,
+  MORSY_SEMANTIC_STABILITY_MIN_MS,
   MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS,
+  MORSY_SEMANTIC_UNSTABLE_TAIL_MIN_WORDS,
   suppressNearDuplicateLivePreview,
   withholdLivePreviewForUnresolvedThought,
 } from "@/hooks/morsy-intercall-orchestrator";
@@ -1582,35 +1588,6 @@ function translationMergeArabicLiveRemainderPreservePrefix(
   return `${p.slice(0, lcp)}${n.slice(lcp)}`;
 }
 
-/** Morsy isolated experiment + stable translation tail dual span only (see `{@link morsyUrgentUsesStableTranslationTail}`). */
-function morsyIsolatedArabicLivePaintRemainder(
-  state: BubbleTransState,
-  opts: {
-    englishCollapsed: string;
-    fullArabic: string;
-  },
-): string {
-  const stablePlain = (state.transStableEl?.textContent ?? "").trim();
-  const prevLive = (state.transLiveEl?.textContent ?? "").trim();
-
-  let nextRemainder = translationArabicStableWordStripRemainder(stablePlain, opts.fullArabic);
-
-  const engOld = state.morsyArabicAccumLastEnglishCollapsed;
-  const engNew = opts.englishCollapsed;
-  const englishExtendMonotone =
-    engOld.length === 0 ||
-    engNew === engOld ||
-    (engNew.length >= engOld.length && engNew.startsWith(engOld));
-
-  const mergedRemainder = translationMergeArabicLiveRemainderPreservePrefix(
-    prevLive,
-    nextRemainder,
-    englishExtendMonotone,
-  );
-  state.morsyArabicAccumLastEnglishCollapsed = engNew;
-  return mergedRemainder;
-}
-
 /** Cumulative LIVE-buffer evidence gates for {@link tryLockSegmentDirectionFromTokens} (same spirit as majoritySourceFromFirstWords). */
 const DIRECTION_LOCK_MIN_WORDS = 3;
 const DIRECTION_LOCK_MIN_CHARS = 10;
@@ -2056,6 +2033,156 @@ interface BubbleTransState {
    * (`{@link morsyIsolatedArabicLivePaintRemainder}`).
    */
   morsyArabicAccumLastEnglishCollapsed: string;
+  /** Collapsed first completed Arabic clause currently observed for incremental semantic freeze ({@link morsyDrainSemanticArabicClauseFreezes}). */
+  morsySemanticFreezePendingClauseCollapsed: string;
+  /** Epoch ms when {@link BubbleTransState.morsySemanticFreezePendingClauseCollapsed} was first observed. */
+  morsySemanticFreezePendingSinceMs: number;
+  /**
+   * `finalTokensSeen` snapshot when the pending Arabic clause observation began — incremental freeze waits for
+   * strict Soniox final-token growth afterward (`{@link BubbleTransState.finalTokensSeen}`).
+   */
+  morsySemanticFreezePendingBaselineFinalTok: number;
+}
+
+/** First punctuated Arabic/Latin/CJK sentence in a live-band remainder (`morsy-intercall-isolated-experiment`). */
+const MORSY_SEMANTIC_ARABIC_FREEZE_SENTENCE_HEAD_RE =
+  /^(.{8,}?[.!?؟。！？])(?:\s+([\s\S]*))?$/u;
+
+/** Arabic / multilingual EOS-style marks for punctuation-stability timing ({@link arabicSemanticClauseFreezeStabilityMs}). */
+const MORSY_SEMANTIC_ARABIC_TAIL_PUNCT_STABLE_RE = /[.!?؟。！？...،؛]\s*$/u;
+
+/** Align stability window with translator cadence — ArabicEOS + English monotone hint (frontend only). */
+function arabicSemanticClauseFreezeStabilityMs(englishCollapsed: string, arabicSentence: string): number {
+  const wNow = Math.max(countWords(arabicSentence), countWords(englishCollapsed));
+  let ms = MORSY_SEMANTIC_STABILITY_BASE_MS;
+  const arTail = arabicSentence.trimEnd();
+  if (MORSY_SEMANTIC_ARABIC_TAIL_PUNCT_STABLE_RE.test(arTail)) {
+    return Math.max(MORSY_SEMANTIC_STABILITY_MIN_MS, ms - MORSY_SEMANTIC_PUNCT_STABILITY_DISCOUNT_MS);
+  }
+  if (endsWithSemanticClausePunctuation(englishCollapsed)) {
+    return Math.max(MORSY_SEMANTIC_STABILITY_MIN_MS, ms - MORSY_SEMANTIC_PUNCT_STABILITY_DISCOUNT_MS);
+  }
+  if (wNow >= MORSY_SEMANTIC_UNSTABLE_TAIL_MIN_WORDS) ms += MORSY_SEMANTIC_LONG_UNPUNCTUATED_TAIL_ADD_MS;
+  return ms;
+}
+
+function arabicLiveRemainderLeadingPunctuatedSentence(remainder: string): { sentence: string; rest: string } | null {
+  const t = remainder.trimStart();
+  const m = MORSY_SEMANTIC_ARABIC_FREEZE_SENTENCE_HEAD_RE.exec(t);
+  if (!m?.[1]) return null;
+  const sentence = m[1].trimEnd();
+  const rest = (m[2] ?? "").trimStart();
+  if (sentence.length < 8 || countWords(sentence) < 2) return null;
+  return { sentence, rest };
+}
+
+function clearMorsySemanticArabicFreezePending(state: BubbleTransState): void {
+  state.morsySemanticFreezePendingClauseCollapsed = "";
+  state.morsySemanticFreezePendingSinceMs = 0;
+  state.morsySemanticFreezePendingBaselineFinalTok = -1;
+}
+
+function appendMorsySemanticArabicClauseToStable(state: BubbleTransState, clause: string): void {
+  const stable = state.transStableEl;
+  const root = state.transTextEl;
+  if (!stable) return;
+  const c = clause.trim();
+  if (!c.length) return;
+  const prev = (stable.textContent ?? "").trim();
+  const combined = prev ? `${prev} ${c}` : c;
+  applyTranslationTypographyCore(root, stable, combined);
+}
+
+function maybeFreezeOneMorsySemanticArabicClause(
+  state: BubbleTransState,
+  englishCollapsed: string,
+  remainder: string,
+): string {
+  const extracted = arabicLiveRemainderLeadingPunctuatedSentence(remainder);
+  if (!extracted) return remainder;
+
+  const { sentence, rest } = extracted;
+  const sentCc = collapseWs(sentence);
+  const now = Date.now();
+  const ftNow = state.finalTokensSeen;
+
+  if (sentCc !== state.morsySemanticFreezePendingClauseCollapsed) {
+    state.morsySemanticFreezePendingClauseCollapsed = sentCc;
+    state.morsySemanticFreezePendingSinceMs = now;
+    state.morsySemanticFreezePendingBaselineFinalTok = ftNow;
+    return remainder;
+  }
+
+  if (ftNow <= state.morsySemanticFreezePendingBaselineFinalTok) return remainder;
+
+  const stabMs = arabicSemanticClauseFreezeStabilityMs(englishCollapsed.trim(), sentence);
+  if (now - state.morsySemanticFreezePendingSinceMs < stabMs) return remainder;
+
+  appendMorsySemanticArabicClauseToStable(state, sentence);
+  clearMorsySemanticArabicFreezePending(state);
+  return rest;
+}
+
+/**
+ * Incrementally promotes leading punctuated Arabic **clauses** from the reconciled live tail into **`transStableEl`**
+ * when clauses are punctuation-/meaning-terminated, monotone-English-aligned, timed out, and Soniox finals advanced —
+ * `{@link morsy-intercall-isolated-experiment}` translation column only (orchestration; no backend / STT change).
+ */
+function morsyDrainSemanticArabicClauseFreezes(
+  state: BubbleTransState,
+  englishExtendMonotone: boolean,
+  englishHintCollapsed: string,
+  mergedLiveRemainder: string,
+): string {
+  if (!state.transStableEl || !state.transLiveEl) return mergedLiveRemainder;
+  if (!englishExtendMonotone) {
+    clearMorsySemanticArabicFreezePending(state);
+    return mergedLiveRemainder;
+  }
+
+  let rem = mergedLiveRemainder;
+  for (let i = 0; i < 6; i++) {
+    const next = maybeFreezeOneMorsySemanticArabicClause(state, englishHintCollapsed, rem);
+    if (next === rem) break;
+    rem = next;
+  }
+  return rem;
+}
+
+/** Morsy isolated experiment + stable translation tail dual span only (see `{@link morsyUrgentUsesStableTranslationTail}`). */
+function morsyIsolatedArabicLivePaintRemainder(
+  state: BubbleTransState,
+  opts: {
+    englishCollapsed: string;
+    fullArabic: string;
+  },
+): string {
+  const stablePlain = (state.transStableEl?.textContent ?? "").trim();
+  const prevLive = (state.transLiveEl?.textContent ?? "").trim();
+
+  let nextRemainder = translationArabicStableWordStripRemainder(stablePlain, opts.fullArabic);
+
+  const engOld = state.morsyArabicAccumLastEnglishCollapsed;
+  const engNew = opts.englishCollapsed;
+  const englishExtendMonotone =
+    engOld.length === 0 ||
+    engNew === engOld ||
+    (engNew.length >= engOld.length && engNew.startsWith(engOld));
+
+  let mergedRemainder = translationMergeArabicLiveRemainderPreservePrefix(
+    prevLive,
+    nextRemainder,
+    englishExtendMonotone,
+  );
+  mergedRemainder = morsyDrainSemanticArabicClauseFreezes(
+    state,
+    englishExtendMonotone,
+    engNew,
+    mergedRemainder,
+  );
+
+  state.morsyArabicAccumLastEnglishCollapsed = engNew;
+  return mergedRemainder;
 }
 
 /** Intercall experiment (dual-span): each live repaint clears stable; final promotes to stable and clears tail. */
@@ -3582,6 +3709,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           applyTranslationDualSpanForSegmentMode(state, out, "final", segmentBehaviorModeRef.current);
           if (morsyUrgentUsesStableTranslationTail(segmentBehaviorModeRef.current)) {
             state.morsyArabicAccumLastEnglishCollapsed = collapseWs(text);
+            clearMorsySemanticArabicFreezePending(state);
           }
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
@@ -3854,6 +3982,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentTargetLang:     null,
       lockedCommittedFinalOriginal: "",
       morsyArabicAccumLastEnglishCollapsed: "",
+      morsySemanticFreezePendingClauseCollapsed: "",
+      morsySemanticFreezePendingSinceMs: 0,
+      morsySemanticFreezePendingBaselineFinalTok: -1,
     };
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
