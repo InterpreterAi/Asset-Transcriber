@@ -36,8 +36,6 @@ import {
 } from "@/hooks/live-blank-trace";
 import {
   effectiveSemanticStabilityMs,
-  endsWithSemanticClausePunctuation,
-  hasResolutionConfidenceForUnpunctuatedLive,
   isMaterialSonioxFinalAdvance,
   morsyUsesSemanticStabilizedLivePreview,
   MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL,
@@ -2363,8 +2361,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   /**
-   * Morsy isolated sandbox only: calmer live **preview** translate cadence (stability + pause + anti-fragment + trailing debounce).
-   * Ends in the same `dispatchTranslation(..., skipOpenAiLiveDebounce: true)` as `scheduleDebouncedLiveTranslation`.
+   * Morsy isolated sandbox only: calmer live previews (NF stability + pause + light anti‑fragment +
+   * trailing debounce). Continuity‑first — does not aggressively withhold partial interpreter chunks.
+   * Ends like `scheduleDebouncedLiveTranslation` (`dispatchTranslation` + `skipOpenAiLiveDebounce`).
    */
   const morsyIntercallSandboxSemanticStabilizeLive = useCallback(
     (hintSource: string, wordsNow: number, segmentId: string, finalTokensSeen: number) => {
@@ -2404,18 +2403,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         hasPriorPreview,
       );
 
-      if (!materialFinalAdvance && withholdLivePreviewForUnresolvedThought(trimmed, wordsNow)) {
-        return;
-      }
-
-      if (
-        !materialFinalAdvance &&
-        !endsWithSemanticClausePunctuation(trimmed) &&
-        !hasResolutionConfidenceForUnpunctuatedLive(trimmed, wordsNow)
-      ) {
-        return;
-      }
-
       const wordDeltaSinceDispatch = wordsNow - o.lastDispatchedWords;
       if (!materialFinalAdvance && wordDeltaSinceDispatch < MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL) {
         return;
@@ -2425,6 +2412,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !materialFinalAdvance &&
         suppressNearDuplicateLivePreview(o.lastDispatchedNorm, norm, wordsNow, o.lastDispatchedWords)
       ) {
+        return;
+      }
+
+      if (!materialFinalAdvance && withholdLivePreviewForUnresolvedThought(trimmed, wordsNow)) {
         return;
       }
 
@@ -2458,32 +2449,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (fresh.length < 3) return;
         if (collapseWs(fresh) !== normAtArm) return;
 
-        const prior = o.lastDispatchedNorm.length > 0;
-        const materialFinalAtFire = isMaterialSonioxFinalAdvance(
-          stNow.finalTokensSeen,
-          o.lastDispatchedFinalTokensSeen,
-          prior,
-        );
-        const wordsFresh = countWords(fresh);
-        if (
-          !materialFinalAtFire &&
-          withholdLivePreviewForUnresolvedThought(fresh.trim(), wordsFresh)
-        ) {
-          return;
-        }
-
-        if (
-          !materialFinalAtFire &&
-          !endsWithSemanticClausePunctuation(fresh.trim()) &&
-          !hasResolutionConfidenceForUnpunctuatedLive(fresh.trim(), wordsFresh)
-        ) {
-          return;
-        }
-
         const langNow = stNow.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslationRef.current(fresh, langNow, false, { skipOpenAiLiveDebounce: true }, segmentId);
         o.lastDispatchedNorm = collapseWs(fresh);
-        o.lastDispatchedWords = wordsFresh;
+        o.lastDispatchedWords = countWords(fresh);
         o.lastDispatchedFinalTokensSeen = stNow.finalTokensSeen;
       }, MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS);
     },
