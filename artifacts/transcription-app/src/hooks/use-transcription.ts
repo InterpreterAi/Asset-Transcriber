@@ -1904,11 +1904,17 @@ export type UseTranscriptionOptions = {
    * When true (workspace default for signed-in users), tightens **translation** guards: skip live updates
    * into `finalizing`/closed segments (`dispatchTranslation`, debounced paths, clientSeq).
    *
-   * Final transcript rows are always protected: segment ids are registered for every bubble and
-   * {@link flushFinalTextRenderQueue} drops finals for closed segments even when this flag is false,
-   * so guests get the same frozen-row behavior for the **original column** as signed-in tiers.
+   * For the **original-column** transcript, segment-id keyed final-queue behavior (see
+   * {@link morsyUrgentTranscriptSegmentGuards}) is gated on `segmentBoundaryGuards || morsyUrgentTranscriptSegmentGuards`:
+   * guests / `?diag_segment_guards=0` fall back to the historical looser finals path unless the Morsy experiment is on.
    */
   segmentBoundaryGuards?: boolean;
+  /**
+   * Basic · Morsy Urgent only (workspace): enables strengthened **original-column** bookkeeping so late finals
+   * target the correct segment (`segmentStateByIdRef`, queued `segmentId`, frozen-row drops in {@link flushFinalTextRenderQueue})
+   * even under boundary races — without changing translation routing beyond what {@link segmentBoundaryGuards} already does.
+   */
+  morsyUrgentTranscriptSegmentGuards?: boolean;
   /**
    * Basic · Morsy Urgent only: Intercall-style orchestration (cadence tuning, grace window); optional UX lab.
    * OpenAI routing hint flag is governed by {@link morsyUrgentTranslateAttachOpenAiExperiment}.
@@ -1954,6 +1960,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBoundaryGuardsRef.current = options?.segmentBoundaryGuards ?? false;
   }, [options?.segmentBoundaryGuards]);
+  const morsyUrgentTranscriptSegmentGuardsRef = useRef(options?.morsyUrgentTranscriptSegmentGuards ?? false);
+  useEffect(() => {
+    morsyUrgentTranscriptSegmentGuardsRef.current = options?.morsyUrgentTranscriptSegmentGuards ?? false;
+  }, [options?.morsyUrgentTranscriptSegmentGuards]);
 
   const experimentMorsyUrgentIntercallRef = useRef(options?.experimentMorsyUrgentIntercallOrchestration ?? false);
   useEffect(() => {
@@ -2170,9 +2180,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     for (const item of q) {
       const { target, text, segmentId } = item;
       if (!target.isConnected) continue;
-      // Transcription-only: skip writes to finalized/closed bubbles even when translation
-      // `segmentBoundaryGuards` stays off (guests); prevents late finals mutating frozen rows.
-      if (segmentId) {
+      const transcriptSegIsolation =
+        segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
+      // Original-column: keyed finals + frozen rows only when signed-in guards or Basic · Morsy Urgent experiment.
+      if (transcriptSegIsolation && segmentId) {
         const st = segmentStateByIdRef.current.get(segmentId);
         if (!st || st.isClosed || st.segmentId !== segmentId) continue;
       }
@@ -2193,9 +2204,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const active = activeBubbleRef.current;
     if (!active) return "";
     const activeSegId = activeBubbleStateRef.current?.segmentId;
+    const transcriptSegIsolation =
+      segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
     let pending = "";
     for (const item of finalRenderQueueRef.current) {
-      if (activeSegId && item.segmentId && item.segmentId !== activeSegId) {
+      if (
+        transcriptSegIsolation &&
+        activeSegId &&
+        item.segmentId &&
+        item.segmentId !== activeSegId
+      ) {
         continue;
       }
       if (item.target === active) pending += item.text;
@@ -3390,7 +3408,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
     };
-    if (activeBubbleStateRef.current) {
+    const transcriptSegIsolation =
+      segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
+    if (activeBubbleStateRef.current && transcriptSegIsolation) {
       segmentStateByIdRef.current.set(activeBubbleStateRef.current.segmentId, activeBubbleStateRef.current);
     }
     styleUpgradedRef.current       = false;
@@ -3487,7 +3507,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     recordSttSegmentClose(closeKind);
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
-    if (activeBubbleStateRef.current) {
+    const transcriptSegIsolationBoundary =
+      segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
+    if (activeBubbleStateRef.current && transcriptSegIsolationBoundary) {
       activeBubbleStateRef.current.isClosed = true;
     }
     if (experimentMorsyUrgentIntercallRef.current && activeBubbleStateRef.current?.segmentId) {
@@ -3573,7 +3595,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalizeLiveBubble();
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
-    if (activeBubbleStateRef.current) {
+    const transcriptSegIsolationStop =
+      segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
+    if (activeBubbleStateRef.current && transcriptSegIsolationStop) {
       activeBubbleStateRef.current.isClosed = true;
     }
     currentSpeakerRef.current     = undefined;
@@ -3804,6 +3828,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let pendingSidSeenInMessage = false;
       let pendingSidCountedInMessage = false;
       let currentSpeakerSeenInMessage = false;
+      const transcriptSegIsolationWs =
+        segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -3885,7 +3911,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                     finalRenderQueueRef.current.push({
                       target: activeBubbleRef.current,
                       text: confirm.bufferedFinalText,
-                      ...(activeBubbleStateRef.current
+                      ...(transcriptSegIsolationWs && activeBubbleStateRef.current
                         ? { segmentId: activeBubbleStateRef.current.segmentId }
                         : {}),
                     });
@@ -3911,7 +3937,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           finalRenderQueueRef.current.push({
             target: activeBubbleRef.current,
             text: t.text,
-            ...(activeBubbleStateRef.current ? { segmentId: activeBubbleStateRef.current.segmentId } : {}),
+            ...(transcriptSegIsolationWs && activeBubbleStateRef.current
+              ? { segmentId: activeBubbleStateRef.current.segmentId }
+              : {}),
           });
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
@@ -3933,7 +3961,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             finalRenderQueueRef.current.push({
               target: activeBubbleRef.current,
               text: pendingAfter.bufferedFinalText,
-              ...(activeBubbleStateRef.current
+              ...(transcriptSegIsolationWs && activeBubbleStateRef.current
                 ? { segmentId: activeBubbleStateRef.current.segmentId }
                 : {}),
             });

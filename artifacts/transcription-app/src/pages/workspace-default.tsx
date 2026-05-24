@@ -247,6 +247,7 @@ export default function WorkspaceDefault() {
     // Unified transcript/segment pipeline for every plan tier (not Morsy-only); hook default matches this.
     segmentBehaviorMode: "morsy-urgent-cbf",
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
+    morsyUrgentTranscriptSegmentGuards: Boolean(user) && pt === "morsy-urgent",
     experimentMorsyUrgentIntercallOrchestration:
       Boolean(user) && pt === "morsy-urgent" && morsyIntercallExperiment,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
