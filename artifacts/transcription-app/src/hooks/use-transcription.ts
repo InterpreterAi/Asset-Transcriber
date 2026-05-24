@@ -425,6 +425,26 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
   }
 }
 
+/**
+ * Interpreter segment orchestration modes (`useTranscription` option `segmentBehaviorMode`).
+ *
+ * - **`morsy-urgent-cbf`**: stabilized Soniox speaker segmentation pivot used by **all production workspace tiers**
+ *   (trial OpenAI / basic[-libre|-openai] / professional / platinum / unlimited, etc.).
+ * - **`morsy-intercall-isolated-experiment`**: reserved for **`plan_type === "morsy-urgent"` only** —
+ *   Intercall clone orchestration sandbox. **Initially identical** to CBF speaker pivot; future Morsy-only behavior
+ *   branches here — production tiers stay on **`morsy-urgent-cbf`** unchanged.
+ * - **`default`**: looser segmentation for embeddings or explicit opt-out.
+ */
+export type SegmentBehaviorMode =
+  | "default"
+  | "morsy-urgent-cbf"
+  | "morsy-intercall-isolated-experiment";
+
+/** Whether WebSocket segmentation uses stabilized speaker pivot ({@link FAST_SWITCH_*}, pendingSid buffering). */
+function segmentModeUsesStabilizedSonioxSpeakerPivot(mode: SegmentBehaviorMode): boolean {
+  return mode === "morsy-urgent-cbf" || mode === "morsy-intercall-isolated-experiment";
+}
+
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
@@ -1903,11 +1923,8 @@ export type UseTranscriptionOptions = {
   translationEnabled?: boolean;
   /** Controls how the translation column looks when translation is disabled. */
   translationUiMode?: "upsell" | "hidden";
-  /**
-   * Segment / speaker-boundary profile. Interpreter workspace uses `"morsy-urgent-cbf"` for every tier (name is legacy).
-   * `"default"` is only for embeddings or callers that deliberately want looser speaker gating.
-   */
-  segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
+  /** See `{@link SegmentBehaviorMode}`. Workspace selects `morsy-intercall-isolated-experiment` only for Basic · Morsy Urgent. */
+  segmentBehaviorMode?: SegmentBehaviorMode;
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
@@ -1965,7 +1982,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationUiModeRef.current = options?.translationUiMode ?? "upsell";
   }, [options?.translationUiMode]);
-  const segmentBehaviorModeRef = useRef<"default" | "morsy-urgent-cbf">(
+  const segmentBehaviorModeRef = useRef<SegmentBehaviorMode>(
     options?.segmentBehaviorMode ?? "morsy-urgent-cbf",
   );
   useEffect(() => {
@@ -3883,7 +3900,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals.slice(finalCountRef.current);
       const newFinalSet = new Set(newFinals);
-      const useMorsyUrgentSpeakerGate = segmentBehaviorModeRef.current === "morsy-urgent-cbf";
+      const useMorsyUrgentSpeakerGate = segmentModeUsesStabilizedSonioxSpeakerPivot(
+        segmentBehaviorModeRef.current,
+      );
       const nowMs = Date.now();
       const pendingSidAtStart = pendingSpeakerSwitchRef.current?.sid;
       let pendingSidSeenInMessage = false;
