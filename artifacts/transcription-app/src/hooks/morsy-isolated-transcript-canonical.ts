@@ -7,7 +7,7 @@
  * - **`BubbleTransState.lockedCommittedFinalOriginal`** — append-only Soniox **final** token text, in message order.
  * - **No** `finalRenderQueueRef` authority for this path (queue unused).
  * - **No** `committedLogical` shadow (no `omitPendingCommittedCanon`).
- * - **No** `dropSonioxFinalReplayAlreadyCommitted`, `nfVisibleTailBeyondCommittedTokenAware`,
+ * - **No** `dropSonioxFinalReplayAlreadyCommitted` (enqueue roll verbatim if used), `nfVisibleTailBeyondCommittedTokenAware`,
  *   `nf_strip_redundant_overlap`, or `deltaNfDomMutation` for originals.
  *
  * ### Volatile hypothesis (NF)
