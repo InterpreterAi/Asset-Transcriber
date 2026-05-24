@@ -63,14 +63,11 @@ import {
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
 import {
-  computeEnglishFreezeAppend,
   deltaNfDomMutation,
-  englishSemanticClauseFreezeDrain,
+  dropSonioxFinalReplayAlreadyCommitted,
   morsyIsolatedEnglishTranscriptOrchestrationEnabled,
   morsyIsolatedFinalRenderBufferMs,
   nfVisibleTailBeyondCommittedTokenAware,
-  splitIncomingFinalForIsolatedDedupe,
-  type EnglishFreezeScratch,
 } from "@/hooks/morsy-original-transcript-orchestration";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
@@ -149,6 +146,18 @@ function shouldPreferPreviousLiveTranslation(
 function sttClientDiagEnabled(): boolean {
   try {
     return typeof localStorage !== "undefined" && localStorage.getItem("interpreterai_stt_diag") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Dev-only: isolated canonical transcript reconcile (console; may contain PHI). `localStorage interpreterai_morsy_canon_diag=1` or STT diag. */
+function morsyIsolatedReconcileDiagEnabled(): boolean {
+  try {
+    return (
+      sttClientDiagEnabled() ||
+      (typeof localStorage !== "undefined" && localStorage.getItem("interpreterai_morsy_canon_diag") === "1")
+    );
   } catch {
     return false;
   }
@@ -2739,24 +2748,35 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         planTypeLower: planTypeRef.current,
         segmentBehaviorMode: segmentBehaviorModeRef.current,
       });
-      let flushText = text;
+      const flushText = text;
+
       if (
         isolatedOrchFlush &&
         transcriptSegIsolation &&
-        gateSt &&
+        gateSt !== undefined &&
+        segmentId !== undefined &&
+        gateSt.segmentId === segmentId &&
         morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
       ) {
-        const delta = splitIncomingFinalForIsolatedDedupe(gateSt.lockedCommittedFinalOriginal, text);
-        if (!delta.trim()) continue;
-        flushText = delta;
-      }
+        gateSt.lockedCommittedFinalOriginal += flushText;
+        target.textContent = gateSt.lockedCommittedFinalOriginal;
+        if (morsyIsolatedReconcileDiagEnabled()) {
+          console.info("[morsy_isolated_reconcile]", {
+            kind:             "flush_append_canonical_dom",
+            segmentId:        gateSt.segmentId,
+            canonLenAfter:    gateSt.lockedCommittedFinalOriginal.length,
+            appendedLen:      flushText.length,
+            appendedSnippet:  flushText.length > 96 ? `${flushText.slice(0, 96)}…` : flushText,
+          });
+        }
+      } else {
+        target.textContent = (target.textContent ?? "") + flushText;
 
-      target.textContent = (target.textContent ?? "") + flushText;
-
-      if (morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)) {
-        if (gateSt) gateSt.lockedCommittedFinalOriginal += flushText;
-        else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
-          activeBubbleStateRef.current.lockedCommittedFinalOriginal += flushText;
+        if (morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)) {
+          if (gateSt) gateSt.lockedCommittedFinalOriginal += flushText;
+          else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
+            activeBubbleStateRef.current.lockedCommittedFinalOriginal += flushText;
+          }
         }
       }
     }
@@ -4484,6 +4504,36 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         planTypeLower: planTypeRef.current,
         segmentBehaviorMode: segmentBehaviorModeRef.current,
       });
+      const isolatedEnqueueCanonRoll =
+        isolatedOrchWs &&
+        transcriptSegIsolationWs &&
+        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
+      const enqueueCanonRollBySeg = isolatedEnqueueCanonRoll ? new Map<string, string>() : null;
+      const rollEnqueueForSegment = (segId: string, inc: string): string => {
+        if (!enqueueCanonRollBySeg) return inc;
+        let roll = enqueueCanonRollBySeg.get(segId);
+        if (roll === undefined) {
+          const st =
+            segmentStateByIdRef.current.get(segId) ??
+            (activeBubbleStateRef.current?.segmentId === segId ? activeBubbleStateRef.current : undefined);
+          roll = st?.lockedCommittedFinalOriginal ?? "";
+          enqueueCanonRollBySeg.set(segId, roll);
+        }
+        const d = dropSonioxFinalReplayAlreadyCommitted(roll, inc);
+        if (morsyIsolatedReconcileDiagEnabled()) {
+          console.info("[morsy_isolated_reconcile]", {
+            kind:          "final_enqueue",
+            segmentId:     segId,
+            canonRollLen:  roll.length,
+            incomingLen:   inc.length,
+            droppedReplay: d.length === 0 && inc.length > 0,
+            outLen:        d.length,
+            incomingPeek:  inc.length > 72 ? `${inc.slice(0, 72)}…` : inc,
+          });
+        }
+        enqueueCanonRollBySeg.set(segId, roll + d);
+        return d;
+      };
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -4562,18 +4612,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   activeBubbleRef.current = createBubble(sid);
                   setHasTranscript(true);
                   if (activeBubbleRef.current && confirm.bufferedFinalText) {
-                    let bufferedPush = confirm.bufferedFinalText;
-                    if (
-                      isolatedOrchWs &&
-                      transcriptSegIsolationWs &&
-                      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
-                      activeBubbleStateRef.current
-                    ) {
-                      bufferedPush = splitIncomingFinalForIsolatedDedupe(
-                        activeBubbleStateRef.current.lockedCommittedFinalOriginal,
-                        bufferedPush,
-                      );
-                    }
+                    const sidBuf = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
+                    const bufferedPush =
+                      sidBuf && isolatedEnqueueCanonRoll && confirm.bufferedFinalText
+                        ? rollEnqueueForSegment(sidBuf, confirm.bufferedFinalText)
+                        : confirm.bufferedFinalText;
                     if (bufferedPush.length > 0) {
                       finalRenderQueueRef.current.push({
                         target: activeBubbleRef.current,
@@ -4602,18 +4645,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
-          let pushText = t.text;
-          if (
-            isolatedOrchWs &&
-            transcriptSegIsolationWs &&
-            morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
-            activeBubbleStateRef.current
-          ) {
-            pushText = splitIncomingFinalForIsolatedDedupe(
-              activeBubbleStateRef.current.lockedCommittedFinalOriginal,
-              t.text,
-            );
-          }
+          const sidTk = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
+          const pushText =
+            sidTk && isolatedEnqueueCanonRoll && t.text
+              ? rollEnqueueForSegment(sidTk, t.text)
+              : t.text;
           if (pushText.length > 0) {
             finalRenderQueueRef.current.push({
               target: activeBubbleRef.current,
@@ -4640,18 +4676,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleRef.current
         ) {
           if (pendingAfter.bufferedFinalText) {
-            let pendPush = pendingAfter.bufferedFinalText;
-            if (
-              isolatedOrchWs &&
-              transcriptSegIsolationWs &&
-              morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
-              activeBubbleStateRef.current
-            ) {
-              pendPush = splitIncomingFinalForIsolatedDedupe(
-                activeBubbleStateRef.current.lockedCommittedFinalOriginal,
-                pendPush,
-              );
-            }
+            const sidPend = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
+            const pendPush =
+              sidPend && isolatedEnqueueCanonRoll && pendingAfter.bufferedFinalText
+                ? rollEnqueueForSegment(sidPend, pendingAfter.bufferedFinalText)
+                : pendingAfter.bufferedFinalText;
             if (pendPush.length > 0) {
               finalRenderQueueRef.current.push({
                 target: activeBubbleRef.current,
@@ -4664,6 +4693,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           pendingSpeakerSwitchRef.current = null;
         }
+      }
+
+      if (
+        isolatedOrchWs &&
+        transcriptSegIsolationWs &&
+        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+        activeBubbleRef.current
+      ) {
+        flushFinalTextRenderQueue();
       }
 
       // Detect language from ANY token in this message — final OR non-final.
@@ -4697,7 +4735,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const strictOriginalSeparation =
         morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
-      const pendingFinalBuf = getBufferedFinalTextForActiveBubble();
+      const omitPendingCommittedCanon =
+        strictOriginalSeparation &&
+        isolatedOrchWs &&
+        transcriptSegIsolationWs;
+      const pendingFinalBuf = omitPendingCommittedCanon ? "" : getBufferedFinalTextForActiveBubble();
       const bubbleTransStWs = activeBubbleStateRef.current;
       let committedLogical =
         strictOriginalSeparation && bubbleTransStWs
@@ -4731,62 +4773,37 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfPaint = nfVisibleTailBeyondCommitted(committedLogical, nfText);
       }
 
+      /* Strip NF paint that repeats canonical committed (semantic replay / whitespace-only delta). Isolated reconcile only. */
+      if (
+        isolatedOrchWs &&
+        strictOriginalSeparation &&
+        nfPaint &&
+        bubbleTransStWs
+      ) {
+        const canonCw = collapseWs(committedLogical);
+        const appendedCw = collapseWs(`${committedLogical}${nfPaint}`);
+        const ntp = nfPaint.trimEnd();
+        if (
+          appendedCw === canonCw ||
+          (ntp.length > 0 && committedLogical.endsWith(ntp))
+        ) {
+          if (morsyIsolatedReconcileDiagEnabled()) {
+            console.info("[morsy_isolated_reconcile]", {
+              kind:           "nf_strip_redundant_overlap",
+              canonLen:       committedLogical.length,
+              nfPaintPeek:    nfPaint.length > 96 ? `${nfPaint.slice(0, 96)}…` : nfPaint,
+              appendedCwEq:   appendedCw === canonCw,
+              suffixDedupHit: ntp.length > 0 && committedLogical.endsWith(ntp),
+            });
+          }
+          nfPaint = "";
+        }
+      }
+
       const isolatedOrchEffective =
         isolatedOrchWs &&
         strictOriginalSeparation &&
         Boolean(bubbleTransStWs && activeBubbleRef.current);
-
-      if (isolatedOrchEffective) {
-        const bubble = bubbleTransStWs!;
-        const finalEl = activeBubbleRef.current!;
-        let paintEff = nfPaint;
-        let clEff = committedLogical;
-        const priorCollapsed = bubble.morsyEnglishMonotoneTailCollapsed;
-        const ccNow = collapseWs(`${clEff}${paintEff}`);
-        const engMon =
-          priorCollapsed === "" ||
-          ccNow === priorCollapsed ||
-          (ccNow.length >= priorCollapsed.length && ccNow.startsWith(priorCollapsed));
-        if (!engMon) {
-          bubble.morsyEnglishFreezePendingClauseCollapsed = "";
-          bubble.morsyEnglishFreezePendingSinceMs = 0;
-          bubble.morsyEnglishFreezePendingBaselineFinalTok = -1;
-          bubble.morsyEnglishFreezeLastVCollapsed = "";
-        }
-        if (engMon) {
-          for (let r = 0; r < 8; r++) {
-            const scratch: EnglishFreezeScratch = {
-              morsyEnglishFreezePendingClauseCollapsed: bubble.morsyEnglishFreezePendingClauseCollapsed,
-              morsyEnglishFreezePendingSinceMs: bubble.morsyEnglishFreezePendingSinceMs,
-              morsyEnglishFreezePendingBaselineFinalTok: bubble.morsyEnglishFreezePendingBaselineFinalTok,
-              morsyEnglishFreezeLastVCollapsed: bubble.morsyEnglishFreezeLastVCollapsed,
-            };
-            const Vis = `${clEff}${paintEff}`;
-            const phy = englishSemanticClauseFreezeDrain({
-              scratch,
-              V: Vis,
-              englishCollapsedMonotone: engMon,
-              finalTokensSeen: bubble.finalTokensSeen,
-              englishHintCollapsed: collapseWs(clEff),
-              nowMs,
-            });
-            bubble.morsyEnglishFreezePendingClauseCollapsed = scratch.morsyEnglishFreezePendingClauseCollapsed;
-            bubble.morsyEnglishFreezePendingSinceMs = scratch.morsyEnglishFreezePendingSinceMs;
-            bubble.morsyEnglishFreezePendingBaselineFinalTok = scratch.morsyEnglishFreezePendingBaselineFinalTok;
-            bubble.morsyEnglishFreezeLastVCollapsed = scratch.morsyEnglishFreezeLastVCollapsed;
-            if (!phy) break;
-            const append = computeEnglishFreezeAppend(clEff, phy);
-            if (!append.trim()) break;
-            finalEl.textContent = (finalEl.textContent ?? "") + append;
-            bubble.lockedCommittedFinalOriginal += append;
-            clEff += append;
-            paintEff = nfVisibleTailBeyondCommittedTokenAware(clEff, nfText);
-          }
-          committedLogical = clEff;
-          nfPaint = paintEff;
-        }
-        bubble.morsyEnglishMonotoneTailCollapsed = collapseWs(`${committedLogical}${nfPaint}`);
-      }
 
       const nfEl = activeBubbleNFRef.current;
       let nfSpeakerChangeForceFull = false;
@@ -4803,15 +4820,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
           if (strictOriginalSeparation && isolatedOrchEffective) {
-            const d = deltaNfDomMutation(stNf.lastRenderedNfPaint, nfPaint);
-            if (d.fullReplace || nfSpeakerChangeForceFull) {
+            const prevRendered = stNf.lastRenderedNfPaint;
+            const d = deltaNfDomMutation(prevRendered, nfPaint);
+            const rewriteWeak =
+              prevRendered.length > 0 &&
+              nfPaint.length > 0 &&
+              !nfPaint.startsWith(prevRendered) &&
+              longestCommonUtf16PrefixLen(prevRendered, nfPaint) <
+                Math.max(8, Math.floor(Math.min(prevRendered.length, nfPaint.length) * 0.14));
+            const npTrim = nfPaint.trim();
+            const clauseReplayRisk =
+              npTrim.length >= 10 &&
+              committedLogical.includes(npTrim) &&
+              !committedLogical.trimEnd().endsWith(npTrim);
+            let forceFullReplace = nfSpeakerChangeForceFull || rewriteWeak || clauseReplayRisk || d.fullReplace;
+            if (!forceFullReplace && d.appendToDom.length === 0 && nfPaint !== prevRendered) forceFullReplace = true;
+            if (morsyIsolatedReconcileDiagEnabled()) {
+              console.info("[morsy_isolated_reconcile]", {
+                kind:             "nf_delta",
+                canonLen:         committedLogical.length,
+                nfPaintPeek:      nfPaint.length > 96 ? `${nfPaint.slice(0, 96)}…` : nfPaint,
+                prevRenderedLen:  prevRendered.length,
+                deltaAppendLen:   d.appendToDom.length,
+                deltaFullReplace: d.fullReplace,
+                forceFullReplace,
+                clauseReplayRisk,
+              });
+            }
+            if (forceFullReplace) {
               nfEl.textContent = nfPaint;
               nfFullReplaceThisMsg = true;
-            } else if (d.appendToDom.length > 0) {
+            } else {
               nfEl.textContent = (nfEl.textContent ?? "") + d.appendToDom;
-            } else if (stNf.lastRenderedNfPaint !== nfPaint) {
-              nfEl.textContent = nfPaint;
-              nfFullReplaceThisMsg = true;
             }
             stNf.lastRenderedNfPaint = nfPaint;
             stNf.lastNfRawText = nfText;
