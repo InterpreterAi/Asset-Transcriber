@@ -1647,8 +1647,12 @@ export type UseTranscriptionOptions = {
   /** Called after `stop()` finishes (any reason — manual stop, inactivity, daily cap, errors). */
   onRecordingStopped?: () => void;
   /**
-   * When true (workspace passes this for signed-in users), enables segment-boundary guards on
-   * final-token flush queue and translation responses for both OpenAI and machine (Hetzner/Libre) stacks.
+   * When true (workspace default for signed-in users), tightens **translation** guards: skip live updates
+   * into `finalizing`/closed segments (`dispatchTranslation`, debounced paths, clientSeq).
+   *
+   * Final transcript rows are always protected: segment ids are registered for every bubble and
+   * {@link flushFinalTextRenderQueue} drops finals for closed segments even when this flag is false,
+   * so guests get the same frozen-row behavior for the **original column** as signed-in tiers.
    */
   segmentBoundaryGuards?: boolean;
   /**
@@ -1894,7 +1898,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     for (const item of q) {
       const { target, text, segmentId } = item;
       if (!target.isConnected) continue;
-      if (segmentBoundaryGuardsRef.current && segmentId) {
+      // Transcription-only: skip writes to finalized/closed bubbles even when translation
+      // `segmentBoundaryGuards` stays off (guests); prevents late finals mutating frozen rows.
+      if (segmentId) {
         const st = segmentStateByIdRef.current.get(segmentId);
         if (!st || st.isClosed || st.segmentId !== segmentId) continue;
       }
@@ -1913,10 +1919,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const getBufferedFinalTextForActiveBubble = useCallback((): string => {
     const active = activeBubbleRef.current;
     if (!active) return "";
-    const activeSegId = segmentBoundaryGuardsRef.current ? activeBubbleStateRef.current?.segmentId : undefined;
+    const activeSegId = activeBubbleStateRef.current?.segmentId;
     let pending = "";
     for (const item of finalRenderQueueRef.current) {
-      if (segmentBoundaryGuardsRef.current && activeSegId && item.segmentId && item.segmentId !== activeSegId) {
+      if (activeSegId && item.segmentId && item.segmentId !== activeSegId) {
         continue;
       }
       if (item.target === active) pending += item.text;
@@ -2897,7 +2903,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
     };
-    if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
+    if (activeBubbleStateRef.current) {
       segmentStateByIdRef.current.set(activeBubbleStateRef.current.segmentId, activeBubbleStateRef.current);
     }
     styleUpgradedRef.current       = false;
@@ -2994,7 +3000,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     recordSttSegmentClose(closeKind);
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
-    if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
+    if (activeBubbleStateRef.current) {
       activeBubbleStateRef.current.isClosed = true;
     }
     if (experimentMorsyUrgentIntercallRef.current && activeBubbleStateRef.current?.segmentId) {
@@ -3076,7 +3082,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalizeLiveBubble();
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
-    if (segmentBoundaryGuardsRef.current && activeBubbleStateRef.current) {
+    if (activeBubbleStateRef.current) {
       activeBubbleStateRef.current.isClosed = true;
     }
     currentSpeakerRef.current     = undefined;
@@ -3388,7 +3394,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                     finalRenderQueueRef.current.push({
                       target: activeBubbleRef.current,
                       text: confirm.bufferedFinalText,
-                      ...(segmentBoundaryGuardsRef.current && activeBubbleStateRef.current
+                      ...(activeBubbleStateRef.current
                         ? { segmentId: activeBubbleStateRef.current.segmentId }
                         : {}),
                     });
@@ -3414,9 +3420,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           finalRenderQueueRef.current.push({
             target: activeBubbleRef.current,
             text: t.text,
-            ...(segmentBoundaryGuardsRef.current && activeBubbleStateRef.current
-              ? { segmentId: activeBubbleStateRef.current.segmentId }
-              : {}),
+            ...(activeBubbleStateRef.current ? { segmentId: activeBubbleStateRef.current.segmentId } : {}),
           });
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
@@ -3438,7 +3442,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             finalRenderQueueRef.current.push({
               target: activeBubbleRef.current,
               text: pendingAfter.bufferedFinalText,
-              ...(segmentBoundaryGuardsRef.current && activeBubbleStateRef.current
+              ...(activeBubbleStateRef.current
                 ? { segmentId: activeBubbleStateRef.current.segmentId }
                 : {}),
             });
