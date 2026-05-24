@@ -36,13 +36,15 @@ import {
 } from "@/hooks/live-blank-trace";
 import {
   effectiveSemanticStabilityMs,
+  endsWithSemanticClausePunctuation,
+  hasResolutionConfidenceForUnpunctuatedLive,
   isMaterialSonioxFinalAdvance,
   morsyUsesSemanticStabilizedLivePreview,
   MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL,
   MORSY_SEMANTIC_PAUSE_MS,
   MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS,
   suppressNearDuplicateLivePreview,
-  withholdLivePreviewForUnstableTail,
+  withholdLivePreviewForUnresolvedThought,
 } from "@/hooks/morsy-intercall-orchestrator";
 import {
   liveDirectionTraceApiRequest,
@@ -2402,7 +2404,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         hasPriorPreview,
       );
 
-      if (!materialFinalAdvance && withholdLivePreviewForUnstableTail(trimmed, wordsNow)) {
+      if (!materialFinalAdvance && withholdLivePreviewForUnresolvedThought(trimmed, wordsNow)) {
+        return;
+      }
+
+      if (
+        !materialFinalAdvance &&
+        !endsWithSemanticClausePunctuation(trimmed) &&
+        !hasResolutionConfidenceForUnpunctuatedLive(trimmed, wordsNow)
+      ) {
         return;
       }
 
@@ -2457,7 +2467,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const wordsFresh = countWords(fresh);
         if (
           !materialFinalAtFire &&
-          withholdLivePreviewForUnstableTail(fresh.trim(), wordsFresh)
+          withholdLivePreviewForUnresolvedThought(fresh.trim(), wordsFresh)
+        ) {
+          return;
+        }
+
+        if (
+          !materialFinalAtFire &&
+          !endsWithSemanticClausePunctuation(fresh.trim()) &&
+          !hasResolutionConfidenceForUnpunctuatedLive(fresh.trim(), wordsFresh)
         ) {
           return;
         }
