@@ -9,7 +9,7 @@ import {
   Languages, Trash2, Copy, Check, Type, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
-  Hash, Sparkles, Sun, Moon,
+  Hash, Sparkles, Sun, Moon, ArrowDownToLine,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -1916,18 +1916,36 @@ export default function WorkspaceDefault() {
                 <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
                   Original
                 </div>
-                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
-                    Translation
-                  </span>
-                  <button
-                    onClick={() => setShowReportIssue(true)}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300 shrink-0"
-                    title="Report a translation issue"
-                  >
-                    <AlertCircle className="w-2.5 h-2.5" />
-                    <span className="hidden sm:inline">Report issue</span>
-                  </button>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                    <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
+                      Translation
+                    </span>
+                    <button
+                      onClick={() => setShowReportIssue(true)}
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300 shrink-0"
+                      title="Report a translation issue"
+                    >
+                      <AlertCircle className="w-2.5 h-2.5" />
+                      <span className="hidden sm:inline">Report issue</span>
+                    </button>
+                  </div>
+                  {!transcription.tailFollowPinned && (
+                    <button
+                      type="button"
+                      onClick={() => transcription.jumpTailFollow()}
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold shrink-0 border transition-colors",
+                        wsDark
+                          ? "border-white/15 bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+                      )}
+                      title="Snap to newest transcript and resume live tail-follow"
+                    >
+                      <ArrowDownToLine className="w-2.5 h-2.5" />
+                      <span className="hidden sm:inline">Jump to latest</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1939,7 +1957,7 @@ export default function WorkspaceDefault() {
                 TEXT_SIZE_VARS sets CSS custom properties that cascade to all
                 DOM-created text elements via var(--ts-font-size). */}
             <div
-              className="flex-1 overflow-y-auto p-5 relative"
+              className="flex-1 overflow-y-auto p-5 relative [overflow-anchor:none]"
               data-tsize={textSize}
               style={TEXT_SIZE_VARS[textSize]}
             >
