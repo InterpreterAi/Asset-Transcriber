@@ -152,8 +152,14 @@ const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 /** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
 const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
-/** Distance from scrollbar bottom counts as “following live”; above this we stop auto-scroll. */
-const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
+/**
+ * Transcript auto-follow uses a tight hysteresis band + explicit wheel-up opt-out.
+ * - Past RELEASE: user is reading history → do not auto-scroll on new tokens.
+ * - Within REARM: user has returned to the live tail → resume auto-scroll.
+ * - Between: keep previous state (avoids layout micro-jitter re-pinning while reading).
+ */
+const TRANSCRIPT_TAIL_FOLLOW_RELEASE_PX = 32;
+const TRANSCRIPT_TAIL_FOLLOW_REARM_PX = 10;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
@@ -1755,8 +1761,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
-  /** User is following live tail unless they scroll up; then we skip auto-scroll until they return to bottom. */
+  /** Following live transcript tail; turned off while user reads above (wheel up / scroll position). */
   const userPinnedToBottomRef = useRef(true);
+  /** Ignore scroll events we caused via scrollPanel so we don't immediately re-pin to bottom. */
+  const isProgrammaticTranscriptScrollRef = useRef(false);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
   const pendingSpeakerSwitchRef = useRef<{
@@ -1964,19 +1972,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const scrollPanel = useCallback((force = false) => {
     const el = containerRef.current?.parentElement;
     if (!el) return;
+    const runScrollToBottom = () => {
+      isProgrammaticTranscriptScrollRef.current = true;
+      try {
+        el.scrollTop = el.scrollHeight;
+      } finally {
+        queueMicrotask(() => {
+          isProgrammaticTranscriptScrollRef.current = false;
+        });
+      }
+    };
     if (force) {
       userPinnedToBottomRef.current = true;
-      el.scrollTop = el.scrollHeight;
+      runScrollToBottom();
       return;
     }
     if (!userPinnedToBottomRef.current) return;
-    el.scrollTop = el.scrollHeight;
+    runScrollToBottom();
   }, []);
 
   useLayoutEffect(() => {
     let cancelled = false;
     let attachedEl: HTMLElement | null = null;
     let onScroll: (() => void) | undefined;
+    let onWheel: ((e: WheelEvent) => void) | undefined;
     let raf2 = 0;
 
     const tryAttach = (): boolean => {
@@ -1984,13 +2003,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const scrollParent = inner?.parentElement ?? null;
       if (!scrollParent || cancelled) return false;
       attachedEl = scrollParent as HTMLElement;
-      const slack = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
-      onScroll = () => {
+      const syncPinFromScrollPosition = () => {
+        if (isProgrammaticTranscriptScrollRef.current) return;
         const el = attachedEl!;
         const d = el.scrollHeight - el.scrollTop - el.clientHeight;
-        userPinnedToBottomRef.current = d <= slack;
+        if (d <= TRANSCRIPT_TAIL_FOLLOW_REARM_PX) {
+          userPinnedToBottomRef.current = true;
+        } else if (d > TRANSCRIPT_TAIL_FOLLOW_RELEASE_PX) {
+          userPinnedToBottomRef.current = false;
+        }
+      };
+      onScroll = () => {
+        syncPinFromScrollPosition();
+      };
+      onWheel = (e: WheelEvent) => {
+        if (isProgrammaticTranscriptScrollRef.current) return;
+        if (e.deltaY < 0) userPinnedToBottomRef.current = false;
       };
       attachedEl.addEventListener("scroll", onScroll, { passive: true });
+      attachedEl.addEventListener("wheel", onWheel, { passive: true });
       onScroll();
       return true;
     };
@@ -2009,6 +2040,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
       if (attachedEl && onScroll) attachedEl.removeEventListener("scroll", onScroll);
+      if (attachedEl && onWheel) attachedEl.removeEventListener("wheel", onWheel);
     };
   }, []);
 
