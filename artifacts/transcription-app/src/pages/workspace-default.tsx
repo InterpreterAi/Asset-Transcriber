@@ -244,6 +244,7 @@ export default function WorkspaceDefault() {
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: (user?.translationEnabled ?? true) || pt === "morsy-urgent",
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
+    // Unified transcript/segment pipeline for every plan tier (not Morsy-only); hook default matches this.
     segmentBehaviorMode: "morsy-urgent-cbf",
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     experimentMorsyUrgentIntercallOrchestration:

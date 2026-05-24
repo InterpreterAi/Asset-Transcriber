@@ -1888,7 +1888,10 @@ export type UseTranscriptionOptions = {
   translationEnabled?: boolean;
   /** Controls how the translation column looks when translation is disabled. */
   translationUiMode?: "upsell" | "hidden";
-  /** Optional segment behavior profile for plan-specific stability experiments. */
+  /**
+   * Segment / speaker-boundary profile. Interpreter workspace uses `"morsy-urgent-cbf"` for every tier (name is legacy).
+   * `"default"` is only for embeddings or callers that deliberately want looser speaker gating.
+   */
   segmentBehaviorMode?: "default" | "morsy-urgent-cbf";
   /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
@@ -1941,9 +1944,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     translationUiModeRef.current = options?.translationUiMode ?? "upsell";
   }, [options?.translationUiMode]);
-  const segmentBehaviorModeRef = useRef<"default" | "morsy-urgent-cbf">(options?.segmentBehaviorMode ?? "default");
+  const segmentBehaviorModeRef = useRef<"default" | "morsy-urgent-cbf">(
+    options?.segmentBehaviorMode ?? "morsy-urgent-cbf",
+  );
   useEffect(() => {
-    segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "default";
+    segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "morsy-urgent-cbf";
   }, [options?.segmentBehaviorMode]);
   const segmentBoundaryGuardsRef = useRef(options?.segmentBoundaryGuards ?? false);
   useEffect(() => {
