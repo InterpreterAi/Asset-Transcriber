@@ -71,7 +71,6 @@ import {
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import {
   deltaNfDomMutation,
-  dropSonioxFinalReplayAlreadyCommitted,
   morsyIsolatedEnglishTranscriptOrchestrationEnabled,
   morsyIsolatedFinalRenderBufferMs,
   nfVisibleTailBeyondCommittedTokenAware,
@@ -4724,16 +4723,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           roll = st?.lockedCommittedFinalOriginal ?? "";
           enqueueCanonRollBySeg.set(segId, roll);
         }
-        const d = dropSonioxFinalReplayAlreadyCommitted(roll, inc);
+        /** Verbatim deltas only: replay/suffix suppression was deleting committed context for isolated urgent experiment. */
+        const d = inc;
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
-            kind:          "final_enqueue",
-            segmentId:     segId,
-            canonRollLen:  roll.length,
-            incomingLen:   inc.length,
-            droppedReplay: d.length === 0 && inc.length > 0,
-            outLen:        d.length,
-            incomingPeek:  inc.length > 72 ? `${inc.slice(0, 72)}…` : inc,
+            kind:               "final_enqueue",
+            segmentId:          segId,
+            canonRollLen:       roll.length,
+            incomingLen:        inc.length,
+            droppedReplay:      false,
+            verbatimFinalInc:   true,
+            outLen:             d.length,
+            incomingPeek:       inc.length > 72 ? `${inc.slice(0, 72)}…` : inc,
           });
         }
         enqueueCanonRollBySeg.set(segId, roll + d);
