@@ -8,7 +8,7 @@ export type MorsyIsolatedPresentationContext = {
   segmentBehaviorMode: string;
 };
 
-/** Dual gate: semantic streaming UX (triple-span host, NF debounce, calmer pivots). */
+/** Dual gate: calm NF debounce / translation pacing (does not reshape committed originals). */
 export function morsyIsolatedSemanticPresentationEnabled(ctx: MorsyIsolatedPresentationContext): boolean {
   return ctx.planTypeLower.trim() === "morsy-urgent" && ctx.segmentBehaviorMode === "morsy-intercall-isolated-experiment";
 }
@@ -24,7 +24,7 @@ export function resetMorsyCanonPromotionScratch(nowMs: number): MorsyCanonPromot
   return { lockedLenTracked: 0, quietSinceMs: nowMs };
 }
 
-/** Advance `boundaryUtf16` toward `locked.length` using post-growth idle window + numeric-tail guard. Boundary never retracts outside caller. */
+/** Advance boundary for pacing signals only (promotion callbacks); callers must not splice committed DOM from this. */
 export function stepVisibleCommittedBoundaryUtf16(args: {
   locked: string;
   boundaryUtf16: number;
@@ -44,8 +44,8 @@ export function stepVisibleCommittedBoundaryUtf16(args: {
     const numericHeavy =
       /\d/.test(tailScan) ||
       /\$|€|£|USD|EUR|\b(?:invoice|receipt|order|acct|#\d+)\b/i.test(tailScan);
-    const idleNeedMs = numericHeavy ? 460 : 220;
-    const minTentUtf16BeforePromote = 5;
+    const idleNeedMs = numericHeavy ? 280 : 155;
+    const minTentUtf16BeforePromote = 3;
     if (
       tentativeTail.length >= minTentUtf16BeforePromote &&
       args.nowMs - quietSinceMs >= idleNeedMs
@@ -68,7 +68,7 @@ export function morsyIsolatedVisibleNfDebounceMs(candidateUtf16: string): number
   const numericHeavy =
     /\d/.test(tail) ||
     /\$|€|£|¢|(?:\d+[.,])\d+|(?:usd|eur|gbp)\b/i.test(tail.trim());
-  if (numericHeavy) return 360;
+  if (numericHeavy) return 260;
   if (/[.?…!，。！？-]\s*$/.test(trim)) return 70;
   return 105;
 }
