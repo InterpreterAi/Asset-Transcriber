@@ -2020,6 +2020,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const scrollPanelFnRef   = useRef<
     ((force?: boolean, src?: Exclude<TranscriptScrollPanelSource, "force">) => void) | null
   >(null);
+  /** Coalesce streaming `scrollPanel(false, …)` into one geometry read per animation frame after layout settles. */
+  const scrollFollowRafRef = useRef<number>(0);
+  const scrollFollowDeferredSrcRef = useRef<Exclude<TranscriptScrollPanelSource, "force">>("bubble");
   /** True when viewport sits within TRANSCRIPT_TAIL_STICK_EPS_PX of scroll bottom (“following live”). */
   const [tailFollowPinnedUi, setTailFollowPinnedUi] = useState(true);
 
@@ -2234,77 +2237,114 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setTranslationServiceError((prev) => prev ?? msg);
   };
 
-  /** Sticky-tail snap (`scroll_top = scroll_bottom`) iff viewport was already glued to bottom; explicit Jump uses `force`. */
-  const scrollPanel = useCallback((force = false, source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble") => {
-    const diag = transcriptScrollDiagEnabled();
-    const verify = transcriptScrollVerifyEnabled();
-    const el = containerRef.current?.parentElement;
-    if (!el) return;
+  /**
+   * Sticky-tail: program `scrollTop` only while the viewport sits within TRANSCRIPT_TAIL_STICK_EPS_PX of the scroll
+   * bottom (following live tail). Scroll up ⇒ no programmatic writes until the user reaches the tail again or taps Jump.
+   * Same policy for every plan tier.
+   *
+   * `force` snaps immediately (“Jump to latest”). Non-force calls are deferred to `requestAnimationFrame` so
+   * bursts of finals + NF + translation layout settle before we measure distance-from-bottom.
+   */
+  const runScrollPanelCore = useCallback(
+    (force: boolean, source: Exclude<TranscriptScrollPanelSource, "force">) => {
+      const diag = transcriptScrollDiagEnabled();
+      const verify = transcriptScrollVerifyEnabled();
+      const el = containerRef.current?.parentElement;
+      if (!el) return;
 
-    if (diag) {
-      transcriptScrollDiagCounts.scrollPanelsTotal++;
-      transcriptScrollDiagMaybePeriodicSummary();
-    }
-    transcriptScrollVerifyLogViewport(el, `streaming_append(scrollPanel:${force ? "force" : "follow"}:${source})`);
+      transcriptScrollVerifyLogViewport(el, `streaming_append(scrollPanel:${force ? "force" : "follow_rAF"}:${source})`);
 
-    const t = performance.now();
-    const slackDiag = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
-    let dGeom = transcriptScrollDistanceFromBottom(el);
-    const wasAtStickyTailBeforeDecision = dGeom <= TRANSCRIPT_TAIL_STICK_EPS_PX;
-    let dBefore: number | undefined;
-    if (diag || verify) {
-      dBefore = dGeom;
-    }
+      const t = performance.now();
+      const slackDiag = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
+      let dGeom = transcriptScrollDistanceFromBottom(el);
+      const wasAtStickyTailBeforeDecision = dGeom <= TRANSCRIPT_TAIL_STICK_EPS_PX;
+      let dBefore: number | undefined;
+      if (diag || verify) {
+        dBefore = dGeom;
+      }
 
-    if (force) {
-      assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:force_scrollTop(${source})`);
+      if (force) {
+        assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:force_scrollTop(${source})`);
+        syncTailFollowUiFromScroller(el);
+        if (diag) {
+          transcriptScrollDiagCountApply("force");
+          const pinnedAfter = transcriptScrollDistanceFromBottom(el) <= slackDiag;
+          transcriptScrollDiagPush({
+            t,
+            kind: "scroll_panel_apply",
+            d: dBefore,
+            pinnedBefore: wasAtStickyTailBeforeDecision,
+            pinnedAfter,
+            src: "force",
+          });
+        }
+        return;
+      }
+
+      if (dGeom > TRANSCRIPT_TAIL_STICK_EPS_PX) {
+        if (diag) {
+          transcriptScrollDiagCounts.scrollPanelsSkippedPinnedFalse++;
+          transcriptScrollDiagPush({
+            t,
+            kind: "scroll_panel_skip_pinned_false",
+            d: dBefore,
+            pinnedBefore: wasAtStickyTailBeforeDecision,
+            pinnedAfter: wasAtStickyTailBeforeDecision,
+            src: source,
+          });
+        }
+        syncTailFollowUiFromScroller(el);
+        return;
+      }
+
+      assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:tail_follow_scrollTop(${source})`);
       syncTailFollowUiFromScroller(el);
       if (diag) {
-        transcriptScrollDiagCountApply("force");
-        const pinnedAfter = transcriptScrollDistanceFromBottom(el) <= slackDiag;
+        dGeom = transcriptScrollDistanceFromBottom(el);
+        transcriptScrollDiagCountApply(source);
         transcriptScrollDiagPush({
           t,
           kind: "scroll_panel_apply",
           d: dBefore,
           pinnedBefore: wasAtStickyTailBeforeDecision,
-          pinnedAfter,
-          src: "force",
-        });
-      }
-      return;
-    }
-
-    if (dGeom > TRANSCRIPT_TAIL_STICK_EPS_PX) {
-      if (diag) {
-        transcriptScrollDiagCounts.scrollPanelsSkippedPinnedFalse++;
-        transcriptScrollDiagPush({
-          t,
-          kind: "scroll_panel_skip_pinned_false",
-          d: dBefore,
-          pinnedBefore: wasAtStickyTailBeforeDecision,
-          pinnedAfter: wasAtStickyTailBeforeDecision,
+          pinnedAfter: dGeom <= slackDiag,
           src: source,
         });
       }
-      syncTailFollowUiFromScroller(el);
-      return;
-    }
+    },
+    [syncTailFollowUiFromScroller],
+  );
 
-    assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:tail_follow_scrollTop(${source})`);
-    syncTailFollowUiFromScroller(el);
-    if (diag) {
-      dGeom = transcriptScrollDistanceFromBottom(el);
-      transcriptScrollDiagCountApply(source);
-      transcriptScrollDiagPush({
-        t,
-        kind: "scroll_panel_apply",
-        d: dBefore,
-        pinnedBefore: wasAtStickyTailBeforeDecision,
-        pinnedAfter: dGeom <= slackDiag,
-        src: source,
+  const scrollPanel = useCallback(
+    (force = false, source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble") => {
+      const diag = transcriptScrollDiagEnabled();
+      if (force) {
+        if (scrollFollowRafRef.current !== 0) {
+          cancelAnimationFrame(scrollFollowRafRef.current);
+          scrollFollowRafRef.current = 0;
+        }
+        if (diag) {
+          transcriptScrollDiagCounts.scrollPanelsTotal++;
+          transcriptScrollDiagMaybePeriodicSummary();
+        }
+        runScrollPanelCore(true, source);
+        return;
+      }
+
+      scrollFollowDeferredSrcRef.current = source;
+      if (diag) {
+        transcriptScrollDiagCounts.scrollPanelsTotal++;
+        transcriptScrollDiagMaybePeriodicSummary();
+      }
+      if (scrollFollowRafRef.current !== 0) return;
+
+      scrollFollowRafRef.current = requestAnimationFrame(() => {
+        scrollFollowRafRef.current = 0;
+        runScrollPanelCore(false, scrollFollowDeferredSrcRef.current);
       });
-    }
-  }, [syncTailFollowUiFromScroller]);
+    },
+    [runScrollPanelCore],
+  );
   scrollPanelFnRef.current = scrollPanel;
 
   const jumpTailFollow = useCallback(() => {
@@ -2313,6 +2353,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   useEffect(() => {
     transcriptScrollDiagInstallGlobalDumpHook();
+  }, []);
+
+  /** Avoid rAF snapping after transcript mount teardown (recording stop / workspace unmount). */
+  useEffect(() => {
+    return () => {
+      if (scrollFollowRafRef.current !== 0) {
+        cancelAnimationFrame(scrollFollowRafRef.current);
+        scrollFollowRafRef.current = 0;
+      }
+    };
   }, []);
 
   useEffect(() => {
