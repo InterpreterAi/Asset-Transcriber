@@ -433,6 +433,8 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  * - **`morsy-intercall-isolated-experiment`**: reserved for **`plan_type === "morsy-urgent"` only** —
  *   Intercall clone orchestration sandbox. **Initially identical** to CBF speaker pivot; future Morsy-only behavior
  *   branches here — production tiers stay on **`morsy-urgent-cbf`** unchanged.
+ *   Translation column (when translation is enabled) may use dual spans with an immutable finalized block + mutable live tail
+ *   unless `{@link morsyStableTranslationTailKillSwitchEngaged}` (see `{@link morsyUrgentUsesStableTranslationTail}`).
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
 export type SegmentBehaviorMode =
@@ -443,6 +445,38 @@ export type SegmentBehaviorMode =
 /** Whether WebSocket segmentation uses stabilized speaker pivot ({@link FAST_SWITCH_*}, pendingSid buffering). */
 function segmentModeUsesStabilizedSonioxSpeakerPivot(mode: SegmentBehaviorMode): boolean {
   return mode === "morsy-urgent-cbf" || mode === "morsy-intercall-isolated-experiment";
+}
+
+/**
+ * **Basic · Morsy Urgent only** (`segmentBehaviorMode === "morsy-intercall-isolated-experiment"`):
+ * translation column uses an immutable **stable** span (final-only paint) + mutable **live** span.
+ *
+ * Kill switch (disables dual-span layout from this path — falls back unless Intercall checkbox remains on):
+ * - Build: `VITE_KILL_MORSY_STABLE_TRANSLATION_TAIL=1` or `true`
+ * - Runtime: `localStorage.setItem("interpreterai_kill_morsy_stable_translation_tail", "1")` (full reload)
+ */
+const LS_KILL_MORSY_STABLE_TRANSLATION_TAIL = "interpreterai_kill_morsy_stable_translation_tail";
+
+function morsyStableTranslationTailKillSwitchEngaged(): boolean {
+  try {
+    const v = import.meta.env?.VITE_KILL_MORSY_STABLE_TRANSLATION_TAIL;
+    if (v === "1" || v === "true") return true;
+  } catch {
+    /* import.meta unavailable */
+  }
+  try {
+    const ls = typeof globalThis.localStorage !== "undefined"
+      ? globalThis.localStorage.getItem(LS_KILL_MORSY_STABLE_TRANSLATION_TAIL)
+      : null;
+    if (ls === "1" || ls === "true") return true;
+  } catch {
+    /* private mode / SSR */
+  }
+  return false;
+}
+
+function morsyUrgentUsesStableTranslationTail(segmentMode: SegmentBehaviorMode): boolean {
+  return segmentMode === "morsy-intercall-isolated-experiment" && !morsyStableTranslationTailKillSwitchEngaged();
 }
 
 const FAST_SWITCH_MIN_STREAK = 2;
@@ -1792,7 +1826,7 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
-/** Sets direction / lang on container and typography + HTML on body (same element for prod; split spans for Intercall experiment). */
+/** Sets direction / lang on container and typography + HTML on body (same element for prod; dual-span layouts use `bodyEl` only while `rootDirEl` is the `<p>`). */
 function applyTranslationTypographyCore(rootDirEl: HTMLElement, bodyEl: HTMLElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
   rootDirEl.dir             = rtl ? "rtl" : "ltr";
@@ -1831,8 +1865,10 @@ interface BubbleTransState {
   lastAppliedSeq:     number;
   transTextEl:       HTMLParagraphElement;
   /**
-   * Morsy Intercall orchestration: stable (finalized-only paint target) + volatile live tail.
-   * When null, translations use {@link BubbleTransState.transTextEl} alone (production).
+   * Dual-span layouts: finalized text target + volatile live tail.
+   * - **Legacy Intercall**: live clears stable each tick (see `{@link applyTranslationForBubbleState}`).
+   * - **Morsy Urgent stable+tail** ({@link applyTranslationForMorsyStableTail}): finalized text stays in stable during live churn.
+   * When both null, translations use {@link BubbleTransState.transTextEl} alone (production defaults).
    */
   transStableEl:     HTMLSpanElement | null;
   transLiveEl:       HTMLSpanElement | null;
@@ -1879,7 +1915,7 @@ interface BubbleTransState {
   segmentTargetLang:     string | null;
 }
 
-/** Intercall experiment (Morsy Urgent): live paints volatile span; final promotes to stable span and clears tail. */
+/** Intercall experiment (dual-span): each live repaint clears stable; final promotes to stable and clears tail. */
 function applyTranslationForBubbleState(
   state: BubbleTransState,
   newTranslation: string,
@@ -1903,6 +1939,53 @@ function applyTranslationForBubbleState(
     live.className = `${CLS.transText} min-w-0 opacity-90`;
     applyTranslationTypographyCore(root, stable, newTranslation);
   }
+}
+
+/**
+ * **Morsy Urgent / isolated mode only**: live updates mutate **live** span only — stable finalized text stays put.
+ * Final responses write the full finalized string into **stable** and clear **live**.
+ */
+function applyTranslationForMorsyStableTail(
+  state: BubbleTransState,
+  newTranslation: string,
+  kind: "live" | "final",
+): void {
+  const root = state.transTextEl;
+  const stable = state.transStableEl;
+  const live = state.transLiveEl;
+  if (!stable || !live) {
+    applyTranslationTypography(root, newTranslation);
+    return;
+  }
+  if (kind === "live") {
+    applyTranslationTypographyCore(root, live, newTranslation);
+    return;
+  }
+  live.textContent = "";
+  live.removeAttribute("lang");
+  live.className = `${CLS.transText} min-w-0 opacity-90`;
+  applyTranslationTypographyCore(root, stable, newTranslation);
+}
+
+/** Routes dual-span paint: Morsy stable+tail vs legacy Intercall (clears stable on each live paint). */
+function applyTranslationDualSpanForSegmentMode(
+  state: BubbleTransState,
+  newTranslation: string,
+  kind: "live" | "final",
+  segmentMode: SegmentBehaviorMode,
+): void {
+  const stable = state.transStableEl;
+  const live = state.transLiveEl;
+  if (!stable || !live) {
+    applyTranslationTypography(state.transTextEl, newTranslation);
+    return;
+  }
+  const useStableTail = morsyUrgentUsesStableTranslationTail(segmentMode);
+  if (useStableTail) {
+    applyTranslationForMorsyStableTail(state, newTranslation, kind);
+    return;
+  }
+  applyTranslationForBubbleState(state, newTranslation, kind);
 }
 
 type TranslationTriggerReason = "segment_finalize" | "early_hint" | "language_passthrough";
@@ -3230,7 +3313,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = out.length;
           if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-          applyTranslationForBubbleState(state, out, "final");
+          applyTranslationDualSpanForSegmentMode(state, out, "final", segmentBehaviorModeRef.current);
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           if (!lockOnFinal) {
@@ -3327,7 +3410,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = chosen.length;
           if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-          applyTranslationForBubbleState(state, chosen, "live");
+          applyTranslationDualSpanForSegmentMode(state, chosen, "live", segmentBehaviorModeRef.current);
           if (traceId) {
             liveBlankTracePaintAppliedLive({
               traceId,
@@ -3424,7 +3507,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let transStable: HTMLSpanElement | null = null;
     let transLive: HTMLSpanElement | null = null;
 
-    if (translationOn && experimentMorsyUrgentIntercallRef.current) {
+    const isolatedMorsyStableTail =
+      morsyUrgentUsesStableTranslationTail(segmentBehaviorModeRef.current);
+
+    if (translationOn && (experimentMorsyUrgentIntercallRef.current || isolatedMorsyStableTail)) {
       transTextP.textContent = "";
       transStable = document.createElement("span");
       transLive = document.createElement("span");
