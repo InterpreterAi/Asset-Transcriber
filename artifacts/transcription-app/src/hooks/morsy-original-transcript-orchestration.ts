@@ -1,6 +1,7 @@
 /**
  * Basic · Morsy Urgent + `morsy-intercall-isolated-experiment` only: original-column presentation
- * stabilization (translator parity, token-aware NF overlap, delta NF DOM, semantic English clause freeze helpers).
+ * stabilization (translator parity, token-aware NF overlap, delta NF DOM helpers). Semantic English freeze is
+ * disabled in the hook until canonical committed-only reconciliation proves stable — helpers remain for re-enable.
  */
 
 import {
@@ -45,7 +46,7 @@ export function longestCommonUtf16PrefixLen(a: string, b: string): number {
   return i;
 }
 
-/** Max k such that locked.endsWith(inc.slice(0,k)) — drop duplicate Soniox finals after preemptive freeze. */
+/** Max k such that locked.endsWith(inc.slice(0,k)) — legacy overlap strip (avoid for isolated reconcile). */
 export function deductIncomingFinalTextAgainstLocked(locked: string, inc: string): string {
   if (!inc.trim()) return "";
   if (!locked) return inc;
@@ -59,6 +60,18 @@ export function deductIncomingFinalTextAgainstLocked(locked: string, inc: string
 
 export function splitIncomingFinalForIsolatedDedupe(lockedCommitted: string, incoming: string): string {
   return deductIncomingFinalTextAgainstLocked(lockedCommitted, incoming);
+}
+
+/**
+ * Isolated reconcile: Soniox final chunk wholly replayed — canonical ends with identical incoming → drop entirely.
+ * No k-overlap slicing (prevents substring corruption).
+ */
+export function dropSonioxFinalReplayAlreadyCommitted(canonicalCommitted: string, incoming: string): string {
+  const inc = incoming ?? "";
+  if (!inc.length) return "";
+  const canon = canonicalCommitted ?? "";
+  if (canon.endsWith(inc)) return "";
+  return inc;
 }
 
 /** Leading English clause on collapsed remainder: ends in . ! ? , ; : — min ~8 chars & 3 words. */
