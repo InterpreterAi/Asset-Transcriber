@@ -2092,7 +2092,9 @@ interface BubbleTransState {
   /** Canon idle clock for advancing {@link BubbleTransState.visibleCommittedBoundary}. */
   morsyCanonPromotionLockedLen: number;
   morsyCanonPromotionQuietSinceMs: number;
-  /** Isolated semantic stream: enqueue target wraps immutable + tentative committed spans (authority still `locked`). */
+  /**
+   * @deprecated Presentation-only rollback: committed column is raw single-span DOM (see flush path); kept null always.
+   */
   morsySemanticCommittedHostEl: HTMLSpanElement | null;
   morsySemanticImmutableSpanEl: HTMLSpanElement | null;
   morsySemanticTentativeSpanEl: HTMLSpanElement | null;
@@ -2108,15 +2110,9 @@ function clearMorsyIsolatedSemanticUiTimers(st: BubbleTransState | null | undefi
   st.morsyVisibleNfThrottleTimer = null;
 }
 
-function syncMorsyIsolatedCommittedHostFromLocks(st: BubbleTransState): void {
-  const imm = st.morsySemanticImmutableSpanEl;
-  const tent = st.morsySemanticTentativeSpanEl;
-  if (!imm || !tent) return;
-  const locked = st.lockedCommittedFinalOriginal;
-  const b = Math.min(Math.max(0, st.visibleCommittedBoundary), locked.length);
-  st.visibleCommittedBoundary = b;
-  imm.textContent = locked.slice(0, b);
-  tent.textContent = locked.slice(b);
+/** Basic · Morsy Urgent plan (UI: continuous flow, no Speaker N badges, optional stacked layout). */
+function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
+  return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
 /** First punctuated Arabic/Latin/CJK sentence in a live-band remainder (`morsy-intercall-isolated-experiment`). */
@@ -2609,41 +2605,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const flushMorsySemanticIsolatedVisibleNf = useCallback(
     (st: BubbleTransState, hardRewrite: boolean): boolean => {
+      void hardRewrite;
       const nfEl = activeBubbleNFRef.current;
       if (!nfEl || !nfEl.isConnected) return false;
       const candidateRaw = st.morsyVisibleNfStagingPaint ?? "";
       const prevCommitted = st.morsyVisibleNfCommittedPaint;
-      if (
-        !hardRewrite &&
-        prevCommitted &&
-        candidateRaw.length < prevCommitted.length &&
-        !candidateRaw.startsWith(prevCommitted.slice(0, candidateRaw.length))
-      ) {
-        return false;
-      }
-      const longerProbe = Math.max(candidateRaw.length, prevCommitted?.length ?? 0);
-      if (
-        !hardRewrite &&
-        (prevCommitted?.length ?? 0) > 0 &&
-        candidateRaw.length > 0 &&
-        candidateRaw !== prevCommitted &&
-        !candidateRaw.startsWith(prevCommitted ?? "") &&
-        longestCommonUtf16PrefixLen(prevCommitted ?? "", candidateRaw) <
-          Math.max(10, Math.floor(longerProbe * 0.14))
-      ) {
-        return false;
-      }
       nfEl.textContent = candidateRaw;
       st.morsyVisibleNfCommittedPaint = candidateRaw;
       st.lastRenderedNfPaint = candidateRaw;
-      return hardRewrite || (prevCommitted ?? "") !== candidateRaw;
+      return prevCommitted !== candidateRaw;
     },
     [],
   );
 
   const scheduleMorsySemanticIsolatedNfPaint = useCallback(
     (st: BubbleTransState | null | undefined, hardRewrite: boolean) => {
-      if (!st?.morsySemanticCommittedHostEl) return;
+      if (
+        !st ||
+        !morsyIsolatedSemanticPresentationEnabled({
+          planTypeLower: planTypeRef.current.trim(),
+          segmentBehaviorMode: segmentBehaviorModeRef.current,
+        })
+      ) {
+        return;
+      }
       const nfEl = activeBubbleNFRef.current;
       if (!nfEl || !nfEl.isConnected) return;
       if (st.morsyVisibleNfThrottleTimer != null) {
@@ -2868,11 +2853,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
-        if (gateSt.morsySemanticCommittedHostEl) {
-          syncMorsyIsolatedCommittedHostFromLocks(gateSt);
-        } else {
-          target.textContent = gateSt.lockedCommittedFinalOriginal;
-        }
+        target.textContent = gateSt.lockedCommittedFinalOriginal;
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
             kind:             "flush_append_canonical_dom",
@@ -4046,7 +4027,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   // ── createBubble ──────────────────────────────────────────────────────────
-  // Builds a two-column segment row with color-coded speaker tags.
+  // Builds a transcript row (+ optional stacked layout). Basic · Morsy Urgent: no Speaker ribbons.
   // Creates a fresh BubbleTransState for the new bubble so all translation
   // requests for previous bubbles are structurally isolated.
   const createBubble = useCallback((rawSpeaker: number | string | undefined): HTMLSpanElement => {
@@ -4059,11 +4040,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const row = document.createElement("div");
     row.className = CLS.row;
     const planLower = planTypeRef.current.trim();
-    const semanticIsoPresentation = morsyIsolatedSemanticPresentationEnabled({
-      planTypeLower: planLower,
-      segmentBehaviorMode: segmentBehaviorModeRef.current,
-    });
-    if (semanticIsoPresentation && readMorsySemanticLayoutPreferredStacked()) {
+    if (isBasicMorsyUrgentPlan(planLower) && readMorsySemanticLayoutPreferredStacked()) {
       row.className = CLS_ROW_SEMANTIC_STACK;
     }
 
@@ -4075,7 +4052,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const colTrans = document.createElement("div");
     colTrans.className = CLS.colTrans;
 
-    if (label && tagCls) {
+    if (label && tagCls && !isBasicMorsyUrgentPlan(planLower)) {
       const tagOrig = document.createElement("span");
       tagOrig.className   = tagCls;
       tagOrig.textContent = label;
@@ -4093,25 +4070,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const p = document.createElement("p");
     p.className = CLS.textFin;
     applyTextStyle(p);
-    /** Target for queued finals (`activeBubbleRef`) + optional immutable/tentative split under semantic UX. */
-    let finalCommitTarget: HTMLSpanElement;
-    let semanticHostEl: HTMLSpanElement | null = null;
-    let semanticImmEl: HTMLSpanElement | null = null;
-    let semanticTentEl: HTMLSpanElement | null = null;
+    const finalCommitTarget = document.createElement("span");
     const nfSpan = document.createElement("span");
     nfSpan.className = CLS.nf;
-    if (semanticIsoPresentation) {
-      semanticHostEl = document.createElement("span");
-      semanticImmEl = document.createElement("span");
-      semanticTentEl = document.createElement("span");
-      semanticHostEl.appendChild(semanticImmEl);
-      semanticHostEl.appendChild(semanticTentEl);
-      p.appendChild(semanticHostEl);
-      finalCommitTarget = semanticHostEl;
-    } else {
-      finalCommitTarget = document.createElement("span");
-      p.appendChild(finalCommitTarget);
-    }
+    p.appendChild(finalCommitTarget);
     p.appendChild(nfSpan);
     origRow.appendChild(p);
     origRow.appendChild(makeCopyBtn(() => p.textContent ?? ""));
@@ -4203,9 +4165,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       visibleCommittedBoundary: 0,
       morsyCanonPromotionLockedLen: 0,
       morsyCanonPromotionQuietSinceMs: Date.now(),
-      morsySemanticCommittedHostEl: semanticHostEl,
-      morsySemanticImmutableSpanEl: semanticImmEl,
-      morsySemanticTentativeSpanEl: semanticTentEl,
+      morsySemanticCommittedHostEl: null,
+      morsySemanticImmutableSpanEl: null,
+      morsySemanticTentativeSpanEl: null,
       morsyVisibleNfThrottleTimer: null,
       morsyVisibleNfStagingPaint: "",
       morsyVisibleNfCommittedPaint: "",
@@ -4236,11 +4198,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const bubbleStPre = activeBubbleStateRef.current;
     if (
-      bubbleStPre?.morsySemanticCommittedHostEl &&
-      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+      bubbleStPre &&
+      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+      activeBubbleRef.current
+    ) {
+      activeBubbleRef.current.textContent = bubbleStPre.lockedCommittedFinalOriginal;
+    }
+    if (
+      bubbleStPre &&
+      morsyIsolatedSemanticPresentationEnabled({
+        planTypeLower: planTypeRef.current.trim(),
+        segmentBehaviorMode: segmentBehaviorModeRef.current,
+      })
     ) {
       bubbleStPre.visibleCommittedBoundary = bubbleStPre.lockedCommittedFinalOriginal.length;
-      syncMorsyIsolatedCommittedHostFromLocks(bubbleStPre);
       clearMorsyIsolatedSemanticUiTimers(bubbleStPre);
       bubbleStPre.morsyVisibleNfStagingPaint = "";
       bubbleStPre.morsyVisibleNfCommittedPaint = "";
@@ -4991,12 +4962,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
           if (strictOriginalSeparation && isolatedOrchEffective) {
-            const semanticSkinIso =
-              stNf.morsySemanticCommittedHostEl &&
-              morsyIsolatedSemanticPresentationEnabled({
-                planTypeLower: planTypeRef.current.trim(),
-                segmentBehaviorMode: segmentBehaviorModeRef.current,
-              });
+            const semanticSkinIso = morsyIsolatedSemanticPresentationEnabled({
+              planTypeLower: planTypeRef.current.trim(),
+              segmentBehaviorMode: segmentBehaviorModeRef.current,
+            });
             if (semanticSkinIso) {
               stNf.morsyVisibleNfStagingPaint = nfPaint;
               scheduleMorsySemanticIsolatedNfPaint(stNf, nfSpeakerChangeForceFull);
@@ -5070,7 +5039,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             stNf.lastRenderedNfPaint = "";
             stNf.lastNfTailSpeakerKey = undefined;
             if (
-              stNf.morsySemanticCommittedHostEl &&
               morsyIsolatedSemanticPresentationEnabled({
                 planTypeLower: planTypeRef.current.trim(),
                 segmentBehaviorMode: segmentBehaviorModeRef.current,
@@ -5087,7 +5055,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = committedLogical;
       if (isolatedOrchEffective) {
-        liveBufferRef.current = collapseWs(`${finalText.trimEnd()}${nfPaint}`).trim();
+        const rawJoin = `${finalText.trimEnd()}${nfPaint}`.trim();
+        liveBufferRef.current = isBasicMorsyUrgentPlan(planTypeRef.current)
+          ? rawJoin
+          : collapseWs(rawJoin).trim();
       } else {
         liveBufferRef.current = mergeFinalWithNonFinalHypothesis(finalText.trim(), nfText).trim();
       }
@@ -5104,7 +5075,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const stVisSemantic = activeBubbleStateRef.current;
       if (
-        stVisSemantic?.morsySemanticCommittedHostEl &&
+        stVisSemantic &&
         morsyIsolatedSemanticPresentationEnabled({
           planTypeLower: planTypeRef.current.trim(),
           segmentBehaviorMode: segmentBehaviorModeRef.current,
@@ -5122,7 +5093,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         stVisSemantic.visibleCommittedBoundary = stepRes.boundaryUtf16;
         stVisSemantic.morsyCanonPromotionLockedLen = stepRes.scratch.lockedLenTracked;
         stVisSemantic.morsyCanonPromotionQuietSinceMs = stepRes.scratch.quietSinceMs;
-        syncMorsyIsolatedCommittedHostFromLocks(stVisSemantic);
         if (
           stepRes.promoted &&
           !stVisSemantic.translationLocked &&
