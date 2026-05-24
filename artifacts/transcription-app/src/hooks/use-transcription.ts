@@ -5090,8 +5090,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
 
+      /** Tactical bypass: urgent + isolated experiment — overlap/strip manufactured visible corruption worse than raw Soniox NF. */
+      const isolatedUrgentExperimentVerbatimNf = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
+        planTypeLower: planTypeRef.current.trim(),
+        segmentBehaviorMode: segmentBehaviorModeRef.current,
+      });
+
       let nfPaint = "";
-      if (strictOriginalSeparation && nfText && isolatedOrchWs && bubbleTransStWs) {
+      if (isolatedUrgentExperimentVerbatimNf && nfText) {
+        nfPaint = nfText;
+      } else if (strictOriginalSeparation && nfText && isolatedOrchWs && bubbleTransStWs) {
         nfPaint = nfVisibleTailBeyondCommittedTokenAware(committedLogical, nfText);
       } else if (strictOriginalSeparation && nfText) {
         nfPaint = nfVisibleTailBeyondCommitted(committedLogical, nfText);
@@ -5099,6 +5107,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       /* Strip NF paint that repeats canonical committed (semantic replay / whitespace-only delta). Isolated reconcile only. */
       if (
+        !isolatedUrgentExperimentVerbatimNf &&
         isolatedOrchWs &&
         strictOriginalSeparation &&
         nfPaint &&
