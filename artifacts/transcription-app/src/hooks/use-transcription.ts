@@ -152,14 +152,16 @@ const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 /** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
 const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
-/** Legacy diagnostic / heuristic label only — normal follow re-arm uses {@link TRANSCRIPT_TAIL_ABSOLUTE_BOTTOM_EPS_PX}. */
+/** Legacy diagnostic slack label — not used for sticky-tail snap decisions anymore. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
 /**
- * Re-follow transcript tail automatically only when manual scroll kisses true bottom (subpixel tolerant).
- * When `interpreterai_transcript_scroll_verify=1`: **automatic re-follow through scroll proximity is OFF** —
- * use **Jump to latest** or `window.__interpreterAiTranscriptJumpTail()`.
+ * Sticky-tail threshold: snap only while `distanceFromBottom <=` this px. Reading farther up ⇒ no `scrollTop` writes.
  */
-const TRANSCRIPT_TAIL_ABSOLUTE_BOTTOM_EPS_PX = 1;
+const TRANSCRIPT_TAIL_STICK_EPS_PX = 12;
+
+function transcriptScrollDistanceFromBottom(scrollEl: HTMLElement): number {
+  return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+}
 
 /**
  * Browser console-only hard verification: logs every programmatic `scrollTop` write stack, pinned ref transitions,
@@ -224,6 +226,28 @@ function transcriptScrollVerifyLogViewport(
     scrollAnchoringHypothesisNote:
       "If distanceFromBottom changes while NO [scroll_verify] scrollTop WRITE line appears → browser/layout (scroll anchoring, flex sizing, subtree height mutations) suspect.",
   });
+}
+
+function assignTranscriptScrollerScrollTop(el: HTMLElement, value: number, label: string): void {
+  const prev = el.scrollTop;
+  if (transcriptScrollVerifyEnabled()) {
+    console.warn("[scroll_verify] scrollTop WRITE", {
+      label,
+      iso: new Date().toISOString(),
+      perfMs: performance.now(),
+      from: prev,
+      to: value,
+      delta: value - prev,
+      stackNote:
+        "Intended single choke-point for programmatic scrollTop — if viewport moves without this, suspect anchoring/layout.",
+      stackFrames: transcriptScrollVerifyCaptureStack(2, 24),
+    });
+    transcriptScrollVerifyLogViewport(el, `${label}:before_write`, { prevScrollTop: prev });
+  }
+  el.scrollTop = value;
+  if (transcriptScrollVerifyEnabled()) {
+    transcriptScrollVerifyLogViewport(el, `${label}:after_write`, { prevScrollTop: prev });
+  }
 }
 
 /** Opt-in scroll latch diagnostics. `localStorage.setItem("interpreterai_transcript_scroll_diag","1")` then reload — console only. Reproduce: speak continuously, wheel/drag upward while pinned; inspect `[transcript_scroll_diag] heartbeat` and run `window.transcriptScrollDiagDump()`. */
@@ -337,16 +361,16 @@ function transcriptScrollDiagMaybePeriodicSummary(nowMs = performance.now()): vo
       slackPx: TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX,
       H1_follow_policy:
         transcriptScrollVerifyEnabled()
-          ? "VERIFY: no proximity re-follow from scroll listener — Jump / window.__interpreterAiTranscriptJumpTail() only after disengage."
-          : "AUTO: re-follow via scroll_listener only within absolute-bottom eps (~1px), not slack 72 — see TRANSCRIPT_TAIL_ABSOLUTE_BOTTOM_EPS_PX.",
+          ? `[verify logs on] sticky tail only if distance≤${TRANSCRIPT_TAIL_STICK_EPS_PX}px OR Jump (same as prod)`
+          : `Sticky tail only if distance-from-bottom≤${TRANSCRIPT_TAIL_STICK_EPS_PX}px — ref latch removed; scroll up ⇒ no programmatic scroll.`,
       H2_burstVsManual:
         transcriptScrollDiagCounts.scrollPanelsApplied > 0 &&
         transcriptScrollDiagCounts.scrollPanelsApplied >= transcriptScrollDiagCounts.scrollEvents
           ? "High apply rate vs listener events — check tail timestamps for programmatic scroll beating user flick (should be mitigated once follow is off)."
           : "Not dominant this interval.",
       H3_noListenerNeverTrue: transcriptScrollDiagAttachOk
-        ? "Scroll/wheel listeners attached."
-        : "BUG: listeners never attached — tail-follow latch cannot observe user gestures.",
+        ? "Scroll listener attached (wheel no longer gates — geometry-only sticky)."
+        : "BUG: scroll listener never attached — Jump + sticky snap cannot align.",
     },
     ...transcriptScrollDiagApplyBurstHint(),
     recentTail: transcriptScrollDiagScrollLog.slice(-16),
@@ -354,12 +378,20 @@ function transcriptScrollDiagMaybePeriodicSummary(nowMs = performance.now()): vo
   });
 }
 
-type TranscriptScrollPanelSource = "ws" | "bubble" | "translation" | "force";
+type TranscriptScrollPanelSource =
+  | "ws"
+  | "bubble"
+  | "translation"
+  | "force"
+  | "queued_final_chars"
+  | "flush_queue_empty_snap_if_sticky";
 
 function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void {
   transcriptScrollDiagCounts.scrollPanelsApplied++;
   switch (src) {
     case "ws":
+    case "queued_final_chars":
+    case "flush_queue_empty_snap_if_sticky":
       transcriptScrollDiagCounts.appliedByWs++;
       break;
     case "bubble":
@@ -1978,13 +2010,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const audioPcmSecondsRef = useRef(0);
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
-  const containerRef      = useRef<HTMLDivElement | null>(null);
-  /** Tail-follow: programmatic snap-to-bottom runs only while true. Upward gestures clear it immediately. */
-  const userPinnedToBottomRef = useRef(true);
-  /** Mirrors {@link userPinnedToBottomRef} for React controls (jump button visibility). Updated only when the boolean toggles. */
+  const containerRef       = useRef<HTMLDivElement | null>(null);
+  /** Filled each render — lets early declarations (flush queue) call the latest sticky-tail snap safely. */
+  const scrollPanelFnRef   = useRef<
+    ((force?: boolean, src?: Exclude<TranscriptScrollPanelSource, "force">) => void) | null
+  >(null);
+  /** True when viewport sits within TRANSCRIPT_TAIL_STICK_EPS_PX of scroll bottom (“following live”). */
   const [tailFollowPinnedUi, setTailFollowPinnedUi] = useState(true);
-  /** Tracks last scrollTop on the transcript scroll parent for intent detection vs tail snaps. */
-  const followTailLastScrollTopRef = useRef(0);
+
+  const syncTailFollowUiFromScroller = useCallback((scrollEl?: HTMLElement | null) => {
+    const el = scrollEl ?? containerRef.current?.parentElement ?? null;
+    if (!el) return;
+    setTailFollowPinnedUi(transcriptScrollDistanceFromBottom(el) <= TRANSCRIPT_TAIL_STICK_EPS_PX);
+  }, []);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
   const pendingSpeakerSwitchRef = useRef<{
@@ -2116,7 +2154,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       finalRenderTimerRef.current = null;
     }
     const q = finalRenderQueueRef.current;
-    if (q.length === 0) return;
+    if (q.length === 0) {
+      scrollPanelFnRef.current?.(false, "flush_queue_empty_snap_if_sticky");
+      return;
+    }
     finalRenderQueueRef.current = [];
     for (const item of q) {
       const { target, text, segmentId } = item;
@@ -2129,6 +2170,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       target.textContent = (target.textContent ?? "") + text;
     }
+    scrollPanelFnRef.current?.(false, "queued_final_chars");
   }, []);
 
   const scheduleFinalTextRenderFlush = useCallback(() => {
@@ -2187,50 +2229,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     setTranslationServiceError((prev) => prev ?? msg);
   };
 
-  /** All programmatic transcript scroller assignments — verifies stack + snapshots when LS verify is on (see {@link transcriptScrollVerifyEnabled}). */
-  const assignTranscriptScrollerScrollTop = useCallback((el: HTMLElement, value: number, label: string) => {
-    const prev = el.scrollTop;
-    if (transcriptScrollVerifyEnabled()) {
-      console.warn("[scroll_verify] scrollTop WRITE", {
-        label,
-        iso: new Date().toISOString(),
-        perfMs: performance.now(),
-        from: prev,
-        to: value,
-        delta: value - prev,
-        stack:
-          "** scrollTop assigns only originate here today ** (if viewport still drifts → layout / scroll anchoring / flex height).",
-        stackFrames: transcriptScrollVerifyCaptureStack(2, 24),
-      });
-      transcriptScrollVerifyLogViewport(el, `${label}:before_write`, { prevScrollTop: prev });
-    }
-    el.scrollTop = value;
-    if (transcriptScrollVerifyEnabled()) {
-      transcriptScrollVerifyLogViewport(el, `${label}:after_write`, { prevScrollTop: prev });
-    }
-  }, []);
-
-  /** Consolidated tail-follow latch writes + transition logging ({@link transcriptScrollVerifyEnabled}). */
-  const assignTailFollowPinned = useCallback((next: boolean, reason: string, extra?: Record<string, unknown>) => {
-    const prev = userPinnedToBottomRef.current;
-    if (transcriptScrollVerifyEnabled() && prev !== next) {
-      console.warn("[scroll_verify] tailFollowPinned TRANSITION", {
-        iso: new Date().toISOString(),
-        perfMs: performance.now(),
-        prev,
-        next,
-        reason,
-        ...(extra ?? {}),
-        stackFrames: transcriptScrollVerifyCaptureStack(2, 20),
-      });
-    }
-    userPinnedToBottomRef.current = next;
-    if (prev !== next) setTailFollowPinnedUi(next);
-  }, []);
-
-  // ── scrollPanel ────────────────────────────────────────────────────────────
-  // Tail-follow snaps `scrollParent.scrollTop = scrollHeight` on live bubbles/translate/WS —
-  // but only while {@link assignTailFollowPinned} is true. Upward gestures clear follow; proximity re-pin depends on verify flag.
+  /** Sticky-tail snap (`scroll_top = scroll_bottom`) iff viewport was already glued to bottom; explicit Jump uses `force`. */
   const scrollPanel = useCallback((force = false, source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble") => {
     const diag = transcriptScrollDiagEnabled();
     const verify = transcriptScrollVerifyEnabled();
@@ -2245,62 +2244,63 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const t = performance.now();
     const slackDiag = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
-    const pinnedBefore = userPinnedToBottomRef.current;
+    let dGeom = transcriptScrollDistanceFromBottom(el);
+    const wasAtStickyTailBeforeDecision = dGeom <= TRANSCRIPT_TAIL_STICK_EPS_PX;
     let dBefore: number | undefined;
     if (diag || verify) {
-      dBefore = el.scrollHeight - el.scrollTop - el.clientHeight;
+      dBefore = dGeom;
     }
 
     if (force) {
-      assignTailFollowPinned(true, "scroll_panel:force", { source });
       assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:force_scrollTop(${source})`);
+      syncTailFollowUiFromScroller(el);
       if (diag) {
         transcriptScrollDiagCountApply("force");
-        const pinnedAfter = el.scrollHeight - el.scrollTop - el.clientHeight <= slackDiag;
+        const pinnedAfter = transcriptScrollDistanceFromBottom(el) <= slackDiag;
         transcriptScrollDiagPush({
           t,
           kind: "scroll_panel_apply",
           d: dBefore,
-          pinnedBefore,
+          pinnedBefore: wasAtStickyTailBeforeDecision,
           pinnedAfter,
           src: "force",
         });
       }
-      followTailLastScrollTopRef.current = el.scrollTop;
       return;
     }
 
-    if (!userPinnedToBottomRef.current) {
+    if (dGeom > TRANSCRIPT_TAIL_STICK_EPS_PX) {
       if (diag) {
         transcriptScrollDiagCounts.scrollPanelsSkippedPinnedFalse++;
         transcriptScrollDiagPush({
           t,
           kind: "scroll_panel_skip_pinned_false",
           d: dBefore,
-          pinnedBefore,
-          pinnedAfter: pinnedBefore,
+          pinnedBefore: wasAtStickyTailBeforeDecision,
+          pinnedAfter: wasAtStickyTailBeforeDecision,
           src: source,
         });
       }
+      syncTailFollowUiFromScroller(el);
       return;
     }
 
     assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:tail_follow_scrollTop(${source})`);
-    followTailLastScrollTopRef.current = el.scrollTop;
+    syncTailFollowUiFromScroller(el);
     if (diag) {
-      const pinnedAfter =
-        el.scrollHeight - el.scrollTop - el.clientHeight <= slackDiag;
+      dGeom = transcriptScrollDistanceFromBottom(el);
       transcriptScrollDiagCountApply(source);
       transcriptScrollDiagPush({
         t,
         kind: "scroll_panel_apply",
         d: dBefore,
-        pinnedBefore,
-        pinnedAfter,
+        pinnedBefore: wasAtStickyTailBeforeDecision,
+        pinnedAfter: dGeom <= slackDiag,
         src: source,
       });
     }
-  }, [assignTailFollowPinned, assignTranscriptScrollerScrollTop]);
+  }, [syncTailFollowUiFromScroller]);
+  scrollPanelFnRef.current = scrollPanel;
 
   const jumpTailFollow = useCallback(() => {
     scrollPanel(true);
@@ -2320,7 +2320,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     w.__interpreterAiTranscriptJumpTail = () => jumpTailFollow();
     w.__interpreterAiTranscriptSnapViewport = (tag = "manual_console") =>
       transcriptScrollVerifyLogViewport(containerRef.current?.parentElement ?? undefined, tag);
-    w.__interpreterAiTranscriptFollowPinnedSnapshot = () => userPinnedToBottomRef.current;
+    w.__interpreterAiTranscriptFollowPinnedSnapshot = () => {
+      const el = containerRef.current?.parentElement;
+      if (!el) return true;
+      return transcriptScrollDistanceFromBottom(el) <= TRANSCRIPT_TAIL_STICK_EPS_PX;
+    };
     return () => {
       delete w.__interpreterAiTranscriptJumpTail;
       delete w.__interpreterAiTranscriptSnapViewport;
@@ -2387,11 +2391,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let cancelled = false;
     let attachedEl: HTMLElement | null = null;
     let onScroll: (() => void) | undefined;
-    let onWheel: ((e: WheelEvent) => void) | undefined;
     let raf2 = 0;
-
-    const scrollTopMoveUpEpsPx = 0.75;
-    const absBottomPx = TRANSCRIPT_TAIL_ABSOLUTE_BOTTOM_EPS_PX;
 
     const tryAttach = (): boolean => {
       const inner = containerRef.current;
@@ -2399,78 +2399,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (!scrollParent || cancelled) return false;
       attachedEl = scrollParent as HTMLElement;
 
-      onWheel = (e: WheelEvent) => {
-        const dominant = Math.abs(e.deltaY) >= Math.abs(e.deltaX);
-        const dy = dominant ? e.deltaY : 0;
-        const pinnedBeforeWheel = userPinnedToBottomRef.current;
-        transcriptScrollVerifyLogViewport(attachedEl!, "wheel_listener:before_follow_change", {
-          prevScrollTop: followTailLastScrollTopRef.current,
-        });
-        if (dominant && dy < 0) {
-          assignTailFollowPinned(false, "wheel:dominant_deltaY_negative", { dy });
-        }
-        if (transcriptScrollDiagEnabled()) {
-          transcriptScrollDiagCounts.scrollEvents++;
-          transcriptScrollDiagPush({
-            t: performance.now(),
-            kind: "wheel_listener",
-            d: attachedEl!.scrollHeight - attachedEl!.scrollTop - attachedEl!.clientHeight,
-            pinnedBefore: pinnedBeforeWheel,
-            pinnedAfter: userPinnedToBottomRef.current,
-            src: `dy=${dy.toFixed(2)}`,
-          });
-          transcriptScrollDiagMaybePeriodicSummary();
-        }
-      };
-
       onScroll = () => {
         const el = attachedEl!;
-        const prevTopSyn = followTailLastScrollTopRef.current;
-        const st = el.scrollTop;
-        const sh = el.scrollHeight;
-        const ch = el.clientHeight;
-        const d = sh - ch - st;
-        transcriptScrollVerifyLogViewport(el, "scroll_listener", {
-          prevScrollTop: prevTopSyn,
-        });
-
-        const movedContentUpViewport = st < prevTopSyn - scrollTopMoveUpEpsPx;
-        followTailLastScrollTopRef.current = st;
-
-        const pinnedBeforeDiag = userPinnedToBottomRef.current;
-        if (movedContentUpViewport) {
-          assignTailFollowPinned(false, "scroll_listener:scrollTop_decreased", {
-            prevTopSyn,
-            scrollTopNow: st,
-            distanceFromBottom: d,
-          });
-        }
-        else if (
-          !transcriptScrollVerifyEnabled() &&
-          d <= absBottomPx &&
-          st >= prevTopSyn - scrollTopMoveUpEpsPx
-        ) {
-          assignTailFollowPinned(true, "scroll_listener:manual_absolute_bottom_eps", {
-            distanceFromBottom: d,
-          });
-        }
-        const pinnedAfterDiag = userPinnedToBottomRef.current;
+        transcriptScrollVerifyLogViewport(el, "scroll_listener");
+        const dNow = transcriptScrollDistanceFromBottom(el);
+        syncTailFollowUiFromScroller(el);
         if (transcriptScrollDiagEnabled()) {
+          const pinnedNowGeom = dNow <= TRANSCRIPT_TAIL_STICK_EPS_PX;
           transcriptScrollDiagCounts.scrollEvents++;
           transcriptScrollDiagPush({
             t: performance.now(),
             kind: "scroll_listener",
-            d,
-            pinnedBefore: pinnedBeforeDiag,
-            pinnedAfter: pinnedAfterDiag,
+            d: dNow,
+            pinnedBefore: pinnedNowGeom,
+            pinnedAfter: pinnedNowGeom,
           });
           transcriptScrollDiagMaybePeriodicSummary();
         }
       };
 
       attachedEl.addEventListener("scroll", onScroll, { passive: true });
-      attachedEl.addEventListener("wheel", onWheel, { passive: true });
-      followTailLastScrollTopRef.current = attachedEl.scrollTop;
       if (transcriptScrollDiagEnabled()) {
         transcriptScrollDiagAttachOk = true;
       }
@@ -2486,7 +2434,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             tryAttach();
             if (transcriptScrollDiagEnabled() && !transcriptScrollDiagAttachOk) {
               console.warn(
-                "[transcript_scroll_diag] scroll listener failed to attach after 2 animation frames — tail-follow latch cannot observe user gesture.",
+                "[transcript_scroll_diag] scroll listener failed to attach after 2 animation frames — transcript scroller gestures not observed.",
               );
             }
           }
@@ -2499,12 +2447,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
       if (attachedEl && onScroll) attachedEl.removeEventListener("scroll", onScroll);
-      if (attachedEl && onWheel) attachedEl.removeEventListener("wheel", onWheel);
       if (transcriptScrollDiagEnabled()) {
         transcriptScrollDiagAttachOk = false;
       }
     };
-  }, [assignTailFollowPinned]);
+  }, [syncTailFollowUiFromScroller]);
 
   // ── THE FINAL BOSS (canonical) · dispatchTranslation ─────────────────────────
   // Live: debounced previews + per-bubble abort. Every finalized segment sends the FULL source sentence
@@ -3536,8 +3483,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       redundantCalls: 0,
     };
     if (containerRef.current) containerRef.current.innerHTML = "";
-    assignTailFollowPinned(true, "session_doClear");
-    followTailLastScrollTopRef.current = containerRef.current?.parentElement?.scrollTop ?? 0;
+    setTailFollowPinnedUi(true);
     setHasTranscript(false);
     setTranslationServiceError(null);
     if (glossaryFlashTimerRef.current) {
@@ -3546,7 +3492,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     setGlossaryAppliedFlash(null);
     resetSpeakerMap();
-  }, [stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce, assignTailFollowPinned]);
+  }, [stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
 
   const stop = useCallback(async () => {
     cancelOpenAiLiveDebounce();
@@ -3969,7 +3915,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
-      scrollPanel(false, "ws");
 
       // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
       let tailSpk: string | undefined;
@@ -4352,8 +4297,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         setMicLevel(Math.min(100, Math.sqrt(sum / (samples.length || 1)) * 500));
       };
 
-      assignTailFollowPinned(true, "session_start");
-      followTailLastScrollTopRef.current = containerRef.current?.parentElement?.scrollTop ?? 0;
+      setTailFollowPinnedUi(true);
       isRecRef.current = true;
       setIsRecording(true);
 
@@ -4431,7 +4375,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startInFlightRef.current = false;
       setStartBusy(false);
     }
-  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, assignTailFollowPinned]);
+  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.

@@ -1962,7 +1962,7 @@ export default function WorkspaceDefault() {
               style={TEXT_SIZE_VARS[textSize]}
             >
               {/* Direct-to-DOM transcript container — React never touches contents */}
-              <div ref={transcription.containerRef} />
+              <div ref={transcription.containerRef} className="[overflow-anchor:none]" />
 
               {/* Empty state — absolute overlay, hidden once content exists */}
               {!transcription.hasTranscript && (
