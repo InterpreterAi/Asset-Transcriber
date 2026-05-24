@@ -670,8 +670,9 @@ function finalSegmentCorrectionPrompt(tgtDisplayName: string): string {
 }
 
 /**
- * Narrow SKUs for LIVE-only embedded-English prompt reinforcement (OpenAI path only).
- * Does not affect finals, machine translation, or other plan_types.
+ * Narrow SKUs for LIVE-only embedded-English prompt reinforcement (OpenAI path).
+ * Does not affect finals or machine translation. For Basic · Morsy Urgent, the Intercall lab may send
+ * {@code experimentalMorsyIntercallEmbeddedEnglishPrompt} so {@link liveEmbeddedEnglishSupplementBlock} still applies.
  */
 function planGetsLiveEmbeddedEnglishPrompt(planLower: string): boolean {
   const p = planLower.trim().toLowerCase();
@@ -689,8 +690,14 @@ function liveEmbeddedEnglishSupplementBlock(
   isFinalSegment: boolean,
   srcDisplayName: string,
   tgtDisplayName: string,
+  /** Basic · Morsy Urgent + Intercall lab only — aligns LIVE behavior with platinum-style embedded-English tightening. */
+  morsyIntercallEmbeddedEnglishHint: boolean,
 ): string {
-  if (isFinalSegment || !planGetsLiveEmbeddedEnglishPrompt(planLower)) return "";
+  if (isFinalSegment) return "";
+  const p = planLower.trim().toLowerCase();
+  const standardSku = planGetsLiveEmbeddedEnglishPrompt(p);
+  const morsyIntercall = morsyIntercallEmbeddedEnglishHint && p === "morsy-urgent";
+  if (!standardSku && !morsyIntercall) return "";
   return (
     `EMBEDDED ENGLISH (LIVE INTERIM ONLY):\n` +
     `- Interpreter speech may mix ${srcDisplayName} with English medical, legal, insurance, or procedural terms (Latin letters).\n` +
@@ -1571,6 +1578,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     glossaryStrictMode: rawGlossaryStrict,
     terminologyMode: rawTerminologyMode,
     experimentalBasicMorsyOpenAiOnly: rawExperimentalMorsyOpenAiOnly,
+    experimentalMorsyIntercallEmbeddedEnglishPrompt: rawExperimentalMorsyIntercallEmbeddedEnglish,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1587,8 +1595,13 @@ router.post("/translate", requireAuth, async (req, res) => {
     /** OpenAI terminology behavior mode: full translation vs hybrid labels. */
     terminologyMode?: string;
     experimentalBasicMorsyOpenAiOnly?: unknown;
+    /** Intercall-only: enable platinum-style LIVE embedded-English tightening for Basic · Morsy Urgent. */
+    experimentalMorsyIntercallEmbeddedEnglishPrompt?: unknown;
   };
   const experimentalBasicMorsyOpenAiOnly = Boolean(rawExperimentalMorsyOpenAiOnly);
+  const experimentalMorsyIntercallEmbeddedEnglishPrompt = Boolean(
+    rawExperimentalMorsyIntercallEmbeddedEnglish,
+  );
   const basicMorsyOpenAiExperimentServerEnabled =
     String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
 
@@ -2116,6 +2129,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     isFinalSegment,
     srcName,
     tgtName,
+    experimentalMorsyIntercallEmbeddedEnglishPrompt,
   );
 
   // ── Build system prompt helper ─────────────────────────────────────────────

@@ -730,6 +730,11 @@ type TranslateApiOptions = {
    * Sent only when the workspace loads Morsy Urgent (`planType` morsy-urgent) and the Intercall lab toggle is on.
    */
   experimentalBasicMorsyOpenAiOnly?: boolean;
+  /**
+   * Basic · Morsy Urgent + Intercall lab: asks API to inject LIVE-only embedded-English tightening (prompt-only).
+   * Ignored unless effective plan is morsy-urgent (server validates).
+   */
+  experimentalMorsyIntercallEmbeddedEnglishPrompt?: boolean;
 };
 
 async function translateViaPrimaryApi(
@@ -784,6 +789,9 @@ async function translateViaPrimaryApi(
         ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
         ...(options?.experimentalBasicMorsyOpenAiOnly === true
           ? { experimentalBasicMorsyOpenAiOnly: true as const }
+          : {}),
+        ...(options?.experimentalMorsyIntercallEmbeddedEnglishPrompt === true
+          ? { experimentalMorsyIntercallEmbeddedEnglishPrompt: true as const }
           : {}),
       };
       const bodyJson = JSON.stringify(bodyObj);
@@ -2277,6 +2285,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           experimentMorsyUrgentIntercallRef.current || morsyUrgentAttachOpenAiExperimentRef.current
             ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
             : {};
+        const morsyIntercallEmbeddedEnglishPromptOpts = experimentMorsyUrgentIntercallRef.current
+          ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
+          : {};
         const guardSnap = () => ({
           mySeq,
           lastAppliedSeq: state.lastAppliedSeq,
@@ -2370,6 +2381,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 : {}),
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
               ...basicMorsyOpenAiExperimentOpts,
+              ...morsyIntercallEmbeddedEnglishPromptOpts,
             },
           );
           if (tr.dailyLimitReached) {
@@ -2419,6 +2431,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 : {}),
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
               ...basicMorsyOpenAiExperimentOpts,
+              ...morsyIntercallEmbeddedEnglishPromptOpts,
             },
           );
           if (trRetry.dailyLimitReached) {
@@ -2449,6 +2462,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 : {}),
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
               ...basicMorsyOpenAiExperimentOpts,
+              ...morsyIntercallEmbeddedEnglishPromptOpts,
             },
           );
           if (trOppRetry.dailyLimitReached) {
