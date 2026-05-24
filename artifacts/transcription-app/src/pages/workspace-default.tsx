@@ -244,6 +244,7 @@ export default function WorkspaceDefault() {
   const transcription = useTranscription(user?.isAdmin ?? false, {
     translationEnabled: (user?.translationEnabled ?? true) || pt === "morsy-urgent",
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
+    planType: user?.planType ?? "",
     // Production workspace tiers: stabilized Soniox segmentation (`morsy-urgent-cbf`).
     // Basic · Morsy Urgent only: isolated sandbox mode for Intercall-clone orchestration (parity today; diverge inside hook later).
     segmentBehaviorMode: pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf",

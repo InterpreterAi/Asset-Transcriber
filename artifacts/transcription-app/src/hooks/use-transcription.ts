@@ -62,6 +62,16 @@ import {
   liveDirectionTraceTryLock,
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
+import {
+  computeEnglishFreezeAppend,
+  deltaNfDomMutation,
+  englishSemanticClauseFreezeDrain,
+  morsyIsolatedEnglishTranscriptOrchestrationEnabled,
+  morsyIsolatedFinalRenderBufferMs,
+  nfVisibleTailBeyondCommittedTokenAware,
+  splitIncomingFinalForIsolatedDedupe,
+  type EnglishFreezeScratch,
+} from "@/hooks/morsy-original-transcript-orchestration";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -2042,6 +2052,17 @@ interface BubbleTransState {
    * strict Soniox final-token growth afterward (`{@link BubbleTransState.finalTokensSeen}`).
    */
   morsySemanticFreezePendingBaselineFinalTok: number;
+  /** Isolated original-column: last NF paint written (delta-append vs full-replace orchestration). */
+  lastRenderedNfPaint: string;
+  /** Isolated NF tail: stabilized speaker key for hypothesis tail — change forces full NF span rewrite. */
+  lastNfTailSpeakerKey?: string;
+  /** Isolated English semantic freeze scratch — mirrors {@link englishSemanticClauseFreezeDrain}. */
+  morsyEnglishFreezePendingClauseCollapsed: string;
+  morsyEnglishFreezePendingSinceMs: number;
+  morsyEnglishFreezePendingBaselineFinalTok: number;
+  morsyEnglishFreezeLastVCollapsed: string;
+  /** Collapsed visible original (committed+NF tail) — monotone English growth detector for freeze. */
+  morsyEnglishMonotoneTailCollapsed: string;
 }
 
 /** First punctuated Arabic/Latin/CJK sentence in a live-band remainder (`morsy-intercall-isolated-experiment`). */
@@ -2279,6 +2300,11 @@ export type UseTranscriptionOptions = {
   /** See `{@link SegmentBehaviorMode}`. Workspace selects `morsy-intercall-isolated-experiment` only for Basic · Morsy Urgent. */
   segmentBehaviorMode?: SegmentBehaviorMode;
   /**
+   * Server `plan_type` (lowercased in parent). Used with {@link segmentBehaviorMode} to gate Basic · Morsy Urgent
+   * isolated original-column orchestration only — does not affect other tiers.
+   */
+  planType?: string;
+  /**
    * Parent keeps this ref in sync with server `minutesUsedToday` / `dailyLimitMinutes` so the worklet can
    * stop as soon as in-flight PCM reaches the daily cap (ahead of the 30s heartbeat).
    */
@@ -2341,6 +2367,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "morsy-urgent-cbf";
   }, [options?.segmentBehaviorMode]);
+  const planTypeRef = useRef((options?.planType ?? "").toLowerCase());
+  useEffect(() => {
+    planTypeRef.current = (options?.planType ?? "").toLowerCase();
+  }, [options?.planType]);
   const segmentBoundaryGuardsRef = useRef(options?.segmentBoundaryGuards ?? false);
   useEffect(() => {
     segmentBoundaryGuardsRef.current = options?.segmentBoundaryGuards ?? false;
@@ -2705,12 +2735,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!gateSt || gateSt.isClosed || gateSt.segmentId !== segmentId) continue;
       }
 
-      target.textContent = (target.textContent ?? "") + text;
+      const isolatedOrchFlush = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
+        planTypeLower: planTypeRef.current,
+        segmentBehaviorMode: segmentBehaviorModeRef.current,
+      });
+      let flushText = text;
+      if (
+        isolatedOrchFlush &&
+        transcriptSegIsolation &&
+        gateSt &&
+        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+      ) {
+        const delta = splitIncomingFinalForIsolatedDedupe(gateSt.lockedCommittedFinalOriginal, text);
+        if (!delta.trim()) continue;
+        flushText = delta;
+      }
+
+      target.textContent = (target.textContent ?? "") + flushText;
 
       if (morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)) {
-        if (gateSt) gateSt.lockedCommittedFinalOriginal += text;
+        if (gateSt) gateSt.lockedCommittedFinalOriginal += flushText;
         else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
-          activeBubbleStateRef.current.lockedCommittedFinalOriginal += text;
+          activeBubbleStateRef.current.lockedCommittedFinalOriginal += flushText;
         }
       }
     }
@@ -2719,10 +2765,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const scheduleFinalTextRenderFlush = useCallback(() => {
     if (finalRenderTimerRef.current !== null) return;
+    const ms = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
+      planTypeLower: planTypeRef.current,
+      segmentBehaviorMode: segmentBehaviorModeRef.current,
+    })
+      ? morsyIsolatedFinalRenderBufferMs(FINAL_TEXT_RENDER_BUFFER_MS)
+      : FINAL_TEXT_RENDER_BUFFER_MS;
     finalRenderTimerRef.current = setTimeout(() => {
       finalRenderTimerRef.current = null;
       flushFinalTextRenderQueue();
-    }, FINAL_TEXT_RENDER_BUFFER_MS);
+    }, ms);
   }, [flushFinalTextRenderQueue]);
 
   const getBufferedFinalTextForActiveBubble = useCallback((): string => {
@@ -3985,6 +4037,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       morsySemanticFreezePendingClauseCollapsed: "",
       morsySemanticFreezePendingSinceMs: 0,
       morsySemanticFreezePendingBaselineFinalTok: -1,
+      lastRenderedNfPaint: "",
+      lastNfTailSpeakerKey: undefined,
+      morsyEnglishFreezePendingClauseCollapsed: "",
+      morsyEnglishFreezePendingSinceMs: 0,
+      morsyEnglishFreezePendingBaselineFinalTok: -1,
+      morsyEnglishFreezeLastVCollapsed: "",
+      morsyEnglishMonotoneTailCollapsed: "",
     };
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
@@ -4421,6 +4480,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let currentSpeakerSeenInMessage = false;
       const transcriptSegIsolationWs =
         segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
+      const isolatedOrchWs = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
+        planTypeLower: planTypeRef.current,
+        segmentBehaviorMode: segmentBehaviorModeRef.current,
+      });
 
       // Per-token forward pivot using stabilized speaker ids (avoids spurious rows on fast code-switch).
       for (let ti = 0; ti < tokens.length; ti++) {
@@ -4499,13 +4562,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   activeBubbleRef.current = createBubble(sid);
                   setHasTranscript(true);
                   if (activeBubbleRef.current && confirm.bufferedFinalText) {
-                    finalRenderQueueRef.current.push({
-                      target: activeBubbleRef.current,
-                      text: confirm.bufferedFinalText,
-                      ...(transcriptSegIsolationWs && activeBubbleStateRef.current
-                        ? { segmentId: activeBubbleStateRef.current.segmentId }
-                        : {}),
-                    });
+                    let bufferedPush = confirm.bufferedFinalText;
+                    if (
+                      isolatedOrchWs &&
+                      transcriptSegIsolationWs &&
+                      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+                      activeBubbleStateRef.current
+                    ) {
+                      bufferedPush = splitIncomingFinalForIsolatedDedupe(
+                        activeBubbleStateRef.current.lockedCommittedFinalOriginal,
+                        bufferedPush,
+                      );
+                    }
+                    if (bufferedPush.length > 0) {
+                      finalRenderQueueRef.current.push({
+                        target: activeBubbleRef.current,
+                        text: bufferedPush,
+                        ...(transcriptSegIsolationWs && activeBubbleStateRef.current
+                          ? { segmentId: activeBubbleStateRef.current.segmentId }
+                          : {}),
+                      });
+                    }
                   }
                   pendingSpeakerSwitchRef.current = null;
                 }
@@ -4525,13 +4602,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (handledByPendingSwitchLogic) continue;
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
-          finalRenderQueueRef.current.push({
-            target: activeBubbleRef.current,
-            text: t.text,
-            ...(transcriptSegIsolationWs && activeBubbleStateRef.current
-              ? { segmentId: activeBubbleStateRef.current.segmentId }
-              : {}),
-          });
+          let pushText = t.text;
+          if (
+            isolatedOrchWs &&
+            transcriptSegIsolationWs &&
+            morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+            activeBubbleStateRef.current
+          ) {
+            pushText = splitIncomingFinalForIsolatedDedupe(
+              activeBubbleStateRef.current.lockedCommittedFinalOriginal,
+              t.text,
+            );
+          }
+          if (pushText.length > 0) {
+            finalRenderQueueRef.current.push({
+              target: activeBubbleRef.current,
+              text: pushText,
+              ...(transcriptSegIsolationWs && activeBubbleStateRef.current
+                ? { segmentId: activeBubbleStateRef.current.segmentId }
+                : {}),
+            });
+          }
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
           }
@@ -4549,13 +4640,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           activeBubbleRef.current
         ) {
           if (pendingAfter.bufferedFinalText) {
-            finalRenderQueueRef.current.push({
-              target: activeBubbleRef.current,
-              text: pendingAfter.bufferedFinalText,
-              ...(transcriptSegIsolationWs && activeBubbleStateRef.current
-                ? { segmentId: activeBubbleStateRef.current.segmentId }
-                : {}),
-            });
+            let pendPush = pendingAfter.bufferedFinalText;
+            if (
+              isolatedOrchWs &&
+              transcriptSegIsolationWs &&
+              morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+              activeBubbleStateRef.current
+            ) {
+              pendPush = splitIncomingFinalForIsolatedDedupe(
+                activeBubbleStateRef.current.lockedCommittedFinalOriginal,
+                pendPush,
+              );
+            }
+            if (pendPush.length > 0) {
+              finalRenderQueueRef.current.push({
+                target: activeBubbleRef.current,
+                text: pendPush,
+                ...(transcriptSegIsolationWs && activeBubbleStateRef.current
+                  ? { segmentId: activeBubbleStateRef.current.segmentId }
+                  : {}),
+              });
+            }
           }
           pendingSpeakerSwitchRef.current = null;
         }
@@ -4594,7 +4699,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
       const pendingFinalBuf = getBufferedFinalTextForActiveBubble();
       const bubbleTransStWs = activeBubbleStateRef.current;
-      const committedLogical =
+      let committedLogical =
         strictOriginalSeparation && bubbleTransStWs
           ? bubbleTransStWs.lockedCommittedFinalOriginal + pendingFinalBuf
           : (activeBubbleRef.current?.textContent ?? "") + pendingFinalBuf;
@@ -4610,24 +4715,112 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let nfText = "";
       if (tailSpk !== undefined) {
         for (let i = 0; i < tokens.length; i++) {
-          const t = tokens[i]!;
-          if (t.is_final || isSonioxEndpointToken(t)) continue;
+          const tkw = tokens[i]!;
+          if (tkw.is_final || isSonioxEndpointToken(tkw)) continue;
           if (effSpk[i] !== tailSpk) continue;
-          nfText += t.text;
+          nfText += tkw.text;
         }
       } else {
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
+
+      let nfPaint = "";
+      if (strictOriginalSeparation && nfText && isolatedOrchWs && bubbleTransStWs) {
+        nfPaint = nfVisibleTailBeyondCommittedTokenAware(committedLogical, nfText);
+      } else if (strictOriginalSeparation && nfText) {
+        nfPaint = nfVisibleTailBeyondCommitted(committedLogical, nfText);
+      }
+
+      const isolatedOrchEffective =
+        isolatedOrchWs &&
+        strictOriginalSeparation &&
+        Boolean(bubbleTransStWs && activeBubbleRef.current);
+
+      if (isolatedOrchEffective) {
+        const bubble = bubbleTransStWs!;
+        const finalEl = activeBubbleRef.current!;
+        let paintEff = nfPaint;
+        let clEff = committedLogical;
+        const priorCollapsed = bubble.morsyEnglishMonotoneTailCollapsed;
+        const ccNow = collapseWs(`${clEff}${paintEff}`);
+        const engMon =
+          priorCollapsed === "" ||
+          ccNow === priorCollapsed ||
+          (ccNow.length >= priorCollapsed.length && ccNow.startsWith(priorCollapsed));
+        if (!engMon) {
+          bubble.morsyEnglishFreezePendingClauseCollapsed = "";
+          bubble.morsyEnglishFreezePendingSinceMs = 0;
+          bubble.morsyEnglishFreezePendingBaselineFinalTok = -1;
+          bubble.morsyEnglishFreezeLastVCollapsed = "";
+        }
+        if (engMon) {
+          for (let r = 0; r < 8; r++) {
+            const scratch: EnglishFreezeScratch = {
+              morsyEnglishFreezePendingClauseCollapsed: bubble.morsyEnglishFreezePendingClauseCollapsed,
+              morsyEnglishFreezePendingSinceMs: bubble.morsyEnglishFreezePendingSinceMs,
+              morsyEnglishFreezePendingBaselineFinalTok: bubble.morsyEnglishFreezePendingBaselineFinalTok,
+              morsyEnglishFreezeLastVCollapsed: bubble.morsyEnglishFreezeLastVCollapsed,
+            };
+            const Vis = `${clEff}${paintEff}`;
+            const phy = englishSemanticClauseFreezeDrain({
+              scratch,
+              V: Vis,
+              englishCollapsedMonotone: engMon,
+              finalTokensSeen: bubble.finalTokensSeen,
+              englishHintCollapsed: collapseWs(clEff),
+              nowMs,
+            });
+            bubble.morsyEnglishFreezePendingClauseCollapsed = scratch.morsyEnglishFreezePendingClauseCollapsed;
+            bubble.morsyEnglishFreezePendingSinceMs = scratch.morsyEnglishFreezePendingSinceMs;
+            bubble.morsyEnglishFreezePendingBaselineFinalTok = scratch.morsyEnglishFreezePendingBaselineFinalTok;
+            bubble.morsyEnglishFreezeLastVCollapsed = scratch.morsyEnglishFreezeLastVCollapsed;
+            if (!phy) break;
+            const append = computeEnglishFreezeAppend(clEff, phy);
+            if (!append.trim()) break;
+            finalEl.textContent = (finalEl.textContent ?? "") + append;
+            bubble.lockedCommittedFinalOriginal += append;
+            clEff += append;
+            paintEff = nfVisibleTailBeyondCommittedTokenAware(clEff, nfText);
+          }
+          committedLogical = clEff;
+          nfPaint = paintEff;
+        }
+        bubble.morsyEnglishMonotoneTailCollapsed = collapseWs(`${committedLogical}${nfPaint}`);
+      }
+
       const nfEl = activeBubbleNFRef.current;
+      let nfSpeakerChangeForceFull = false;
+      const stSpeak = activeBubbleStateRef.current;
+      if (isolatedOrchEffective && nfText && stSpeak) {
+        const nk = tailSpk !== undefined ? String(tailSpk) : "";
+        const prevNk = stSpeak.lastNfTailSpeakerKey;
+        if (prevNk !== undefined && nk !== prevNk) nfSpeakerChangeForceFull = true;
+        stSpeak.lastNfTailSpeakerKey = nk;
+      }
+
       let nfFullReplaceThisMsg = false;
       if (nfText) {
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
-          if (strictOriginalSeparation) {
-            const nfPaint = nfVisibleTailBeyondCommitted(committedLogical, nfText);
+          if (strictOriginalSeparation && isolatedOrchEffective) {
+            const d = deltaNfDomMutation(stNf.lastRenderedNfPaint, nfPaint);
+            if (d.fullReplace || nfSpeakerChangeForceFull) {
+              nfEl.textContent = nfPaint;
+              nfFullReplaceThisMsg = true;
+            } else if (d.appendToDom.length > 0) {
+              nfEl.textContent = (nfEl.textContent ?? "") + d.appendToDom;
+            } else if (stNf.lastRenderedNfPaint !== nfPaint) {
+              nfEl.textContent = nfPaint;
+              nfFullReplaceThisMsg = true;
+            }
+            stNf.lastRenderedNfPaint = nfPaint;
+            stNf.lastNfRawText = nfText;
+            if (nfSpeakerChangeForceFull) nfFullReplaceThisMsg = true;
+          } else if (strictOriginalSeparation) {
+            const nfVis = nfPaint;
             const prevPaint = nfEl.textContent ?? "";
-            nfFullReplaceThisMsg = prevPaint !== nfPaint;
-            nfEl.textContent = nfPaint;
+            nfFullReplaceThisMsg = prevPaint !== nfVis;
+            nfEl.textContent = nfVis;
             stNf.lastNfRawText = nfText;
           } else if (nfText.startsWith(stNf.lastNfRawText)) {
             const suffix = nfText.slice(stNf.lastNfRawText.length);
@@ -4645,13 +4838,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       } else if (nfEl) {
         const stNf = activeBubbleStateRef.current;
         nfEl.textContent = "";
-        if (stNf) stNf.lastNfRawText = "";
+        if (stNf) {
+          stNf.lastNfRawText = "";
+          if (isolatedOrchWs && strictOriginalSeparation) {
+            stNf.lastRenderedNfPaint = "";
+            stNf.lastNfTailSpeakerKey = undefined;
+          }
+        }
       }
 
       // ── Update live translation buffer ────────────────────────────────────
       const finalText = committedLogical;
-      const rawLive   = mergeFinalWithNonFinalHypothesis(finalText.trim(), nfText).trim();
-      liveBufferRef.current = rawLive;
+      if (isolatedOrchEffective) {
+        liveBufferRef.current = collapseWs(`${finalText.trimEnd()}${nfPaint}`).trim();
+      } else {
+        liveBufferRef.current = mergeFinalWithNonFinalHypothesis(finalText.trim(), nfText).trim();
+      }
       const confirmedSource = finalText.trim();
       if (activeBubbleStateRef.current) {
         activeBubbleStateRef.current.lastConfirmedSource = confirmedSource;
