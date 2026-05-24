@@ -155,12 +155,27 @@ const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 /** Legacy diagnostic slack label — not used for sticky-tail snap decisions anymore. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
 /**
- * Sticky-tail threshold: snap only while `distanceFromBottom <=` this px. Reading farther up ⇒ no `scrollTop` writes.
+ * Threshold for BOTH: (a) “glued to tail” *before* transcript/translation DOM height grows, and (b) fallback
+ * epsilon after growth when no pre-snapshot ran. Auto-follow depends on (a): after new text, scrollHeight grows
+ * while scrollTop is unchanged, so post-only distance checks look like “not at bottom” until snap fails.
  */
 const TRANSCRIPT_TAIL_STICK_EPS_PX = 12;
 
 function transcriptScrollDistanceFromBottom(scrollEl: HTMLElement): number {
   return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+}
+
+/** True iff the viewport is within {@link TRANSCRIPT_TAIL_STICK_EPS_PX}px of scroll bottom immediately before transcript content grows (Chat tail-follow latch). */
+function transcriptScrollerGluedBeforeGrowth(scrollParent: HTMLElement | null | undefined): boolean {
+  if (!scrollParent) return false;
+  return transcriptScrollDistanceFromBottom(scrollParent) <= TRANSCRIPT_TAIL_STICK_EPS_PX;
+}
+
+/** RAF tail-follow coalesce: explicit `false` (reading away) dominates; otherwise OR sticky-before-growth. */
+function mergeDeferTailSticky(prev: boolean | undefined, next: boolean | undefined): boolean | undefined {
+  if (next === false || prev === false) return false;
+  if (next === true || prev === true) return true;
+  return undefined;
 }
 
 /**
@@ -2028,11 +2043,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const containerRef       = useRef<HTMLDivElement | null>(null);
   /** Filled each render — lets early declarations (flush queue) call the latest sticky-tail snap safely. */
   const scrollPanelFnRef   = useRef<
-    ((force?: boolean, src?: Exclude<TranscriptScrollPanelSource, "force">) => void) | null
+    (
+      force?: boolean,
+      src?: Exclude<TranscriptScrollPanelSource, "force">,
+      followPreGrowth?: boolean | undefined,
+    ) => void
   >(null);
   /** Coalesce streaming `scrollPanel(false, …)` into one geometry read per animation frame after layout settles. */
   const scrollFollowRafRef = useRef<number>(0);
   const scrollFollowDeferredSrcRef = useRef<Exclude<TranscriptScrollPanelSource, "force">>("bubble");
+  /** Merged RAF payload: sticky-before-growth intent (Chat-style latch); omitted ⇒ post-layout epsilon only in core. */
+  const scrollFollowDeferredStickyRef = useRef<boolean | undefined>(undefined);
+  /**
+   * While handling one synchronous Soniox `onmessage` turn: glued-to-tail before any of this tick’s transcript DOM churn
+   * (bubble close + NF + queued finals). `null` = not in WS paint. Cleared in `finally` so async timeouts remeasure glue.
+   */
+  const transcriptWsTailHintRef = useRef<boolean | null>(null);
   /** True when viewport sits within TRANSCRIPT_TAIL_STICK_EPS_PX of scroll bottom (“following live”). */
   const [tailFollowPinnedUi, setTailFollowPinnedUi] = useState(true);
 
@@ -2166,14 +2192,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }, experimentMorsyUrgentIntercallRef.current ? INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS : LIVE_TRANSLATION_DEBOUNCE_MS);
   }, []);
 
-  const flushFinalTextRenderQueue = useCallback(() => {
+  const flushFinalTextRenderQueue = useCallback((stickyBeforeThisFlush?: boolean) => {
     if (finalRenderTimerRef.current !== null) {
       clearTimeout(finalRenderTimerRef.current);
       finalRenderTimerRef.current = null;
     }
+    const scrollParent = containerRef.current?.parentElement ?? null;
+    let preGlue: boolean;
+    if (stickyBeforeThisFlush !== undefined) preGlue = stickyBeforeThisFlush;
+    else if (transcriptWsTailHintRef.current !== null) preGlue = transcriptWsTailHintRef.current;
+    else preGlue = transcriptScrollerGluedBeforeGrowth(scrollParent);
+
     const q = finalRenderQueueRef.current;
     if (q.length === 0) {
-      scrollPanelFnRef.current?.(false, "flush_queue_empty_snap_if_sticky");
+      scrollPanelFnRef.current?.(false, "flush_queue_empty_snap_if_sticky", preGlue);
       return;
     }
     finalRenderQueueRef.current = [];
@@ -2189,7 +2221,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       target.textContent = (target.textContent ?? "") + text;
     }
-    scrollPanelFnRef.current?.(false, "queued_final_chars");
+    scrollPanelFnRef.current?.(false, "queued_final_chars", preGlue);
   }, []);
 
   const scheduleFinalTextRenderFlush = useCallback(() => {
@@ -2256,26 +2288,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   };
 
   /**
-   * Sticky-tail: program `scrollTop` only while the viewport sits within TRANSCRIPT_TAIL_STICK_EPS_PX of the scroll
-   * bottom (following live tail). Scroll up ⇒ no programmatic writes until the user reaches the tail again or taps Jump.
-   * Same policy for every plan tier.
-   *
-   * `force` snaps immediately (“Jump to latest”). Non-force calls are deferred to `requestAnimationFrame` so
-   * bursts of finals + NF + translation layout settle before we measure distance-from-bottom.
+   * Tail-follow (Chat-style): snap to `scrollHeight` only if the user was already following the live tail *before*
+   * new transcript/translation DOM grew (`followPreGrowth === true`), or if no snapshot was passed and the
+   * post-layout viewport still sits within TRANSCRIPT_TAIL_STICK_EPS_PX of the bottom (`followPreGrowth` omitted).
+   * `followPreGrowth === false` skips snap (user had scrolled away before the growth — do not drag them down).
    */
   const runScrollPanelCore = useCallback(
-    (force: boolean, source: Exclude<TranscriptScrollPanelSource, "force">) => {
+    (
+      force: boolean,
+      source: Exclude<TranscriptScrollPanelSource, "force">,
+      followPreGrowth?: boolean,
+    ) => {
       const diag = transcriptScrollDiagEnabled();
       const verify = transcriptScrollVerifyEnabled();
       const el = containerRef.current?.parentElement;
       if (!el) return;
 
-      transcriptScrollVerifyLogViewport(el, `streaming_append(scrollPanel:${force ? "force" : "follow_rAF"}:${source})`);
+      transcriptScrollVerifyLogViewport(el, `streaming_append(scrollPanel:${force ? "force" : "follow_rAF"}:${source}:pre=${String(followPreGrowth)})`);
 
       const t = performance.now();
       const slackDiag = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
       let dGeom = transcriptScrollDistanceFromBottom(el);
-      const wasAtStickyTailBeforeDecision = dGeom <= TRANSCRIPT_TAIL_STICK_EPS_PX;
+      const epsilonNearBottom = dGeom <= TRANSCRIPT_TAIL_STICK_EPS_PX;
       let dBefore: number | undefined;
       if (diag || verify) {
         dBefore = dGeom;
@@ -2291,7 +2325,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             t,
             kind: "scroll_panel_apply",
             d: dBefore,
-            pinnedBefore: wasAtStickyTailBeforeDecision,
+            pinnedBefore: epsilonNearBottom,
             pinnedAfter,
             src: "force",
           });
@@ -2299,15 +2333,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         return;
       }
 
-      if (dGeom > TRANSCRIPT_TAIL_STICK_EPS_PX) {
+      let shouldSnapTail: boolean;
+      if (followPreGrowth === false) shouldSnapTail = false;
+      else if (followPreGrowth === true) shouldSnapTail = true;
+      else shouldSnapTail = epsilonNearBottom;
+
+      const diagStickyIntent =
+        followPreGrowth === true ? true : followPreGrowth === false ? false : epsilonNearBottom;
+
+      if (!shouldSnapTail) {
         if (diag) {
           transcriptScrollDiagCounts.scrollPanelsSkippedPinnedFalse++;
           transcriptScrollDiagPush({
             t,
             kind: "scroll_panel_skip_pinned_false",
             d: dBefore,
-            pinnedBefore: wasAtStickyTailBeforeDecision,
-            pinnedAfter: wasAtStickyTailBeforeDecision,
+            pinnedBefore: diagStickyIntent,
+            pinnedAfter: diagStickyIntent,
             src: source,
           });
         }
@@ -2324,7 +2366,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           t,
           kind: "scroll_panel_apply",
           d: dBefore,
-          pinnedBefore: wasAtStickyTailBeforeDecision,
+          pinnedBefore: diagStickyIntent,
           pinnedAfter: dGeom <= slackDiag,
           src: source,
         });
@@ -2334,13 +2376,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   );
 
   const scrollPanel = useCallback(
-    (force = false, source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble") => {
+    (
+      force = false,
+      source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble",
+      followPreGrowth?: boolean,
+    ) => {
       const diag = transcriptScrollDiagEnabled();
       if (force) {
         if (scrollFollowRafRef.current !== 0) {
           cancelAnimationFrame(scrollFollowRafRef.current);
           scrollFollowRafRef.current = 0;
         }
+        scrollFollowDeferredStickyRef.current = undefined;
         if (diag) {
           transcriptScrollDiagCounts.scrollPanelsTotal++;
           transcriptScrollDiagMaybePeriodicSummary();
@@ -2350,15 +2397,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
 
       scrollFollowDeferredSrcRef.current = source;
+      scrollFollowDeferredStickyRef.current = mergeDeferTailSticky(
+        scrollFollowDeferredStickyRef.current,
+        followPreGrowth,
+      );
+
       if (diag) {
         transcriptScrollDiagCounts.scrollPanelsTotal++;
         transcriptScrollDiagMaybePeriodicSummary();
       }
+
       if (scrollFollowRafRef.current !== 0) return;
 
       scrollFollowRafRef.current = requestAnimationFrame(() => {
         scrollFollowRafRef.current = 0;
-        runScrollPanelCore(false, scrollFollowDeferredSrcRef.current);
+        const mergedPre = scrollFollowDeferredStickyRef.current;
+        scrollFollowDeferredStickyRef.current = undefined;
+        runScrollPanelCore(false, scrollFollowDeferredSrcRef.current, mergedPre);
       });
     },
     [runScrollPanelCore],
@@ -3099,6 +3154,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
 
+        const transcriptScrollParent = containerRef.current?.parentElement ?? null;
+        const stickyBeforeTranslatePaint = transcriptScrollerGluedBeforeGrowth(transcriptScrollParent);
+
         if (requestIsFinal) {
           const rawFinal = translated.trim();
           // Libre / passthrough: server already finalized; aggressive interpreter polish drops clauses and
@@ -3266,7 +3324,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastConfirmedSourceTranslated = text;
         }
 
-        scrollPanel(false, "translation");
+        scrollPanel(false, "translation", stickyBeforeTranslatePaint);
       } catch {
         recordTranslationFetchException();
         /* HIPAA — never log speech context */
@@ -3416,9 +3474,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
-    scrollPanel(false, "bubble");
     return finalSpan;
-  }, [scrollPanel]);
+  }, []);
 
   /** session_end = user pressed Stop (not silence timers — those are removed). */
   type SegmentCloseKind = "session_end" | "speaker_change";
@@ -3800,6 +3857,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tokens = msg.tokens ?? [];
       if (tokens.length === 0) return;
 
+      transcriptWsTailHintRef.current = transcriptScrollerGluedBeforeGrowth(
+        containerRef.current?.parentElement ?? null,
+      );
+      try {
       logSttDiagWsRaw(evt.data, tokens);
 
       const effSpk = effectiveSpeakersForTokenBoundaries(tokens);
@@ -4180,6 +4241,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             translationCell: st?.transTextEl?.textContent?.trim() ?? "",
           });
         }
+      }
+      } finally {
+        transcriptWsTailHintRef.current = null;
       }
     };
 
