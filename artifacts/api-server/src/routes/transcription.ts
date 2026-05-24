@@ -48,7 +48,7 @@ import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import type { HetznerMtWireDebugMeta } from "../lib/hetzner-translate.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
-  hasSubmittedPaidPostSessionFeedbackToday,
+  hasPaidPostSessionFeedbackGateSatisfied,
   hasSubmittedTrialMandatoryFeedbackToday,
   isMandatoryFeedbackEligible,
   isMandatoryFeedbackRequiredByUsageWithLive,
@@ -534,7 +534,7 @@ router.post("/token", requireAuth, async (req, res) => {
       liveBillable < 1e-6 &&
       isPaidPostSessionFeedbackRequiredByUsage(user)
     ) {
-      const submitted = await hasSubmittedPaidPostSessionFeedbackToday(user.id);
+      const submitted = await hasPaidPostSessionFeedbackGateSatisfied(user.id, user.email ?? null);
       if (!submitted) {
         res.status(403).json({
           error: "Daily feedback required before starting another session.",
@@ -1181,7 +1181,7 @@ router.post("/session/start", requireAuth, async (req, res) => {
     liveAfterOrphans < 1e-6 &&
     isPaidPostSessionFeedbackRequiredByUsage(userForCap)
   ) {
-    const submitted = await hasSubmittedPaidPostSessionFeedbackToday(userForCap.id);
+    const submitted = await hasPaidPostSessionFeedbackGateSatisfied(userForCap.id, userForCap.email ?? null);
     if (!submitted) {
       res.status(403).json({
         error: "Daily feedback required before starting another session.",

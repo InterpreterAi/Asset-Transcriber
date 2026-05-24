@@ -64,6 +64,35 @@ export function iterateAppCalendarIsoDatesInclusive(start: Date, end: Date): str
   return keys;
 }
 
+/** Start of the app-calendar day containing `ref`, advanced by `plusDays` (may be negative). */
+export function appCalendarStartOfDayPlusDays(ref: Date, plusDays: number): Date {
+  return DateTime.fromJSDate(ref)
+    .setZone(APP_TIME_ZONE)
+    .startOf("day")
+    .plus({ days: plusDays })
+    .toUTC()
+    .toJSDate();
+}
+
+/**
+ * Count Mon–Fri in {@link APP_TIME_ZONE} from the start of `startRef`'s calendar day through the start of `endRef`'s day (inclusive).
+ * If `startRef`'s day is after `endRef`'s day, returns 0.
+ */
+export function countAppTimezoneWeekdaysInclusive(startRef: Date, endRef: Date): number {
+  const d0 = DateTime.fromJSDate(startRef).setZone(APP_TIME_ZONE).startOf("day");
+  const endD = DateTime.fromJSDate(endRef).setZone(APP_TIME_ZONE).startOf("day");
+  if (!d0.isValid || !endD.isValid || d0 > endD) return 0;
+  let n = 0;
+  let cursor = d0;
+  let guard = 0;
+  while (cursor <= endD && guard++ < 400) {
+    const w = cursor.weekday;
+    if (w >= 1 && w <= 5) n += 1;
+    cursor = cursor.plus({ days: 1 });
+  }
+  return n;
+}
+
 /** Current calendar date (`YYYY-MM-DD`) and clock hour (0–23) in the app timezone. */
 export function appCalendarDateAndHour(ref: Date = new Date()): { dateIso: string; hour: number } {
   const dt = DateTime.fromJSDate(ref).setZone(APP_TIME_ZONE);
