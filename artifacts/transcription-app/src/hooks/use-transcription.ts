@@ -36,11 +36,13 @@ import {
 } from "@/hooks/live-blank-trace";
 import {
   effectiveSemanticStabilityMs,
+  isMaterialSonioxFinalAdvance,
   morsyUsesSemanticStabilizedLivePreview,
   MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL,
   MORSY_SEMANTIC_PAUSE_MS,
   MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS,
   suppressNearDuplicateLivePreview,
+  withholdLivePreviewForUnstableTail,
 } from "@/hooks/morsy-intercall-orchestrator";
 import {
   liveDirectionTraceApiRequest,
@@ -2367,6 +2369,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const now = Date.now();
       const o = morsySemanticLiveArmRef.current;
       const lastSpokeMs = lastSpeakerSpeechTokenAtMsRef.current;
+      const trimmed = hintSource.trim();
 
       if (o.boundSegmentId !== segmentId) {
         if (o.trailingTimer !== null) {
@@ -2392,20 +2395,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         return;
       }
 
-      const finalAdvanced = finalTokensSeen > o.lastDispatchedFinalTokensSeen;
+      const hasPriorPreview = o.lastDispatchedNorm.length > 0;
+      const materialFinalAdvance = isMaterialSonioxFinalAdvance(
+        finalTokensSeen,
+        o.lastDispatchedFinalTokensSeen,
+        hasPriorPreview,
+      );
+
+      if (!materialFinalAdvance && withholdLivePreviewForUnstableTail(trimmed, wordsNow)) {
+        return;
+      }
+
       const wordDeltaSinceDispatch = wordsNow - o.lastDispatchedWords;
-      if (!finalAdvanced && wordDeltaSinceDispatch < MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL) {
+      if (!materialFinalAdvance && wordDeltaSinceDispatch < MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL) {
         return;
       }
 
       if (
-        !finalAdvanced &&
+        !materialFinalAdvance &&
         suppressNearDuplicateLivePreview(o.lastDispatchedNorm, norm, wordsNow, o.lastDispatchedWords)
       ) {
         return;
       }
 
-      const needStableMs = effectiveSemanticStabilityMs(hintSource.trim());
+      const needStableMs = effectiveSemanticStabilityMs(trimmed, wordsNow);
       const stableOk = o.stableSinceMs !== null && now - o.stableSinceMs >= needStableMs;
       const pauseOk =
         lastSpokeMs <= 0 || now - lastSpokeMs >= MORSY_SEMANTIC_PAUSE_MS;
@@ -2434,10 +2447,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const fresh = liveBufferRef.current.trim();
         if (fresh.length < 3) return;
         if (collapseWs(fresh) !== normAtArm) return;
+
+        const prior = o.lastDispatchedNorm.length > 0;
+        const materialFinalAtFire = isMaterialSonioxFinalAdvance(
+          stNow.finalTokensSeen,
+          o.lastDispatchedFinalTokensSeen,
+          prior,
+        );
+        const wordsFresh = countWords(fresh);
+        if (
+          !materialFinalAtFire &&
+          withholdLivePreviewForUnstableTail(fresh.trim(), wordsFresh)
+        ) {
+          return;
+        }
+
         const langNow = stNow.segmentSourceLang ?? detectedLangRef.current;
         dispatchTranslationRef.current(fresh, langNow, false, { skipOpenAiLiveDebounce: true }, segmentId);
         o.lastDispatchedNorm = collapseWs(fresh);
-        o.lastDispatchedWords = countWords(fresh);
+        o.lastDispatchedWords = wordsFresh;
         o.lastDispatchedFinalTokensSeen = stNow.finalTokensSeen;
       }, MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS);
     },
