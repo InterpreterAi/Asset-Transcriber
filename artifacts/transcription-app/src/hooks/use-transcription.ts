@@ -35,6 +35,14 @@ import {
   maybeSnippet,
 } from "@/hooks/live-blank-trace";
 import {
+  effectiveSemanticStabilityMs,
+  morsyUsesSemanticStabilizedLivePreview,
+  MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL,
+  MORSY_SEMANTIC_PAUSE_MS,
+  MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS,
+  suppressNearDuplicateLivePreview,
+} from "@/hooks/morsy-intercall-orchestrator";
+import {
   liveDirectionTraceApiRequest,
   liveDirectionTraceDispatchResolve,
   liveDirectionTraceEnabled,
@@ -436,6 +444,7 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  *   Translation column (when translation is enabled) may use dual spans with an immutable finalized block + mutable live tail
  *   unless `{@link morsyStableTranslationTailKillSwitchEngaged}` (see `{@link morsyUrgentUsesStableTranslationTail}`).
  *   Original transcription column treats finalized tokens as append-only DOM + bookkeeping; hypotheses paint only NF tail (`{@link nfVisibleTailBeyondCommitted}`).
+ *   Live translation preview cadence can use semantic stabilization (`morsy-intercall-orchestrator.ts`; kill-switchable like stable-tail).
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
 export type SegmentBehaviorMode =
@@ -2283,6 +2292,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const intercallFinalizedSegmentIdsRef = useRef<string[]>([]);
   const intercallEndpointGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** Morsy isolated: live-preview semantic pacing only (gates + trailing debounce before `dispatchTranslation`). */
+  const morsySemanticLiveArmRef = useRef({
+    boundSegmentId: "",
+    lastNorm: "",
+    stableSinceMs: null as number | null,
+    trailingTimer: null as ReturnType<typeof setTimeout> | null,
+    lastDispatchedNorm: "",
+    lastDispatchedWords: 0,
+    lastDispatchedFinalTokensSeen: 0,
+  });
+
   const cancelOpenAiLiveDebounce = useCallback(() => {
     if (openaiLiveDebounceTimerRef.current !== null) {
       clearTimeout(openaiLiveDebounceTimerRef.current);
@@ -2297,6 +2317,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (intercallEndpointGraceTimerRef.current !== null) {
       clearTimeout(intercallEndpointGraceTimerRef.current);
       intercallEndpointGraceTimerRef.current = null;
+    }
+    const mos = morsySemanticLiveArmRef.current;
+    if (mos.trailingTimer !== null) {
+      clearTimeout(mos.trailingTimer);
+      mos.trailingTimer = null;
     }
   }, []);
 
@@ -2332,6 +2357,92 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       );
     }, experimentMorsyUrgentIntercallRef.current ? INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS : LIVE_TRANSLATION_DEBOUNCE_MS);
   }, []);
+
+  /**
+   * Morsy isolated sandbox only: calmer live **preview** translate cadence (stability + pause + anti-fragment + trailing debounce).
+   * Ends in the same `dispatchTranslation(..., skipOpenAiLiveDebounce: true)` as `scheduleDebouncedLiveTranslation`.
+   */
+  const morsyIntercallSandboxSemanticStabilizeLive = useCallback(
+    (hintSource: string, wordsNow: number, segmentId: string, finalTokensSeen: number) => {
+      const now = Date.now();
+      const o = morsySemanticLiveArmRef.current;
+      const lastSpokeMs = lastSpeakerSpeechTokenAtMsRef.current;
+
+      if (o.boundSegmentId !== segmentId) {
+        if (o.trailingTimer !== null) {
+          clearTimeout(o.trailingTimer);
+          o.trailingTimer = null;
+        }
+        o.boundSegmentId = segmentId;
+        o.lastNorm = "";
+        o.stableSinceMs = null;
+        o.lastDispatchedNorm = "";
+        o.lastDispatchedWords = 0;
+        o.lastDispatchedFinalTokensSeen = 0;
+      }
+
+      const norm = collapseWs(hintSource);
+      if (norm !== o.lastNorm) {
+        o.lastNorm = norm;
+        o.stableSinceMs = now;
+        if (o.trailingTimer !== null) {
+          clearTimeout(o.trailingTimer);
+          o.trailingTimer = null;
+        }
+        return;
+      }
+
+      const finalAdvanced = finalTokensSeen > o.lastDispatchedFinalTokensSeen;
+      const wordDeltaSinceDispatch = wordsNow - o.lastDispatchedWords;
+      if (!finalAdvanced && wordDeltaSinceDispatch < MORSY_SEMANTIC_MIN_WORD_DELTA_WITHOUT_FINAL) {
+        return;
+      }
+
+      if (
+        !finalAdvanced &&
+        suppressNearDuplicateLivePreview(o.lastDispatchedNorm, norm, wordsNow, o.lastDispatchedWords)
+      ) {
+        return;
+      }
+
+      const needStableMs = effectiveSemanticStabilityMs(hintSource.trim());
+      const stableOk = o.stableSinceMs !== null && now - o.stableSinceMs >= needStableMs;
+      const pauseOk =
+        lastSpokeMs <= 0 || now - lastSpokeMs >= MORSY_SEMANTIC_PAUSE_MS;
+      if (!stableOk || !pauseOk) {
+        return;
+      }
+
+      if (o.trailingTimer !== null) {
+        clearTimeout(o.trailingTimer);
+      }
+
+      const normAtArm = norm;
+      o.trailingTimer = setTimeout(() => {
+        o.trailingTimer = null;
+        if (!isRecRef.current) return;
+        const stNow = activeBubbleStateRef.current;
+        if (
+          !stNow ||
+          stNow.segmentId !== segmentId ||
+          stNow.translationLocked ||
+          stNow.finalizing ||
+          (segmentBoundaryGuardsRef.current && stNow.isClosed)
+        ) {
+          return;
+        }
+        const fresh = liveBufferRef.current.trim();
+        if (fresh.length < 3) return;
+        if (collapseWs(fresh) !== normAtArm) return;
+        const langNow = stNow.segmentSourceLang ?? detectedLangRef.current;
+        dispatchTranslationRef.current(fresh, langNow, false, { skipOpenAiLiveDebounce: true }, segmentId);
+        o.lastDispatchedNorm = collapseWs(fresh);
+        o.lastDispatchedWords = countWords(fresh);
+        o.lastDispatchedFinalTokensSeen = stNow.finalTokensSeen;
+      }, MORSY_SEMANTIC_TRAILING_DEBOUNCE_MS);
+    },
+    [],
+  );
 
   const flushFinalTextRenderQueue = useCallback((stickyBeforeThisFlush?: boolean) => {
     if (finalRenderTimerRef.current !== null) {
@@ -4314,6 +4425,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       flushFinalTextRenderQueue();
 
       // Word-step live preview (not every Soniox frame): steadier than full mirror.
+      // Morsy isolated sandbox: optional semantic pacing layer replaces the 52ms / word-staircase path only.
       const st = activeBubbleStateRef.current;
       const hintSource = liveBufferRef.current.trim();
       const wordsNow = countWords(hintSource);
@@ -4324,13 +4436,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !(segmentBoundaryGuardsRef.current && st.isClosed) &&
         st.finalTokensSeen >= 2 &&
         hintSource.length >= 20 &&
-        wordsNow >= EARLY_HINT_MIN_WORDS &&
-        (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP)
+        wordsNow >= EARLY_HINT_MIN_WORDS
       ) {
-        const lang = st.segmentSourceLang ?? detectedLangRef.current;
-        scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
-        st.earlyHintSent = true;
-        st.lastPreviewWordsSent = wordsNow;
+        if (morsyUsesSemanticStabilizedLivePreview(segmentBehaviorModeRef.current)) {
+          morsyIntercallSandboxSemanticStabilizeLive(hintSource, wordsNow, st.segmentId, st.finalTokensSeen);
+        } else if (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP) {
+          const lang = st.segmentSourceLang ?? detectedLangRef.current;
+          scheduleDebouncedLiveTranslation(hintSource, lang, st.segmentId);
+          st.earlyHintSent = true;
+          st.lastPreviewWordsSent = wordsNow;
+        }
       }
 
       // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
@@ -4444,6 +4559,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     flushFinalTextRenderQueue,
     tryLockSegmentDirectionFromTokens,
     scheduleDebouncedLiveTranslation,
+    morsyIntercallSandboxSemanticStabilizeLive,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
