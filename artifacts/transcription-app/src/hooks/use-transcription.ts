@@ -1526,6 +1526,91 @@ function collapseWs(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** UTF-16 code-unit LCP slice length (Arabic-aware enough for deterministic client merge — no normalization). */
+function longestCommonUtf16PrefixLen(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  for (; i < n; i++) {
+    if (a.charCodeAt(i) !== b.charCodeAt(i)) break;
+  }
+  return i;
+}
+
+/**
+ * **Morsy isolated dual-span**: remove the Arabic already represented in **`transStableEl`** when the newest
+ * full translation shares the same opening word-prefix as **`stablePlain`** — avoids duplicated clauses in **`transLive`**.
+ */
+function translationArabicStableWordStripRemainder(stablePlain: string, fullArabic: string): string {
+  const stabW = collapseWs(stablePlain).split(/\s+/).filter(Boolean);
+  const fullTrim = fullArabic.trim();
+  if (stabW.length === 0) return fullTrim;
+
+  const fullW = collapseWs(fullArabic).split(/\s+/).filter(Boolean);
+  if (fullW.length === 0) return "";
+  if (fullW.length < stabW.length) return fullTrim;
+
+  for (let i = 0; i < stabW.length; i++) {
+    if (collapseWs(fullW[i] ?? "") !== collapseWs(stabW[i] ?? "")) return fullTrim;
+  }
+  return fullW.slice(stabW.length).join(" ").trim();
+}
+
+/**
+ * **Morsy isolated**: concatenate **previously painted live remainder** + **new remainder** sharing a longest
+ * UTF-16 common prefix → append-oriented refinement instead of overwriting the entire live Arabic string each poll.
+ *
+ * Does **not** change MT output upstream — reconciliation only (`morsy-intercall-isolated-experiment` dual-span paint).
+ */
+function translationMergeArabicLiveRemainderPreservePrefix(
+  prevRemainderDisplayed: string,
+  nextRemainderFromApi: string,
+  englishExtendMonotone: boolean,
+): string {
+  const p = prevRemainderDisplayed.trim();
+  const n = nextRemainderFromApi.trim();
+  if (!englishExtendMonotone || !p) return n;
+
+  // Large regression in length despite English growth usually means stale prefer-prev + partial glitch — adopt API tail.
+  if (n.length + 72 < p.length) return n;
+
+  const lcp = longestCommonUtf16PrefixLen(p, n);
+  const maxLen = Math.max(p.length, n.length);
+
+  // Full rephrase (no credible shared prefix across longer strings): accept fresh remainder.
+  if (lcp < Math.max(8, Math.floor(maxLen * 0.04)) && maxLen > 36) return n;
+
+  return `${p.slice(0, lcp)}${n.slice(lcp)}`;
+}
+
+/** Morsy isolated experiment + stable translation tail dual span only (see `{@link morsyUrgentUsesStableTranslationTail}`). */
+function morsyIsolatedArabicLivePaintRemainder(
+  state: BubbleTransState,
+  opts: {
+    englishCollapsed: string;
+    fullArabic: string;
+  },
+): string {
+  const stablePlain = (state.transStableEl?.textContent ?? "").trim();
+  const prevLive = (state.transLiveEl?.textContent ?? "").trim();
+
+  let nextRemainder = translationArabicStableWordStripRemainder(stablePlain, opts.fullArabic);
+
+  const engOld = state.morsyArabicAccumLastEnglishCollapsed;
+  const engNew = opts.englishCollapsed;
+  const englishExtendMonotone =
+    engOld.length === 0 ||
+    engNew === engOld ||
+    (engNew.length >= engOld.length && engNew.startsWith(engOld));
+
+  const mergedRemainder = translationMergeArabicLiveRemainderPreservePrefix(
+    prevLive,
+    nextRemainder,
+    englishExtendMonotone,
+  );
+  state.morsyArabicAccumLastEnglishCollapsed = engNew;
+  return mergedRemainder;
+}
+
 /** Cumulative LIVE-buffer evidence gates for {@link tryLockSegmentDirectionFromTokens} (same spirit as majoritySourceFromFirstWords). */
 const DIRECTION_LOCK_MIN_WORDS = 3;
 const DIRECTION_LOCK_MIN_CHARS = 10;
@@ -1965,6 +2050,12 @@ interface BubbleTransState {
    * Used instead of `{@link activeBubbleRef}.textContent` reads so hypotheses cannot desync bookkeeping from DOM append-only invariant.
    */
   lockedCommittedFinalOriginal: string;
+  /**
+   * **Basic · Morsy Urgent sandbox only**: last collapsed English at live translation paint —
+   * used to detect monotone buffer growth (`startsWith`) vs NF revision for Arabic live-band merge
+   * (`{@link morsyIsolatedArabicLivePaintRemainder}`).
+   */
+  morsyArabicAccumLastEnglishCollapsed: string;
 }
 
 /** Intercall experiment (dual-span): each live repaint clears stable; final promotes to stable and clears tail. */
@@ -3489,6 +3580,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownLen = out.length;
           if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
           applyTranslationDualSpanForSegmentMode(state, out, "final", segmentBehaviorModeRef.current);
+          if (morsyUrgentUsesStableTranslationTail(segmentBehaviorModeRef.current)) {
+            state.morsyArabicAccumLastEnglishCollapsed = collapseWs(text);
+          }
           state.pendingDisplayTranslation = "";
           state.streamCommittedSource = text;
           if (!lockOnFinal) {
@@ -3550,6 +3644,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const srcCommitted = collapseWs(state.streamCommittedSource);
           const preferPrev = shouldPreferPreviousLiveTranslation(prevShown, out, srcNow, srcCommitted);
           const chosen = preferPrev ? prevShown : out;
+          const isolatedMorsyDualTailPaint =
+            morsyUrgentUsesStableTranslationTail(segmentBehaviorModeRef.current) &&
+            Boolean(state.transStableEl && state.transLiveEl);
+
+          const paintLiveArabicRemainder = isolatedMorsyDualTailPaint
+              ? morsyIsolatedArabicLivePaintRemainder(state, {
+                  englishCollapsed: srcNow,
+                  fullArabic: chosen.trim(),
+                })
+              : chosen;
           if (looksLikeUntranslatedCopy(text, out)) {
             emitLiveDirectionSameLanguageFailure({
               correlationId:       directionCorrelationId,
@@ -3585,12 +3689,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastShownSeq = mySeq;
           state.lastShownLen = chosen.length;
           if (segmentBoundaryGuardsRef.current) state.lastAppliedSeq = mySeq;
-          applyTranslationDualSpanForSegmentMode(state, chosen, "live", segmentBehaviorModeRef.current);
+          applyTranslationDualSpanForSegmentMode(
+            state,
+            paintLiveArabicRemainder,
+            "live",
+            segmentBehaviorModeRef.current,
+          );
           if (traceId) {
             liveBlankTracePaintAppliedLive({
               traceId,
               useStreamingDelta: false,
-              mergedLen: chosen.length,
+              mergedLen: paintLiveArabicRemainder.length,
               chosenLen: chosen.length,
             });
           }
@@ -3744,6 +3853,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentSourceLang:     null,
       segmentTargetLang:     null,
       lockedCommittedFinalOriginal: "",
+      morsyArabicAccumLastEnglishCollapsed: "",
     };
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
