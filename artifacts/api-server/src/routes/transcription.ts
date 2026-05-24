@@ -707,6 +707,26 @@ function liveEmbeddedEnglishSupplementBlock(
   );
 }
 
+/**
+ * **Basic · Morsy Urgent only** (`plan_type === "morsy-urgent"`, OpenAI interpreter path): replays simultaneous-booth delivery —
+ * natural conversational target-language phrasing, clause reordering, and oral compression permitted only where **material** meaning is unchanged.
+ * Does not attach to Libre/Hetzner tiers or platinum/unlimited stacks.
+ */
+function morsyUrgentInterpreterWhenInDoubtSection(
+  srcDisplayName: string,
+  tgtDisplayName: string,
+  whenInDoubtScopeBullet: string,
+): string {
+  return (
+    `WHEN IN DOUBT (${tgtDisplayName} simultaneous-interpreter delivery — this BASIC · MORSY URGENT SKU only):\n` +
+    `- Preserve every **material** facet of what was spoken: facts, negations, questions vs statements, modality (must/would/can), diagnoses and legal outcomes as stated, numbers, identifiers, doses, titles of documents, obligations, timelines, threats, apologies, insults — no omissions, guesses, euphemisms, or soft invented confirmations.\n` +
+    `- For **sentence form and conversational rhythm**, ${tgtDisplayName} should sound like a professional simultaneous interpreter booth read — fluent, idiomatic spoken ${tgtDisplayName}. You MAY reorder clauses, merge or lightly split sentences, use natural discourse connectives typical of speech, trim redundant scaffolding and repeated hedges, and compress obvious repetition — when those edits do **not** add, subtract, sharpen, weaken, merge, split, lawyer, or morally explain away content that is present in ${srcDisplayName}.\n` +
+    `- Prefer fluent native ${tgtDisplayName} wording over mechanically mirroring English (or mixed-source) clause order.\n` +
+    `- Avoid machine-translation artefacts: unnatural calques, stiff AI prose, brittle phrase-to-phrase symmetry, unexplained synonym flipping for the same discourse referent.\n\n` +
+    whenInDoubtScopeBullet
+  );
+}
+
 /** Neutral professional output register for the target language (medical/legal interpreting). */
 const OUTPUT_REGISTER_ZH_CN =
   "Standard Mandarin in Simplified Chinese script (简体), professional register — no regional slang.";
@@ -2243,11 +2263,13 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- "my number" in this context is an interpreter ID, not a phone number.\n` +
     `- Translate exactly as spoken: "اسمي X ورقمي هو 3602" — never add "هاتفي" or "تليفوني"\n\n` +
 
-    `WHEN IN DOUBT:\n` +
-    `- Prefer faithful literal rendering over creative paraphrase.\n` +
-    `- Translate literally. Do NOT paraphrase, infer unstated meaning, or expand abbreviations unless explicitly spoken.\n` +
-    `- Do NOT add filler or connective words that are not present in the source utterance.\n` +
-    whenInDoubtTranscriptScope +
+    (planLower === "morsy-urgent"
+      ? morsyUrgentInterpreterWhenInDoubtSection(srcName, tgtName, whenInDoubtTranscriptScope)
+      : `WHEN IN DOUBT:\n` +
+        `- Prefer faithful literal rendering over creative paraphrase.\n` +
+        `- Translate literally. Do NOT paraphrase, infer unstated meaning, or expand abbreviations unless explicitly spoken.\n` +
+        `- Do NOT add filler or connective words that are not present in the source utterance.\n` +
+        whenInDoubtTranscriptScope) +
 
     `CONSISTENCY:\n` +
     `- Use the SAME word choice every time for the same term within the segment. Never swap synonyms mid-utterance without cause.\n\n` +
