@@ -435,6 +435,7 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  *   branches here — production tiers stay on **`morsy-urgent-cbf`** unchanged.
  *   Translation column (when translation is enabled) may use dual spans with an immutable finalized block + mutable live tail
  *   unless `{@link morsyStableTranslationTailKillSwitchEngaged}` (see `{@link morsyUrgentUsesStableTranslationTail}`).
+ *   Original transcription column treats finalized tokens as append-only DOM + bookkeeping; hypotheses paint only NF tail (`{@link nfVisibleTailBeyondCommitted}`).
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
 export type SegmentBehaviorMode =
@@ -477,6 +478,14 @@ function morsyStableTranslationTailKillSwitchEngaged(): boolean {
 
 function morsyUrgentUsesStableTranslationTail(segmentMode: SegmentBehaviorMode): boolean {
   return segmentMode === "morsy-intercall-isolated-experiment" && !morsyStableTranslationTailKillSwitchEngaged();
+}
+
+/**
+ * Original-column contract for Basic · Morsy Urgent sandbox: finalized transcription is locked (append-only);
+ * only `{@link activeBubbleNFRef}` may visibly revise (`{@link nfVisibleTailBeyondCommitted}`).
+ */
+function morsyIntercallSandboxStrictOriginalFinalSeparation(segmentMode: SegmentBehaviorMode): boolean {
+  return segmentMode === "morsy-intercall-isolated-experiment";
 }
 
 const FAST_SWITCH_MIN_STREAK = 2;
@@ -1826,6 +1835,32 @@ function hasVisibleText(text: string | null | undefined): boolean {
   return Boolean(text && text.trim().length > 0);
 }
 
+/**
+ * Rendering/orchestration only (Morsy isolated sandbox): Soniox non-final payloads may overlap text already
+ * committed as finals — write only the **novel hypothesis tail** into `{@link activeBubbleNFRef}` so finalized
+ * copy is not mirrored or rewritten in the NF region.
+ */
+function nfVisibleTailBeyondCommitted(committedLogical: string, nfRaw: string): string {
+  const n = nfRaw;
+  if (!hasVisibleText(n)) return "";
+  const cTrim = committedLogical.trimEnd();
+  if (!hasVisibleText(cTrim)) return n;
+  if (n.startsWith(cTrim)) return n.slice(cTrim.length);
+  const cLow = cTrim.toLowerCase();
+  const nLow = n.toLowerCase();
+  if (nLow.startsWith(cLow)) return n.slice(cTrim.length);
+
+  const maxLen = Math.min(cTrim.length, n.length);
+  for (let k = maxLen; k >= 1; k--) {
+    if (cTrim.slice(-k) === n.slice(0, k)) return n.slice(k);
+  }
+  const maxL2 = Math.min(cLow.length, nLow.length);
+  for (let k = maxL2; k >= 1; k--) {
+    if (cLow.slice(-k) === nLow.slice(0, k)) return n.slice(k);
+  }
+  return n;
+}
+
 /** Sets direction / lang on container and typography + HTML on body (same element for prod; dual-span layouts use `bodyEl` only while `rootDirEl` is the `<p>`). */
 function applyTranslationTypographyCore(rootDirEl: HTMLElement, bodyEl: HTMLElement, newTranslation: string): void {
   const { rtl, arabicScript } = getTranslationTypographyMeta(newTranslation);
@@ -1913,6 +1948,12 @@ interface BubbleTransState {
   segmentSourceLang:     string | null;
   /** Locked target language (opposite side of selected pair). */
   segmentTargetLang:     string | null;
+  /**
+   * Morsy isolated sandbox: append-only transcript of **final-only** originals mirrored for this segment —
+   * never shortened while the segment stays open ({@link flushFinalTextRenderQueue} increments it with queued finals).
+   * Used instead of `{@link activeBubbleRef}.textContent` reads so hypotheses cannot desync bookkeeping from DOM append-only invariant.
+   */
+  lockedCommittedFinalOriginal: string;
 }
 
 /** Intercall experiment (dual-span): each live repaint clears stable; final promotes to stable and clears tail. */
@@ -2314,12 +2355,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (!target.isConnected) continue;
       const transcriptSegIsolation =
         segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
-      // Original-column: keyed finals + frozen rows only when signed-in guards or Basic · Morsy Urgent experiment.
+      let gateSt: BubbleTransState | undefined;
       if (transcriptSegIsolation && segmentId) {
-        const st = segmentStateByIdRef.current.get(segmentId);
-        if (!st || st.isClosed || st.segmentId !== segmentId) continue;
+        gateSt = segmentStateByIdRef.current.get(segmentId);
+        if (!gateSt || gateSt.isClosed || gateSt.segmentId !== segmentId) continue;
       }
+
       target.textContent = (target.textContent ?? "") + text;
+
+      if (morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)) {
+        if (gateSt) gateSt.lockedCommittedFinalOriginal += text;
+        else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
+          activeBubbleStateRef.current.lockedCommittedFinalOriginal += text;
+        }
+      }
     }
     scrollPanelFnRef.current?.(false, "queued_final_chars", preGlue);
   }, []);
@@ -3568,6 +3617,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       hardFinalRequested: false,
       segmentSourceLang:     null,
       segmentTargetLang:     null,
+      lockedCommittedFinalOriginal: "",
     };
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
@@ -3606,7 +3656,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let finalText: string;
     // Final transcript + final translate source: committed finals only (`activeBubbleRef` is the
     // final span; NF is a sibling — not read or merged here; avoids NF/revision shrink on boundary).
-    finalText = (activeBubbleRef.current?.textContent ?? "").trim();
+    const bubbleSt = activeBubbleStateRef.current;
+    if (
+      bubbleSt &&
+      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+    ) {
+      finalText = bubbleSt.lockedCommittedFinalOriginal.trim();
+    } else {
+      finalText = (activeBubbleRef.current?.textContent ?? "").trim();
+    }
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
@@ -4165,6 +4223,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       finalCountRef.current = finals.length;
 
+      const strictOriginalSeparation =
+        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
+      const pendingFinalBuf = getBufferedFinalTextForActiveBubble();
+      const bubbleTransStWs = activeBubbleStateRef.current;
+      const committedLogical =
+        strictOriginalSeparation && bubbleTransStWs
+          ? bubbleTransStWs.lockedCommittedFinalOriginal + pendingFinalBuf
+          : (activeBubbleRef.current?.textContent ?? "") + pendingFinalBuf;
+
       // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
       let tailSpk: string | undefined;
       for (let i = effSpk.length - 1; i >= 0; i--) {
@@ -4189,9 +4256,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (nfText) {
         const stNf = activeBubbleStateRef.current;
         if (nfEl && stNf) {
-          const prev = stNf.lastNfRawText;
-          if (nfText.startsWith(prev)) {
-            const suffix = nfText.slice(prev.length);
+          if (strictOriginalSeparation) {
+            const nfPaint = nfVisibleTailBeyondCommitted(committedLogical, nfText);
+            const prevPaint = nfEl.textContent ?? "";
+            nfFullReplaceThisMsg = prevPaint !== nfPaint;
+            nfEl.textContent = nfPaint;
+            stNf.lastNfRawText = nfText;
+          } else if (nfText.startsWith(stNf.lastNfRawText)) {
+            const suffix = nfText.slice(stNf.lastNfRawText.length);
             if (suffix) {
               nfEl.textContent = (nfEl.textContent ?? "") + suffix;
             }
@@ -4210,8 +4282,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
 
       // ── Update live translation buffer ────────────────────────────────────
-      const finalText = (activeBubbleRef.current?.textContent ?? "") + getBufferedFinalTextForActiveBubble();
-      const rawLive   = mergeFinalWithNonFinalHypothesis(finalText, nfText).trim();
+      const finalText = committedLogical;
+      const rawLive   = mergeFinalWithNonFinalHypothesis(finalText.trim(), nfText).trim();
       liveBufferRef.current = rawLive;
       const confirmedSource = finalText.trim();
       if (activeBubbleStateRef.current) {
