@@ -152,7 +152,7 @@ const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 /** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
 const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
-/** Distance from scrollbar bottom counts as “following live”; above this we stop auto-scroll. */
+/** How close to the pixel bottom counts as “intentionally following live” when re-entering tail-follow after reading up — not used to disengage. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
 
 /** Opt-in scroll latch diagnostics. `localStorage.setItem("interpreterai_transcript_scroll_diag","1")` then reload — console only. Reproduce: speak continuously, wheel/drag upward while pinned; inspect `[transcript_scroll_diag] heartbeat` and run `window.transcriptScrollDiagDump()`. */
@@ -264,16 +264,16 @@ function transcriptScrollDiagMaybePeriodicSummary(nowMs = performance.now()): vo
     counters: transcriptScrollDiagCounts,
     latchHint_hypothesisCompare: {
       slackPx: TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX,
-      H1_nearBottomStillPinned:
-        `If many scroll_listener rows show d≤${TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX}px while reading up → slack/small delta still counts pinned.`,
-      H2_outpaced:
+      H1_userIntentLatch:
+        "Disengage uses wheel-up + scrollTop decrease; re-pin uses proximity only — no longer distance-disengage.",
+      H2_burstVsManual:
         transcriptScrollDiagCounts.scrollPanelsApplied > 0 &&
         transcriptScrollDiagCounts.scrollPanelsApplied >= transcriptScrollDiagCounts.scrollEvents
-          ? "Often appliedPanels ≥ scrollEvents while dragging up → bursts may reclaim bottom before latch flips (see timing in dump tail)."
-          : "Not dominant in this interval (run longer with simultaneous speech + upward scroll).",
+          ? "High apply rate vs listener events — check tail timestamps for programmatic scroll beating user flick (should be mitigated once follow is off)."
+          : "Not dominant this interval.",
       H3_noListenerNeverTrue: transcriptScrollDiagAttachOk
-        ? "Listener attached OK (if still broken, slack/race not missing-listener)."
-        : "BUG: listener never attached — latch stuck true permanently.",
+        ? "Scroll/wheel listeners attached."
+        : "BUG: listeners never attached — tail-follow latch cannot observe user gestures.",
     },
     ...transcriptScrollDiagApplyBurstHint(),
     recentTail: transcriptScrollDiagScrollLog.slice(-16),
@@ -1906,8 +1906,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef      = useRef<HTMLDivElement | null>(null);
-  /** User is following live tail unless they scroll up; then we skip auto-scroll until they return to bottom. */
+  /** Tail-follow mode: programmatic scrollBottom only runs while true. Any upward intent (wheel/trackpad vs down) disables immediately; slack is only used to re-enable once the user navigates near the tail again. */
   const userPinnedToBottomRef = useRef(true);
+  /** Tracks last scrollTop on the transcript scroll parent to detect upward user scroll vs tail snaps. */
+  const followTailLastScrollTopRef = useRef(0);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
   const pendingSpeakerSwitchRef = useRef<{
@@ -2111,7 +2113,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   };
 
   // ── scrollPanel ────────────────────────────────────────────────────────────
-  // Respect manual scroll-back: live updates scroll only while pinned-to-bottom or when forced (new session tail).
+  // While tail-follow is on, snap the scroll parent to bottom on live append/translate.
+  // Tail-follow is cleared by upward user intent (wheel vs “scroll down” / touchpad “up”) or any scrollTop decrease;
+  // it is re-armed only when the user scrolls back within TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX of the bottom.
   const scrollPanel = useCallback((force = false, source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble") => {
     const diag = transcriptScrollDiagEnabled();
     const el = containerRef.current?.parentElement;
@@ -2187,7 +2191,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     let cancelled = false;
     let attachedEl: HTMLElement | null = null;
     let onScroll: (() => void) | undefined;
+    let onWheel: ((e: WheelEvent) => void) | undefined;
     let raf2 = 0;
+
+    const scrollTopMoveUpEpsPx = 0.75;
 
     const tryAttach = (): boolean => {
       const inner = containerRef.current;
@@ -2195,11 +2202,43 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (!scrollParent || cancelled) return false;
       attachedEl = scrollParent as HTMLElement;
       const slack = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
+
+      onWheel = (e: WheelEvent) => {
+        const dominant = Math.abs(e.deltaY) >= Math.abs(e.deltaX);
+        const dy = dominant ? e.deltaY : 0;
+        const pinnedBeforeWheel = userPinnedToBottomRef.current;
+        if (dominant && dy < 0) {
+          userPinnedToBottomRef.current = false;
+        }
+        if (transcriptScrollDiagEnabled()) {
+          transcriptScrollDiagCounts.scrollEvents++;
+          transcriptScrollDiagPush({
+            t: performance.now(),
+            kind: "wheel_listener",
+            d: attachedEl!.scrollHeight - attachedEl!.scrollTop - attachedEl!.clientHeight,
+            pinnedBefore: pinnedBeforeWheel,
+            pinnedAfter: userPinnedToBottomRef.current,
+            src: `dy=${dy.toFixed(2)}`,
+          });
+          transcriptScrollDiagMaybePeriodicSummary();
+        }
+      };
+
       onScroll = () => {
         const el = attachedEl!;
-        const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const st = el.scrollTop;
+        const d = el.scrollHeight - st - el.clientHeight;
+        const prevTop = followTailLastScrollTopRef.current;
+        const movedContentUpViewport = st < prevTop - scrollTopMoveUpEpsPx;
+        followTailLastScrollTopRef.current = st;
+
         const pinnedBeforeDiag = userPinnedToBottomRef.current;
-        userPinnedToBottomRef.current = d <= slack;
+        if (movedContentUpViewport) {
+          userPinnedToBottomRef.current = false;
+        }
+        else if (d <= slack) {
+          userPinnedToBottomRef.current = true;
+        }
         const pinnedAfterDiag = userPinnedToBottomRef.current;
         if (transcriptScrollDiagEnabled()) {
           transcriptScrollDiagCounts.scrollEvents++;
@@ -2213,7 +2252,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           transcriptScrollDiagMaybePeriodicSummary();
         }
       };
+
       attachedEl.addEventListener("scroll", onScroll, { passive: true });
+      attachedEl.addEventListener("wheel", onWheel, { passive: true });
+      followTailLastScrollTopRef.current = attachedEl.scrollTop;
       if (transcriptScrollDiagEnabled()) {
         transcriptScrollDiagAttachOk = true;
       }
@@ -2229,7 +2271,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             tryAttach();
             if (transcriptScrollDiagEnabled() && !transcriptScrollDiagAttachOk) {
               console.warn(
-                "[transcript_scroll_diag] scroll listener failed to attach after 2 animation frames — userPinnedToBottomRef cannot update from manual scroll.",
+                "[transcript_scroll_diag] scroll listener failed to attach after 2 animation frames — tail-follow latch cannot observe user gesture.",
               );
             }
           }
@@ -2242,6 +2284,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
       if (attachedEl && onScroll) attachedEl.removeEventListener("scroll", onScroll);
+      if (attachedEl && onWheel) attachedEl.removeEventListener("wheel", onWheel);
       if (transcriptScrollDiagEnabled()) {
         transcriptScrollDiagAttachOk = false;
       }
@@ -3279,6 +3322,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
     if (containerRef.current) containerRef.current.innerHTML = "";
     userPinnedToBottomRef.current = true;
+    followTailLastScrollTopRef.current = containerRef.current?.parentElement?.scrollTop ?? 0;
     setHasTranscript(false);
     setTranslationServiceError(null);
     if (glossaryFlashTimerRef.current) {
@@ -4094,6 +4138,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       };
 
       userPinnedToBottomRef.current = true;
+      followTailLastScrollTopRef.current = containerRef.current?.parentElement?.scrollTop ?? 0;
       isRecRef.current = true;
       setIsRecording(true);
 
