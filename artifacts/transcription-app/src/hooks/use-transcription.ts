@@ -5298,6 +5298,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
       }
+      }
 
       const joinedHypothesisFromTokens = tokens
         .filter(t => !isSonioxEndpointToken(t))
@@ -5314,7 +5315,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       tryLockSegmentDirectionFromTokens(tokens);
 
-      flushFinalTextRenderQueue();
+      if (!canonAppendWs) {
+        flushFinalTextRenderQueue();
+      }
 
       // Word-step live preview (not every Soniox frame): steadier than full mirror.
       // Morsy isolated sandbox: optional semantic pacing layer replaces the 52ms / word-staircase path only.
