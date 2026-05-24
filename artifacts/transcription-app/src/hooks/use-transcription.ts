@@ -152,8 +152,13 @@ const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 /** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
 const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
-/** Distance from scrollbar bottom counts as “following live”; above this we stop auto-scroll. */
-const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
+/**
+ * Tail-follow hysteresis on the transcript scroller:
+ * scrolling down within ENTER slack resumes auto-follow; scrolling up past LEAVE slack pauses auto-follow
+ * until the user scrolls near the tail again (avoids chat apps “fighting” upward reads on the same bubble).
+ */
+const TRANSCRIPT_TAIL_ENTER_SLACK_PX = 48;
+const TRANSCRIPT_TAIL_LEAVE_SLACK_PX = 112;
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
@@ -1978,10 +1983,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const scrollParent = inner?.parentElement ?? null;
       if (!scrollParent || cancelled) return false;
       attachedEl = scrollParent as HTMLElement;
-      const slack = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
       onScroll = () => {
-        const d = attachedEl!.scrollHeight - attachedEl!.scrollTop - attachedEl!.clientHeight;
-        userPinnedToBottomRef.current = d <= slack;
+        const el = attachedEl!;
+        const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const followingTail = userPinnedToBottomRef.current;
+        if (followingTail) {
+          if (d > TRANSCRIPT_TAIL_LEAVE_SLACK_PX) userPinnedToBottomRef.current = false;
+        } else if (d <= TRANSCRIPT_TAIL_ENTER_SLACK_PX) {
+          userPinnedToBottomRef.current = true;
+        }
       };
       attachedEl.addEventListener("scroll", onScroll, { passive: true });
       onScroll();
@@ -2745,7 +2755,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastConfirmedSourceTranslated = text;
         }
 
-        scrollPanel();
+        requestAnimationFrame(() => scrollPanel());
       } catch {
         recordTranslationFetchException();
         /* HIPAA — never log speech context */
@@ -2893,7 +2903,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
-    scrollPanel();
+    requestAnimationFrame(() => scrollPanel());
     return finalSpan;
   }, [scrollPanel]);
 
@@ -3465,7 +3475,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
-      scrollPanel();
 
       // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
       let tailSpk: string | undefined;
@@ -3618,6 +3627,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             intercallEndpointGraceTimerRef.current = setTimeout(() => {
               intercallEndpointGraceTimerRef.current = null;
               flushFinalTextRenderQueue();
+              requestAnimationFrame(() => scrollPanel());
               const stNow = activeBubbleStateRef.current;
               if (!stNow || stNow.segmentId !== segForGrace || stNow.translationLocked) return;
               const srcEnd = liveBufferRef.current.trim();
@@ -3649,6 +3659,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           });
         }
       }
+
+      requestAnimationFrame(() => scrollPanel());
     };
 
     ws.onerror = () => { setError("WebSocket error"); void stop(); };
