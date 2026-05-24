@@ -154,6 +154,157 @@ const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
 /** Distance from scrollbar bottom counts as “following live”; above this we stop auto-scroll. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
+
+/** Opt-in scroll latch diagnostics. `localStorage.setItem("interpreterai_transcript_scroll_diag","1")` then reload — console only. Reproduce: speak continuously, wheel/drag upward while pinned; inspect `[transcript_scroll_diag] heartbeat` and run `window.transcriptScrollDiagDump()`. */
+function transcriptScrollDiagEnabled(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("interpreterai_transcript_scroll_diag") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Ring buffer correlating scroll applies vs latch (recent history only). */
+const TRANSCRIPT_SCROLL_DIAG_SCROLL_LOG_MAX = 48;
+
+interface TranscriptScrollDiagSample {
+  t: number;
+  kind: string;
+  d?: number;
+  pinnedBefore?: boolean;
+  pinnedAfter?: boolean;
+  src?: string;
+}
+
+let transcriptScrollDiagScrollLog: TranscriptScrollDiagSample[] = [];
+
+let transcriptScrollDiagAttachOk = false;
+
+/** Counters incremented only when {@link transcriptScrollDiagEnabled}; safe to inspect in DevTools during a session. */
+let transcriptScrollDiagCounts = {
+  scrollEvents: 0,
+  scrollPanelsTotal: 0,
+  scrollPanelsApplied: 0,
+  scrollPanelsSkippedPinnedFalse: 0,
+  appliedByWs: 0,
+  appliedByBubble: 0,
+  appliedByTranslation: 0,
+  appliedByForce: 0,
+};
+
+function transcriptScrollDiagReset(): void {
+  transcriptScrollDiagScrollLog = [];
+  // Keep transcriptScrollDiagAttachOk: scroll listener survives doClear/start DOM churn; resetting it would false-positive H3.
+  transcriptScrollDiagCounts = {
+    scrollEvents: 0,
+    scrollPanelsTotal: 0,
+    scrollPanelsApplied: 0,
+    scrollPanelsSkippedPinnedFalse: 0,
+    appliedByWs: 0,
+    appliedByBubble: 0,
+    appliedByTranslation: 0,
+    appliedByForce: 0,
+  };
+}
+
+function transcriptScrollDiagPush(sample: TranscriptScrollDiagSample): void {
+  if (!transcriptScrollDiagEnabled()) return;
+  transcriptScrollDiagScrollLog.push(sample);
+  if (transcriptScrollDiagScrollLog.length > TRANSCRIPT_SCROLL_DIAG_SCROLL_LOG_MAX) {
+    transcriptScrollDiagScrollLog.splice(0, transcriptScrollDiagScrollLog.length - TRANSCRIPT_SCROLL_DIAG_SCROLL_LOG_MAX);
+  }
+}
+
+function transcriptScrollDiagApplyBurstHint(): Record<string, number | string> {
+  const applies = transcriptScrollDiagScrollLog.filter(r => r.kind === "scroll_panel_apply");
+  if (applies.length < 2) {
+    return { note: "need 2+ scroll_panel_apply rows in tail (speak continuously + pinned scroll)" };
+  }
+  let minDt = Infinity;
+  let sumDt = 0;
+  let n = 0;
+  for (let i = 1; i < applies.length; i++) {
+    const dt = applies[i]!.t - applies[i - 1]!.t;
+    if (dt >= 0) {
+      sumDt += dt;
+      n += 1;
+      minDt = Math.min(minDt, dt);
+    }
+  }
+  return {
+    applySamples: applies.length,
+    avgMsBetweenApplies: n > 0 ? Math.round(sumDt / n) : -1,
+    minMsBetweenApplies: Number.isFinite(minDt) ? Math.round(minDt) : -1,
+  };
+}
+
+function transcriptScrollDiagInstallGlobalDumpHook(): void {
+  if (!transcriptScrollDiagEnabled()) return;
+  if (typeof window === "undefined") return;
+  const w = window as unknown as { transcriptScrollDiagDump?: () => void };
+  w.transcriptScrollDiagDump = () => {
+    console.info("[transcript_scroll_diag] dump", {
+      attachOk: transcriptScrollDiagAttachOk,
+      counters: transcriptScrollDiagCounts,
+      applyBurstsApprox: transcriptScrollDiagApplyBurstHint(),
+      fullTailLog: [...transcriptScrollDiagScrollLog],
+    });
+  };
+}
+
+/** Optional: throttle summary console noise (still records ring buffer always). */
+let transcriptScrollDiagLastSummaryTs = 0;
+
+function transcriptScrollDiagMaybePeriodicSummary(nowMs = performance.now()): void {
+  if (!transcriptScrollDiagEnabled()) return;
+  if (nowMs - transcriptScrollDiagLastSummaryTs < 4000) return;
+  transcriptScrollDiagLastSummaryTs = nowMs;
+  console.info("[transcript_scroll_diag] heartbeat", {
+    attachOk: transcriptScrollDiagAttachOk,
+    counters: transcriptScrollDiagCounts,
+    latchHint_hypothesisCompare: {
+      slackPx: TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX,
+      H1_nearBottomStillPinned:
+        `If many scroll_listener rows show d≤${TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX}px while reading up → slack/small delta still counts pinned.`,
+      H2_outpaced:
+        transcriptScrollDiagCounts.scrollPanelsApplied > 0 &&
+        transcriptScrollDiagCounts.scrollPanelsApplied >= transcriptScrollDiagCounts.scrollEvents
+          ? "Often appliedPanels ≥ scrollEvents while dragging up → bursts may reclaim bottom before latch flips (see timing in dump tail)."
+          : "Not dominant in this interval (run longer with simultaneous speech + upward scroll).",
+      H3_noListenerNeverTrue: transcriptScrollDiagAttachOk
+        ? "Listener attached OK (if still broken, slack/race not missing-listener)."
+        : "BUG: listener never attached — latch stuck true permanently.",
+    },
+    ...transcriptScrollDiagApplyBurstHint(),
+    recentTail: transcriptScrollDiagScrollLog.slice(-16),
+    dumpCmd: "window.transcriptScrollDiagDump()",
+  });
+}
+
+type TranscriptScrollPanelSource = "ws" | "bubble" | "translation" | "force";
+
+function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void {
+  transcriptScrollDiagCounts.scrollPanelsApplied++;
+  switch (src) {
+    case "ws":
+      transcriptScrollDiagCounts.appliedByWs++;
+      break;
+    case "bubble":
+      transcriptScrollDiagCounts.appliedByBubble++;
+      break;
+    case "translation":
+      transcriptScrollDiagCounts.appliedByTranslation++;
+      break;
+    case "force":
+      transcriptScrollDiagCounts.appliedByForce++;
+      break;
+    default: {
+      const _exhaustive: never = src;
+      void _exhaustive;
+    }
+  }
+}
+
 const FAST_SWITCH_MIN_STREAK = 2;
 const FAST_SWITCH_MIN_AGE_MS = 300;
 const EST_TOKENS_PER_CHAR = 0.25;
@@ -1961,16 +2112,75 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── scrollPanel ────────────────────────────────────────────────────────────
   // Respect manual scroll-back: live updates scroll only while pinned-to-bottom or when forced (new session tail).
-  const scrollPanel = useCallback((force = false) => {
+  const scrollPanel = useCallback((force = false, source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble") => {
+    const diag = transcriptScrollDiagEnabled();
     const el = containerRef.current?.parentElement;
     if (!el) return;
+
+    if (diag) {
+      transcriptScrollDiagCounts.scrollPanelsTotal++;
+      transcriptScrollDiagMaybePeriodicSummary();
+    }
+    const t = performance.now();
+    const slack = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
+    const pinnedBefore = userPinnedToBottomRef.current;
+    let dBefore: number | undefined;
+    if (diag) {
+      dBefore = el.scrollHeight - el.scrollTop - el.clientHeight;
+    }
+
     if (force) {
       userPinnedToBottomRef.current = true;
       el.scrollTop = el.scrollHeight;
+      if (diag) {
+        transcriptScrollDiagCountApply("force");
+        const pinnedAfter =
+          el.scrollHeight - el.scrollTop - el.clientHeight <= slack;
+        transcriptScrollDiagPush({
+          t,
+          kind: "scroll_panel_apply",
+          d: dBefore,
+          pinnedBefore,
+          pinnedAfter,
+          src: "force",
+        });
+      }
       return;
     }
-    if (!userPinnedToBottomRef.current) return;
+
+    if (!userPinnedToBottomRef.current) {
+      if (diag) {
+        transcriptScrollDiagCounts.scrollPanelsSkippedPinnedFalse++;
+        transcriptScrollDiagPush({
+          t,
+          kind: "scroll_panel_skip_pinned_false",
+          d: dBefore,
+          pinnedBefore,
+          pinnedAfter: pinnedBefore,
+          src: source,
+        });
+      }
+      return;
+    }
+
     el.scrollTop = el.scrollHeight;
+    if (diag) {
+      const pinnedAfter =
+        el.scrollHeight - el.scrollTop - el.clientHeight <= slack;
+      transcriptScrollDiagCountApply(source);
+      transcriptScrollDiagPush({
+        t,
+        kind: "scroll_panel_apply",
+        d: dBefore,
+        pinnedBefore,
+        pinnedAfter,
+        src: source,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    transcriptScrollDiagInstallGlobalDumpHook();
   }, []);
 
   useLayoutEffect(() => {
@@ -1988,9 +2198,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onScroll = () => {
         const el = attachedEl!;
         const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const pinnedBeforeDiag = userPinnedToBottomRef.current;
         userPinnedToBottomRef.current = d <= slack;
+        const pinnedAfterDiag = userPinnedToBottomRef.current;
+        if (transcriptScrollDiagEnabled()) {
+          transcriptScrollDiagCounts.scrollEvents++;
+          transcriptScrollDiagPush({
+            t: performance.now(),
+            kind: "scroll_listener",
+            d,
+            pinnedBefore: pinnedBeforeDiag,
+            pinnedAfter: pinnedAfterDiag,
+          });
+          transcriptScrollDiagMaybePeriodicSummary();
+        }
       };
       attachedEl.addEventListener("scroll", onScroll, { passive: true });
+      if (transcriptScrollDiagEnabled()) {
+        transcriptScrollDiagAttachOk = true;
+      }
       onScroll();
       return true;
     };
@@ -1999,7 +2225,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (cancelled) return;
       if (!tryAttach()) {
         raf2 = requestAnimationFrame(() => {
-          if (!cancelled) tryAttach();
+          if (!cancelled) {
+            tryAttach();
+            if (transcriptScrollDiagEnabled() && !transcriptScrollDiagAttachOk) {
+              console.warn(
+                "[transcript_scroll_diag] scroll listener failed to attach after 2 animation frames — userPinnedToBottomRef cannot update from manual scroll.",
+              );
+            }
+          }
         });
       }
     });
@@ -2009,6 +2242,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
       if (attachedEl && onScroll) attachedEl.removeEventListener("scroll", onScroll);
+      if (transcriptScrollDiagEnabled()) {
+        transcriptScrollDiagAttachOk = false;
+      }
     };
   }, []);
 
@@ -2752,7 +2988,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           state.lastConfirmedSourceTranslated = text;
         }
 
-        scrollPanel();
+        scrollPanel(false, "translation");
       } catch {
         recordTranslationFetchException();
         /* HIPAA — never log speech context */
@@ -2900,7 +3136,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
-    scrollPanel();
+    scrollPanel(false, "bubble");
     return finalSpan;
   }, [scrollPanel]);
 
@@ -3014,6 +3250,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     stopTranslationInterval();
+    if (transcriptScrollDiagEnabled()) {
+      transcriptScrollDiagReset();
+      transcriptScrollDiagInstallGlobalDumpHook();
+    }
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     segmentStateByIdRef.current.clear();
     activeBubbleStateRef.current   = null;
@@ -3470,7 +3710,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       scheduleFinalTextRenderFlush();
 
       finalCountRef.current = finals.length;
-      scrollPanel();
+      scrollPanel(false, "ws");
 
       // ── NF (non-final) — tail hypothesis for stabilized tail speaker only (matches pivot ids)
       let tailSpk: string | undefined;
@@ -3707,6 +3947,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       resetSttPipelineInstrumentationSession();
       liveBlankTraceSessionReset();
       liveDirectionTraceSessionReset();
+
+      if (transcriptScrollDiagEnabled()) {
+        transcriptScrollDiagReset();
+        transcriptScrollDiagInstallGlobalDumpHook();
+      }
 
       // Run in parallel for lower latency; if one fails, still await the session
       // promise in `catch` so we can close a DB row that may have been created first.
