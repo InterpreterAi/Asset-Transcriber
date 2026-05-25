@@ -477,13 +477,10 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  *
  * - **`morsy-urgent-cbf`**: stabilized Soniox speaker segmentation pivot used by **all production workspace tiers**
  *   (trial OpenAI / basic[-libre|-openai] / professional / platinum / unlimited, etc.).
- * - **`morsy-intercall-isolated-experiment`**: reserved for **`plan_type === "morsy-urgent"` only** —
- *   Intercall clone orchestration sandbox. **Initially identical** to CBF speaker pivot; future Morsy-only behavior
- *   branches here — production tiers stay on **`morsy-urgent-cbf`** unchanged.
- *   Translation column (when translation is enabled) may use dual spans with an immutable finalized block + mutable live tail
- *   unless `{@link morsyStableTranslationTailKillSwitchEngaged}` (see `{@link morsyUrgentUsesStableTranslationTail}`).
- *   Original transcription column treats finalized tokens as append-only DOM + bookkeeping; hypotheses paint only NF tail (`{@link nfVisibleTailBeyondCommitted}`).
- *   Live translation preview cadence can use semantic stabilization (`morsy-intercall-orchestrator.ts`; kill-switchable like stable-tail).
+ * - **`morsy-intercall-isolated-experiment`**: **`plan_type === "morsy-urgent"` only** —
+ *   Workspace keeps this segment mode for **translation layout** (dual stable/live spans when guards allow; `{@link morsyStableTranslationTailKillSwitchEngaged}` overrides).
+ *   **Original column:** **`experimentMorsyUrgentIntercallOrchestration` (Intercall lab) must be on** —
+ *   otherwise transcript uses **`morsyEffectiveStrictOriginalFinalSeparation`** and follows the production-style path (cbf-compatible queues / DOM semantics). Lab on restores locked-canon enqueue, append-only canon path, verbatim NF tactical path (`morsyUrgentAppendOnlyTranscriptDomPath`).
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
 export type SegmentBehaviorMode =
@@ -2121,6 +2118,21 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
+/**
+ * Original-column strict final-vs-NF separation. For Basic · Morsy Urgent, this follows **`experimentMorsyUrgentIntercallOrchestration`**:
+ * lab off → **production-style transcript** (`morsy-urgent-cbf`-compatible path); lab on → isolated enqueue / locked canon / verbatim NF stack.
+ * Segment mode may stay `morsy-intercall-isolated-experiment` for translation layout — this affects **originals only**.
+ */
+function morsyEffectiveStrictOriginalFinalSeparation(
+  planLower: string,
+  segmentMode: SegmentBehaviorMode,
+  morsyIntercallOrchestrationLab: boolean,
+): boolean {
+  if (!morsyIntercallSandboxStrictOriginalFinalSeparation(segmentMode)) return false;
+  if (isBasicMorsyUrgentPlan(planLower)) return morsyIntercallOrchestrationLab;
+  return true;
+}
+
 /** First punctuated Arabic/Latin/CJK sentence in a live-band remainder (`morsy-intercall-isolated-experiment`). */
 const MORSY_SEMANTIC_ARABIC_FREEZE_SENTENCE_HEAD_RE =
   /^(.{8,}?[.!?؟。！？])(?:\s+([\s\S]*))?$/u;
@@ -2822,10 +2834,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       segmentBehaviorMode: segmentBehaviorModeRef.current,
       transcriptSegIsolation:
         segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
+      intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
     });
     if (
       canonDiscardQueue &&
-      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+      morsyEffectiveStrictOriginalFinalSeparation(
+        planTypeRef.current.trim(),
+        segmentBehaviorModeRef.current,
+        experimentMorsyUrgentIntercallRef.current,
+      )
     ) {
       if (finalRenderTimerRef.current !== null) {
         clearTimeout(finalRenderTimerRef.current);
@@ -2867,10 +2884,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!gateSt || gateSt.isClosed || gateSt.segmentId !== segmentId) continue;
       }
 
-      const isolatedOrchFlush = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
+      const isolatedOrchFlushBase = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
         planTypeLower: planTypeRef.current,
         segmentBehaviorMode: segmentBehaviorModeRef.current,
       });
+      const isolatedOrchFlush =
+        isolatedOrchFlushBase &&
+        (!isBasicMorsyUrgentPlan(planTypeRef.current) || experimentMorsyUrgentIntercallRef.current);
       const flushText = text;
 
       if (
@@ -2879,7 +2899,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         gateSt !== undefined &&
         segmentId !== undefined &&
         gateSt.segmentId === segmentId &&
-        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+        morsyEffectiveStrictOriginalFinalSeparation(
+          planTypeRef.current.trim(),
+          segmentBehaviorModeRef.current,
+          experimentMorsyUrgentIntercallRef.current,
+        )
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
         target.textContent = gateSt.lockedCommittedFinalOriginal;
@@ -2895,7 +2919,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       } else {
         target.textContent = (target.textContent ?? "") + flushText;
 
-        if (morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)) {
+        if (
+          morsyEffectiveStrictOriginalFinalSeparation(
+            planTypeRef.current.trim(),
+            segmentBehaviorModeRef.current,
+            experimentMorsyUrgentIntercallRef.current,
+          )
+        ) {
           if (gateSt) gateSt.lockedCommittedFinalOriginal += flushText;
           else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
             activeBubbleStateRef.current.lockedCommittedFinalOriginal += flushText;
@@ -2913,8 +2943,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         segmentBehaviorMode: segmentBehaviorModeRef.current,
         transcriptSegIsolation:
           segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
+        intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
       }) &&
-      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+      morsyEffectiveStrictOriginalFinalSeparation(
+        planTypeRef.current.trim(),
+        segmentBehaviorModeRef.current,
+        experimentMorsyUrgentIntercallRef.current,
+      )
     ) {
       return;
     }
@@ -4119,6 +4154,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         segmentBehaviorMode: segmentBehaviorModeRef.current,
         transcriptSegIsolation:
           segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
+        intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
       })
     ) {
       primeMorsyIsolatedCommittedTextNode(finalCommitTarget);
@@ -4249,7 +4285,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const bubbleStPre = activeBubbleStateRef.current;
     if (
       bubbleStPre &&
-      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+      morsyEffectiveStrictOriginalFinalSeparation(
+        planTypeRef.current.trim(),
+        segmentBehaviorModeRef.current,
+        experimentMorsyUrgentIntercallRef.current,
+      ) &&
       activeBubbleRef.current
     ) {
       if (
@@ -4258,6 +4298,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           segmentBehaviorMode: segmentBehaviorModeRef.current,
           transcriptSegIsolation:
             segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
+          intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
         })
       ) {
         reconcileCommittedTextNodeFromLockedString(
@@ -4297,7 +4338,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const bubbleSt = activeBubbleStateRef.current;
     if (
       bubbleSt &&
-      morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current)
+      morsyEffectiveStrictOriginalFinalSeparation(
+        planTypeRef.current.trim(),
+        segmentBehaviorModeRef.current,
+        experimentMorsyUrgentIntercallRef.current,
+      )
     ) {
       finalText = bubbleSt.lockedCommittedFinalOriginal.trim();
     } else {
@@ -4692,20 +4737,31 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let currentSpeakerSeenInMessage = false;
       const transcriptSegIsolationWs =
         segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
-      const isolatedOrchWs = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
+      const isolatedOrchWsBase = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
         planTypeLower: planTypeRef.current,
         segmentBehaviorMode: segmentBehaviorModeRef.current,
       });
+      const isolatedOrchWs =
+        isolatedOrchWsBase &&
+        (!isBasicMorsyUrgentPlan(planTypeRef.current) ||
+          experimentMorsyUrgentIntercallRef.current);
       const canonAppendWs = morsyUrgentAppendOnlyTranscriptDomPath({
         planTypeLower: planTypeRef.current.trim(),
         segmentBehaviorMode: segmentBehaviorModeRef.current,
         transcriptSegIsolation: transcriptSegIsolationWs,
+        intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
       });
       const isolatedEnqueueCanonRoll =
         !canonAppendWs &&
         isolatedOrchWs &&
         transcriptSegIsolationWs &&
-        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
+        morsyEffectiveStrictOriginalFinalSeparation(
+          planTypeRef.current.trim(),
+          segmentBehaviorModeRef.current,
+          experimentMorsyUrgentIntercallRef.current,
+        );
+      /** Verbatim tactical NF (= lab-gated isolated orchestration for urgent); mirrors `isolatedOrchWs`. */
+      const isolatedUrgentExperimentVerbatimNf = isolatedOrchWs;
       const morsySemanticIsoPresentationUx =
         useMorsyUrgentSpeakerGate &&
         morsyIsolatedSemanticPresentationEnabled({
@@ -4929,7 +4985,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !canonAppendWs &&
         isolatedOrchWs &&
         transcriptSegIsolationWs &&
-        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current) &&
+        morsyEffectiveStrictOriginalFinalSeparation(
+          planTypeRef.current.trim(),
+          segmentBehaviorModeRef.current,
+          experimentMorsyUrgentIntercallRef.current,
+        ) &&
         activeBubbleRef.current
       ) {
         flushFinalTextRenderQueue();
@@ -5059,7 +5119,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       } else {
       const strictOriginalSeparation =
-        morsyIntercallSandboxStrictOriginalFinalSeparation(segmentBehaviorModeRef.current);
+        morsyEffectiveStrictOriginalFinalSeparation(
+          planTypeRef.current.trim(),
+          segmentBehaviorModeRef.current,
+          experimentMorsyUrgentIntercallRef.current,
+        );
       const omitPendingCommittedCanon =
         strictOriginalSeparation &&
         isolatedOrchWs &&
@@ -5090,12 +5154,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       } else {
         nfText = tokens.filter(t => !t.is_final && !isSonioxEndpointToken(t)).map(t => t.text).join("");
       }
-
-      /** Tactical bypass: urgent + isolated experiment — overlap/strip manufactured visible corruption worse than raw Soniox NF. */
-      const isolatedUrgentExperimentVerbatimNf = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
-        planTypeLower: planTypeRef.current.trim(),
-        segmentBehaviorMode: segmentBehaviorModeRef.current,
-      });
 
       let nfPaint = "";
       if (isolatedUrgentExperimentVerbatimNf && nfText) {
