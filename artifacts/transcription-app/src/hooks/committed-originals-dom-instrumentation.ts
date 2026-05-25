@@ -3,7 +3,9 @@
  *
  * **Enable (reload):**
  *   `localStorage.setItem("interpreterai_committed_orig_dom_trace", "1")`
- *
+ * **Scope:** emits only when the hook registers the strict gate: `plan_type === "morsy-urgent"` and
+ * `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`. Default plans / legacy2 / non-isolated
+ * modes never log even if localStorage is set.
  * **Morsy Urgent + isolated canon-append (`morsyUrgentAppendOnlyTranscriptDomPath`):**
  * Live committed originals are written only via **`{@link projectCommittedOriginalsVisibleUtf16}`**
  * (invoked from `paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom` and legacy flush rescue).
@@ -21,11 +23,23 @@ let orchestrationSeq = 0;
 /** Dedupe passive RAF/MO snapshots when fingerprint unchanged. */
 let lastPassiveFingerprint = "";
 
-/** `localStorage` key toggling `[committed_orig_dom_*]` logs. */
+/** `localStorage` key toggling `[committed_orig_dom_*]` logs (still requires `{@link registerCommittedOrigDomIntegrityTraceStrictScopeGate}` + scope). */
 export const COMMITTED_ORIG_DOM_TRACE_FLAG = "interpreterai_committed_orig_dom_trace";
+
+/**
+ * Narrow trace to Basic **Morsy Urgent** + isolated experiment segment (`morsy-intercall-isolated-experiment`).
+ * Default is no gate — emits nothing until the hook registers a gate (typically refs + plan/mode equality).
+ */
+let committedOrigIntegrityTraceStrictScopeGate: () => boolean = () => false;
+
+/** Call from `{@link use-transcription.ts}` mount; resets on unregister. */
+export function registerCommittedOrigDomIntegrityTraceStrictScopeGate(gate: () => boolean): void {
+  committedOrigIntegrityTraceStrictScopeGate = gate;
+}
 
 export function committedOrigDomIntegrityTraceEnabled(): boolean {
   try {
+    if (!committedOrigIntegrityTraceStrictScopeGate()) return false;
     return typeof localStorage !== "undefined" && localStorage.getItem(COMMITTED_ORIG_DOM_TRACE_FLAG) === "1";
   } catch {
     return false;
