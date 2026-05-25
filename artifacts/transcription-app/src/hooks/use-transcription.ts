@@ -63,10 +63,10 @@ import {
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
 import {
-  appendDataLockedOnly,
   morsyIsolatedVerbatimRawNfHypothesis,
   morsyUrgentAppendOnlyTranscriptDomPath,
   primeMorsyIsolatedCommittedTextNode,
+  projectCommittedOriginalsVisibleUtf16,
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import {
@@ -486,7 +486,8 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  * - **`morsy-intercall-isolated-experiment`**: **`plan_type === "morsy-urgent"` only** —
  *   Workspace keeps this segment mode for **translation layout** (dual stable/live spans when guards allow; `{@link morsyStableTranslationTailKillSwitchEngaged}` overrides).
  *   **Original column (Soniox-aligned):** with transcript segment guards, **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`** —
- *   append-only **`lockedCommittedFinalOriginal`** + **`appendData`**, verbatim NF snapshot, **`liveBufferRef = locked∥nfRaw`**;
+ *   append-only **`lockedCommittedFinalOriginal`** +
+ *   **`{@link projectCommittedOriginalsVisibleUtf16}`** (monotone **`visibleCommittedBoundary`**), verbatim NF snapshot, **`liveBufferRef = locked∥nfRaw`**;
  *   no queued committed canon, no DOM-derived finalist shadow, **`{@link reconcileCommittedTextNodeFromLockedString}`** at boundary only.
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
@@ -2102,6 +2103,8 @@ interface BubbleTransState {
   /** Canon idle clock for advancing {@link BubbleTransState.visibleCommittedBoundary}. */
   morsyCanonPromotionLockedLen: number;
   morsyCanonPromotionQuietSinceMs: number;
+  /** First `nowMs` when visible boundary trailed canon backlog; drives lag ceiling promotion. */
+  morsyCanonPromotionBacklogAnchorMs: number | null;
   /**
    * @deprecated Presentation-only rollback: committed column is raw single-span DOM (see flush path); kept null always.
    */
@@ -2915,14 +2918,33 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         gateSt.segmentId === segmentId
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
-        appendDataLockedOnly(target, flushText, gateSt.lockedCommittedFinalOriginal);
+        const nowFlushCanon = Date.now();
+        const stepFlush = stepVisibleCommittedBoundaryUtf16({
+          locked: gateSt.lockedCommittedFinalOriginal,
+          boundaryUtf16: gateSt.visibleCommittedBoundary,
+          scratch: {
+            lockedLenTracked: gateSt.morsyCanonPromotionLockedLen,
+            quietSinceMs: gateSt.morsyCanonPromotionQuietSinceMs,
+            backlogAnchorMs: gateSt.morsyCanonPromotionBacklogAnchorMs,
+          },
+          nowMs: nowFlushCanon,
+        });
+        gateSt.visibleCommittedBoundary = stepFlush.boundaryUtf16;
+        gateSt.morsyCanonPromotionLockedLen = stepFlush.scratch.lockedLenTracked;
+        gateSt.morsyCanonPromotionQuietSinceMs = stepFlush.scratch.quietSinceMs;
+        gateSt.morsyCanonPromotionBacklogAnchorMs = stepFlush.scratch.backlogAnchorMs;
+        projectCommittedOriginalsVisibleUtf16(
+          target,
+          gateSt.lockedCommittedFinalOriginal.slice(0, gateSt.visibleCommittedBoundary),
+        );
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
-            kind:             "flush_append_canon_appenddata",
-            segmentId:        gateSt.segmentId,
-            canonLenAfter:    gateSt.lockedCommittedFinalOriginal.length,
-            appendedLen:      flushText.length,
-            appendedSnippet:  flushText.length > 96 ? `${flushText.slice(0, 96)}…` : flushText,
+            kind:           "flush_append_canon_visible_project",
+            segmentId:      gateSt.segmentId,
+            canonLenAfter:  gateSt.lockedCommittedFinalOriginal.length,
+            visibleBoundary: gateSt.visibleCommittedBoundary,
+            appendedLen:    flushText.length,
+            appendedSnippet: flushText.length > 96 ? `${flushText.slice(0, 96)}…` : flushText,
           });
         }
       } else if (
@@ -4282,6 +4304,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       visibleCommittedBoundary: 0,
       morsyCanonPromotionLockedLen: 0,
       morsyCanonPromotionQuietSinceMs: Date.now(),
+      morsyCanonPromotionBacklogAnchorMs: null,
       morsySemanticCommittedHostEl: null,
       morsySemanticImmutableSpanEl: null,
       morsySemanticTentativeSpanEl: null,
@@ -4337,6 +4360,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       })
     ) {
       bubbleStPre.visibleCommittedBoundary = bubbleStPre.lockedCommittedFinalOriginal.length;
+      bubbleStPre.morsyCanonPromotionBacklogAnchorMs = null;
+      bubbleStPre.morsyCanonPromotionQuietSinceMs = Date.now();
       clearMorsyIsolatedSemanticUiTimers(bubbleStPre);
       bubbleStPre.morsyVisibleNfStagingPaint = "";
       bubbleStPre.morsyVisibleNfCommittedPaint = "";
@@ -4904,13 +4929,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                     }
                     if (canonAppendWs && activeBubbleStateRef.current && bufferedCanon.length > 0) {
                       activeBubbleStateRef.current.lockedCommittedFinalOriginal += bufferedCanon;
-                      if (activeBubbleRef.current) {
-                        appendDataLockedOnly(
-                          activeBubbleRef.current,
-                          bufferedCanon,
-                          activeBubbleStateRef.current.lockedCommittedFinalOriginal,
-                        );
-                      }
                     } else if (bufferedCanon.length > 0) {
                       finalRenderQueueRef.current.push({
                         target: activeBubbleRef.current,
@@ -4947,13 +4965,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           if (canonAppendWs && activeBubbleStateRef.current && pushCanon.length > 0) {
             activeBubbleStateRef.current.lockedCommittedFinalOriginal += pushCanon;
-            if (activeBubbleRef.current) {
-              appendDataLockedOnly(
-                activeBubbleRef.current,
-                pushCanon,
-                activeBubbleStateRef.current.lockedCommittedFinalOriginal,
-              );
-            }
           } else if (pushCanon.length > 0) {
             finalRenderQueueRef.current.push({
               target: activeBubbleRef.current,
@@ -4989,13 +5000,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             if (canonAppendWs && activeBubbleStateRef.current && pendCanon.length > 0) {
               activeBubbleStateRef.current.lockedCommittedFinalOriginal += pendCanon;
-              if (activeBubbleRef.current) {
-                appendDataLockedOnly(
-                  activeBubbleRef.current,
-                  pendCanon,
-                  activeBubbleStateRef.current.lockedCommittedFinalOriginal,
-                );
-              }
             } else if (pendCanon.length > 0) {
               finalRenderQueueRef.current.push({
                 target: activeBubbleRef.current,
@@ -5112,46 +5116,54 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
 
-        const stVisSemanticCanon = activeBubbleStateRef.current;
-        if (
-          stVisSemanticCanon &&
-          morsyIsolatedSemanticPresentationEnabled({
-            planTypeLower: planTypeRef.current.trim(),
-            segmentBehaviorMode: segmentBehaviorModeRef.current,
-          })
-        ) {
+        const committedSpanCanon = activeBubbleRef.current;
+        const stPromoCanon = activeBubbleStateRef.current;
+        if (stPromoCanon && committedSpanCanon) {
           const stepResCanon = stepVisibleCommittedBoundaryUtf16({
-            locked: stVisSemanticCanon.lockedCommittedFinalOriginal,
-            boundaryUtf16: stVisSemanticCanon.visibleCommittedBoundary,
+            locked: stPromoCanon.lockedCommittedFinalOriginal,
+            boundaryUtf16: stPromoCanon.visibleCommittedBoundary,
             scratch: {
-              lockedLenTracked: stVisSemanticCanon.morsyCanonPromotionLockedLen,
-              quietSinceMs: stVisSemanticCanon.morsyCanonPromotionQuietSinceMs,
+              lockedLenTracked: stPromoCanon.morsyCanonPromotionLockedLen,
+              quietSinceMs: stPromoCanon.morsyCanonPromotionQuietSinceMs,
+              backlogAnchorMs: stPromoCanon.morsyCanonPromotionBacklogAnchorMs,
             },
             nowMs,
           });
-          stVisSemanticCanon.visibleCommittedBoundary = stepResCanon.boundaryUtf16;
-          stVisSemanticCanon.morsyCanonPromotionLockedLen = stepResCanon.scratch.lockedLenTracked;
-          stVisSemanticCanon.morsyCanonPromotionQuietSinceMs = stepResCanon.scratch.quietSinceMs;
+          stPromoCanon.visibleCommittedBoundary = stepResCanon.boundaryUtf16;
+          stPromoCanon.morsyCanonPromotionLockedLen = stepResCanon.scratch.lockedLenTracked;
+          stPromoCanon.morsyCanonPromotionQuietSinceMs = stepResCanon.scratch.quietSinceMs;
+          stPromoCanon.morsyCanonPromotionBacklogAnchorMs = stepResCanon.scratch.backlogAnchorMs;
+          projectCommittedOriginalsVisibleUtf16(
+            committedSpanCanon,
+            stPromoCanon.lockedCommittedFinalOriginal.slice(
+              0,
+              stPromoCanon.visibleCommittedBoundary,
+            ),
+          );
           if (
+            morsyIsolatedSemanticPresentationEnabled({
+              planTypeLower: planTypeRef.current.trim(),
+              segmentBehaviorMode: segmentBehaviorModeRef.current,
+            }) &&
             stepResCanon.promoted &&
-            !stVisSemanticCanon.translationLocked &&
-            !stVisSemanticCanon.finalizing &&
-            !(segmentBoundaryGuardsRef.current && stVisSemanticCanon.isClosed)
+            !stPromoCanon.translationLocked &&
+            !stPromoCanon.finalizing &&
+            !(segmentBoundaryGuardsRef.current && stPromoCanon.isClosed)
           ) {
             const hintedCanon = collapseWs(
-              `${stVisSemanticCanon.lockedCommittedFinalOriginal.trimEnd()}${nfRaw}`,
+              `${stPromoCanon.lockedCommittedFinalOriginal.trimEnd()}${nfRaw}`,
             ).trim();
             const promotedWordsNowCanon = countWords(hintedCanon);
             if (
               hintedCanon.length >= 20 &&
               promotedWordsNowCanon >= EARLY_HINT_MIN_WORDS &&
-              stVisSemanticCanon.finalTokensSeen >= 2
+              stPromoCanon.finalTokensSeen >= 2
             ) {
               morsyIntercallSandboxSemanticStabilizeLive(
                 hintedCanon,
                 promotedWordsNowCanon,
-                stVisSemanticCanon.segmentId,
-                stVisSemanticCanon.finalTokensSeen,
+                stPromoCanon.segmentId,
+                stPromoCanon.finalTokensSeen,
               );
             }
           }
@@ -5375,12 +5387,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           scratch: {
             lockedLenTracked: stVisSemantic.morsyCanonPromotionLockedLen,
             quietSinceMs: stVisSemantic.morsyCanonPromotionQuietSinceMs,
+            backlogAnchorMs: stVisSemantic.morsyCanonPromotionBacklogAnchorMs,
           },
           nowMs,
         });
         stVisSemantic.visibleCommittedBoundary = stepRes.boundaryUtf16;
         stVisSemantic.morsyCanonPromotionLockedLen = stepRes.scratch.lockedLenTracked;
         stVisSemantic.morsyCanonPromotionQuietSinceMs = stepRes.scratch.quietSinceMs;
+        stVisSemantic.morsyCanonPromotionBacklogAnchorMs = stepRes.scratch.backlogAnchorMs;
         if (
           stepRes.promoted &&
           !stVisSemantic.translationLocked &&
