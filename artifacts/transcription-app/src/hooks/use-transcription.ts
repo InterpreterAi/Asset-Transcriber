@@ -69,8 +69,10 @@ import {
   emitCommittedOrigDomMutation,
   emitCommittedOrigDomOrchestration,
   emitCommittedOrigDomPassiveSample,
+  registerCommittedOrigDomIntegrityTraceStrictScopeGate,
 } from "@/hooks/committed-originals-dom-instrumentation";
 import {
+  morsyIntercallIsolatedSandboxSegment,
   morsyIsolatedVerbatimRawNfHypothesis,
   morsyUrgentAppendOnlyTranscriptDomPath,
   primeMorsyIsolatedCommittedTextNode,
@@ -3430,6 +3432,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const jumpTailFollow = useCallback(() => {
     scrollPanel(true);
   }, [scrollPanel]);
+
+  /** Renderer-integrity trace: emits only for `morsy-urgent` plan + `morsy-intercall-isolated-experiment` segment mode (see instrumentation module). */
+  useEffect(() => {
+    registerCommittedOrigDomIntegrityTraceStrictScopeGate(() => {
+      if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return false;
+      return morsyIntercallIsolatedSandboxSegment(segmentBehaviorModeRef.current);
+    });
+    return () => registerCommittedOrigDomIntegrityTraceStrictScopeGate(() => false);
+  }, []);
 
   useEffect(() => {
     transcriptScrollDiagInstallGlobalDumpHook();
