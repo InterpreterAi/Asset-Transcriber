@@ -61,13 +61,27 @@ export function monotoneVisibleCommittedBoundaryUtf16(args: {
   return Math.min(args.lockedLenUtf16, Math.max(args.prevBoundaryUtf16, args.steppedBoundaryUtf16));
 }
 
-/** Advance visible prefix toward full `locked` (idle clustering + backlog lag ceiling). Caller should apply `{@link monotoneVisibleCommittedBoundaryUtf16}`. */
+/** Why visible boundary snapped to canon tail this tick (instrumentation — Basic · Morsy Urgent visible projection). */
+export type MorsyCanonPromotionKind = "none" | "idle_quiet" | "lag_ceiling";
+
+export type MorsyCanonPromotionStepResult = {
+  boundaryUtf16: number;
+  scratch: MorsyCanonPromotionScratch;
+  promoted: boolean;
+  promoteReason: MorsyCanonPromotionKind;
+  idleNeedMsSuggested: number;
+  msQuietSinceCanonGrowth: number;
+  msBacklogLag: number | null;
+  tentativeTailLenUtf16: number;
+};
+
+/** Advance visible prefix toward full `locked` (idle clustering + backlog lag ceiling). Caller applies `{@link monotoneVisibleCommittedBoundaryUtf16}` after return. */
 export function stepVisibleCommittedBoundaryUtf16(args: {
   locked: string;
   boundaryUtf16: number;
   scratch: MorsyCanonPromotionScratch;
   nowMs: number;
-}): { boundaryUtf16: number; scratch: MorsyCanonPromotionScratch; promoted: boolean } {
+}): MorsyCanonPromotionStepResult {
   let { lockedLenTracked, quietSinceMs, backlogAnchorMs } = args.scratch;
   if (args.locked.length !== lockedLenTracked) {
     lockedLenTracked = args.locked.length;
@@ -76,6 +90,14 @@ export function stepVisibleCommittedBoundaryUtf16(args: {
   let boundary = Math.min(args.boundaryUtf16, args.locked.length);
   const tentativeTail = args.locked.slice(boundary);
   let promoted = false;
+  let promoteReason: MorsyCanonPromotionKind = "none";
+
+  const tailScan = tentativeTail.slice(Math.max(0, tentativeTail.length - 140));
+  const idleNeedMsSuggested = tentativeTail.length > 0 ? promotionIdleNeedMsForTailScan(tailScan) : MORSY_COMMIT_VISIBLE_IDLE_BASE_MS;
+  /** Minimal tentative tail UTF-16 before idle-based snap (`LAG` ceiling covers very short remnants). */
+  const minTentUtf16BeforeIdlePromote = 1;
+
+  const msQuietSinceCanonGrowth = Math.max(0, args.nowMs - quietSinceMs);
 
   if (tentativeTail.length <= 0) {
     backlogAnchorMs = null;
@@ -83,6 +105,11 @@ export function stepVisibleCommittedBoundaryUtf16(args: {
       boundaryUtf16: boundary,
       scratch: { lockedLenTracked, quietSinceMs, backlogAnchorMs },
       promoted: false,
+      promoteReason: "none",
+      idleNeedMsSuggested,
+      msQuietSinceCanonGrowth,
+      msBacklogLag: null,
+      tentativeTailLenUtf16: 0,
     };
   }
 
@@ -90,23 +117,21 @@ export function stepVisibleCommittedBoundaryUtf16(args: {
     backlogAnchorMs = args.nowMs;
   }
 
-  const tailScan = tentativeTail.slice(Math.max(0, tentativeTail.length - 140));
-  const idleNeedMs = promotionIdleNeedMsForTailScan(tailScan);
-  /** Minimal tentative tail UTF-16 before idle-based snap (`LAG` ceiling covers very short remnants). */
-  const minTentUtf16BeforeIdlePromote = 1;
-
-  const lagBehindMs = backlogAnchorMs !== null ? args.nowMs - backlogAnchorMs : 0;
+  const msBacklogLag = backlogAnchorMs !== null ? Math.max(0, args.nowMs - backlogAnchorMs) : null;
+  const lagBehindMs = msBacklogLag ?? 0;
   if (lagBehindMs >= MORSY_COMMIT_VISIBLE_MAX_LAG_BEHIND_CANON_MS) {
     boundary = args.locked.length;
     promoted = true;
+    promoteReason = "lag_ceiling";
     quietSinceMs = args.nowMs;
     backlogAnchorMs = null;
   } else if (
     tentativeTail.length >= minTentUtf16BeforeIdlePromote &&
-    args.nowMs - quietSinceMs >= idleNeedMs
+    args.nowMs - quietSinceMs >= idleNeedMsSuggested
   ) {
     boundary = args.locked.length;
     promoted = true;
+    promoteReason = "idle_quiet";
     quietSinceMs = args.nowMs;
     backlogAnchorMs = null;
   }
@@ -115,6 +140,11 @@ export function stepVisibleCommittedBoundaryUtf16(args: {
     boundaryUtf16: boundary,
     scratch: { lockedLenTracked, quietSinceMs, backlogAnchorMs },
     promoted,
+    promoteReason,
+    idleNeedMsSuggested,
+    msQuietSinceCanonGrowth,
+    msBacklogLag,
+    tentativeTailLenUtf16: tentativeTail.length,
   };
 }
 
