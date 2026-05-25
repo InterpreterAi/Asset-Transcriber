@@ -18,20 +18,45 @@ export type MorsyCanonPromotionScratch = {
   lockedLenTracked: number;
   /** Timestamp (epoch ms): start of idle window after canonical growth paused. */
   quietSinceMs: number;
+  /**
+   * When visible boundary trails `locked`, first backlog observation (`nowMs`); `null` when caught up.
+   * Drives **`MORSY_COMMIT_VISIBLE_MAX_LAG_BEHIND_CANON_MS`** ceiling under continuous finals.
+   */
+  backlogAnchorMs: number | null;
 };
 
+/** Tune with side-by-side Intercall tests (Basic · Morsy Urgent isolated canon path only). */
+export const MORSY_COMMIT_VISIBLE_MAX_LAG_BEHIND_CANON_MS = 300;
+
+/** Floor for idle-before-promotion (entity-heavy tentative tails skew higher via `{@link promotionIdleNeedMsForTailScan}`). */
+export const MORSY_COMMIT_VISIBLE_IDLE_BASE_MS = 165;
+
 export function resetMorsyCanonPromotionScratch(nowMs: number): MorsyCanonPromotionScratch {
-  return { lockedLenTracked: 0, quietSinceMs: nowMs };
+  return { lockedLenTracked: 0, quietSinceMs: nowMs, backlogAnchorMs: null };
 }
 
-/** Advance boundary for pacing signals only (promotion callbacks); callers must not splice committed DOM from this. */
+/** Tentative-tail scan (typically last ≤140 UTF-16) → bounded idle-before-promotion. */
+export function promotionIdleNeedMsForTailScan(tailScan: string): number {
+  const ts = tailScan.trim();
+  if (!ts) return MORSY_COMMIT_VISIBLE_IDLE_BASE_MS;
+  const numericHeavy =
+    /\d/.test(ts) ||
+    /\$|€|£|USD|EUR|\b(?:invoice|receipt|order|acct|#\d+)\b/i.test(ts);
+  if (numericHeavy) return Math.min(MORSY_COMMIT_VISIBLE_MAX_LAG_BEHIND_CANON_MS - 5, 295);
+  // Trailing capitalized token(s) — common name / entity flake while finals still drifting
+  if (/(?:^|\s)[A-Z][a-z]{2,}\s*$/.test(ts)) return 235;
+  if (/\b(?:called|named|meet|thank|thanks|[Mm]rs?\.|[Dd]r\.)\b[^.!?]{0,32}$/.test(ts)) return 248;
+  return MORSY_COMMIT_VISIBLE_IDLE_BASE_MS;
+}
+
+/** Advance monotone visible prefix into full `locked` (idle clustering + backlog lag ceiling); never rewinds. */
 export function stepVisibleCommittedBoundaryUtf16(args: {
   locked: string;
   boundaryUtf16: number;
   scratch: MorsyCanonPromotionScratch;
   nowMs: number;
 }): { boundaryUtf16: number; scratch: MorsyCanonPromotionScratch; promoted: boolean } {
-  let { lockedLenTracked, quietSinceMs } = args.scratch;
+  let { lockedLenTracked, quietSinceMs, backlogAnchorMs } = args.scratch;
   if (args.locked.length !== lockedLenTracked) {
     lockedLenTracked = args.locked.length;
     quietSinceMs = args.nowMs;
@@ -39,25 +64,44 @@ export function stepVisibleCommittedBoundaryUtf16(args: {
   let boundary = Math.min(args.boundaryUtf16, args.locked.length);
   const tentativeTail = args.locked.slice(boundary);
   let promoted = false;
-  if (tentativeTail.length > 0) {
-    const tailScan = tentativeTail.slice(Math.max(0, tentativeTail.length - 140));
-    const numericHeavy =
-      /\d/.test(tailScan) ||
-      /\$|€|£|USD|EUR|\b(?:invoice|receipt|order|acct|#\d+)\b/i.test(tailScan);
-    const idleNeedMs = numericHeavy ? 280 : 155;
-    const minTentUtf16BeforePromote = 3;
-    if (
-      tentativeTail.length >= minTentUtf16BeforePromote &&
-      args.nowMs - quietSinceMs >= idleNeedMs
-    ) {
-      boundary = args.locked.length;
-      promoted = true;
-      quietSinceMs = args.nowMs;
-    }
+
+  if (tentativeTail.length <= 0) {
+    backlogAnchorMs = null;
+    return {
+      boundaryUtf16: boundary,
+      scratch: { lockedLenTracked, quietSinceMs, backlogAnchorMs },
+      promoted: false,
+    };
   }
+
+  if (backlogAnchorMs === null) {
+    backlogAnchorMs = args.nowMs;
+  }
+
+  const tailScan = tentativeTail.slice(Math.max(0, tentativeTail.length - 140));
+  const idleNeedMs = promotionIdleNeedMsForTailScan(tailScan);
+  /** Minimal tentative tail UTF-16 before idle-based snap (`LAG` ceiling covers very short remnants). */
+  const minTentUtf16BeforeIdlePromote = 1;
+
+  const lagBehindMs = backlogAnchorMs !== null ? args.nowMs - backlogAnchorMs : 0;
+  if (lagBehindMs >= MORSY_COMMIT_VISIBLE_MAX_LAG_BEHIND_CANON_MS) {
+    boundary = args.locked.length;
+    promoted = true;
+    quietSinceMs = args.nowMs;
+    backlogAnchorMs = null;
+  } else if (
+    tentativeTail.length >= minTentUtf16BeforeIdlePromote &&
+    args.nowMs - quietSinceMs >= idleNeedMs
+  ) {
+    boundary = args.locked.length;
+    promoted = true;
+    quietSinceMs = args.nowMs;
+    backlogAnchorMs = null;
+  }
+
   return {
     boundaryUtf16: boundary,
-    scratch: { lockedLenTracked, quietSinceMs },
+    scratch: { lockedLenTracked, quietSinceMs, backlogAnchorMs },
     promoted,
   };
 }

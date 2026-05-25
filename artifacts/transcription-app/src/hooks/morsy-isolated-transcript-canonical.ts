@@ -15,14 +15,16 @@
  * - **DOM:** `nfSpan.textContent = nfText` each frame (full replace of the NF span only).
  * - **liveBufferRef:** `locked.trimEnd() + nfText` (trim ends only on the fused string).
  *
- * ### Committed DOM
- * - One `Text` child under the committed `<span>`; **`Text.appendData(delta)`** per new final chunk.
- * - **Polluted DOM:** **`appendDataLockedOnly`** rebuilds the text node from **`fullLockedCanonUtf16`** so history is never truncated to **`delta`** alone.
- * - **Boundary only:** **`reconcileCommittedTextNodeFromLockedString`** at **`softFinalize`** / segment close.
+ * ### Committed DOM (canonical append-only path)
+ * - **Authority:** `lockedCommittedFinalOriginal` grows immediately; translation / `liveBufferRef` fuse full **`locked`** with NF.
+ * - **Visible originals column:** **`projectCommittedOriginalsVisibleUtf16`** each Soniox frame — shows
+ *   `locked.slice(0, visibleCommittedBoundary)` only (**`stepVisibleCommittedBoundaryUtf16`** in `morsy-isolated-semantic-visible.ts`).
+ * - **Full flush:** **`reconcileCommittedTextNodeFromLockedString(…, locked)`** at **`softFinalize`** / segment close.
+ * - Legacy **`appendDataLockedOnly`** remains for non–canon-append isolated paths and queue flushes without visible projection wiring.
  *
  * ### WebSocket frame lifecycle (one tick)
  * 1. Speaker pivot / `createBubble` (unchanged).
- * 2. For each **new** final token: `locked += t.text`, `appendData(committedSpan, t.text, locked)`.
+ * 2. For each **new** final token: **`lockedCommittedFinalOriginal +=`** `t.text`; **defer** originals-column DOM (`projectCommittedOriginalsVisibleUtf16` tail of handler).
  * 3. Build `nfRaw` from current message tokens.
  * 4. Paint NF span; assign `liveBufferRef`.
  * 5. `finalCountRef = finals.length`.
@@ -35,8 +37,9 @@
  * flowchart TB
  *   subgraph owner["Single committed authority"]
  *     L[(lockedCommittedFinalOriginal)]
+ *     PB[slice to visibleCommittedBoundary]
  *     T[Committed Text node]
- *     L --> appendData --> T
+ *     L --> PB --> T
  *   end
  *   subgraph ws["Each WebSocket message"]
  *     F[Final tokens delta] --> L
@@ -120,10 +123,24 @@ export function morsyIsolatedVerbatimRawNfHypothesis(args: {
   return { nfRaw, tailSpk };
 }
 
-/** Ensure a single empty `Text` node so future commits use `{@link appendDataLockedOnly}`. */
+/** Ensure a single empty `Text` child on the originals committed span (`{@link projectCommittedOriginalsVisibleUtf16}` canon path). */
 export function primeMorsyIsolatedCommittedTextNode(committedSpan: HTMLSpanElement): void {
   committedSpan.replaceChildren();
   committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(""));
+}
+
+/** Visible committed originals substring only — authority remains full `locked` off-DOM (`lockedCommittedFinalOriginal`). */
+export function projectCommittedOriginalsVisibleUtf16(
+  committedSpan: HTMLSpanElement,
+  visiblePrefixUtf16: string,
+): void {
+  const first = committedSpan.firstChild;
+  if (first && first.nodeType === Node.TEXT_NODE) {
+    (first as Text).data = visiblePrefixUtf16;
+    return;
+  }
+  committedSpan.replaceChildren();
+  committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(visiblePrefixUtf16));
 }
 
 /**
