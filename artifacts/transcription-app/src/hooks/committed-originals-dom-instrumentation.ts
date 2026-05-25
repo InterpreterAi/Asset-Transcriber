@@ -136,6 +136,8 @@ function sinkCommittedOrigDomTrace(tag: string, payload: unknown): void {
 
 export type CommittedOrigDomIntegrityMode =
   | "project_visible_prefix"
+  | "append_incremental_locked"
+  | "reconcile_full_locked_mismatch_fallback"
   | "reconcile_full_locked"
   | "prime_empty"
   | "legacy_flush_full_locked"
@@ -161,6 +163,8 @@ function expectedDomForMode(args: EmitCommittedOrigDomMutationArgs): string {
       const b = Math.min(args.visibleBoundaryUtf16, args.lockedCanonFull.length);
       return args.lockedCanonFull.slice(0, b);
     }
+    case "append_incremental_locked":
+    case "reconcile_full_locked_mismatch_fallback":
     case "reconcile_full_locked":
     case "legacy_flush_full_locked":
     case "legacy_flush_concat":
@@ -195,7 +199,9 @@ export function emitCommittedOrigDomMutation(args: EmitCommittedOrigDomMutationA
       expectedMismatchVersusMode = args.nextText !== expectedDom;
       lockedStartsWithCommitDom = args.lockedCanonFull.startsWith(args.nextText);
       break;
+    case "append_incremental_locked":
     case "reconcile_full_locked":
+    case "reconcile_full_locked_mismatch_fallback":
     case "legacy_flush_full_locked":
     case "legacy_flush_concat":
       expectedMismatchVersusMode = args.nextText !== expectedDom;

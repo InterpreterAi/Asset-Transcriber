@@ -17,14 +17,15 @@
  *
  * ### Committed DOM (canonical append-only path)
  * - **Authority:** `lockedCommittedFinalOriginal` grows immediately; translation / `liveBufferRef` fuse full **`locked`** with NF.
- * - **Live paint:** **`projectCommittedOriginalsVisibleUtf16`** — sole function that sets committed span text during streaming
- *   (via `paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom` / flush rescue on the same path).
- * - **Finalize:** **`reconcileCommittedTextNodeFromLockedString(…, locked)`** at **`softFinalize`** replaces the committed node with full locked canon (intentionally separate from projection).
+ * - **Live paint (default isolated experiment):** **`projectCommittedOriginalsVisibleUtf16`** over `slice(0, visibleCommittedBoundary)` driven by **`stepVisibleCommittedBoundaryUtf16`**.
+ * - **Live paint (Basic · `morsy-urgent`):** **`appendDataLockedOnly`** incremental append when DOM is already a monotone prefix of `locked`; **`reconcileCommittedTextNodeFromLockedString`** only when the DOM is not a compatible prefix — no idle/lag-visible gating (`use-transcription` branch).
  * - Legacy **`appendDataLockedOnly`** remains for non–canon-append isolated paths and queue flushes without visible projection wiring.
  *
  * ### WebSocket frame lifecycle (one tick)
  * 1. Speaker pivot / `createBubble` (unchanged).
- * 2. For each **new** final token: **`lockedCommittedFinalOriginal +=`** `t.text`; **defer** originals-column DOM (`projectCommittedOriginalsVisibleUtf16` tail of handler).
+ * 2. For each **new** final token: **`lockedCommittedFinalOriginal +=`** `t.text`.
+ *    Isolated **`morsy-intercall-isolated-experiment`** (non–**`morsy-urgent`**): originals DOM may lag via visible-boundary pacing.
+ *    **Basic · `morsy-urgent`**: committed span grows immediately via **`appendDataLockedOnly`** (prefix-safe).
  * 3. Build `nfRaw` from current message tokens.
  * 4. Paint NF span; assign `liveBufferRef`.
  * 5. `finalCountRef = finals.length`.
