@@ -74,6 +74,7 @@ import {
   registerCommittedOrigDomIntegrityTraceStrictScopeGate,
 } from "@/hooks/committed-originals-dom-instrumentation";
 import {
+  appendDataLockedOnly,
   morsyIntercallIsolatedSandboxSegment,
   morsyIsolatedVerbatimRawNfHypothesis,
   morsyUrgentAppendOnlyTranscriptDomPath,
@@ -2189,14 +2190,15 @@ type BubbleTransCanonPromotionPaintState = Pick<
 >;
 
 /**
- * Sole committed originals DOM writer on **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`**: step promotion,
- * monotone **`visibleCommittedBoundary`**, then **`{@link projectCommittedOriginalsVisibleUtf16}`**.
+ * Sole committed originals DOM writer on **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`**:
+ * - **Basic · `morsy-urgent`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
+ * - **Other isolated experiment plans:** promotion scratch + **`{@link projectCommittedOriginalsVisibleUtf16}`**.
  */
 function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
   committedSpan: HTMLSpanElement,
   st: BubbleTransCanonPromotionPaintState,
   nowMs: number,
-  suppressIdenticalCommittedProjection: boolean,
+  basicMorsyUrgentImmediateCommittedAppend: boolean,
 ): {
   promoted: boolean;
   promoteReason: MorsyCanonPromotionKind;
@@ -2210,6 +2212,103 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
 } {
   const locked = st.lockedCommittedFinalOriginal;
   const prevBoundary = st.visibleCommittedBoundary;
+  const prevDomText = committedSpan.textContent ?? "";
+
+  if (basicMorsyUrgentImmediateCommittedAppend) {
+    st.morsyCanonPromotionLockedLen = locked.length;
+    st.morsyCanonPromotionQuietSinceMs = nowMs;
+    st.morsyCanonPromotionBacklogAnchorMs = null;
+    st.visibleCommittedBoundary = locked.length;
+
+    if (prevDomText === locked) {
+      return {
+        promoted: false,
+        promoteReason: "none",
+        boundaryBeforeUtf16: prevBoundary,
+        boundaryAfterUtf16: st.visibleCommittedBoundary,
+        idleNeedMsSuggested: 0,
+        msQuietSinceCanonGrowth: 0,
+        msBacklogLag: null,
+        tentativeTailUtf16BeforeStep: 0,
+        steppedBoundaryUtf16BeforeMonotoneClamp: locked.length,
+      };
+    }
+
+    let delta = "";
+    if (locked.startsWith(prevDomText) && locked.length >= prevDomText.length) {
+      delta = locked.slice(prevDomText.length);
+    }
+
+    let domWriteKind: "append_incremental_locked" | "full_reconcile_mismatch_fallback";
+    if (delta.length > 0) {
+      appendDataLockedOnly(committedSpan, delta, locked);
+      domWriteKind = "append_incremental_locked";
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        emitCommittedOrigDomMutation({
+          source: "paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom/appendDataLockedOnly",
+          integrityMode: "append_incremental_locked",
+          span: committedSpan,
+          prevText: prevDomText,
+          nextText: locked,
+          lockedCanonFull: locked,
+          visibleBoundaryUtf16: st.visibleCommittedBoundary,
+          note: `deltaUtf16=${delta.length}`,
+        });
+      }
+    } else {
+      reconcileCommittedTextNodeFromLockedString(committedSpan, locked);
+      domWriteKind = "full_reconcile_mismatch_fallback";
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        emitCommittedOrigDomMutation({
+          source:
+            "paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom/reconcileCommittedTextNodeFromLockedString",
+          integrityMode: "reconcile_full_locked_mismatch_fallback",
+          span: committedSpan,
+          prevText: prevDomText,
+          nextText: locked,
+          lockedCanonFull: locked,
+          visibleBoundaryUtf16: st.visibleCommittedBoundary,
+          note: "dom_not_compatible_prefix_with_locked",
+        });
+      }
+    }
+    const nextDomPeek = committedSpan.textContent ?? "";
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomOrchestration({
+        phase: "boundary_projection_meta",
+        source: "paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom",
+        lockedCanonUtf16Len: locked.length,
+        visibleBoundaryUtf16: st.visibleCommittedBoundary,
+        prevDomUtf16Len: prevDomText.length,
+        nextDomUtf16Len: nextDomPeek.length,
+        shortened: nextDomPeek.length < prevDomText.length,
+        divergesFromLockedCanonPrefix:
+          nextDomPeek.length > 0 && !locked.startsWith(nextDomPeek),
+        detail: {
+          boundaryBeforeUtf16: prevBoundary,
+          boundaryAfterUtf16: st.visibleCommittedBoundary,
+          immediateBasicMorsyUrgent: true,
+          promoted: false,
+          promoteReason: "none",
+          domWriteKind,
+          deltaUtf16: delta.length,
+        },
+      });
+    }
+
+    return {
+      promoted: false,
+      promoteReason: "none",
+      boundaryBeforeUtf16: prevBoundary,
+      boundaryAfterUtf16: st.visibleCommittedBoundary,
+      idleNeedMsSuggested: 0,
+      msQuietSinceCanonGrowth: 0,
+      msBacklogLag: null,
+      tentativeTailUtf16BeforeStep: 0,
+      steppedBoundaryUtf16BeforeMonotoneClamp: locked.length,
+    };
+  }
+
   const stepRes = stepVisibleCommittedBoundaryUtf16({
     locked,
     boundaryUtf16: prevBoundary,
@@ -2229,11 +2328,8 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
     lockedLenUtf16: locked.length,
   });
   const visiblePrefix = locked.slice(0, st.visibleCommittedBoundary);
-  const prevDomText = committedSpan.textContent ?? "";
   const noopProjection =
-    suppressIdenticalCommittedProjection &&
-    prevBoundary === st.visibleCommittedBoundary &&
-    prevDomText === visiblePrefix;
+    prevBoundary === st.visibleCommittedBoundary && prevDomText === visiblePrefix;
   if (noopProjection) {
     return {
       promoted: stepRes.promoted,
@@ -4831,6 +4927,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!activeBubbleRef.current) return;
 
     const bubbleStPre = activeBubbleStateRef.current;
+    const skipDomReconcileWhenAlreadyCanon =
+      isBasicMorsyUrgentPlan(planTypeRef.current.trim());
+
     if (
       bubbleStPre &&
       morsyEffectiveStrictOriginalFinalSeparation(
@@ -4843,29 +4942,41 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const committedEl = activeBubbleRef.current;
       const prevRecon = committedEl.textContent ?? "";
       const lockedRecon = bubbleStPre.lockedCommittedFinalOriginal;
-      reconcileCommittedTextNodeFromLockedString(
-        committedEl,
-        lockedRecon,
-      );
+
+      let reconciled = false;
+      if (!(skipDomReconcileWhenAlreadyCanon && prevRecon === lockedRecon)) {
+        reconcileCommittedTextNodeFromLockedString(
+          committedEl,
+          lockedRecon,
+        );
+        reconciled = true;
+      }
       if (committedOrigDomIntegrityTraceEnabled()) {
-        emitCommittedOrigDomMutation({
-          source: "softFinalize/reconcileCommittedTextNodeFromLockedString",
-          integrityMode: "reconcile_full_locked",
-          span: committedEl,
-          prevText: prevRecon,
-          nextText: lockedRecon,
-          lockedCanonFull: lockedRecon,
-          visibleBoundaryUtf16: bubbleStPre.visibleCommittedBoundary,
-        });
+        if (reconciled) {
+          emitCommittedOrigDomMutation({
+            source: "softFinalize/reconcileCommittedTextNodeFromLockedString",
+            integrityMode: "reconcile_full_locked",
+            span: committedEl,
+            prevText: prevRecon,
+            nextText: lockedRecon,
+            lockedCanonFull: lockedRecon,
+            visibleBoundaryUtf16: bubbleStPre.visibleCommittedBoundary,
+          });
+        }
         emitCommittedOrigDomOrchestration({
           phase: "soft_finalize_after_reconcile",
           source: `softFinalize(${closeKind})`,
           segmentId: bubbleStPre.segmentId,
           prevDomUtf16Len: prevRecon.length,
-          nextDomUtf16Len: lockedRecon.length,
+          nextDomUtf16Len: (committedEl.textContent ?? "").length,
           lockedCanonUtf16Len: lockedRecon.length,
           visibleBoundaryUtf16: bubbleStPre.visibleCommittedBoundary,
-          shortened: lockedRecon.length < prevRecon.length,
+          shortened: (committedEl.textContent ?? "").length < prevRecon.length,
+          detail: {
+            reconcileRan: reconciled,
+            skippedDomRealigned:
+              skipDomReconcileWhenAlreadyCanon && prevRecon === lockedRecon,
+          },
         });
       }
     }
@@ -5732,7 +5843,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               planTypeLower: planTypeRef.current.trim(),
               segmentBehaviorMode: segmentBehaviorModeRef.current,
             }) &&
-            paintMeta.promoted &&
+            (
+              paintMeta.promoted ||
+              (
+                isBasicMorsyUrgentPlan(planTypeRef.current.trim()) &&
+                traceCanonNewFinalUtf16 > 0
+              )
+            ) &&
             !stPromoCanon.translationLocked &&
             !stPromoCanon.finalizing &&
             !(segmentBoundaryGuardsRef.current && stPromoCanon.isClosed)
@@ -5992,6 +6109,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
 
       const stVisSemantic = activeBubbleStateRef.current;
+      const basicMorsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current.trim());
       if (
         stVisSemantic &&
         morsyIsolatedSemanticPresentationEnabled({
@@ -5999,41 +6117,49 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           segmentBehaviorMode: segmentBehaviorModeRef.current,
         })
       ) {
-        const stepRes = stepVisibleCommittedBoundaryUtf16({
-          locked: stVisSemantic.lockedCommittedFinalOriginal,
-          boundaryUtf16: stVisSemantic.visibleCommittedBoundary,
-          scratch: {
-            lockedLenTracked: stVisSemantic.morsyCanonPromotionLockedLen,
-            quietSinceMs: stVisSemantic.morsyCanonPromotionQuietSinceMs,
-            backlogAnchorMs: stVisSemantic.morsyCanonPromotionBacklogAnchorMs,
-          },
-          nowMs,
-        });
-        stVisSemantic.visibleCommittedBoundary = stepRes.boundaryUtf16;
-        stVisSemantic.morsyCanonPromotionLockedLen = stepRes.scratch.lockedLenTracked;
-        stVisSemantic.morsyCanonPromotionQuietSinceMs = stepRes.scratch.quietSinceMs;
-        stVisSemantic.morsyCanonPromotionBacklogAnchorMs = stepRes.scratch.backlogAnchorMs;
-        if (
-          stepRes.promoted &&
-          !stVisSemantic.translationLocked &&
-          !stVisSemantic.finalizing &&
-          !(segmentBoundaryGuardsRef.current && stVisSemantic.isClosed)
-        ) {
-          const hinted = collapseWs(
-            `${stVisSemantic.lockedCommittedFinalOriginal.trimEnd()}${stVisSemantic.morsyVisibleNfStagingPaint}`,
-          ).trim();
-          const promotedWordsNow = countWords(hinted);
+        if (basicMorsyUrgent) {
+          const L = stVisSemantic.lockedCommittedFinalOriginal;
+          stVisSemantic.visibleCommittedBoundary = L.length;
+          stVisSemantic.morsyCanonPromotionLockedLen = L.length;
+          stVisSemantic.morsyCanonPromotionQuietSinceMs = nowMs;
+          stVisSemantic.morsyCanonPromotionBacklogAnchorMs = null;
+        } else {
+          const stepRes = stepVisibleCommittedBoundaryUtf16({
+            locked: stVisSemantic.lockedCommittedFinalOriginal,
+            boundaryUtf16: stVisSemantic.visibleCommittedBoundary,
+            scratch: {
+              lockedLenTracked: stVisSemantic.morsyCanonPromotionLockedLen,
+              quietSinceMs: stVisSemantic.morsyCanonPromotionQuietSinceMs,
+              backlogAnchorMs: stVisSemantic.morsyCanonPromotionBacklogAnchorMs,
+            },
+            nowMs,
+          });
+          stVisSemantic.visibleCommittedBoundary = stepRes.boundaryUtf16;
+          stVisSemantic.morsyCanonPromotionLockedLen = stepRes.scratch.lockedLenTracked;
+          stVisSemantic.morsyCanonPromotionQuietSinceMs = stepRes.scratch.quietSinceMs;
+          stVisSemantic.morsyCanonPromotionBacklogAnchorMs = stepRes.scratch.backlogAnchorMs;
           if (
-            hinted.length >= 20 &&
-            promotedWordsNow >= EARLY_HINT_MIN_WORDS &&
-            stVisSemantic.finalTokensSeen >= 2
+            stepRes.promoted &&
+            !stVisSemantic.translationLocked &&
+            !stVisSemantic.finalizing &&
+            !(segmentBoundaryGuardsRef.current && stVisSemantic.isClosed)
           ) {
-            morsyIntercallSandboxSemanticStabilizeLive(
-              hinted,
-              promotedWordsNow,
-              stVisSemantic.segmentId,
-              stVisSemantic.finalTokensSeen,
-            );
+            const hinted = collapseWs(
+              `${stVisSemantic.lockedCommittedFinalOriginal.trimEnd()}${stVisSemantic.morsyVisibleNfStagingPaint}`,
+            ).trim();
+            const promotedWordsNow = countWords(hinted);
+            if (
+              hinted.length >= 20 &&
+              promotedWordsNow >= EARLY_HINT_MIN_WORDS &&
+              stVisSemantic.finalTokensSeen >= 2
+            ) {
+              morsyIntercallSandboxSemanticStabilizeLive(
+                hinted,
+                promotedWordsNow,
+                stVisSemantic.segmentId,
+                stVisSemantic.finalTokensSeen,
+              );
+            }
           }
         }
       }
