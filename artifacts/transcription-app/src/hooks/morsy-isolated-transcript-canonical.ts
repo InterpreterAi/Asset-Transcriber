@@ -129,16 +129,14 @@ export function primeMorsyIsolatedCommittedTextNode(committedSpan: HTMLSpanEleme
   committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(""));
 }
 
-/** Visible committed originals substring only — authority remains full `locked` off-DOM (`lockedCommittedFinalOriginal`). */
+/**
+ * **Single canon-path writer:** visible committed originals = `locked.slice(0, visibleCommittedBoundary)`.
+ * Always yields exactly one `Text` child (drops stray siblings so nothing else fights this span).
+ */
 export function projectCommittedOriginalsVisibleUtf16(
   committedSpan: HTMLSpanElement,
   visiblePrefixUtf16: string,
 ): void {
-  const first = committedSpan.firstChild;
-  if (first && first.nodeType === Node.TEXT_NODE) {
-    (first as Text).data = visiblePrefixUtf16;
-    return;
-  }
   committedSpan.replaceChildren();
   committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(visiblePrefixUtf16));
 }

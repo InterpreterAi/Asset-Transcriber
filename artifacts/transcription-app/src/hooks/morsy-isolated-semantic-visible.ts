@@ -49,7 +49,19 @@ export function promotionIdleNeedMsForTailScan(tailScan: string): number {
   return MORSY_COMMIT_VISIBLE_IDLE_BASE_MS;
 }
 
-/** Advance monotone visible prefix into full `locked` (idle clustering + backlog lag ceiling); never rewinds. */
+/**
+ * Clamp after `{@link stepVisibleCommittedBoundaryUtf16}` so **visible boundary never regresses frame-to-frame**
+ * (e.g. scratch/`Math.min(boundary,lockedLen)` churn vs full-canon flashes from another writer).
+ */
+export function monotoneVisibleCommittedBoundaryUtf16(args: {
+  prevBoundaryUtf16: number;
+  steppedBoundaryUtf16: number;
+  lockedLenUtf16: number;
+}): number {
+  return Math.min(args.lockedLenUtf16, Math.max(args.prevBoundaryUtf16, args.steppedBoundaryUtf16));
+}
+
+/** Advance visible prefix toward full `locked` (idle clustering + backlog lag ceiling). Caller should apply `{@link monotoneVisibleCommittedBoundaryUtf16}`. */
 export function stepVisibleCommittedBoundaryUtf16(args: {
   locked: string;
   boundaryUtf16: number;
