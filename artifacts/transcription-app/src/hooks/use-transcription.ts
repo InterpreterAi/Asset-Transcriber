@@ -2563,6 +2563,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     planTypeRef.current = (options?.planType ?? "").toLowerCase();
   }, [options?.planType]);
+  /** Keep refs aligned before layout/effects (`/me` can populate plan after mount). Gates read refs at emission time only. */
+  planTypeRef.current = (options?.planType ?? "").toLowerCase();
+  segmentBehaviorModeRef.current = options?.segmentBehaviorMode ?? "morsy-urgent-cbf";
   const segmentBoundaryGuardsRef = useRef(options?.segmentBoundaryGuards ?? false);
   useEffect(() => {
     segmentBoundaryGuardsRef.current = options?.segmentBoundaryGuards ?? false;
