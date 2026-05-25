@@ -70,6 +70,12 @@ import {
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import {
+  createMorsyUrgentNfPresentationScratch,
+  morsyUrgentVolatileHypothesisDomPaint,
+  resetMorsyUrgentNfPresentationScratch,
+  type MorsyUrgentNfPresentationScratch,
+} from "@/hooks/morsy-urgent-volatile-nf-presentation";
+import {
   deltaNfDomMutation,
   morsyIsolatedEnglishTranscriptOrchestrationEnabled,
   morsyIsolatedFinalRenderBufferMs,
@@ -2106,6 +2112,10 @@ interface BubbleTransState {
   morsyVisibleNfThrottleTimer: number | null;
   morsyVisibleNfStagingPaint: string;
   morsyVisibleNfCommittedPaint: string;
+  /**
+   * Basic · Morsy Urgent isolated: **visible** NF tail stabilizer (presentation only; {@link lastNfRawText} stays verbatim Soniox).
+   */
+  morsyUrgentNfPresentation: MorsyUrgentNfPresentationScratch;
 }
 
 function clearMorsyIsolatedSemanticUiTimers(st: BubbleTransState | null | undefined): void {
@@ -4278,6 +4288,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       morsyVisibleNfThrottleTimer: null,
       morsyVisibleNfStagingPaint: "",
       morsyVisibleNfCommittedPaint: "",
+      morsyUrgentNfPresentation: createMorsyUrgentNfPresentationScratch(Date.now()),
     };
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
@@ -5059,16 +5070,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (nfElC && stCanon) {
           const nk = tailSpk !== undefined ? String(tailSpk) : "";
           const prevNk = stCanon.lastNfTailSpeakerKey;
-          if (prevNk !== undefined && nk !== prevNk) nfFullReplaceThisMsg = true;
-          stCanon.lastNfTailSpeakerKey = tailSpk !== undefined ? nk : undefined;
+          const speakerTailKeyChanged =
+            prevNk !== undefined && prevNk !== nk;
+          if (speakerTailKeyChanged) nfFullReplaceThisMsg = true;
+          stCanon.lastNfTailSpeakerKey =
+            tailSpk !== undefined ? nk : undefined;
 
           const prevNc = nfElC.textContent ?? "";
           if (nfRaw.length > 0) {
-            nfElC.textContent = nfRaw;
-            nfFullReplaceThisMsg ||= prevNc !== nfRaw;
+            const nfPaintVisible = morsyUrgentVolatileHypothesisDomPaint({
+              nfRaw,
+              nowMs,
+              speakerTailKeyChanged,
+              scratch: stCanon.morsyUrgentNfPresentation,
+            });
+            nfElC.textContent = nfPaintVisible;
+            nfFullReplaceThisMsg ||= prevNc !== nfPaintVisible;
             stCanon.lastNfRawText = nfRaw;
-            stCanon.lastRenderedNfPaint = nfRaw;
+            stCanon.lastRenderedNfPaint = nfPaintVisible;
           } else {
+            resetMorsyUrgentNfPresentationScratch(stCanon.morsyUrgentNfPresentation);
             nfElC.textContent = "";
             nfFullReplaceThisMsg ||= prevNc.length > 0;
             stCanon.lastNfRawText = "";
