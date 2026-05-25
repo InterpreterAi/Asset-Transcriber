@@ -479,8 +479,9 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  *   (trial OpenAI / basic[-libre|-openai] / professional / platinum / unlimited, etc.).
  * - **`morsy-intercall-isolated-experiment`**: **`plan_type === "morsy-urgent"` only** —
  *   Workspace keeps this segment mode for **translation layout** (dual stable/live spans when guards allow; `{@link morsyStableTranslationTailKillSwitchEngaged}` overrides).
- *   **Original column:** **`experimentMorsyUrgentIntercallOrchestration` (Intercall lab) must be on** —
- *   otherwise transcript uses **`morsyEffectiveStrictOriginalFinalSeparation`** and follows the production-style path (cbf-compatible queues / DOM semantics). Lab on restores locked-canon enqueue, append-only canon path, verbatim NF tactical path (`morsyUrgentAppendOnlyTranscriptDomPath`).
+ *   **Original column (Soniox-aligned):** with transcript segment guards, **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`** —
+ *   append-only **`lockedCommittedFinalOriginal`** + **`appendData`**, verbatim NF snapshot, **`liveBufferRef = locked∥nfRaw`**;
+ *   no queued committed canon, no DOM-derived finalist shadow, **`{@link reconcileCommittedTextNodeFromLockedString}`** at boundary only.
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
 export type SegmentBehaviorMode =
@@ -2119,18 +2120,16 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
 }
 
 /**
- * Original-column strict final-vs-NF separation. For Basic · Morsy Urgent, this follows **`experimentMorsyUrgentIntercallOrchestration`**:
- * lab off → **production-style transcript** (`morsy-urgent-cbf`-compatible path); lab on → isolated enqueue / locked canon / verbatim NF stack.
- * Segment mode may stay `morsy-intercall-isolated-experiment` for translation layout — this affects **originals only**.
+ * Strict final-vs-NF separation for the committed original column **`target.textContent`** contract.
+ * For **`morsy-intercall-isolated-experiment`** this is **`true`** (urgent sandbox segment mode implies strict separation).
+ * Lab toggle does **not** affect originals routing — **`{@link experimentMorsyUrgentIntercallOrchestration}`** is translation/cadence only.
  */
 function morsyEffectiveStrictOriginalFinalSeparation(
-  planLower: string,
+  _planLower: string,
   segmentMode: SegmentBehaviorMode,
-  morsyIntercallOrchestrationLab: boolean,
+  _morsyIntercallOrchestrationLab: boolean,
 ): boolean {
-  if (!morsyIntercallSandboxStrictOriginalFinalSeparation(segmentMode)) return false;
-  if (isBasicMorsyUrgentPlan(planLower)) return morsyIntercallOrchestrationLab;
-  return true;
+  return morsyIntercallSandboxStrictOriginalFinalSeparation(segmentMode);
 }
 
 /** First punctuated Arabic/Latin/CJK sentence in a live-band remainder (`morsy-intercall-isolated-experiment`). */
@@ -2829,21 +2828,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   );
 
   const flushFinalTextRenderQueue = useCallback((stickyBeforeThisFlush?: boolean) => {
-    const canonDiscardQueue = morsyUrgentAppendOnlyTranscriptDomPath({
+    const transcriptSegIsolationNow =
+      segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
+    const sonioxAppendOnlyCanon = morsyUrgentAppendOnlyTranscriptDomPath({
       planTypeLower: planTypeRef.current.trim(),
       segmentBehaviorMode: segmentBehaviorModeRef.current,
-      transcriptSegIsolation:
-        segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-      intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
+      transcriptSegIsolation: transcriptSegIsolationNow,
     });
-    if (
-      canonDiscardQueue &&
+    const canonDiscardQueue =
+      sonioxAppendOnlyCanon &&
       morsyEffectiveStrictOriginalFinalSeparation(
         planTypeRef.current.trim(),
         segmentBehaviorModeRef.current,
         experimentMorsyUrgentIntercallRef.current,
-      )
-    ) {
+      );
+    if (canonDiscardQueue) {
       if (finalRenderTimerRef.current !== null) {
         clearTimeout(finalRenderTimerRef.current);
         finalRenderTimerRef.current = null;
@@ -2884,6 +2883,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!gateSt || gateSt.isClosed || gateSt.segmentId !== segmentId) continue;
       }
 
+      const sonioxAppendOnlyCanonLoop = morsyUrgentAppendOnlyTranscriptDomPath({
+        planTypeLower: planTypeRef.current.trim(),
+        segmentBehaviorMode: segmentBehaviorModeRef.current,
+        transcriptSegIsolation,
+      });
       const isolatedOrchFlushBase = morsyIsolatedEnglishTranscriptOrchestrationEnabled({
         planTypeLower: planTypeRef.current,
         segmentBehaviorMode: segmentBehaviorModeRef.current,
@@ -2894,6 +2898,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const flushText = text;
 
       if (
+        sonioxAppendOnlyCanonLoop &&
+        transcriptSegIsolation &&
+        gateSt !== undefined &&
+        segmentId !== undefined &&
+        gateSt.segmentId === segmentId
+      ) {
+        gateSt.lockedCommittedFinalOriginal += flushText;
+        appendDataLockedOnly(target, flushText, gateSt.lockedCommittedFinalOriginal);
+        if (morsyIsolatedReconcileDiagEnabled()) {
+          console.info("[morsy_isolated_reconcile]", {
+            kind:             "flush_append_canon_appenddata",
+            segmentId:        gateSt.segmentId,
+            canonLenAfter:    gateSt.lockedCommittedFinalOriginal.length,
+            appendedLen:      flushText.length,
+            appendedSnippet:  flushText.length > 96 ? `${flushText.slice(0, 96)}…` : flushText,
+          });
+        }
+      } else if (
         isolatedOrchFlush &&
         transcriptSegIsolation &&
         gateSt !== undefined &&
@@ -2903,7 +2925,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           planTypeRef.current.trim(),
           segmentBehaviorModeRef.current,
           experimentMorsyUrgentIntercallRef.current,
-        )
+        ) &&
+        !sonioxAppendOnlyCanonLoop
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
         target.textContent = gateSt.lockedCommittedFinalOriginal;
@@ -2943,7 +2966,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         segmentBehaviorMode: segmentBehaviorModeRef.current,
         transcriptSegIsolation:
           segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-        intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
       }) &&
       morsyEffectiveStrictOriginalFinalSeparation(
         planTypeRef.current.trim(),
@@ -4154,7 +4176,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         segmentBehaviorMode: segmentBehaviorModeRef.current,
         transcriptSegIsolation:
           segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-        intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
       })
     ) {
       primeMorsyIsolatedCommittedTextNode(finalCommitTarget);
@@ -4292,22 +4313,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       ) &&
       activeBubbleRef.current
     ) {
-      if (
-        morsyUrgentAppendOnlyTranscriptDomPath({
-          planTypeLower: planTypeRef.current.trim(),
-          segmentBehaviorMode: segmentBehaviorModeRef.current,
-          transcriptSegIsolation:
-            segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-          intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
-        })
-      ) {
-        reconcileCommittedTextNodeFromLockedString(
-          activeBubbleRef.current,
-          bubbleStPre.lockedCommittedFinalOriginal,
-        );
-      } else {
-        activeBubbleRef.current.textContent = bubbleStPre.lockedCommittedFinalOriginal;
-      }
+      reconcileCommittedTextNodeFromLockedString(
+        activeBubbleRef.current,
+        bubbleStPre.lockedCommittedFinalOriginal,
+      );
     }
     if (
       bubbleStPre &&
@@ -4741,15 +4750,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         planTypeLower: planTypeRef.current,
         segmentBehaviorMode: segmentBehaviorModeRef.current,
       });
-      const isolatedOrchWs =
-        isolatedOrchWsBase &&
-        (!isBasicMorsyUrgentPlan(planTypeRef.current) ||
-          experimentMorsyUrgentIntercallRef.current);
+      /** Original-column isolated helpers gates (plan+morsy‑intercall‑experiment); labs do not mute this. */
+      const isolatedOrchWs = isolatedOrchWsBase;
       const canonAppendWs = morsyUrgentAppendOnlyTranscriptDomPath({
         planTypeLower: planTypeRef.current.trim(),
         segmentBehaviorMode: segmentBehaviorModeRef.current,
         transcriptSegIsolation: transcriptSegIsolationWs,
-        intercallOrchestrationLab: experimentMorsyUrgentIntercallRef.current,
       });
       const isolatedEnqueueCanonRoll =
         !canonAppendWs &&
@@ -4760,8 +4766,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           segmentBehaviorModeRef.current,
           experimentMorsyUrgentIntercallRef.current,
         );
-      /** Verbatim tactical NF (= lab-gated isolated orchestration for urgent); mirrors `isolatedOrchWs`. */
-      const isolatedUrgentExperimentVerbatimNf = isolatedOrchWs;
+      /** Verbatim NF tactical bypass overlaps when legacy isolated NF path runs (non-Soniox-append-only). */
+      const isolatedUrgentExperimentVerbatimNf = isolatedOrchWsBase;
       const morsySemanticIsoPresentationUx =
         useMorsyUrgentSpeakerGate &&
         morsyIsolatedSemanticPresentationEnabled({
@@ -4888,7 +4894,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                     if (canonAppendWs && activeBubbleStateRef.current && bufferedCanon.length > 0) {
                       activeBubbleStateRef.current.lockedCommittedFinalOriginal += bufferedCanon;
                       if (activeBubbleRef.current) {
-                        appendDataLockedOnly(activeBubbleRef.current, bufferedCanon);
+                        appendDataLockedOnly(
+                          activeBubbleRef.current,
+                          bufferedCanon,
+                          activeBubbleStateRef.current.lockedCommittedFinalOriginal,
+                        );
                       }
                     } else if (bufferedCanon.length > 0) {
                       finalRenderQueueRef.current.push({
@@ -4927,7 +4937,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (canonAppendWs && activeBubbleStateRef.current && pushCanon.length > 0) {
             activeBubbleStateRef.current.lockedCommittedFinalOriginal += pushCanon;
             if (activeBubbleRef.current) {
-              appendDataLockedOnly(activeBubbleRef.current, pushCanon);
+              appendDataLockedOnly(
+                activeBubbleRef.current,
+                pushCanon,
+                activeBubbleStateRef.current.lockedCommittedFinalOriginal,
+              );
             }
           } else if (pushCanon.length > 0) {
             finalRenderQueueRef.current.push({
@@ -4965,7 +4979,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (canonAppendWs && activeBubbleStateRef.current && pendCanon.length > 0) {
               activeBubbleStateRef.current.lockedCommittedFinalOriginal += pendCanon;
               if (activeBubbleRef.current) {
-                appendDataLockedOnly(activeBubbleRef.current, pendCanon);
+                appendDataLockedOnly(
+                  activeBubbleRef.current,
+                  pendCanon,
+                  activeBubbleStateRef.current.lockedCommittedFinalOriginal,
+                );
               }
             } else if (pendCanon.length > 0) {
               finalRenderQueueRef.current.push({

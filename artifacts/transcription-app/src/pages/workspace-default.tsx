@@ -246,8 +246,9 @@ export default function WorkspaceDefault() {
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
     planType: user?.planType ?? "",
     // Production workspace tiers: stabilized Soniox segmentation (`morsy-urgent-cbf`).
-    // Basic · Morsy Urgent: segment mode stays `morsy-intercall-isolated-experiment` for translation layout;
-    // **original transcript** uses the isolated pipeline only when Intercall lab is on — otherwise production-style (cbf-compatible).
+    // Basic · Morsy Urgent: workspace uses `morsy-intercall-isolated-experiment` for translation layout;
+    // **original transcript** Soniox path is append-only **`lockedCommittedFinalOriginal`** (see **`morsyUrgentAppendOnlyTranscriptDomPath`**),
+    // independent of the Intercall lab toggle (lab remains translation/cadence).
     segmentBehaviorMode: pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf",
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && pt === "morsy-urgent",
