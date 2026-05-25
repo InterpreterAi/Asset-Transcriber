@@ -70,6 +70,10 @@ import {
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import {
+  canonVisibleTraceStagingTailPeek,
+  emitMorsyUrgentCanonVisibleTrace,
+} from "@/hooks/morsy-urgent-canon-visible-trace";
+import {
   createMorsyUrgentNfPresentationScratch,
   morsyUrgentVolatileHypothesisDomPaint,
   resetMorsyUrgentNfPresentationScratch,
@@ -81,6 +85,7 @@ import {
   morsyIsolatedFinalRenderBufferMs,
   nfVisibleTailBeyondCommittedTokenAware,
 } from "@/hooks/morsy-original-transcript-orchestration";
+import type { MorsyCanonPromotionKind } from "@/hooks/morsy-isolated-semantic-visible";
 import {
   monotoneVisibleCommittedBoundaryUtf16,
   morsyIsolatedSemanticPresentationEnabled,
@@ -2139,7 +2144,17 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
   committedSpan: HTMLSpanElement,
   st: BubbleTransCanonPromotionPaintState,
   nowMs: number,
-): { promoted: boolean } {
+): {
+  promoted: boolean;
+  promoteReason: MorsyCanonPromotionKind;
+  boundaryBeforeUtf16: number;
+  boundaryAfterUtf16: number;
+  idleNeedMsSuggested: number;
+  msQuietSinceCanonGrowth: number;
+  msBacklogLag: number | null;
+  tentativeTailUtf16BeforeStep: number;
+  steppedBoundaryUtf16BeforeMonotoneClamp: number;
+} {
   const locked = st.lockedCommittedFinalOriginal;
   const prevBoundary = st.visibleCommittedBoundary;
   const stepRes = stepVisibleCommittedBoundaryUtf16({
@@ -2161,7 +2176,17 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
     lockedLenUtf16: locked.length,
   });
   projectCommittedOriginalsVisibleUtf16(committedSpan, locked.slice(0, st.visibleCommittedBoundary));
-  return { promoted: stepRes.promoted };
+  return {
+    promoted: stepRes.promoted,
+    promoteReason: stepRes.promoteReason,
+    boundaryBeforeUtf16: prevBoundary,
+    boundaryAfterUtf16: st.visibleCommittedBoundary,
+    idleNeedMsSuggested: stepRes.idleNeedMsSuggested,
+    msQuietSinceCanonGrowth: stepRes.msQuietSinceCanonGrowth,
+    msBacklogLag: stepRes.msBacklogLag,
+    tentativeTailUtf16BeforeStep: stepRes.tentativeTailLenUtf16,
+    steppedBoundaryUtf16BeforeMonotoneClamp: stepRes.boundaryUtf16,
+  };
 }
 
 function clearMorsyIsolatedSemanticUiTimers(st: BubbleTransState | null | undefined): void {
@@ -2618,6 +2643,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Translation polling refs ───────────────────────────────────────────────
   // liveBufferRef: segment text seen so far (finals + NF). Updated every onmessage.
   const liveBufferRef        = useRef<string>("");
+  /** Last `lockedCommittedFinalOriginal.length` sampled for canon-visible telemetry (growth since prior frame). */
+  const morsyCanonVisibleTraceLastLockedUtf16Ref = useRef(0);
   /** OpenAI-path schedule debounce; Intercall experiment uses {@link INTERCALL_OPENAI_LIVE_DEBOUNCE_MS}. */
   const OPENAI_LIVE_DEBOUNCE_MS = 300;
   const openaiLiveDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -4365,6 +4392,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       morsyVisibleNfCommittedPaint: "",
       morsyUrgentNfPresentation: createMorsyUrgentNfPresentationScratch(Date.now()),
     };
+    morsyCanonVisibleTraceLastLockedUtf16Ref.current = 0;
     const transcriptSegIsolation =
       segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
     if (activeBubbleStateRef.current && transcriptSegIsolation) {
@@ -4542,6 +4570,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     pendingSpeakerSwitchRef.current = null;
     activeBubbleRef.current        = null;
     activeBubbleNFRef.current      = null;
+    morsyCanonVisibleTraceLastLockedUtf16Ref.current = 0;
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
     finalCountRef.current          = 0;
@@ -4605,6 +4634,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
     finalCountRef.current         = 0;
+    morsyCanonVisibleTraceLastLockedUtf16Ref.current = 0;
 
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -5114,6 +5144,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let nfFullReplaceThisMsg = false;
 
       if (canonAppendWs) {
+        const traceCanonNewFinalUtf16 = newFinals.reduce(
+          (acc, t) => acc + (typeof t.text === "string" ? t.text.length : 0),
+          0,
+        );
         const stCanon = activeBubbleStateRef.current;
         const lockedCanon = stCanon?.lockedCommittedFinalOriginal ?? "";
         const { nfRaw, tailSpk } = morsyIsolatedVerbatimRawNfHypothesis({
@@ -5171,7 +5205,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const committedSpanCanon = activeBubbleRef.current;
         const stPromoCanon = activeBubbleStateRef.current;
         if (stPromoCanon && committedSpanCanon) {
-          const { promoted } = paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
+          let semanticStabilizeLiveDispatched = false;
+          const paintMeta = paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
             committedSpanCanon,
             stPromoCanon,
             nowMs,
@@ -5181,7 +5216,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               planTypeLower: planTypeRef.current.trim(),
               segmentBehaviorMode: segmentBehaviorModeRef.current,
             }) &&
-            promoted &&
+            paintMeta.promoted &&
             !stPromoCanon.translationLocked &&
             !stPromoCanon.finalizing &&
             !(segmentBoundaryGuardsRef.current && stPromoCanon.isClosed)
@@ -5201,8 +5236,39 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 stPromoCanon.segmentId,
                 stPromoCanon.finalTokensSeen,
               );
+              semanticStabilizeLiveDispatched = true;
             }
           }
+          const lockedLenTrace = lockedCanon.length;
+          const prevLockedTrace = morsyCanonVisibleTraceLastLockedUtf16Ref.current;
+          const growthSinceLastTraceEmit = Math.max(0, lockedLenTrace - prevLockedTrace);
+          morsyCanonVisibleTraceLastLockedUtf16Ref.current = lockedLenTrace;
+          emitMorsyUrgentCanonVisibleTrace({
+            segmentId: stPromoCanon.segmentId,
+            wallMs: nowMs,
+            lockedUtf16Len: lockedLenTrace,
+            lockedGrowthUtf16SinceLastEmit: growthSinceLastTraceEmit,
+            visibleBoundaryUtf16: paintMeta.boundaryAfterUtf16,
+            stagingGapLockedUtf16: lockedLenTrace - paintMeta.boundaryAfterUtf16,
+            newFinalPiecesInMsgCount: newFinals.length,
+            newFinalPiecesUtf16InMsg: traceCanonNewFinalUtf16,
+            nfRawUtf16Len: nfRaw.length,
+            nfPaintVisibleUtf16Len: stPromoCanon.lastRenderedNfPaint.length,
+            liveBufferUtf16Len: liveBufferRef.current.length,
+            translationLastConfirmedUsesFullCanon: true,
+            liveBufferFusesAuthorityPlusNf: true,
+            promoted: paintMeta.promoted,
+            promoteReason: paintMeta.promoteReason,
+            idleNeedMsSuggested: paintMeta.idleNeedMsSuggested,
+            msQuietSinceCanonGrowth: paintMeta.msQuietSinceCanonGrowth,
+            msBacklogLag: paintMeta.msBacklogLag,
+            tentativeTailUtf16BeforeStep: paintMeta.tentativeTailUtf16BeforeStep,
+            steppedBoundaryUtf16BeforeMonotoneClamp: paintMeta.steppedBoundaryUtf16BeforeMonotoneClamp,
+            boundaryBeforePaintUtf16: paintMeta.boundaryBeforeUtf16,
+            semanticStabilizeLiveDispatched,
+            sawSonioxEndpoint,
+            stagedTailPeek: canonVisibleTraceStagingTailPeek(lockedCanon, paintMeta.boundaryAfterUtf16),
+          });
         }
       } else {
       const strictOriginalSeparation =
