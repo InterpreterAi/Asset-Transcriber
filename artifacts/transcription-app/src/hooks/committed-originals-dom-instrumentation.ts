@@ -7,6 +7,8 @@
  * `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`. Default plans / legacy2 / non-isolated
  * modes never log even if localStorage is set.
  *
+ * **`[morsy_urgent_viewport]`** / **`[morsy_urgent_nf_reflow]`** — scroll / NF layout (same gate + ring as originals).
+ *
  * **Production:** Vite/`esbuild` drop `console.*` unless `VITE_KEEP_CONSOLE=1`. Entries are mirrored to
  * **`globalThis.__interpreterAiCommittedOrigDomTrace`** (ring buffer) so Track A torture runs still retain payloads in DevTools.
  * **`globalThis.__interpreterAiCommittedOrigDomTraceProbe`** merges when this module evaluates (flag `1`), when
@@ -293,6 +295,8 @@ export type CommittedOrigDomOrchestrationPhase =
   | "flush_iteration_begin"
   | "boundary_projection_meta"
   | "raf_tail_follow_scheduled"
+  | "tail_follow_suppressed_explicit_unpinned"
+  | "tail_follow_suppressed_sticky_true_fingerprint_stable"
   | "raf_scroll_verify_post_layout_scheduled"
   | "mutation_observer_raffed_sample"
   | "resize_observer_raffed_sample"
@@ -336,6 +340,21 @@ export function emitCommittedOrigDomOrchestration(args: EmitCommittedOrigDomOrch
     divergesFromLockedCanonPrefix: args.divergesFromLockedCanonPrefix,
     detail: args.detail,
   });
+}
+
+/**
+ * Separate from `[committed_orig_dom_*]` tails to isolate **viewport / layout** churn for Basic · Morsy Urgent torture runs.
+ * Same enablement + gate as originals trace (`committedOrigDomIntegrityTraceEnabled`).
+ */
+export function emitMorsyUrgentViewportLayoutTrace(payload: Record<string, unknown>): void {
+  if (!committedOrigDomIntegrityTraceEnabled()) return;
+  sinkCommittedOrigDomTrace("[morsy_urgent_viewport]", payload);
+}
+
+/** NF / hypothesis span presentation only (not canon committed column). Same gate as viewport trace. */
+export function emitMorsyUrgentNfReflowTrace(payload: Record<string, unknown>): void {
+  if (!committedOrigDomIntegrityTraceEnabled()) return;
+  sinkCommittedOrigDomTrace("[morsy_urgent_nf_reflow]", payload);
 }
 
 export function emitCommittedOrigDomContainerWipe(source: string): void {
