@@ -1,7 +1,8 @@
 /**
  * ## Morsy Urgent V3 — isolated transcript engine (hard-fork scaffold)
  *
- * **Eligible:** `plan_type === "morsy-urgent"` AND `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`.
+ * **Eligible:** `plan_type === "morsy-urgent"` AND `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`
+ * AND Intercall lab on (`experimentMorsyUrgentIntercallOrchestration`, same gate as `{@link morsyUrgentAppendOnlyTranscriptDomPath}`).
  * **Not wired** into `{@link use-transcription.ts}` yet — integration replaces hybrid branches with:
  * WS → single reducer tick → canon + hypothesis → dumb DOM reflect → downstream translation-only consumer.
  *

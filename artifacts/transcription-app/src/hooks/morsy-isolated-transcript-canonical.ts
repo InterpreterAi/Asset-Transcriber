@@ -1,7 +1,7 @@
 /**
  * ## Morsy Urgent isolated transcript canonical model
  * **Gate:** `plan_type === "morsy-urgent"` AND `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`
- * AND transcript segment isolation (`segmentBoundaryGuards || morsyUrgentTranscriptSegmentGuards`).
+ * AND transcript segment isolation AND **Intercall lab on** (`experimentMorsyUrgentIntercallOrchestration`).
  *
  * ### Single source of truth
  * - **`BubbleTransState.lockedCommittedFinalOriginal`** — append-only Soniox **final** token text, in message order.
@@ -75,12 +75,14 @@ export function morsyUrgentAppendOnlyTranscriptDomPath(args: {
   planTypeLower: string;
   segmentBehaviorMode: string;
   transcriptSegIsolation: boolean;
+  /** Basic · Morsy Urgent: must match **`experimentMorsyUrgentIntercallOrchestration`** — lab off disables isolated transcript engine. */
+  intercallOrchestrationLab: boolean;
 }): boolean {
-  return (
-    args.transcriptSegIsolation &&
-    planAndModeGate(args.planTypeLower, args.segmentBehaviorMode) &&
-    morsyIntercallIsolatedSandboxSegment(args.segmentBehaviorMode)
-  );
+  if (!args.transcriptSegIsolation) return false;
+  if (!planAndModeGate(args.planTypeLower, args.segmentBehaviorMode)) return false;
+  if (!morsyIntercallIsolatedSandboxSegment(args.segmentBehaviorMode)) return false;
+  if (args.planTypeLower.trim() === "morsy-urgent" && !args.intercallOrchestrationLab) return false;
+  return true;
 }
 
 /** Concatenate `.text` from each new final in order — verbatim Soniox pieces. */
