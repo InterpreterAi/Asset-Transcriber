@@ -6,6 +6,13 @@
  * **Scope:** emits only when the hook registers the strict gate: `plan_type === "morsy-urgent"` and
  * `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`. Default plans / legacy2 / non-isolated
  * modes never log even if localStorage is set.
+ *
+ * **Production:** Vite/`esbuild` drop `console.*` unless `VITE_KEEP_CONSOLE=1`. Entries are mirrored to
+ * **`globalThis.__interpreterAiCommittedOrigDomTrace`** (ring buffer) so Track A torture runs still retain payloads in DevTools.
+ * **`globalThis.__interpreterAiCommittedOrigDomTraceProbe`** merges when this module evaluates (flag `1`), when
+ * `{@link registerCommittedOrigDomIntegrityTraceStrictScopeGate}` runs, and when tracing arms — use to distinguish
+ * stale deploy vs gate-off vs unused chunk.
+ *
  * **Morsy Urgent + isolated canon-append (`morsyUrgentAppendOnlyTranscriptDomPath`):**
  * Live committed originals are written only via **`{@link projectCommittedOriginalsVisibleUtf16}`**
  * (invoked from `paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom` and legacy flush rescue).
@@ -26,6 +33,39 @@ let lastPassiveFingerprint = "";
 /** `localStorage` key toggling `[committed_orig_dom_*]` logs (still requires `{@link registerCommittedOrigDomIntegrityTraceStrictScopeGate}` + scope). */
 export const COMMITTED_ORIG_DOM_TRACE_FLAG = "interpreterai_committed_orig_dom_trace";
 
+/** Ring buffer survives production `esbuild`/`terser` console stripping (`VITE_KEEP_CONSOLE` unset). */
+export const COMMITTED_ORIG_DOM_TRACE_RING_KEY = "__interpreterAiCommittedOrigDomTrace";
+
+/** Merge-state object on `globalThis` — proves instrumentation module ran (see module boot + register + active trace). */
+export const COMMITTED_ORIG_DOM_TRACE_PROBE_KEY = "__interpreterAiCommittedOrigDomTraceProbe";
+
+const COMMITTED_ORIG_DOM_TRACE_RING_CAP = 12_500;
+
+export type CommittedOrigDomRingEntry = { tag: string; perfMs: number; payload: unknown };
+
+/** Idempotent: creates an empty array on `globalThis` so deploy verification does not depend on the first emit. */
+export function ensureCommittedOrigDomTraceRing(): CommittedOrigDomRingEntry[] {
+  const g = globalThis as Record<string, unknown>;
+  const ringKey = COMMITTED_ORIG_DOM_TRACE_RING_KEY;
+  let ringUnknown = g[ringKey];
+  if (!Array.isArray(ringUnknown)) {
+    ringUnknown = [];
+    g[ringKey] = ringUnknown;
+  }
+  return ringUnknown as CommittedOrigDomRingEntry[];
+}
+
+function touchCommittedOrigDomTraceProbe(patch: Record<string, unknown>): void {
+  try {
+    const g = globalThis as Record<string, unknown>;
+    const k = COMMITTED_ORIG_DOM_TRACE_PROBE_KEY;
+    const prev = g[k] !== null && typeof g[k] === "object" ? { ...(g[k] as Record<string, unknown>) } : {};
+    g[k] = { ...prev, ...patch };
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Narrow trace to Basic **Morsy Urgent** + isolated experiment segment (`morsy-intercall-isolated-experiment`).
  * Default is no gate — emits nothing until the hook registers a gate (typically refs + plan/mode equality).
@@ -35,12 +75,31 @@ let committedOrigIntegrityTraceStrictScopeGate: () => boolean = () => false;
 /** Call from `{@link use-transcription.ts}` mount; resets on unregister. */
 export function registerCommittedOrigDomIntegrityTraceStrictScopeGate(gate: () => boolean): void {
   committedOrigIntegrityTraceStrictScopeGate = gate;
+  /** Eager-empty ring + probe once hook mounts (so `globalThis.__interpreterAiCommittedOrigDomTrace !== undefined` after workspace load). */
+  try {
+    if (typeof localStorage !== "undefined" && localStorage.getItem(COMMITTED_ORIG_DOM_TRACE_FLAG) === "1") {
+      ensureCommittedOrigDomTraceRing();
+      touchCommittedOrigDomTraceProbe({
+        hookGateRegisteredPerfMs: typeof performance !== "undefined" ? performance.now() : 0,
+      });
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function committedOrigDomIntegrityTraceEnabled(): boolean {
   try {
     if (!committedOrigIntegrityTraceStrictScopeGate()) return false;
-    return typeof localStorage !== "undefined" && localStorage.getItem(COMMITTED_ORIG_DOM_TRACE_FLAG) === "1";
+    if (typeof localStorage === "undefined" || localStorage.getItem(COMMITTED_ORIG_DOM_TRACE_FLAG) !== "1") {
+      return false;
+    }
+    const ring = ensureCommittedOrigDomTraceRing();
+    touchCommittedOrigDomTraceProbe({
+      gateAndFlagActivePerfMs: typeof performance !== "undefined" ? performance.now() : 0,
+      ringLen: ring.length,
+    });
+    return true;
   } catch {
     return false;
   }
@@ -54,6 +113,23 @@ export function resetCommittedOrigDomPassiveDedupFingerprint(): void {
 function snip(s: string, max: number): string {
   if (s.length <= max) return s;
   return `${s.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+
+/** Push `{ tag, perfMs, payload }` then `console.info` (missing in stripped prod bundles — ring persists). */
+function sinkCommittedOrigDomTrace(tag: string, payload: unknown): void {
+  try {
+    const ring = ensureCommittedOrigDomTraceRing();
+    ring.push({
+      tag,
+      perfMs: typeof performance !== "undefined" ? performance.now() : 0,
+      payload,
+    });
+    const overflow = ring.length - COMMITTED_ORIG_DOM_TRACE_RING_CAP;
+    if (overflow > 0) ring.splice(0, overflow);
+  } catch {
+    /* ignore */
+  }
+  console.info(tag, payload);
 }
 
 export type CommittedOrigDomIntegrityMode =
@@ -144,7 +220,7 @@ export function emitCommittedOrigDomMutation(args: EmitCommittedOrigDomMutationA
   const domDivergesFromLockedCanonPrefix =
     args.nextText.length > 0 && !args.lockedCanonFull.startsWith(args.nextText);
 
-  console.info("[committed_orig_dom_mutation]", {
+  sinkCommittedOrigDomTrace("[committed_orig_dom_mutation]", {
     seq: mutationSeq,
     source: args.source,
     integrityMode: args.integrityMode,
@@ -196,7 +272,7 @@ export function emitCommittedOrigDomPassiveSample(args: EmitCommittedOrigDomPass
   const domDivergesFromLockedCanonPrefix = domText.length > 0 && !args.lockedCanonFull.startsWith(domText);
 
   passiveSeq += 1;
-  console.info("[committed_orig_dom_passive]", {
+  sinkCommittedOrigDomTrace("[committed_orig_dom_passive]", {
     seq: passiveSeq,
     sourceTag: args.sourceTag,
     connected,
@@ -245,7 +321,7 @@ export type EmitCommittedOrigDomOrchestrationArgs = {
 export function emitCommittedOrigDomOrchestration(args: EmitCommittedOrigDomOrchestrationArgs): void {
   if (!committedOrigDomIntegrityTraceEnabled()) return;
   orchestrationSeq += 1;
-  console.info("[committed_orig_dom_orchestration]", {
+  sinkCommittedOrigDomTrace("[committed_orig_dom_orchestration]", {
     seq: orchestrationSeq,
     phase: args.phase,
     source: args.source,
@@ -266,7 +342,7 @@ export function emitCommittedOrigDomContainerWipe(source: string): void {
   if (!committedOrigDomIntegrityTraceEnabled()) return;
   mutationSeq += 1;
   resetCommittedOrigDomPassiveDedupFingerprint();
-  console.info("[committed_orig_dom_mutation]", {
+  sinkCommittedOrigDomTrace("[committed_orig_dom_mutation]", {
     seq: mutationSeq,
     source,
     integrityMode: "container_wipe_innerhtml",
@@ -298,7 +374,7 @@ export function emitCommittedOrigDomDetachPreNull(
   resetCommittedOrigDomPassiveDedupFingerprint();
   const locked = args.lockedCanonUtf16;
   const divergesPrefix = domText.length > 0 && !locked.startsWith(domText);
-  console.info("[committed_orig_dom_mutation]", {
+  sinkCommittedOrigDomTrace("[committed_orig_dom_mutation]", {
     seq: mutationSeq,
     source,
     integrityMode: "active_committed_span_detached",
@@ -314,3 +390,17 @@ export function emitCommittedOrigDomDetachPreNull(
     lockedCanonPeek: snip(locked, 96),
   });
 }
+
+// Boot: proves this chunk loaded — runs when instrumentation module evaluates (lazy with `use-transcription`).
+(() => {
+  try {
+    if (typeof localStorage === "undefined" || localStorage.getItem(COMMITTED_ORIG_DOM_TRACE_FLAG) !== "1") return;
+    ensureCommittedOrigDomTraceRing();
+    touchCommittedOrigDomTraceProbe({
+      moduleEvalPerfMs: typeof performance !== "undefined" ? performance.now() : 0,
+      instrumentationModule: "committed-originals-dom-instrumentation",
+    });
+  } catch {
+    /* ignore */
+  }
+})();
