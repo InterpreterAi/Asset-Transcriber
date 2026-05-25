@@ -17,9 +17,9 @@
  *
  * ### Committed DOM (canonical append-only path)
  * - **Authority:** `lockedCommittedFinalOriginal` grows immediately; translation / `liveBufferRef` fuse full **`locked`** with NF.
- * - **Visible originals column:** **`projectCommittedOriginalsVisibleUtf16`** each Soniox frame — shows
- *   `locked.slice(0, visibleCommittedBoundary)` only (**`stepVisibleCommittedBoundaryUtf16`** in `morsy-isolated-semantic-visible.ts`).
- * - **Full flush:** **`reconcileCommittedTextNodeFromLockedString(…, locked)`** at **`softFinalize`** / segment close.
+ * - **Live paint:** **`projectCommittedOriginalsVisibleUtf16`** — sole function that sets committed span text during streaming
+ *   (via `paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom` / flush rescue on the same path).
+ * - **Finalize:** **`reconcileCommittedTextNodeFromLockedString(…, locked)`** at **`softFinalize`** replaces the committed node with full locked canon (intentionally separate from projection).
  * - Legacy **`appendDataLockedOnly`** remains for non–canon-append isolated paths and queue flushes without visible projection wiring.
  *
  * ### WebSocket frame lifecycle (one tick)
