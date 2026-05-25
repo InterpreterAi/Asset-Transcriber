@@ -1,35 +1,35 @@
 /**
- * ## Morsy Urgent isolated transcript canonical model
+ * ## Morsy Urgent isolated transcript canonical model (Soniox-aligned)
  * **Gate:** `plan_type === "morsy-urgent"` AND `segmentBehaviorMode === "morsy-intercall-isolated-experiment"`
- * AND transcript segment isolation AND **Intercall lab on** (`experimentMorsyUrgentIntercallOrchestration`).
+ * AND transcript segment isolation (`segmentBoundaryGuards || morsyUrgentTranscriptSegmentGuards`).
  *
  * ### Single source of truth
  * - **`BubbleTransState.lockedCommittedFinalOriginal`** — append-only Soniox **final** token text, in message order.
- * - **No** `finalRenderQueueRef` authority for this path (queue unused).
+ * - **No** `finalRenderQueueRef` authority for committed finals on this path.
  * - **No** `committedLogical` shadow (no `omitPendingCommittedCanon`).
- * - **No** `dropSonioxFinalReplayAlreadyCommitted` (enqueue roll verbatim if used), `nfVisibleTailBeyondCommittedTokenAware`,
+ * - **No** `dropSonioxFinalReplayAlreadyCommitted`, `nfVisibleTailBeyondCommittedTokenAware`,
  *   `nf_strip_redundant_overlap`, or `deltaNfDomMutation` for originals.
  *
  * ### Volatile hypothesis (NF)
  * - **Raw** concatenation of **non-final** tokens (same tail-speaker rule as the legacy hook).
  * - **DOM:** `nfSpan.textContent = nfText` each frame (full replace of the NF span only).
- * - **liveBufferRef:** `locked.trimEnd() + nfText` (trim ends only; no `collapseWs` on the join here).
+ * - **liveBufferRef:** `locked.trimEnd() + nfText` (trim ends only on the fused string).
  *
  * ### Committed DOM
  * - One `Text` child under the committed `<span>`; **`Text.appendData(delta)`** per new final chunk.
- * - **End-of-segment reconcile:** `softFinalize` / safety may replace children with one `Text(locked)` if drift.
+ * - **Polluted DOM:** **`appendDataLockedOnly`** rebuilds the text node from **`fullLockedCanonUtf16`** so history is never truncated to **`delta`** alone.
+ * - **Boundary only:** **`reconcileCommittedTextNodeFromLockedString`** at **`softFinalize`** / segment close.
  *
  * ### WebSocket frame lifecycle (one tick)
  * 1. Speaker pivot / `createBubble` (unchanged).
- * 2. For each **new** final token: `locked += t.text`, `appendData(committedSpan, t.text)`.
- * 3. Build `nfText` from current message tokens.
+ * 2. For each **new** final token: `locked += t.text`, `appendData(committedSpan, t.text, locked)`.
+ * 3. Build `nfRaw` from current message tokens.
  * 4. Paint NF span; assign `liveBufferRef`.
  * 5. `finalCountRef = finals.length`.
- * 6. Translation pacing (`morsyIntercallSandboxSemanticStabilizeLive`, etc.) reads `liveBufferRef` only.
+ * 6. Translation pacing reads `liveBufferRef` only (unchanged orchestration hooks).
  *
  * ### Deleted for this path
- * Mid-frame `flushFinalTextRenderQueue` for canon; delayed `scheduleFinalTextRenderFlush` for canon;
- * overlap strip; semantic **NF debounce** DOM path.
+ * Mid-frame queued committed flush rewriting `textContent` from queue; overlap strip; heuristic NF splice for originals.
  *
  * ```mermaid
  * flowchart TB
@@ -70,19 +70,17 @@ function planAndModeGate(planTypeLower: string, segmentBehaviorMode: string): bo
   });
 }
 
-/** True when this hook must use append-only canon + verbatim NF (no queue / overlap layer). */
+/** Soniox-aligned originals path: append-only canon, no queued committed ownership, verbatim NF (~`canonAppendWs`). */
 export function morsyUrgentAppendOnlyTranscriptDomPath(args: {
   planTypeLower: string;
   segmentBehaviorMode: string;
   transcriptSegIsolation: boolean;
-  /** Basic · Morsy Urgent: must match **`experimentMorsyUrgentIntercallOrchestration`** — lab off disables isolated transcript engine. */
-  intercallOrchestrationLab: boolean;
 }): boolean {
-  if (!args.transcriptSegIsolation) return false;
-  if (!planAndModeGate(args.planTypeLower, args.segmentBehaviorMode)) return false;
-  if (!morsyIntercallIsolatedSandboxSegment(args.segmentBehaviorMode)) return false;
-  if (args.planTypeLower.trim() === "morsy-urgent" && !args.intercallOrchestrationLab) return false;
-  return true;
+  return (
+    args.transcriptSegIsolation &&
+    planAndModeGate(args.planTypeLower, args.segmentBehaviorMode) &&
+    morsyIntercallIsolatedSandboxSegment(args.segmentBehaviorMode)
+  );
 }
 
 /** Concatenate `.text` from each new final in order — verbatim Soniox pieces. */
@@ -128,8 +126,16 @@ export function primeMorsyIsolatedCommittedTextNode(committedSpan: HTMLSpanEleme
   committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(""));
 }
 
-/** Append-only committed delta. First use after prime; if polluted, resets to one text node bearing `delta`. */
-export function appendDataLockedOnly(committedSpan: HTMLSpanElement, delta: string): void {
+/**
+ * Append-only committed delta. **`fullLockedCanonUtf16`** must match **`lockedCommittedFinalOriginal`**
+ * *after* `delta` has been merged into state — used if the DOM is polluted so we recreate one Text node bearing full canon,
+ * never only `delta` (would truncate finals).
+ */
+export function appendDataLockedOnly(
+  committedSpan: HTMLSpanElement,
+  delta: string,
+  fullLockedCanonUtf16: string,
+): void {
   if (!delta) return;
   const first = committedSpan.firstChild;
   if (first && first.nodeType === Node.TEXT_NODE) {
@@ -137,10 +143,10 @@ export function appendDataLockedOnly(committedSpan: HTMLSpanElement, delta: stri
     return;
   }
   committedSpan.replaceChildren();
-  committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(delta));
+  committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(fullLockedCanonUtf16));
 }
 
-/** End-of-row / safety sync: committed span exactly mirrors `locked` string (acceptable full replace at boundary). */
+/** End-of-row / safety sync: committed span exactly mirrors `locked` string (boundary-only full replace). */
 export function reconcileCommittedTextNodeFromLockedString(committedSpan: HTMLSpanElement, lockedUtf16: string): void {
   committedSpan.replaceChildren();
   committedSpan.appendChild(committedSpan.ownerDocument.createTextNode(lockedUtf16));
