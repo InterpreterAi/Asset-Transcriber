@@ -69,6 +69,8 @@ import {
   emitCommittedOrigDomMutation,
   emitCommittedOrigDomOrchestration,
   emitCommittedOrigDomPassiveSample,
+  emitMorsyUrgentNfReflowTrace,
+  emitMorsyUrgentViewportLayoutTrace,
   registerCommittedOrigDomIntegrityTraceStrictScopeGate,
 } from "@/hooks/committed-originals-dom-instrumentation";
 import {
@@ -245,6 +247,46 @@ function mergeDeferTailSticky(prev: boolean | undefined, next: boolean | undefin
   if (next === false || prev === false) return false;
   if (next === true || prev === true) return true;
   return undefined;
+}
+
+/**
+ * When tail-follow latch is **explicitly true** ({@link mergeDeferTailSticky}), suppress redundant RAF scheduling if
+ * committed boundary, originals DOM length, NF length, and scroller geometry are unchanged vs the last sticky RAF completion.
+ */
+function morsyUrgentStickyTailScrollFingerprint(snapshot: {
+  visibleBoundaryUtf16: number | null;
+  committedDomUtf16Len: number;
+  nfUtf16Len: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): string {
+  return `${snapshot.visibleBoundaryUtf16 ?? "na"}:${snapshot.committedDomUtf16Len}:${snapshot.nfUtf16Len}:${snapshot.scrollHeight}:${snapshot.clientHeight}`;
+}
+
+function peekMorsyUrgentStickyTailScrollSnapshot(args: {
+  scrollParent: HTMLElement;
+  bubbleState:
+    | { visibleCommittedBoundary?: number }
+    | null
+    | undefined;
+  committedSpan: HTMLSpanElement | null | undefined;
+  nfSpan: HTMLSpanElement | null | undefined;
+}): string {
+  let boundary: number | null = null;
+  if (typeof args.bubbleState?.visibleCommittedBoundary === "number") {
+    boundary = args.bubbleState.visibleCommittedBoundary;
+  }
+  const committedLen =
+    args.committedSpan?.isConnected ?? false ? (args.committedSpan?.textContent?.length ?? 0) : 0;
+  const nfLen = args.nfSpan?.isConnected ?? false ? (args.nfSpan?.textContent?.length ?? 0) : 0;
+  const el = args.scrollParent;
+  return morsyUrgentStickyTailScrollFingerprint({
+    visibleBoundaryUtf16: boundary,
+    committedDomUtf16Len: committedLen,
+    nfUtf16Len: nfLen,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  });
 }
 
 /**
@@ -2154,6 +2196,7 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
   committedSpan: HTMLSpanElement,
   st: BubbleTransCanonPromotionPaintState,
   nowMs: number,
+  suppressIdenticalCommittedProjection: boolean,
 ): {
   promoted: boolean;
   promoteReason: MorsyCanonPromotionKind;
@@ -2187,6 +2230,23 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
   });
   const visiblePrefix = locked.slice(0, st.visibleCommittedBoundary);
   const prevDomText = committedSpan.textContent ?? "";
+  const noopProjection =
+    suppressIdenticalCommittedProjection &&
+    prevBoundary === st.visibleCommittedBoundary &&
+    prevDomText === visiblePrefix;
+  if (noopProjection) {
+    return {
+      promoted: stepRes.promoted,
+      promoteReason: stepRes.promoteReason,
+      boundaryBeforeUtf16: prevBoundary,
+      boundaryAfterUtf16: st.visibleCommittedBoundary,
+      idleNeedMsSuggested: stepRes.idleNeedMsSuggested,
+      msQuietSinceCanonGrowth: stepRes.msQuietSinceCanonGrowth,
+      msBacklogLag: stepRes.msBacklogLag,
+      tentativeTailUtf16BeforeStep: stepRes.tentativeTailLenUtf16,
+      steppedBoundaryUtf16BeforeMonotoneClamp: stepRes.boundaryUtf16,
+    };
+  }
   projectCommittedOriginalsVisibleUtf16(committedSpan, visiblePrefix);
   if (committedOrigDomIntegrityTraceEnabled()) {
     emitCommittedOrigDomMutation({
@@ -2649,6 +2709,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const scrollFollowDeferredSrcRef = useRef<Exclude<TranscriptScrollPanelSource, "force">>("bubble");
   /** Merged RAF payload: sticky-before-growth intent (Chat-style latch); omitted ⇒ post-layout epsilon only in core. */
   const scrollFollowDeferredStickyRef = useRef<boolean | undefined>(undefined);
+  /** Basic · Morsy Urgent: last geometry fingerprint applied after a **`followPreGrowth === true`** RAF tail-follow (suppress idle rescheduling). */
+  const morsyUrgentStickyTrueTailScrollDedupeFingerprintRef = useRef<string>("");
   /**
    * While handling one synchronous Soniox `onmessage` turn: glued-to-tail before any of this tick’s transcript DOM churn
    * (bubble close + NF + queued finals). `null` = not in WS paint. Cleared in `finally` so async timeouts remeasure glue.
@@ -3063,7 +3125,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             detail: { appendedUtf16Len: flushText.length, kind: "canon_append_paint" },
           });
         }
-        paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(target, gateSt, nowFlushCanon);
+        paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
+          target,
+          gateSt,
+          nowFlushCanon,
+          isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
+        );
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
             kind:           "flush_append_canon_visible_project",
@@ -3145,6 +3212,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             target,
             bubbleStCanonRescue,
             Date.now(),
+            isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
           );
         } else {
           const prevDom = target.textContent ?? "";
@@ -3287,6 +3355,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const el = containerRef.current?.parentElement;
       if (!el) return;
 
+      const vuLayout =
+        committedOrigDomIntegrityTraceEnabled() &&
+        isBasicMorsyUrgentPlan(planTypeRef.current.trim());
+
       transcriptScrollVerifyLogViewport(el, `streaming_append(scrollPanel:${force ? "force" : "follow_rAF"}:${source}:pre=${String(followPreGrowth)})`);
 
       const t = performance.now();
@@ -3298,8 +3370,43 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         dBefore = dGeom;
       }
 
+      let stickyIntentPinnedGeom = epsilonNearBottom;
+      let snappedProgrammaticTail = false;
+      const vuBefore = vuLayout ? transcriptScrollVerifyReadViewport(el) : null;
+
+      const vuEmitOutcome = (
+        outcome: "force_snap" | "skip_unpinned" | "snap_tail_follow",
+      ) => {
+        if (!vuLayout || vuBefore === null) return;
+        const vafter = transcriptScrollVerifyReadViewport(el);
+        emitMorsyUrgentViewportLayoutTrace({
+          phase: "scroll_panel_run_core",
+          outcome,
+          perfMs: performance.now(),
+          source,
+          stickyLatch: followPreGrowth,
+          snappedProgrammaticTail,
+          pinnedGeomEpsilonBefore: epsilonNearBottom,
+          pinnedGeomStickyIntentDiag: stickyIntentPinnedGeom,
+          distanceFromBottomBefore: vuBefore.distanceFromBottom,
+          distanceFromBottomAfter: vafter.distanceFromBottom,
+          scrollTopBefore: vuBefore.scrollTop,
+          scrollTopAfter: vafter.scrollTop,
+          scrollTopDelta: vafter.scrollTop - vuBefore.scrollTop,
+          scrollHeightBefore: vuBefore.scrollHeight,
+          scrollHeightAfter: vafter.scrollHeight,
+          scrollHeightDelta: vafter.scrollHeight - vuBefore.scrollHeight,
+          clientHeightBefore: vuBefore.clientHeight,
+          clientHeightAfter: vafter.clientHeight,
+          clientHeightDelta: vafter.clientHeight - vuBefore.clientHeight,
+          overflowAnchorBefore: vuBefore.overflowAnchor,
+          overflowAnchorAfter: vafter.overflowAnchor,
+        });
+      };
+
       if (force) {
         assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:force_scrollTop(${source})`);
+        snappedProgrammaticTail = true;
         syncTailFollowUiFromScroller(el);
         if (diag) {
           transcriptScrollDiagCountApply("force");
@@ -3313,6 +3420,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             src: "force",
           });
         }
+        vuEmitOutcome("force_snap");
         return;
       }
 
@@ -3323,6 +3431,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const diagStickyIntent =
         followPreGrowth === true ? true : followPreGrowth === false ? false : epsilonNearBottom;
+      stickyIntentPinnedGeom = diagStickyIntent;
 
       if (!shouldSnapTail) {
         if (diag) {
@@ -3337,10 +3446,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           });
         }
         syncTailFollowUiFromScroller(el);
+        vuEmitOutcome("skip_unpinned");
         return;
       }
 
       assignTranscriptScrollerScrollTop(el, el.scrollHeight, `scroll_panel:tail_follow_scrollTop(${source})`);
+      snappedProgrammaticTail = true;
       syncTailFollowUiFromScroller(el);
       if (diag) {
         dGeom = transcriptScrollDistanceFromBottom(el);
@@ -3354,6 +3465,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           src: source,
         });
       }
+      vuEmitOutcome("snap_tail_follow");
     },
     [syncTailFollowUiFromScroller],
   );
@@ -3365,12 +3477,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       followPreGrowth?: boolean,
     ) => {
       const diag = transcriptScrollDiagEnabled();
+      const morsyUrgentVp = isBasicMorsyUrgentPlan(planTypeRef.current.trim());
       if (force) {
         if (scrollFollowRafRef.current !== 0) {
           cancelAnimationFrame(scrollFollowRafRef.current);
           scrollFollowRafRef.current = 0;
         }
         scrollFollowDeferredStickyRef.current = undefined;
+        if (morsyUrgentVp) {
+          morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current = "";
+        }
         if (diag) {
           transcriptScrollDiagCounts.scrollPanelsTotal++;
           transcriptScrollDiagMaybePeriodicSummary();
@@ -3398,18 +3514,63 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         followPreGrowth,
       );
 
+      const mergedSticky = scrollFollowDeferredStickyRef.current;
+
+      /** Sticky-before-growth is explicit **false**: never RAF tail-follow (post-layout epsilon is stale after growth anyway). */
+      if (morsyUrgentVp && mergedSticky === false) {
+        if (scrollFollowRafRef.current !== 0) {
+          cancelAnimationFrame(scrollFollowRafRef.current);
+          scrollFollowRafRef.current = 0;
+        }
+        if (committedOrigDomIntegrityTraceEnabled()) {
+          emitCommittedOrigDomOrchestration({
+            phase: "tail_follow_suppressed_explicit_unpinned",
+            source: `scrollPanel:${source}`,
+            detail: {
+              followPreGrowthCallsite: followPreGrowth,
+              coalescedSticky: mergedSticky,
+            },
+          });
+        }
+        scrollFollowDeferredStickyRef.current = undefined;
+        return;
+      }
+
+      if (scrollFollowRafRef.current !== 0) return;
+
+      const scrollParent = containerRef.current?.parentElement ?? null;
+      if (morsyUrgentVp && mergedSticky === true && scrollParent) {
+        const fp = peekMorsyUrgentStickyTailScrollSnapshot({
+          scrollParent,
+          bubbleState: activeBubbleStateRef.current,
+          committedSpan: activeBubbleRef.current,
+          nfSpan: activeBubbleNFRef.current,
+        });
+        if (fp === morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current) {
+          if (committedOrigDomIntegrityTraceEnabled()) {
+            emitCommittedOrigDomOrchestration({
+              phase: "tail_follow_suppressed_sticky_true_fingerprint_stable",
+              source: `scrollPanel:${source}`,
+              detail: { fingerprint: fp.length > 196 ? `${fp.slice(0, 196)}\u2026` : fp },
+            });
+          }
+          scrollFollowDeferredStickyRef.current = undefined;
+          return;
+        }
+      }
+
       if (diag) {
         transcriptScrollDiagCounts.scrollPanelsTotal++;
         transcriptScrollDiagMaybePeriodicSummary();
       }
 
-      if (scrollFollowRafRef.current !== 0) return;
-
       if (committedOrigDomIntegrityTraceEnabled()) {
         emitCommittedOrigDomOrchestration({
           phase: "raf_tail_follow_scheduled",
           source: `scrollPanel/requestAnimationFrame:${source}`,
-          detail: { coalescingSticky: scrollFollowDeferredStickyRef.current },
+          detail: {
+            coalescingSticky: scrollFollowDeferredStickyRef.current,
+          },
         });
       }
 
@@ -3418,6 +3579,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const mergedPre = scrollFollowDeferredStickyRef.current;
         scrollFollowDeferredStickyRef.current = undefined;
         runScrollPanelCore(false, scrollFollowDeferredSrcRef.current, mergedPre);
+        if (
+          isBasicMorsyUrgentPlan(planTypeRef.current.trim()) &&
+          mergedPre === true &&
+          containerRef.current?.parentElement
+        ) {
+          const elNow = containerRef.current.parentElement!;
+          morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current =
+            peekMorsyUrgentStickyTailScrollSnapshot({
+              scrollParent: elNow,
+              bubbleState: activeBubbleStateRef.current,
+              committedSpan: activeBubbleRef.current,
+              nfSpan: activeBubbleNFRef.current,
+            });
+        }
         if (committedOrigDomIntegrityTraceEnabled()) {
           emitCommittedOrigDomPassiveSample({
             sourceTag: "scroll_panel_after_tail_follow_rAF",
@@ -3503,6 +3678,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             lockedCanonFull: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
             visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
           });
+          if (
+            scrollEl &&
+            isBasicMorsyUrgentPlan(planTypeRef.current.trim())
+          ) {
+            const v = transcriptScrollVerifyReadViewport(scrollEl);
+            emitMorsyUrgentViewportLayoutTrace({
+              phase: "mutation_observer_raffed_geometry",
+              source: "transcript_scroll_mo_children_rAF",
+              perfMs: performance.now(),
+              ...v,
+              distanceFromTailPx: transcriptScrollDistanceFromBottom(scrollEl),
+              committedDomUtf16Len: activeBubbleRef.current?.textContent?.length ?? 0,
+              nfDomUtf16Len: activeBubbleNFRef.current?.textContent?.length ?? 0,
+            });
+          }
         }
       });
     });
@@ -3526,6 +3716,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rafGeo = requestAnimationFrame(() => {
           if (cancelled) return;
           transcriptScrollVerifyLogViewport(containerRef.current?.parentElement ?? undefined, "resize_observer(scroll_or_content_box)");
+          const scrollRo = containerRef.current?.parentElement;
           if (committedOrigDomIntegrityTraceEnabled()) {
             emitCommittedOrigDomOrchestration({
               phase: "resize_observer_raffed_sample",
@@ -3537,6 +3728,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               lockedCanonFull: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
               visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
             });
+            if (scrollRo && isBasicMorsyUrgentPlan(planTypeRef.current.trim())) {
+              const v = transcriptScrollVerifyReadViewport(scrollRo);
+              emitMorsyUrgentViewportLayoutTrace({
+                phase: "resize_observer_raffed_geometry",
+                source: "transcript_scroll_resize_rAF",
+                perfMs: performance.now(),
+                ...v,
+                distanceFromTailPx: transcriptScrollDistanceFromBottom(scrollRo),
+                committedDomUtf16Len: activeBubbleRef.current?.textContent?.length ?? 0,
+                nfDomUtf16Len: activeBubbleNFRef.current?.textContent?.length ?? 0,
+              });
+            }
           }
         });
       };
@@ -5487,6 +5690,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           nfElC.textContent = "";
         }
 
+        if (
+          committedOrigDomIntegrityTraceEnabled() &&
+          isBasicMorsyUrgentPlan(planTypeRef.current.trim())
+        ) {
+          const scrollElCanon = containerRef.current?.parentElement ?? null;
+          emitMorsyUrgentNfReflowTrace({
+            phase: "canon_append_ws_hypothesis_paint",
+            perfMs: nowMs,
+            segmentId: stCanon?.segmentId ?? null,
+            nfRawUtf16Len: nfRaw.length,
+            nfDomUtf16Len: nfElC?.textContent?.length ?? 0,
+            nfFullReplaceDomThisMsg: nfFullReplaceThisMsg,
+            ...(scrollElCanon
+              ? transcriptScrollVerifyReadViewport(scrollElCanon)
+              : { scrollNote: "no_scroll_parent" }),
+          });
+        }
+
         liveBufferRef.current = `${lockedCanon.trimEnd()}${nfRaw}`.trim();
         if (stCanon) {
           stCanon.lastConfirmedSource = lockedCanon.trim();
@@ -5504,6 +5725,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             committedSpanCanon,
             stPromoCanon,
             nowMs,
+            isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
           );
           if (
             morsyIsolatedSemanticPresentationEnabled({
