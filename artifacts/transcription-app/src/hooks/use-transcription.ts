@@ -63,6 +63,14 @@ import {
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
 import {
+  committedOrigDomIntegrityTraceEnabled,
+  emitCommittedOrigDomContainerWipe,
+  emitCommittedOrigDomDetachPreNull,
+  emitCommittedOrigDomMutation,
+  emitCommittedOrigDomOrchestration,
+  emitCommittedOrigDomPassiveSample,
+} from "@/hooks/committed-originals-dom-instrumentation";
+import {
   morsyIsolatedVerbatimRawNfHypothesis,
   morsyUrgentAppendOnlyTranscriptDomPath,
   primeMorsyIsolatedCommittedTextNode,
@@ -2175,7 +2183,41 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
     steppedBoundaryUtf16: stepRes.boundaryUtf16,
     lockedLenUtf16: locked.length,
   });
-  projectCommittedOriginalsVisibleUtf16(committedSpan, locked.slice(0, st.visibleCommittedBoundary));
+  const visiblePrefix = locked.slice(0, st.visibleCommittedBoundary);
+  const prevDomText = committedSpan.textContent ?? "";
+  projectCommittedOriginalsVisibleUtf16(committedSpan, visiblePrefix);
+  if (committedOrigDomIntegrityTraceEnabled()) {
+    emitCommittedOrigDomMutation({
+      source: "paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom/projectCommittedOriginalsVisibleUtf16",
+      integrityMode: "project_visible_prefix",
+      span: committedSpan,
+      prevText: prevDomText,
+      nextText: visiblePrefix,
+      lockedCanonFull: locked,
+      visibleBoundaryUtf16: st.visibleCommittedBoundary,
+    });
+    emitCommittedOrigDomOrchestration({
+      phase: "boundary_projection_meta",
+      source: "paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom",
+      lockedCanonUtf16Len: locked.length,
+      visibleBoundaryUtf16: st.visibleCommittedBoundary,
+      prevDomUtf16Len: prevDomText.length,
+      nextDomUtf16Len: visiblePrefix.length,
+      shortened: visiblePrefix.length < prevDomText.length,
+      divergesFromLockedCanonPrefix: visiblePrefix.length > 0 && !locked.startsWith(visiblePrefix),
+      detail: {
+        boundaryBeforeUtf16: prevBoundary,
+        boundaryAfterUtf16: st.visibleCommittedBoundary,
+        promoted: stepRes.promoted,
+        promoteReason: stepRes.promoteReason,
+        idleNeedMsSuggested: stepRes.idleNeedMsSuggested,
+        msQuietSinceCanonGrowth: stepRes.msQuietSinceCanonGrowth,
+        msBacklogLag: stepRes.msBacklogLag,
+        tentativeTailUtf16BeforeStep: stepRes.tentativeTailLenUtf16,
+        steppedBoundaryUtf16BeforeMonotoneClamp: stepRes.boundaryUtf16,
+      },
+    });
+  }
   return {
     promoted: stepRes.promoted,
     promoteReason: stepRes.promoteReason,
@@ -2926,6 +2968,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         experimentMorsyUrgentIntercallRef.current,
       );
     if (canonDiscardQueue) {
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        const ql = finalRenderQueueRef.current.length;
+        emitCommittedOrigDomOrchestration({
+          phase: "queue_cleared_discard_canon_append",
+          source: "flushFinalTextRenderQueue/canonDiscardQueue",
+          queueLenBefore: ql,
+          queueLenAfter: 0,
+        });
+      }
       if (finalRenderTimerRef.current !== null) {
         clearTimeout(finalRenderTimerRef.current);
         finalRenderTimerRef.current = null;
@@ -2953,6 +3004,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (q.length === 0) {
       scrollPanelFnRef.current?.(false, "flush_queue_empty_snap_if_sticky", preGlue);
       return;
+    }
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomOrchestration({
+        phase: "flush_iteration_begin",
+        source: "flushFinalTextRenderQueue",
+        queueLenBefore: q.length,
+        queueLenAfter: 0,
+      });
     }
     finalRenderQueueRef.current = [];
     for (const item of q) {
@@ -2989,6 +3048,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
         const nowFlushCanon = Date.now();
+        if (committedOrigDomIntegrityTraceEnabled()) {
+          emitCommittedOrigDomOrchestration({
+            phase: "flush_iteration_begin",
+            source: "flushFinalTextRenderQueue/canon_projection_item",
+            segmentId: gateSt.segmentId,
+            lockedCanonUtf16Len: gateSt.lockedCommittedFinalOriginal.length,
+            visibleBoundaryUtf16: gateSt.visibleCommittedBoundary,
+            detail: { appendedUtf16Len: flushText.length, kind: "canon_append_paint" },
+          });
+        }
         paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(target, gateSt, nowFlushCanon);
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
@@ -3014,7 +3083,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !sonioxAppendOnlyCanonLoop
       ) {
         gateSt.lockedCommittedFinalOriginal += flushText;
-        target.textContent = gateSt.lockedCommittedFinalOriginal;
+        const prevDom = target.textContent ?? "";
+        const lockedFull = gateSt.lockedCommittedFinalOriginal;
+        target.textContent = lockedFull;
+        if (committedOrigDomIntegrityTraceEnabled()) {
+          emitCommittedOrigDomMutation({
+            source: "flushFinalTextRenderQueue/legacy_isolated_full_locked_textContent",
+            integrityMode: "legacy_flush_full_locked",
+            span: target,
+            prevText: prevDom,
+            nextText: lockedFull,
+            lockedCanonFull: lockedFull,
+            visibleBoundaryUtf16: gateSt.visibleCommittedBoundary,
+          });
+        }
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
             kind:             "flush_append_canonical_dom",
@@ -3044,13 +3126,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         if (rescueCanonVisibleDom) {
           bubbleStCanonRescue.lockedCommittedFinalOriginal += flushText;
+          if (committedOrigDomIntegrityTraceEnabled()) {
+            emitCommittedOrigDomOrchestration({
+              phase: "flush_iteration_begin",
+              source: "flushFinalTextRenderQueue/canon_rescue_paint",
+              segmentId: bubbleStCanonRescue.segmentId,
+              lockedCanonUtf16Len: bubbleStCanonRescue.lockedCommittedFinalOriginal.length,
+              visibleBoundaryUtf16: bubbleStCanonRescue.visibleCommittedBoundary,
+              detail: { appendedUtf16Len: flushText.length, kind: "rescue_canon_append" },
+            });
+          }
           paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
             target,
             bubbleStCanonRescue,
             Date.now(),
           );
         } else {
+          const prevDom = target.textContent ?? "";
           target.textContent = (target.textContent ?? "") + flushText;
+          const nextDom = target.textContent ?? "";
 
           if (
             morsyEffectiveStrictOriginalFinalSeparation(
@@ -3063,6 +3157,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
               activeBubbleStateRef.current.lockedCommittedFinalOriginal += flushText;
             }
+          }
+
+          if (committedOrigDomIntegrityTraceEnabled()) {
+            let lockedCanonSnapshot = "";
+            if (gateSt) lockedCanonSnapshot = gateSt.lockedCommittedFinalOriginal;
+            else if (target === activeBubbleRef.current && activeBubbleStateRef.current) {
+              lockedCanonSnapshot = activeBubbleStateRef.current.lockedCommittedFinalOriginal;
+            }
+            emitCommittedOrigDomMutation({
+              source: "flushFinalTextRenderQueue/legacy_concat_textContent",
+              integrityMode: "legacy_flush_concat",
+              span: target,
+              prevText: prevDom,
+              nextText: nextDom,
+              lockedCanonFull: lockedCanonSnapshot || nextDom,
+              visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+            });
           }
         }
       }
@@ -3260,6 +3371,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           transcriptScrollDiagMaybePeriodicSummary();
         }
         runScrollPanelCore(true, source);
+        if (committedOrigDomIntegrityTraceEnabled()) {
+          emitCommittedOrigDomOrchestration({
+            phase: "raf_tail_follow_scheduled",
+            source: `scrollPanel/force_sync:${source}`,
+            detail: { force: true },
+          });
+          emitCommittedOrigDomPassiveSample({
+            sourceTag: "scroll_panel_after_force_core",
+            committedSpan: activeBubbleRef.current,
+            lockedCanonFull: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+            visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+          });
+        }
         return;
       }
 
@@ -3276,11 +3400,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       if (scrollFollowRafRef.current !== 0) return;
 
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        emitCommittedOrigDomOrchestration({
+          phase: "raf_tail_follow_scheduled",
+          source: `scrollPanel/requestAnimationFrame:${source}`,
+          detail: { coalescingSticky: scrollFollowDeferredStickyRef.current },
+        });
+      }
+
       scrollFollowRafRef.current = requestAnimationFrame(() => {
         scrollFollowRafRef.current = 0;
         const mergedPre = scrollFollowDeferredStickyRef.current;
         scrollFollowDeferredStickyRef.current = undefined;
         runScrollPanelCore(false, scrollFollowDeferredSrcRef.current, mergedPre);
+        if (committedOrigDomIntegrityTraceEnabled()) {
+          emitCommittedOrigDomPassiveSample({
+            sourceTag: "scroll_panel_after_tail_follow_rAF",
+            committedSpan: activeBubbleRef.current,
+            lockedCanonFull: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+            visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+          });
+        }
       });
     },
     [runScrollPanelCore],
@@ -3328,7 +3468,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [jumpTailFollow]);
 
   useEffect(() => {
-    if (!transcriptScrollVerifyEnabled()) return;
+    if (!transcriptScrollVerifyEnabled() && !committedOrigDomIntegrityTraceEnabled()) return;
     let cancelled = false;
     let rafGeo = 0;
     let bootAttempts = 0;
@@ -3338,6 +3478,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (cancelled) return;
         const scrollEl = containerRef.current?.parentElement;
         transcriptScrollVerifyLogViewport(scrollEl, "mutation_observer_post_layout(children_changed)");
+        if (committedOrigDomIntegrityTraceEnabled()) {
+          emitCommittedOrigDomOrchestration({
+            phase: "mutation_observer_raffed_sample",
+            source: "transcript_scroll_mo_children_rAF",
+          });
+          emitCommittedOrigDomPassiveSample({
+            sourceTag: "mutation_observer_post_layout_rAF",
+            committedSpan: activeBubbleRef.current,
+            lockedCanonFull: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+            visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+          });
+        }
       });
     });
 
@@ -3360,6 +3512,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rafGeo = requestAnimationFrame(() => {
           if (cancelled) return;
           transcriptScrollVerifyLogViewport(containerRef.current?.parentElement ?? undefined, "resize_observer(scroll_or_content_box)");
+          if (committedOrigDomIntegrityTraceEnabled()) {
+            emitCommittedOrigDomOrchestration({
+              phase: "resize_observer_raffed_sample",
+              source: "transcript_scroll_resize_rAF",
+            });
+            emitCommittedOrigDomPassiveSample({
+              sourceTag: "resize_observer_post_layout_rAF",
+              committedSpan: activeBubbleRef.current,
+              lockedCanonFull: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+              visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+            });
+          }
         });
       };
       roOuter = new ResizeObserver(bumpRo);
@@ -4290,6 +4454,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       })
     ) {
       primeMorsyIsolatedCommittedTextNode(finalCommitTarget);
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        emitCommittedOrigDomMutation({
+          source: "createBubble/primeMorsyIsolatedCommittedTextNode",
+          integrityMode: "prime_empty",
+          span: finalCommitTarget,
+          prevText: "",
+          nextText: "",
+          lockedCanonFull: "",
+          visibleBoundaryUtf16: 0,
+        });
+      }
     }
     p.appendChild(finalCommitTarget);
     p.appendChild(nfSpan);
@@ -4398,6 +4573,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (activeBubbleStateRef.current && transcriptSegIsolation) {
       segmentStateByIdRef.current.set(activeBubbleStateRef.current.segmentId, activeBubbleStateRef.current);
     }
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomOrchestration({
+        phase: "segment_bubble_created",
+        source: "createBubble",
+        segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+        detail: { canonAppendPath: morsyUrgentAppendOnlyTranscriptDomPath({
+          planTypeLower: planLower,
+          segmentBehaviorMode: segmentBehaviorModeRef.current,
+          transcriptSegIsolation,
+        }) },
+      });
+    }
     styleUpgradedRef.current       = false;
     liveBufferRef.current          = "";
 
@@ -4414,6 +4601,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // against the final fetch and overwrite the locked translation.
   const softFinalize = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     cancelOpenAiLiveDebounce();
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomOrchestration({
+        phase: "soft_finalize_entry",
+        source: `softFinalize(${closeKind})`,
+        segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+        lockedCanonUtf16Len: activeBubbleStateRef.current?.lockedCommittedFinalOriginal.length,
+        visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+      });
+    }
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
 
@@ -4427,10 +4623,34 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       ) &&
       activeBubbleRef.current
     ) {
+      const committedEl = activeBubbleRef.current;
+      const prevRecon = committedEl.textContent ?? "";
+      const lockedRecon = bubbleStPre.lockedCommittedFinalOriginal;
       reconcileCommittedTextNodeFromLockedString(
-        activeBubbleRef.current,
-        bubbleStPre.lockedCommittedFinalOriginal,
+        committedEl,
+        lockedRecon,
       );
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        emitCommittedOrigDomMutation({
+          source: "softFinalize/reconcileCommittedTextNodeFromLockedString",
+          integrityMode: "reconcile_full_locked",
+          span: committedEl,
+          prevText: prevRecon,
+          nextText: lockedRecon,
+          lockedCanonFull: lockedRecon,
+          visibleBoundaryUtf16: bubbleStPre.visibleCommittedBoundary,
+        });
+        emitCommittedOrigDomOrchestration({
+          phase: "soft_finalize_after_reconcile",
+          source: `softFinalize(${closeKind})`,
+          segmentId: bubbleStPre.segmentId,
+          prevDomUtf16Len: prevRecon.length,
+          nextDomUtf16Len: lockedRecon.length,
+          lockedCanonUtf16Len: lockedRecon.length,
+          visibleBoundaryUtf16: bubbleStPre.visibleCommittedBoundary,
+          shortened: lockedRecon.length < prevRecon.length,
+        });
+      }
     }
     if (
       bubbleStPre &&
@@ -4530,6 +4750,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "session_end") => {
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomOrchestration({
+        phase: "close_active_segment_boundary",
+        source: `closeActiveSegmentBoundary(${closeKind})`,
+        segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+      });
+    }
     recordSttSegmentClose(closeKind);
     finalizeLiveBubble(closeKind);
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
@@ -4544,6 +4771,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     currentSpeakerRef.current = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomDetachPreNull("closeActiveSegmentBoundary/clear_refs", {
+        committedSpan: activeBubbleRef.current,
+        lockedCanonUtf16: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+        visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+      });
+    }
     activeBubbleRef.current   = null;
     activeBubbleNFRef.current = null;
     activeBubbleStateRef.current = null;
@@ -4563,6 +4797,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       transcriptScrollDiagInstallGlobalDumpHook();
     }
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomDetachPreNull("doClear/before_refs", {
+        committedSpan: activeBubbleRef.current,
+        lockedCanonUtf16: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+        visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+      });
+    }
     segmentStateByIdRef.current.clear();
     activeBubbleStateRef.current   = null;
     currentSpeakerRef.current      = undefined;
@@ -4586,7 +4827,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       lastInputMeta: null,
       redundantCalls: 0,
     };
-    if (containerRef.current) containerRef.current.innerHTML = "";
+    if (containerRef.current) {
+      if (committedOrigDomIntegrityTraceEnabled()) {
+        emitCommittedOrigDomContainerWipe("doClear/containerRef.innerHTML");
+      }
+      containerRef.current.innerHTML = "";
+    }
     setTailFollowPinnedUi(true);
     setHasTranscript(false);
     setTranslationServiceError(null);
@@ -4630,6 +4876,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     currentSpeakerRef.current     = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
     pendingSpeakerSwitchRef.current = null;
+    if (committedOrigDomIntegrityTraceEnabled()) {
+      emitCommittedOrigDomDetachPreNull("stopSession/before_refs", {
+        committedSpan: activeBubbleRef.current,
+        lockedCanonUtf16: activeBubbleStateRef.current?.lockedCommittedFinalOriginal ?? "",
+        visibleBoundaryUtf16: activeBubbleStateRef.current?.visibleCommittedBoundary ?? null,
+      });
+    }
     activeBubbleRef.current       = null;
     activeBubbleNFRef.current     = null;
     activeBubbleStateRef.current  = null;  // drop all in-flight translation closures
@@ -5019,6 +5272,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                           ? { segmentId: activeBubbleStateRef.current.segmentId }
                           : {}),
                       });
+                      if (committedOrigDomIntegrityTraceEnabled()) {
+                        emitCommittedOrigDomOrchestration({
+                          phase: "queue_push",
+                          source: "buildWs/speaker_confirm_bufferedCanon",
+                          segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                          queueLenAfter: finalRenderQueueRef.current.length,
+                          detail: { pushedUtf16Len: bufferedCanon.length },
+                        });
+                      }
                     }
                   }
                   pendingSpeakerSwitchRef.current = null;
@@ -5055,6 +5317,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 ? { segmentId: activeBubbleStateRef.current.segmentId }
                 : {}),
             });
+            if (committedOrigDomIntegrityTraceEnabled()) {
+              emitCommittedOrigDomOrchestration({
+                phase: "queue_push",
+                source: "buildWs/per_token_final",
+                segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                queueLenAfter: finalRenderQueueRef.current.length,
+                detail: { pushedUtf16Len: pushCanon.length },
+              });
+            }
           }
           if (activeBubbleStateRef.current) {
             activeBubbleStateRef.current.finalTokensSeen += 1;
@@ -5090,6 +5361,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   ? { segmentId: activeBubbleStateRef.current.segmentId }
                   : {}),
               });
+              if (committedOrigDomIntegrityTraceEnabled()) {
+                emitCommittedOrigDomOrchestration({
+                  phase: "queue_push",
+                  source: "buildWs/pending_speaker_flush",
+                  segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                  queueLenAfter: finalRenderQueueRef.current.length,
+                  detail: { pushedUtf16Len: pendCanon.length },
+                });
+              }
             }
           }
           pendingSpeakerSwitchRef.current = null;
