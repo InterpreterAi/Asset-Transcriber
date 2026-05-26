@@ -24,6 +24,7 @@ import { apiMountJsonErrorHandler, globalErrorHandler } from "./middlewares/glob
 import {
   aiCostLimiter,
   authLimiter,
+  feedbackApiLimiter,
   forgotPasswordLimiter,
   generalApiLimiter,
   resendVerificationLimiter,
@@ -332,6 +333,7 @@ app.use("/api", trialAiHardWallMiddleware);
 app.use("/api", translationLimiter);
 app.use("/api", aiCostLimiter);
 app.use("/api/admin", adminIpGuard);
+app.use("/api", feedbackApiLimiter);
 app.use("/api", generalApiLimiter);
 app.use("/api", blockUnauthenticatedAiRequests);
 app.use("/api", aiUsageMonitorMiddleware);

@@ -14,6 +14,17 @@ const MIN_COMMENT_LENGTH = 10;
 const UNLIMITED_DAILY_CAP_MINUTES = 9000;
 const PAID_FEEDBACK_SOURCE = "paid-session-end-mandatory";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function retryAfterSecondsFromHeader(header: string | null): number | null {
+  if (!header) return null;
+  const sec = Number.parseInt(header.trim(), 10);
+  if (!Number.isFinite(sec) || sec < 1 || sec > 120) return null;
+  return sec;
+}
+
 /**
  * Paid accounts only: after recording stops, if today’s usage is ≥ half the daily cap and the server
  * has no open session, prompt once for mandatory feedback (matches `FEEDBACK_REQUIRED` on next session).
@@ -22,7 +33,7 @@ const PAID_FEEDBACK_SOURCE = "paid-session-end-mandatory";
 export function PaidPostSessionFeedbackPrompt({
   planType,
   dailyLimitMinutes,
-  minutesUsedToday,
+  minutesUsedToday: _minutesUsedToday,
   isRecording,
 }: Props) {
   const [visible, setVisible] = useState(false);
@@ -61,13 +72,13 @@ export function PaidPostSessionFeedbackPrompt({
   useEffect(() => {
     if (!gateApplies) return;
     void refreshStatus();
-  }, [gateApplies, isRecording, minutesUsedToday, refreshStatus]);
+  }, [gateApplies, isRecording, refreshStatus]);
 
   useEffect(() => {
     if (!gateApplies || isRecording) return;
     const t = setTimeout(() => void refreshStatus(), 900);
     return () => clearTimeout(t);
-  }, [gateApplies, isRecording, minutesUsedToday, refreshStatus]);
+  }, [gateApplies, isRecording, refreshStatus]);
 
   useEffect(() => {
     const shouldShow = paidRequired && !paidSubmitted && gateApplies && !isRecording;
@@ -83,31 +94,67 @@ export function PaidPostSessionFeedbackPrompt({
     return () => clearTimeout(t);
   }, [paidRequired, paidSubmitted, gateApplies, isRecording]);
 
+  useEffect(() => {
+    if (!visible || done) return;
+    const t = setTimeout(() => void refreshStatus(), 400);
+    return () => clearTimeout(t);
+  }, [visible, done, refreshStatus]);
+
   const canSubmit = rating >= 1 && comment.trim().length >= MIN_COMMENT_LENGTH;
 
   const handleSubmit = async () => {
     if (!canSubmit || loading) return;
     setLoading(true);
     setErr(null);
+
+    const maxAttempts = 5;
+    let nextDelayMs = 2000;
+
     try {
-      const res = await fetch("/api/feedback", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rating,
-          comment: comment.trim(),
-          source: PAID_FEEDBACK_SOURCE,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not send feedback");
-      await refreshStatus();
-      setDone(true);
-      setTimeout(() => {
-        setAnimate(false);
-        setTimeout(() => setVisible(false), 320);
-      }, 1600);
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rating,
+            comment: comment.trim(),
+            source: PAID_FEEDBACK_SOURCE,
+          }),
+        });
+
+        let data = {} as { error?: string; code?: string };
+        try {
+          data = (await res.json()) as { error?: string; code?: string };
+        } catch {
+          /* empty */
+        }
+
+        if (res.ok) {
+          await refreshStatus();
+          setDone(true);
+          setTimeout(() => {
+            setAnimate(false);
+            setTimeout(() => setVisible(false), 320);
+          }, 1600);
+          return;
+        }
+
+        const rateLimited =
+          res.status === 429 || data.code === "rate_limited" || /too many/i.test(data.error ?? "");
+        if (rateLimited && attempt < maxAttempts) {
+          const raSec = retryAfterSecondsFromHeader(res.headers.get("Retry-After"));
+          const waitMs = Math.max(nextDelayMs, (raSec ?? 2) * 1000);
+          setErr(`Too many saves at once — waiting ${Math.ceil(waitMs / 1000)}s, then retrying (${attempt}/${maxAttempts})…`);
+          await sleep(waitMs);
+          nextDelayMs = Math.min(Math.round(nextDelayMs * 1.6), 14_000);
+          continue;
+        }
+
+        throw new Error(data.error ?? "Could not send feedback");
+      }
+
+      throw new Error("Still busy — please tap Submit again in a minute.");
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -159,7 +206,7 @@ export function PaidPostSessionFeedbackPrompt({
             <div className="p-5 space-y-4">
               <p className="text-xs text-muted-foreground">
                 Stars and a comment (at least {MIN_COMMENT_LENGTH} characters) are required. One submission covers
-                today.
+                today. Submit retries automatically if the network is briefly busy.
               </p>
               <div className="flex justify-center gap-1" onMouseLeave={() => setHovered(0)}>
                 {[1, 2, 3, 4, 5].map((s) => (

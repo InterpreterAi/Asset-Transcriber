@@ -25,6 +25,13 @@ export function isTranscriptionTokenPost(req: Request): boolean {
   return apiRequestPath(req) === "/api/transcription/token";
 }
 
+/** Mandatory trial / paid session-end feedback — must not contend with the shared IPv4 `/api` bucket (NAT hotspots). */
+export function isFeedbackApiPath(req: Request): boolean {
+  if (req.method === "OPTIONS") return false;
+  const p = apiRequestPath(req);
+  return p === "/api/feedback" || p === "/api/feedback/status" || p.startsWith("/api/feedback/");
+}
+
 /**
  * Routes that bill or proxy AI / transcription (counted separately from general API limit).
  */
@@ -203,6 +210,24 @@ export const aiCostLimiter = rateLimit({
 });
 
 /**
+ * Feedback POST/GET — per logged-in user (fallback IP); generous so gated trial users never
+ * deadlock behind the IPv4-shared {@link generalApiLimiter} bucket.
+ */
+export const feedbackApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 45,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: rateLimitUserOrIpKey,
+  message: {
+    error:
+      "Too many feedback requests in a short time. Please wait a moment and tap Submit again.",
+  },
+  handler: rateLimitExceededHandler("feedback_api"),
+  skip: (req) => req.method === "OPTIONS" || !isFeedbackApiPath(req),
+});
+
+/**
  * Default API cap: 60 req/min per IP for routes not covered by AI or heartbeat buckets.
  * Skips health check, heartbeats, and AI-cost paths (those use dedicated limiters).
  */
@@ -224,6 +249,7 @@ export const generalApiLimiter = rateLimit({
     if (isSessionHeartbeatPost(req)) return true;
     if (isAiCostPath(req)) return true;
     if (isTranscriptionSessionStartPost(req)) return true;
+    if (isFeedbackApiPath(req)) return true;
     return false;
   },
 });

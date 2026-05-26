@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Star, CheckCircle, AlertCircle } from "lucide-react";
 import { isTrialLikePlanType } from "@/lib/utils";
 
@@ -15,6 +15,18 @@ const MIN_COMMENT_LENGTH = 10;
 /** Align with api-server `UNLIMITED_DAILY_CAP_MINUTES` — no half-daily gate for “unlimited” plans. */
 const UNLIMITED_DAILY_CAP_MINUTES = 9000;
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** `Retry-After` as delta-seconds (common case from express-rate-limit). */
+function retryAfterSecondsFromHeader(header: string | null): number | null {
+  if (!header) return null;
+  const sec = Number.parseInt(header.trim(), 10);
+  if (!Number.isFinite(sec) || sec < 1 || sec > 120) return null;
+  return sec;
+}
+
 /**
  * Once per app day, after the user has used ≥ half of their daily allowance (**active trial** accounts only),
  * blocks the workspace until they submit a star rating and a written comment. Same rules as
@@ -26,16 +38,18 @@ export function EarlyTrialFeedbackPrompt({
   effectiveMinutesUsedToday,
   dailyLimitMinutes,
 }: Props) {
-  const [visible, setVisible]   = useState(false);
-  const [animate, setAnimate]   = useState(false);
-  const [rating, setRating]   = useState(0);
+  const [visible, setVisible] = useState(false);
+  const [animate, setAnimate] = useState(false);
+  const [rating, setRating] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
-  const [done, setDone]       = useState(false);
-  const [err, setErr]         = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const [requiredByServer, setRequiredByServer] = useState(false);
   const [submittedByServer, setSubmittedByServer] = useState(false);
+  /** Avoid spamming `/api/feedback/status` when parent re-renders every PCM tick. */
+  const lastStatusPollAtMsRef = useRef(0);
 
   const gateApplies =
     isTrialLikePlanType(planType) &&
@@ -61,10 +75,15 @@ export function EarlyTrialFeedbackPrompt({
     }
   }, []);
 
+  /** When crossing into “half usage” we only need coarse server sync — not on every `effectiveMinutesUsedToday` tick. */
   useEffect(() => {
     if (!gateApplies || !halfUsageReached) return;
+    const now = Date.now();
+    const minGapMs = 20_000;
+    if (now - lastStatusPollAtMsRef.current < minGapMs) return;
+    lastStatusPollAtMsRef.current = now;
     void refreshStatus();
-  }, [gateApplies, halfUsageReached, effectiveMinutesUsedToday, dailyLimitMinutes, refreshStatus]);
+  }, [gateApplies, halfUsageReached, refreshStatus]);
 
   useEffect(() => {
     const shouldShow = requiredByServer && !submittedByServer && gateApplies && halfUsageReached;
@@ -80,31 +99,68 @@ export function EarlyTrialFeedbackPrompt({
     return () => clearTimeout(t);
   }, [requiredByServer, submittedByServer, gateApplies, halfUsageReached]);
 
+  /** Modal is visible: re-sync `/status` once (fixes cold-open after a failed poll; cheap vs. PCM-tick spam). */
+  useEffect(() => {
+    if (!visible || done) return;
+    const t = setTimeout(() => void refreshStatus(), 400);
+    return () => clearTimeout(t);
+  }, [visible, done, refreshStatus]);
+
   const canSubmit = rating >= 1 && comment.trim().length >= MIN_COMMENT_LENGTH;
 
   const handleSubmit = async () => {
     if (!canSubmit || loading) return;
     setLoading(true);
     setErr(null);
+
+    const maxAttempts = 5;
+    let nextDelayMs = 2000;
+
     try {
-      const res = await fetch("/api/feedback", {
-        method:      "POST",
-        credentials: "include",
-        headers:     { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rating,
-          comment: comment.trim(),
-          source:  "trial-half-daily-mandatory",
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not send feedback");
-      await refreshStatus();
-      setDone(true);
-      setTimeout(() => {
-        setAnimate(false);
-        setTimeout(() => setVisible(false), 320);
-      }, 1600);
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rating,
+            comment: comment.trim(),
+            source: "trial-half-daily-mandatory",
+          }),
+        });
+
+        let data = {} as { error?: string; code?: string };
+        try {
+          data = (await res.json()) as { error?: string; code?: string };
+        } catch {
+          /* non-JSON */
+        }
+
+        if (res.ok) {
+          await refreshStatus();
+          setDone(true);
+          setTimeout(() => {
+            setAnimate(false);
+            setTimeout(() => setVisible(false), 320);
+          }, 1600);
+          return;
+        }
+
+        const rateLimited =
+          res.status === 429 || data.code === "rate_limited" || /too many/i.test(data.error ?? "");
+        if (rateLimited && attempt < maxAttempts) {
+          const raSec = retryAfterSecondsFromHeader(res.headers.get("Retry-After"));
+          const waitMs = Math.max(nextDelayMs, (raSec ?? 2) * 1000);
+          setErr(`Too many saves at once — waiting ${Math.ceil(waitMs / 1000)}s, then retrying (${attempt}/${maxAttempts})…`);
+          await sleep(waitMs);
+          nextDelayMs = Math.min(Math.round(nextDelayMs * 1.6), 14_000);
+          continue;
+        }
+
+        throw new Error(data.error ?? "Could not send feedback");
+      }
+
+      throw new Error("Still busy — please tap Submit again in a minute.");
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -154,7 +210,8 @@ export function EarlyTrialFeedbackPrompt({
             </div>
             <div className="p-5 space-y-4">
               <p className="text-xs text-muted-foreground">
-                Stars and a comment (at least {MIN_COMMENT_LENGTH} characters) are required. This appears at most once per day when you reach half of your daily limit.
+                Stars and a short comment (about {MIN_COMMENT_LENGTH} characters) are required once per day at this milestone. Takes a few seconds —
+                Submit retries automatically if the network is briefly busy.
               </p>
               <div className="flex justify-center gap-1" onMouseLeave={() => setHovered(0)}>
                 {[1, 2, 3, 4, 5].map((s) => (
