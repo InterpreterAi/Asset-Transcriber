@@ -2,6 +2,7 @@
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
+import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
 import {
   getTranslationTypographyMeta,
   wrapAsciiDigitRunsWithLtrSpans,
@@ -5368,8 +5369,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     ws.onopen = () => {
       const pair = langPairRef.current;
-      const base = (c: string) => (c || "en").split("-")[0]!.toLowerCase();
-      const language_hints = [...new Set([base(pair.a), base(pair.b), "en"])].filter(Boolean);
+      const language_hints = buildSonioxLanguageHints(pair);
       const interpreterCtx = buildSonioxInterpreterContext(pair);
       ws.send(JSON.stringify({
         api_key:                        apiKey,
