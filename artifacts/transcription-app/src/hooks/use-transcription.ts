@@ -2711,10 +2711,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const onAdminSnapshotBuffersUpdatedRef = useRef<(() => void) | undefined>(undefined);
   onAdminSnapshotBuffersUpdatedRef.current = options?.onAdminSnapshotBuffersUpdated;
 
-  const translationEnabledRef = useRef(options?.translationEnabled ?? true);
-  useEffect(() => {
-    translationEnabledRef.current = options?.translationEnabled ?? true;
-  }, [options?.translationEnabled]);
   const translationUiModeRef = useRef<"upsell" | "hidden">(options?.translationUiMode ?? "upsell");
   useEffect(() => {
     translationUiModeRef.current = options?.translationUiMode ?? "upsell";
@@ -2740,6 +2736,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     morsyUrgentTranscriptSegmentGuardsRef.current = options?.morsyUrgentTranscriptSegmentGuards ?? false;
   }, [options?.morsyUrgentTranscriptSegmentGuards]);
+
+  const transcriptSegmentIsolationConfigured =
+    Boolean(options?.segmentBoundaryGuards ?? false) ||
+    Boolean(options?.morsyUrgentTranscriptSegmentGuards ?? false);
+
+  /** Deterministic SONIOX-only path (Basic · Morsy Urgent + canonAppendWs; opt-out LS `…canon_ws_engine=0`). */
+  const pureSttIsolationActive = gateCanonAppendWsIsolatedRebuild({
+    planTypeLower: (options?.planType ?? "").toLowerCase().trim(),
+    segmentBehaviorMode: options?.segmentBehaviorMode ?? "morsy-urgent-cbf",
+    transcriptSegmentIsolationEnabled: transcriptSegmentIsolationConfigured,
+  });
+
+  const translationEnabledRef = useRef(
+    pureSttIsolationActive ? false : options?.translationEnabled ?? true,
+  );
+  useEffect(() => {
+    translationEnabledRef.current = pureSttIsolationActive
+      ? false
+      : options?.translationEnabled ?? true;
+  }, [pureSttIsolationActive, options?.translationEnabled]);
 
   const experimentMorsyUrgentIntercallRef = useRef(options?.experimentMorsyUrgentIntercallOrchestration ?? false);
   useEffect(() => {
@@ -6789,5 +6805,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     isStarting:
       startBusy || getTokenMut.isPending || startSessionMut.isPending,
     glossaryAppliedFlash,
+    pureSttIsolationActive,
   };
 }

@@ -15,6 +15,7 @@ import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
+import { gateCanonAppendWsIsolatedRebuild } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
@@ -207,6 +208,16 @@ export default function WorkspaceDefault() {
    */
   const MORSY_INTERCALL_EXP_LS = "interpreterai_morsy_urgent_intercall_exp";
   const pt = (user?.planType ?? "").toLowerCase();
+  const morsyWorkspaceSegmentBehavior = pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf";
+  const transcriptIsolationForCanonGate =
+    segmentBoundaryGuardsEffective || (Boolean(user) && pt === "morsy-urgent");
+  /** Basic · Morsy Urgent + canonAppendWs: isolated SONIOX engine (`localStorage …canon_ws_engine=0` opts out). */
+  const pureSttIsolationWorkspaceGate = gateCanonAppendWsIsolatedRebuild({
+    planTypeLower: pt,
+    segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
+    transcriptSegmentIsolationEnabled: transcriptIsolationForCanonGate,
+  });
+
   const morsyIntercallExperimentEligible = pt === "morsy-urgent";
 
   const [morsyIntercallExperiment, setMorsyIntercallExperiment] = useState(false);
@@ -243,14 +254,19 @@ export default function WorkspaceDefault() {
   }, [user?.id, segmentBoundaryGuardsEffective]);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
-    translationEnabled: (user?.translationEnabled ?? true) || pt === "morsy-urgent",
-    translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase()) ? "hidden" : "upsell",
+    translationEnabled:
+      pureSttIsolationWorkspaceGate ? false : (user?.translationEnabled ?? true) || pt === "morsy-urgent",
+    translationUiMode: pureSttIsolationWorkspaceGate
+      ? "hidden"
+      : ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase())
+        ? "hidden"
+        : "upsell",
     planType: user?.planType ?? "",
     // Production workspace tiers: stabilized Soniox segmentation (`morsy-urgent-cbf`).
     // Basic · Morsy Urgent: workspace uses `morsy-intercall-isolated-experiment` for translation layout;
     // **original transcript** Soniox path is append-only **`lockedCommittedFinalOriginal`** (see **`morsyUrgentAppendOnlyTranscriptDomPath`**),
     // independent of the Intercall lab toggle (lab remains translation/cadence).
-    segmentBehaviorMode: pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf",
+    segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && pt === "morsy-urgent",
     experimentMorsyUrgentIntercallOrchestration:
@@ -1613,7 +1629,16 @@ export default function WorkspaceDefault() {
                       : "bg-violet-300",
                 )}
               />
-              <span className="truncate max-w-[160px]">{LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}</span>
+              <span className="truncate max-w-[200px]">
+                {transcription.pureSttIsolationActive ? (
+                  "Speech · deterministic STT"
+                ) : (
+                  <>
+                    {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔{" "}
+                    {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
+                  </>
+                )}
+              </span>
             </span>
             {transcription.isRecording && (
               <>
@@ -1665,7 +1690,8 @@ export default function WorkspaceDefault() {
             <button
               onClick={() => {
                 if (!transcription.containerRef.current) return;
-                const rows = transcription.containerRef.current.querySelectorAll(".group");
+                const rows =
+                  transcription.containerRef.current.querySelectorAll(".group,[data-caw-segment]");
                 const last = rows[rows.length - 1] as HTMLElement | undefined;
                 if (!last) return;
                 last.style.background = "rgba(245,158,11,0.12)";
@@ -1792,7 +1818,9 @@ export default function WorkspaceDefault() {
           </div>
         )}
 
-        {transcription.glossaryAppliedFlash && transcription.glossaryAppliedFlash.count > 0 && (
+        {!transcription.pureSttIsolationActive &&
+          transcription.glossaryAppliedFlash &&
+          transcription.glossaryAppliedFlash.count > 0 && (
           <div className="px-4 pt-2 shrink-0">
             <div className="flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/90 px-3 py-1.5 text-[11px] text-emerald-900">
               <BookOpen className="w-3.5 h-3.5 shrink-0 opacity-80" />
@@ -1912,32 +1940,20 @@ export default function WorkspaceDefault() {
               </div>
             </div>
 
-            {/* Two-column label row — visible only once transcript starts */}
+            {/* Column labels — bilingual mode uses Original | Translation; pure STT is single-stream. */}
             {transcription.hasTranscript && (
               <div
                 className={cn(
-                  "grid grid-cols-2 gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b shrink-0 bg-muted/10",
+                  "grid gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b shrink-0 bg-muted/10",
+                  transcription.pureSttIsolationActive ? "grid-cols-1" : "grid-cols-2",
                   wsDark ? "border-white/[0.05]" : "border-border/40",
                 )}
               >
-                <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
-                  Original
-                </div>
                 <div className="flex items-center justify-between gap-2 min-w-0">
-                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                    <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
-                      Translation
-                    </span>
-                    <button
-                      onClick={() => setShowReportIssue(true)}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300 shrink-0"
-                      title="Report a translation issue"
-                    >
-                      <AlertCircle className="w-2.5 h-2.5" />
-                      <span className="hidden sm:inline">Report issue</span>
-                    </button>
+                  <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
+                    {transcription.pureSttIsolationActive ? "Live transcript" : "Original"}
                   </div>
-                  {!transcription.tailFollowPinned && (
+                  {transcription.pureSttIsolationActive && !transcription.tailFollowPinned && (
                     <button
                       type="button"
                       onClick={() => transcription.jumpTailFollow()}
@@ -1954,6 +1970,39 @@ export default function WorkspaceDefault() {
                     </button>
                   )}
                 </div>
+                {!transcription.pureSttIsolationActive && (
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                      <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
+                        Translation
+                      </span>
+                      <button
+                        onClick={() => setShowReportIssue(true)}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300 shrink-0"
+                        title="Report a translation issue"
+                      >
+                        <AlertCircle className="w-2.5 h-2.5" />
+                        <span className="hidden sm:inline">Report issue</span>
+                      </button>
+                    </div>
+                    {!transcription.tailFollowPinned && (
+                      <button
+                        type="button"
+                        onClick={() => transcription.jumpTailFollow()}
+                        className={cn(
+                          "flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold shrink-0 border transition-colors",
+                          wsDark
+                            ? "border-white/15 bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                            : "border-border bg-background text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+                        )}
+                        title="Snap to newest transcript and resume live tail-follow"
+                      >
+                        <ArrowDownToLine className="w-2.5 h-2.5" />
+                        <span className="hidden sm:inline">Jump to latest</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2003,7 +2052,14 @@ export default function WorkspaceDefault() {
                       </div>
                       <p className="text-sm font-medium">Start recording to see transcript</p>
                       <p className="text-xs text-muted-foreground/60 mt-1">
-                        {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔ {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
+                        {transcription.pureSttIsolationActive
+                          ? "Transcription-only mode — deterministic streaming engine."
+                          : (
+                              <>
+                                {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔{" "}
+                                {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
+                              </>
+                            )}
                       </p>
                     </>
                   )}
@@ -2258,7 +2314,8 @@ export default function WorkspaceDefault() {
                Desktop: language selectors | centered start | invisible spacer mirror */}
           <div className="flex flex-col sm:flex-row sm:items-center px-3 sm:px-4 py-3 gap-2 sm:gap-3">
 
-            {/* Language pair */}
+            {/* Language selectors — omitted in deterministic STT-only mode */}
+            {!transcription.pureSttIsolationActive && (
             <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate</span>
               <Select
@@ -2285,6 +2342,7 @@ export default function WorkspaceDefault() {
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
             </div>
+            )}
 
             {/* Start / Stop button — full width on mobile, centered on desktop */}
             <div className="w-full sm:flex-1 flex justify-center">
@@ -2313,13 +2371,13 @@ export default function WorkspaceDefault() {
               )}
             </div>
 
-            {/* Invisible spacer — desktop only, keeps Start button centred */}
+            {/* Invisible spacer — desktop only */}
+            {!transcription.pureSttIsolationActive && (
             <div className="hidden sm:flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
               <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
               <div className="h-9 w-[130px]" />
-              <span className="text-xs font-semibold">↔</span>
-              <div className="h-9 w-[130px]" />
             </div>
+            )}
           </div>
 
           {/* Error bar */}
