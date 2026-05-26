@@ -10,7 +10,7 @@ export const PRICING_SHARED_FEATURES: readonly string[] = [
   "Speaker identification",
   "Tab audio capture",
   "Personal glossary support",
-  "31+ supported languages",
+  "36+ supported languages",
 ];
 
 export type PricingPlanKey = "basic" | "professional" | "platinum";
@@ -54,7 +54,7 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
-      "31+ supported languages",
+      "36+ supported languages",
     ],
   },
   {
@@ -71,7 +71,7 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
-      "31+ supported languages",
+      "36+ supported languages",
     ],
   },
   {
@@ -89,7 +89,7 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
-      "31+ supported languages",
+      "36+ supported languages",
     ],
   },
 ];

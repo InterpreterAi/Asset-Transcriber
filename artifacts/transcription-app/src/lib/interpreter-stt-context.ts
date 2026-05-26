@@ -36,6 +36,7 @@ const DEMONYM_BY_BASE: Record<string, string> = {
   ro: "Romanian",
   ru: "Russian",
   sk: "Slovak",
+  so: "Somali",
   es: "Spanish",
   sv: "Swedish",
   th: "Thai",

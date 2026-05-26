@@ -13,6 +13,7 @@ export const ALL_LANGUAGES = [
   { value: "hi",    label: "Hindi" },
   { value: "pt",    label: "Portuguese" },
   { value: "ru",    label: "Russian" },
+  { value: "so",    label: "Somali" },
   { value: "ja",    label: "Japanese" },
   { value: "de",    label: "German" },
   { value: "ko",    label: "Korean" },
