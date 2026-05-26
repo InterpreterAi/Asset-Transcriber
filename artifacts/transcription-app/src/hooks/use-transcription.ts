@@ -83,18 +83,13 @@ import {
   projectCommittedOriginalsVisibleUtf16,
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
+import { gateCanonAppendWsIsolatedRebuild } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
+import { CanonAppendWsIsolatedRuntime } from "@/experiments/basic-morsy-urgent/canonAppendWs/integration/canon-append-ws-runtime";
 import {
   canonVisibleTraceStagingTailPeek,
   emitMorsyUrgentCanonVisibleTrace,
 } from "@/hooks/morsy-urgent-canon-visible-trace";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
-import {
-  computeMonotoneNfVisible,
-  isMorsySttMonotoneNfExperimentActive,
-  paintCommittedDomStrictMonotone,
-  paintMonotoneNfDomStrict,
-  reconcileCommittedDomSegmentBoundary,
-} from "@/hooks/morsy-stt-monotone-experiment";
 import {
   emitNfEntityTrace,
   nfEntityInstrumentationEnabled,
@@ -2163,10 +2158,6 @@ interface BubbleTransState {
   morsySemanticFreezePendingBaselineFinalTok: number;
   /** Isolated original-column: last NF paint written (delta-append vs full-replace orchestration). */
   lastRenderedNfPaint: string;
-  /**
-   * **STT monotone experiment:** NF visible mirrors strict append/clear semantics (vs hybrid smoother).
-   */
-  morsySttMonotoneNfVisible: string;
   /** Isolated NF tail: stabilized speaker key for hypothesis tail — change forces full NF span rewrite. */
   lastNfTailSpeakerKey?: string;
   /** Isolated English semantic freeze scratch — mirrors {@link englishSemanticClauseFreezeDrain}. */
@@ -2218,7 +2209,6 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
   st: BubbleTransCanonPromotionPaintState,
   nowMs: number,
   basicMorsyUrgentImmediateCommittedAppend: boolean,
-  sttMonotoneExperiment = false,
 ): {
   promoted: boolean;
   promoteReason: MorsyCanonPromotionKind;
@@ -2239,45 +2229,6 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
     st.morsyCanonPromotionQuietSinceMs = nowMs;
     st.morsyCanonPromotionBacklogAnchorMs = null;
     st.visibleCommittedBoundary = locked.length;
-
-    if (sttMonotoneExperiment) {
-      const monoRes = paintCommittedDomStrictMonotone(committedSpan, locked);
-      const nextDomPeek = committedSpan.textContent ?? "";
-      if (committedOrigDomIntegrityTraceEnabled()) {
-        emitCommittedOrigDomOrchestration({
-          phase: "boundary_projection_meta",
-          source: "paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom/stt_monotone_exp",
-          lockedCanonUtf16Len: locked.length,
-          visibleBoundaryUtf16: st.visibleCommittedBoundary,
-          prevDomUtf16Len: prevDomText.length,
-          nextDomUtf16Len: nextDomPeek.length,
-          shortened: nextDomPeek.length < prevDomText.length,
-          divergesFromLockedCanonPrefix:
-            nextDomPeek.length > 0 && !locked.startsWith(nextDomPeek),
-          detail: {
-            boundaryBeforeUtf16: prevBoundary,
-            boundaryAfterUtf16: st.visibleCommittedBoundary,
-            immediateBasicMorsyUrgent: true,
-            sttMonotoneExperiment: true,
-            monotoneViolation: monoRes.violation,
-            promoted: false,
-            promoteReason: "none",
-            domWriteKind: monoRes.violation ? "stt_mono_skip" : "stt_mono_append",
-          },
-        });
-      }
-      return {
-        promoted: false,
-        promoteReason: "none",
-        boundaryBeforeUtf16: prevBoundary,
-        boundaryAfterUtf16: st.visibleCommittedBoundary,
-        idleNeedMsSuggested: 0,
-        msQuietSinceCanonGrowth: 0,
-        msBacklogLag: null,
-        tentativeTailUtf16BeforeStep: 0,
-        steppedBoundaryUtf16BeforeMonotoneClamp: locked.length,
-      };
-    }
 
     if (prevDomText === locked) {
       return {
@@ -2838,6 +2789,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
   glossaryNotifyRef.current = bumpGlossaryApplied;
 
+  const canonWsIsolationEngineRef = useRef<CanonAppendWsIsolatedRuntime | null>(null);
+  const canonWsIsolationRecordingRef = useRef(false);
+  /** True once a deterministic canon session mounted — snapshots read engine lines until cleared. */
+  const canonWsSnapshotFromEngineRef = useRef(false);
+
+  useEffect(() => {
+    canonWsIsolationEngineRef.current = new CanonAppendWsIsolatedRuntime();
+    canonWsIsolationEngineRef.current.setHooks({
+      onVisualTick: () => {
+        const alive =
+          canonWsIsolationRecordingRef.current || canonWsSnapshotFromEngineRef.current;
+        const eng = canonWsIsolationEngineRef.current;
+        if (!alive || !eng) return;
+        setHasTranscript(eng.peekHasRenderableText());
+      },
+    });
+    return () => {
+      canonWsIsolationRecordingRef.current = false;
+      canonWsIsolationEngineRef.current?.stopSoniox();
+      canonWsIsolationEngineRef.current = null;
+    };
+  }, []);
+
+  function canonWsIsolationGateNow(): boolean {
+    return gateCanonAppendWsIsolatedRebuild({
+      planTypeLower: planTypeRef.current.trim(),
+      segmentBehaviorMode: segmentBehaviorModeRef.current,
+      transcriptSegmentIsolationEnabled:
+        segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
+    });
+  }
+
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
   const workletRef   = useRef<AudioWorkletNode | null>(null);
@@ -3043,14 +3026,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   const scheduleDebouncedLiveTranslation = useCallback((text: string, lang: string, segmentId: string) => {
-    if (
-      isMorsySttMonotoneNfExperimentActive({
-        planTypeLower: planTypeRef.current.trim(),
-        segmentBehaviorMode: segmentBehaviorModeRef.current,
-        transcriptSegIsolation:
-          segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-      })
-    ) {
+    if (canonWsIsolationGateNow()) {
       return;
     }
     liveTranslationDebouncePayloadRef.current = { text, lang, segmentId };
@@ -3092,14 +3068,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
    */
   const morsyIntercallSandboxSemanticStabilizeLive = useCallback(
     (hintSource: string, wordsNow: number, segmentId: string, finalTokensSeen: number) => {
-      if (
-        isMorsySttMonotoneNfExperimentActive({
-          planTypeLower: planTypeRef.current.trim(),
-          segmentBehaviorMode: segmentBehaviorModeRef.current,
-          transcriptSegIsolation:
-            segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-        })
-      ) {
+      if (canonWsIsolationGateNow()) {
         return;
       }
       const now = Date.now();
@@ -3305,11 +3274,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           gateSt,
           nowFlushCanon,
           isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
-          isMorsySttMonotoneNfExperimentActive({
-            planTypeLower: planTypeRef.current.trim(),
-            segmentBehaviorMode: segmentBehaviorModeRef.current,
-            transcriptSegIsolation,
-          }),
         );
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
@@ -3393,11 +3357,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             bubbleStCanonRescue,
             Date.now(),
             isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
-            isMorsySttMonotoneNfExperimentActive({
-              planTypeLower: planTypeRef.current.trim(),
-              segmentBehaviorMode: segmentBehaviorModeRef.current,
-              transcriptSegIsolation: isoRescue,
-            }),
           );
         } else {
           const prevDom = target.textContent ?? "";
@@ -4033,19 +3992,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   ) => {
     const state = activeBubbleStateRef.current;
     if (!state || text.trim().length < 3) return;
+
+    if (canonWsIsolationGateNow()) return;
+
     const requestSegmentId = segmentIdLock ?? state.segmentId;
     if (requestSegmentId !== state.segmentId) return;
-
-    if (
-      isMorsySttMonotoneNfExperimentActive({
-        planTypeLower: planTypeRef.current.trim(),
-        segmentBehaviorMode: segmentBehaviorModeRef.current,
-        transcriptSegIsolation:
-          segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-      })
-    ) {
-      return;
-    }
 
     if (!translationEnabledRef.current) return;
 
@@ -4962,7 +4913,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       morsySemanticFreezePendingSinceMs: 0,
       morsySemanticFreezePendingBaselineFinalTok: -1,
       lastRenderedNfPaint: "",
-      morsySttMonotoneNfVisible: "",
       lastNfTailSpeakerKey: undefined,
       morsyEnglishFreezePendingClauseCollapsed: "",
       morsyEnglishFreezePendingSinceMs: 0,
@@ -5044,32 +4994,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const prevRecon = committedEl.textContent ?? "";
       const lockedRecon = bubbleStPre.lockedCommittedFinalOriginal;
 
-      const sttMonoFin = isMorsySttMonotoneNfExperimentActive({
-        planTypeLower: planTypeRef.current.trim(),
-        segmentBehaviorMode: segmentBehaviorModeRef.current,
-        transcriptSegIsolation:
-          segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current,
-      });
-
       let reconciled = false;
       const skipReconcile = skipDomReconcileWhenAlreadyCanon && prevRecon === lockedRecon;
       if (!skipReconcile) {
-        if (sttMonoFin) {
-          if (prevRecon !== lockedRecon) {
-            reconcileCommittedDomSegmentBoundary(committedEl, lockedRecon);
-            reconciled = true;
-          }
-        } else {
-          reconcileCommittedTextNodeFromLockedString(committedEl, lockedRecon);
-          reconciled = true;
-        }
+        reconcileCommittedTextNodeFromLockedString(committedEl, lockedRecon);
+        reconciled = true;
       }
       if (committedOrigDomIntegrityTraceEnabled()) {
         if (reconciled) {
           emitCommittedOrigDomMutation({
-            source: sttMonoFin
-              ? "softFinalize/reconcileCommittedDomSegmentBoundary(stt_mono)"
-              : "softFinalize/reconcileCommittedTextNodeFromLockedString",
+            source: "softFinalize/reconcileCommittedTextNodeFromLockedString",
             integrityMode: "reconcile_full_locked",
             span: committedEl,
             prevText: prevRecon,
@@ -5139,9 +5073,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
-    }
-    if (bubbleStPre) {
-      bubbleStPre.morsySttMonotoneNfVisible = "";
     }
 
     // Original column: exact ASR mirror only — no phrase rewrites or “corrections” to similar wording.
@@ -5235,6 +5166,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ref. Used by the exported `clear` (manual Clear button) and by the
   // inactivity / max-session auto-stop for non-admin users.
   const doClear = useCallback(() => {
+    canonWsIsolationRecordingRef.current = false;
+    canonWsSnapshotFromEngineRef.current = false;
+    canonWsIsolationEngineRef.current?.stopSoniox();
+
     cancelOpenAiLiveDebounce();
     flushFinalTextRenderQueue();
     stopTranslationInterval();
@@ -5275,9 +5210,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
     if (containerRef.current) {
       if (committedOrigDomIntegrityTraceEnabled()) {
-        emitCommittedOrigDomContainerWipe("doClear/containerRef.innerHTML");
+        emitCommittedOrigDomContainerWipe("doClear/containerRef.clear");
       }
-      containerRef.current.innerHTML = "";
+      if (
+        canonWsIsolationEngineRef.current &&
+        typeof canonWsIsolationEngineRef.current.resetDom === "function"
+      ) {
+        canonWsIsolationEngineRef.current.resetDom();
+      } else {
+        containerRef.current.innerHTML = "";
+      }
     }
     setTailFollowPinnedUi(true);
     setHasTranscript(false);
@@ -5312,6 +5254,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     stopTranslationInterval();
     finalizeLiveBubble();
+
+    canonWsIsolationRecordingRef.current = false;
+
+    canonWsIsolationEngineRef.current?.stopSoniox();
+    canonWsIsolationEngineRef.current?.setHooks({ onPcmFrame: undefined });
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     const transcriptSegIsolationStop =
@@ -5882,11 +5829,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         });
 
         const nfElC = activeBubbleNFRef.current;
-        const sttMono = isMorsySttMonotoneNfExperimentActive({
-          planTypeLower: planTypeRef.current.trim(),
-          segmentBehaviorMode: segmentBehaviorModeRef.current,
-          transcriptSegIsolation: transcriptSegIsolationWs,
-        });
 
         if (nfElC && stCanon) {
           const nk = tailSpk !== undefined ? String(tailSpk) : "";
@@ -5901,26 +5843,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           const basicMorsyUrgentNfStable =
             isBasicMorsyUrgentPlan(planTypeRef.current.trim());
 
-          if (sttMono) {
-            resetMorsyUrgentNfPresentationScratch(stCanon.morsyUrgentNfPresentation);
-            if (speakerTailKeyChanged) {
-              paintMonotoneNfDomStrict(nfElC, "");
-              stCanon.morsySttMonotoneNfVisible = "";
-            }
-            const prevMono = stCanon.morsySttMonotoneNfVisible;
-            const nextMono = computeMonotoneNfVisible(prevMono, nfRaw, speakerTailKeyChanged);
-            stCanon.morsySttMonotoneNfVisible = nextMono;
-            paintMonotoneNfDomStrict(nfElC, nextMono);
-            nfFullReplaceThisMsg ||= prevNc !== (nfElC.textContent ?? "");
-            stCanon.lastNfRawText = nfRaw;
-            stCanon.lastRenderedNfPaint = nextMono;
-            if (nfRaw.length === 0) {
-              stCanon.lastNfTailSpeakerKey = undefined;
-            }
-            clearMorsyIsolatedSemanticUiTimers(stCanon);
-            stCanon.morsyVisibleNfStagingPaint = "";
-            stCanon.morsyVisibleNfCommittedPaint = "";
-          } else if (nfRaw.length > 0) {
+          if (nfRaw.length > 0) {
             const smoothed = morsyUrgentVolatileHypothesisDomPaint({
               nfRaw,
               nowMs,
@@ -5986,11 +5909,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             stCanon.lastRenderedNfPaint = "";
             stCanon.lastNfTailSpeakerKey = undefined;
           }
-          if (!sttMono) {
-            clearMorsyIsolatedSemanticUiTimers(stCanon);
-            stCanon.morsyVisibleNfStagingPaint = "";
-            stCanon.morsyVisibleNfCommittedPaint = "";
-          }
+          clearMorsyIsolatedSemanticUiTimers(stCanon);
+          stCanon.morsyVisibleNfStagingPaint = "";
+          stCanon.morsyVisibleNfCommittedPaint = "";
         } else if (nfElC) {
           nfElC.textContent = "";
         }
@@ -6013,9 +5934,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           });
         }
 
-        liveBufferRef.current = sttMono && stCanon
-          ? `${lockedCanon.trimEnd()}${stCanon.morsySttMonotoneNfVisible}`.trim()
-          : `${lockedCanon.trimEnd()}${nfRaw}`.trim();
+        liveBufferRef.current = `${lockedCanon.trimEnd()}${nfRaw}`.trim();
         if (stCanon) {
           stCanon.lastConfirmedSource = lockedCanon.trim();
           if (liveBufferRef.current !== stCanon.lastLiveSource) {
@@ -6033,10 +5952,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             stPromoCanon,
             nowMs,
             isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
-            sttMono,
           );
           if (
-            !sttMono &&
             morsyIsolatedSemanticPresentationEnabled({
               planTypeLower: planTypeRef.current.trim(),
               segmentBehaviorMode: segmentBehaviorModeRef.current,
@@ -6644,8 +6561,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           });
       streamsRef.current.push(stream);
 
-      const ws = buildWs(tokenRes.apiKey);
-      wsRef.current = ws;
+      const startWithCanonWsIsolation = canonWsIsolationGateNow();
+      canonWsSnapshotFromEngineRef.current = startWithCanonWsIsolation;
+      pcmBacklogRef.current = [];
+
+      if (startWithCanonWsIsolation) {
+        canonWsIsolationRecordingRef.current = true;
+        const eng = canonWsIsolationEngineRef.current;
+        if (!eng || !containerRef.current) {
+          canonWsIsolationRecordingRef.current = false;
+          canonWsSnapshotFromEngineRef.current = false;
+          throw new Error("Transcript area is not ready — try Start again.");
+        }
+        wsRef.current = null;
+        eng.attachDomRoot(containerRef.current);
+        eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
+      } else {
+        canonWsIsolationRecordingRef.current = false;
+        const ws = buildWs(tokenRes.apiKey);
+        wsRef.current = ws;
+      }
 
       const audioSource = ctx.createMediaStreamSource(stream);
       const analyser    = ctx.createAnalyser();
@@ -6661,13 +6596,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       worklet.port.onmessage = (e) => {
         const raw = e.data as ArrayBuffer;
-        const w = wsRef.current;
-        if (w?.readyState === WebSocket.OPEN) {
-          w.send(raw);
+        if (canonWsIsolationRecordingRef.current && canonWsIsolationEngineRef.current) {
+          canonWsIsolationEngineRef.current.sendPcm(raw);
         } else {
-          pcmBacklogRef.current.push(raw.slice(0));
-          if (pcmBacklogRef.current.length > 200) {
-            pcmBacklogRef.current.splice(0, pcmBacklogRef.current.length - 200);
+          const w = wsRef.current;
+          if (w?.readyState === WebSocket.OPEN) {
+            w.send(raw);
+          } else {
+            pcmBacklogRef.current.push(raw.slice(0));
+            if (pcmBacklogRef.current.length > 200) {
+              pcmBacklogRef.current.splice(0, pcmBacklogRef.current.length - 200);
+            }
           }
         }
         const samples = new Int16Array(raw);
@@ -6716,6 +6655,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       resetInactivityRef.current = scheduleInactivity;
       scheduleInactivity();
 
+      canonWsIsolationEngineRef.current?.setHooks({
+        onPcmFrame: canonWsIsolationRecordingRef.current
+          ? () => {
+              resetInactivityRef.current?.();
+            }
+          : undefined,
+      });
+
       // ── 3-hour max session auto-stop ─────────────────────────────────────
       maxSessionTimerRef.current = setTimeout(() => {
         maxSessionTimerRef.current = null;
@@ -6751,6 +6698,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       // Error object intentionally not logged to console (HIPAA)
       setError(msg);
+      canonWsIsolationRecordingRef.current = false;
+      canonWsSnapshotFromEngineRef.current = false;
+      canonWsIsolationEngineRef.current?.stopSoniox();
+      canonWsIsolationEngineRef.current?.setHooks({ onPcmFrame: undefined });
       // If the session was created in the DB before the failure, close it
       // explicitly. stop() returns early when isRecRef is false, so this
       // ghost-session cleanup must happen here to prevent the next start()
@@ -6793,6 +6744,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptLines: string[];
     translationLines: string[];
   } => {
+    if (
+      canonWsSnapshotFromEngineRef.current &&
+      canonWsIsolationEngineRef.current
+    ) {
+      return canonWsIsolationEngineRef.current.getWorkspaceSnapshotBuffers();
+    }
     const src = [...transcriptBufRef.current];
     const tgt = [...translationBufRef.current];
     const n = Math.max(src.length, tgt.length);
