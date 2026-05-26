@@ -9,9 +9,24 @@ export function lcpLength(a: string, b: string): number {
   return i;
 }
 
+/** Typical Soniox NF splice: `"2026"` then `"2026ed"` — strip spurious `"ed"` (no `\b` between `6` and `e`). */
+function repairAmbiguousHypothesisGlitch(text: string): string {
+  return text.replace(/\d{4}ed\b/gu, m => m.slice(0, 4));
+}
+
 export function reconcileHypothesisVolatile(oldText: string, newFull: string): string {
-  if (newFull.length >= oldText.length && newFull.startsWith(oldText)) return newFull;
-  if (oldText.startsWith(newFull)) return oldText;
-  const l = lcpLength(oldText, newFull);
-  return oldText.slice(0, l) + newFull.slice(l);
+  const cleanedNew = repairAmbiguousHypothesisGlitch(newFull);
+  let merged: string;
+  if (
+    cleanedNew.length >= oldText.length &&
+    cleanedNew.startsWith(oldText)
+  ) {
+    merged = cleanedNew;
+  } else if (oldText.startsWith(cleanedNew)) {
+    merged = oldText;
+  } else {
+    const l = lcpLength(oldText, cleanedNew);
+    merged = oldText.slice(0, l) + cleanedNew.slice(l);
+  }
+  return repairAmbiguousHypothesisGlitch(merged);
 }
