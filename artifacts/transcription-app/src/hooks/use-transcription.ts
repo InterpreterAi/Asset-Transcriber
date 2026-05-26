@@ -86,8 +86,15 @@ import {
   canonVisibleTraceStagingTailPeek,
   emitMorsyUrgentCanonVisibleTrace,
 } from "@/hooks/morsy-urgent-canon-visible-trace";
+import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
+  emitNfEntityTrace,
+  nfEntityInstrumentationEnabled,
+} from "@/hooks/morsy-urgent-nf-entity-instrumentation";
+import {
+  classifyNfTailEntity,
   createMorsyUrgentNfPresentationScratch,
+  morsyUrgentNfMonotoneEntityHull,
   morsyUrgentVolatileHypothesisDomPaint,
   resetMorsyUrgentNfPresentationScratch,
   type MorsyUrgentNfPresentationScratch,
@@ -5775,21 +5782,70 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             tailSpk !== undefined ? nk : undefined;
 
           const prevNc = nfElC.textContent ?? "";
+          const basicMorsyUrgentNfStable =
+            isBasicMorsyUrgentPlan(planTypeRef.current.trim());
           if (nfRaw.length > 0) {
-            const nfPaintVisible = morsyUrgentVolatileHypothesisDomPaint({
+            const smoothed = morsyUrgentVolatileHypothesisDomPaint({
               nfRaw,
               nowMs,
               speakerTailKeyChanged,
               scratch: stCanon.morsyUrgentNfPresentation,
             });
-            nfElC.textContent = nfPaintVisible;
-            nfFullReplaceThisMsg ||= prevNc !== nfPaintVisible;
+            const tailEntityClass = classifyNfTailEntity(nfRaw);
+            const { hull: nfPaintVisible, monotoneHoldSkippedShrink } = basicMorsyUrgentNfStable
+              ? morsyUrgentNfMonotoneEntityHull({
+                  nfRaw,
+                  smoothed,
+                  prevHullVisible: stCanon.lastRenderedNfPaint ?? "",
+                  tailClass: tailEntityClass,
+                  nowMs,
+                  scratch: stCanon.morsyUrgentNfPresentation,
+                  speakerTailKeyChanged,
+                })
+              : { hull: smoothed, monotoneHoldSkippedShrink: false };
+            let domApply: "noop" | "append" | "delete_replace" | "full_replace" = "noop";
+            if (basicMorsyUrgentNfStable) {
+              const d = applyNfHypothesisMinimalDiff(nfElC, nfPaintVisible);
+              domApply = d.kind === "noop" ? "noop" : d.kind;
+              nfFullReplaceThisMsg ||= prevNc !== nfPaintVisible;
+            } else {
+              nfElC.textContent = nfPaintVisible;
+              nfFullReplaceThisMsg ||= prevNc !== nfPaintVisible;
+            }
             stCanon.lastNfRawText = nfRaw;
             stCanon.lastRenderedNfPaint = nfPaintVisible;
+            if (nfEntityInstrumentationEnabled()) {
+              emitNfEntityTrace({
+                segmentId: stCanon.segmentId,
+                nfRawUtf16Len: nfRaw.length,
+                nfSmoothUtf16Len: smoothed.length,
+                nfHullUtf16Len: nfPaintVisible.length,
+                tailClass: tailEntityClass,
+                monotoneHoldSkippedShrink,
+                domApply:
+                  basicMorsyUrgentNfStable ? domApply : "full_replace",
+              });
+            }
           } else {
             resetMorsyUrgentNfPresentationScratch(stCanon.morsyUrgentNfPresentation);
-            nfElC.textContent = "";
-            nfFullReplaceThisMsg ||= prevNc.length > 0;
+            if (basicMorsyUrgentNfStable) {
+              const d = applyNfHypothesisMinimalDiff(nfElC, "");
+              nfFullReplaceThisMsg ||= d.kind === "full_replace" || prevNc.length > 0;
+              if (nfEntityInstrumentationEnabled()) {
+                emitNfEntityTrace({
+                  segmentId: stCanon.segmentId,
+                  nfRawUtf16Len: 0,
+                  nfSmoothUtf16Len: 0,
+                  nfHullUtf16Len: 0,
+                  tailClass: "none",
+                  monotoneHoldSkippedShrink: false,
+                  domApply: d.kind === "noop" ? "noop" : d.kind,
+                });
+              }
+            } else {
+              nfElC.textContent = "";
+              nfFullReplaceThisMsg ||= prevNc.length > 0;
+            }
             stCanon.lastNfRawText = "";
             stCanon.lastRenderedNfPaint = "";
             stCanon.lastNfTailSpeakerKey = undefined;
