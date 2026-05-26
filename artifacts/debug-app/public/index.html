@@ -181,7 +181,7 @@ const LANGS = [
   ["he","Hebrew"],["hi","Hindi"],["hu","Hungarian"],["id","Indonesian"],
   ["it","Italian"],["ja","Japanese"],["ko","Korean"],["ms","Malay"],
   ["nb","Norwegian"],["pl","Polish"],["pt","Portuguese"],["ro","Romanian"],
-  ["ru","Russian"],["sk","Slovak"],["es","Spanish"],["sv","Swedish"],
+  ["ru","Russian"],["sk","Slovak"],["so","Somali"],["es","Spanish"],["sv","Swedish"],
   ["th","Thai"],["tr","Turkish"],["uk","Ukrainian"],["ur","Urdu"],["vi","Vietnamese"],
 ];
 
@@ -199,6 +199,34 @@ selB.value = "en";
 const SONIOX_WS      = "wss://stt-rt.soniox.com/transcribe-websocket";
 const TARGET_RATE    = 16000;
 const SILENCE_MS     = 1200;
+
+// Soniox STT `language_hints` must use ISO codes from their docs only (invalid codes → API error).
+// Keep aligned with `transcription-app/src/lib/soniox-stt-language-hints.ts`.
+const SONIOX_STT_HINT_CODES = new Set([
+  "af","sq","ar","az","eu","be","bn","bs","bg","ca","zh","hr","cs","da","nl","en",
+  "et","fi","fr","gl","de","el","gu","he","hi","hu","id","it","ja","kn","kk","ko",
+  "lv","lt","mk","ms","ml","mr","no","fa","pl","pt","pa","ro","ru","sr","sk","sl",
+  "es","sw","sv","tl","ta","te","th","tr","uk","ur","vi","cy",
+]);
+
+function workspaceLangToSonioxHint(code) {
+  const raw = ((code || "en").split("-")[0] || "en").toLowerCase();
+  const remap = { nb: "no", nn: "no" };
+  const norm = remap[raw] ?? raw;
+  return SONIOX_STT_HINT_CODES.has(norm) ? norm : null;
+}
+
+function buildSonioxLanguageHints(langA, langB) {
+  const out = [];
+  const seen = new Set();
+  for (const lang of [langA, langB, "en"]) {
+    const h = workspaceLangToSonioxHint(lang);
+    if (!h || seen.has(h)) continue;
+    seen.add(h);
+    out.push(h);
+  }
+  return out.length ? out : ["en"];
+}
 
 // ── State ─────────────────────────────────────────────────────────────────
 let recording  = false;
@@ -498,7 +526,7 @@ async function start() {
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
-        language_hints:                 [langA.split("-")[0], langB.split("-")[0]],
+        language_hints:                 buildSonioxLanguageHints(langA, langB),
         enable_language_identification: true,
         enable_speaker_diarization:     true,
         diarization:                    { enable: true },
