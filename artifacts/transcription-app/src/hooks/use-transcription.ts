@@ -847,7 +847,7 @@ const UNICODE_SCRIPTS: {
     ranges: [[0x0041, 0x007A], [0x00C0, 0x024F]],
     langs:  ["en","fr","de","es","pt","it","nl","pl","cs","ro","tr",
              "vi","id","ms","hu","sv","da","nb","fi","hr","sk","sl",
-             "et","lv","lt","ga","cy","eu","ca","gl","af","sw","tl"],
+             "et","lv","lt","ga","cy","eu","ca","gl","af","sw","so","tl"],
   },
   // Arabic / Persian / Urdu — all use the Arabic script block
   {

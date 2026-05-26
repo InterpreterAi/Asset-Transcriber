@@ -626,7 +626,7 @@ const LANG_NAMES: Record<string, string> = {
   he: "Hebrew", hi: "Hindi", hu: "Hungarian", id: "Indonesian",
   it: "Italian", ja: "Japanese", ko: "Korean", ms: "Malay",
   nb: "Norwegian", pl: "Polish", pt: "Portuguese", ro: "Romanian",
-  ru: "Russian", sk: "Slovak", es: "Spanish", sv: "Swedish",
+  ru: "Russian", sk: "Slovak", so: "Somali", es: "Spanish", sv: "Swedish",
   th: "Thai", tr: "Turkish", uk: "Ukrainian", ur: "Urdu",
   vi: "Vietnamese",
 };

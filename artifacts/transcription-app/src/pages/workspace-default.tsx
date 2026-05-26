@@ -70,6 +70,7 @@ const LANG_OPTIONS = [
   { value: "ro",    label: "Romanian" },
   { value: "ru",    label: "Russian" },
   { value: "sk",    label: "Slovak" },
+  { value: "so",    label: "Somali" },
   { value: "es",    label: "Spanish" },
   { value: "sv",    label: "Swedish" },
   { value: "th",    label: "Thai" },

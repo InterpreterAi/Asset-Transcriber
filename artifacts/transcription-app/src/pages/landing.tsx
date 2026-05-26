@@ -120,7 +120,7 @@ const howItWorksSteps = [
   {
     icon: Globe2,
     title: "Multilingual coverage",
-    body: "The platform supports 31 languages for varied OPI, VRI, and remote communication contexts.",
+    body: "The platform supports 36 languages for varied OPI, VRI, and remote communication contexts.",
   },
 ] as const;
 
@@ -211,7 +211,7 @@ export default function Landing() {
             className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed"
           >
             Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows
-            across 31 supported languages.
+            across 36 supported languages.
           </motion.p>
 
           <motion.div
@@ -299,7 +299,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* 31 languages */}
+      {/* 36 languages */}
       <section className="py-16 sm:py-24 bg-white overflow-hidden">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
