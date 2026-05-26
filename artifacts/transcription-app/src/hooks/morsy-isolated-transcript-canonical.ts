@@ -12,7 +12,7 @@
  *
  * ### Volatile hypothesis (NF)
  * - **Raw** concatenation of **non-final** tokens (same tail-speaker rule as the legacy hook).
- * - **DOM:** `nfSpan.textContent = nfText` each frame (full replace of the NF span only).
+ * - **DOM:** smoothed **`nfPaintVisible`** with entity monotone hull (**Basic · `morsy-urgent`** + canonAppend: stable `Text` + `appendData` / minimal diff); verbatim NF **`nfRaw`** unchanged for buffer/finals logic.
  * - **liveBufferRef:** `locked.trimEnd() + nfText` (trim ends only on the fused string).
  *
  * ### Committed DOM (canonical append-only path)
