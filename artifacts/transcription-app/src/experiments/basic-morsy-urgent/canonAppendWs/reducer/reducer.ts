@@ -2,6 +2,7 @@ import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
+import { shouldCloseRowAfterEndpoint } from "../policies/endpoint-row-close";
 import {
   appendFinalToActive,
   freezeActiveUtterance,
@@ -19,16 +20,38 @@ export type ReduceContext = {
   wallMs: number;
 };
 
+function tryEndpointRowClose(state: EngineState, wallMs: number): EngineState {
+  const au = state.activeUtterance;
+  if (!au) {
+    return state.endpointPending
+      ? { ...state, endpointPending: false, endpointPendingAtMs: 0 }
+      : state;
+  }
+  if (
+    shouldCloseRowAfterEndpoint({
+      row: au,
+      endpointPending: state.endpointPending,
+      wallMs,
+      lastTokenActivityWallMs: state.lastTokenActivityWallMs,
+    })
+  ) {
+    return {
+      ...freezeActiveUtterance(state),
+      endpointPending: false,
+      endpointPendingAtMs: 0,
+    };
+  }
+  return state;
+}
+
 /**
- * Soniox real-time contract (Basic · Morsy Urgent only):
- * 1. Append each new final token once — never rewrite prior finals
- * 2. Replace non-finals every frame (current response only)
- * 3. New row on speaker/language final boundary or endpoint
- *
- * @see https://soniox.com/docs/stt/rt/real-time-transcription
+ * Soniox real-time contract + Intercall row timing:
+ * - Append finals once; replace non-finals each frame
+ * - New row on speaker/language final boundary
+ * - Endpoint marks pause; close row only after tail finalizes + quiet + sentence end
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
-  void ctx.wallMs;
+  const wallMs = ctx.wallMs;
 
   const finProc =
     typeof frame.final_audio_proc_ms === "number" && Number.isFinite(frame.final_audio_proc_ms)
@@ -62,6 +85,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       next = freezeActiveUtterance(next);
       next = {
         ...next,
+        endpointPending: false,
+        endpointPendingAtMs: 0,
         metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
       };
     }
@@ -93,9 +118,24 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     };
   }
 
-  if (frame.endpoint) {
-    next = freezeActiveUtterance(next);
+  if (frame.tokens.length > 0) {
+    next = { ...next, lastTokenActivityWallMs: wallMs };
   }
 
+  if (frame.endpoint) {
+    next = {
+      ...next,
+      endpointPending: true,
+      endpointPendingAtMs: wallMs,
+    };
+  }
+
+  next = tryEndpointRowClose(next, wallMs);
+
   return next;
+}
+
+/** Called between websocket frames (PCM ticks) to close row after endpoint quiet. */
+export function maybeCloseRowAfterEndpointQuiet(state: EngineState, wallMs: number): EngineState {
+  return tryEndpointRowClose(state, wallMs);
 }

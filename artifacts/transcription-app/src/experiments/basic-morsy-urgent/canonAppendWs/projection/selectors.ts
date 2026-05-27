@@ -4,8 +4,12 @@ export function selectMetrics(state: EngineState) {
   return state.metrics;
 }
 
-export function selectEndpointPending(_state: EngineState) {
-  return { pending: false, atMs: 0, audioProcMs: null as number | null };
+export function selectEndpointPending(state: EngineState) {
+  return {
+    pending: state.endpointPending,
+    atMs: state.endpointPendingAtMs,
+    audioProcMs: null as number | null,
+  };
 }
 
 /** @deprecated use selectEndpointPending */

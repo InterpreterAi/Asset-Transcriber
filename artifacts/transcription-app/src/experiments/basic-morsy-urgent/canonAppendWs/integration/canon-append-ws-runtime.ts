@@ -12,7 +12,7 @@ import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
 import { applyManualStructuralFreeze } from "../reducer/row-lifecycle";
-import { reduceCanonAppendWs } from "../reducer/reducer";
+import { maybeCloseRowAfterEndpointQuiet, reduceCanonAppendWs } from "../reducer/reducer";
 import { CanonAppendWsDomWriter } from "../renderer/dom-writer";
 import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
@@ -103,7 +103,7 @@ export class CanonAppendWsIsolatedRuntime {
       kind: "frame",
       seq: frame.seq,
       endpoint: Boolean(frame.endpoint),
-      endpointPending: false,
+      endpointPending: this.state.endpointPending,
       final_audio_proc_ms: frame.final_audio_proc_ms,
       total_audio_proc_ms: frame.total_audio_proc_ms,
     });
@@ -126,6 +126,13 @@ export class CanonAppendWsIsolatedRuntime {
 
   sendPcm(chunk: ArrayBuffer): void {
     this.hooks.onPcmFrame?.();
+    const wall = Date.now();
+    const frozenBefore = this.state.finalizedUtterances.length;
+    this.state = maybeCloseRowAfterEndpointQuiet(this.state, wall);
+    if (this.state.finalizedUtterances.length !== frozenBefore) {
+      this.projections.sync(this.state);
+      this.scheduleDomBatch(true);
+    }
     this.client.sendPcm(chunk);
   }
 

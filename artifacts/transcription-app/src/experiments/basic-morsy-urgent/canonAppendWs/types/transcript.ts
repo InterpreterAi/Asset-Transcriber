@@ -16,6 +16,11 @@ export type EngineState = {
   lastTotalAudioProcMs: number | null;
   lastHypothesisLagMs: number | null;
 
+  /** Soniox `<end>` seen — row closes only after quiet + finalized tail (Intercall-style). */
+  endpointPending: boolean;
+  endpointPendingAtMs: number;
+  lastTokenActivityWallMs: number;
+
   metrics: {
     speakerFlipCount: number;
     rowsFrozen: number;
@@ -34,6 +39,10 @@ export function createInitialEngineState(): EngineState {
     lastFinalAudioProcMs: null,
     lastTotalAudioProcMs: null,
     lastHypothesisLagMs: null,
+
+    endpointPending: false,
+    endpointPendingAtMs: 0,
+    lastTokenActivityWallMs: 0,
 
     metrics: {
       speakerFlipCount: 0,
