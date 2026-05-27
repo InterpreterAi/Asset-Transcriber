@@ -552,12 +552,8 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  *
  * - **`morsy-urgent-cbf`**: stabilized Soniox speaker segmentation pivot used by **all production workspace tiers**
  *   (trial OpenAI / basic[-libre|-openai] / professional / platinum / unlimited, etc.).
- * - **`morsy-intercall-isolated-experiment`**: **`plan_type === "morsy-urgent"` only** —
- *   Workspace keeps this segment mode for **translation layout** (dual stable/live spans when guards allow; `{@link morsyStableTranslationTailKillSwitchEngaged}` overrides).
- *   **Original column (Soniox-aligned):** with transcript segment guards, **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`** —
- *   append-only **`lockedCommittedFinalOriginal`** +
- *   **`{@link projectCommittedOriginalsVisibleUtf16}`** (monotone **`visibleCommittedBoundary`**), verbatim NF snapshot, **`liveBufferRef = locked∥nfRaw`**;
- *   no queued committed canon, no DOM-derived finalist shadow, **`{@link reconcileCommittedTextNodeFromLockedString}`** at boundary only.
+ * - **`morsy-intercall-isolated-experiment`**: legacy segment mode for isolated canon-append experiments
+ *   (Phase 1A: Basic · Morsy Urgent workspace uses **`morsy-urgent-cbf`** + `buildWs` instead).
  * - **`default`**: looser segmentation for embeddings or explicit opt-out.
  */
 export type SegmentBehaviorMode =
@@ -6329,7 +6325,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         hintSource.length >= 20 &&
         wordsNow >= EARLY_HINT_MIN_WORDS
       ) {
-        if (morsyUsesSemanticStabilizedLivePreview(segmentBehaviorModeRef.current)) {
+        if (
+          morsyUsesSemanticStabilizedLivePreview(segmentBehaviorModeRef.current) ||
+          (isBasicMorsyUrgentPlan(planTypeRef.current) && experimentMorsyUrgentIntercallRef.current)
+        ) {
           morsyIntercallSandboxSemanticStabilizeLive(hintSource, wordsNow, st.segmentId, st.finalTokensSeen);
         } else if (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent >= LIVE_PREVIEW_WORD_STEP) {
           const lang = st.segmentSourceLang ?? detectedLangRef.current;
