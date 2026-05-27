@@ -9,29 +9,9 @@ function ensureHypothesisText(span: HTMLElement): Text {
   return t;
 }
 
-function lcpUtf16(a: string, b: string): number {
-  const n = Math.min(a.length, b.length);
-  let i = 0;
-  for (; i < n; i++) {
-    if (a.charCodeAt(i) !== b.charCodeAt(i)) break;
-  }
-  return i;
-}
-
-/** Hypothesis span — mutate shared prefix in place; append suffix. */
+/** Soniox non-final contract — replace hypothesis text each frame (no reconciliation). */
 export function renderHypothesisLcp(span: HTMLElement, next: string): void {
   const tn = ensureHypothesisText(span);
-  const prev = tn.data;
-  if (prev === next) return;
-  if (next.startsWith(prev)) {
-    const d = next.slice(prev.length);
-    if (d) tn.appendData(d);
-    return;
-  }
-  const lcp = lcpUtf16(prev, next);
-  if (lcp < prev.length) {
-    tn.deleteData(lcp, prev.length - lcp);
-  }
-  const ins = next.slice(lcp);
-  if (ins.length) tn.insertData(lcp, ins);
+  if (tn.data === next) return;
+  tn.replaceData(0, tn.data.length, next);
 }

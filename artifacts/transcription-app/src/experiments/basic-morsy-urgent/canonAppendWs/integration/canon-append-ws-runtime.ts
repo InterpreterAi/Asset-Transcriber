@@ -1,23 +1,17 @@
 /**
- * SONIOX-only isolated runtime — PaintBuffer (visual) + StructuralBuffer (committed).
+ * Basic · Morsy Urgent — Soniox-docs-faithful isolated runtime.
+ * Append-only finals + replace-only non-finals + speaker/endpoint rows.
  */
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
 
-import { CANON_SILENCE_SEGMENT_MS } from "../gate";
 import { LIVE_RENDER_BATCH_MS } from "../policies/segmentation-constants";
-import {
-  endpointMaturityFreezeReady,
-  silenceCloseSecondaryGate,
-  silenceFallbackFreezeReady,
-} from "../policies/silence-secondary-gates";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
-import { mergedActiveDisplayText } from "../projection/utterance-rollup";
-import { applyManualStructuralFreeze, freezeUtteranceWithReconcile } from "../reducer/row-lifecycle";
+import { applyManualStructuralFreeze } from "../reducer/row-lifecycle";
 import { reduceCanonAppendWs } from "../reducer/reducer";
 import { CanonAppendWsDomWriter } from "../renderer/dom-writer";
 import { RenderScheduler } from "../renderer/render-scheduler";
@@ -101,60 +95,24 @@ export class CanonAppendWsIsolatedRuntime {
     }, LIVE_RENDER_BATCH_MS);
   }
 
-  /** Delayed stabilization freeze — endpoint pending OR silence fallback; reconcile paint at boundary. */
-  private maybeStabilizationFreeze(wallMs: number, reason: "endpoint_maturity" | "silence"): void {
-    const hasDisplay = mergedActiveDisplayText(this.state).trim().length > 0;
-    if (!hasDisplay && !this.state.activeUtterance) return;
-
-    if (reason === "endpoint_maturity") {
-      if (!endpointMaturityFreezeReady(this.state, wallMs)) return;
-    } else {
-      const last = this.state.lastTokenActivityWallMs;
-      if (last <= 0 || wallMs - last < CANON_SILENCE_SEGMENT_MS) return;
-      if (!silenceCloseSecondaryGate(this.state, wallMs)) return;
-      if (!silenceFallbackFreezeReady(this.state, wallMs, true)) return;
-    }
-
-    const closeReason = reason === "endpoint_maturity" ? "endpoint" : "silence";
-    this.state = freezeUtteranceWithReconcile(this.state, wallMs, closeReason);
-    this.state = { ...this.state, lastTokenActivityWallMs: wallMs };
-    this.projections.sync(this.state);
-    emitDebugEvent({ kind: "endpoint_flush", segmentId: reason, synthetic: true });
-    this.scheduleDomBatch(true);
-  }
-
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
-    const endpointMarker = Boolean(frame.endpoint);
-
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
-
-    if (endpointMarker) {
-      emitDebugEvent({
-        kind: "endpoint_flush",
-        segmentId: "soniox-endpoint-pending",
-        seq: frame.seq,
-        final_audio_proc_ms: frame.final_audio_proc_ms,
-        total_audio_proc_ms: frame.total_audio_proc_ms,
-      });
-    }
 
     this.projections.sync(this.state);
     emitDebugEvent({
       kind: "frame",
       seq: frame.seq,
-      endpoint: endpointMarker,
-      endpointPending: this.state.endpointPending,
+      endpoint: Boolean(frame.endpoint),
+      endpointPending: false,
       final_audio_proc_ms: frame.final_audio_proc_ms,
       total_audio_proc_ms: frame.total_audio_proc_ms,
     });
 
-    if (this.state.endpointPending) {
-      this.maybeStabilizationFreeze(wallMs, "endpoint_maturity");
-    } else {
-      this.maybeStabilizationFreeze(wallMs, "silence");
+    if (frame.endpoint) {
+      emitDebugEvent({ kind: "endpoint_flush", segmentId: "soniox-endpoint", seq: frame.seq });
     }
 
-    this.scheduleDomBatch(false);
+    this.scheduleDomBatch(Boolean(frame.endpoint));
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
@@ -168,20 +126,13 @@ export class CanonAppendWsIsolatedRuntime {
 
   sendPcm(chunk: ArrayBuffer): void {
     this.hooks.onPcmFrame?.();
-    const wall = Date.now();
-    if (this.state.endpointPending) {
-      this.maybeStabilizationFreeze(wall, "endpoint_maturity");
-    } else {
-      this.maybeStabilizationFreeze(wall, "silence");
-    }
     this.client.sendPcm(chunk);
   }
 
   stopSoniox(): void {
     this.clearDomBatch();
     this.client.flushEnd();
-    const wall = Date.now();
-    this.state = applyManualStructuralFreeze(this.state, wall);
+    this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
     this.flushDomImmediate();
     this.client.disconnect(true);

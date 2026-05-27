@@ -1,4 +1,10 @@
-import type { SegmentCloseReason } from "../policies/segment-hold";
+export type SegmentCloseReason =
+  | "speaker_switch"
+  | "language_switch"
+  | "endpoint"
+  | "silence"
+  | "max_duration"
+  | "manual_finalize";
 
 export type DebugEventKind =
   | "frame"

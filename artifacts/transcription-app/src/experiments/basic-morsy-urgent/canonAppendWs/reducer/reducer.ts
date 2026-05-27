@@ -1,30 +1,35 @@
 import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
-import type { CanonToken } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
-import type { Token } from "../types/tokens";
 
-import { appendStabilizedFinal, markEndpointPending } from "./row-lifecycle";
-import { replacePaintBuffer, syncPaintOntoActiveRow } from "./paint-buffer";
-import { sonioxTokenToCanon } from "./soniox-to-canon";
+import {
+  appendFinalToActive,
+  freezeActiveUtterance,
+  openActiveUtterance,
+  rowBreaksOnFinalToken,
+} from "./row-lifecycle";
+import {
+  canonTokensFromFrame,
+  inferTailSpeakerLang,
+  nonFinalsForRow,
+} from "./soniox-frame-split";
 
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
 };
 
-function canonNonFinalFromStreamToken(t: Token): CanonToken {
-  const ct = sonioxTokenToCanon(t);
-  return { ...ct, is_final: false };
-}
-
 /**
- * Immutable-prefix ingestion:
- * 1) stabilized finals → append-only committedText
- * 2) non-finals → paint staging → mutableTail only (never committedText)
- * 3) endpoint → pending latch (no freeze)
+ * Soniox real-time contract (Basic · Morsy Urgent only):
+ * 1. Append each new final token once — never rewrite prior finals
+ * 2. Replace non-finals every frame (current response only)
+ * 3. New row on speaker/language final boundary or endpoint
+ *
+ * @see https://soniox.com/docs/stt/rt/real-time-transcription
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
+  void ctx.wallMs;
+
   const finProc =
     typeof frame.final_audio_proc_ms === "number" && Number.isFinite(frame.final_audio_proc_ms)
       ? frame.final_audio_proc_ms
@@ -44,26 +49,52 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : state.lastHypothesisLagMs,
   };
 
-  const nfCanon: CanonToken[] = [];
-  for (const t of frame.tokens) {
-    if (t.isFinal) {
-      const ct = sonioxTokenToCanon(t);
-      ctx.ledger.appendFinalCanon(ct);
-      next = appendStabilizedFinal(next, ct, ctx.wallMs);
-    } else if (typeof t.text === "string" && t.text.length > 0) {
-      nfCanon.push(canonNonFinalFromStreamToken(t));
+  const canon = canonTokensFromFrame(frame.tokens);
+  const frameFinals = canon.filter(t => t.is_final);
+  const frameNonFinals = canon.filter(t => !t.is_final);
+
+  for (const ct of frameFinals) {
+    if (next.seenFinalTokenIds.includes(ct.token_id)) continue;
+    next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
+    ctx.ledger.appendFinalCanon(ct);
+
+    if (next.activeUtterance && rowBreaksOnFinalToken(next.activeUtterance, ct)) {
+      next = freezeActiveUtterance(next);
+      next = {
+        ...next,
+        metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+      };
     }
+
+    if (!next.activeUtterance) {
+      next = openActiveUtterance(next, ct.speaker, ct.language);
+    }
+
+    next = appendFinalToActive(next, ct);
   }
 
-  next = replacePaintBuffer(next, nfCanon, ctx.wallMs, frame.seq);
-  next = syncPaintOntoActiveRow(next);
+  const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
 
-  if (frame.tokens.length > 0 || frame.endpoint) {
-    next = { ...next, lastTokenActivityWallMs: ctx.wallMs };
+  if (!next.activeUtterance && frameNonFinals.length > 0) {
+    next = openActiveUtterance(next, tail.speaker, tail.language);
+  }
+
+  if (next.activeUtterance) {
+    const row = next.activeUtterance;
+    const rowSpeaker = row.speaker ?? tail.speaker;
+    next = {
+      ...next,
+      activeUtterance: {
+        ...row,
+        speaker: row.speaker ?? tail.speaker,
+        language: row.language ?? tail.language,
+        nonFinalTokens: nonFinalsForRow(frameNonFinals, rowSpeaker),
+      },
+    };
   }
 
   if (frame.endpoint) {
-    next = markEndpointPending(next, ctx.wallMs, finProc);
+    next = freezeActiveUtterance(next);
   }
 
   return next;
