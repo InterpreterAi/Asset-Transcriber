@@ -5,7 +5,7 @@ import type { SonioxFrame } from "../ws/frame-types";
 import type { Token } from "../types/tokens";
 
 import { appendStabilizedFinal, markEndpointPending } from "./row-lifecycle";
-import { replacePaintBuffer } from "./paint-buffer";
+import { replacePaintBuffer, syncPaintOntoActiveRow } from "./paint-buffer";
 import { sonioxTokenToCanon } from "./soniox-to-canon";
 
 export type ReduceContext = {
@@ -19,10 +19,10 @@ function canonNonFinalFromStreamToken(t: Token): CanonToken {
 }
 
 /**
- * Paint vs structural ingestion — ONLY canonAppendWs (Basic · Morsy Urgent).
- *
- * BEFORE: finals + live replace + strip + endpoint immediate freeze/promotion.
- * AFTER:  paint replace (visual only) | stabilized finals → structural | endpoint → pending latch.
+ * Immutable-prefix ingestion:
+ * 1) stabilized finals → append-only committedText
+ * 2) non-finals → paint staging → mutableTail only (never committedText)
+ * 3) endpoint → pending latch (no freeze)
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const finProc =
@@ -56,6 +56,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   next = replacePaintBuffer(next, nfCanon, ctx.wallMs, frame.seq);
+  next = syncPaintOntoActiveRow(next);
 
   if (frame.tokens.length > 0 || frame.endpoint) {
     next = { ...next, lastTokenActivityWallMs: ctx.wallMs };

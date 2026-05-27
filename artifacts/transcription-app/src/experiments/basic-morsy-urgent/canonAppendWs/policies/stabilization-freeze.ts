@@ -1,6 +1,6 @@
-import { joinCanonText } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
 
+import { mergedActiveDisplayText } from "../projection/utterance-rollup";
 import { paintMeanConfidence } from "./final-stabilization";
 import {
   ENDPOINT_MATURITY_MAX_WAIT_MS,
@@ -53,12 +53,10 @@ export function endpointMaturityFreezeReady(state: EngineState, wallMs: number):
   const waited = wallMs - state.endpointPendingAtMs;
   if (waited >= ENDPOINT_MATURITY_MAX_WAIT_MS) return true;
 
-  const committed = joinCanonText(state.activeUtterance?.committedTokens ?? []);
-  const paint = joinCanonText(state.paint.tokens);
-  const joined = committed + paint;
+  const joined = mergedActiveDisplayText(state);
   if (utteranceEndsWithSentenceBoundary(joined)) return true;
 
-  return waited >= STABILIZATION_QUIET_MS * 2 && paint.length === 0;
+  return waited >= STABILIZATION_QUIET_MS * 2 && !state.activeUtterance?.mutableTail.length;
 }
 
 /** Silence fallback uses same reconcile-freeze path with punctuation gate. */
@@ -73,7 +71,5 @@ export function silenceFallbackFreezeReady(
   if (!hypothesisLagCollapsed(state)) return false;
   if (!paintConfidenceAcceptable(state)) return false;
 
-  const committed = joinCanonText(state.activeUtterance?.committedTokens ?? []);
-  const paint = joinCanonText(state.paint.tokens);
-  return utteranceEndsWithSentenceBoundary(committed + paint) || state.segmentHold.deferredSwitchPending;
+  return utteranceEndsWithSentenceBoundary(mergedActiveDisplayText(state)) || state.segmentHold.deferredSwitchPending;
 }

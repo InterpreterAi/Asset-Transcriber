@@ -1,9 +1,8 @@
-import { joinCanonText } from "../types/canon-token";
 import type { EngineState } from "../types/transcript";
 
-/** Active display text for silence / stabilization gates (committed structural + paint). */
+/** Active display text for stabilization gates (immutable committed + mutable tail). */
 export function mergedActiveDisplayText(state: EngineState): string {
-  const committed = joinCanonText(state.activeUtterance?.committedTokens ?? []);
-  const paint = joinCanonText(state.paint.tokens);
-  return committed + paint;
+  const au = state.activeUtterance;
+  if (au) return au.committedText + au.mutableTail;
+  return state.paint.tokens.map(t => t.text).join("");
 }

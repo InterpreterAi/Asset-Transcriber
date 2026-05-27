@@ -1,29 +1,42 @@
-import type { CanonToken } from "../types/canon-token";
 import { joinCanonText } from "../types/canon-token";
+import type { PaintBuffer } from "../types/transcript";
+import type { CanonUtterance } from "../types/canon-utterance";
 
 import { MIN_STRUCTURAL_FINAL_CHARS } from "./segmentation-constants";
-import type { PaintBuffer } from "../types/transcript";
 
-/** Paint-only tail is longer correction of this final (Jess vs Jessica) — defer structural commit. */
-export function finalSupersededByPaint(finalTok: CanonToken, paint: PaintBuffer): boolean {
-  const p = joinCanonText(paint.tokens);
+export function paintMeanConfidence(paint: PaintBuffer): number | null {
+  let sum = 0;
+  let n = 0;
+  for (const t of paint.tokens) {
+    if (typeof t.confidence === "number" && Number.isFinite(t.confidence)) {
+      sum += t.confidence;
+      n += 1;
+    }
+  }
+  return n > 0 ? sum / n : null;
+}
+
+function fullHypothesis(au: CanonUtterance | null, paint: PaintBuffer): string {
+  const committed = au?.committedText ?? "";
+  const tail = au?.mutableTail ?? joinCanonText(paint.tokens);
+  if (au) return committed + tail;
+  return joinCanonText(paint.tokens);
+}
+
+/** Defer structural final when paint hypothesis extends/corrects it (Jess → Jessica). */
+export function finalSupersededByPaint(
+  finalTok: { text: string },
+  paint: PaintBuffer,
+  active: CanonUtterance | null,
+): boolean {
+  const hyp = fullHypothesis(active, paint);
   const f = finalTok.text;
-  if (!p.length || !f.length) return false;
+  if (!hyp.length || !f.length) return false;
 
-  if (p.startsWith(f) && p.length > f.length) return true;
+  if (hyp.startsWith(f) && hyp.length > f.length) return true;
 
-  const overlapAtEnd = p.endsWith(f) && p.length > f.length;
+  const overlapAtEnd = hyp.endsWith(f) && hyp.length > f.length;
   if (overlapAtEnd && f.length < MIN_STRUCTURAL_FINAL_CHARS) return true;
 
   return false;
-}
-
-export function paintMeanConfidence(paint: PaintBuffer): number | null {
-  if (paint.tokens.length === 0) return null;
-  let sum = 0;
-  for (const t of paint.tokens) {
-    const c = t.confidence;
-    sum += typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 1;
-  }
-  return sum / paint.tokens.length;
 }

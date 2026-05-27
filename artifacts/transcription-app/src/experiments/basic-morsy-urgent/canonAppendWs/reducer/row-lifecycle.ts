@@ -7,11 +7,10 @@ import type { SegmentCloseReason } from "../policies/segment-hold";
 import { evaluateSegmentHoldForFinal } from "../policies/segment-hold";
 import { createInitialSegmentHold } from "../policies/segment-hold";
 import {
-  committedHasOverlappingFinal,
-  committedHasTokenId,
-  reconcilePaintSuffixTokens,
-} from "../policies/token-identity";
-import { clearPaintBuffer } from "./paint-buffer";
+  appendFinalTextToCommitted,
+  appendReconciledSuffix,
+} from "../policies/immutable-prefix";
+import { clearPaintBuffer, resyncMutableTailAfterCommitAdvance } from "./paint-buffer";
 import { emitDebugEvent } from "../telemetry/debug-events";
 
 function norm(s: string | undefined): string | undefined {
@@ -19,27 +18,25 @@ function norm(s: string | undefined): string | undefined {
   return t?.length ? t : undefined;
 }
 
-function stretchTiming(tokens: readonly CanonToken[]): { start_ms?: number; end_ms?: number } {
-  let start: number | undefined;
-  let end: number | undefined;
-  for (const t of tokens) {
-    if (typeof t.start_ms === "number") start = start === undefined ? t.start_ms : Math.min(start, t.start_ms);
-    if (typeof t.end_ms === "number") end = end === undefined ? t.end_ms : Math.max(end, t.end_ms);
-  }
+function stretchTimingFromToken(t: CanonToken, prev?: { start_ms?: number; end_ms?: number }) {
+  let start = prev?.start_ms;
+  let end = prev?.end_ms;
+  if (typeof t.start_ms === "number") start = start === undefined ? t.start_ms : Math.min(start, t.start_ms);
+  if (typeof t.end_ms === "number") end = end === undefined ? t.end_ms : Math.max(end, t.end_ms);
   const out: { start_ms?: number; end_ms?: number } = {};
   if (start !== undefined) out.start_ms = start;
   if (end !== undefined) out.end_ms = end;
   return out;
 }
 
-import { deriveStructuralOwnership } from "../policies/structural-ownership";
-
 function virtualCommittedTail(u: CanonUtterance): TranscriptRow {
   return {
     row_id: u.utterance_id,
     speaker: u.speaker,
     language: u.language,
-    committedTokens: u.committedTokens,
+    committedTokens: u.committedText
+      ? [{ token_id: `${u.utterance_id}-committed-synthetic`, text: u.committedText, is_final: true }]
+      : [],
     liveTokens: [],
     finalized: false,
     openedWallMs: u.utteranceOpenedWallMs,
@@ -50,13 +47,12 @@ function emitUtteranceFinalizeDebug(args: {
   reason: SegmentCloseReason;
   u: CanonUtterance;
   wallMs: number;
-  tokenCount: number;
 }): void {
   const opened = args.u.utteranceOpenedWallMs ?? args.wallMs;
   emitDebugEvent({
     kind: "utterance_finalize",
     reason: args.reason,
-    tokenCount: args.tokenCount,
+    tokenCount: args.u.committedTokenIds.length,
     segmentCount: 1,
     utteranceDurationMs: args.wallMs - opened,
     priorSpeaker: args.u.speaker,
@@ -68,7 +64,11 @@ function openActiveUtterance(state: EngineState, wallMs: number): EngineState {
   const utterance_id = `utt-${state.nextUtteranceSeq}`;
   const u: CanonUtterance = {
     utterance_id,
-    committedTokens: [],
+    committedText: "",
+    mutableTail: "",
+    ownershipLocked: false,
+    commitCursorUtf16: 0,
+    committedTokenIds: [],
     is_final: false,
     utteranceOpenedWallMs: wallMs,
   };
@@ -79,7 +79,6 @@ function openActiveUtterance(state: EngineState, wallMs: number): EngineState {
   };
 }
 
-/** `<end>` — maturity signal only; no freeze, no promotion, no scaffold. */
 export function markEndpointPending(
   state: EngineState,
   wallMs: number,
@@ -94,10 +93,34 @@ export function markEndpointPending(
   };
 }
 
-/**
- * Append one Soniox final after stabilization policy.
- * Opens structural utterance on first accepted final — never from paint.
- */
+function lockOwnershipFromFinal(u: CanonUtterance, finalTok: CanonToken): CanonUtterance {
+  const sp = norm(finalTok.speaker) ?? u.speaker;
+  const lg = norm(finalTok.language) ?? u.language;
+  return {
+    ...u,
+    speaker: sp,
+    language: lg,
+    ownershipLocked: Boolean(sp || lg || u.ownershipLocked),
+  };
+}
+
+/** Append-only advance of immutable committedText from one stabilized final. */
+function advanceCommittedFromFinal(u: CanonUtterance, finalTok: CanonToken): CanonUtterance | null {
+  if (u.committedTokenIds.includes(finalTok.token_id)) return null;
+
+  const nextCommitted = appendFinalTextToCommitted(u.committedText, finalTok.text);
+  if (nextCommitted === null) return null;
+
+  const timing = stretchTimingFromToken(finalTok, u);
+  return {
+    ...u,
+    ...timing,
+    committedText: nextCommitted,
+    commitCursorUtf16: nextCommitted.length,
+    committedTokenIds: [...u.committedTokenIds, finalTok.token_id],
+  };
+}
+
 export function appendStabilizedFinal(
   state: EngineState,
   ct: CanonToken,
@@ -105,7 +128,7 @@ export function appendStabilizedFinal(
 ): EngineState {
   const finalTok: CanonToken = { ...ct, is_final: true };
 
-  if (finalSupersededByPaint(finalTok, state.paint)) {
+  if (finalSupersededByPaint(finalTok, state.paint, state.activeUtterance)) {
     return {
       ...state,
       metrics: { ...state.metrics, deferredFinalCount: state.metrics.deferredFinalCount + 1 },
@@ -113,15 +136,33 @@ export function appendStabilizedFinal(
   }
 
   let next = state.activeUtterance ? state : openActiveUtterance(state, wallMs);
-  const au = next.activeUtterance;
+  let au = next.activeUtterance;
   if (!au) return next;
 
-  if (
-    committedHasTokenId(au.committedTokens, finalTok.token_id) ||
-    committedHasOverlappingFinal(au.committedTokens, finalTok)
-  ) {
-    return next;
+  if (au.ownershipLocked) {
+    const fsp = norm(finalTok.speaker);
+    const flg = norm(finalTok.language);
+    const asp = norm(au.speaker);
+    const alg = norm(au.language);
+    const spConflict = Boolean(fsp && asp && fsp !== asp);
+    const lgConflict = Boolean(flg && alg && flg !== alg);
+    if (spConflict || lgConflict) {
+      const tail = virtualCommittedTail(au);
+      const holdEval = evaluateSegmentHoldForFinal(tail, finalTok, wallMs, next.segmentHold, false);
+      if (holdEval.shouldSplit) {
+        next = freezeUtteranceWithReconcile(next, wallMs, holdEval.splitReason ?? "speaker_switch");
+        if (holdEval.splitReason === "speaker_switch") {
+          next = { ...next, metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 } };
+        }
+        next = { ...next, segmentHold: createInitialSegmentHold() };
+        next = openActiveUtterance(next, wallMs);
+        au = next.activeUtterance!;
+      }
+    }
   }
+
+  au = next.activeUtterance;
+  if (!au) return next;
 
   const tail = virtualCommittedTail(au);
   const holdEval = evaluateSegmentHoldForFinal(tail, finalTok, wallMs, next.segmentHold, false);
@@ -129,7 +170,9 @@ export function appendStabilizedFinal(
 
   const utteranceBreaking =
     holdEval.shouldSplit &&
-    (holdEval.splitReason === "speaker_switch" || holdEval.splitReason === "language_switch");
+    (holdEval.splitReason === "speaker_switch" ||
+      holdEval.splitReason === "language_switch" ||
+      holdEval.splitReason === "max_duration");
 
   if (utteranceBreaking && holdEval.splitReason) {
     next = freezeUtteranceWithReconcile(next, wallMs, holdEval.splitReason);
@@ -142,69 +185,60 @@ export function appendStabilizedFinal(
     segmentHold = createInitialSegmentHold();
     next = { ...next, segmentHold };
     next = openActiveUtterance(next, wallMs);
-  } else if (holdEval.shouldSplit && holdEval.splitReason === "max_duration") {
-    next = freezeUtteranceWithReconcile(next, wallMs, "max_duration");
-    segmentHold = createInitialSegmentHold();
-    next = { ...next, segmentHold };
-    next = openActiveUtterance(next, wallMs);
+    au = next.activeUtterance!;
   }
 
-  const active = next.activeUtterance;
-  if (!active) return next;
-
-  if (
-    committedHasTokenId(active.committedTokens, finalTok.token_id) ||
-    committedHasOverlappingFinal(active.committedTokens, finalTok)
-  ) {
+  const advanced = advanceCommittedFromFinal(au, finalTok);
+  if (!advanced) {
     return { ...next, segmentHold };
   }
 
-  const committedTokens = [...active.committedTokens, finalTok];
-  const own = deriveStructuralOwnership(committedTokens);
-  const timing = stretchTiming(committedTokens);
-
-  const patched: CanonUtterance = {
-    ...active,
-    ...timing,
-    ...own,
-    committedTokens,
-  };
-
-  return { ...next, activeUtterance: patched, segmentHold };
+  let patched = lockOwnershipFromFinal(advanced, finalTok);
+  next = { ...next, activeUtterance: patched, segmentHold };
+  next = resyncMutableTailAfterCommitAdvance(next);
+  return next;
 }
 
-/**
- * Freeze conversational utterance — reconcile paint at boundary; NEVER blind live→committed copy.
- */
+/** Freeze row — append-only reconcile of mutableTail into committedText; archive to consumed ledger. */
 export function freezeUtteranceWithReconcile(
   state: EngineState,
   wallMs: number,
   reason: SegmentCloseReason,
 ): EngineState {
   const au = state.activeUtterance;
-  const baseCommitted = au?.committedTokens ?? [];
-  const reconciled = reconcilePaintSuffixTokens(baseCommitted, state.paint.tokens);
-  const merged = [...baseCommitted, ...reconciled];
+  const baseCommitted = au?.committedText ?? "";
+  const finalCommitted = au ? appendReconciledSuffix(baseCommitted, au.mutableTail) : baseCommitted;
 
   let finalizedUtterances = state.finalizedUtterances;
-  if (merged.length > 0) {
-    const own = deriveStructuralOwnership(merged);
-    const timing = stretchTiming(merged);
+  let consumedCommittedTexts = state.consumedCommittedTexts;
+  let globalCommitCursorUtf16 = state.globalCommitCursorUtf16;
+
+  if (finalCommitted.length > 0) {
     const frozen: CanonUtterance = {
       utterance_id: au?.utterance_id ?? `utt-${state.nextUtteranceSeq}`,
-      ...own,
-      ...timing,
-      committedTokens: merged,
+      committedText: finalCommitted,
+      mutableTail: "",
+      speaker: au?.speaker,
+      language: au?.language,
+      ownershipLocked: true,
+      commitCursorUtf16: finalCommitted.length,
+      committedTokenIds: au?.committedTokenIds ?? [],
       is_final: true,
       utteranceOpenedWallMs: au?.utteranceOpenedWallMs ?? wallMs,
+      start_ms: au?.start_ms,
+      end_ms: au?.end_ms,
     };
-    emitUtteranceFinalizeDebug({ reason, u: frozen, wallMs, tokenCount: merged.length });
+    emitUtteranceFinalizeDebug({ reason, u: frozen, wallMs });
     finalizedUtterances = [...state.finalizedUtterances, frozen];
+    consumedCommittedTexts = [...state.consumedCommittedTexts, finalCommitted];
+    globalCommitCursorUtf16 += finalCommitted.length;
   }
 
-  let next: EngineState = {
+  return {
     ...clearPaintBuffer(state),
     finalizedUtterances,
+    consumedCommittedTexts,
+    globalCommitCursorUtf16,
     activeUtterance: null,
     endpointPending: false,
     endpointPendingAtMs: 0,
@@ -212,16 +246,14 @@ export function freezeUtteranceWithReconcile(
     segmentHold: createInitialSegmentHold(),
     metrics: {
       ...state.metrics,
-      utteranceFinalizedCount: state.metrics.utteranceFinalizedCount + (merged.length > 0 ? 1 : 0),
+      utteranceFinalizedCount: state.metrics.utteranceFinalizedCount + (finalCommitted.length > 0 ? 1 : 0),
       stabilizationFreezeCount: state.metrics.stabilizationFreezeCount + 1,
     },
   };
-  return next;
 }
 
 export function applyManualStructuralFreeze(state: EngineState, wallMs: number): EngineState {
   return freezeUtteranceWithReconcile(state, wallMs, "manual_finalize");
 }
 
-/** @deprecated alias */
 export const applyManualFinalizeTail = applyManualStructuralFreeze;

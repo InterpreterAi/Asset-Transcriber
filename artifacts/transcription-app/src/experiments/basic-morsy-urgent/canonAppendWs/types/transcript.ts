@@ -4,7 +4,7 @@ import type { CanonToken } from "./canon-token";
 import type { SegmentHoldState } from "../policies/segment-hold";
 import { createInitialSegmentHold } from "../policies/segment-hold";
 
-/** Visual-only hypothesis — full replace every Soniox response; never structural. */
+/** Raw Soniox non-final staging — applied to active row mutableTail only. */
 export type PaintBuffer = {
   tokens: CanonToken[];
   lastMutationWallMs: number;
@@ -12,7 +12,7 @@ export type PaintBuffer = {
 };
 
 /**
- * Engine snapshot: PaintBuffer (visual) + structural utterances (committed only).
+ * Engine snapshot: immutable-prefix streaming rows + consumed-text ledger.
  */
 export type EngineState = {
   paint: PaintBuffer;
@@ -21,9 +21,13 @@ export type EngineState = {
   activeUtterance: CanonUtterance | null;
   nextUtteranceSeq: number;
 
+  /** Finalized committedText blocks — prevents replay into future rows. */
+  consumedCommittedTexts: string[];
+  /** Global monotonic commit cursor (sum of finalized + active committed lengths). */
+  globalCommitCursorUtf16: number;
+
   segmentHold: SegmentHoldState;
 
-  /** `<end>` maturity latch — NOT an immediate freeze. */
   endpointPending: boolean;
   endpointPendingAtMs: number;
   endpointPendingAudioProcMs: number | null;
@@ -41,6 +45,7 @@ export type EngineState = {
     speakerFlipCount: number;
     paintReplaceCount: number;
     deferredFinalCount: number;
+    rejectedCrossSpeakerPaintCount: number;
     utteranceFinalizedCount: number;
     stabilizationFreezeCount: number;
   };
@@ -53,6 +58,9 @@ export function createInitialEngineState(): EngineState {
     finalizedUtterances: [],
     activeUtterance: null,
     nextUtteranceSeq: 0,
+
+    consumedCommittedTexts: [],
+    globalCommitCursorUtf16: 0,
 
     segmentHold: createInitialSegmentHold(),
 
@@ -73,6 +81,7 @@ export function createInitialEngineState(): EngineState {
       speakerFlipCount: 0,
       paintReplaceCount: 0,
       deferredFinalCount: 0,
+      rejectedCrossSpeakerPaintCount: 0,
       utteranceFinalizedCount: 0,
       stabilizationFreezeCount: 0,
     },

@@ -1,8 +1,5 @@
-import { joinCanonText } from "../types/canon-token";
 import type { CanonUtterance } from "../types/canon-utterance";
 import type { EngineState } from "../types/transcript";
-
-import { deriveStructuralOwnership } from "../policies/structural-ownership";
 
 export type RowProjection = {
   row_id: string;
@@ -11,6 +8,7 @@ export type RowProjection = {
   committedText: string;
   liveText: string;
   finalized: boolean;
+  ownershipLocked?: boolean;
 };
 
 export type TranscriptProjection = {
@@ -21,39 +19,36 @@ export type TranscriptProjection = {
 const PAINT_ONLY_ROW_ID = "paint-hypothesis";
 
 function frozenUtteranceRow(u: CanonUtterance): RowProjection | null {
-  const committedText = joinCanonText(u.committedTokens);
-  if (!committedText.length) return null;
-  const own = deriveStructuralOwnership(u.committedTokens);
+  if (!u.committedText.length) return null;
   return {
     row_id: u.utterance_id,
-    speaker: own.speaker ?? u.speaker,
-    language: own.language ?? u.language,
-    committedText,
+    speaker: u.speaker,
+    language: u.language,
+    committedText: u.committedText,
     liveText: "",
     finalized: true,
+    ownershipLocked: true,
   };
 }
 
-function activeStructuralRow(state: EngineState): RowProjection | null {
+function activeStreamingRow(state: EngineState): RowProjection | null {
   const au = state.activeUtterance;
   if (!au) return null;
-  const committedText = joinCanonText(au.committedTokens);
-  const liveText = joinCanonText(state.paint.tokens);
-  if (!committedText.length && !liveText.length) return null;
-  const own = deriveStructuralOwnership(au.committedTokens);
+  if (!au.committedText.length && !au.mutableTail.length) return null;
   return {
     row_id: au.utterance_id,
-    speaker: own.speaker ?? au.speaker,
-    language: own.language ?? au.language,
-    committedText,
-    liveText,
+    speaker: au.speaker,
+    language: au.language,
+    committedText: au.committedText,
+    liveText: au.mutableTail,
     finalized: false,
+    ownershipLocked: au.ownershipLocked,
   };
 }
 
 function paintOnlyRow(state: EngineState): RowProjection | null {
   if (state.activeUtterance) return null;
-  const liveText = joinCanonText(state.paint.tokens);
+  const liveText = state.paint.tokens.map(t => t.text).join("");
   if (!liveText.length) return null;
   return {
     row_id: PAINT_ONLY_ROW_ID,
@@ -62,10 +57,11 @@ function paintOnlyRow(state: EngineState): RowProjection | null {
     committedText: "",
     liveText,
     finalized: false,
+    ownershipLocked: false,
   };
 }
 
-/** One active conversational surface + immutable history — paint never creates duplicate structural rows. */
+/** visible = committedText + mutableTail; committedText is never rewritten in projection. */
 export function projectTranscriptView(state: EngineState): TranscriptProjection {
   const rows: RowProjection[] = [];
 
@@ -74,7 +70,7 @@ export function projectTranscriptView(state: EngineState): TranscriptProjection 
     if (pr) rows.push(pr);
   }
 
-  const active = activeStructuralRow(state) ?? paintOnlyRow(state);
+  const active = activeStreamingRow(state) ?? paintOnlyRow(state);
   if (active) rows.push(active);
 
   const liveCombined = rows.map(rr => rr.committedText + rr.liveText).join("\n");

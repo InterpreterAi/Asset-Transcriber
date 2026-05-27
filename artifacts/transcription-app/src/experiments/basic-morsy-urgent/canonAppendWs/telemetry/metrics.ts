@@ -2,19 +2,17 @@ import type { EngineState } from "../types/transcript";
 
 export type TelemetryCounters = Record<string, number>;
 
-function countCommittedCanonTokens(state: EngineState): number {
-  let n = 0;
-  for (const u of state.finalizedUtterances) {
-    n += u.committedTokens.length;
-  }
-  n += state.activeUtterance?.committedTokens.length ?? 0;
-  return n;
-}
-
 export function snapshotEngineTelemetry(state: EngineState): TelemetryCounters {
+  let committedChars = 0;
+  for (const u of state.finalizedUtterances) {
+    committedChars += u.committedText.length;
+  }
+  committedChars += state.activeUtterance?.committedText.length ?? 0;
+
   return {
     ...state.metrics,
-    committedCanonTokens: countCommittedCanonTokens(state),
+    committedUtf16Chars: committedChars,
+    globalCommitCursorUtf16: state.globalCommitCursorUtf16,
     paintTokens: state.paint.tokens.length,
     finalizedUtteranceRows: state.finalizedUtterances.length,
     endpointPending: state.endpointPending ? 1 : 0,
