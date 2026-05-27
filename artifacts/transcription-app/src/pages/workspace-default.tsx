@@ -9,13 +9,12 @@ import {
   Languages, Trash2, Copy, Check, Type, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
-  Hash, Sparkles, Sun, Moon, ArrowDownToLine,
+  Hash, Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
-import { gateCanonAppendWsIsolatedRebuild } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
@@ -209,14 +208,6 @@ export default function WorkspaceDefault() {
   const MORSY_INTERCALL_EXP_LS = "interpreterai_morsy_urgent_intercall_exp";
   const pt = (user?.planType ?? "").toLowerCase();
   const morsyWorkspaceSegmentBehavior = pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf";
-  const transcriptIsolationForCanonGate =
-    segmentBoundaryGuardsEffective || (Boolean(user) && pt === "morsy-urgent");
-  /** Basic · Morsy Urgent + canonAppendWs: isolated SONIOX engine (`localStorage …canon_ws_engine=0` opts out). */
-  const pureSttIsolationWorkspaceGate = gateCanonAppendWsIsolatedRebuild({
-    planTypeLower: pt,
-    segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
-    transcriptSegmentIsolationEnabled: transcriptIsolationForCanonGate,
-  });
 
   const morsyIntercallExperimentEligible = pt === "morsy-urgent";
 
@@ -254,13 +245,10 @@ export default function WorkspaceDefault() {
   }, [user?.id, segmentBoundaryGuardsEffective]);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
-    translationEnabled:
-      pureSttIsolationWorkspaceGate ? false : (user?.translationEnabled ?? true) || pt === "morsy-urgent",
-    translationUiMode: pureSttIsolationWorkspaceGate
+    translationEnabled: (user?.translationEnabled ?? true) || pt === "morsy-urgent",
+    translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase())
       ? "hidden"
-      : ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase())
-        ? "hidden"
-        : "upsell",
+      : "upsell",
     planType: user?.planType ?? "",
     // Production workspace tiers: stabilized Soniox segmentation (`morsy-urgent-cbf`).
     // Basic · Morsy Urgent: workspace uses `morsy-intercall-isolated-experiment` for translation layout;
@@ -1630,14 +1618,8 @@ export default function WorkspaceDefault() {
                 )}
               />
               <span className="truncate max-w-[200px]">
-                {transcription.pureSttIsolationActive ? (
-                  "Speech · deterministic STT"
-                ) : (
-                  <>
-                    {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔{" "}
-                    {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
-                  </>
-                )}
+                {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔{" "}
+                {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB}
               </span>
             </span>
             {transcription.isRecording && (
@@ -1818,8 +1800,7 @@ export default function WorkspaceDefault() {
           </div>
         )}
 
-        {!transcription.pureSttIsolationActive &&
-          transcription.glossaryAppliedFlash &&
+        {transcription.glossaryAppliedFlash &&
           transcription.glossaryAppliedFlash.count > 0 && (
           <div className="px-4 pt-2 shrink-0">
             <div className="flex items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/90 px-3 py-1.5 text-[11px] text-emerald-900">
@@ -1945,15 +1926,19 @@ export default function WorkspaceDefault() {
               <div
                 className={cn(
                   "grid gap-3 sm:gap-6 px-3 sm:px-4 py-1.5 border-b shrink-0 bg-muted/10",
-                  transcription.pureSttIsolationActive ? "grid-cols-1" : "grid-cols-2",
+                  transcription.pureSttIsolationActive && transcription.canonIntercallLayoutStacked
+                    ? "grid-cols-1"
+                    : "grid-cols-2",
                   wsDark ? "border-white/[0.05]" : "border-border/40",
                 )}
               >
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
-                    {transcription.pureSttIsolationActive ? "Live transcript" : "Original"}
+                    {transcription.pureSttIsolationActive && transcription.canonIntercallLayoutStacked
+                      ? "Transcript"
+                      : "Original"}
                   </div>
-                  {transcription.pureSttIsolationActive && !transcription.tailFollowPinned && (
+                  {!transcription.tailFollowPinned && (
                     <button
                       type="button"
                       onClick={() => transcription.jumpTailFollow()}
@@ -1970,7 +1955,7 @@ export default function WorkspaceDefault() {
                     </button>
                   )}
                 </div>
-                {!transcription.pureSttIsolationActive && (
+                {!(transcription.pureSttIsolationActive && transcription.canonIntercallLayoutStacked) && (
                   <div className="flex items-center justify-between gap-2 min-w-0">
                     <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                       <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
@@ -1985,22 +1970,6 @@ export default function WorkspaceDefault() {
                         <span className="hidden sm:inline">Report issue</span>
                       </button>
                     </div>
-                    {!transcription.tailFollowPinned && (
-                      <button
-                        type="button"
-                        onClick={() => transcription.jumpTailFollow()}
-                        className={cn(
-                          "flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold shrink-0 border transition-colors",
-                          wsDark
-                            ? "border-white/15 bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                            : "border-border bg-background text-muted-foreground hover:bg-muted/80 hover:text-foreground",
-                        )}
-                        title="Snap to newest transcript and resume live tail-follow"
-                      >
-                        <ArrowDownToLine className="w-2.5 h-2.5" />
-                        <span className="hidden sm:inline">Jump to latest</span>
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -2052,14 +2021,8 @@ export default function WorkspaceDefault() {
                       </div>
                       <p className="text-sm font-medium">Start recording to see transcript</p>
                       <p className="text-xs text-muted-foreground/60 mt-1">
-                        {transcription.pureSttIsolationActive
-                          ? "Transcription-only mode — deterministic streaming engine."
-                          : (
-                              <>
-                                {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔{" "}
-                                {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
-                              </>
-                            )}
+                        {LANG_OPTIONS.find(l => l.value === langA)?.label ?? langA} ↔{" "}
+                        {LANG_OPTIONS.find(l => l.value === langB)?.label ?? langB} — detected automatically
                       </p>
                     </>
                   )}
@@ -2314,9 +2277,8 @@ export default function WorkspaceDefault() {
                Desktop: language selectors | centered start | invisible spacer mirror */}
           <div className="flex flex-col sm:flex-row sm:items-center px-3 sm:px-4 py-3 gap-2 sm:gap-3">
 
-            {/* Language selectors — omitted in deterministic STT-only mode */}
-            {!transcription.pureSttIsolationActive && (
-            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+            {/* Language selectors + Intercall layout toggle (Basic · Morsy Urgent canon path) */}
+            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto flex-wrap">
               <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Translate</span>
               <Select
                 value={langA}
@@ -2341,8 +2303,39 @@ export default function WorkspaceDefault() {
               >
                 {LANG_OPTIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
               </Select>
+              {transcription.pureSttIsolationActive && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    transcription.setCanonIntercallLayoutStacked(!transcription.canonIntercallLayoutStacked)
+                  }
+                  disabled={transcription.isRecording}
+                  className={cn(
+                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
+                    wsDark
+                      ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                      : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  title={
+                    transcription.canonIntercallLayoutStacked
+                      ? "Switch to side by side"
+                      : "Switch to stacked"
+                  }
+                >
+                  {transcription.canonIntercallLayoutStacked ? (
+                    <>
+                      <Columns2 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Side by side</span>
+                    </>
+                  ) : (
+                    <>
+                      <Rows3 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Stacked</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
-            )}
 
             {/* Start / Stop button — full width on mobile, centered on desktop */}
             <div className="w-full sm:flex-1 flex justify-center">
@@ -2372,12 +2365,10 @@ export default function WorkspaceDefault() {
             </div>
 
             {/* Invisible spacer — desktop only */}
-            {!transcription.pureSttIsolationActive && (
             <div className="hidden sm:flex items-center gap-2 opacity-0 pointer-events-none" aria-hidden>
               <span className="text-xs font-semibold whitespace-nowrap">Translate</span>
               <div className="h-9 w-[130px]" />
             </div>
-            )}
           </div>
 
           {/* Error bar */}

@@ -84,7 +84,10 @@ import {
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import { gateCanonAppendWsIsolatedRebuild } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
-import { CanonAppendWsIsolatedRuntime } from "@/experiments/basic-morsy-urgent/canonAppendWs/integration/canon-append-ws-runtime";
+import {
+  CanonAppendWsIsolatedRuntime,
+  type CanonFrozenRowPayload,
+} from "@/experiments/basic-morsy-urgent/canonAppendWs/integration/canon-append-ws-runtime";
 import {
   canonVisibleTraceStagingTailPeek,
   emitMorsyUrgentCanonVisibleTrace,
@@ -115,6 +118,7 @@ import {
   morsyIsolatedVisibleNfDebounceMs,
   readMorsySemanticLayoutPreferredStacked,
   stepVisibleCommittedBoundaryUtf16,
+  writeMorsySemanticLayoutPreferredStacked,
 } from "@/hooks/morsy-isolated-semantic-visible";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
@@ -1122,6 +1126,19 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
   if (matchesLang(sourceMember, pair.a) && !matchesLang(sourceMember, pair.b)) return pair.b;
   if (matchesLang(sourceMember, pair.b) && !matchesLang(sourceMember, pair.a)) return pair.a;
   return matchesLang(sourceMember, pair.a) ? pair.b : pair.a;
+}
+
+/** Canon row freeze: pick pair member A or B from Soniox tag + text evidence. */
+function resolveSourceLangForCanon(
+  text: string,
+  sonioxHint: string,
+  pair: { a: string; b: string },
+): string {
+  const majorityHint = majoritySourceFromFirstWords(text, sonioxHint, pair);
+  const validatedSoniox = validateLangByScript(sonioxHint, text, pair);
+  const uniqueFromValidated = uniquePairMemberForLang(validatedSoniox, pair);
+  const uniqueFromRaw = uniquePairMemberForLang(sonioxHint, pair);
+  return majorityHint ?? uniqueFromValidated ?? uniqueFromRaw ?? pair.a;
 }
 
 /**
@@ -2748,14 +2765,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptSegmentIsolationEnabled: transcriptSegmentIsolationConfigured,
   });
 
-  const translationEnabledRef = useRef(
-    pureSttIsolationActive ? false : options?.translationEnabled ?? true,
-  );
+  const translationEnabledRef = useRef(options?.translationEnabled ?? true);
   useEffect(() => {
-    translationEnabledRef.current = pureSttIsolationActive
-      ? false
-      : options?.translationEnabled ?? true;
-  }, [pureSttIsolationActive, options?.translationEnabled]);
+    translationEnabledRef.current = options?.translationEnabled ?? true;
+  }, [options?.translationEnabled]);
+
+  const [canonIntercallLayoutStacked, setCanonIntercallLayoutStackedState] = useState(
+    () => readMorsySemanticLayoutPreferredStacked(),
+  );
 
   const experimentMorsyUrgentIntercallRef = useRef(options?.experimentMorsyUrgentIntercallOrchestration ?? false);
   useEffect(() => {
@@ -2809,9 +2826,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const canonWsIsolationRecordingRef = useRef(false);
   /** True once a deterministic canon session mounted — snapshots read engine lines until cleared. */
   const canonWsSnapshotFromEngineRef = useRef(false);
+  const canonRowTranslateSeqRef = useRef(new Map<string, number>());
+  const dispatchCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
+
+  const setCanonIntercallLayoutStacked = useCallback((stacked: boolean) => {
+    writeMorsySemanticLayoutPreferredStacked(stacked);
+    setCanonIntercallLayoutStackedState(stacked);
+    canonWsIsolationEngineRef.current?.setLayoutMode(stacked ? "stacked" : "side-by-side");
+  }, []);
 
   useEffect(() => {
     canonWsIsolationEngineRef.current = new CanonAppendWsIsolatedRuntime();
+    canonWsIsolationEngineRef.current.setLayoutMode(
+      readMorsySemanticLayoutPreferredStacked() ? "stacked" : "side-by-side",
+    );
     canonWsIsolationEngineRef.current.setHooks({
       onVisualTick: () => {
         const alive =
@@ -2819,6 +2847,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const eng = canonWsIsolationEngineRef.current;
         if (!alive || !eng) return;
         setHasTranscript(eng.peekHasRenderableText());
+      },
+      onRowFrozen: (payload) => {
+        dispatchCanonFrozenRowTranslationRef.current(payload);
       },
     });
     return () => {
@@ -4774,6 +4805,100 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     dispatchTranslationRef.current = dispatchTranslation;
   }, [dispatchTranslation]);
 
+  const dispatchCanonFrozenRowTranslation = useCallback(async (payload: CanonFrozenRowPayload) => {
+    if (!translationEnabledRef.current) return;
+    if (!canonWsIsolationGateNow()) return;
+
+    const { utterance, committedText } = payload;
+    const rowId = utterance.utterance_id;
+    if (committedText.trim().length < 3) return;
+
+    const seq = (canonRowTranslateSeqRef.current.get(rowId) ?? 0) + 1;
+    canonRowTranslateSeqRef.current.set(rowId, seq);
+
+    const pair = langPairRef.current;
+    const sonioxHint = utterance.language ?? detectedLangRef.current;
+    const sourceLang = resolveSourceLangForCanon(committedText, sonioxHint, pair);
+    const targetLang = targetOppositeInPair(sourceLang, pair);
+
+    const basicMorsyOpenAiExperimentOpts =
+      morsyUrgentAttachOpenAiExperimentRef.current
+        ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
+        : {};
+
+    const morsyIntercallEmbeddedEnglishPromptOpts =
+      experimentMorsyUrgentIntercallRef.current
+        ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
+        : {};
+
+    let translated = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const tr = await fetchTranslation(
+        committedText,
+        sourceLang,
+        targetLang,
+        (m) => translationConfigReporterRef.current(m),
+        {
+          isFinal: true,
+          onGlossaryApplied: t => glossaryNotifyRef.current(t),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          ...basicMorsyOpenAiExperimentOpts,
+          ...morsyIntercallEmbeddedEnglishPromptOpts,
+        },
+      );
+      if (tr.dailyLimitReached) {
+        dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+        return;
+      }
+      translated = tr.text.trim();
+      if (translated.length > 0) break;
+      if (attempt === 0) await new Promise<void>(res => setTimeout(res, 450));
+    }
+
+    if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
+
+    if (
+      translated.length > 0 &&
+      looksLikeUntranslatedCopy(committedText, translated)
+    ) {
+      const trOpp = await fetchTranslation(
+        committedText,
+        sourceLang,
+        targetLang,
+        (m) => translationConfigReporterRef.current(m),
+        {
+          isFinal: true,
+          onGlossaryApplied: t => glossaryNotifyRef.current(t),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          ...basicMorsyOpenAiExperimentOpts,
+          ...morsyIntercallEmbeddedEnglishPromptOpts,
+        },
+      );
+      if (trOpp.dailyLimitReached) {
+        dailyLimitShutdownRef.current(trOpp.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+        return;
+      }
+      if (trOpp.text.trim().length > 0 && !looksLikeUntranslatedCopy(committedText, trOpp.text)) {
+        translated = trOpp.text.trim();
+      }
+    }
+
+    if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
+
+    canonWsIsolationEngineRef.current?.setRowTranslation(rowId, translated);
+    onAdminSnapshotBuffersUpdatedRef.current?.();
+  }, []);
+
+  useEffect(() => {
+    dispatchCanonFrozenRowTranslationRef.current = (payload) => {
+      void dispatchCanonFrozenRowTranslation(payload);
+    };
+  }, [dispatchCanonFrozenRowTranslation]);
+
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
   }, []);
@@ -5215,6 +5340,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
     adminSegmentRowIndexRef.current.clear();
+    canonRowTranslateSeqRef.current.clear();
     intercallFinalizedSegmentIdsRef.current = [];
     translationDiagRef.current = {
       callCount: 0,
@@ -6590,6 +6716,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           throw new Error("Transcript area is not ready — try Start again.");
         }
         wsRef.current = null;
+        eng.setLayoutMode(canonIntercallLayoutStacked ? "stacked" : "side-by-side");
         eng.attachDomRoot(containerRef.current);
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
@@ -6806,5 +6933,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startBusy || getTokenMut.isPending || startSessionMut.isPending,
     glossaryAppliedFlash,
     pureSttIsolationActive,
+    canonIntercallLayoutStacked,
+    setCanonIntercallLayoutStacked,
   };
 }
