@@ -14,15 +14,19 @@ export type CommittedToken = {
  * DOM is ALWAYS derived from projections of this shape — never the reverse.
  */
 export type EngineState = {
-  /** Finalized transcript lines closed by Soniox endpoint flush (immutable history). */
-  completedSegments: string[];
   committedInternal: CommittedToken[];
   committedVisibleIndex: number;
   pendingStableTokens: CommittedToken[];
   hypothesisTokens: Token[];
   hypothesisText: string;
+  /** Stable id for the single live DOM row — not driven by Soniox segments. */
   activeSegmentId: string | null;
+  /** Confirmed owning speaker label (delayed relative to Soniox stream). */
   activeSpeakerId: string | null;
+  /** Majority speaker currently being tested before promotion to activeSpeakerId. */
+  pivotCandidateSpeakerId: string | null;
+  pivotCandidateSinceMs: number;
+  pivotAgreeFinalCount: number;
   speakerWindow: SpeakerVote[];
   lastFrameSeq: number;
   endpointState: {
@@ -39,7 +43,6 @@ export type EngineState = {
 
 export function createInitialEngineState(): EngineState {
   return {
-    completedSegments: [],
     committedInternal: [],
     committedVisibleIndex: 0,
     pendingStableTokens: [],
@@ -47,6 +50,9 @@ export function createInitialEngineState(): EngineState {
     hypothesisText: "",
     activeSegmentId: null,
     activeSpeakerId: null,
+    pivotCandidateSpeakerId: null,
+    pivotCandidateSinceMs: 0,
+    pivotAgreeFinalCount: 0,
     speakerWindow: [],
     lastFrameSeq: 0,
     endpointState: { active: false, lastEndpointMs: 0 },

@@ -1,6 +1,7 @@
 export type DebugEventKind =
   | "frame"
   | "endpoint_flush"
+  | "speaker_pivot_confirmed"
   | "speaker_pivot_pending"
   | "hypothesis_change"
   | "ledger_append";

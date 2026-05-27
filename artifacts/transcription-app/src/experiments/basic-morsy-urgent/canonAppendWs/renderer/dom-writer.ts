@@ -44,12 +44,6 @@ export class CanonAppendWsDomWriter {
     renderHypothesisLcp(hypo, hypothesisText);
   }
 
-  finalizeSegmentAppearance(handles: EngineDomRowHandles): void {
-    const hypo = handles.row.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`);
-    hypo?.replaceChildren();
-    hypo?.appendChild(hypo.ownerDocument.createTextNode(""));
-  }
-
   detachAll(container: HTMLElement): void {
     container.replaceChildren();
     this.active = null;

@@ -2,16 +2,14 @@ import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import type { CommittedToken, EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
-import {
-  resolveMajoritySpeaker,
-  pushSpeakerVote,
-} from "./diarization";
+import { resolveMajoritySpeaker, pushSpeakerVote } from "./diarization";
 import {
   STAGING_BASE_MS,
   STAGING_MAX_MS,
   isEntitySensitiveToken,
 } from "./entity-stability";
 import { applyEndpointFlush } from "./endpoint";
+import { advanceSpeakerPivot } from "./speaker-pivot-policy";
 import { reconcileHypothesisVolatile } from "./volatile-tail";
 
 export type ReduceContext = {
@@ -42,15 +40,6 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   const maj = resolveMajoritySpeaker(next.speakerWindow);
-  if (maj && maj !== next.activeSpeakerId && next.activeSpeakerId !== null) {
-    next = {
-      ...next,
-      activeSpeakerId: maj,
-      metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
-    };
-  } else if (maj && next.activeSpeakerId === null) {
-    next = { ...next, activeSpeakerId: maj };
-  }
 
   const finals = frame.tokens.filter(t => t.isFinal);
   if (finals.length) {
@@ -115,6 +104,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     hypothesisText: mergedHyp,
     metrics,
   };
+
+  next = advanceSpeakerPivot(next, maj, finals, frame.endpoint, ctx.wallMs);
 
   if (frame.endpoint) {
     next = applyEndpointFlush(next, ctx.wallMs);

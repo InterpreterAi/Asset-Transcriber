@@ -40,7 +40,7 @@ export class CanonAppendWsIsolatedRuntime {
 
   private readonly client = new SonioxRealtimeClient();
 
-  private segmentSeq = 0;
+  private readonly liveSegmentDatasetId = "canon-append-ws-live";
 
   private containerEl: HTMLElement | null = null;
 
@@ -57,8 +57,7 @@ export class CanonAppendWsIsolatedRuntime {
   attachDomRoot(container: HTMLElement): void {
     this.containerEl = container;
     this.writer.detachAll(container);
-    this.segmentSeq += 1;
-    const seg = `seg-${this.segmentSeq}`;
+    const seg = this.liveSegmentDatasetId;
     this.writer.mountSegmentRow(container, seg);
     this.scroll.attachScrollParent(container);
     this.state = createInitialEngineState();
@@ -68,17 +67,25 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
+    const prevSpk = this.state.activeSpeakerId;
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
     if (frame.endpoint) {
-      const active = this.writer.getActive();
-      if (active) this.writer.finalizeSegmentAppearance(active);
-      emitDebugEvent({ kind: "endpoint_flush", segmentId: String(this.state.activeSegmentId ?? "") });
-      if (this.containerEl) {
-        this.segmentSeq += 1;
-        const nextSegId = `seg-${this.segmentSeq}`;
-        this.state = { ...this.state, activeSegmentId: nextSegId };
-        this.writer.mountSegmentRow(this.containerEl, nextSegId);
-      }
+      emitDebugEvent({
+        kind: "endpoint_flush",
+        segmentId: String(this.state.activeSegmentId ?? ""),
+      });
+    }
+    if (
+      this.state.activeSpeakerId !== prevSpk &&
+      this.state.activeSpeakerId !== null &&
+      prevSpk !== null
+    ) {
+      emitDebugEvent({
+        kind: "speaker_pivot_confirmed",
+        prev: prevSpk,
+        next: this.state.activeSpeakerId,
+        seq: frame.seq,
+      });
     }
     this.projections.sync(this.state);
     emitDebugEvent({ kind: "frame", seq: frame.seq, endpoint: Boolean(frame.endpoint) });
@@ -122,16 +129,14 @@ export class CanonAppendWsIsolatedRuntime {
     transcriptLines: string[];
     translationLines: string[];
   } {
-    const st = this.projections.getState();
-    const cur = projectTranscriptView(st).liveCombined.trim();
-    const lines = [...st.completedSegments];
-    if (cur.length) lines.push(cur);
+    const combined = projectTranscriptView(this.projections.getState()).liveCombined.trim();
+    const lines = combined.length ? [combined] : [];
     const blanks = lines.map(() => "");
     return {
-      transcript: lines.join("\n"),
+      transcript: combined,
       translation: "",
-      transcriptLines: [...lines],
-      translationLines: [...blanks],
+      transcriptLines: lines,
+      translationLines: blanks,
     };
   }
 
@@ -141,6 +146,10 @@ export class CanonAppendWsIsolatedRuntime {
 
   peekHasRenderableText(): boolean {
     const st = this.projections.getState();
-    return st.completedSegments.length > 0 || this.getLiveCombined().trim().length > 0;
+    return (
+      st.committedInternal.length > 0 ||
+      st.pendingStableTokens.length > 0 ||
+      this.getLiveCombined().trim().length > 0
+    );
   }
 }

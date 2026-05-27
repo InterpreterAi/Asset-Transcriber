@@ -1,4 +1,3 @@
-import { normalizeEndpointText } from "../reducer/endpoint";
 import { committedTextUpTo } from "../reducer/stable-prefix";
 import type { EngineState } from "../types/transcript";
 
@@ -10,10 +9,8 @@ export type TranscriptProjection = {
 
 export function projectTranscriptView(state: EngineState): TranscriptProjection {
   const ix = Math.min(state.committedVisibleIndex, state.committedInternal.length);
-  let committedCore = committedTextUpTo(state.committedInternal, ix);
-  if (state.endpointState.active && committedCore.length > 0) {
-    committedCore = normalizeEndpointText(committedCore);
-  }
+  /** Committed region is immutable — never rewritten for endpoint “cleanup”. */
+  const committedCore = committedTextUpTo(state.committedInternal, ix);
   const hypo = state.hypothesisText;
   return {
     committedVisibleText: committedCore,
