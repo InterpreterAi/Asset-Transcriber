@@ -34,11 +34,6 @@ export function gateCanonAppendWsIsolatedRebuild(args: {
   transcriptSegmentIsolationEnabled: boolean;
 }): boolean {
   if (readCanonAppendWsIsolatedOptOutLegacy()) return false;
-  /**
-   * Phase 1A: Basic · Morsy Urgent validates row ownership on `buildWs` + `morsy-urgent-cbf`
-   * (same bubble lifecycle as production tiers). Isolated canonAppendWs paused until Phase 1B.
-   */
-  if (args.planTypeLower.trim() === "morsy-urgent") return false;
   return morsyUrgentAppendOnlyTranscriptDomPath({
     planTypeLower: args.planTypeLower,
     segmentBehaviorMode: args.segmentBehaviorMode,
