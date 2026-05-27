@@ -8,16 +8,24 @@ export type TelemetryCounters = {
   blankDumpEvents: number;
   stablePrefixGrowth: number;
   volatileRewriteRate: number;
+  segmentCloses: number;
 };
+
+function countCommittedCanonTokens(state: EngineState): number {
+  let n = 0;
+  for (const r of state.rows) n += r.committedTokens.length;
+  return n;
+}
 
 export function snapshotEngineTelemetry(state: EngineState): TelemetryCounters {
   return {
     hypothesisRetracts: state.metrics.retractCount,
-    entityFlickers: state.metrics.entityFlickerCount,
+    entityFlickers: 0,
     speakerFlips: state.metrics.speakerFlipCount,
     staleTailLifetimeSamples: state.metrics.staleTailCount,
     blankDumpEvents: 0,
-    stablePrefixGrowth: state.committedInternal.length,
+    stablePrefixGrowth: countCommittedCanonTokens(state),
     volatileRewriteRate: 0,
+    segmentCloses: state.metrics.segmentCloseCount,
   };
 }

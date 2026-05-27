@@ -1,23 +1,31 @@
 import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
-import type { CommittedToken, EngineState } from "../types/transcript";
+import type { CanonToken } from "../types/canon-token";
+import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
+import type { Token } from "../types/tokens";
 
 import { resolveMajoritySpeaker, pushSpeakerVote } from "./diarization";
-import {
-  STAGING_BASE_MS,
-  STAGING_MAX_MS,
-  isEntitySensitiveToken,
-} from "./entity-stability";
-import { applyEndpointFlush } from "./endpoint";
-import { advanceSpeakerPivot } from "./speaker-pivot-policy";
-import { reconcileHypothesisVolatile } from "./volatile-tail";
+import { appendFinalCanonToTail, applyEndpointAndOpenFresh, replaceTailLiveCanonTokens } from "./row-lifecycle";
+import { sonioxTokenToCanon } from "./soniox-to-canon";
 
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
 };
 
-/** Pure reducer — no DOM. Stabilization + staging + endpoint semantics. */
+/** Non-final helpers from SONIOX stream (token identity preserved). */
+function canonNonFinalFromStreamToken(t: Token): CanonToken {
+  const ct = sonioxTokenToCanon(t);
+  return { ...ct, is_final: false };
+}
+
+/**
+ * Canon SONIOX ingestion — ONLY canonAppendWs (Basic · Morsy Urgent).
+ *
+ * Matches Soniox real-time contract:
+ * finals accumulate permanently; non-finals for this websocket message **replace** the live tail entirely
+ * (“reset non-final tokens on every response” — docs).
+ */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   let next: EngineState = {
     ...state,
@@ -26,89 +34,49 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   };
 
   let tailSpk = frame.speaker;
-  if (!tailSpk) {
+  let tailLang = frame.language;
+  if (!tailSpk || !tailLang) {
     for (let j = frame.tokens.length - 1; j >= 0; j--) {
-      const sid = frame.tokens[j]?.speakerId;
-      if (sid) {
-        tailSpk = sid;
-        break;
-      }
+      const tk = frame.tokens[j];
+      if (!tailSpk && tk?.speakerId) tailSpk = tk.speakerId;
+      if (!tailLang && tk?.language) tailLang = tk.language;
+      if (tailSpk && tailLang) break;
     }
   }
+
   if (tailSpk) {
     next.speakerWindow = pushSpeakerVote(next.speakerWindow, tailSpk, frame.timestamp);
   }
-
   const maj = resolveMajoritySpeaker(next.speakerWindow);
 
-  const finals = frame.tokens.filter(t => t.isFinal);
-  if (finals.length) {
-    ctx.ledger.appendFinalTokens(finals);
-    let committedInternal = [...next.committedInternal];
-    let pendingStableTokens = [...next.pendingStableTokens];
-    for (const t of finals) {
-      const ct: CommittedToken = {
-        id: `c-${t.id}`,
-        joinedText: t.text,
-        speakerId: t.speakerId,
-      };
-      if (isEntitySensitiveToken(t)) {
-        pendingStableTokens.push({ ...ct, stagedSinceMs: ctx.wallMs });
-      } else {
-        committedInternal.push(ct);
+  const nfCanon: CanonToken[] = [];
+  for (const t of frame.tokens) {
+    if (t.isFinal) {
+      const ct = sonioxTokenToCanon(t);
+      ctx.ledger.appendFinalCanon(ct);
+      next = appendFinalCanonToTail(next, ct, ctx.wallMs);
+      tailLang = ct.language ?? tailLang;
+    } else {
+      if (typeof t.text === "string" && t.text.length > 0) {
+        nfCanon.push(canonNonFinalFromStreamToken(t));
       }
     }
-
-    const stillPending: CommittedToken[] = [];
-    let stagedPromoted = 0;
-    for (const p of pendingStableTokens) {
-      const since = p.stagedSinceMs ?? ctx.wallMs;
-      const dwell = ctx.wallMs - since;
-      const need =
-        STAGING_BASE_MS +
-        (isEntitySensitiveToken({ text: p.joinedText })
-          ? STAGING_MAX_MS - STAGING_BASE_MS
-          : 0);
-      if (dwell >= need) {
-        committedInternal.push({ ...p, stagedSinceMs: undefined });
-        stagedPromoted++;
-      } else {
-        stillPending.push(p);
-      }
-    }
-    pendingStableTokens = stillPending;
-
-    next = {
-      ...next,
-      committedInternal,
-      pendingStableTokens,
-      committedVisibleIndex: committedInternal.length,
-      metrics:
-        stagedPromoted > 0
-          ? { ...next.metrics, entityFlickerCount: next.metrics.entityFlickerCount + stagedPromoted }
-          : next.metrics,
-    };
   }
 
-  const nfs = frame.tokens.filter(t => !t.isFinal);
-  const joinedRaw = nfs.map(t => t.text).join("");
-  const prevHyp = next.hypothesisText;
-  const mergedHyp = reconcileHypothesisVolatile(prevHyp, joinedRaw);
-  let metrics = next.metrics;
-  if (mergedHyp.length < prevHyp.length) metrics = { ...metrics, retractCount: metrics.retractCount + 1 };
-  if (!joinedRaw.length && prevHyp.length) metrics = { ...metrics, staleTailCount: metrics.staleTailCount + 1 };
+  next = replaceTailLiveCanonTokens(
+    next,
+    nfCanon,
+    ctx.wallMs,
+    maj ?? tailSpk ?? undefined,
+    tailLang ?? next.activeLanguageId ?? undefined,
+  );
 
-  next = {
-    ...next,
-    hypothesisTokens: nfs,
-    hypothesisText: mergedHyp,
-    metrics,
-  };
-
-  next = advanceSpeakerPivot(next, maj, finals, frame.endpoint, ctx.wallMs);
+  if (frame.tokens.length > 0 || frame.endpoint) {
+    next = { ...next, lastTokenActivityWallMs: ctx.wallMs };
+  }
 
   if (frame.endpoint) {
-    next = applyEndpointFlush(next, ctx.wallMs);
+    next = applyEndpointAndOpenFresh(next, ctx.wallMs);
   }
 
   return next;

@@ -1,19 +1,23 @@
 /**
  * SONIOX-only isolated runtime for Basic · morsy-urgent canonAppendWs experiment.
+ * Token reconciliation engine — multi-row, committed/live split.
  */
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
 
+import { CANON_SILENCE_SEGMENT_MS } from "../gate";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
+import { applySilenceSegmentClose } from "../reducer/row-lifecycle";
 import { reduceCanonAppendWs } from "../reducer/reducer";
 import { CanonAppendWsDomWriter } from "../renderer/dom-writer";
 import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
+import { joinCanonText } from "../types/canon-token";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
@@ -21,7 +25,7 @@ import { SonioxRealtimeClient } from "../ws/soniox-client";
 export type CanonAppendWsRuntimeHooks = {
   /** Optional React/setState throttle hook after each flushed projection. */
   onVisualTick?: () => void;
-  /** PCM chunk sent toward Soniox (before WS queue) — inactivity watchdog. */
+  /** PCM chunk sent toward Soniox (before WS queue) — silence segmentation. */
   onPcmFrame?: () => void;
 };
 
@@ -40,8 +44,6 @@ export class CanonAppendWsIsolatedRuntime {
 
   private readonly client = new SonioxRealtimeClient();
 
-  private readonly liveSegmentDatasetId = "canon-append-ws-live";
-
   private containerEl: HTMLElement | null = null;
 
   private hooks: CanonAppendWsRuntimeHooks;
@@ -57,13 +59,39 @@ export class CanonAppendWsIsolatedRuntime {
   attachDomRoot(container: HTMLElement): void {
     this.containerEl = container;
     this.writer.detachAll(container);
-    const seg = this.liveSegmentDatasetId;
-    this.writer.mountSegmentRow(container, seg);
-    this.scroll.attachScrollParent(container);
     this.state = createInitialEngineState();
-    this.state.activeSegmentId = seg;
     this.projections.sync(this.state);
     this.hooks.onVisualTick?.();
+  }
+
+  private maybeSilenceClose(wallMs: number): void {
+    const last = this.state.lastTokenActivityWallMs;
+    if (last <= 0 || wallMs - last < CANON_SILENCE_SEGMENT_MS) return;
+
+    const rows = this.state.rows;
+    if (rows.length === 0) return;
+    const tail = rows[rows.length - 1]!;
+    if (tail.finalized) return;
+
+    const hasPayload =
+      joinCanonText(tail.committedTokens).length > 0 || joinCanonText(tail.liveTokens).length > 0;
+    if (!hasPayload) return;
+
+    this.state = applySilenceSegmentClose(this.state, wallMs);
+    this.state = { ...this.state, lastTokenActivityWallMs: wallMs };
+    this.projections.sync(this.state);
+    emitDebugEvent({ kind: "endpoint_flush", segmentId: "silence", synthetic: true });
+    this.flushDom();
+  }
+
+  private flushDom(): void {
+    if (!this.containerEl) return;
+    const snap = this.projections.getProjection();
+    this.scheduler.schedule(() => {
+      this.writer.syncRows(this.containerEl!, snap.rows);
+      this.scroll.maybeFollowTail({ stickToTail: true });
+      this.hooks.onVisualTick?.();
+    });
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
@@ -72,7 +100,8 @@ export class CanonAppendWsIsolatedRuntime {
     if (frame.endpoint) {
       emitDebugEvent({
         kind: "endpoint_flush",
-        segmentId: String(this.state.activeSegmentId ?? ""),
+        segmentId: "soniox-endpoint",
+        seq: frame.seq,
       });
     }
     if (
@@ -89,14 +118,8 @@ export class CanonAppendWsIsolatedRuntime {
     }
     this.projections.sync(this.state);
     emitDebugEvent({ kind: "frame", seq: frame.seq, endpoint: Boolean(frame.endpoint) });
-    const active = this.writer.getActive();
-    if (!active) return;
-    const snap = this.projections.getProjection();
-    this.scheduler.schedule(() => {
-      this.writer.projectLiveSegment(active, snap.committedVisibleText, snap.hypothesisText);
-      this.scroll.maybeFollowTail({ stickToTail: true });
-      this.hooks.onVisualTick?.();
-    });
+    this.maybeSilenceClose(wallMs);
+    this.flushDom();
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
@@ -110,6 +133,8 @@ export class CanonAppendWsIsolatedRuntime {
 
   sendPcm(chunk: ArrayBuffer): void {
     this.hooks.onPcmFrame?.();
+    const wall = Date.now();
+    this.maybeSilenceClose(wall);
     this.client.sendPcm(chunk);
   }
 
@@ -129,13 +154,14 @@ export class CanonAppendWsIsolatedRuntime {
     transcriptLines: string[];
     translationLines: string[];
   } {
-    const combined = projectTranscriptView(this.projections.getState()).liveCombined.trim();
-    const lines = combined.length ? [combined] : [];
+    const proj = projectTranscriptView(this.projections.getState());
+    const combined = proj.liveCombined.trim();
+    const lines = combined.length ? combined.split(/\n+/u).map(s => s.trim()).filter(Boolean) : [];
     const blanks = lines.map(() => "");
     return {
       transcript: combined,
       translation: "",
-      transcriptLines: lines,
+      transcriptLines: lines.length ? lines : combined.length ? [combined] : [],
       translationLines: blanks,
     };
   }
@@ -145,11 +171,7 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   peekHasRenderableText(): boolean {
-    const st = this.projections.getState();
-    return (
-      st.committedInternal.length > 0 ||
-      st.pendingStableTokens.length > 0 ||
-      this.getLiveCombined().trim().length > 0
-    );
+    const proj = projectTranscriptView(this.projections.getState());
+    return proj.rows.some(r => r.committedText.length > 0 || r.liveText.length > 0);
   }
 }

@@ -1,66 +1,46 @@
 import type { SpeakerVote } from "./speakers";
-import type { Token } from "./tokens";
-
-export type CommittedToken = {
-  id: string;
-  joinedText: string;
-  speakerId?: string;
-  /** Entity staging queue entry timestamp (mono clock). */
-  stagedSinceMs?: number;
-};
+import type { TranscriptRow } from "./canon-token";
 
 /**
- * Canonical engine state snapshot (single source of truth for this experiment).
- * DOM is ALWAYS derived from projections of this shape — never the reverse.
+ * Canonical engine snapshot for canonAppendWs: multi-row transcript with token identity + live reconciliation.
  */
 export type EngineState = {
-  committedInternal: CommittedToken[];
-  committedVisibleIndex: number;
-  pendingStableTokens: CommittedToken[];
-  hypothesisTokens: Token[];
-  hypothesisText: string;
-  /** Stable id for the single live DOM row — not driven by Soniox segments. */
-  activeSegmentId: string | null;
-  /** Confirmed owning speaker label (delayed relative to Soniox stream). */
-  activeSpeakerId: string | null;
-  /** Majority speaker currently being tested before promotion to activeSpeakerId. */
-  pivotCandidateSpeakerId: string | null;
-  pivotCandidateSinceMs: number;
-  pivotAgreeFinalCount: number;
+  rows: TranscriptRow[];
+  nextRowSeq: number;
+  /** Soniox majority tail — informational; segmentation uses token-level speaker/lang. */
   speakerWindow: SpeakerVote[];
+  activeSpeakerId: string | null;
+  activeLanguageId: string | null;
   lastFrameSeq: number;
+  /** Last frame time we saw substantive tokens or endpoint (wall clock). */
+  lastTokenActivityWallMs: number;
   endpointState: {
     active: boolean;
     lastEndpointMs: number;
   };
   metrics: {
     retractCount: number;
-    entityFlickerCount: number;
     speakerFlipCount: number;
     staleTailCount: number;
+    segmentCloseCount: number;
   };
 };
 
 export function createInitialEngineState(): EngineState {
   return {
-    committedInternal: [],
-    committedVisibleIndex: 0,
-    pendingStableTokens: [],
-    hypothesisTokens: [],
-    hypothesisText: "",
-    activeSegmentId: null,
-    activeSpeakerId: null,
-    pivotCandidateSpeakerId: null,
-    pivotCandidateSinceMs: 0,
-    pivotAgreeFinalCount: 0,
+    rows: [],
+    nextRowSeq: 0,
     speakerWindow: [],
+    activeSpeakerId: null,
+    activeLanguageId: null,
     lastFrameSeq: 0,
+    lastTokenActivityWallMs: 0,
     endpointState: { active: false, lastEndpointMs: 0 },
     metrics: {
       retractCount: 0,
-      entityFlickerCount: 0,
       speakerFlipCount: 0,
       staleTailCount: 0,
+      segmentCloseCount: 0,
     },
   };
 }

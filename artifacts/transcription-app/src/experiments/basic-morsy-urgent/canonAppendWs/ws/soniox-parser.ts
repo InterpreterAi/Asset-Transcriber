@@ -12,11 +12,37 @@ interface RawSonioxToken {
   start_ms?: unknown;
   end_ms?: unknown;
   speaker?: unknown;
+  language?: unknown;
+  lang?: unknown;
+  token_index?: unknown;
+  index?: unknown;
+  id?: unknown;
 }
 
 function tokenConfidence(t: RawSonioxToken): number {
   const c = t.confidence;
   return typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 1;
+}
+
+function stableTokenId(t: RawSonioxToken, messageSeq: number, i: number, isFinal: boolean): string {
+  const ti = t.token_index ?? t.index;
+  if (typeof ti === "number" && Number.isFinite(ti)) {
+    return `sx-idx-${ti}-${isFinal ? "F" : "N"}`;
+  }
+  const idRaw = t.id;
+  if (typeof idRaw === "string" && idRaw.trim()) return idRaw.trim();
+  const sm = t.start_ms;
+  const em = t.end_ms;
+  if (typeof sm === "number" && typeof em === "number") {
+    return `sx-${sm}-${em}-${isFinal ? "F" : "N"}`;
+  }
+  return `t-${messageSeq}-${i}-${isFinal ? "F" : "N"}`;
+}
+
+function parseLanguageField(t: RawSonioxToken): string | undefined {
+  const langRaw = t.language ?? t.lang;
+  if (typeof langRaw !== "string" || !langRaw.trim()) return undefined;
+  return langRaw.trim().toLowerCase();
 }
 
 /**
@@ -53,14 +79,17 @@ export function parseSonioxWebSocketPayload(
         : typeof spkRaw === "number" || typeof spkRaw === "string"
           ? String(spkRaw)
           : undefined;
+    const language = parseLanguageField(t as RawSonioxToken);
+
     tokens.push({
-      id: `t-${messageSeq}-${i}-${fin ? "F" : "N"}`,
+      id: stableTokenId(t as RawSonioxToken, messageSeq, i, fin),
       text,
       isFinal: fin,
-      confidence: tokenConfidence(t),
+      confidence: tokenConfidence(t as RawSonioxToken),
       startMs: typeof t.start_ms === "number" ? t.start_ms : undefined,
       endMs: typeof t.end_ms === "number" ? t.end_ms : undefined,
       speakerId,
+      language,
     });
   }
 
@@ -71,12 +100,20 @@ export function parseSonioxWebSocketPayload(
       break;
     }
   }
+  let tailLanguage: string | undefined;
+  for (let k = tokens.length - 1; k >= 0; k--) {
+    if (tokens[k]!.language) {
+      tailLanguage = tokens[k]!.language;
+      break;
+    }
+  }
 
   return {
     seq: messageSeq,
     tokens,
     endpoint,
     speaker: tailSpeaker,
+    language: tailLanguage,
     timestamp: typeof performance !== "undefined" ? performance.now() : Date.now(),
   };
 }

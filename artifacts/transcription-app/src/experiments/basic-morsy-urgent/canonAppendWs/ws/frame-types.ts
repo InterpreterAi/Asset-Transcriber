@@ -5,5 +5,6 @@ export type SonioxFrame = {
   tokens: Token[];
   endpoint: boolean;
   speaker?: string;
+  language?: string;
   timestamp: number;
 };

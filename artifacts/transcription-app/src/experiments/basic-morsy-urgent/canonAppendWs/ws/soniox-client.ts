@@ -1,5 +1,8 @@
 /**
  * Thin Soniox realtime websocket — receives audio config + binary PCM from host.
+ *
+ * Segmentation by `speaker` + `language` mirrors Node SDK `group_by` / RealtimeSegment
+ * layout; the REST websocket schema does not expose that field — reducer rows group from token metadata.
  */
 
 import type { SonioxFrame } from "./frame-types";

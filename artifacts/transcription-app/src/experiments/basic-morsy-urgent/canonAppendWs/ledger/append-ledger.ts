@@ -1,3 +1,4 @@
+import type { CanonToken } from "../types/canon-token";
 import type { Token } from "../types/tokens";
 
 /** Immutable snapshot of finalized Soniox pieces (append-only). Not UI state. */
@@ -17,6 +18,12 @@ export class AppendOnlyCanonLedger {
       this.pieces.push(t.text ?? "");
       this.ids.push(t.id);
     }
+  }
+
+  appendFinalCanon(t: CanonToken): void {
+    if (!t.is_final) return;
+    this.pieces.push(t.text ?? "");
+    this.ids.push(t.token_id);
   }
 
   snapshot(): CanonLedgerSnapshot {
