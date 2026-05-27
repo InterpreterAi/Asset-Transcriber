@@ -1,9 +1,11 @@
 import { morsyUrgentAppendOnlyTranscriptDomPath } from "@/hooks/morsy-isolated-transcript-canonical";
 
+import { CANON_SILENCE_SEGMENT_MS as CANON_SILENCE_SEGMENT_MS_POLICY } from "./policies/segmentation-constants";
+
 export const BASIC_MORSY_CANON_WS_ENGINE_LS = "interpreterai_basic_morsy_canon_ws_engine";
 
-/** Milliseconds without SONIOX tokens before forcing utterance row close (canonAppendWs ONLY). */
-export const CANON_SILENCE_SEGMENT_MS = 1200;
+/** Milliseconds without SONIOX tokens before *considering* utterance row close (secondary gates apply). canonAppendWs ONLY. */
+export const CANON_SILENCE_SEGMENT_MS = CANON_SILENCE_SEGMENT_MS_POLICY;
 
 /**
  * **Basic · Morsy Urgent + canonAppendWs path**: isolated SONIOX engine is **ON by default**

@@ -1,6 +1,6 @@
 /**
  * SONIOX-only isolated runtime for Basic · morsy-urgent canonAppendWs experiment.
- * Token reconciliation engine — multi-row, committed/live split.
+ * Utterance-stabilized projection over realtime Soniox tokens.
  */
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
@@ -8,24 +8,27 @@ import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
 
 import { CANON_SILENCE_SEGMENT_MS } from "../gate";
+import { LIVE_RENDER_BATCH_MS } from "../policies/segmentation-constants";
+import {
+  silenceCloseSecondaryGate,
+  silenceConfidenceAndLagOk,
+} from "../policies/silence-secondary-gates";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
-import { applySilenceSegmentClose } from "../reducer/row-lifecycle";
+import { mergedCommittedAndLiveText } from "../projection/utterance-rollup";
+import { applyManualFinalizeTail, applySilenceUtteranceClose } from "../reducer/row-lifecycle";
 import { reduceCanonAppendWs } from "../reducer/reducer";
 import { CanonAppendWsDomWriter } from "../renderer/dom-writer";
 import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
-import { joinCanonText } from "../types/canon-token";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
 export type CanonAppendWsRuntimeHooks = {
-  /** Optional React/setState throttle hook after each flushed projection. */
   onVisualTick?: () => void;
-  /** PCM chunk sent toward Soniox (before WS queue) — silence segmentation. */
   onPcmFrame?: () => void;
 };
 
@@ -48,6 +51,8 @@ export class CanonAppendWsIsolatedRuntime {
 
   private hooks: CanonAppendWsRuntimeHooks;
 
+  private domBatchTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -57,6 +62,7 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   attachDomRoot(container: HTMLElement): void {
+    this.clearDomBatch();
     this.containerEl = container;
     this.writer.detachAll(container);
     this.state = createInitialEngineState();
@@ -64,27 +70,14 @@ export class CanonAppendWsIsolatedRuntime {
     this.hooks.onVisualTick?.();
   }
 
-  private maybeSilenceClose(wallMs: number): void {
-    const last = this.state.lastTokenActivityWallMs;
-    if (last <= 0 || wallMs - last < CANON_SILENCE_SEGMENT_MS) return;
-
-    const rows = this.state.rows;
-    if (rows.length === 0) return;
-    const tail = rows[rows.length - 1]!;
-    if (tail.finalized) return;
-
-    const hasPayload =
-      joinCanonText(tail.committedTokens).length > 0 || joinCanonText(tail.liveTokens).length > 0;
-    if (!hasPayload) return;
-
-    this.state = applySilenceSegmentClose(this.state, wallMs);
-    this.state = { ...this.state, lastTokenActivityWallMs: wallMs };
-    this.projections.sync(this.state);
-    emitDebugEvent({ kind: "endpoint_flush", segmentId: "silence", synthetic: true });
-    this.flushDom();
+  private clearDomBatch(): void {
+    if (this.domBatchTimer !== null) {
+      clearTimeout(this.domBatchTimer);
+      this.domBatchTimer = null;
+    }
   }
 
-  private flushDom(): void {
+  private flushDomImmediate(): void {
     if (!this.containerEl) return;
     const snap = this.projections.getProjection();
     this.scheduler.schedule(() => {
@@ -94,16 +87,58 @@ export class CanonAppendWsIsolatedRuntime {
     });
   }
 
+  private scheduleDomBatch(immediate = false): void {
+    if (immediate) {
+      this.clearDomBatch();
+      this.flushDomImmediate();
+      return;
+    }
+    if (!this.containerEl) return;
+    if (this.domBatchTimer !== null) clearTimeout(this.domBatchTimer);
+    this.domBatchTimer = setTimeout(() => {
+      this.domBatchTimer = null;
+      this.flushDomImmediate();
+    }, LIVE_RENDER_BATCH_MS);
+  }
+
+  /** Silence-only fallback conversational freeze — endpoint primary path skips this. */
+  private maybeSilenceClose(wallMs: number): void {
+    const last = this.state.lastTokenActivityWallMs;
+    if (last <= 0 || wallMs - last < CANON_SILENCE_SEGMENT_MS) return;
+
+    const active = this.state.activeUtterance;
+    if (!active?.segments.length || active.is_final) return;
+
+    const text = mergedCommittedAndLiveText(active);
+    const hasPayload = Boolean(text.trim().length);
+    if (!hasPayload) return;
+
+    if (!silenceCloseSecondaryGate(this.state, active, wallMs)) return;
+    if (!silenceConfidenceAndLagOk(this.state, active)) return;
+
+    this.state = applySilenceUtteranceClose(this.state, wallMs);
+    this.state = { ...this.state, lastTokenActivityWallMs: wallMs };
+    this.projections.sync(this.state);
+    emitDebugEvent({ kind: "endpoint_flush", segmentId: "silence_fallback", synthetic: true });
+    this.scheduleDomBatch(true);
+  }
+
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
     const prevSpk = this.state.activeSpeakerId;
+    const endpointFrame = Boolean(frame.endpoint);
+
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
-    if (frame.endpoint) {
+
+    if (endpointFrame) {
       emitDebugEvent({
         kind: "endpoint_flush",
         segmentId: "soniox-endpoint",
         seq: frame.seq,
+        final_audio_proc_ms: frame.final_audio_proc_ms,
+        total_audio_proc_ms: frame.total_audio_proc_ms,
       });
     }
+
     if (
       this.state.activeSpeakerId !== prevSpk &&
       this.state.activeSpeakerId !== null &&
@@ -116,10 +151,21 @@ export class CanonAppendWsIsolatedRuntime {
         seq: frame.seq,
       });
     }
+
     this.projections.sync(this.state);
-    emitDebugEvent({ kind: "frame", seq: frame.seq, endpoint: Boolean(frame.endpoint) });
-    this.maybeSilenceClose(wallMs);
-    this.flushDom();
+    emitDebugEvent({
+      kind: "frame",
+      seq: frame.seq,
+      endpoint: endpointFrame,
+      final_audio_proc_ms: frame.final_audio_proc_ms,
+      total_audio_proc_ms: frame.total_audio_proc_ms,
+    });
+
+    if (!endpointFrame) {
+      this.maybeSilenceClose(wallMs);
+    }
+
+    this.scheduleDomBatch(endpointFrame);
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
@@ -139,7 +185,12 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   stopSoniox(): void {
+    this.clearDomBatch();
     this.client.flushEnd();
+    const wall = Date.now();
+    this.state = applyManualFinalizeTail(this.state, wall);
+    this.projections.sync(this.state);
+    this.flushDomImmediate();
     this.client.disconnect(true);
     this.scheduler.cancel();
   }

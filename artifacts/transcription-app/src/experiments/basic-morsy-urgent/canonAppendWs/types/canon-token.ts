@@ -7,6 +7,7 @@ export type CanonToken = {
   token_id: string;
   text: string;
   is_final: boolean;
+  confidence?: number;
   start_ms?: number;
   end_ms?: number;
   speaker?: string;
@@ -26,6 +27,7 @@ export type TranscriptRow = {
    */
   liveTokens: CanonToken[];
   finalized: boolean;
+  openedWallMs?: number;
 };
 
 export function joinCanonText(tokens: readonly CanonToken[]): string {

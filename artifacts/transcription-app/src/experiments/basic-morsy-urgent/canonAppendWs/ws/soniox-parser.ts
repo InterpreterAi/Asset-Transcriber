@@ -53,13 +53,24 @@ export function parseSonioxWebSocketPayload(
   rawJson: unknown,
   messageSeq: number,
 ): SonioxFrame | null {
-  let msg: { tokens?: RawSonioxToken[]; finished?: unknown };
+  let msg: {
+    tokens?: RawSonioxToken[];
+    finished?: unknown;
+    final_audio_proc_ms?: unknown;
+    total_audio_proc_ms?: unknown;
+  };
   try {
     msg = typeof rawJson === "string" ? (JSON.parse(rawJson) as typeof msg) : (rawJson as typeof msg);
   } catch {
     return null;
   }
   const arr = msg?.tokens ?? [];
+
+  const procNum = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) ? v : undefined;
+
+  const finalAudioProcMs = procNum(msg.final_audio_proc_ms);
+  const totalAudioProcMs = procNum(msg.total_audio_proc_ms);
   if (!Array.isArray(arr)) return null;
 
   let endpoint = false;
@@ -115,5 +126,7 @@ export function parseSonioxWebSocketPayload(
     speaker: tailSpeaker,
     language: tailLanguage,
     timestamp: typeof performance !== "undefined" ? performance.now() : Date.now(),
+    final_audio_proc_ms: finalAudioProcMs,
+    total_audio_proc_ms: totalAudioProcMs,
   };
 }

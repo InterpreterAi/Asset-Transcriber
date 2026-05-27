@@ -5,7 +5,12 @@ import type { SonioxFrame } from "../ws/frame-types";
 import type { Token } from "../types/tokens";
 
 import { resolveMajoritySpeaker, pushSpeakerVote } from "./diarization";
-import { appendFinalCanonToTail, applyEndpointAndOpenFresh, replaceTailLiveCanonTokens } from "./row-lifecycle";
+import {
+  appendFinalCanonToTail,
+  applyEndpointAndOpenFresh,
+  replaceTailLiveCanonTokens,
+  stripTailLiveOverlap,
+} from "./row-lifecycle";
 import { sonioxTokenToCanon } from "./soniox-to-canon";
 
 export type ReduceContext = {
@@ -22,15 +27,32 @@ function canonNonFinalFromStreamToken(t: Token): CanonToken {
 /**
  * Canon SONIOX ingestion — ONLY canonAppendWs (Basic · Morsy Urgent).
  *
+ * Buffered utterance stabilization approximates SDK `RealtimeToken → RealtimeSegment → RealtimeUtterance`; raw WS
+ * has no grouped utterances — conversational rows freeze client-side (`freezeActiveUtterance`).
+ *
  * Matches Soniox real-time contract:
  * finals accumulate permanently; non-finals for this websocket message **replace** the live tail entirely
  * (“reset non-final tokens on every response” — docs).
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
+  const finProc =
+    typeof frame.final_audio_proc_ms === "number" && Number.isFinite(frame.final_audio_proc_ms)
+      ? frame.final_audio_proc_ms
+      : null;
+  const totProc =
+    typeof frame.total_audio_proc_ms === "number" && Number.isFinite(frame.total_audio_proc_ms)
+      ? frame.total_audio_proc_ms
+      : null;
+  let lagComputed: number | null = null;
+  if (finProc !== null && totProc !== null) lagComputed = Math.max(0, totProc - finProc);
+
   let next: EngineState = {
     ...state,
     lastFrameSeq: frame.seq,
     endpointState: { active: frame.endpoint, lastEndpointMs: state.endpointState.lastEndpointMs },
+    lastFinalAudioProcMs: finProc !== null ? finProc : state.lastFinalAudioProcMs,
+    lastTotalAudioProcMs: totProc !== null ? totProc : state.lastTotalAudioProcMs,
+    lastHypothesisLagMs: lagComputed !== null ? lagComputed : state.lastHypothesisLagMs,
   };
 
   let tailSpk = frame.speaker;
@@ -71,11 +93,15 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     tailLang ?? next.activeLanguageId ?? undefined,
   );
 
+  next = stripTailLiveOverlap(next);
+
   if (frame.tokens.length > 0 || frame.endpoint) {
     next = { ...next, lastTokenActivityWallMs: ctx.wallMs };
   }
 
+  /** Primary conversational latch — Soniox endpoint marker finalizes utterance buffer. */
   if (frame.endpoint) {
+    next = { ...next, lastSonioxEndpointWallMs: ctx.wallMs };
     next = applyEndpointAndOpenFresh(next, ctx.wallMs);
   }
 
