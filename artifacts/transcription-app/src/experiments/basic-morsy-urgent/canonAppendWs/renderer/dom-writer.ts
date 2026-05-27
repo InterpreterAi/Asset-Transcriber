@@ -7,10 +7,13 @@ import {
 } from "./committed-renderer";
 import { renderHypothesisLcp } from "./hypothesis-renderer";
 
+export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
+
 export type EngineDomRowHandles = {
   row: HTMLElement;
   stripe: HTMLElement;
   committedMirror: CommittedDomMirror;
+  translationEl: HTMLElement;
 };
 
 function stripeColorClass(language?: string): string {
@@ -30,25 +33,82 @@ function intercallHeaderLabel(proj: RowProjection): string {
   return "";
 }
 
-/** Token-reconciled transcript DOM — only Basic · Morsy Urgent canonAppendWs (Intercall-style rail). */
+function outerRowClass(layout: CanonAppendWsLayoutMode): string {
+  if (layout === "stacked") {
+    return "group relative mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
+  }
+  return "group relative grid grid-cols-2 gap-3 sm:gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
+}
+
+function origCardClass(): string {
+  return "flex min-w-0 overflow-hidden rounded-lg border border-border/50 bg-muted/20 text-sm shadow-sm";
+}
+
+function translationTextClass(layout: CanonAppendWsLayoutMode): string {
+  if (layout === "stacked") {
+    return "ts-text leading-relaxed whitespace-pre-wrap text-[13px] text-foreground/80 pl-4 border-l border-border/30 ml-1";
+  }
+  return "ts-text leading-relaxed whitespace-pre-wrap text-[13px] text-foreground/80 font-medium";
+}
+
+/** Token-reconciled transcript DOM — Basic · Morsy Urgent canonAppendWs (Intercall bilingual rail). */
 export class CanonAppendWsDomWriter {
   private readonly byRowId = new Map<string, EngineDomRowHandles>();
 
-  private createRow(container: HTMLElement, proj: RowProjection): EngineDomRowHandles {
-    const doc = container.ownerDocument;
-    const row = doc.createElement("div");
-    row.dataset.cawSegment = proj.row_id;
-    row.className =
-      "flex overflow-hidden rounded-lg border border-border/50 bg-muted/20 text-sm shadow-sm";
+  private layoutMode: CanonAppendWsLayoutMode = "side-by-side";
+
+  private readonly translationByRowId = new Map<string, string>();
+
+  setLayoutMode(mode: CanonAppendWsLayoutMode): void {
+    if (this.layoutMode === mode) return;
+    this.layoutMode = mode;
+  }
+
+  getLayoutMode(): CanonAppendWsLayoutMode {
+    return this.layoutMode;
+  }
+
+  setRowTranslation(rowId: string, text: string): void {
+    this.translationByRowId.set(rowId, text);
+    const handles = this.byRowId.get(rowId);
+    if (handles) this.paintTranslation(handles);
+  }
+
+  getRowTranslation(rowId: string): string {
+    return this.translationByRowId.get(rowId) ?? "";
+  }
+
+  getTranslationLines(rowIds: string[]): string[] {
+    return rowIds.map(id => this.translationByRowId.get(id) ?? "");
+  }
+
+  private paintTranslation(handles: EngineDomRowHandles): void {
+    const rowId = handles.row.dataset.cawSegment ?? "";
+    const text = this.translationByRowId.get(rowId) ?? "";
+    if (this.layoutMode === "stacked") {
+      handles.translationEl.innerHTML = text.length
+        ? `<span class="text-muted-foreground/55 mr-1.5 select-none" aria-hidden="true">↳</span><span>${escapeHtml(text)}</span>`
+        : "";
+    } else {
+      handles.translationEl.textContent = text;
+    }
+  }
+
+  private buildOrigCard(doc: Document, proj: RowProjection): {
+    card: HTMLElement;
+    stripe: HTMLElement;
+    line: HTMLElement;
+    hypo: HTMLElement;
+    header: HTMLElement;
+  } {
+    const card = doc.createElement("div");
+    card.className = origCardClass();
 
     const stripe = doc.createElement("div");
     stripe.className = `w-1 shrink-0 self-stretch ${stripeColorClass(proj.language)}`;
 
     const body = doc.createElement("div");
     body.className = "min-w-0 flex-1 space-y-1 p-3 pl-4";
-
-    if (proj.speaker) row.dataset.cawSpeaker = proj.speaker;
-    if (proj.language) row.dataset.cawLanguage = proj.language;
 
     const header = doc.createElement("div");
     header.className = "font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
@@ -61,18 +121,57 @@ export class CanonAppendWsDomWriter {
 
     body.appendChild(header);
     body.appendChild(line);
+    card.appendChild(stripe);
+    card.appendChild(body);
 
-    row.appendChild(stripe);
-    row.appendChild(body);
+    const hypo = line.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`)!;
+    return { card, stripe, line, hypo, header };
+  }
 
-    container.appendChild(row);
+  private createRow(container: HTMLElement, proj: RowProjection): EngineDomRowHandles {
+    const doc = container.ownerDocument;
+    const row = doc.createElement("div");
+    row.dataset.cawSegment = proj.row_id;
+    row.className = outerRowClass(this.layoutMode);
+    if (proj.speaker) row.dataset.cawSpeaker = proj.speaker;
+    if (proj.language) row.dataset.cawLanguage = proj.language;
+
+    const { card, stripe, line, hypo, header } = this.buildOrigCard(doc, proj);
+
+    let translationEl: HTMLElement;
+
+    if (this.layoutMode === "stacked") {
+      row.appendChild(card);
+      translationEl = doc.createElement("p");
+      translationEl.dataset.cawRole = "translation";
+      translationEl.className = translationTextClass("stacked");
+      const body = card.children[1] as HTMLElement;
+      body.appendChild(translationEl);
+    } else {
+      const transWrap = doc.createElement("div");
+      transWrap.className = "min-w-0 flex items-start pt-3 pr-1";
+      translationEl = doc.createElement("p");
+      translationEl.dataset.cawRole = "translation";
+      translationEl.className = translationTextClass("side-by-side");
+      transWrap.appendChild(translationEl);
+      row.appendChild(card);
+      row.appendChild(transWrap);
+    }
 
     const label = intercallHeaderLabel(proj);
     header.textContent = label;
     header.style.display = label ? "" : "none";
 
-    const handles: EngineDomRowHandles = { row, stripe, committedMirror: createCommittedMirror() };
+    container.appendChild(row);
+
+    const handles: EngineDomRowHandles = {
+      row,
+      stripe,
+      committedMirror: createCommittedMirror(),
+      translationEl,
+    };
     this.byRowId.set(proj.row_id, handles);
+    this.paintTranslation(handles);
     return handles;
   }
 
@@ -84,10 +183,15 @@ export class CanonAppendWsDomWriter {
       let handles = this.byRowId.get(proj.row_id);
       if (!handles) {
         handles = this.createRow(container, proj);
+      } else if (handles.row.className !== outerRowClass(this.layoutMode)) {
+        handles.row.remove();
+        this.byRowId.delete(proj.row_id);
+        handles = this.createRow(container, proj);
       }
       container.appendChild(handles.row);
 
-      const body = handles.row.children[1] as HTMLElement | undefined;
+      const card = this.layoutMode === "stacked" ? handles.row.firstElementChild : handles.row.firstElementChild;
+      const body = card?.children[1] as HTMLElement | undefined;
       const headerEl = body?.children[0] as HTMLElement | undefined;
       const line = body?.querySelector<HTMLElement>(`[data-caw-role="live-line"]`);
       const hypo = line?.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`);
@@ -106,18 +210,35 @@ export class CanonAppendWsDomWriter {
 
       renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
       renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      this.paintTranslation(handles);
     }
 
     for (const [id, handles] of [...this.byRowId]) {
       if (!seen.has(id)) {
         handles.row.remove();
         this.byRowId.delete(id);
+        this.translationByRowId.delete(id);
       }
     }
+  }
+
+  relayoutAll(container: HTMLElement, projections: RowProjection[]): void {
+    container.replaceChildren();
+    this.byRowId.clear();
+    this.syncRows(container, projections);
   }
 
   detachAll(container: HTMLElement): void {
     container.replaceChildren();
     this.byRowId.clear();
+    this.translationByRowId.clear();
   }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

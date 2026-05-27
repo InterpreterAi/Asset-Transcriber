@@ -13,17 +13,30 @@ import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
 import { applyManualStructuralFreeze } from "../reducer/row-lifecycle";
 import { maybeCloseRowAfterEndpointQuiet, reduceCanonAppendWs } from "../reducer/reducer";
-import { CanonAppendWsDomWriter } from "../renderer/dom-writer";
+import {
+  CanonAppendWsDomWriter,
+  type CanonAppendWsLayoutMode,
+} from "../renderer/dom-writer";
 import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
+import type { CanonUtterance } from "../types/canon-utterance";
+import { utteranceCommittedText } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
+export type CanonFrozenRowPayload = {
+  utterance: CanonUtterance;
+  lineIndex: number;
+  committedText: string;
+};
+
 export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
   onPcmFrame?: () => void;
+  /** Fired once per immutable row after endpoint/speaker freeze (translation hook). */
+  onRowFrozen?: (payload: CanonFrozenRowPayload) => void;
 };
 
 export class CanonAppendWsIsolatedRuntime {
@@ -47,6 +60,8 @@ export class CanonAppendWsIsolatedRuntime {
 
   private domBatchTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private lastFrozenCount = 0;
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -55,11 +70,35 @@ export class CanonAppendWsIsolatedRuntime {
     this.hooks = { ...this.hooks, ...next };
   }
 
+  setLayoutMode(mode: CanonAppendWsLayoutMode): void {
+    const prev = this.writer.getLayoutMode();
+    this.writer.setLayoutMode(mode);
+    if (prev !== mode && this.containerEl) {
+      const snap = this.projections.getProjection();
+      this.writer.relayoutAll(this.containerEl, snap.rows);
+      this.scroll.maybeFollowTail({ stickToTail: true });
+      this.hooks.onVisualTick?.();
+    }
+  }
+
+  getLayoutMode(): CanonAppendWsLayoutMode {
+    return this.writer.getLayoutMode();
+  }
+
+  setRowTranslation(rowId: string, text: string): void {
+    this.writer.setRowTranslation(rowId, text);
+    if (this.containerEl) {
+      this.scroll.maybeFollowTail({ stickToTail: true });
+      this.hooks.onVisualTick?.();
+    }
+  }
+
   attachDomRoot(container: HTMLElement): void {
     this.clearDomBatch();
     this.containerEl = container;
     this.writer.detachAll(container);
     this.state = createInitialEngineState();
+    this.lastFrozenCount = 0;
     this.projections.sync(this.state);
     this.hooks.onVisualTick?.();
   }
@@ -69,6 +108,18 @@ export class CanonAppendWsIsolatedRuntime {
       clearTimeout(this.domBatchTimer);
       this.domBatchTimer = null;
     }
+  }
+
+  private emitNewlyFrozenRows(): void {
+    const frozen = this.state.finalizedUtterances;
+    if (frozen.length <= this.lastFrozenCount) return;
+    for (let i = this.lastFrozenCount; i < frozen.length; i++) {
+      const utterance = frozen[i]!;
+      const committedText = utteranceCommittedText(utterance).trim();
+      if (!committedText.length) continue;
+      this.hooks.onRowFrozen?.({ utterance, lineIndex: i, committedText });
+    }
+    this.lastFrozenCount = frozen.length;
   }
 
   private flushDomImmediate(): void {
@@ -84,6 +135,7 @@ export class CanonAppendWsIsolatedRuntime {
   private scheduleDomBatch(immediate = false): void {
     if (immediate) {
       this.clearDomBatch();
+      this.emitNewlyFrozenRows();
       this.flushDomImmediate();
       return;
     }
@@ -91,6 +143,7 @@ export class CanonAppendWsIsolatedRuntime {
     if (this.domBatchTimer !== null) clearTimeout(this.domBatchTimer);
     this.domBatchTimer = setTimeout(() => {
       this.domBatchTimer = null;
+      this.emitNewlyFrozenRows();
       this.flushDomImmediate();
     }, LIVE_RENDER_BATCH_MS);
   }
@@ -141,6 +194,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.client.flushEnd();
     this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
+    this.emitNewlyFrozenRows();
     this.flushDomImmediate();
     this.client.disconnect(true);
     this.scheduler.cancel();
@@ -157,14 +211,17 @@ export class CanonAppendWsIsolatedRuntime {
     translationLines: string[];
   } {
     const proj = projectTranscriptView(this.projections.getState());
-    const combined = proj.liveCombined.trim();
-    const lines = combined.length ? combined.split(/\n+/u).map(s => s.trim()).filter(Boolean) : [];
-    const blanks = lines.map(() => "");
+    const transcriptLines = proj.rows
+      .map(r => (r.committedText + r.liveText).trim())
+      .filter(Boolean);
+    const rowIds = proj.rows.filter(r => (r.committedText + r.liveText).trim().length > 0).map(r => r.row_id);
+    const translationLines = this.writer.getTranslationLines(rowIds);
+    while (translationLines.length < transcriptLines.length) translationLines.push("");
     return {
-      transcript: combined,
-      translation: "",
-      transcriptLines: lines.length ? lines : combined.length ? [combined] : [],
-      translationLines: blanks,
+      transcript: transcriptLines.join("\n"),
+      translation: translationLines.join("\n"),
+      transcriptLines,
+      translationLines,
     };
   }
 

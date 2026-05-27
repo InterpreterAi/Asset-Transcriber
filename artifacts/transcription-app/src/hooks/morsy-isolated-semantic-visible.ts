@@ -159,11 +159,23 @@ export function morsyIsolatedVisibleNfDebounceMs(candidateUtf16: string): number
   return 105;
 }
 
+const MORSY_SEMANTIC_LAYOUT_LS = "interpreterai_morsy_semantic_layout";
+
 export function readMorsySemanticLayoutPreferredStacked(): boolean {
   try {
     return typeof globalThis.localStorage !== "undefined" &&
-      globalThis.localStorage.getItem("interpreterai_morsy_semantic_layout") === "stacked";
+      globalThis.localStorage.getItem(MORSY_SEMANTIC_LAYOUT_LS) === "stacked";
   } catch {
     return false;
+  }
+}
+
+export function writeMorsySemanticLayoutPreferredStacked(stacked: boolean): void {
+  try {
+    if (typeof globalThis.localStorage === "undefined") return;
+    if (stacked) globalThis.localStorage.setItem(MORSY_SEMANTIC_LAYOUT_LS, "stacked");
+    else globalThis.localStorage.removeItem(MORSY_SEMANTIC_LAYOUT_LS);
+  } catch {
+    /* quota / private mode */
   }
 }
