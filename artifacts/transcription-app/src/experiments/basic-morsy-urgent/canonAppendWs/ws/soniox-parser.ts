@@ -1,6 +1,8 @@
 import type { Token } from "../types/tokens";
 import type { SonioxFrame } from "./frame-types";
 
+import { stableSonioxTokenId } from "../policies/token-identity";
+
 function isSonioxEndpointPiece(text: unknown): boolean {
   return typeof text === "string" && /<end>/i.test(text);
 }
@@ -24,19 +26,16 @@ function tokenConfidence(t: RawSonioxToken): number {
   return typeof c === "number" && Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 1;
 }
 
-function stableTokenId(t: RawSonioxToken, messageSeq: number, i: number, isFinal: boolean): string {
-  const ti = t.token_index ?? t.index;
-  if (typeof ti === "number" && Number.isFinite(ti)) {
-    return `sx-idx-${ti}-${isFinal ? "F" : "N"}`;
-  }
-  const idRaw = t.id;
-  if (typeof idRaw === "string" && idRaw.trim()) return idRaw.trim();
-  const sm = t.start_ms;
-  const em = t.end_ms;
-  if (typeof sm === "number" && typeof em === "number") {
-    return `sx-${sm}-${em}-${isFinal ? "F" : "N"}`;
-  }
-  return `t-${messageSeq}-${i}-${isFinal ? "F" : "N"}`;
+function stableTokenId(t: RawSonioxToken, messageSeq: number, i: number): string {
+  return stableSonioxTokenId({
+    token_index: t.token_index,
+    index: t.index,
+    id: t.id,
+    start_ms: t.start_ms,
+    end_ms: t.end_ms,
+    messageSeq,
+    arrIndex: i,
+  });
 }
 
 function parseLanguageField(t: RawSonioxToken): string | undefined {
@@ -93,7 +92,7 @@ export function parseSonioxWebSocketPayload(
     const language = parseLanguageField(t as RawSonioxToken);
 
     tokens.push({
-      id: stableTokenId(t as RawSonioxToken, messageSeq, i, fin),
+      id: stableTokenId(t as RawSonioxToken, messageSeq, i),
       text,
       isFinal: fin,
       confidence: tokenConfidence(t as RawSonioxToken),

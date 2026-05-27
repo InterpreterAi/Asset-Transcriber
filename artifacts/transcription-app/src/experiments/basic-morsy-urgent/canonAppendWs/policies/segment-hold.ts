@@ -48,9 +48,8 @@ function norm(s: string | undefined): string | undefined {
 }
 
 export function tailMeetsMinUtterance(tail: TranscriptRow): boolean {
-  const chars =
-    joinCanonText(tail.committedTokens).length + joinCanonText(tail.liveTokens).length;
-  const tokCount = tail.committedTokens.length + tail.liveTokens.length;
+  const chars = joinCanonText(tail.committedTokens).length;
+  const tokCount = tail.committedTokens.length;
   return chars >= MIN_UTTERANCE_CHARS || tokCount >= MIN_UTTERANCE_TOKENS;
 }
 

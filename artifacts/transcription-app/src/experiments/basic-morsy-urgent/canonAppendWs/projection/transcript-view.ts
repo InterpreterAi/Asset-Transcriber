@@ -2,7 +2,7 @@ import { joinCanonText } from "../types/canon-token";
 import type { CanonUtterance } from "../types/canon-utterance";
 import type { EngineState } from "../types/transcript";
 
-import { rollupSegmentsToTokens, syncCanonUtteranceRollup } from "./utterance-rollup";
+import { deriveStructuralOwnership } from "../policies/structural-ownership";
 
 export type RowProjection = {
   row_id: string;
@@ -18,37 +18,64 @@ export type TranscriptProjection = {
   liveCombined: string;
 };
 
-function canonUtteranceToProjectionRow(u: CanonUtterance): RowProjection | null {
-  const synced = syncCanonUtteranceRollup(u);
-  const { committed, live } = rollupSegmentsToTokens(synced.segments);
+const PAINT_ONLY_ROW_ID = "paint-hypothesis";
 
-  const committedText = joinCanonText(committed);
-  const liveText = u.is_final ? "" : joinCanonText(live);
-  if (!committedText.length && !liveText.length) return null;
-
+function frozenUtteranceRow(u: CanonUtterance): RowProjection | null {
+  const committedText = joinCanonText(u.committedTokens);
+  if (!committedText.length) return null;
+  const own = deriveStructuralOwnership(u.committedTokens);
   return {
     row_id: u.utterance_id,
-    speaker: synced.speaker,
-    language: synced.language,
+    speaker: own.speaker ?? u.speaker,
+    language: own.language ?? u.language,
     committedText,
-    liveText,
-    finalized: Boolean(u.is_final),
+    liveText: "",
+    finalized: true,
   };
 }
 
-/** Project engine state → one UI row per finalized conversational utterance + one fused active utterance. */
+function activeStructuralRow(state: EngineState): RowProjection | null {
+  const au = state.activeUtterance;
+  if (!au) return null;
+  const committedText = joinCanonText(au.committedTokens);
+  const liveText = joinCanonText(state.paint.tokens);
+  if (!committedText.length && !liveText.length) return null;
+  const own = deriveStructuralOwnership(au.committedTokens);
+  return {
+    row_id: au.utterance_id,
+    speaker: own.speaker ?? au.speaker,
+    language: own.language ?? au.language,
+    committedText,
+    liveText,
+    finalized: false,
+  };
+}
+
+function paintOnlyRow(state: EngineState): RowProjection | null {
+  if (state.activeUtterance) return null;
+  const liveText = joinCanonText(state.paint.tokens);
+  if (!liveText.length) return null;
+  return {
+    row_id: PAINT_ONLY_ROW_ID,
+    speaker: undefined,
+    language: undefined,
+    committedText: "",
+    liveText,
+    finalized: false,
+  };
+}
+
+/** One active conversational surface + immutable history — paint never creates duplicate structural rows. */
 export function projectTranscriptView(state: EngineState): TranscriptProjection {
   const rows: RowProjection[] = [];
 
   for (const fu of state.finalizedUtterances) {
-    const pr = canonUtteranceToProjectionRow(fu);
+    const pr = frozenUtteranceRow(fu);
     if (pr) rows.push(pr);
   }
 
-  if (state.activeUtterance) {
-    const ar = canonUtteranceToProjectionRow(state.activeUtterance);
-    if (ar) rows.push(ar);
-  }
+  const active = activeStructuralRow(state) ?? paintOnlyRow(state);
+  if (active) rows.push(active);
 
   const liveCombined = rows.map(rr => rr.committedText + rr.liveText).join("\n");
   return { rows, liveCombined };

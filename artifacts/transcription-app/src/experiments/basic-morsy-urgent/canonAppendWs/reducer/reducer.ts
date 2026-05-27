@@ -4,13 +4,8 @@ import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import type { Token } from "../types/tokens";
 
-import { resolveMajoritySpeaker, pushSpeakerVote } from "./diarization";
-import {
-  appendFinalCanonToTail,
-  applyEndpointAndOpenFresh,
-  replaceTailLiveCanonTokens,
-  stripTailLiveOverlap,
-} from "./row-lifecycle";
+import { appendStabilizedFinal, markEndpointPending } from "./row-lifecycle";
+import { replacePaintBuffer } from "./paint-buffer";
 import { sonioxTokenToCanon } from "./soniox-to-canon";
 
 export type ReduceContext = {
@@ -18,21 +13,16 @@ export type ReduceContext = {
   wallMs: number;
 };
 
-/** Non-final helpers from SONIOX stream (token identity preserved). */
 function canonNonFinalFromStreamToken(t: Token): CanonToken {
   const ct = sonioxTokenToCanon(t);
   return { ...ct, is_final: false };
 }
 
 /**
- * Canon SONIOX ingestion — ONLY canonAppendWs (Basic · Morsy Urgent).
+ * Paint vs structural ingestion — ONLY canonAppendWs (Basic · Morsy Urgent).
  *
- * Buffered utterance stabilization approximates SDK `RealtimeToken → RealtimeSegment → RealtimeUtterance`; raw WS
- * has no grouped utterances — conversational rows freeze client-side (`freezeActiveUtterance`).
- *
- * Matches Soniox real-time contract:
- * finals accumulate permanently; non-finals for this websocket message **replace** the live tail entirely
- * (“reset non-final tokens on every response” — docs).
+ * BEFORE: finals + live replace + strip + endpoint immediate freeze/promotion.
+ * AFTER:  paint replace (visual only) | stabilized finals → structural | endpoint → pending latch.
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const finProc =
@@ -49,60 +39,30 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   let next: EngineState = {
     ...state,
     lastFrameSeq: frame.seq,
-    endpointState: { active: frame.endpoint, lastEndpointMs: state.endpointState.lastEndpointMs },
     lastFinalAudioProcMs: finProc !== null ? finProc : state.lastFinalAudioProcMs,
     lastTotalAudioProcMs: totProc !== null ? totProc : state.lastTotalAudioProcMs,
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : state.lastHypothesisLagMs,
   };
-
-  let tailSpk = frame.speaker;
-  let tailLang = frame.language;
-  if (!tailSpk || !tailLang) {
-    for (let j = frame.tokens.length - 1; j >= 0; j--) {
-      const tk = frame.tokens[j];
-      if (!tailSpk && tk?.speakerId) tailSpk = tk.speakerId;
-      if (!tailLang && tk?.language) tailLang = tk.language;
-      if (tailSpk && tailLang) break;
-    }
-  }
-
-  if (tailSpk) {
-    next.speakerWindow = pushSpeakerVote(next.speakerWindow, tailSpk, frame.timestamp);
-  }
-  const maj = resolveMajoritySpeaker(next.speakerWindow);
 
   const nfCanon: CanonToken[] = [];
   for (const t of frame.tokens) {
     if (t.isFinal) {
       const ct = sonioxTokenToCanon(t);
       ctx.ledger.appendFinalCanon(ct);
-      next = appendFinalCanonToTail(next, ct, ctx.wallMs);
-      tailLang = ct.language ?? tailLang;
-    } else {
-      if (typeof t.text === "string" && t.text.length > 0) {
-        nfCanon.push(canonNonFinalFromStreamToken(t));
-      }
+      next = appendStabilizedFinal(next, ct, ctx.wallMs);
+    } else if (typeof t.text === "string" && t.text.length > 0) {
+      nfCanon.push(canonNonFinalFromStreamToken(t));
     }
   }
 
-  next = replaceTailLiveCanonTokens(
-    next,
-    nfCanon,
-    ctx.wallMs,
-    maj ?? tailSpk ?? undefined,
-    tailLang ?? next.activeLanguageId ?? undefined,
-  );
-
-  next = stripTailLiveOverlap(next);
+  next = replacePaintBuffer(next, nfCanon, ctx.wallMs, frame.seq);
 
   if (frame.tokens.length > 0 || frame.endpoint) {
     next = { ...next, lastTokenActivityWallMs: ctx.wallMs };
   }
 
-  /** Primary conversational latch — Soniox endpoint marker finalizes utterance buffer. */
   if (frame.endpoint) {
-    next = { ...next, lastSonioxEndpointWallMs: ctx.wallMs };
-    next = applyEndpointAndOpenFresh(next, ctx.wallMs);
+    next = markEndpointPending(next, ctx.wallMs, finProc);
   }
 
   return next;

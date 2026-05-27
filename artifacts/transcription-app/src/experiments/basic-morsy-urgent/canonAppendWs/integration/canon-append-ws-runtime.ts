@@ -1,6 +1,5 @@
 /**
- * SONIOX-only isolated runtime for Basic · morsy-urgent canonAppendWs experiment.
- * Utterance-stabilized projection over realtime Soniox tokens.
+ * SONIOX-only isolated runtime — PaintBuffer (visual) + StructuralBuffer (committed).
  */
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
@@ -10,14 +9,15 @@ import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
 import { CANON_SILENCE_SEGMENT_MS } from "../gate";
 import { LIVE_RENDER_BATCH_MS } from "../policies/segmentation-constants";
 import {
+  endpointMaturityFreezeReady,
   silenceCloseSecondaryGate,
-  silenceConfidenceAndLagOk,
+  silenceFallbackFreezeReady,
 } from "../policies/silence-secondary-gates";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
-import { mergedCommittedAndLiveText } from "../projection/utterance-rollup";
-import { applyManualFinalizeTail, applySilenceUtteranceClose } from "../reducer/row-lifecycle";
+import { mergedActiveDisplayText } from "../projection/utterance-rollup";
+import { applyManualStructuralFreeze, freezeUtteranceWithReconcile } from "../reducer/row-lifecycle";
 import { reduceCanonAppendWs } from "../reducer/reducer";
 import { CanonAppendWsDomWriter } from "../renderer/dom-writer";
 import { RenderScheduler } from "../renderer/render-scheduler";
@@ -101,54 +101,40 @@ export class CanonAppendWsIsolatedRuntime {
     }, LIVE_RENDER_BATCH_MS);
   }
 
-  /** Silence-only fallback conversational freeze — endpoint primary path skips this. */
-  private maybeSilenceClose(wallMs: number): void {
-    const last = this.state.lastTokenActivityWallMs;
-    if (last <= 0 || wallMs - last < CANON_SILENCE_SEGMENT_MS) return;
+  /** Delayed stabilization freeze — endpoint pending OR silence fallback; reconcile paint at boundary. */
+  private maybeStabilizationFreeze(wallMs: number, reason: "endpoint_maturity" | "silence"): void {
+    const hasDisplay = mergedActiveDisplayText(this.state).trim().length > 0;
+    if (!hasDisplay && !this.state.activeUtterance) return;
 
-    const active = this.state.activeUtterance;
-    if (!active?.segments.length || active.is_final) return;
+    if (reason === "endpoint_maturity") {
+      if (!endpointMaturityFreezeReady(this.state, wallMs)) return;
+    } else {
+      const last = this.state.lastTokenActivityWallMs;
+      if (last <= 0 || wallMs - last < CANON_SILENCE_SEGMENT_MS) return;
+      if (!silenceCloseSecondaryGate(this.state, wallMs)) return;
+      if (!silenceFallbackFreezeReady(this.state, wallMs, true)) return;
+    }
 
-    const text = mergedCommittedAndLiveText(active);
-    const hasPayload = Boolean(text.trim().length);
-    if (!hasPayload) return;
-
-    if (!silenceCloseSecondaryGate(this.state, active, wallMs)) return;
-    if (!silenceConfidenceAndLagOk(this.state, active)) return;
-
-    this.state = applySilenceUtteranceClose(this.state, wallMs);
+    const closeReason = reason === "endpoint_maturity" ? "endpoint" : "silence";
+    this.state = freezeUtteranceWithReconcile(this.state, wallMs, closeReason);
     this.state = { ...this.state, lastTokenActivityWallMs: wallMs };
     this.projections.sync(this.state);
-    emitDebugEvent({ kind: "endpoint_flush", segmentId: "silence_fallback", synthetic: true });
+    emitDebugEvent({ kind: "endpoint_flush", segmentId: reason, synthetic: true });
     this.scheduleDomBatch(true);
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
-    const prevSpk = this.state.activeSpeakerId;
-    const endpointFrame = Boolean(frame.endpoint);
+    const endpointMarker = Boolean(frame.endpoint);
 
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
 
-    if (endpointFrame) {
+    if (endpointMarker) {
       emitDebugEvent({
         kind: "endpoint_flush",
-        segmentId: "soniox-endpoint",
+        segmentId: "soniox-endpoint-pending",
         seq: frame.seq,
         final_audio_proc_ms: frame.final_audio_proc_ms,
         total_audio_proc_ms: frame.total_audio_proc_ms,
-      });
-    }
-
-    if (
-      this.state.activeSpeakerId !== prevSpk &&
-      this.state.activeSpeakerId !== null &&
-      prevSpk !== null
-    ) {
-      emitDebugEvent({
-        kind: "speaker_pivot_confirmed",
-        prev: prevSpk,
-        next: this.state.activeSpeakerId,
-        seq: frame.seq,
       });
     }
 
@@ -156,16 +142,19 @@ export class CanonAppendWsIsolatedRuntime {
     emitDebugEvent({
       kind: "frame",
       seq: frame.seq,
-      endpoint: endpointFrame,
+      endpoint: endpointMarker,
+      endpointPending: this.state.endpointPending,
       final_audio_proc_ms: frame.final_audio_proc_ms,
       total_audio_proc_ms: frame.total_audio_proc_ms,
     });
 
-    if (!endpointFrame) {
-      this.maybeSilenceClose(wallMs);
+    if (this.state.endpointPending) {
+      this.maybeStabilizationFreeze(wallMs, "endpoint_maturity");
+    } else {
+      this.maybeStabilizationFreeze(wallMs, "silence");
     }
 
-    this.scheduleDomBatch(endpointFrame);
+    this.scheduleDomBatch(false);
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
@@ -180,7 +169,11 @@ export class CanonAppendWsIsolatedRuntime {
   sendPcm(chunk: ArrayBuffer): void {
     this.hooks.onPcmFrame?.();
     const wall = Date.now();
-    this.maybeSilenceClose(wall);
+    if (this.state.endpointPending) {
+      this.maybeStabilizationFreeze(wall, "endpoint_maturity");
+    } else {
+      this.maybeStabilizationFreeze(wall, "silence");
+    }
     this.client.sendPcm(chunk);
   }
 
@@ -188,7 +181,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.clearDomBatch();
     this.client.flushEnd();
     const wall = Date.now();
-    this.state = applyManualFinalizeTail(this.state, wall);
+    this.state = applyManualStructuralFreeze(this.state, wall);
     this.projections.sync(this.state);
     this.flushDomImmediate();
     this.client.disconnect(true);
