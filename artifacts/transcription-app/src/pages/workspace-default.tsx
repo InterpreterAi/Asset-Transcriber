@@ -208,12 +208,7 @@ export default function WorkspaceDefault() {
    */
   const MORSY_INTERCALL_EXP_LS = "interpreterai_morsy_urgent_intercall_exp";
   const pt = (user?.planType ?? "").toLowerCase();
-  /**
-   * Phase 1A (Basic · Morsy Urgent only): STT uses the same bubble lifecycle as production tiers
-   * (`buildWs` + `morsy-urgent-cbf` — speaker pivot, hard close, tail-speaker NF, finals-only committed).
-   * Intercall lab checkbox keeps translation/presentation experiments; isolated `canonAppendWs` runtime stays off.
-   */
-  const morsyWorkspaceSegmentBehavior = "morsy-urgent-cbf";
+  const morsyWorkspaceSegmentBehavior = pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf";
   const transcriptIsolationForCanonGate =
     segmentBoundaryGuardsEffective || (Boolean(user) && pt === "morsy-urgent");
   /** Basic · Morsy Urgent + canonAppendWs: isolated SONIOX engine (`localStorage …canon_ws_engine=0` opts out). */
@@ -267,8 +262,10 @@ export default function WorkspaceDefault() {
         ? "hidden"
         : "upsell",
     planType: user?.planType ?? "",
-    // All workspace tiers including Basic · Morsy Urgent: `morsy-urgent-cbf` STT segmentation (Phase 1A).
-    // Intercall lab toggle (`experimentMorsyUrgentIntercallOrchestration`) is translation/UI cadence only.
+    // Production workspace tiers: stabilized Soniox segmentation (`morsy-urgent-cbf`).
+    // Basic · Morsy Urgent: workspace uses `morsy-intercall-isolated-experiment` for translation layout;
+    // **original transcript** Soniox path is append-only **`lockedCommittedFinalOriginal`** (see **`morsyUrgentAppendOnlyTranscriptDomPath`**),
+    // independent of the Intercall lab toggle (lab remains translation/cadence).
     segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && pt === "morsy-urgent",
