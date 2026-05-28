@@ -4,6 +4,18 @@ import { CANON_SILENCE_SEGMENT_MS as CANON_SILENCE_SEGMENT_MS_POLICY } from "./p
 
 export const BASIC_MORSY_CANON_WS_ENGINE_LS = "interpreterai_basic_morsy_canon_ws_engine";
 
+/** Plans that use the isolated canonAppendWs Soniox STT engine (shared segmentation/diarization). */
+export const CANON_APPEND_WS_STT_PLAN_TYPES = [
+  "morsy-urgent",
+  "trial-openai",
+  "trial-hetzner",
+] as const;
+
+export function planUsesCanonAppendWsStt(planTypeLower: string): boolean {
+  const p = planTypeLower.trim().toLowerCase();
+  return (CANON_APPEND_WS_STT_PLAN_TYPES as readonly string[]).includes(p);
+}
+
 /** Milliseconds without SONIOX tokens before *considering* utterance row close (secondary gates apply). canonAppendWs ONLY. */
 export const CANON_SILENCE_SEGMENT_MS = CANON_SILENCE_SEGMENT_MS_POLICY;
 

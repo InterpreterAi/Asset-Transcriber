@@ -4,6 +4,7 @@
  * disabled in the hook until canonical committed-only reconciliation proves stable — helpers remain for re-enable.
  */
 
+import { planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import {
   endsWithSemanticClausePunctuation,
   effectiveSemanticStabilityMs,
@@ -18,7 +19,7 @@ export type MorsyIsolatedOrchestrationContext = {
 
 export function morsyIsolatedEnglishTranscriptOrchestrationEnabled(ctx: MorsyIsolatedOrchestrationContext): boolean {
   return (
-    ctx.planTypeLower.trim() === "morsy-urgent" &&
+    planUsesCanonAppendWsStt(ctx.planTypeLower) &&
     ctx.segmentBehaviorMode === "morsy-intercall-isolated-experiment"
   );
 }
