@@ -305,6 +305,19 @@ function peekMorsyUrgentStickyTailScrollSnapshot(args: {
   });
 }
 
+function peekCanonWsStickyTailScrollSnapshot(args: {
+  scrollParent: HTMLElement;
+  transcriptRoot: HTMLElement | null | undefined;
+}): string {
+  return morsyUrgentStickyTailScrollFingerprint({
+    visibleBoundaryUtf16: null,
+    committedDomUtf16Len: args.transcriptRoot?.textContent?.length ?? 0,
+    nfUtf16Len: 0,
+    scrollHeight: args.scrollParent.scrollHeight,
+    clientHeight: args.scrollParent.clientHeight,
+  });
+}
+
 /**
  * Browser console-only hard verification: logs every programmatic `scrollTop` write stack, pinned ref transitions,
  * viewport geometry on streaming + scroll/wheel/mutations, disables automatic slack / proximity re-pin.
@@ -2834,6 +2847,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const canonRowTranslateSeqRef = useRef(new Map<string, number>());
   const dispatchCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
   const dispatchCanonActiveRowTranslationRef = useRef<(payload: CanonActiveRowPayload) => void>(() => {});
+  /** Chat-style latch: glued to tail *before* canon DOM growth (same as Trial/Hetzner `transcriptWsTailHintRef`). */
+  const canonWsTailFollowLatchRef = useRef(true);
 
   type CanonRowTranslationState = {
     locked: boolean;
@@ -2928,13 +2943,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onRowFrozen: (payload) => {
         dispatchCanonFrozenRowTranslationRef.current(payload);
       },
-      onAfterDomPaint: () => {
+      onBeforeDomPaint: () => {
         if (!canonWsIsolationRecordingRef.current) return;
         const panel = containerRef.current?.parentElement ?? null;
-        const preGlue = panel
-          ? transcriptScrollDistanceFromBottom(panel) <= TRANSCRIPT_TAIL_STICK_EPS_PX
-          : true;
-        scrollPanelFnRef.current?.(false, "canon_ws", preGlue);
+        canonWsTailFollowLatchRef.current = transcriptScrollerGluedBeforeGrowth(panel);
+      },
+      onAfterDomPaint: () => {
+        if (!canonWsIsolationRecordingRef.current) return;
+        scrollPanelFnRef.current?.(false, "canon_ws", canonWsTailFollowLatchRef.current);
       },
     });
     return () => {
@@ -3816,12 +3832,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const scrollParent = containerRef.current?.parentElement ?? null;
       if (morsyUrgentVp && mergedSticky === true && scrollParent) {
-        const fp = peekMorsyUrgentStickyTailScrollSnapshot({
-          scrollParent,
-          bubbleState: activeBubbleStateRef.current,
-          committedSpan: activeBubbleRef.current,
-          nfSpan: activeBubbleNFRef.current,
-        });
+        const fp = canonWsIsolationRecordingRef.current && source === "canon_ws"
+          ? peekCanonWsStickyTailScrollSnapshot({
+              scrollParent,
+              transcriptRoot: containerRef.current,
+            })
+          : peekMorsyUrgentStickyTailScrollSnapshot({
+              scrollParent,
+              bubbleState: activeBubbleStateRef.current,
+              committedSpan: activeBubbleRef.current,
+              nfSpan: activeBubbleNFRef.current,
+            });
         if (fp === morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current) {
           if (committedOrigDomIntegrityTraceEnabled()) {
             emitCommittedOrigDomOrchestration({
@@ -3862,12 +3883,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         ) {
           const elNow = containerRef.current.parentElement!;
           morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current =
-            peekMorsyUrgentStickyTailScrollSnapshot({
-              scrollParent: elNow,
-              bubbleState: activeBubbleStateRef.current,
-              committedSpan: activeBubbleRef.current,
-              nfSpan: activeBubbleNFRef.current,
-            });
+            canonWsIsolationRecordingRef.current && source === "canon_ws"
+              ? peekCanonWsStickyTailScrollSnapshot({
+                  scrollParent: elNow,
+                  transcriptRoot: containerRef.current,
+                })
+              : peekMorsyUrgentStickyTailScrollSnapshot({
+                  scrollParent: elNow,
+                  bubbleState: activeBubbleStateRef.current,
+                  committedSpan: activeBubbleRef.current,
+                  nfSpan: activeBubbleNFRef.current,
+                });
         }
         if (committedOrigDomIntegrityTraceEnabled()) {
           emitCommittedOrigDomPassiveSample({
@@ -6913,6 +6939,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         wsRef.current = null;
         eng.setLayoutMode(canonIntercallLayoutStacked ? "stacked" : "side-by-side");
         eng.attachDomRoot(containerRef.current);
+        canonWsTailFollowLatchRef.current = true;
+        morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current = "";
+        queueMicrotask(() => scrollPanelFnRef.current?.(true));
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
         canonWsIsolationRecordingRef.current = false;
