@@ -26,6 +26,10 @@ import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
+/** Poll active row visible text after Soniox `<end>` so translation tracks tail finalization (translation-only). */
+const ENDPOINT_TAIL_TRANSLATION_POLL_MS = 200;
+const ENDPOINT_TAIL_TRANSLATION_MAX_POLLS = 14;
+
 export type CanonFrozenRowPayload = {
   utterance: CanonUtterance;
   lineIndex: number;
@@ -80,6 +84,12 @@ export class CanonAppendWsIsolatedRuntime {
 
   private lastActiveCommittedEmitted = "";
 
+  private endpointTailPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  private endpointTailPollCount = 0;
+
+  private endpointTailLastVisible = "";
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -117,6 +127,7 @@ export class CanonAppendWsIsolatedRuntime {
 
   attachDomRoot(container: HTMLElement): void {
     this.clearDomBatch();
+    this.clearEndpointTailTranslationPoll();
     this.containerEl = container;
     this.scroll.attachScrollParent(container);
     this.writer.detachAll(container);
@@ -138,6 +149,40 @@ export class CanonAppendWsIsolatedRuntime {
       clearTimeout(this.domBatchTimer);
       this.domBatchTimer = null;
     }
+  }
+
+  private clearEndpointTailTranslationPoll(): void {
+    if (this.endpointTailPollTimer !== null) {
+      clearInterval(this.endpointTailPollTimer);
+      this.endpointTailPollTimer = null;
+    }
+    this.endpointTailPollCount = 0;
+    this.endpointTailLastVisible = "";
+  }
+
+  /** Re-flush translate while Soniox finalizes tail tokens after endpoint — STT row timing unchanged. */
+  private startEndpointTailTranslationPoll(): void {
+    this.clearEndpointTailTranslationPoll();
+    this.endpointTailPollTimer = setInterval(() => {
+      this.endpointTailPollCount += 1;
+      if (this.endpointTailPollCount > ENDPOINT_TAIL_TRANSLATION_MAX_POLLS) {
+        this.clearEndpointTailTranslationPoll();
+        return;
+      }
+      if (!this.state.endpointPending) {
+        this.clearEndpointTailTranslationPoll();
+        return;
+      }
+      const au = this.state.activeUtterance;
+      if (!au) {
+        this.clearEndpointTailTranslationPoll();
+        return;
+      }
+      const visible = utteranceVisibleText(au).trim();
+      if (visible.length < 3 || visible === this.endpointTailLastVisible) return;
+      this.endpointTailLastVisible = visible;
+      this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
+    }, ENDPOINT_TAIL_TRANSLATION_POLL_MS);
   }
 
   private emitActiveRowTranslationTick(): void {
@@ -219,6 +264,7 @@ export class CanonAppendWsIsolatedRuntime {
           this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
         }
       }
+      this.startEndpointTailTranslationPoll();
     }
 
     this.scheduleDomBatch(Boolean(frame.endpoint));
@@ -247,6 +293,7 @@ export class CanonAppendWsIsolatedRuntime {
 
   stopSoniox(): void {
     this.clearDomBatch();
+    this.clearEndpointTailTranslationPoll();
     this.client.flushEnd();
     this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
