@@ -23,32 +23,22 @@ function stripeColorClass(language?: string): string {
   return "bg-muted-foreground/35";
 }
 
-function intercallHeaderLabel(proj: RowProjection): string {
-  const sp = proj.speaker?.trim();
-  const langRaw = proj.language?.trim();
-  const langTag = langRaw ? langRaw.split("-")[0]!.toUpperCase() : "";
-  if (sp && langTag) return `[Speaker ${sp} | ${langTag}]`;
-  if (sp) return `[Speaker ${sp}]`;
-  if (langTag) return `[${langTag}]`;
-  return "";
-}
-
 function outerRowClass(layout: CanonAppendWsLayoutMode): string {
   if (layout === "stacked") {
     return "group relative mb-4";
   }
-  return "group relative grid grid-cols-2 gap-3 sm:gap-6 mb-4";
+  return "group relative grid grid-cols-2 gap-3 sm:gap-6 items-start mb-4";
 }
 
 function origCardClass(): string {
-  return "flex min-w-0 overflow-visible";
+  return "flex min-w-0 items-start overflow-visible";
 }
 
 function translationTextClass(layout: CanonAppendWsLayoutMode): string {
   if (layout === "stacked") {
-    return "ts-text leading-relaxed whitespace-pre-wrap text-foreground/80 pl-4 border-l border-border/30 ml-1";
+    return "ts-text ts-translation leading-relaxed whitespace-pre-wrap pl-4 border-l border-border/30 ml-1 mt-1.5";
   }
-  return "ts-text leading-relaxed whitespace-pre-wrap text-foreground/80";
+  return "ts-text ts-translation leading-relaxed whitespace-pre-wrap";
 }
 
 /** Token-reconciled transcript DOM — Basic · Morsy Urgent canonAppendWs (Intercall bilingual rail). */
@@ -136,7 +126,7 @@ export class CanonAppendWsDomWriter {
     if (proj.speaker) row.dataset.cawSpeaker = proj.speaker;
     if (proj.language) row.dataset.cawLanguage = proj.language;
 
-    const { card, stripe, line, hypo, header } = this.buildOrigCard(doc, proj);
+    const { card, stripe } = this.buildOrigCard(doc, proj);
 
     let translationEl: HTMLElement;
 
@@ -149,7 +139,7 @@ export class CanonAppendWsDomWriter {
       body.appendChild(translationEl);
     } else {
       const transWrap = doc.createElement("div");
-      transWrap.className = "min-w-0 flex items-start py-0.5";
+      transWrap.className = "min-w-0 pt-0.5";
       translationEl = doc.createElement("p");
       translationEl.dataset.cawRole = "translation";
       translationEl.className = translationTextClass("side-by-side");
@@ -157,10 +147,6 @@ export class CanonAppendWsDomWriter {
       row.appendChild(card);
       row.appendChild(transWrap);
     }
-
-    const label = intercallHeaderLabel(proj);
-    header.textContent = label;
-    header.style.display = label ? "" : "none";
 
     container.appendChild(row);
 
@@ -190,21 +176,14 @@ export class CanonAppendWsDomWriter {
       }
       container.appendChild(handles.row);
 
-      const card = this.layoutMode === "stacked" ? handles.row.firstElementChild : handles.row.firstElementChild;
+      const card = handles.row.firstElementChild;
       const body = card?.children[1] as HTMLElement | undefined;
-      const headerEl = body?.children[0] as HTMLElement | undefined;
       const line = body?.querySelector<HTMLElement>(`[data-caw-role="live-line"]`);
       const hypo = line?.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`);
 
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
-      handles.stripe.className = `w-1 shrink-0 self-stretch ${stripeColorClass(proj.language)}`;
-
-      if (headerEl) {
-        const label = intercallHeaderLabel(proj);
-        headerEl.textContent = label;
-        headerEl.style.display = label ? "" : "none";
-      }
+      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${stripeColorClass(proj.language)}`;
 
       if (!line || !hypo) continue;
 
