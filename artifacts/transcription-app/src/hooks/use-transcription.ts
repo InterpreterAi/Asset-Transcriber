@@ -190,6 +190,13 @@ function shouldPreferPreviousLiveTranslation(
   return sn.length >= sc.length - 2;
 }
 
+/** Rough word coverage — detects blank/stalled translation vs growing source. */
+function canonTranslationCoverageRatio(source: string, translation: string): number {
+  const sw = countWords(source);
+  if (sw < 1) return 1;
+  return countWords(translation) / sw;
+}
+
 /**
  * Opt-in STT diagnostics (browser console only; may contain PHI — dev machines only).
  * `localStorage.setItem("interpreterai_stt_diag", "1")` then reload.
@@ -232,8 +239,10 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 const TARGET_RATE         = 16000;
 const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
-/** Morsy Urgent Intercall experiment: coarser burst coalescing for OpenAI live translate (aligns with WS micro-batches). */
-const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
+/** Morsy Urgent: trailing debounce for live translate while visible text grows. */
+const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 160;
+/** Max wait during continuous speech — debounce alone never fires if text keeps growing every ~80ms. */
+const CANON_LIVE_TRANSLATION_MAX_WAIT_MS = 850;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
 const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 /** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
@@ -2856,6 +2865,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     liveSeq: number;
     liveAbort: AbortController | null;
     debounceTimer: ReturnType<typeof setTimeout> | null;
+    maxWaitTimer: ReturnType<typeof setTimeout> | null;
     lastDispatchedSource: string;
     lastPendingSource: string;
     lastPendingLang?: string;
@@ -2869,6 +2879,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (st.debounceTimer !== null) {
         clearTimeout(st.debounceTimer);
         st.debounceTimer = null;
+      }
+      if (st.maxWaitTimer !== null) {
+        clearTimeout(st.maxWaitTimer);
+        st.maxWaitTimer = null;
       }
       st.liveAbort?.abort();
       st.liveAbort = null;
@@ -2885,6 +2899,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveSeq: 0,
         liveAbort: null,
         debounceTimer: null,
+        maxWaitTimer: null,
         lastDispatchedSource: "",
         lastPendingSource: "",
         lastPendingLang: undefined,
@@ -2917,6 +2932,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (st.debounceTimer !== null) {
       clearTimeout(st.debounceTimer);
       st.debounceTimer = null;
+    }
+    if (st.maxWaitTimer !== null) {
+      clearTimeout(st.maxWaitTimer);
+      st.maxWaitTimer = null;
     }
     st.liveAbort?.abort();
     st.liveAbort = null;
@@ -4937,7 +4956,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const eng = canonWsIsolationEngineRef.current;
     const existing = eng?.getRowTranslation(rowId).trim() ?? "";
-    if (st.lastFinalSource === sourceNorm && existing.length >= 3) {
+    if (
+      st.lastFinalSource === sourceNorm &&
+      existing.length >= 3 &&
+      canonTranslationCoverageRatio(sourceNorm, existing) >= 0.72
+    ) {
       onAdminSnapshotBuffersUpdatedRef.current?.();
       return;
     }
@@ -5049,7 +5072,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     rowState.lastPendingSource = sourceNow;
     rowState.lastPendingLang = payload.utterance.language;
 
-    rowState.liveAbort?.abort();
     const ac = new AbortController();
     rowState.liveAbort = ac;
     const seq = ++rowState.liveSeq;
@@ -5097,8 +5119,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       const next = tr.text.trim();
       if (!next.length) return;
+      const coverageLow = canonTranslationCoverageRatio(sourceNow, prevShown) < 0.55;
       if (
         !requestIsFinal &&
+        !coverageLow &&
         !opts?.immediate &&
         countWords(sourceNow) < countWords(rowState.lastDispatchedSource) + 3 &&
         prevShown.length > 0 &&
@@ -5136,9 +5160,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     st.lastPendingSource = text;
     st.lastPendingLang = payload.utterance.language;
 
-    if (st.debounceTimer !== null) clearTimeout(st.debounceTimer);
-    st.debounceTimer = setTimeout(() => {
-      st.debounceTimer = null;
+    const firePending = () => {
+      if (st.debounceTimer !== null) {
+        clearTimeout(st.debounceTimer);
+        st.debounceTimer = null;
+      }
+      if (st.maxWaitTimer !== null) {
+        clearTimeout(st.maxWaitTimer);
+        st.maxWaitTimer = null;
+      }
       const fresh = getCanonRowTransState(rowId);
       void executeCanonLiveRowTranslation({
         utterance: {
@@ -5147,20 +5177,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         },
         sourceText: fresh.lastPendingSource,
       });
-    }, INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS);
+    };
+
+    if (st.maxWaitTimer === null) {
+      st.maxWaitTimer = setTimeout(firePending, CANON_LIVE_TRANSLATION_MAX_WAIT_MS);
+    }
+    if (st.debounceTimer !== null) clearTimeout(st.debounceTimer);
+    st.debounceTimer = setTimeout(firePending, INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS);
   }, [executeCanonLiveRowTranslation, getCanonRowTransState]);
 
   const dispatchCanonActiveRowTranslationFlush = useCallback((payload: CanonActiveRowPayload) => {
     const rowId = payload.utterance.utterance_id;
     setTimeout(() => {
       const eng = canonWsIsolationEngineRef.current;
-      const fresh = eng?.getRowCommittedText(rowId).trim() ?? "";
-      const sourceText = fresh.length >= payload.sourceText.trim().length
-        ? fresh
-        : payload.sourceText.trim();
-      if (sourceText.length < 3) return;
+      const visible = eng?.getRowVisibleText(rowId).trim() ?? "";
+      const committed = eng?.getRowCommittedText(rowId).trim() ?? "";
+      const sourceText = visible.length >= committed.length ? visible : committed;
+      const fallback = payload.sourceText.trim();
+      const resolved = sourceText.length >= fallback.length ? sourceText : fallback;
+      if (resolved.length < 3) return;
       void executeCanonLiveRowTranslation(
-        { utterance: payload.utterance, sourceText },
+        { utterance: payload.utterance, sourceText: resolved },
         { immediate: true, endpointFinal: true },
       );
     }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
