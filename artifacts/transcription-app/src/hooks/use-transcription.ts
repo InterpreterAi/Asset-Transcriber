@@ -83,7 +83,7 @@ import {
   projectCommittedOriginalsVisibleUtf16,
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
-import { gateCanonAppendWsIsolatedRebuild } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
+import { gateCanonAppendWsIsolatedRebuild, planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import {
   CanonAppendWsIsolatedRuntime,
   type CanonFrozenRowPayload,
@@ -667,11 +667,11 @@ const CLS = {
   textRow:     "flex items-start gap-1",
   // font-size is controlled via --ts-font-size CSS variable (set by workspace)
   textLive:    "ts-text leading-relaxed text-muted-foreground/70 italic flex-1 min-w-0",
-  textFin:     "ts-text leading-relaxed text-foreground font-medium flex-1 min-w-0",
+  textFin:     "ts-text ts-original leading-relaxed flex-1 min-w-0",
   /** Non-final / live hypothesis tail — render with normal style (no grey preview). */
   nf:          "",
-  transText:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
-  transPend:   "ts-text leading-relaxed text-foreground/80 font-medium flex-1 min-w-0",
+  transText:   "ts-text ts-translation leading-relaxed flex-1 min-w-0",
+  transPend:   "ts-text ts-translation leading-relaxed flex-1 min-w-0",
   transDisabled: "ts-text text-muted-foreground/55 italic flex-1 min-w-0 text-[0.92em] leading-snug",
 } as const;
 
@@ -2447,9 +2447,8 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
-function isTrialCanonSttPlan(planTypeLower: string): boolean {
-  const p = planTypeLower.trim().toLowerCase();
-  return p === "trial-openai" || p === "trial-hetzner";
+function planUsesLegacyCanonTranslationBridge(planTypeLower: string): boolean {
+  return planUsesCanonAppendWsStt(planTypeLower) && !isBasicMorsyUrgentPlan(planTypeLower);
 }
 
 function usesMorsyCanonTranslationOrchestration(planTypeLower: string): boolean {
@@ -3021,21 +3020,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onActiveRowStableGrow: (payload) => {
         if (usesMorsyCanonTranslationOrchestration(planTypeRef.current)) {
           dispatchCanonStableGrowRef.current(payload);
-        } else if (isTrialCanonSttPlan(planTypeRef.current)) {
+        } else if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           dispatchCanonTrialLiveGrowRef.current(payload);
         }
       },
       onActiveRowVolatilePulse: (payload) => {
         if (usesMorsyCanonTranslationOrchestration(planTypeRef.current)) {
           dispatchCanonVolatilePulseRef.current(payload);
-        } else if (isTrialCanonSttPlan(planTypeRef.current)) {
+        } else if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           dispatchCanonTrialLiveGrowRef.current(payload);
         }
       },
       onActiveRowTranslationFlush: (payload) => {
         if (usesMorsyCanonTranslationOrchestration(planTypeRef.current)) {
           dispatchCanonActiveRowTranslationFlushRef.current(payload);
-        } else if (isTrialCanonSttPlan(planTypeRef.current)) {
+        } else if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           dispatchCanonTrialEndpointFlushRef.current(payload);
         }
       },
@@ -5030,7 +5029,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const eng = canonWsIsolationEngineRef.current;
     const existing = eng?.getRowTranslation(rowId).trim() ?? "";
-    const lastFinalSource = isTrialCanonSttPlan(planTypeRef.current)
+    const lastFinalSource = planUsesLegacyCanonTranslationBridge(planTypeRef.current)
       ? trialSt.lastFinalSource
       : st.lastFinalSource;
     if (lastFinalSource === sourceNorm && existing.length >= 3) {

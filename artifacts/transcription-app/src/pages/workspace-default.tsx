@@ -6,7 +6,7 @@ import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { InviteModal } from "@/components/InviteModal";
 import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
-  Languages, Trash2, Copy, Check, Type, Monitor, PanelRightClose, PanelRightOpen,
+  Languages, Trash2, Copy, Check, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
   Hash, Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3,
@@ -14,6 +14,7 @@ import {
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
+import { planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -273,12 +274,11 @@ export default function WorkspaceDefault() {
   const segmentBoundaryGuardsEffective = diagnosticSegmentBoundaryGuards(Boolean(user));
 
   /**
-   * canonAppendWs STT: Morsy Basic Urgent + Trial OpenAI + Trial Hetzner share identical Soniox segmentation.
+   * canonAppendWs STT: shared Soniox segmentation/diarization across workspace tiers.
    * Translation stacks remain plan-specific on the server.
    */
   const pt = (user?.planType ?? "").toLowerCase();
-  const usesCanonAppendWsStt =
-    pt === "morsy-urgent" || pt === "trial-openai" || pt === "trial-hetzner";
+  const usesCanonAppendWsStt = planUsesCanonAppendWsStt(pt);
   const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
     ? "morsy-intercall-isolated-experiment"
     : "morsy-urgent-cbf";
@@ -449,11 +449,10 @@ export default function WorkspaceDefault() {
       : (micDev?.label || "Microphone");
   }, [inputMode, devices, selectedDeviceId]);
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
-  const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
-  const [morsyFontPx, setMorsyFontPx] = useState<MorsyFontPx>(() =>
+  const [workspaceFontPx, setWorkspaceFontPx] = useState<MorsyFontPx>(() =>
     readMorsyFontPx(MORSY_WS_FONT_LS, 16),
   );
-  const [morsyNotesFontPx, setMorsyNotesFontPx] = useState<MorsyFontPx>(() =>
+  const [notesFontPx, setNotesFontPx] = useState<MorsyFontPx>(() =>
     readMorsyFontPx(MORSY_NOTES_FONT_LS, 14),
   );
   const isMorsyUrgentWorkspace = pt === "morsy-urgent";
@@ -695,40 +694,31 @@ export default function WorkspaceDefault() {
   };
 
   // CSS variables applied to the transcript scroll container so ALL text
-  // elements (including DOM-created bubbles) inherit the size instantly.
-  const TEXT_SIZE_VARS: Record<typeof textSize, CSSProperties> = {
-    sm: { "--ts-font-size": "12px", "--ts-line-height": "1.5" } as CSSProperties,
-    md: { "--ts-font-size": "14px", "--ts-line-height": "1.625" } as CSSProperties,
-    lg: { "--ts-font-size": "17px", "--ts-line-height": "1.7" } as CSSProperties,
-  };
-  const morsyTextSizeStyle: CSSProperties = {
-    "--ts-font-size": `${morsyFontPx}px`,
+  // elements (including DOM-created rows) inherit the size instantly.
+  const workspaceTextSizeStyle: CSSProperties = {
+    "--ts-font-size": `${workspaceFontPx}px`,
     "--ts-line-height": "1.625",
   } as CSSProperties;
-  const morsyNotesTextSizeStyle: CSSProperties = {
-    "--ts-font-size": `${morsyNotesFontPx}px`,
+  const notesTextSizeStyle: CSSProperties = {
+    "--ts-font-size": `${notesFontPx}px`,
     "--ts-line-height": "1.625",
   } as CSSProperties;
-  const workspaceTextSizeStyle = isMorsyUrgentWorkspace ? morsyTextSizeStyle : TEXT_SIZE_VARS[textSize];
-  const notesTextSizeStyle = isMorsyUrgentWorkspace ? morsyNotesTextSizeStyle : workspaceTextSizeStyle;
 
   useEffect(() => {
-    if (!isMorsyUrgentWorkspace) return;
     try {
-      localStorage.setItem(MORSY_WS_FONT_LS, String(morsyFontPx));
+      localStorage.setItem(MORSY_WS_FONT_LS, String(workspaceFontPx));
     } catch {
       /* storage */
     }
-  }, [isMorsyUrgentWorkspace, morsyFontPx]);
+  }, [workspaceFontPx]);
 
   useEffect(() => {
-    if (!isMorsyUrgentWorkspace) return;
     try {
-      localStorage.setItem(MORSY_NOTES_FONT_LS, String(morsyNotesFontPx));
+      localStorage.setItem(MORSY_NOTES_FONT_LS, String(notesFontPx));
     } catch {
       /* storage */
     }
-  }, [isMorsyUrgentWorkspace, morsyNotesFontPx]);
+  }, [notesFontPx]);
 
 
   useEffect(() => {
@@ -1957,32 +1947,7 @@ export default function WorkspaceDefault() {
                 </span>
               )}
               <div className="flex flex-col items-end gap-1 shrink-0">
-                {isMorsyUrgentWorkspace ? (
-                  <FontSizePxStepper value={morsyFontPx} onChange={setMorsyFontPx} wsDark={wsDark} />
-                ) : (
-                  <div
-                    className={cn(
-                      "flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
-                      wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
-                    )}
-                  >
-                    <Type className="w-3 h-3 text-muted-foreground/45 ml-1.5" />
-                    {(["sm", "md", "lg"] as const).map((sz) => (
-                      <button
-                        key={sz}
-                        onClick={() => setTextSize(sz)}
-                        className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
-                          textSize === sz
-                            ? "bg-primary text-primary-foreground shadow-[0_0_12px_rgba(56,189,248,0.25)]"
-                            : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
-                        }`}
-                        title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
-                      >
-                        {sz === "sm" ? "S" : sz === "md" ? "M" : "L"}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <FontSizePxStepper value={workspaceFontPx} onChange={setWorkspaceFontPx} wsDark={wsDark} />
                 <button
                   type="button"
                   onClick={() => setShowReportIssue(true)}
@@ -2052,7 +2017,7 @@ export default function WorkspaceDefault() {
                 DOM-created text elements via var(--ts-font-size). */}
             <div
               className="flex-1 overflow-y-auto p-5 relative [overflow-anchor:none]"
-              data-tsize={isMorsyUrgentWorkspace ? String(morsyFontPx) : textSize}
+              data-tsize={String(workspaceFontPx)}
               style={workspaceTextSizeStyle}
             >
               {/* Direct-to-DOM transcript container — React never touches contents */}
@@ -2156,38 +2121,13 @@ export default function WorkspaceDefault() {
                 {notes && (
                   <span className="text-[9px] text-muted-foreground/50 italic">cleared on end</span>
                 )}
-                {isMorsyUrgentWorkspace ? (
-                  <div className="ml-auto">
-                    <FontSizePxStepper
-                      value={morsyNotesFontPx}
-                      onChange={setMorsyNotesFontPx}
-                      wsDark={wsDark}
-                    />
-                  </div>
-                ) : (
-                <div
-                  className={cn(
-                    "ml-auto flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
-                    wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
-                  )}
-                >
-                  <Type className="w-3 h-3 text-muted-foreground/45 ml-1.5" />
-                  {(["sm", "md", "lg"] as const).map((sz) => (
-                    <button
-                      key={sz}
-                      onClick={() => setTextSize(sz)}
-                      className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
-                        textSize === sz
-                          ? "bg-primary text-primary-foreground shadow-[0_0_10px_rgba(56,189,248,0.2)]"
-                          : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
-                      }`}
-                      title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
-                    >
-                      {sz === "sm" ? "S" : sz === "md" ? "M" : "L"}
-                    </button>
-                  ))}
+                <div className="ml-auto">
+                  <FontSizePxStepper
+                    value={notesFontPx}
+                    onChange={setNotesFontPx}
+                    wsDark={wsDark}
+                  />
                 </div>
-                )}
               </div>
               <div
                 className={cn(
