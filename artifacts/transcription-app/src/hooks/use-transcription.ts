@@ -2886,6 +2886,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lastPendingLang?: string;
     /** Full source last covered by a successful final translate on row freeze. */
     lastFinalSource: string;
+    /** Trial OpenAI-style endpoint final pass (isFinal=true) — not aborted by tail growth. */
+    endpointFinalSeq: number;
+    endpointFinalInFlight: boolean;
+    endpointFinalPendingSource: string;
+    endpointFinalPendingLang?: string;
+    lastEndpointFinalSource: string;
   };
   const canonRowTransRef = useRef(new Map<string, CanonRowTranslationState>());
 
@@ -2915,6 +2921,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         lastPendingSource: "",
         lastPendingLang: undefined,
         lastFinalSource: "",
+        endpointFinalSeq: 0,
+        endpointFinalInFlight: false,
+        endpointFinalPendingSource: "",
+        endpointFinalPendingLang: undefined,
+        lastEndpointFinalSource: "",
       };
       canonRowTransRef.current.set(rowId, st);
     }
@@ -4968,6 +4979,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const existing = eng?.getRowTranslation(rowId).trim() ?? "";
     if (
       canonLiveTranslationCoversSource(sourceNorm, st.lastDispatchedSource, existing)
+      || (
+        st.lastEndpointFinalSource === sourceNorm
+        && existing.length >= 3
+        && !looksLikeUntranslatedCopy(sourceNorm, existing)
+      )
     ) {
       paintCanonRowTranslationIfAllowed(rowId, existing, { force: true });
       st.lastFinalSource = sourceNorm;
@@ -5064,6 +5080,145 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     onAdminSnapshotBuffersUpdatedRef.current?.();
   }, [getCanonRowTransState, lockCanonRowTranslation, paintCanonRowTranslationIfAllowed]);
 
+  /** Trial OpenAI path: Soniox `<end>` → immediate isFinal translate (no live abort thrashing). */
+  const executeCanonEndpointFinalTranslation = useCallback(async (payload: CanonActiveRowPayload) => {
+    if (!translationEnabledRef.current) return;
+    if (!canonWsIsolationGateNow()) return;
+
+    const rowId = payload.utterance.utterance_id;
+    const rowState = getCanonRowTransState(rowId);
+    if (rowState.locked) return;
+
+    const sourceNow = payload.sourceText.trim();
+    if (sourceNow.length < 3) return;
+
+    const eng = canonWsIsolationEngineRef.current;
+    const existingShown = eng?.getRowTranslation(rowId).trim() ?? "";
+    if (
+      sourceNow === rowState.lastEndpointFinalSource
+      && existingShown.length >= 3
+      && !looksLikeUntranslatedCopy(sourceNow, existingShown)
+    ) {
+      return;
+    }
+
+    if (rowState.endpointFinalInFlight) {
+      rowState.endpointFinalPendingSource = sourceNow;
+      rowState.endpointFinalPendingLang = payload.utterance.language;
+      return;
+    }
+
+    if (rowState.debounceTimer !== null) {
+      clearTimeout(rowState.debounceTimer);
+      rowState.debounceTimer = null;
+    }
+    rowState.liveAbort?.abort();
+    rowState.liveAbort = null;
+
+    const pair = langPairRef.current;
+    const basicMorsyOpenAiExperimentOpts =
+      morsyUrgentAttachOpenAiExperimentRef.current
+        ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
+        : {};
+    const morsyIntercallEmbeddedEnglishPromptOpts =
+      experimentMorsyUrgentIntercallRef.current
+        ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
+        : {};
+
+    const runPass = async (source: string, langHint?: string): Promise<void> => {
+      rowState.endpointFinalInFlight = true;
+      const seq = ++rowState.endpointFinalSeq;
+      const sonioxHint = langHint ?? detectedLangRef.current;
+      const sourceLang = resolveSourceLangForCanon(source, sonioxHint, pair);
+      const targetLang = targetOppositeInPair(sourceLang, pair);
+
+      let translated = "";
+      try {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const tr = await fetchTranslation(
+            source,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              isFinal: true,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(sessionIdRef.current != null && sessionIdRef.current > 0
+                ? { sessionId: sessionIdRef.current }
+                : {}),
+              ...basicMorsyOpenAiExperimentOpts,
+              ...morsyIntercallEmbeddedEnglishPromptOpts,
+            },
+          );
+          if (rowState.locked || rowState.endpointFinalSeq !== seq) return;
+          if (tr.dailyLimitReached) {
+            dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            return;
+          }
+          translated = tr.text.trim();
+          if (translated.length > 0) break;
+          if (attempt === 0) await new Promise<void>(res => setTimeout(res, INTERCALL_CANON_FINAL_RETRY_MS));
+        }
+
+        if (rowState.locked || rowState.endpointFinalSeq !== seq) return;
+
+        if (
+          translated.length > 0 &&
+          looksLikeUntranslatedCopy(source, translated)
+        ) {
+          const trOpp = await fetchTranslation(
+            source,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              isFinal: true,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(sessionIdRef.current != null && sessionIdRef.current > 0
+                ? { sessionId: sessionIdRef.current }
+                : {}),
+              ...basicMorsyOpenAiExperimentOpts,
+              ...morsyIntercallEmbeddedEnglishPromptOpts,
+            },
+          );
+          if (rowState.locked || rowState.endpointFinalSeq !== seq) return;
+          if (trOpp.dailyLimitReached) {
+            dailyLimitShutdownRef.current(trOpp.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            return;
+          }
+          if (trOpp.text.trim().length > 0 && !looksLikeUntranslatedCopy(source, trOpp.text)) {
+            translated = trOpp.text.trim();
+          }
+        }
+
+        if (rowState.locked || rowState.endpointFinalSeq !== seq) return;
+
+        if (translated.length > 0) {
+          paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
+          rowState.lastEndpointFinalSource = source;
+          rowState.lastDispatchedSource = source;
+          rowState.lastFinalSource = source;
+          onAdminSnapshotBuffersUpdatedRef.current?.();
+        }
+      } finally {
+        rowState.endpointFinalInFlight = false;
+        const pending = rowState.endpointFinalPendingSource.trim();
+        rowState.endpointFinalPendingSource = "";
+        const pendingLang = rowState.endpointFinalPendingLang;
+        rowState.endpointFinalPendingLang = undefined;
+        if (
+          pending.length >= 3
+          && pending !== source
+          && !rowState.locked
+        ) {
+          void runPass(pending, pendingLang);
+        }
+      }
+    };
+
+    await runPass(sourceNow, payload.utterance.language);
+  }, [getCanonRowTransState, paintCanonRowTranslationIfAllowed]);
+
   const executeCanonLiveRowTranslation = useCallback(async (
     payload: CanonActiveRowPayload,
     opts?: { immediate?: boolean },
@@ -5075,6 +5230,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const rowId = payload.utterance.utterance_id;
     const rowState = getCanonRowTransState(rowId);
     if (rowState.locked) return;
+    if (canonEndpointActiveRowRef.current === rowId) return;
 
     const sourceNow = payload.sourceText.trim();
     if (sourceNow.length < 3) return;
@@ -5164,6 +5320,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const rowId = payload.utterance.utterance_id;
     const st = getCanonRowTransState(rowId);
     if (st.locked) return;
+    if (canonEndpointActiveRowRef.current === rowId) return;
 
     const text = payload.sourceText.trim();
     if (text.length < 3) return;
@@ -5191,8 +5348,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const dispatchCanonActiveRowTranslationFlush = useCallback((payload: CanonActiveRowPayload) => {
     canonEndpointActiveRowRef.current = payload.utterance.utterance_id;
-    void executeCanonLiveRowTranslation(payload, { immediate: true });
-  }, [executeCanonLiveRowTranslation]);
+    void executeCanonEndpointFinalTranslation(payload);
+  }, [executeCanonEndpointFinalTranslation]);
 
   useEffect(() => {
     dispatchCanonFrozenRowTranslationRef.current = (payload) => {
