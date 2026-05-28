@@ -43,6 +43,8 @@ export type CanonAppendWsRuntimeHooks = {
   onPcmFrame?: () => void;
   /** Active row committed growth — drives Intercall-style live translation previews. */
   onActiveRowCommittedGrow?: (payload: CanonActiveRowPayload) => void;
+  /** Soniox endpoint on active row — flush translation immediately (no debounce). */
+  onActiveRowTranslationFlush?: (payload: CanonActiveRowPayload) => void;
   /** Fired once per immutable row after endpoint/speaker freeze (translation lock hook). */
   onRowFrozen?: (payload: CanonFrozenRowPayload) => void;
   /** Post-layout paint — tail-follow scroll (workspace scrollPanel). */
@@ -210,6 +212,13 @@ export class CanonAppendWsIsolatedRuntime {
 
     if (frame.endpoint) {
       emitDebugEvent({ kind: "endpoint_flush", segmentId: "soniox-endpoint", seq: frame.seq });
+      const au = this.state.activeUtterance;
+      if (au) {
+        const visible = utteranceVisibleText(au).trim();
+        if (visible.length >= 3) {
+          this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
+        }
+      }
     }
 
     this.scheduleDomBatch(Boolean(frame.endpoint));
