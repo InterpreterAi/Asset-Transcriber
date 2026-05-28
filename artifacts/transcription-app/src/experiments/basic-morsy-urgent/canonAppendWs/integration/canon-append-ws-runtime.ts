@@ -21,10 +21,18 @@ import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
 import type { CanonUtterance } from "../types/canon-utterance";
-import { utteranceCommittedText, utteranceVisibleText } from "../types/canon-utterance";
+import {
+  utteranceCommittedText,
+  utteranceLiveText,
+  utteranceVisibleText,
+} from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
+
+/** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
+const CANON_VOLATILE_TAIL_PULSE_MS = 800;
+const CANON_VOLATILE_TAIL_MIN_CHARS = 6;
 
 export type CanonFrozenRowPayload = {
   utterance: CanonUtterance;
@@ -32,19 +40,26 @@ export type CanonFrozenRowPayload = {
   committedText: string;
 };
 
-export type CanonActiveRowPayload = {
+/** Stable (committed finals) + volatile (NF hypothesis) per active row. */
+export type CanonRowDualBufferPayload = {
   utterance: CanonUtterance;
-  /** Visible committed + live hypothesis — drives incremental live translation while row is active. */
-  sourceText: string;
+  /** Append-only Soniox finals — primary translation input (Intercall stable gate). */
+  stableText: string;
+  /** Replace-only NF tail — grey UI only; volatile translate path uses full visible. */
+  volatileTail: string;
+  /** stableText + volatileTail — endpoint / volatile pulse input. */
+  visibleText: string;
 };
 
 export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
   onPcmFrame?: () => void;
-  /** Active row visible growth (committed + NF) — incremental translation while speech continues. */
-  onActiveRowCommittedGrow?: (payload: CanonActiveRowPayload) => void;
-  /** Soniox endpoint on active row — flush translation immediately (no debounce). */
-  onActiveRowTranslationFlush?: (payload: CanonActiveRowPayload) => void;
+  /** Stable buffer grew (bold commits) — primary translate trigger. */
+  onActiveRowStableGrow?: (payload: CanonRowDualBufferPayload) => void;
+  /** Volatile tail pulse while grey NF grows without new commits. */
+  onActiveRowVolatilePulse?: (payload: CanonRowDualBufferPayload) => void;
+  /** Soniox endpoint on active row — final translate (no debounce). */
+  onActiveRowTranslationFlush?: (payload: CanonRowDualBufferPayload) => void;
   /** Fired once per immutable row after endpoint/speaker freeze (translation lock hook). */
   onRowFrozen?: (payload: CanonFrozenRowPayload) => void;
   /** Post-layout paint — tail-follow scroll (workspace scrollPanel). */
@@ -74,11 +89,13 @@ export class CanonAppendWsIsolatedRuntime {
 
   private domBatchTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private volatilePulseTimer: ReturnType<typeof setTimeout> | null = null;
+
   private lastFrozenCount = 0;
 
   private lastActiveRowId: string | null = null;
 
-  private lastActiveVisibleEmitted = "";
+  private lastActiveStableEmitted = "";
 
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
@@ -115,35 +132,33 @@ export class CanonAppendWsIsolatedRuntime {
     return this.writer.getRowTranslation(rowId);
   }
 
-  /** Latest visible text for a row (active: committed+NF; frozen: committed only). */
-  getRowVisibleText(rowId: string): string {
+  /** Dual buffer snapshot for a row (active or frozen). */
+  getRowDualBuffer(rowId: string): CanonRowDualBufferPayload | null {
     const active = this.state.activeUtterance;
     if (active?.utterance_id === rowId) {
-      return utteranceVisibleText(active).trim();
+      return this.dualBufferFromUtterance(active);
     }
     const frozen = this.state.finalizedUtterances.find((u) => u.utterance_id === rowId);
-    return frozen ? utteranceCommittedText(frozen).trim() : "";
-  }
-
-  /** Latest append-only committed text for a row (active or frozen). */
-  getRowCommittedText(rowId: string): string {
-    const active = this.state.activeUtterance;
-    if (active?.utterance_id === rowId) {
-      return utteranceCommittedText(active).trim();
-    }
-    const frozen = this.state.finalizedUtterances.find((u) => u.utterance_id === rowId);
-    return frozen ? utteranceCommittedText(frozen).trim() : "";
+    if (!frozen) return null;
+    const stableText = utteranceCommittedText(frozen).trim();
+    return {
+      utterance: frozen,
+      stableText,
+      volatileTail: "",
+      visibleText: stableText,
+    };
   }
 
   attachDomRoot(container: HTMLElement): void {
     this.clearDomBatch();
+    this.clearVolatilePulseTimer();
     this.containerEl = container;
     this.scroll.attachScrollParent(container);
     this.writer.detachAll(container);
     this.state = createInitialEngineState();
     this.lastFrozenCount = 0;
     this.lastActiveRowId = null;
-    this.lastActiveVisibleEmitted = "";
+    this.lastActiveStableEmitted = "";
     this.projections.sync(this.state);
     this.notifyAfterPaint();
   }
@@ -160,22 +175,75 @@ export class CanonAppendWsIsolatedRuntime {
     }
   }
 
-  /** Fire when visible transcript grows — includes grey NF tail so translation keeps pace during long speech. */
-  private emitActiveRowTranslationTick(): void {
+  private clearVolatilePulseTimer(): void {
+    if (this.volatilePulseTimer !== null) {
+      clearTimeout(this.volatilePulseTimer);
+      this.volatilePulseTimer = null;
+    }
+  }
+
+  private dualBufferFromUtterance(au: CanonUtterance): CanonRowDualBufferPayload {
+    const stableText = utteranceCommittedText(au).trim();
+    const volatileTail = utteranceLiveText(au).trim();
+    const visibleText = utteranceVisibleText(au).trim();
+    return { utterance: au, stableText, volatileTail, visibleText };
+  }
+
+  private activeRowDualBuffer(): CanonRowDualBufferPayload | null {
     const au = this.state.activeUtterance;
-    if (!au) {
-      this.lastActiveRowId = null;
-      this.lastActiveVisibleEmitted = "";
+    if (!au) return null;
+    const snap = this.dualBufferFromUtterance(au);
+    return snap.visibleText.length >= 3 ? snap : null;
+  }
+
+  private hasVolatileTail(snap: CanonRowDualBufferPayload): boolean {
+    return (
+      snap.volatileTail.length >= CANON_VOLATILE_TAIL_MIN_CHARS &&
+      snap.visibleText.length > snap.stableText.length
+    );
+  }
+
+  private scheduleVolatilePulseLoop(): void {
+    if (this.volatilePulseTimer !== null) return;
+    this.volatilePulseTimer = setTimeout(() => {
+      this.volatilePulseTimer = null;
+      const snap = this.activeRowDualBuffer();
+      if (!snap || !this.hasVolatileTail(snap)) return;
+      this.hooks.onActiveRowVolatilePulse?.(snap);
+      const next = this.activeRowDualBuffer();
+      if (next && this.hasVolatileTail(next)) {
+        this.scheduleVolatilePulseLoop();
+      }
+    }, CANON_VOLATILE_TAIL_PULSE_MS);
+  }
+
+  private syncVolatilePulseLoop(snap: CanonRowDualBufferPayload | null): void {
+    if (!snap || !this.hasVolatileTail(snap)) {
+      this.clearVolatilePulseTimer();
       return;
     }
-    if (au.utterance_id !== this.lastActiveRowId) {
-      this.lastActiveRowId = au.utterance_id;
-      this.lastActiveVisibleEmitted = "";
+    this.scheduleVolatilePulseLoop();
+  }
+
+  /** Stable buffer tick + volatile pulse scheduling (dual-buffer orchestration). */
+  private emitActiveRowTranslationTick(): void {
+    const snap = this.activeRowDualBuffer();
+    if (!snap) {
+      this.lastActiveRowId = null;
+      this.lastActiveStableEmitted = "";
+      this.clearVolatilePulseTimer();
+      return;
     }
-    const visible = utteranceVisibleText(au).trim();
-    if (visible.length < 3 || visible === this.lastActiveVisibleEmitted) return;
-    this.lastActiveVisibleEmitted = visible;
-    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: visible });
+    if (snap.utterance.utterance_id !== this.lastActiveRowId) {
+      this.lastActiveRowId = snap.utterance.utterance_id;
+      this.lastActiveStableEmitted = "";
+      this.clearVolatilePulseTimer();
+    }
+    if (snap.stableText.length >= 3 && snap.stableText !== this.lastActiveStableEmitted) {
+      this.lastActiveStableEmitted = snap.stableText;
+      this.hooks.onActiveRowStableGrow?.(snap);
+    }
+    this.syncVolatilePulseLoop(snap);
   }
 
   private emitNewlyFrozenRows(): void {
@@ -233,12 +301,9 @@ export class CanonAppendWsIsolatedRuntime {
 
     if (frame.endpoint) {
       emitDebugEvent({ kind: "endpoint_flush", segmentId: "soniox-endpoint", seq: frame.seq });
-      const au = this.state.activeUtterance;
-      if (au) {
-        const visible = utteranceVisibleText(au).trim();
-        if (visible.length >= 3) {
-          this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
-        }
+      const snap = this.activeRowDualBuffer();
+      if (snap) {
+        this.hooks.onActiveRowTranslationFlush?.(snap);
       }
     }
 
@@ -268,12 +333,10 @@ export class CanonAppendWsIsolatedRuntime {
 
   stopSoniox(): void {
     this.clearDomBatch();
-    const auBeforeStop = this.state.activeUtterance;
-    if (auBeforeStop) {
-      const visible = utteranceVisibleText(auBeforeStop).trim();
-      if (visible.length >= 3) {
-        this.hooks.onActiveRowTranslationFlush?.({ utterance: auBeforeStop, sourceText: visible });
-      }
+    this.clearVolatilePulseTimer();
+    const snap = this.activeRowDualBuffer();
+    if (snap) {
+      this.hooks.onActiveRowTranslationFlush?.(snap);
     }
     this.client.flushEnd();
     this.state = applyManualStructuralFreeze(this.state);
