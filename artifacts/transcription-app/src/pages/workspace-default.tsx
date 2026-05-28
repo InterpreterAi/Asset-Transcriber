@@ -126,6 +126,19 @@ function diagnosticSegmentBoundaryGuards(signedIn: boolean): boolean {
 
 const MORSY_FONT_PX_OPTIONS = [12, 14, 16, 18, 20, 22, 24] as const;
 type MorsyFontPx = (typeof MORSY_FONT_PX_OPTIONS)[number];
+const MORSY_WS_FONT_LS = "interpreterai_morsy_ws_font_px";
+const MORSY_NOTES_FONT_LS = "interpreterai_morsy_notes_font_px";
+
+function readMorsyFontPx(storageKey: string, fallback: MorsyFontPx): MorsyFontPx {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const n = raw ? Number.parseInt(raw, 10) : NaN;
+    if (MORSY_FONT_PX_OPTIONS.includes(n as MorsyFontPx)) return n as MorsyFontPx;
+  } catch {
+    /* storage */
+  }
+  return fallback;
+}
 
 function FontSizePxStepper({
   value,
@@ -449,7 +462,12 @@ export default function WorkspaceDefault() {
   }, [inputMode, devices, selectedDeviceId]);
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
-  const [morsyFontPx, setMorsyFontPx] = useState<MorsyFontPx>(16);
+  const [morsyFontPx, setMorsyFontPx] = useState<MorsyFontPx>(() =>
+    readMorsyFontPx(MORSY_WS_FONT_LS, 16),
+  );
+  const [morsyNotesFontPx, setMorsyNotesFontPx] = useState<MorsyFontPx>(() =>
+    readMorsyFontPx(MORSY_NOTES_FONT_LS, 14),
+  );
   const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -699,7 +717,30 @@ export default function WorkspaceDefault() {
     "--ts-font-size": `${morsyFontPx}px`,
     "--ts-line-height": "1.625",
   } as CSSProperties;
+  const morsyNotesTextSizeStyle: CSSProperties = {
+    "--ts-font-size": `${morsyNotesFontPx}px`,
+    "--ts-line-height": "1.625",
+  } as CSSProperties;
   const workspaceTextSizeStyle = isMorsyUrgentWorkspace ? morsyTextSizeStyle : TEXT_SIZE_VARS[textSize];
+  const notesTextSizeStyle = isMorsyUrgentWorkspace ? morsyNotesTextSizeStyle : workspaceTextSizeStyle;
+
+  useEffect(() => {
+    if (!isMorsyUrgentWorkspace) return;
+    try {
+      localStorage.setItem(MORSY_WS_FONT_LS, String(morsyFontPx));
+    } catch {
+      /* storage */
+    }
+  }, [isMorsyUrgentWorkspace, morsyFontPx]);
+
+  useEffect(() => {
+    if (!isMorsyUrgentWorkspace) return;
+    try {
+      localStorage.setItem(MORSY_NOTES_FONT_LS, String(morsyNotesFontPx));
+    } catch {
+      /* storage */
+    }
+  }, [isMorsyUrgentWorkspace, morsyNotesFontPx]);
 
 
   useEffect(() => {
@@ -2154,7 +2195,11 @@ export default function WorkspaceDefault() {
                 )}
                 {isMorsyUrgentWorkspace ? (
                   <div className="ml-auto">
-                    <FontSizePxStepper value={morsyFontPx} onChange={setMorsyFontPx} wsDark={wsDark} />
+                    <FontSizePxStepper
+                      value={morsyNotesFontPx}
+                      onChange={setMorsyNotesFontPx}
+                      wsDark={wsDark}
+                    />
                   </div>
                 ) : (
                 <div
@@ -2209,7 +2254,7 @@ export default function WorkspaceDefault() {
                   onChange={e => setNotes(e.target.value)}
                   placeholder="Private notes — cleared when the session ends…"
                   className="w-full h-full resize-none leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/40 text-foreground"
-                  style={workspaceTextSizeStyle}
+                  style={notesTextSizeStyle}
                   spellCheck={false}
                 />
               </div>
@@ -2380,7 +2425,6 @@ export default function WorkspaceDefault() {
                   onClick={() =>
                     transcription.setCanonIntercallLayoutStacked(!transcription.canonIntercallLayoutStacked)
                   }
-                  disabled={transcription.isRecording}
                   className={cn(
                     "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
                     wsDark
