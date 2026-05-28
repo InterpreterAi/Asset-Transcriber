@@ -21,7 +21,7 @@ import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
 import type { CanonUtterance } from "../types/canon-utterance";
-import { utteranceCommittedText } from "../types/canon-utterance";
+import { utteranceCommittedText, utteranceVisibleText } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
@@ -32,11 +32,21 @@ export type CanonFrozenRowPayload = {
   committedText: string;
 };
 
+export type CanonActiveRowPayload = {
+  utterance: CanonUtterance;
+  /** Visible committed + live hypothesis — translation pacing only; STT unchanged. */
+  sourceText: string;
+};
+
 export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
   onPcmFrame?: () => void;
-  /** Fired once per immutable row after endpoint/speaker freeze (translation hook). */
+  /** Active row committed growth — drives Intercall-style live translation previews. */
+  onActiveRowCommittedGrow?: (payload: CanonActiveRowPayload) => void;
+  /** Fired once per immutable row after endpoint/speaker freeze (translation lock hook). */
   onRowFrozen?: (payload: CanonFrozenRowPayload) => void;
+  /** Post-layout paint — tail-follow scroll (workspace scrollPanel). */
+  onAfterDomPaint?: () => void;
 };
 
 export class CanonAppendWsIsolatedRuntime {
@@ -62,6 +72,10 @@ export class CanonAppendWsIsolatedRuntime {
 
   private lastFrozenCount = 0;
 
+  private lastActiveRowId: string | null = null;
+
+  private lastActiveCommittedEmitted = "";
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -76,8 +90,7 @@ export class CanonAppendWsIsolatedRuntime {
     if (prev !== mode && this.containerEl) {
       const snap = this.projections.getProjection();
       this.writer.relayoutAll(this.containerEl, snap.rows);
-      this.scroll.maybeFollowTail({ stickToTail: true });
-      this.hooks.onVisualTick?.();
+      this.notifyAfterPaint();
     }
   }
 
@@ -88,18 +101,29 @@ export class CanonAppendWsIsolatedRuntime {
   setRowTranslation(rowId: string, text: string): void {
     this.writer.setRowTranslation(rowId, text);
     if (this.containerEl) {
-      this.scroll.maybeFollowTail({ stickToTail: true });
-      this.hooks.onVisualTick?.();
+      this.notifyAfterPaint();
     }
+  }
+
+  getRowTranslation(rowId: string): string {
+    return this.writer.getRowTranslation(rowId);
   }
 
   attachDomRoot(container: HTMLElement): void {
     this.clearDomBatch();
     this.containerEl = container;
+    this.scroll.attachScrollParent(container);
     this.writer.detachAll(container);
     this.state = createInitialEngineState();
     this.lastFrozenCount = 0;
+    this.lastActiveRowId = null;
+    this.lastActiveCommittedEmitted = "";
     this.projections.sync(this.state);
+    this.notifyAfterPaint();
+  }
+
+  private notifyAfterPaint(): void {
+    this.hooks.onAfterDomPaint?.();
     this.hooks.onVisualTick?.();
   }
 
@@ -108,6 +132,23 @@ export class CanonAppendWsIsolatedRuntime {
       clearTimeout(this.domBatchTimer);
       this.domBatchTimer = null;
     }
+  }
+
+  private emitActiveRowTranslationTick(): void {
+    const au = this.state.activeUtterance;
+    if (!au) {
+      this.lastActiveRowId = null;
+      this.lastActiveCommittedEmitted = "";
+      return;
+    }
+    if (au.utterance_id !== this.lastActiveRowId) {
+      this.lastActiveRowId = au.utterance_id;
+      this.lastActiveCommittedEmitted = "";
+    }
+    const visible = utteranceVisibleText(au).trim();
+    if (visible.length < 3 || visible === this.lastActiveCommittedEmitted) return;
+    this.lastActiveCommittedEmitted = visible;
+    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: visible });
   }
 
   private emitNewlyFrozenRows(): void {
@@ -127,14 +168,14 @@ export class CanonAppendWsIsolatedRuntime {
     const snap = this.projections.getProjection();
     this.scheduler.schedule(() => {
       this.writer.syncRows(this.containerEl!, snap.rows);
-      this.scroll.maybeFollowTail({ stickToTail: true });
-      this.hooks.onVisualTick?.();
+      this.notifyAfterPaint();
     });
   }
 
   private scheduleDomBatch(immediate = false): void {
     if (immediate) {
       this.clearDomBatch();
+      this.emitActiveRowTranslationTick();
       this.emitNewlyFrozenRows();
       this.flushDomImmediate();
       return;
@@ -143,6 +184,7 @@ export class CanonAppendWsIsolatedRuntime {
     if (this.domBatchTimer !== null) clearTimeout(this.domBatchTimer);
     this.domBatchTimer = setTimeout(() => {
       this.domBatchTimer = null;
+      this.emitActiveRowTranslationTick();
       this.emitNewlyFrozenRows();
       this.flushDomImmediate();
     }, LIVE_RENDER_BATCH_MS);
@@ -194,6 +236,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.client.flushEnd();
     this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
+    this.emitActiveRowTranslationTick();
     this.emitNewlyFrozenRows();
     this.flushDomImmediate();
     this.client.disconnect(true);
