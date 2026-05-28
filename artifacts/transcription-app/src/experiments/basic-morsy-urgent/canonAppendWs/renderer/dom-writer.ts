@@ -35,20 +35,20 @@ function intercallHeaderLabel(proj: RowProjection): string {
 
 function outerRowClass(layout: CanonAppendWsLayoutMode): string {
   if (layout === "stacked") {
-    return "group relative mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
+    return "group relative mb-4";
   }
-  return "group relative grid grid-cols-2 gap-3 sm:gap-6 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
+  return "group relative grid grid-cols-2 gap-3 sm:gap-6 mb-4";
 }
 
 function origCardClass(): string {
-  return "flex min-w-0 overflow-hidden rounded-lg border border-border/50 bg-muted/20 text-sm shadow-sm";
+  return "flex min-w-0 overflow-visible";
 }
 
 function translationTextClass(layout: CanonAppendWsLayoutMode): string {
   if (layout === "stacked") {
-    return "ts-text leading-relaxed whitespace-pre-wrap text-[13px] text-foreground/80 pl-4 border-l border-border/30 ml-1";
+    return "ts-text leading-relaxed whitespace-pre-wrap text-foreground/80 pl-4 border-l border-border/30 ml-1";
   }
-  return "ts-text leading-relaxed whitespace-pre-wrap text-[13px] text-foreground/80 font-medium";
+  return "ts-text leading-relaxed whitespace-pre-wrap text-foreground/80";
 }
 
 /** Token-reconciled transcript DOM — Basic · Morsy Urgent canonAppendWs (Intercall bilingual rail). */
@@ -108,13 +108,13 @@ export class CanonAppendWsDomWriter {
     stripe.className = `w-1 shrink-0 self-stretch ${stripeColorClass(proj.language)}`;
 
     const body = doc.createElement("div");
-    body.className = "min-w-0 flex-1 space-y-1 p-3 pl-4";
+    body.className = "min-w-0 flex-1 space-y-1 py-0.5 pl-3";
 
     const header = doc.createElement("div");
-    header.className = "font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
+    header.className = "font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70";
 
     const line = doc.createElement("p");
-    line.className = "leading-relaxed whitespace-pre-wrap text-[13px]";
+    line.className = "ts-text leading-relaxed whitespace-pre-wrap text-foreground";
     line.dataset.cawRole = "live-line";
     line.innerHTML =
       '<span data-caw-engine="committed" class="text-foreground"></span><span data-caw-engine="hypothesis" class="text-muted-foreground/95 italic"></span>';
@@ -149,7 +149,7 @@ export class CanonAppendWsDomWriter {
       body.appendChild(translationEl);
     } else {
       const transWrap = doc.createElement("div");
-      transWrap.className = "min-w-0 flex items-start pt-3 pr-1";
+      transWrap.className = "min-w-0 flex items-start py-0.5";
       translationEl = doc.createElement("p");
       translationEl.dataset.cawRole = "translation";
       translationEl.className = translationTextClass("side-by-side");
