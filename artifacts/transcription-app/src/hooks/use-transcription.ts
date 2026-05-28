@@ -86,6 +86,7 @@ import {
 import { gateCanonAppendWsIsolatedRebuild } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import {
   CanonAppendWsIsolatedRuntime,
+  type CanonActiveRowPayload,
   type CanonFrozenRowPayload,
 } from "@/experiments/basic-morsy-urgent/canonAppendWs/integration/canon-append-ws-runtime";
 import {
@@ -523,6 +524,7 @@ type TranscriptScrollPanelSource =
   | "ws"
   | "bubble"
   | "translation"
+  | "canon_ws"
   | "force"
   | "queued_final_chars"
   | "flush_queue_empty_snap_if_sticky";
@@ -540,6 +542,9 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
       break;
     case "translation":
       transcriptScrollDiagCounts.appliedByTranslation++;
+      break;
+    case "canon_ws":
+      transcriptScrollDiagCounts.appliedByBubble++;
       break;
     case "force":
       transcriptScrollDiagCounts.appliedByForce++;
@@ -2828,6 +2833,75 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const canonWsSnapshotFromEngineRef = useRef(false);
   const canonRowTranslateSeqRef = useRef(new Map<string, number>());
   const dispatchCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
+  const dispatchCanonActiveRowTranslationRef = useRef<(payload: CanonActiveRowPayload) => void>(() => {});
+
+  type CanonRowTranslationState = {
+    locked: boolean;
+    liveSeq: number;
+    liveAbort: AbortController | null;
+    debounceTimer: ReturnType<typeof setTimeout> | null;
+    lastDispatchedSource: string;
+    lastPendingSource: string;
+    lastPendingLang?: string;
+  };
+  const canonRowTransRef = useRef(new Map<string, CanonRowTranslationState>());
+
+  const clearCanonRowTranslationTimers = useCallback(() => {
+    for (const st of canonRowTransRef.current.values()) {
+      if (st.debounceTimer !== null) {
+        clearTimeout(st.debounceTimer);
+        st.debounceTimer = null;
+      }
+      st.liveAbort?.abort();
+      st.liveAbort = null;
+    }
+    canonRowTransRef.current.clear();
+    canonRowTranslateSeqRef.current.clear();
+  }, []);
+
+  const getCanonRowTransState = useCallback((rowId: string): CanonRowTranslationState => {
+    let st = canonRowTransRef.current.get(rowId);
+    if (!st) {
+      st = {
+        locked: false,
+        liveSeq: 0,
+        liveAbort: null,
+        debounceTimer: null,
+        lastDispatchedSource: "",
+        lastPendingSource: "",
+        lastPendingLang: undefined,
+      };
+      canonRowTransRef.current.set(rowId, st);
+    }
+    return st;
+  }, []);
+
+  const paintCanonRowTranslationIfAllowed = useCallback((
+    rowId: string,
+    text: string,
+    opts?: { force?: boolean },
+  ) => {
+    const st = getCanonRowTransState(rowId);
+    if (st.locked && !opts?.force) return;
+    const trimmed = text.trim();
+    const eng = canonWsIsolationEngineRef.current;
+    if (!eng) return;
+    const current = eng.getRowTranslation(rowId).trim();
+    if (!trimmed.length && current.length) return;
+    if (trimmed === current) return;
+    eng.setRowTranslation(rowId, trimmed);
+  }, [getCanonRowTransState]);
+
+  const lockCanonRowTranslation = useCallback((rowId: string) => {
+    const st = getCanonRowTransState(rowId);
+    st.locked = true;
+    if (st.debounceTimer !== null) {
+      clearTimeout(st.debounceTimer);
+      st.debounceTimer = null;
+    }
+    st.liveAbort?.abort();
+    st.liveAbort = null;
+  }, [getCanonRowTransState]);
 
   const setCanonIntercallLayoutStacked = useCallback((stacked: boolean) => {
     writeMorsySemanticLayoutPreferredStacked(stacked);
@@ -2848,8 +2922,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!alive || !eng) return;
         setHasTranscript(eng.peekHasRenderableText());
       },
+      onActiveRowCommittedGrow: (payload) => {
+        dispatchCanonActiveRowTranslationRef.current(payload);
+      },
       onRowFrozen: (payload) => {
         dispatchCanonFrozenRowTranslationRef.current(payload);
+      },
+      onAfterDomPaint: () => {
+        if (!canonWsIsolationRecordingRef.current) return;
+        const panel = containerRef.current?.parentElement ?? null;
+        const preGlue = panel
+          ? transcriptScrollDistanceFromBottom(panel) <= TRANSCRIPT_TAIL_STICK_EPS_PX
+          : true;
+        scrollPanelFnRef.current?.(false, "canon_ws", preGlue);
       },
     });
     return () => {
@@ -4813,6 +4898,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const rowId = utterance.utterance_id;
     if (committedText.trim().length < 3) return;
 
+    lockCanonRowTranslation(rowId);
+
+    const eng = canonWsIsolationEngineRef.current;
+    const existing = eng?.getRowTranslation(rowId).trim() ?? "";
+    if (existing.length >= 3) {
+      onAdminSnapshotBuffersUpdatedRef.current?.();
+      return;
+    }
+
     const seq = (canonRowTranslateSeqRef.current.get(rowId) ?? 0) + 1;
     canonRowTranslateSeqRef.current.set(rowId, seq);
 
@@ -4889,15 +4983,116 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
-    canonWsIsolationEngineRef.current?.setRowTranslation(rowId, translated);
+    if (translated.length > 0) {
+      paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
+    }
     onAdminSnapshotBuffersUpdatedRef.current?.();
-  }, []);
+  }, [lockCanonRowTranslation, paintCanonRowTranslationIfAllowed]);
+
+  const dispatchCanonActiveRowTranslation = useCallback((payload: CanonActiveRowPayload) => {
+    if (!translationEnabledRef.current) return;
+    if (!canonWsIsolationGateNow()) return;
+    if (!isRecRef.current) return;
+
+    const rowId = payload.utterance.utterance_id;
+    const st = getCanonRowTransState(rowId);
+    if (st.locked) return;
+
+    const text = payload.sourceText.trim();
+    if (text.length < 3) return;
+
+    st.lastPendingSource = text;
+    st.lastPendingLang = payload.utterance.language;
+
+    if (st.debounceTimer !== null) clearTimeout(st.debounceTimer);
+    st.debounceTimer = setTimeout(() => {
+      st.debounceTimer = null;
+      void (async () => {
+        if (!isRecRef.current) return;
+        const rowState = getCanonRowTransState(rowId);
+        if (rowState.locked) return;
+
+        const sourceNow = rowState.lastPendingSource.trim();
+        if (sourceNow.length < 3) return;
+
+        rowState.liveAbort?.abort();
+        const ac = new AbortController();
+        rowState.liveAbort = ac;
+        const seq = ++rowState.liveSeq;
+
+        const pair = langPairRef.current;
+        const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
+        const sourceLang = resolveSourceLangForCanon(sourceNow, sonioxHint, pair);
+        const targetLang = targetOppositeInPair(sourceLang, pair);
+
+        const basicMorsyOpenAiExperimentOpts =
+          morsyUrgentAttachOpenAiExperimentRef.current
+            ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
+            : {};
+
+        const morsyIntercallEmbeddedEnglishPromptOpts =
+          experimentMorsyUrgentIntercallRef.current
+            ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
+            : {};
+
+        const eng = canonWsIsolationEngineRef.current;
+        const prevShown = eng?.getRowTranslation(rowId).trim() ?? "";
+
+        try {
+          const tr = await fetchTranslation(
+            sourceNow,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              isFinal: false,
+              signal: ac.signal,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(sessionIdRef.current != null && sessionIdRef.current > 0
+                ? { sessionId: sessionIdRef.current }
+                : {}),
+              ...basicMorsyOpenAiExperimentOpts,
+              ...morsyIntercallEmbeddedEnglishPromptOpts,
+            },
+          );
+          if (rowState.locked || rowState.liveSeq !== seq) return;
+          if (tr.dailyLimitReached) {
+            dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            return;
+          }
+          const next = tr.text.trim();
+          if (!next.length) return;
+          if (
+            prevShown.length > 0 &&
+            shouldPreferPreviousLiveTranslation(
+              prevShown,
+              next,
+              sourceNow,
+              rowState.lastDispatchedSource,
+            )
+          ) {
+            return;
+          }
+          rowState.lastDispatchedSource = sourceNow;
+          paintCanonRowTranslationIfAllowed(rowId, next);
+        } catch {
+          /* abort / network — keep prior stable preview */
+        }
+      })();
+    }, INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS);
+  }, [getCanonRowTransState, paintCanonRowTranslationIfAllowed]);
 
   useEffect(() => {
     dispatchCanonFrozenRowTranslationRef.current = (payload) => {
       void dispatchCanonFrozenRowTranslation(payload);
     };
   }, [dispatchCanonFrozenRowTranslation]);
+
+  useEffect(() => {
+    dispatchCanonActiveRowTranslationRef.current = (payload) => {
+      dispatchCanonActiveRowTranslation(payload);
+    };
+  }, [dispatchCanonActiveRowTranslation]);
 
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
@@ -5340,7 +5535,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     transcriptBufRef.current       = [];
     translationBufRef.current      = [];
     adminSegmentRowIndexRef.current.clear();
-    canonRowTranslateSeqRef.current.clear();
+    clearCanonRowTranslationTimers();
     intercallFinalizedSegmentIdsRef.current = [];
     translationDiagRef.current = {
       callCount: 0,
@@ -5372,7 +5567,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     setGlossaryAppliedFlash(null);
     resetSpeakerMap();
-  }, [stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
+  }, [stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce, clearCanonRowTranslationTimers]);
 
   const stop = useCallback(async () => {
     cancelOpenAiLiveDebounce();
