@@ -5028,7 +5028,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const executeCanonLiveRowTranslation = useCallback(async (
     payload: CanonActiveRowPayload,
-    opts?: { immediate?: boolean },
+    opts?: { immediate?: boolean; endpointFinal?: boolean },
   ) => {
     if (!translationEnabledRef.current) return;
     if (!canonWsIsolationGateNow()) return;
@@ -5058,6 +5058,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
     const sourceLang = resolveSourceLangForCanon(sourceNow, sonioxHint, pair);
     const targetLang = targetOppositeInPair(sourceLang, pair);
+    const requestIsFinal = opts?.endpointFinal === true;
 
     const basicMorsyOpenAiExperimentOpts =
       morsyUrgentAttachOpenAiExperimentRef.current
@@ -5079,7 +5080,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         targetLang,
         (m) => translationConfigReporterRef.current(m),
         {
-          isFinal: false,
+          isFinal: requestIsFinal,
           signal: ac.signal,
           onGlossaryApplied: t => glossaryNotifyRef.current(t),
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
@@ -5096,11 +5097,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       const next = tr.text.trim();
       if (!next.length) return;
-      const sourceGrewMaterially =
-        countWords(sourceNow) >= countWords(rowState.lastDispatchedSource) + 3;
       if (
+        !requestIsFinal &&
         !opts?.immediate &&
-        !sourceGrewMaterially &&
+        countWords(sourceNow) < countWords(rowState.lastDispatchedSource) + 3 &&
         prevShown.length > 0 &&
         shouldPreferPreviousLiveTranslation(
           prevShown,
@@ -5112,7 +5112,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         return;
       }
       rowState.lastDispatchedSource = sourceNow;
-      paintCanonRowTranslationIfAllowed(rowId, next);
+      if (requestIsFinal) {
+        rowState.lastFinalSource = sourceNow;
+      }
+      paintCanonRowTranslationIfAllowed(rowId, next, requestIsFinal ? { force: true } : undefined);
     } catch {
       /* abort / network — keep prior stable preview */
     }
@@ -5148,7 +5151,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [executeCanonLiveRowTranslation, getCanonRowTransState]);
 
   const dispatchCanonActiveRowTranslationFlush = useCallback((payload: CanonActiveRowPayload) => {
-    void executeCanonLiveRowTranslation(payload, { immediate: true });
+    const rowId = payload.utterance.utterance_id;
+    setTimeout(() => {
+      const eng = canonWsIsolationEngineRef.current;
+      const fresh = eng?.getRowCommittedText(rowId).trim() ?? "";
+      const sourceText = fresh.length >= payload.sourceText.trim().length
+        ? fresh
+        : payload.sourceText.trim();
+      if (sourceText.length < 3) return;
+      void executeCanonLiveRowTranslation(
+        { utterance: payload.utterance, sourceText },
+        { immediate: true, endpointFinal: true },
+      );
+    }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
   }, [executeCanonLiveRowTranslation]);
 
   useEffect(() => {
