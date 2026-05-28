@@ -80,12 +80,6 @@ export class CanonAppendWsIsolatedRuntime {
 
   private lastActiveCommittedEmitted = "";
 
-  private endpointTailPollTimer: ReturnType<typeof setInterval> | null = null;
-
-  private endpointTailPollCount = 0;
-
-  private endpointTailLastVisible = "";
-
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -160,11 +154,7 @@ export class CanonAppendWsIsolatedRuntime {
     const visible = utteranceVisibleText(au).trim();
     if (visible.length < 3 || visible === this.lastActiveCommittedEmitted) return;
     this.lastActiveCommittedEmitted = visible;
-    if (this.state.endpointPending) {
-      this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
-    } else {
-      this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: visible });
-    }
+    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: visible });
   }
 
   private emitNewlyFrozenRows(): void {
@@ -257,13 +247,6 @@ export class CanonAppendWsIsolatedRuntime {
 
   stopSoniox(): void {
     this.clearDomBatch();
-    const auBeforeStop = this.state.activeUtterance;
-    if (auBeforeStop) {
-      const visible = utteranceVisibleText(auBeforeStop).trim();
-      if (visible.length >= 3) {
-        this.hooks.onActiveRowTranslationFlush?.({ utterance: auBeforeStop, sourceText: visible });
-      }
-    }
     this.client.flushEnd();
     this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
