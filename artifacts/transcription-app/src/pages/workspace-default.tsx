@@ -124,6 +124,63 @@ function diagnosticSegmentBoundaryGuards(signedIn: boolean): boolean {
   return signedIn;
 }
 
+const MORSY_FONT_PX_OPTIONS = [12, 14, 16, 18, 20, 22, 24] as const;
+type MorsyFontPx = (typeof MORSY_FONT_PX_OPTIONS)[number];
+
+function FontSizePxStepper({
+  value,
+  onChange,
+  wsDark,
+}: {
+  value: MorsyFontPx;
+  onChange: (v: MorsyFontPx) => void;
+  wsDark: boolean;
+}) {
+  const idx = Math.max(0, MORSY_FONT_PX_OPTIONS.indexOf(value));
+  const step = (delta: number) => {
+    const next = MORSY_FONT_PX_OPTIONS[
+      Math.max(0, Math.min(MORSY_FONT_PX_OPTIONS.length - 1, idx + delta))
+    ]!;
+    onChange(next);
+  };
+  return (
+    <div
+      className={cn(
+        "flex items-center rounded-full border shrink-0 overflow-hidden h-7",
+        wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => step(-1)}
+        disabled={idx <= 0}
+        className={cn(
+          "px-2 h-full text-sm font-semibold transition-colors disabled:opacity-30",
+          wsDark ? "text-muted-foreground hover:bg-white/10" : "text-muted-foreground hover:bg-muted",
+        )}
+        aria-label="Decrease text size"
+      >
+        −
+      </button>
+      <span className="px-2 text-xs font-semibold tabular-nums min-w-[1.75rem] text-center text-foreground">
+        {value}
+      </span>
+      <button
+        type="button"
+        onClick={() => step(+1)}
+        disabled={idx >= MORSY_FONT_PX_OPTIONS.length - 1}
+        className={cn(
+          "px-2 h-full text-sm font-semibold transition-colors disabled:opacity-30",
+          wsDark ? "text-muted-foreground hover:bg-white/10" : "text-muted-foreground hover:bg-muted",
+        )}
+        aria-label="Increase text size"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 // ── Main workspace ─────────────────────────────────────────────────────────────
 export default function WorkspaceDefault() {
   const [, setLocation]   = useLocation();
@@ -392,6 +449,8 @@ export default function WorkspaceDefault() {
   }, [inputMode, devices, selectedDeviceId]);
   const [clearedForPrivacy, setClearedForPrivacy] = useState(false);
   const [textSize, setTextSize] = useState<"sm" | "md" | "lg">("md");
+  const [morsyFontPx, setMorsyFontPx] = useState<MorsyFontPx>(16);
+  const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showMicHint, setShowMicHint] = useState(false);
@@ -636,6 +695,11 @@ export default function WorkspaceDefault() {
     md: { "--ts-font-size": "14px", "--ts-line-height": "1.625" } as CSSProperties,
     lg: { "--ts-font-size": "17px", "--ts-line-height": "1.7" } as CSSProperties,
   };
+  const morsyTextSizeStyle: CSSProperties = {
+    "--ts-font-size": `${morsyFontPx}px`,
+    "--ts-line-height": "1.625",
+  } as CSSProperties;
+  const workspaceTextSizeStyle = isMorsyUrgentWorkspace ? morsyTextSizeStyle : TEXT_SIZE_VARS[textSize];
 
 
   useEffect(() => {
@@ -1855,7 +1919,7 @@ export default function WorkspaceDefault() {
               )}
             >
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                Practice Output
+                Workspace
               </span>
               {morsyIntercallExperimentEligible && (
                 <label
@@ -1882,21 +1946,15 @@ export default function WorkspaceDefault() {
                   <span className="leading-tight">Morsy Intercall lab</span>
                 </label>
               )}
-              {transcription.audioInfo && (
-                <span className="text-[9px] text-muted-foreground/40 font-mono hidden sm:block">
-                  {transcription.audioInfo}
-                </span>
-              )}
               {transcription.isRecording && (
                 <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
                   <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />
                   Listening
                 </span>
               )}
-              <span className="hidden sm:block text-[9px] text-muted-foreground/40 italic">
-                Audio is processed in real time and is not stored.
-              </span>
-              {/* Text size selector */}
+              {isMorsyUrgentWorkspace ? (
+                <FontSizePxStepper value={morsyFontPx} onChange={setMorsyFontPx} wsDark={wsDark} />
+              ) : (
               <div
                 className={cn(
                   "flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
@@ -1919,6 +1977,7 @@ export default function WorkspaceDefault() {
                   </button>
                 ))}
               </div>
+              )}
             </div>
 
             {/* Column labels — bilingual mode uses Original | Translation; pure STT is single-stream. */}
@@ -1957,19 +2016,9 @@ export default function WorkspaceDefault() {
                 </div>
                 {!(transcription.pureSttIsolationActive && transcription.canonIntercallLayoutStacked) && (
                   <div className="flex items-center justify-between gap-2 min-w-0">
-                    <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                      <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
-                        Translation
-                      </span>
-                      <button
-                        onClick={() => setShowReportIssue(true)}
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold text-orange-500 hover:text-orange-600 hover:bg-orange-50 transition-colors border border-orange-200/60 hover:border-orange-300 shrink-0"
-                        title="Report a translation issue"
-                      >
-                        <AlertCircle className="w-2.5 h-2.5" />
-                        <span className="hidden sm:inline">Report issue</span>
-                      </button>
-                    </div>
+                    <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider shrink-0">
+                      Translation
+                    </span>
                   </div>
                 )}
               </div>
@@ -1983,8 +2032,8 @@ export default function WorkspaceDefault() {
                 DOM-created text elements via var(--ts-font-size). */}
             <div
               className="flex-1 overflow-y-auto p-5 relative [overflow-anchor:none]"
-              data-tsize={textSize}
-              style={TEXT_SIZE_VARS[textSize]}
+              data-tsize={isMorsyUrgentWorkspace ? String(morsyFontPx) : textSize}
+              style={workspaceTextSizeStyle}
             >
               {/* Direct-to-DOM transcript container — React never touches contents */}
               <div ref={transcription.containerRef} className="[overflow-anchor:none]" />
@@ -2087,6 +2136,11 @@ export default function WorkspaceDefault() {
                 {notes && (
                   <span className="text-[9px] text-muted-foreground/50 italic">cleared on end</span>
                 )}
+                {isMorsyUrgentWorkspace ? (
+                  <div className="ml-auto">
+                    <FontSizePxStepper value={morsyFontPx} onChange={setMorsyFontPx} wsDark={wsDark} />
+                  </div>
+                ) : (
                 <div
                   className={cn(
                     "ml-auto flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
@@ -2109,6 +2163,7 @@ export default function WorkspaceDefault() {
                     </button>
                   ))}
                 </div>
+                )}
               </div>
               <div
                 className={cn(
@@ -2138,7 +2193,7 @@ export default function WorkspaceDefault() {
                   onChange={e => setNotes(e.target.value)}
                   placeholder="Private notes — cleared when the session ends…"
                   className="w-full h-full resize-none leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/40 text-foreground"
-                  style={TEXT_SIZE_VARS[textSize]}
+                  style={workspaceTextSizeStyle}
                   spellCheck={false}
                 />
               </div>
@@ -2337,8 +2392,22 @@ export default function WorkspaceDefault() {
               )}
             </div>
 
-            {/* Start / Stop button — full width on mobile, centered on desktop */}
-            <div className="w-full sm:flex-1 flex justify-center">
+            {/* Start / Stop + Report issue — full width on mobile, centered on desktop */}
+            <div className="w-full sm:flex-1 flex flex-col sm:flex-row justify-center items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowReportIssue(true)}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 h-11 px-4 rounded-full text-sm font-semibold border transition-colors shrink-0 w-full sm:w-auto",
+                  wsDark
+                    ? "border-orange-400/40 text-orange-300 hover:bg-orange-500/10"
+                    : "border-orange-200 text-orange-600 hover:bg-orange-50",
+                )}
+                title="Report a translation issue"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                Report issue
+              </button>
               {isBlocked ? (
                 <div className="w-full sm:w-auto h-11 sm:px-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center font-medium text-sm border border-border">
                   Limit Reached

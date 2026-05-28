@@ -275,6 +275,8 @@
   /* ── English transcript text ─────────────────────────────────────────────── */
   .ts-text {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: var(--ts-font-size, 14px);
+    line-height: var(--ts-line-height, 1.625);
   }
   
   /* Custom scrollbar */
