@@ -9,6 +9,19 @@ export const CANON_APPEND_WS_STT_PLAN_TYPES = [
   "morsy-urgent",
   "trial-openai",
   "trial-hetzner",
+  "trial-libre",
+  "basic-openai",
+  "professional-openai",
+  "platinum-openai",
+  "basic-libre",
+  "professional-libre",
+  "platinum-libre",
+  /** Legacy DB plan_type values (same STT path). */
+  "trial",
+  "basic",
+  "professional",
+  "platinum",
+  "unlimited",
 ] as const;
 
 export function planUsesCanonAppendWsStt(planTypeLower: string): boolean {

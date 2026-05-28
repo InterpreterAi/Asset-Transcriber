@@ -104,7 +104,7 @@ export class CanonAppendWsDomWriter {
     header.className = "font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70";
 
     const line = doc.createElement("p");
-    line.className = "ts-text leading-relaxed whitespace-pre-wrap text-foreground";
+    line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap";
     line.dataset.cawRole = "live-line";
     line.innerHTML =
       '<span data-caw-engine="committed" class="text-foreground"></span><span data-caw-engine="hypothesis" class="text-muted-foreground/95 italic"></span>';
