@@ -15,7 +15,13 @@ export function formatMinutes(minutes: number): string {
 /** Matches server `isTrialLikePlanType` (usage.ts). */
 export function isTrialLikePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").toLowerCase();
-  return p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner";
+  return (
+    p === "trial"
+    || p === "trial-openai"
+    || p === "trial-libre"
+    || p === "trial-hetzner"
+    || p === "morsy-urgent"
+  );
 }
 
 /**
@@ -23,6 +29,7 @@ export function isTrialLikePlanType(planType: string | null | undefined): boolea
  */
 export function workspacePlanDisplayName(planType: string | undefined | null): string {
   const p = (planType ?? "").toLowerCase();
+  if (p === "morsy-urgent") return "Trial";
   if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "Trial";
   if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "Basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "Unlimited";
@@ -32,8 +39,9 @@ export function workspacePlanDisplayName(planType: string | undefined | null): s
 /** Badge / styling tier (ignores translation engine). */
 export function workspacePlanTierKey(planType: string | null | undefined): "trial" | "basic" | "professional" | "platinum" {
   const p = (planType ?? "").toLowerCase();
+  if (p === "morsy-urgent") return "trial";
   if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "basic";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "legacy2") return "basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   return "platinum";
 }

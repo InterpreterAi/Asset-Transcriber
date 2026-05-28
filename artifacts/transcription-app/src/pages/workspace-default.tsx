@@ -273,26 +273,10 @@ export default function WorkspaceDefault() {
   const segmentBoundaryGuardsEffective = diagnosticSegmentBoundaryGuards(Boolean(user));
 
   /**
-   * Basic · Morsy Urgent only — Intercall orchestration lab (not shown for trial/basic/professional/platinum).
+   * Basic · Morsy Urgent — canonAppendWs STT + OpenAI translation (segment mode fixed; no Intercall lab toggle).
    */
-  const MORSY_INTERCALL_EXP_LS = "interpreterai_morsy_urgent_intercall_exp";
   const pt = (user?.planType ?? "").toLowerCase();
   const morsyWorkspaceSegmentBehavior = pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf";
-
-  const morsyIntercallExperimentEligible = pt === "morsy-urgent";
-
-  const [morsyIntercallExperiment, setMorsyIntercallExperiment] = useState(false);
-  useEffect(() => {
-    if (!morsyIntercallExperimentEligible || typeof window === "undefined") {
-      setMorsyIntercallExperiment(false);
-      return;
-    }
-    try {
-      setMorsyIntercallExperiment(localStorage.getItem(MORSY_INTERCALL_EXP_LS) === "1");
-    } catch {
-      setMorsyIntercallExperiment(false);
-    }
-  }, [morsyIntercallExperimentEligible, user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -327,8 +311,7 @@ export default function WorkspaceDefault() {
     segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && pt === "morsy-urgent",
-    experimentMorsyUrgentIntercallOrchestration:
-      Boolean(user) && pt === "morsy-urgent" && morsyIntercallExperiment,
+    experimentMorsyUrgentIntercallOrchestration: false,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
     dailyCapRef,
     onRecordingStopped: () => {
@@ -1962,31 +1945,6 @@ export default function WorkspaceDefault() {
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex-1">
                 Workspace
               </span>
-              {morsyIntercallExperimentEligible && (
-                <label
-                  className="flex items-center gap-1 shrink-0 text-[10px] text-muted-foreground cursor-pointer select-none max-w-[11rem]"
-                  title={
-        "Intercall-style cadence/UI lab (optional). Morsy Urgent translation uses OpenAI regardless; set API BASIC_MORSY_OPENAI_EXPERIMENT=1 to tag requests with the interpreter bypass hint."
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    className="rounded border-border h-3 w-3 shrink-0"
-                    checked={morsyIntercallExperiment}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      try {
-                        if (on) localStorage.setItem(MORSY_INTERCALL_EXP_LS, "1");
-                        else localStorage.removeItem(MORSY_INTERCALL_EXP_LS);
-                      } catch {
-                        /* storage quota */
-                      }
-                      setMorsyIntercallExperiment(on);
-                    }}
-                  />
-                  <span className="leading-tight">Morsy Intercall lab</span>
-                </label>
-              )}
               {transcription.isRecording && (
                 <span className="flex items-center gap-1 text-[10px] text-rose-500 font-semibold">
                   <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse" />

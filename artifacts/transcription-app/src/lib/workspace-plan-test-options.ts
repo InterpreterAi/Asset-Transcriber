@@ -18,7 +18,7 @@ const TRIAL_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
 ];
 
 const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial", label: "Trial", group: "trial" },
+  { planType: "morsy-urgent", label: "Trial", group: "trial" },
 ];
 
 const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
@@ -35,6 +35,7 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
 /** PayPal checkout SKUs (OpenAI stack). */
 const PAID_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
   { planType: "basic", label: "Basic", group: "paid" },
+  { planType: "morsy-urgent", label: "Basic", group: "paid" },
   { planType: "professional", label: "Professional", group: "paid" },
   { planType: "platinum", label: "Platinum", group: "paid" },
 ];
