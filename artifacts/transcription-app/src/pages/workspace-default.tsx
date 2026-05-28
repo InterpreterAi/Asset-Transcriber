@@ -273,10 +273,15 @@ export default function WorkspaceDefault() {
   const segmentBoundaryGuardsEffective = diagnosticSegmentBoundaryGuards(Boolean(user));
 
   /**
-   * Basic · Morsy Urgent — canonAppendWs STT + OpenAI translation (segment mode fixed; no Intercall lab toggle).
+   * canonAppendWs STT: Morsy Basic Urgent + Trial OpenAI + Trial Hetzner share identical Soniox segmentation.
+   * Translation stacks remain plan-specific on the server.
    */
   const pt = (user?.planType ?? "").toLowerCase();
-  const morsyWorkspaceSegmentBehavior = pt === "morsy-urgent" ? "morsy-intercall-isolated-experiment" : "morsy-urgent-cbf";
+  const usesCanonAppendWsStt =
+    pt === "morsy-urgent" || pt === "trial-openai" || pt === "trial-hetzner";
+  const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
+    ? "morsy-intercall-isolated-experiment"
+    : "morsy-urgent-cbf";
 
   useEffect(() => {
     if (!user) return;
@@ -310,7 +315,7 @@ export default function WorkspaceDefault() {
     // independent of the Intercall lab toggle (lab remains translation/cadence).
     segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
     segmentBoundaryGuards: segmentBoundaryGuardsEffective,
-    morsyUrgentTranscriptSegmentGuards: Boolean(user) && pt === "morsy-urgent",
+    morsyUrgentTranscriptSegmentGuards: Boolean(user) && usesCanonAppendWsStt,
     experimentMorsyUrgentIntercallOrchestration: false,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
     dailyCapRef,
