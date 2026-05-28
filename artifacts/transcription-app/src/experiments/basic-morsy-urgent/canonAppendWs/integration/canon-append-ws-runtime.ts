@@ -21,7 +21,7 @@ import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
 import type { CanonUtterance } from "../types/canon-utterance";
-import { utteranceCommittedText, utteranceVisibleText } from "../types/canon-utterance";
+import { utteranceCommittedText } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
@@ -34,7 +34,7 @@ export type CanonFrozenRowPayload = {
 
 export type CanonActiveRowPayload = {
   utterance: CanonUtterance;
-  /** Visible committed + live hypothesis — translation pacing only; STT unchanged. */
+  /** Append-only committed Soniox finals for this row — Intercall stabilization gate (no NF hypothesis). */
   sourceText: string;
 };
 
@@ -115,6 +115,16 @@ export class CanonAppendWsIsolatedRuntime {
     return this.writer.getRowTranslation(rowId);
   }
 
+  /** Latest append-only committed text for a row (active or frozen). */
+  getRowCommittedText(rowId: string): string {
+    const active = this.state.activeUtterance;
+    if (active?.utterance_id === rowId) {
+      return utteranceCommittedText(active).trim();
+    }
+    const frozen = this.state.finalizedUtterances.find((u) => u.utterance_id === rowId);
+    return frozen ? utteranceCommittedText(frozen).trim() : "";
+  }
+
   attachDomRoot(container: HTMLElement): void {
     this.clearDomBatch();
     this.containerEl = container;
@@ -140,6 +150,7 @@ export class CanonAppendWsIsolatedRuntime {
     }
   }
 
+  /** Intercall gate: translate only when append-only committed finals grow — not NF hypothesis. */
   private emitActiveRowTranslationTick(): void {
     const au = this.state.activeUtterance;
     if (!au) {
@@ -151,10 +162,10 @@ export class CanonAppendWsIsolatedRuntime {
       this.lastActiveRowId = au.utterance_id;
       this.lastActiveCommittedEmitted = "";
     }
-    const visible = utteranceVisibleText(au).trim();
-    if (visible.length < 3 || visible === this.lastActiveCommittedEmitted) return;
-    this.lastActiveCommittedEmitted = visible;
-    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: visible });
+    const committed = utteranceCommittedText(au).trim();
+    if (committed.length < 3 || committed === this.lastActiveCommittedEmitted) return;
+    this.lastActiveCommittedEmitted = committed;
+    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: committed });
   }
 
   private emitNewlyFrozenRows(): void {
@@ -214,9 +225,9 @@ export class CanonAppendWsIsolatedRuntime {
       emitDebugEvent({ kind: "endpoint_flush", segmentId: "soniox-endpoint", seq: frame.seq });
       const au = this.state.activeUtterance;
       if (au) {
-        const visible = utteranceVisibleText(au).trim();
-        if (visible.length >= 3) {
-          this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
+        const committed = utteranceCommittedText(au).trim();
+        if (committed.length >= 3) {
+          this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: committed });
         }
       }
     }
@@ -247,6 +258,13 @@ export class CanonAppendWsIsolatedRuntime {
 
   stopSoniox(): void {
     this.clearDomBatch();
+    const auBeforeStop = this.state.activeUtterance;
+    if (auBeforeStop) {
+      const committed = utteranceCommittedText(auBeforeStop).trim();
+      if (committed.length >= 3) {
+        this.hooks.onActiveRowTranslationFlush?.({ utterance: auBeforeStop, sourceText: committed });
+      }
+    }
     this.client.flushEnd();
     this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
