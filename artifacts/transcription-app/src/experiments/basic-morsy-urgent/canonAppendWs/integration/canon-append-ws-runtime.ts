@@ -21,7 +21,7 @@ import { RenderScheduler } from "../renderer/render-scheduler";
 import { ScrollManager } from "../renderer/scroll-manager";
 import { emitDebugEvent } from "../telemetry/debug-events";
 import type { CanonUtterance } from "../types/canon-utterance";
-import { utteranceCommittedText } from "../types/canon-utterance";
+import { utteranceCommittedText, utteranceVisibleText } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
@@ -34,14 +34,14 @@ export type CanonFrozenRowPayload = {
 
 export type CanonActiveRowPayload = {
   utterance: CanonUtterance;
-  /** Append-only committed Soniox finals for this row — Intercall stabilization gate (no NF hypothesis). */
+  /** Visible committed + live hypothesis — drives incremental live translation while row is active. */
   sourceText: string;
 };
 
 export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
   onPcmFrame?: () => void;
-  /** Active row committed growth — drives Intercall-style live translation previews. */
+  /** Active row visible growth (committed + NF) — incremental translation while speech continues. */
   onActiveRowCommittedGrow?: (payload: CanonActiveRowPayload) => void;
   /** Soniox endpoint on active row — flush translation immediately (no debounce). */
   onActiveRowTranslationFlush?: (payload: CanonActiveRowPayload) => void;
@@ -78,7 +78,7 @@ export class CanonAppendWsIsolatedRuntime {
 
   private lastActiveRowId: string | null = null;
 
-  private lastActiveCommittedEmitted = "";
+  private lastActiveVisibleEmitted = "";
 
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
@@ -115,6 +115,16 @@ export class CanonAppendWsIsolatedRuntime {
     return this.writer.getRowTranslation(rowId);
   }
 
+  /** Latest visible text for a row (active: committed+NF; frozen: committed only). */
+  getRowVisibleText(rowId: string): string {
+    const active = this.state.activeUtterance;
+    if (active?.utterance_id === rowId) {
+      return utteranceVisibleText(active).trim();
+    }
+    const frozen = this.state.finalizedUtterances.find((u) => u.utterance_id === rowId);
+    return frozen ? utteranceCommittedText(frozen).trim() : "";
+  }
+
   /** Latest append-only committed text for a row (active or frozen). */
   getRowCommittedText(rowId: string): string {
     const active = this.state.activeUtterance;
@@ -133,7 +143,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.state = createInitialEngineState();
     this.lastFrozenCount = 0;
     this.lastActiveRowId = null;
-    this.lastActiveCommittedEmitted = "";
+    this.lastActiveVisibleEmitted = "";
     this.projections.sync(this.state);
     this.notifyAfterPaint();
   }
@@ -150,22 +160,22 @@ export class CanonAppendWsIsolatedRuntime {
     }
   }
 
-  /** Intercall gate: translate only when append-only committed finals grow — not NF hypothesis. */
+  /** Fire when visible transcript grows — includes grey NF tail so translation keeps pace during long speech. */
   private emitActiveRowTranslationTick(): void {
     const au = this.state.activeUtterance;
     if (!au) {
       this.lastActiveRowId = null;
-      this.lastActiveCommittedEmitted = "";
+      this.lastActiveVisibleEmitted = "";
       return;
     }
     if (au.utterance_id !== this.lastActiveRowId) {
       this.lastActiveRowId = au.utterance_id;
-      this.lastActiveCommittedEmitted = "";
+      this.lastActiveVisibleEmitted = "";
     }
-    const committed = utteranceCommittedText(au).trim();
-    if (committed.length < 3 || committed === this.lastActiveCommittedEmitted) return;
-    this.lastActiveCommittedEmitted = committed;
-    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: committed });
+    const visible = utteranceVisibleText(au).trim();
+    if (visible.length < 3 || visible === this.lastActiveVisibleEmitted) return;
+    this.lastActiveVisibleEmitted = visible;
+    this.hooks.onActiveRowCommittedGrow?.({ utterance: au, sourceText: visible });
   }
 
   private emitNewlyFrozenRows(): void {
@@ -225,9 +235,9 @@ export class CanonAppendWsIsolatedRuntime {
       emitDebugEvent({ kind: "endpoint_flush", segmentId: "soniox-endpoint", seq: frame.seq });
       const au = this.state.activeUtterance;
       if (au) {
-        const committed = utteranceCommittedText(au).trim();
-        if (committed.length >= 3) {
-          this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: committed });
+        const visible = utteranceVisibleText(au).trim();
+        if (visible.length >= 3) {
+          this.hooks.onActiveRowTranslationFlush?.({ utterance: au, sourceText: visible });
         }
       }
     }
@@ -260,9 +270,9 @@ export class CanonAppendWsIsolatedRuntime {
     this.clearDomBatch();
     const auBeforeStop = this.state.activeUtterance;
     if (auBeforeStop) {
-      const committed = utteranceCommittedText(auBeforeStop).trim();
-      if (committed.length >= 3) {
-        this.hooks.onActiveRowTranslationFlush?.({ utterance: auBeforeStop, sourceText: committed });
+      const visible = utteranceVisibleText(auBeforeStop).trim();
+      if (visible.length >= 3) {
+        this.hooks.onActiveRowTranslationFlush?.({ utterance: auBeforeStop, sourceText: visible });
       }
     }
     this.client.flushEnd();
