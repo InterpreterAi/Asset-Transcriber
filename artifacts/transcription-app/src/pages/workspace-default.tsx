@@ -1914,7 +1914,7 @@ export default function WorkspaceDefault() {
             {/* Transcript header */}
             <div
               className={cn(
-                "h-10 flex items-center gap-3 px-4 shrink-0 border-b",
+                "min-h-10 py-1.5 flex items-center gap-3 px-4 shrink-0 border-b",
                 wsDark ? "border-white/[0.06] bg-muted/15" : "border-border bg-muted/20",
               )}
             >
@@ -1952,32 +1952,48 @@ export default function WorkspaceDefault() {
                   Listening
                 </span>
               )}
-              {isMorsyUrgentWorkspace ? (
-                <FontSizePxStepper value={morsyFontPx} onChange={setMorsyFontPx} wsDark={wsDark} />
-              ) : (
-              <div
-                className={cn(
-                  "flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
-                  wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
-                )}
-              >
-                <Type className="w-3 h-3 text-muted-foreground/45 ml-1.5" />
-                {(["sm", "md", "lg"] as const).map((sz) => (
-                  <button
-                    key={sz}
-                    onClick={() => setTextSize(sz)}
-                    className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
-                      textSize === sz
-                        ? "bg-primary text-primary-foreground shadow-[0_0_12px_rgba(56,189,248,0.25)]"
-                        : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
-                    }`}
-                    title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                {isMorsyUrgentWorkspace ? (
+                  <FontSizePxStepper value={morsyFontPx} onChange={setMorsyFontPx} wsDark={wsDark} />
+                ) : (
+                  <div
+                    className={cn(
+                      "flex items-center gap-0.5 rounded-md overflow-hidden shrink-0 border",
+                      wsDark ? "border-white/10 bg-muted/20" : "border-border/60 bg-muted/30",
+                    )}
                   >
-                    {sz === "sm" ? "S" : sz === "md" ? "M" : "L"}
-                  </button>
-                ))}
+                    <Type className="w-3 h-3 text-muted-foreground/45 ml-1.5" />
+                    {(["sm", "md", "lg"] as const).map((sz) => (
+                      <button
+                        key={sz}
+                        onClick={() => setTextSize(sz)}
+                        className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                          textSize === sz
+                            ? "bg-primary text-primary-foreground shadow-[0_0_12px_rgba(56,189,248,0.25)]"
+                            : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/50"
+                        }`}
+                        title={sz === "sm" ? "Small text" : sz === "md" ? "Medium text" : "Large text"}
+                      >
+                        {sz === "sm" ? "S" : sz === "md" ? "M" : "L"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowReportIssue(true)}
+                  className={cn(
+                    "flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold border transition-colors",
+                    wsDark
+                      ? "border-orange-400/35 text-orange-300/90 hover:bg-orange-500/10"
+                      : "border-orange-200 text-orange-600 hover:bg-orange-50",
+                  )}
+                  title="Report a translation issue"
+                >
+                  <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                  Report issue
+                </button>
               </div>
-              )}
             </div>
 
             {/* Column labels — bilingual mode uses Original | Translation; pure STT is single-stream. */}
@@ -2392,22 +2408,8 @@ export default function WorkspaceDefault() {
               )}
             </div>
 
-            {/* Start / Stop + Report issue — full width on mobile, centered on desktop */}
-            <div className="w-full sm:flex-1 flex flex-col sm:flex-row justify-center items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowReportIssue(true)}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 h-11 px-4 rounded-full text-sm font-semibold border transition-colors shrink-0 w-full sm:w-auto",
-                  wsDark
-                    ? "border-orange-400/40 text-orange-300 hover:bg-orange-500/10"
-                    : "border-orange-200 text-orange-600 hover:bg-orange-50",
-                )}
-                title="Report a translation issue"
-              >
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                Report issue
-              </button>
+            {/* Start / Stop — full width on mobile, centered on desktop */}
+            <div className="w-full sm:flex-1 flex justify-center items-center">
               {isBlocked ? (
                 <div className="w-full sm:w-auto h-11 sm:px-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center font-medium text-sm border border-border">
                   Limit Reached
