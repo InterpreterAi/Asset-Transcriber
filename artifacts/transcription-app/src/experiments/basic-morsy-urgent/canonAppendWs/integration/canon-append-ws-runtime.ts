@@ -47,6 +47,8 @@ export type CanonAppendWsRuntimeHooks = {
   onRowFrozen?: (payload: CanonFrozenRowPayload) => void;
   /** Post-layout paint — tail-follow scroll (workspace scrollPanel). */
   onAfterDomPaint?: () => void;
+  /** Pre-layout latch — read scroll glue before transcript/translation DOM grows. */
+  onBeforeDomPaint?: () => void;
 };
 
 export class CanonAppendWsIsolatedRuntime {
@@ -89,6 +91,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.writer.setLayoutMode(mode);
     if (prev !== mode && this.containerEl) {
       const snap = this.projections.getProjection();
+      this.hooks.onBeforeDomPaint?.();
       this.writer.relayoutAll(this.containerEl, snap.rows);
       this.notifyAfterPaint();
     }
@@ -99,6 +102,7 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   setRowTranslation(rowId: string, text: string): void {
+    this.hooks.onBeforeDomPaint?.();
     this.writer.setRowTranslation(rowId, text);
     if (this.containerEl) {
       this.notifyAfterPaint();
@@ -167,6 +171,7 @@ export class CanonAppendWsIsolatedRuntime {
     if (!this.containerEl) return;
     const snap = this.projections.getProjection();
     this.scheduler.schedule(() => {
+      this.hooks.onBeforeDomPaint?.();
       this.writer.syncRows(this.containerEl!, snap.rows);
       this.notifyAfterPaint();
     });
