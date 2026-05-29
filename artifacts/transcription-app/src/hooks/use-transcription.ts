@@ -672,7 +672,7 @@ const CLS = {
   nf:          "",
   transText:   "ts-text ts-translation leading-relaxed flex-1 min-w-0",
   transPend:   "ts-text ts-translation leading-relaxed flex-1 min-w-0",
-  transDisabled: "ts-text text-muted-foreground/55 italic flex-1 min-w-0 text-[0.92em] leading-snug",
+  transDisabled: "ts-text ts-translation text-muted-foreground/55 flex-1 min-w-0 text-[0.92em] leading-snug",
 } as const;
 
 /** Basic · Morsy Urgent isolated semantic stream: stacked original/translation (opt-in layout). */

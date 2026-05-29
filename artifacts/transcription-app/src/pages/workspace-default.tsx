@@ -700,9 +700,9 @@ export default function WorkspaceDefault() {
     "--ts-line-height": "1.625",
   } as CSSProperties;
   const notesTextSizeStyle: CSSProperties = {
-    "--ts-font-size": `${notesFontPx}px`,
-    "--ts-line-height": "1.625",
-  } as CSSProperties;
+    fontSize: `${notesFontPx}px`,
+    lineHeight: 1.625,
+  };
 
   useEffect(() => {
     try {
@@ -2156,7 +2156,7 @@ export default function WorkspaceDefault() {
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                   placeholder="Private notes — cleared when the session ends…"
-                  className="w-full h-full resize-none leading-relaxed p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/40 text-foreground"
+                  className="w-full h-full resize-none p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/40 text-foreground"
                   style={notesTextSizeStyle}
                   spellCheck={false}
                 />
