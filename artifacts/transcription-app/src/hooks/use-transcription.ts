@@ -263,6 +263,9 @@ const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
 const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
 const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 1;
 const CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP = 24;
+/** Max parallel frozen-row finals when speakers flip fast (FIFO batches). */
+const CANON_FROZEN_TRANSLATE_MAX_CONCURRENT = 2;
+const CANON_FROZEN_TRANSLATE_MAX_RETRIES = 2;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
@@ -2887,8 +2890,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** FIFO finals for frozen rows — avoids parallel `/translate` storms when speakers flip fast. */
   const canonFrozenTranslateQueueRef = useRef<CanonFrozenRowPayload[]>([]);
   const canonFrozenDrainInFlightRef = useRef(false);
-  /** Latest active-row grow held until frozen backlog drains (legacy canon bridge). */
-  const canonTrialLiveDeferredPayloadRef = useRef<CanonRowDualBufferPayload | null>(null);
+  const canonFrozenRetryCountRef = useRef(new Map<string, number>());
+  const enqueueCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
   const dispatchCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
   const dispatchCanonStableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonVolatilePulseRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
@@ -2963,7 +2966,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     canonRowTranslateSeqRef.current.clear();
     canonFrozenTranslateQueueRef.current = [];
     canonFrozenDrainInFlightRef.current = false;
-    canonTrialLiveDeferredPayloadRef.current = null;
+    canonFrozenRetryCountRef.current.clear();
   }, []);
 
   const getCanonTrialRowTransState = useCallback((rowId: string): CanonTrialRowTranslationState => {
@@ -5080,7 +5083,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const { utterance, committedText } = payload;
     const rowId = utterance.utterance_id;
     const sourceNorm = committedText.trim();
-    if (sourceNorm.length < 3) return;
+    if (!sourceNorm.length) return;
 
     const st = getCanonRowTransState(rowId);
     const trialSt = getCanonTrialRowTransState(rowId);
@@ -5179,6 +5182,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       st.lastVolatileDispatched = sourceNorm;
       trialSt.lastFinalSource = sourceNorm;
       trialSt.lastDispatchedSource = sourceNorm;
+      canonFrozenRetryCountRef.current.delete(rowId);
+    } else {
+      const retries = canonFrozenRetryCountRef.current.get(rowId) ?? 0;
+      if (retries < CANON_FROZEN_TRANSLATE_MAX_RETRIES) {
+        canonFrozenRetryCountRef.current.set(rowId, retries + 1);
+        enqueueCanonFrozenRowTranslationRef.current(payload);
+      }
     }
     onAdminSnapshotBuffersUpdatedRef.current?.();
   }, [getCanonRowTransState, getCanonTrialRowTransState, lockCanonRowTranslation, paintCanonRowTranslationIfAllowed]);
@@ -5188,29 +5198,39 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     canonFrozenDrainInFlightRef.current = true;
     try {
       while (canonFrozenTranslateQueueRef.current.length > 0) {
-        const payload = canonFrozenTranslateQueueRef.current.shift()!;
-        await dispatchCanonFrozenRowTranslation(payload);
+        const batch: CanonFrozenRowPayload[] = [];
+        while (
+          batch.length < CANON_FROZEN_TRANSLATE_MAX_CONCURRENT &&
+          canonFrozenTranslateQueueRef.current.length > 0
+        ) {
+          batch.push(canonFrozenTranslateQueueRef.current.shift()!);
+        }
+        await Promise.all(batch.map(item => dispatchCanonFrozenRowTranslation(item)));
       }
     } finally {
       canonFrozenDrainInFlightRef.current = false;
       if (canonFrozenTranslateQueueRef.current.length > 0) {
         void drainCanonFrozenTranslateQueue();
-        return;
-      }
-      const deferred = canonTrialLiveDeferredPayloadRef.current;
-      if (deferred) {
-        canonTrialLiveDeferredPayloadRef.current = null;
-        dispatchCanonTrialLiveGrowRef.current(deferred);
       }
     }
   }, [dispatchCanonFrozenRowTranslation]);
 
   const enqueueCanonFrozenRowTranslation = useCallback((payload: CanonFrozenRowPayload) => {
     const rowId = payload.utterance.utterance_id;
+    const isRetry = (canonFrozenRetryCountRef.current.get(rowId) ?? 0) > 0;
     const alreadyQueued = canonFrozenTranslateQueueRef.current.some(
       item => item.utterance.utterance_id === rowId,
     );
-    if (!alreadyQueued) {
+    if (alreadyQueued && !isRetry) {
+      void drainCanonFrozenTranslateQueue();
+      return;
+    }
+
+    const eng = canonWsIsolationEngineRef.current;
+    const existing = eng?.getRowTranslation(rowId).trim() ?? "";
+    if (!existing.length) {
+      canonFrozenTranslateQueueRef.current.unshift(payload);
+    } else {
       canonFrozenTranslateQueueRef.current.push(payload);
     }
     void drainCanonFrozenTranslateQueue();
@@ -5561,13 +5581,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!canonWsIsolationGateNow()) return;
     if (!isRecRef.current) return;
 
-    const frozenBacklog =
-      canonFrozenTranslateQueueRef.current.length > 0 || canonFrozenDrainInFlightRef.current;
-    if (frozenBacklog) {
-      canonTrialLiveDeferredPayloadRef.current = payload;
-      return;
-    }
-
     const rowId = payload.utterance.utterance_id;
     const st = getCanonTrialRowTransState(rowId);
     if (st.locked) return;
@@ -5642,6 +5655,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [executeCanonTrialRowTranslation]);
 
   useEffect(() => {
+    enqueueCanonFrozenRowTranslationRef.current = (payload) => {
+      enqueueCanonFrozenRowTranslation(payload);
+    };
     dispatchCanonFrozenRowTranslationRef.current = (payload) => {
       enqueueCanonFrozenRowTranslation(payload);
     };
