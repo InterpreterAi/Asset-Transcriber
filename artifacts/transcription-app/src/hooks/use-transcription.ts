@@ -190,6 +190,42 @@ function shouldPreferPreviousLiveTranslation(
   return sn.length >= sc.length - 2;
 }
 
+function legacyCanonSourceGrewMaterially(sourceNow: string, lastDispatchedSource: string): boolean {
+  return (
+    countWords(sourceNow) >= countWords(lastDispatchedSource) + 3 ||
+    sourceNow.trim().length >= lastDispatchedSource.trim().length + 24
+  );
+}
+
+function legacyCanonLiveCoverageRatio(translated: string, source: string): number {
+  const srcWords = countWords(source);
+  if (srcWords <= 0) return countWords(translated) > 0 ? 1 : 0;
+  return countWords(translated) / srcWords;
+}
+
+/** Legacy canon bridge live paint guard — coverage-aware when source outruns partial MT. */
+function shouldRejectLegacyCanonTrialLiveTranslation(
+  prevShown: string,
+  next: string,
+  sourceNow: string,
+  lastDispatchedSource: string,
+): boolean {
+  const prev = prevShown.trim();
+  const n = next.trim();
+  if (!prev || prev === "…") return false;
+  if (!n) return true;
+
+  const sourceGrew = legacyCanonSourceGrewMaterially(sourceNow, lastDispatchedSource);
+  if (sourceGrew) {
+    if (n.length >= prev.length) return false;
+    const prevCov = legacyCanonLiveCoverageRatio(prev, lastDispatchedSource);
+    const nextCov = legacyCanonLiveCoverageRatio(n, sourceNow);
+    return nextCov <= prevCov;
+  }
+
+  return shouldPreferPreviousLiveTranslation(prev, n, sourceNow, lastDispatchedSource);
+}
+
 /**
  * Opt-in STT diagnostics (browser console only; may contain PHI — dev machines only).
  * `localStorage.setItem("interpreterai_stt_diag", "1")` then reload.
@@ -234,6 +270,11 @@ const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 /** Morsy Urgent dual-buffer: debounce stable (committed) translate triggers. */
 const CANON_STABLE_TRANSLATION_DEBOUNCE_MS = 180;
+/** Legacy canon bridge (Trial + paid OpenAI/Hetzner): live translate scheduling. */
+const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
+const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
+const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 2;
+const CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP = 24;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
@@ -2886,8 +2927,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     liveSeq: number;
     liveAbort: AbortController | null;
     debounceTimer: ReturnType<typeof setTimeout> | null;
+    maxWaitTimer: ReturnType<typeof setTimeout> | null;
     lastDispatchedSource: string;
     lastPreviewWordsSent: number;
+    lastPreviewCharsSent: number;
     earlyHintSent: boolean;
     lastFinalSource: string;
     lastPendingLang?: string;
@@ -2911,6 +2954,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         clearTimeout(st.debounceTimer);
         st.debounceTimer = null;
       }
+      if (st.maxWaitTimer !== null) {
+        clearTimeout(st.maxWaitTimer);
+        st.maxWaitTimer = null;
+      }
       st.liveAbort?.abort();
       st.liveAbort = null;
     }
@@ -2926,8 +2973,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         liveSeq: 0,
         liveAbort: null,
         debounceTimer: null,
+        maxWaitTimer: null,
         lastDispatchedSource: "",
         lastPreviewWordsSent: 0,
+        lastPreviewCharsSent: 0,
         earlyHintSent: false,
         lastFinalSource: "",
         lastPendingLang: undefined,
@@ -2993,6 +3042,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (trialSt.debounceTimer !== null) {
       clearTimeout(trialSt.debounceTimer);
       trialSt.debounceTimer = null;
+    }
+    if (trialSt.maxWaitTimer !== null) {
+      clearTimeout(trialSt.maxWaitTimer);
+      trialSt.maxWaitTimer = null;
     }
     trialSt.liveAbort?.abort();
     trialSt.liveAbort = null;
@@ -5338,7 +5391,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     rowState.lastPendingLang = payload.utterance.language;
-    rowState.liveAbort?.abort();
     const ac = new AbortController();
     rowState.liveAbort = ac;
     const seq = ++rowState.liveSeq;
@@ -5373,13 +5425,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       const next = tr.text.trim();
       if (!next.length) return;
-      const sourceGrewMaterially =
-        countWords(sourceNow) >= countWords(rowState.lastDispatchedSource) + 3;
       if (
         !opts.isFinal &&
-        !sourceGrewMaterially &&
         prevShown.length > 0 &&
-        shouldPreferPreviousLiveTranslation(
+        shouldRejectLegacyCanonTrialLiveTranslation(
           prevShown,
           next,
           sourceNow,
@@ -5413,17 +5462,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (visible.length < 3) return;
 
     const wordsNow = countWords(visible);
-    if (!st.earlyHintSent || wordsNow - st.lastPreviewWordsSent < LIVE_PREVIEW_WORD_STEP) {
+    const charsNow = visible.length;
+    const grewByWords =
+      !st.earlyHintSent ||
+      wordsNow - st.lastPreviewWordsSent >= CANON_TRIAL_LIVE_PREVIEW_WORD_STEP;
+    const grewByChars =
+      !st.earlyHintSent ||
+      charsNow - st.lastPreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
+    if (!grewByWords && !grewByChars) {
       if (st.earlyHintSent && wordsNow <= st.lastPreviewWordsSent) return;
-      if (!st.earlyHintSent && wordsNow < LIVE_PREVIEW_WORD_STEP) return;
+      if (!st.earlyHintSent && wordsNow < CANON_TRIAL_LIVE_PREVIEW_WORD_STEP) return;
     }
     st.earlyHintSent = true;
     st.lastPreviewWordsSent = wordsNow;
+    st.lastPreviewCharsSent = charsNow;
     st.lastPendingLang = payload.utterance.language;
 
-    if (st.debounceTimer !== null) clearTimeout(st.debounceTimer);
-    st.debounceTimer = setTimeout(() => {
-      st.debounceTimer = null;
+    const scheduleCanonTrialLiveTranslation = () => {
       const freshSnap = eng?.getRowDualBuffer(rowId);
       const sourceText = freshSnap?.visibleText.trim() || visible;
       if (sourceText.length < 3) return;
@@ -5431,7 +5486,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         sourceText,
         isFinal: false,
       });
-    }, LIVE_TRANSLATION_DEBOUNCE_MS);
+    };
+
+    if (st.debounceTimer !== null) clearTimeout(st.debounceTimer);
+    if (st.maxWaitTimer === null) {
+      st.maxWaitTimer = setTimeout(() => {
+        st.maxWaitTimer = null;
+        if (st.debounceTimer !== null) {
+          clearTimeout(st.debounceTimer);
+          st.debounceTimer = null;
+        }
+        scheduleCanonTrialLiveTranslation();
+      }, CANON_TRIAL_LIVE_MAX_WAIT_MS);
+    }
+    st.debounceTimer = setTimeout(() => {
+      st.debounceTimer = null;
+      if (st.maxWaitTimer !== null) {
+        clearTimeout(st.maxWaitTimer);
+        st.maxWaitTimer = null;
+      }
+      scheduleCanonTrialLiveTranslation();
+    }, CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS);
   }, [executeCanonTrialRowTranslation, getCanonTrialRowTransState]);
 
   const dispatchCanonTrialEndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {

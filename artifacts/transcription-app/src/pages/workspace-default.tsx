@@ -9,7 +9,7 @@ import {
   Languages, Trash2, Copy, Check, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
-  Hash, Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3,
+  Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -453,7 +453,7 @@ export default function WorkspaceDefault() {
     readMorsyFontPx(MORSY_WS_FONT_LS, 16),
   );
   const [notesFontPx, setNotesFontPx] = useState<MorsyFontPx>(() =>
-    readMorsyFontPx(MORSY_NOTES_FONT_LS, 14),
+    readMorsyFontPx(MORSY_NOTES_FONT_LS, 18),
   );
   const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -2129,34 +2129,23 @@ export default function WorkspaceDefault() {
                   />
                 </div>
               </div>
-              <div
-                className={cn(
-                  "px-3 py-2 border-b space-y-1.5 shrink-0",
-                  wsDark ? "border-white/[0.05] bg-black/15" : "border-border bg-muted/25",
+              <div className="relative flex-1 overflow-y-auto scroll-smooth min-h-0">
+                {!notes.trim() && (
+                  <div
+                    className="absolute inset-0 p-2.5 pointer-events-none select-none space-y-1 text-muted-foreground/30 italic"
+                    style={notesTextSizeStyle}
+                    aria-hidden
+                  >
+                    <p>Claim #</p>
+                    <p>Patient allergy</p>
+                    <p>Appt. time</p>
+                  </div>
                 )}
-              >
-                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Quick fields</p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground/90">
-                  <span className="inline-flex items-center gap-1">
-                    <Hash className="w-3 h-3 text-sky-400/90 shrink-0" aria-hidden />
-                    Claim #
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3 text-amber-400/90 shrink-0" aria-hidden />
-                    Patient allergy
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-violet-400/90 shrink-0" aria-hidden />
-                    Appt. time
-                  </span>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto scroll-smooth min-h-0">
                 <textarea
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  placeholder="Private notes — cleared when the session ends…"
-                  className="w-full h-full resize-none p-2.5 outline-none bg-transparent placeholder:text-muted-foreground/40 text-foreground"
+                  placeholder=""
+                  className="relative z-[1] w-full h-full resize-none p-2.5 outline-none bg-transparent text-foreground"
                   style={notesTextSizeStyle}
                   spellCheck={false}
                 />
