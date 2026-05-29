@@ -197,32 +197,20 @@ function legacyCanonSourceGrewMaterially(sourceNow: string, lastDispatchedSource
   );
 }
 
-function legacyCanonLiveCoverageRatio(translated: string, source: string): number {
-  const srcWords = countWords(source);
-  if (srcWords <= 0) return countWords(translated) > 0 ? 1 : 0;
-  return countWords(translated) / srcWords;
-}
-
-/** Legacy canon bridge live paint guard — coverage-aware when source outruns partial MT. */
+/** Legacy canon bridge live paint guard — only blocks shorter junk when source did not grow. */
 function shouldRejectLegacyCanonTrialLiveTranslation(
   prevShown: string,
   next: string,
   sourceNow: string,
   lastDispatchedSource: string,
 ): boolean {
+  if (legacyCanonSourceGrewMaterially(sourceNow, lastDispatchedSource)) {
+    return false;
+  }
   const prev = prevShown.trim();
   const n = next.trim();
   if (!prev || prev === "…") return false;
   if (!n) return true;
-
-  const sourceGrew = legacyCanonSourceGrewMaterially(sourceNow, lastDispatchedSource);
-  if (sourceGrew) {
-    if (n.length >= prev.length) return false;
-    const prevCov = legacyCanonLiveCoverageRatio(prev, lastDispatchedSource);
-    const nextCov = legacyCanonLiveCoverageRatio(n, sourceNow);
-    return nextCov <= prevCov;
-  }
-
   return shouldPreferPreviousLiveTranslation(prev, n, sourceNow, lastDispatchedSource);
 }
 
@@ -273,7 +261,7 @@ const CANON_STABLE_TRANSLATION_DEBOUNCE_MS = 180;
 /** Legacy canon bridge (Trial + paid OpenAI/Hetzner): live translate scheduling. */
 const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
 const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
-const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 2;
+const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 1;
 const CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP = 24;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
@@ -2924,8 +2912,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   type CanonTrialRowTranslationState = {
     locked: boolean;
-    liveSeq: number;
+    liveInFlight: boolean;
     liveAbort: AbortController | null;
+    pendingLiveSource: string | null;
+    pendingLivePayload: CanonRowDualBufferPayload | null;
     debounceTimer: ReturnType<typeof setTimeout> | null;
     maxWaitTimer: ReturnType<typeof setTimeout> | null;
     lastDispatchedSource: string;
@@ -2960,6 +2950,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       st.liveAbort?.abort();
       st.liveAbort = null;
+      st.liveInFlight = false;
+      st.pendingLiveSource = null;
+      st.pendingLivePayload = null;
     }
     canonTrialRowTransRef.current.clear();
     canonRowTranslateSeqRef.current.clear();
@@ -2970,8 +2963,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!st) {
       st = {
         locked: false,
-        liveSeq: 0,
+        liveInFlight: false,
         liveAbort: null,
+        pendingLiveSource: null,
+        pendingLivePayload: null,
         debounceTimer: null,
         maxWaitTimer: null,
         lastDispatchedSource: "",
@@ -3049,6 +3044,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     trialSt.liveAbort?.abort();
     trialSt.liveAbort = null;
+    trialSt.liveInFlight = false;
+    trialSt.pendingLiveSource = null;
+    trialSt.pendingLivePayload = null;
   }, [getCanonRowTransState, getCanonTrialRowTransState]);
 
   const setCanonIntercallLayoutStacked = useCallback((stacked: boolean) => {
@@ -5380,70 +5378,140 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const rowId = payload.utterance.utterance_id;
     const rowState = getCanonTrialRowTransState(rowId);
-    if (rowState.locked) return;
+    if (rowState.locked && !opts.isFinal) return;
 
     const sourceNow = opts.sourceText.trim();
     if (sourceNow.length < 3) return;
 
-    if (rowState.debounceTimer !== null) {
-      clearTimeout(rowState.debounceTimer);
-      rowState.debounceTimer = null;
-    }
-
     rowState.lastPendingLang = payload.utterance.language;
-    const ac = new AbortController();
-    rowState.liveAbort = ac;
-    const seq = ++rowState.liveSeq;
 
     const pair = langPairRef.current;
     const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
-    const sourceLang = resolveSourceLangForCanon(sourceNow, sonioxHint, pair);
-    const targetLang = targetOppositeInPair(sourceLang, pair);
-
     const eng = canonWsIsolationEngineRef.current;
-    const prevShown = eng?.getRowTranslation(rowId).trim() ?? "";
 
+    const runFinalFetch = async (finalSource: string) => {
+      rowState.pendingLiveSource = null;
+      rowState.pendingLivePayload = null;
+      rowState.liveAbort?.abort();
+      rowState.liveAbort = null;
+      rowState.liveInFlight = false;
+
+      const sourceLang = resolveSourceLangForCanon(finalSource, sonioxHint, pair);
+      const targetLang = targetOppositeInPair(sourceLang, pair);
+
+      try {
+        const tr = await fetchTranslation(
+          finalSource,
+          sourceLang,
+          targetLang,
+          (m) => translationConfigReporterRef.current(m),
+          {
+            isFinal: true,
+            onGlossaryApplied: t => glossaryNotifyRef.current(t),
+            ...(sessionIdRef.current != null && sessionIdRef.current > 0
+              ? { sessionId: sessionIdRef.current }
+              : {}),
+          },
+        );
+        if (tr.dailyLimitReached) {
+          dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+          return;
+        }
+        const next = tr.text.trim();
+        if (!next.length) return;
+        rowState.lastDispatchedSource = finalSource;
+        rowState.lastFinalSource = finalSource;
+        paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
+      } catch {
+        /* network */
+      }
+    };
+
+    if (opts.isFinal) {
+      await runFinalFetch(sourceNow);
+      return;
+    }
+
+    rowState.pendingLiveSource = sourceNow;
+    rowState.pendingLivePayload = payload;
+    if (rowState.liveInFlight) return;
+
+    rowState.liveInFlight = true;
     try {
-      const tr = await fetchTranslation(
-        sourceNow,
-        sourceLang,
-        targetLang,
-        (m) => translationConfigReporterRef.current(m),
-        {
-          isFinal: opts.isFinal,
-          signal: ac.signal,
-          onGlossaryApplied: t => glossaryNotifyRef.current(t),
-          ...(sessionIdRef.current != null && sessionIdRef.current > 0
-            ? { sessionId: sessionIdRef.current }
-            : {}),
-        },
-      );
-      if (rowState.locked || rowState.liveSeq !== seq) return;
-      if (tr.dailyLimitReached) {
-        dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
-        return;
+      while (!rowState.locked) {
+        const pendingSource = rowState.pendingLiveSource;
+        const pendingPayload = rowState.pendingLivePayload ?? payload;
+        if (!pendingSource || pendingSource.length < 3) break;
+        rowState.pendingLiveSource = null;
+        rowState.pendingLivePayload = null;
+
+        const liveSource = pendingSource.trim();
+        const sourceLang = resolveSourceLangForCanon(liveSource, sonioxHint, pair);
+        const targetLang = targetOppositeInPair(sourceLang, pair);
+        const prevShown = eng?.getRowTranslation(rowId).trim() ?? "";
+
+        rowState.liveAbort?.abort();
+        const ac = new AbortController();
+        rowState.liveAbort = ac;
+
+        try {
+          const tr = await fetchTranslation(
+            liveSource,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              isFinal: false,
+              signal: ac.signal,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(sessionIdRef.current != null && sessionIdRef.current > 0
+                ? { sessionId: sessionIdRef.current }
+                : {}),
+            },
+          );
+          if (rowState.locked) break;
+          if (tr.dailyLimitReached) {
+            dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            break;
+          }
+          const next = tr.text.trim();
+          if (!next.length) {
+            if (!rowState.pendingLiveSource) break;
+            continue;
+          }
+          if (
+            prevShown.length > 0 &&
+            shouldRejectLegacyCanonTrialLiveTranslation(
+              prevShown,
+              next,
+              liveSource,
+              rowState.lastDispatchedSource,
+            )
+          ) {
+            if (!rowState.pendingLiveSource) break;
+            continue;
+          }
+          rowState.lastDispatchedSource = liveSource;
+          paintCanonRowTranslationIfAllowed(rowId, next);
+        } catch {
+          /* abort / network — drain pending if any */
+        }
+
+        if (!rowState.pendingLiveSource) break;
       }
-      const next = tr.text.trim();
-      if (!next.length) return;
-      if (
-        !opts.isFinal &&
-        prevShown.length > 0 &&
-        shouldRejectLegacyCanonTrialLiveTranslation(
-          prevShown,
-          next,
-          sourceNow,
-          rowState.lastDispatchedSource,
-        )
-      ) {
-        return;
+    } finally {
+      rowState.liveInFlight = false;
+      rowState.liveAbort = null;
+      if (rowState.pendingLiveSource && !rowState.locked) {
+        const followPayload = rowState.pendingLivePayload ?? payload;
+        const followSource = rowState.pendingLiveSource;
+        rowState.pendingLiveSource = null;
+        rowState.pendingLivePayload = null;
+        void executeCanonTrialRowTranslation(followPayload, {
+          sourceText: followSource,
+          isFinal: false,
+        });
       }
-      rowState.lastDispatchedSource = sourceNow;
-      if (opts.isFinal) {
-        rowState.lastFinalSource = sourceNow;
-      }
-      paintCanonRowTranslationIfAllowed(rowId, next, opts.isFinal ? { force: true } : undefined);
-    } catch {
-      /* abort / network */
     }
   }, [getCanonTrialRowTransState, paintCanonRowTranslationIfAllowed]);
 
