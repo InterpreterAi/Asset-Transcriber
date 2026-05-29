@@ -2884,6 +2884,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** True once a deterministic canon session mounted — snapshots read engine lines until cleared. */
   const canonWsSnapshotFromEngineRef = useRef(false);
   const canonRowTranslateSeqRef = useRef(new Map<string, number>());
+  /** FIFO finals for frozen rows — avoids parallel `/translate` storms when speakers flip fast. */
+  const canonFrozenTranslateQueueRef = useRef<CanonFrozenRowPayload[]>([]);
+  const canonFrozenDrainInFlightRef = useRef(false);
+  /** Latest active-row grow held until frozen backlog drains (legacy canon bridge). */
+  const canonTrialLiveDeferredPayloadRef = useRef<CanonRowDualBufferPayload | null>(null);
   const dispatchCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
   const dispatchCanonStableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonVolatilePulseRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
@@ -2956,6 +2961,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     canonTrialRowTransRef.current.clear();
     canonRowTranslateSeqRef.current.clear();
+    canonFrozenTranslateQueueRef.current = [];
+    canonFrozenDrainInFlightRef.current = false;
+    canonTrialLiveDeferredPayloadRef.current = null;
   }, []);
 
   const getCanonTrialRowTransState = useCallback((rowId: string): CanonTrialRowTranslationState => {
@@ -5175,6 +5183,39 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     onAdminSnapshotBuffersUpdatedRef.current?.();
   }, [getCanonRowTransState, getCanonTrialRowTransState, lockCanonRowTranslation, paintCanonRowTranslationIfAllowed]);
 
+  const drainCanonFrozenTranslateQueue = useCallback(async () => {
+    if (canonFrozenDrainInFlightRef.current) return;
+    canonFrozenDrainInFlightRef.current = true;
+    try {
+      while (canonFrozenTranslateQueueRef.current.length > 0) {
+        const payload = canonFrozenTranslateQueueRef.current.shift()!;
+        await dispatchCanonFrozenRowTranslation(payload);
+      }
+    } finally {
+      canonFrozenDrainInFlightRef.current = false;
+      if (canonFrozenTranslateQueueRef.current.length > 0) {
+        void drainCanonFrozenTranslateQueue();
+        return;
+      }
+      const deferred = canonTrialLiveDeferredPayloadRef.current;
+      if (deferred) {
+        canonTrialLiveDeferredPayloadRef.current = null;
+        dispatchCanonTrialLiveGrowRef.current(deferred);
+      }
+    }
+  }, [dispatchCanonFrozenRowTranslation]);
+
+  const enqueueCanonFrozenRowTranslation = useCallback((payload: CanonFrozenRowPayload) => {
+    const rowId = payload.utterance.utterance_id;
+    const alreadyQueued = canonFrozenTranslateQueueRef.current.some(
+      item => item.utterance.utterance_id === rowId,
+    );
+    if (!alreadyQueued) {
+      canonFrozenTranslateQueueRef.current.push(payload);
+    }
+    void drainCanonFrozenTranslateQueue();
+  }, [drainCanonFrozenTranslateQueue]);
+
   const executeCanonDualBufferTranslation = useCallback(async (
     payload: CanonRowDualBufferPayload,
     opts: {
@@ -5520,6 +5561,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!canonWsIsolationGateNow()) return;
     if (!isRecRef.current) return;
 
+    const frozenBacklog =
+      canonFrozenTranslateQueueRef.current.length > 0 || canonFrozenDrainInFlightRef.current;
+    if (frozenBacklog) {
+      canonTrialLiveDeferredPayloadRef.current = payload;
+      return;
+    }
+
     const rowId = payload.utterance.utterance_id;
     const st = getCanonTrialRowTransState(rowId);
     if (st.locked) return;
@@ -5595,9 +5643,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   useEffect(() => {
     dispatchCanonFrozenRowTranslationRef.current = (payload) => {
-      void dispatchCanonFrozenRowTranslation(payload);
+      enqueueCanonFrozenRowTranslation(payload);
     };
-  }, [dispatchCanonFrozenRowTranslation]);
+  }, [enqueueCanonFrozenRowTranslation]);
 
   useEffect(() => {
     dispatchCanonStableGrowRef.current = (payload) => {
