@@ -15,6 +15,10 @@ import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
+import {
+  readMorsyBasicCleanTranslationExperiment,
+  writeMorsyBasicCleanTranslationExperiment,
+} from "@/experiments/basic-morsy-urgent/cleanTranslation/gate";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -279,6 +283,13 @@ export default function WorkspaceDefault() {
    */
   const pt = (user?.planType ?? "").toLowerCase();
   const usesCanonAppendWsStt = planUsesCanonAppendWsStt(pt);
+  const isMorsyUrgentWorkspace = pt === "morsy-urgent";
+  const [morsyCleanTranslationExperiment, setMorsyCleanTranslationExperiment] = useState(
+    () => readMorsyBasicCleanTranslationExperiment(),
+  );
+  useEffect(() => {
+    writeMorsyBasicCleanTranslationExperiment(morsyCleanTranslationExperiment);
+  }, [morsyCleanTranslationExperiment]);
   const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
     ? "morsy-intercall-isolated-experiment"
     : "morsy-urgent-cbf";
@@ -318,6 +329,8 @@ export default function WorkspaceDefault() {
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && usesCanonAppendWsStt,
     experimentMorsyUrgentIntercallOrchestration: false,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
+    experimentMorsyBasicCleanTranslation:
+      pt === "morsy-urgent" && morsyCleanTranslationExperiment,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -455,7 +468,6 @@ export default function WorkspaceDefault() {
   const [notesFontPx, setNotesFontPx] = useState<MorsyFontPx>(() =>
     readMorsyFontPx(MORSY_NOTES_FONT_LS, 18),
   );
-  const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showMicHint, setShowMicHint] = useState(false);
@@ -2340,6 +2352,29 @@ export default function WorkspaceDefault() {
                       <span className="hidden sm:inline">Stacked</span>
                     </>
                   )}
+                </button>
+              )}
+              {isMorsyUrgentWorkspace && (
+                <button
+                  type="button"
+                  disabled={transcription.isRecording}
+                  onClick={() => setMorsyCleanTranslationExperiment(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
+                    morsyCleanTranslationExperiment
+                      ? wsDark
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                        : "border-emerald-600/40 bg-emerald-50 text-emerald-800"
+                      : wsDark
+                        ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                        : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  title="Compare production Morsy translation vs minimal clean OpenAI experiment"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {morsyCleanTranslationExperiment ? "Clean MT on" : "Clean MT"}
+                  </span>
                 </button>
               )}
             </div>

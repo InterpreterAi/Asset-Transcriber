@@ -39,6 +39,7 @@ import {
   restoreNumberPlaceholders,
   numberPlaceholderPromptRule,
 } from "../lib/number-placeholders.js";
+import { runMorsyBasicCleanTranslation } from "../lib/morsy-basic-clean-translate.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
@@ -1599,6 +1600,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     terminologyMode: rawTerminologyMode,
     experimentalBasicMorsyOpenAiOnly: rawExperimentalMorsyOpenAiOnly,
     experimentalMorsyIntercallEmbeddedEnglishPrompt: rawExperimentalMorsyIntercallEmbeddedEnglish,
+    experimentalMorsyBasicCleanTranslation: rawExperimentalMorsyBasicClean,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1617,11 +1619,14 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalBasicMorsyOpenAiOnly?: unknown;
     /** Intercall-only: enable platinum-style LIVE embedded-English tightening for Basic · Morsy Urgent. */
     experimentalMorsyIntercallEmbeddedEnglishPrompt?: unknown;
+    /** Basic · Morsy Urgent only: minimal OpenAI path (no glossary/repair/retries). */
+    experimentalMorsyBasicCleanTranslation?: unknown;
   };
   const experimentalBasicMorsyOpenAiOnly = Boolean(rawExperimentalMorsyOpenAiOnly);
   const experimentalMorsyIntercallEmbeddedEnglishPrompt = Boolean(
     rawExperimentalMorsyIntercallEmbeddedEnglish,
   );
+  const experimentalMorsyBasicCleanTranslation = Boolean(rawExperimentalMorsyBasicClean);
   const basicMorsyOpenAiExperimentServerEnabled =
     String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
 
@@ -1813,6 +1818,67 @@ router.post("/translate", requireAuth, async (req, res) => {
       out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
     }
     res.json({ translated: out, appliedGlossaryTerms: applied });
+    return;
+  }
+
+  // ── Basic · Morsy Urgent — clean translation experiment (isolated minimal path) ──
+  const morsyBasicCleanApplies =
+    experimentalMorsyBasicCleanTranslation && planLower === "morsy-urgent";
+  if (morsyBasicCleanApplies) {
+    if (!isOpenAiConfigured()) {
+      res.status(503).json({
+        error:
+          "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
+        code: "TRANSLATION_NOT_CONFIGURED",
+      });
+      return;
+    }
+    if (srcCode === tgtCode) {
+      res.json({ translated: text.trim(), appliedGlossaryTerms: [] });
+      return;
+    }
+    try {
+      const clean = await runMorsyBasicCleanTranslation({
+        text,
+        srcName,
+        tgtName,
+      });
+      const callCost = +(
+        clean.promptTokens * OPENAI_INPUT_COST_PER_TOKEN +
+        clean.completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
+      ).toFixed(8);
+      void db
+        .update(sessionsTable)
+        .set({
+          translationTokens: sql`COALESCE(translation_tokens, 0) + ${clean.promptTokens + clean.completionTokens}`,
+          translationCost: sql`COALESCE(translation_cost, 0) + ${callCost}`,
+        })
+        .where(and(eq(sessionsTable.userId, userIdEarly), isNull(sessionsTable.endedAt)));
+      logger.info(
+        {
+          msg: "morsy_basic_clean_translation",
+          userId: userIdEarly,
+          sessionId: diagSessionId,
+          srcLang,
+          tgtLang,
+          textLen: text.length,
+          outLen: clean.text.length,
+        },
+        "POST /translate clean experiment",
+      );
+      res.json({
+        translated: clean.text,
+        appliedGlossaryTerms: [],
+        translationEngine: "openai",
+      });
+    } catch (err: unknown) {
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      logger.error({ err, srcLang, tgtLang }, "Morsy basic clean translation failed");
+      res.status(isTimeout ? 503 : 500).json({
+        error: isTimeout ? "Translation timed out — please retry" : "Translation failed",
+        code: isTimeout ? undefined : "MORSY_CLEAN_TRANSLATION_FAILED",
+      });
+    }
     return;
   }
 

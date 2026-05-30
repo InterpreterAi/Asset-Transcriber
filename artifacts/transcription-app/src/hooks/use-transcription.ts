@@ -1270,6 +1270,10 @@ type TranslateApiOptions = {
    * Ignored unless effective plan is morsy-urgent (server validates).
    */
   experimentalMorsyIntercallEmbeddedEnglishPrompt?: boolean;
+  /**
+   * Basic · Morsy Urgent only: minimal OpenAI translation experiment (no glossary/repair/retries).
+   */
+  experimentalMorsyBasicCleanTranslation?: boolean;
 };
 
 async function translateViaPrimaryApi(
@@ -1310,6 +1314,7 @@ async function translateViaPrimaryApi(
       externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
     }
     try {
+      const cleanExperiment = options?.experimentalMorsyBasicCleanTranslation === true;
       const terminologyMode = readTerminologyMode() === "hybrid" ? "hybrid" : "full";
       const bodyObj = {
         text,
@@ -1317,15 +1322,18 @@ async function translateViaPrimaryApi(
         tgtLang:              targetLang,
         streamingDelta:       Boolean(options?.streamingDelta),
         isFinal:              Boolean(options?.isFinal),
-        glossaryStrictMode:   readGlossaryStrictEnabled(),
-        terminologyMode,
+        glossaryStrictMode:   cleanExperiment ? false : readGlossaryStrictEnabled(),
+        terminologyMode:      cleanExperiment ? "full" : terminologyMode,
         ...(options?.sessionId != null && options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
         ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
         ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
-        ...(options?.experimentalBasicMorsyOpenAiOnly === true
+        ...(cleanExperiment
+          ? { experimentalMorsyBasicCleanTranslation: true as const }
+          : {}),
+        ...(!cleanExperiment && options?.experimentalBasicMorsyOpenAiOnly === true
           ? { experimentalBasicMorsyOpenAiOnly: true as const }
           : {}),
-        ...(options?.experimentalMorsyIntercallEmbeddedEnglishPrompt === true
+        ...(!cleanExperiment && options?.experimentalMorsyIntercallEmbeddedEnglishPrompt === true
           ? { experimentalMorsyIntercallEmbeddedEnglishPrompt: true as const }
           : {}),
       };
@@ -2769,6 +2777,8 @@ export type UseTranscriptionOptions = {
    * for operational correlation. Translation access no longer depends on this.
    */
   morsyUrgentTranslateAttachOpenAiExperiment?: boolean;
+  /** Basic · Morsy Urgent only: isolated minimal OpenAI translation experiment. */
+  experimentMorsyBasicCleanTranslation?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -2843,6 +2853,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   useEffect(() => {
     morsyUrgentAttachOpenAiExperimentRef.current = options?.morsyUrgentTranslateAttachOpenAiExperiment ?? false;
   }, [options?.morsyUrgentTranslateAttachOpenAiExperiment]);
+  const experimentMorsyBasicCleanTranslationRef = useRef(
+    options?.experimentMorsyBasicCleanTranslation ?? false,
+  );
+  useEffect(() => {
+    experimentMorsyBasicCleanTranslationRef.current =
+      options?.experimentMorsyBasicCleanTranslation ?? false;
+  }, [options?.experimentMorsyBasicCleanTranslation]);
+
+  function morsyUsesCleanTranslationExperiment(): boolean {
+    return (
+      isBasicMorsyUrgentPlan(planTypeRef.current) &&
+      experimentMorsyBasicCleanTranslationRef.current
+    );
+  }
 
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
@@ -5141,12 +5165,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const sourceLang = resolveSourceLangForCanon(sourceNorm, sonioxHint, pair);
     const targetLang = targetOppositeInPair(sourceLang, pair);
 
+    const morsyCleanExperimentOpts = morsyUsesCleanTranslationExperiment()
+      ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
+      : {};
+
     const basicMorsyOpenAiExperimentOpts =
+      !morsyUsesCleanTranslationExperiment() &&
       morsyUrgentAttachOpenAiExperimentRef.current
         ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
         : {};
 
     const morsyIntercallEmbeddedEnglishPromptOpts =
+      !morsyUsesCleanTranslationExperiment() &&
       experimentMorsyUrgentIntercallRef.current
         ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
         : {};
@@ -5164,6 +5194,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
             ? { sessionId: sessionIdRef.current }
             : {}),
+          ...morsyCleanExperimentOpts,
           ...basicMorsyOpenAiExperimentOpts,
           ...morsyIntercallEmbeddedEnglishPromptOpts,
         },
@@ -5210,7 +5241,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
     if (translated.length > 0) {
-      if (isBasicMorsyUrgentPlan(planTypeRef.current)) {
+      if (isBasicMorsyUrgentPlan(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
         paintMorsyCanonFinalRowTranslation(rowId, sourceNorm, translated);
       } else {
         paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
@@ -5446,6 +5477,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const morsyUrgentCanonFetchOpts = () => {
       if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return {};
+      if (morsyUsesCleanTranslationExperiment()) {
+        return { experimentalMorsyBasicCleanTranslation: true as const };
+      }
       return {
         ...(morsyUrgentAttachOpenAiExperimentRef.current
           ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
@@ -5489,7 +5523,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!next.length) return;
         rowState.lastDispatchedSource = finalSource;
         rowState.lastFinalSource = finalSource;
-        if (isBasicMorsyUrgentPlan(planTypeRef.current)) {
+        if (isBasicMorsyUrgentPlan(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
           paintMorsyCanonFinalRowTranslation(rowId, finalSource, next);
         } else {
           paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
@@ -5524,6 +5558,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const dualSnap = eng?.getRowDualBuffer(rowId);
         const stableText = (dualSnap?.stableText ?? pendingPayload.stableText).trim();
         const morsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current);
+        const morsyClean = morsyUsesCleanTranslationExperiment();
+        const morsyPrefixLive = morsyUrgent && !morsyClean;
 
         rowState.liveAbort?.abort();
         const ac = new AbortController();
@@ -5555,7 +5591,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!rowState.pendingLiveSource) break;
             continue;
           }
-          const paintCandidate = morsyUrgent
+          const paintCandidate = morsyPrefixLive
             ? applyMorsyCanonLiveTranslationPaint(
                 {
                   lockedStableSource: rowState.lockedStableSource,
@@ -5579,7 +5615,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             continue;
           }
           rowState.lastDispatchedSource = liveSource;
-          if (morsyUrgent) {
+          if (morsyPrefixLive) {
             paintMorsyCanonLiveRowTranslation(rowId, stableText, liveSource, next);
           } else {
             paintCanonRowTranslationIfAllowed(rowId, next);
