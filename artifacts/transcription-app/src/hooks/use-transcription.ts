@@ -98,8 +98,8 @@ import {
   finalizeMorsyCanonTranslationPrefix,
 } from "@/hooks/morsy-urgent-canon-translation-prefix";
 import {
-  advanceCommittedSource,
   appendTranslationChunk,
+  advanceCommittedSource,
   CHUNK_V2_ACCUM_TIMEOUT_MS,
   CHUNK_V2_WATCHDOG_FLUSH_MS,
   countChunkWords,
@@ -110,6 +110,7 @@ import {
   validateChunkV2Invariants,
   type ChunkV2TranslateTrigger,
 } from "@/hooks/morsy-urgent-chunk-translation-v2";
+import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
   emitNfEntityTrace,
@@ -3236,7 +3237,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const composed = committed && live ? `${committed} ${live}` : committed || live;
     if (!composed.length && current.length) return;
     if (composed === current) return;
-    eng.setRowTranslationPrefixLive(rowId, committed, live);
+    const rtlBidiPaint =
+      morsyUsesChunkTranslationV2Experiment() && shouldMorsyChunkV2BidiPaint(composed);
+    eng.setRowTranslationPrefixLive(rowId, committed, live, { rtlBidiPaint });
   }, [getCanonTrialRowTransState]);
 
   const lockCanonRowTranslation = useCallback((rowId: string) => {
