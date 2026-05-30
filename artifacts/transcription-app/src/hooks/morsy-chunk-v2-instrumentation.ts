@@ -122,6 +122,39 @@ export function logChunkV2Watchdog(
   console.info(`[${event}]`, args);
 }
 
+export function logChunkV2Request(args: {
+  requestId: string;
+  rowId: string;
+  trigger: string;
+  mode: "stable" | "live" | "endpoint";
+  sourceText: string;
+  stableText: string;
+  committedSource: string;
+  pendingDelta: string;
+}): void {
+  const pendingLength = args.pendingDelta.length;
+  const sourceLength = args.sourceText.length;
+  console.info("[chunk_v2_request]", {
+    requestId: args.requestId,
+    rowId: args.rowId,
+    trigger: args.trigger,
+    mode: args.mode,
+    stableLength: args.stableText.length,
+    committedLength: args.committedSource.length,
+    pendingLength,
+    sourceLength,
+    sourceWords: args.sourceText.trim().split(/\s+/).filter(Boolean).length,
+    tinySource: sourceLength > 0 && sourceLength <= 3,
+    tinyPending: pendingLength > 0 && pendingLength <= 3,
+    stableText: snippet(args.stableText, 160),
+    committedSource: snippet(args.committedSource, 160),
+    pendingDelta: snippet(args.pendingDelta, 160),
+    pendingText: snippet(args.pendingDelta, 160),
+    sourceText: snippet(args.sourceText, 160),
+    sourceTextRaw: args.sourceText,
+  });
+}
+
 export function logChunkV2RawModelResponse(args: {
   requestId: string;
   rowId: string;
