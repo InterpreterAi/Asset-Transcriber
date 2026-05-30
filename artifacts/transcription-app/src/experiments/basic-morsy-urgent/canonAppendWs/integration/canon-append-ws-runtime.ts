@@ -13,6 +13,7 @@ import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
 import { applyManualStructuralFreeze } from "../reducer/row-lifecycle";
 import { maybeCloseRowAfterEndpointQuiet, reduceCanonAppendWs } from "../reducer/reducer";
+import { canonTokensFromFrame } from "../reducer/soniox-frame-split";
 import {
   CanonAppendWsDomWriter,
   type CanonAppendWsLayoutMode,
@@ -53,7 +54,8 @@ export type CanonRowDualBufferPayload = {
 
 export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
-  onPcmFrame?: () => void;
+  /** Fired when Soniox returns non-empty speech tokens (not endpoint markers). */
+  onSpeechToken?: () => void;
   /** Stable buffer grew (bold commits) — primary translate trigger. */
   onActiveRowStableGrow?: (payload: CanonRowDualBufferPayload) => void;
   /** Volatile tail pulse while grey NF grows without new commits. */
@@ -297,6 +299,10 @@ export class CanonAppendWsIsolatedRuntime {
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
 
+    if (canonTokensFromFrame(frame.tokens).length > 0) {
+      this.hooks.onSpeechToken?.();
+    }
+
     this.projections.sync(this.state);
     emitDebugEvent({
       kind: "frame",
@@ -328,7 +334,6 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   sendPcm(chunk: ArrayBuffer): void {
-    this.hooks.onPcmFrame?.();
     const wall = Date.now();
     const frozenBefore = this.state.finalizedUtterances.length;
     this.state = maybeCloseRowAfterEndpointQuiet(this.state, wall);

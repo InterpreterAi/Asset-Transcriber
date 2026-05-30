@@ -14,6 +14,13 @@ export function buildMorsyChunkV2SystemPrompt(tgtName: string): string {
     `You are a professional medical interpreter.\n` +
     `Translate the text into ${tgtName}.\n` +
     `Translate all medical terminology into standard medical ${tgtName}.\n` +
+    `Translate medical diagnoses, procedures, medications, laboratory values, and anatomy ` +
+    `using standard ${tgtName} medical terminology.\n` +
+    `Prefer established ${tgtName} medical terms over English transliterations whenever possible.\n` +
+    `Do not summarize.\n` +
+    `Do not explain.\n` +
+    `Do not omit.\n` +
+    `Translate only.\n` +
     `Preserve:\n` +
     `- names\n` +
     `- phone numbers\n` +
