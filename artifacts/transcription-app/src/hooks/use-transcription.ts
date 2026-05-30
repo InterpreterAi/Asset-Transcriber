@@ -114,6 +114,7 @@ import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render"
 import {
   logChunkV2ExecuteGate,
   logChunkV2RawModelResponse,
+  logChunkV2Request,
   logChunkV2VisualRegression,
   logChunkV2Watchdog,
   nextChunkV2RequestId,
@@ -5411,6 +5412,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const prevCommittedTranslation = trialSt.committedTranslation;
       if (delta.length > 0) {
         const fetchStartedAt = Date.now();
+        const requestId = nextChunkV2RequestId();
+        logChunkV2Request({
+          requestId,
+          rowId,
+          trigger: "endpoint",
+          mode: "endpoint",
+          sourceText: delta,
+          stableText: sourceNorm,
+          committedSource: trialSt.committedSource,
+          pendingDelta: delta,
+        });
         const tr = await fetchTranslation(
           delta,
           sourceLang,
@@ -5432,7 +5444,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         const translated = tr.text.trim();
         logChunkV2RawModelResponse({
-          requestId: nextChunkV2RequestId(),
+          requestId,
           rowId,
           trigger: "endpoint",
           sourceText: delta,
@@ -6148,6 +6160,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const targetLang = targetOppositeInPair(sourceLang, pair);
       const fetchStartedAt = Date.now();
       const requestId = nextChunkV2RequestId();
+      const pendingDelta = extractNewStableChunk(stableText, rowState.committedSource);
+      logChunkV2Request({
+        requestId,
+        rowId,
+        trigger: selection.trigger,
+        mode: opts.mode,
+        sourceText: sourceToTranslate,
+        stableText,
+        committedSource: rowState.committedSource,
+        pendingDelta,
+      });
 
       try {
         const tr = await fetchTranslation(
@@ -6323,6 +6346,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const targetLang = targetOppositeInPair(sourceLang, pair);
             const fetchStartedAt = Date.now();
             const requestId = nextChunkV2RequestId();
+            logChunkV2Request({
+              requestId,
+              rowId,
+              trigger: "live_preview",
+              mode: "live",
+              sourceText: liveTail,
+              stableText,
+              committedSource: rowState.committedSource,
+              pendingDelta: extractNewStableChunk(stableText, rowState.committedSource),
+            });
             try {
               const tr = await fetchTranslation(
                 liveTail,
