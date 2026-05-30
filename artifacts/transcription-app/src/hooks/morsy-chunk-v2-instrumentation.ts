@@ -193,3 +193,47 @@ export function logChunkV2ExecuteGate(args: {
   if (!args.rejected) return;
   console.info("[chunk_v2_execute_rejected]", args);
 }
+
+/** Logged immediately before frozen-row early-return decision (Rodriguez final-silence probe). */
+export function logChunkV2FrozenGate(args: {
+  rowId: string;
+  stableLength: number;
+  committedSourceLength: number;
+  pendingDeltaLength: number;
+  lastFinalSourceLength: number;
+  sourceNormLength: number;
+  existingTranslationLength: number;
+  /** Would the legacy `lastFinalSource === sourceNorm` guard have skipped translation? */
+  legacyEarlyReturnMatch: boolean;
+  pendingDelta: string;
+  chunkV2: boolean;
+}): void {
+  const rootCauseHit =
+    args.legacyEarlyReturnMatch &&
+    args.pendingDeltaLength > 0 &&
+    args.existingTranslationLength >= 3;
+  console.info("[chunk_v2_frozen_gate]", {
+    rowId: args.rowId,
+    chunkV2: args.chunkV2,
+    stableLength: args.stableLength,
+    committedSourceLength: args.committedSourceLength,
+    pendingDeltaLength: args.pendingDeltaLength,
+    lastFinalSourceLength: args.lastFinalSourceLength,
+    sourceNormLength: args.sourceNormLength,
+    existingTranslationLength: args.existingTranslationLength,
+    legacyEarlyReturnMatch: args.legacyEarlyReturnMatch,
+    rootCauseHit,
+    pendingDelta: snippet(args.pendingDelta, 160),
+  });
+  if (rootCauseHit) {
+    console.warn("[chunk_v2_frozen_root_cause]", {
+      rowId: args.rowId,
+      message:
+        "legacy lastFinalSource guard would skip translation while pendingDeltaLength > 0",
+      pendingDeltaLength: args.pendingDeltaLength,
+      committedSourceLength: args.committedSourceLength,
+      sourceNormLength: args.sourceNormLength,
+      lastFinalSourceLength: args.lastFinalSourceLength,
+    });
+  }
+}
