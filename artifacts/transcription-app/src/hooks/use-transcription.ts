@@ -93,6 +93,10 @@ import {
   canonVisibleTraceStagingTailPeek,
   emitMorsyUrgentCanonVisibleTrace,
 } from "@/hooks/morsy-urgent-canon-visible-trace";
+import {
+  applyMorsyCanonLiveTranslationPaint,
+  finalizeMorsyCanonTranslationPrefix,
+} from "@/hooks/morsy-urgent-canon-translation-prefix";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
   emitNfEntityTrace,
@@ -2921,6 +2925,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     earlyHintSent: boolean;
     lastFinalSource: string;
     lastPendingLang?: string;
+    /** Basic · Morsy Urgent: Soniox finals covered by locked translation prefix. */
+    lockedStableSource: string;
+    lockedTranslationPrefix: string;
   };
   const canonTrialRowTransRef = useRef(new Map<string, CanonTrialRowTranslationState>());
 
@@ -2972,6 +2979,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         earlyHintSent: false,
         lastFinalSource: "",
         lastPendingLang: undefined,
+        lockedStableSource: "",
+        lockedTranslationPrefix: "",
       };
       canonTrialRowTransRef.current.set(rowId, st);
     }
@@ -3016,6 +3025,51 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (trimmed === current) return;
     eng.setRowTranslation(rowId, trimmed);
   }, [getCanonRowTransState, getCanonTrialRowTransState]);
+
+  const paintMorsyCanonLiveRowTranslation = useCallback((
+    rowId: string,
+    stableSource: string,
+    visibleSource: string,
+    fullTranslation: string,
+  ) => {
+    const trialSt = getCanonTrialRowTransState(rowId);
+    if (trialSt.locked) return;
+    const eng = canonWsIsolationEngineRef.current;
+    if (!eng) return;
+    const applied = applyMorsyCanonLiveTranslationPaint(
+      {
+        lockedStableSource: trialSt.lockedStableSource,
+        lockedTranslationPrefix: trialSt.lockedTranslationPrefix,
+      },
+      stableSource,
+      visibleSource,
+      fullTranslation,
+    );
+    trialSt.lockedStableSource = applied.prefixState.lockedStableSource;
+    trialSt.lockedTranslationPrefix = applied.prefixState.lockedTranslationPrefix;
+    const current = eng.getRowTranslation(rowId).trim();
+    if (!applied.composed.length && current.length) return;
+    if (applied.composed === current) return;
+    eng.setRowTranslationPrefixLive(rowId, applied.locked, applied.live);
+  }, [getCanonTrialRowTransState]);
+
+  const paintMorsyCanonFinalRowTranslation = useCallback((
+    rowId: string,
+    finalSource: string,
+    finalTranslation: string,
+  ) => {
+    const trialSt = getCanonTrialRowTransState(rowId);
+    const trimmed = finalTranslation.trim();
+    const eng = canonWsIsolationEngineRef.current;
+    if (!eng) return;
+    const current = eng.getRowTranslation(rowId).trim();
+    if (!trimmed.length && current.length) return;
+    if (trimmed === current) return;
+    const finalized = finalizeMorsyCanonTranslationPrefix(finalSource, trimmed);
+    trialSt.lockedStableSource = finalized.lockedStableSource;
+    trialSt.lockedTranslationPrefix = finalized.lockedTranslationPrefix;
+    eng.setRowTranslation(rowId, trimmed);
+  }, [getCanonTrialRowTransState]);
 
   const lockCanonRowTranslation = useCallback((rowId: string) => {
     const st = getCanonRowTransState(rowId);
@@ -5156,7 +5210,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
     if (translated.length > 0) {
-      paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
+      if (isBasicMorsyUrgentPlan(planTypeRef.current)) {
+        paintMorsyCanonFinalRowTranslation(rowId, sourceNorm, translated);
+      } else {
+        paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
+      }
       st.lastFinalSource = sourceNorm;
       st.lastStableDispatched = sourceNorm;
       st.lastVolatileDispatched = sourceNorm;
@@ -5164,7 +5222,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       trialSt.lastDispatchedSource = sourceNorm;
     }
     onAdminSnapshotBuffersUpdatedRef.current?.();
-  }, [getCanonRowTransState, getCanonTrialRowTransState, lockCanonRowTranslation, paintCanonRowTranslationIfAllowed]);
+  }, [
+    getCanonRowTransState,
+    getCanonTrialRowTransState,
+    lockCanonRowTranslation,
+    paintCanonRowTranslationIfAllowed,
+    paintMorsyCanonFinalRowTranslation,
+  ]);
 
   const executeCanonDualBufferTranslation = useCallback(async (
     payload: CanonRowDualBufferPayload,
@@ -5425,7 +5489,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (!next.length) return;
         rowState.lastDispatchedSource = finalSource;
         rowState.lastFinalSource = finalSource;
-        paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
+        if (isBasicMorsyUrgentPlan(planTypeRef.current)) {
+          paintMorsyCanonFinalRowTranslation(rowId, finalSource, next);
+        } else {
+          paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
+        }
       } catch {
         /* network */
       }
@@ -5453,6 +5521,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const sourceLang = resolveSourceLangForCanon(liveSource, sonioxHint, pair);
         const targetLang = targetOppositeInPair(sourceLang, pair);
         const prevShown = eng?.getRowTranslation(rowId).trim() ?? "";
+        const dualSnap = eng?.getRowDualBuffer(rowId);
+        const stableText = (dualSnap?.stableText ?? pendingPayload.stableText).trim();
+        const morsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current);
 
         rowState.liveAbort?.abort();
         const ac = new AbortController();
@@ -5484,11 +5555,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!rowState.pendingLiveSource) break;
             continue;
           }
+          const paintCandidate = morsyUrgent
+            ? applyMorsyCanonLiveTranslationPaint(
+                {
+                  lockedStableSource: rowState.lockedStableSource,
+                  lockedTranslationPrefix: rowState.lockedTranslationPrefix,
+                },
+                stableText,
+                liveSource,
+                next,
+              ).composed
+            : next;
           if (
             prevShown.length > 0 &&
             shouldRejectLegacyCanonTrialLiveTranslation(
               prevShown,
-              next,
+              paintCandidate,
               liveSource,
               rowState.lastDispatchedSource,
             )
@@ -5497,7 +5579,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             continue;
           }
           rowState.lastDispatchedSource = liveSource;
-          paintCanonRowTranslationIfAllowed(rowId, next);
+          if (morsyUrgent) {
+            paintMorsyCanonLiveRowTranslation(rowId, stableText, liveSource, next);
+          } else {
+            paintCanonRowTranslationIfAllowed(rowId, next);
+          }
         } catch {
           /* abort / network — drain pending if any */
         }
@@ -5518,7 +5604,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         });
       }
     }
-  }, [getCanonTrialRowTransState, paintCanonRowTranslationIfAllowed]);
+  }, [
+    getCanonTrialRowTransState,
+    paintCanonRowTranslationIfAllowed,
+    paintMorsyCanonLiveRowTranslation,
+    paintMorsyCanonFinalRowTranslation,
+  ]);
 
   const dispatchCanonTrialLiveGrow = useCallback((payload: CanonRowDualBufferPayload) => {
     if (!translationEnabledRef.current) return;
