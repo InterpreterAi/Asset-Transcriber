@@ -113,6 +113,7 @@ import {
 import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render";
 import {
   logChunkV2ExecuteGate,
+  logChunkV2FrozenGate,
   logChunkV2RawModelResponse,
   logChunkV2Request,
   logChunkV2VisualRegression,
@@ -5393,7 +5394,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const lastFinalSource = planUsesLegacyCanonTranslationBridge(planTypeRef.current)
       ? trialSt.lastFinalSource
       : st.lastFinalSource;
-    if (lastFinalSource === sourceNorm && existing.length >= 3) {
+    const chunkV2 = morsyUsesChunkTranslationV2Experiment();
+    const pendingDelta = chunkV2
+      ? extractNewStableChunk(sourceNorm, trialSt.committedSource).trim()
+      : "";
+    logChunkV2FrozenGate({
+      rowId,
+      stableLength: sourceNorm.length,
+      committedSourceLength: trialSt.committedSource.length,
+      pendingDeltaLength: pendingDelta.length,
+      lastFinalSourceLength: lastFinalSource.length,
+      sourceNormLength: sourceNorm.length,
+      existingTranslationLength: existing.length,
+      legacyEarlyReturnMatch: lastFinalSource === sourceNorm,
+      pendingDelta,
+      chunkV2,
+    });
+    const skipFrozenTranslation = chunkV2
+      ? pendingDelta.length === 0 && existing.length >= 3
+      : lastFinalSource === sourceNorm && existing.length >= 3;
+    if (skipFrozenTranslation) {
       onAdminSnapshotBuffersUpdatedRef.current?.();
       return;
     }
