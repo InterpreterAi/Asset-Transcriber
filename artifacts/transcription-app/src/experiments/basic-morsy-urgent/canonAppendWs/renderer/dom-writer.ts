@@ -49,6 +49,12 @@ export class CanonAppendWsDomWriter {
 
   private readonly translationByRowId = new Map<string, string>();
 
+  /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
+  private readonly translationPrefixLiveByRowId = new Map<
+    string,
+    { locked: string; live: string }
+  >();
+
   setLayoutMode(mode: CanonAppendWsLayoutMode): void {
     if (this.layoutMode === mode) return;
     this.layoutMode = mode;
@@ -59,9 +65,23 @@ export class CanonAppendWsDomWriter {
   }
 
   setRowTranslation(rowId: string, text: string): void {
+    this.translationPrefixLiveByRowId.delete(rowId);
     this.translationByRowId.set(rowId, text);
     const handles = this.byRowId.get(rowId);
     if (handles) this.paintTranslation(handles);
+  }
+
+  /** Locked stable prefix (DOM frozen) + live tail (updated each interim response). */
+  setRowTranslationPrefixLive(rowId: string, locked: string, live: string): void {
+    const lockedTrim = locked.trim();
+    const liveTrim = live.trim();
+    const composed =
+      lockedTrim && liveTrim ? `${lockedTrim} ${liveTrim}` : lockedTrim || liveTrim;
+    this.translationByRowId.set(rowId, composed);
+    const handles = this.byRowId.get(rowId);
+    const prev = this.translationPrefixLiveByRowId.get(rowId);
+    this.translationPrefixLiveByRowId.set(rowId, { locked: lockedTrim, live: liveTrim });
+    if (handles) this.paintTranslationPrefixLive(handles, prev);
   }
 
   getRowTranslation(rowId: string): string {
@@ -82,6 +102,40 @@ export class CanonAppendWsDomWriter {
     } else {
       handles.translationEl.textContent = text;
     }
+  }
+
+  private translationPartEls(
+    translationEl: HTMLElement,
+  ): { lockedEl: HTMLSpanElement; liveEl: HTMLSpanElement } {
+    let lockedEl = translationEl.querySelector<HTMLSpanElement>(`[data-caw-part="locked"]`);
+    let liveEl = translationEl.querySelector<HTMLSpanElement>(`[data-caw-part="live"]`);
+    if (!lockedEl || !liveEl) {
+      translationEl.replaceChildren();
+      lockedEl = translationEl.ownerDocument.createElement("span");
+      lockedEl.dataset.cawPart = "locked";
+      liveEl = translationEl.ownerDocument.createElement("span");
+      liveEl.dataset.cawPart = "live";
+      translationEl.appendChild(lockedEl);
+      translationEl.appendChild(liveEl);
+    }
+    return { lockedEl, liveEl };
+  }
+
+  private paintTranslationPrefixLive(
+    handles: EngineDomRowHandles,
+    prev: { locked: string; live: string } | undefined,
+  ): void {
+    const rowId = handles.row.dataset.cawSegment ?? "";
+    const parts = this.translationPrefixLiveByRowId.get(rowId);
+    if (!parts) {
+      this.paintTranslation(handles);
+      return;
+    }
+    const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
+    if (prev?.locked !== parts.locked) {
+      lockedEl.textContent = parts.locked;
+    }
+    liveEl.textContent = parts.live;
   }
 
   private buildOrigCard(doc: Document, proj: RowProjection): {
@@ -189,7 +243,11 @@ export class CanonAppendWsDomWriter {
 
       renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
       renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
-      this.paintTranslation(handles);
+      if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
+        this.paintTranslationPrefixLive(handles, undefined);
+      } else {
+        this.paintTranslation(handles);
+      }
     }
 
     for (const [id, handles] of [...this.byRowId]) {
@@ -197,6 +255,7 @@ export class CanonAppendWsDomWriter {
         handles.row.remove();
         this.byRowId.delete(id);
         this.translationByRowId.delete(id);
+        this.translationPrefixLiveByRowId.delete(id);
       }
     }
   }
@@ -211,6 +270,7 @@ export class CanonAppendWsDomWriter {
     container.replaceChildren();
     this.byRowId.clear();
     this.translationByRowId.clear();
+    this.translationPrefixLiveByRowId.clear();
   }
 }
 
