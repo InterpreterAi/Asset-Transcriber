@@ -111,6 +111,13 @@ import {
   type ChunkV2TranslateTrigger,
 } from "@/hooks/morsy-urgent-chunk-translation-v2";
 import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render";
+import {
+  logChunkV2ExecuteGate,
+  logChunkV2RawModelResponse,
+  logChunkV2VisualRegression,
+  logChunkV2Watchdog,
+  nextChunkV2RequestId,
+} from "@/hooks/morsy-chunk-v2-instrumentation";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
   emitNfEntityTrace,
@@ -2960,6 +2967,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     payload: CanonRowDualBufferPayload,
     opts: { mode: "stable" | "live" | "endpoint"; forceWatchdog?: boolean },
   ) => void>(() => {});
+  const chunkV2LastPaintByRowRef = useRef(new Map<string, {
+    committedTranslation: string;
+    renderedTranslation: string;
+  }>());
   /** Chat-style latch: glued to tail *before* canon DOM growth (same as Trial/Hetzner `transcriptWsTailHintRef`). */
   const canonWsTailFollowLatchRef = useRef(true);
 
@@ -3226,6 +3237,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     rowId: string,
     committedTranslation: string,
     liveTranslation: string,
+    paintSource = "paintMorsyChunkV2Row",
   ) => {
     const trialSt = getCanonTrialRowTransState(rowId);
     if (trialSt.locked) return;
@@ -3237,9 +3249,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const composed = committed && live ? `${committed} ${live}` : committed || live;
     if (!composed.length && current.length) return;
     if (composed === current) return;
+
+    const prevPaint = chunkV2LastPaintByRowRef.current.get(rowId);
+    logChunkV2VisualRegression({
+      rowId,
+      source: paintSource,
+      previousCommittedTranslation: prevPaint?.committedTranslation ?? trialSt.committedTranslation,
+      nextCommittedTranslation: committed,
+      nextLiveTranslation: live,
+      previousRenderedTranslation: prevPaint?.renderedTranslation ?? current,
+      nextRenderedTranslation: composed,
+    });
+
     const rtlBidiPaint =
       morsyUsesChunkTranslationV2Experiment() && shouldMorsyChunkV2BidiPaint(composed);
     eng.setRowTranslationPrefixLive(rowId, committed, live, { rtlBidiPaint });
+    chunkV2LastPaintByRowRef.current.set(rowId, {
+      committedTranslation: committed,
+      renderedTranslation: composed,
+    });
   }, [getCanonTrialRowTransState]);
 
   const lockCanonRowTranslation = useCallback((rowId: string) => {
@@ -3288,6 +3316,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (trialSt.chunkWatchdogTimer !== null) {
       clearTimeout(trialSt.chunkWatchdogTimer);
       trialSt.chunkWatchdogTimer = null;
+      logChunkV2Watchdog("watchdog_cancelled", {
+        rowId,
+        reason: "lockCanonRowTranslation",
+      });
     }
     if (trialSt.chunkAccumTimeoutTimer !== null) {
       clearTimeout(trialSt.chunkAccumTimeoutTimer);
@@ -5399,6 +5431,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
         const translated = tr.text.trim();
+        logChunkV2RawModelResponse({
+          requestId: nextChunkV2RequestId(),
+          rowId,
+          trigger: "endpoint",
+          sourceText: delta,
+          rawResponse: tr.text,
+          mode: "endpoint",
+        });
         logChunkV2Telemetry({
           trigger: "endpoint",
           sourceChars: delta.length,
@@ -5954,35 +5994,85 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (st.chunkWatchdogTimer !== null) {
       clearTimeout(st.chunkWatchdogTimer);
       st.chunkWatchdogTimer = null;
+      logChunkV2Watchdog("watchdog_cancelled", {
+        rowId,
+        reason: "armMorsyChunkV2Watchdog_reschedule",
+      });
     }
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getRowDualBuffer(rowId);
     const stable = (snap?.stableText ?? payload.stableText).trim();
     const visible = (snap?.visibleText ?? payload.visibleText).trim();
     const sourceLen = Math.max(stable.length, visible.length);
-    if (sourceLen <= st.committedSource.length) return;
+    const pending = extractNewStableChunk(stable, st.committedSource);
+    if (sourceLen <= st.committedSource.length) {
+      logChunkV2Watchdog("watchdog_skipped_no_pending", {
+        rowId,
+        stableLen: stable.length,
+        visibleLen: visible.length,
+        committedSourceLen: st.committedSource.length,
+        pendingLen: pending.length,
+        reason: "sourceLen <= committedSource.length",
+      });
+      return;
+    }
+
+    logChunkV2Watchdog("watchdog_armed", {
+      rowId,
+      stableLen: stable.length,
+      visibleLen: visible.length,
+      committedSourceLen: st.committedSource.length,
+      pendingLen: pending.length,
+      lastCommitAgeMs: Date.now() - st.lastCommitTs,
+      chunkInFlight: st.chunkInFlight,
+    });
 
     st.chunkWatchdogTimer = setTimeout(() => {
       st.chunkWatchdogTimer = null;
+      logChunkV2Watchdog("watchdog_fired", {
+        rowId,
+        lastCommitAgeMs: Date.now() - st.lastCommitTs,
+        chunkInFlight: st.chunkInFlight,
+      });
       const freshSnap = eng?.getRowDualBuffer(rowId);
       const freshStable = (freshSnap?.stableText ?? payload.stableText).trim();
       const freshVisible = (freshSnap?.visibleText ?? payload.visibleText).trim();
       const freshSourceLen = Math.max(freshStable.length, freshVisible.length);
-      if (freshSourceLen <= st.committedSource.length) return;
+      const freshPending = extractNewStableChunk(freshStable, st.committedSource);
+      if (freshSourceLen <= st.committedSource.length) {
+        logChunkV2Watchdog("watchdog_skipped_no_pending", {
+          rowId,
+          stableLen: freshStable.length,
+          visibleLen: freshVisible.length,
+          committedSourceLen: st.committedSource.length,
+          pendingLen: freshPending.length,
+          reason: "fired_but_no_pending",
+        });
+        return;
+      }
       if (Date.now() - st.lastCommitTs < CHUNK_V2_WATCHDOG_FLUSH_MS) {
+        logChunkV2Watchdog("watchdog_deferred", {
+          rowId,
+          lastCommitAgeMs: Date.now() - st.lastCommitTs,
+          reason: "lastCommitTs_within_flush_window",
+        });
         armMorsyChunkV2Watchdog(rowId, freshSnap ?? payload);
         return;
       }
-      const pending = extractNewStableChunk(freshStable, st.committedSource);
       logChunkV2Telemetry({
         trigger: "watchdog",
-        sourceChars: pending.length,
-        sourceWords: countChunkWords(pending),
+        sourceChars: freshPending.length,
+        sourceWords: countChunkWords(freshPending),
         translatedChars: 0,
         requestLatencyMs: 0,
         queueWaitMs: 0,
         stallDetected: true,
         rowId,
+      });
+      logChunkV2Watchdog("watchdog_translation_started", {
+        rowId,
+        pendingLen: freshPending.length,
+        chunkInFlight: st.chunkInFlight,
       });
       void executeMorsyChunkV2TranslationRef.current(freshSnap ?? payload, {
         mode: "stable",
@@ -6004,13 +6094,34 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const rowId = payload.utterance.utterance_id;
     const rowState = getCanonTrialRowTransState(rowId);
-    if (rowState.locked && opts.mode !== "endpoint") return;
+    if (rowState.locked && opts.mode !== "endpoint") {
+      logChunkV2ExecuteGate({
+        rowId,
+        mode: opts.mode,
+        forceWatchdog: opts.forceWatchdog,
+        rejected: true,
+        reason: "row_locked",
+        locked: true,
+      });
+      return;
+    }
 
     rowState.chunkPendingPayload = payload;
     if (opts.mode === "stable") rowState.chunkPendingStable = true;
     if (opts.mode === "live") rowState.chunkPendingLive = true;
     if (opts.mode === "endpoint") rowState.chunkPendingEndpoint = true;
-    if (rowState.chunkInFlight) return;
+    if (rowState.chunkInFlight) {
+      logChunkV2ExecuteGate({
+        rowId,
+        mode: opts.mode,
+        forceWatchdog: opts.forceWatchdog,
+        rejected: true,
+        reason: "chunkInFlight",
+        chunkInFlight: true,
+        locked: rowState.locked,
+      });
+      return;
+    }
 
     if (rowState.chunkQueueEnqueuedAt === 0) {
       rowState.chunkQueueEnqueuedAt = Date.now();
@@ -6036,6 +6147,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const sourceLang = resolveSourceLangForCanon(sourceToTranslate, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
       const fetchStartedAt = Date.now();
+      const requestId = nextChunkV2RequestId();
 
       try {
         const tr = await fetchTranslation(
@@ -6059,6 +6171,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return false;
         }
         const next = tr.text.trim();
+        logChunkV2RawModelResponse({
+          requestId,
+          rowId,
+          trigger: selection.trigger,
+          sourceText: sourceToTranslate,
+          rawResponse: tr.text,
+          mode: opts.mode,
+        });
         const requestLatencyMs = Date.now() - fetchStartedAt;
         logChunkV2Telemetry({
           trigger: selection.trigger,
@@ -6070,7 +6190,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           stallDetected: selection.trigger === "watchdog",
           rowId,
         });
-        if (!next.length) return false;
+        if (!next.length) {
+          if (selection.trigger === "watchdog") {
+            logChunkV2Watchdog("watchdog_translation_rejected", {
+              rowId,
+              reason: "empty_model_response",
+            });
+          }
+          return false;
+        }
 
         const prevCommittedSource = rowState.committedSource;
         const prevCommittedTranslation = rowState.committedTranslation;
@@ -6095,7 +6223,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.chunkAccumStartTs = Date.now();
         rowState.liveSource = "";
         rowState.liveTranslation = "";
-        paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "");
+        paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "", "commitStableChunk");
+        if (selection.trigger === "watchdog") {
+          logChunkV2Watchdog("watchdog_translation_completed", {
+            rowId,
+            pendingLen: sourceToTranslate.length,
+          });
+        }
         return true;
       } catch {
         return false;
@@ -6188,6 +6322,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             const sourceLang = resolveSourceLangForCanon(liveTail, sonioxHint, pair);
             const targetLang = targetOppositeInPair(sourceLang, pair);
             const fetchStartedAt = Date.now();
+            const requestId = nextChunkV2RequestId();
             try {
               const tr = await fetchTranslation(
                 liveTail,
@@ -6210,6 +6345,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 break;
               }
               const next = tr.text.trim();
+              logChunkV2RawModelResponse({
+                requestId,
+                rowId,
+                trigger: "live_preview",
+                sourceText: liveTail,
+                rawResponse: tr.text,
+                mode: "live",
+              });
               logChunkV2Telemetry({
                 trigger: "live_preview",
                 sourceChars: liveTail.length,
@@ -6222,7 +6365,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               if (next.length) {
                 rowState.liveSource = liveTail;
                 rowState.liveTranslation = next;
-                paintMorsyChunkV2Row(rowId, rowState.committedTranslation, next);
+                paintMorsyChunkV2Row(rowId, rowState.committedTranslation, next, "livePreview");
               }
             } catch {
               /* abort / network */
@@ -6230,7 +6373,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           } else if (rowState.liveSource.length || rowState.liveTranslation.length) {
             rowState.liveSource = "";
             rowState.liveTranslation = "";
-            paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "");
+            paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "", "livePreview_clear");
           }
         }
 
