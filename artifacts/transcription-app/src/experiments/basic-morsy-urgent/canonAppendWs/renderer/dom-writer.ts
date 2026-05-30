@@ -1,5 +1,10 @@
 import type { RowProjection } from "../projection/transcript-view";
 
+import {
+  renderMorsyChunkV2BidiHtml,
+  shouldMorsyChunkV2BidiPaint,
+} from "@/hooks/morsy-chunk-v2-bidi-render";
+
 import type { CommittedDomMirror } from "./committed-renderer";
 import {
   createCommittedMirror,
@@ -52,7 +57,7 @@ export class CanonAppendWsDomWriter {
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
   private readonly translationPrefixLiveByRowId = new Map<
     string,
-    { locked: string; live: string }
+    { locked: string; live: string; rtlBidiPaint?: boolean }
   >();
 
   setLayoutMode(mode: CanonAppendWsLayoutMode): void {
@@ -72,7 +77,12 @@ export class CanonAppendWsDomWriter {
   }
 
   /** Locked stable prefix (DOM frozen) + live tail (updated each interim response). */
-  setRowTranslationPrefixLive(rowId: string, locked: string, live: string): void {
+  setRowTranslationPrefixLive(
+    rowId: string,
+    locked: string,
+    live: string,
+    opts?: { rtlBidiPaint?: boolean },
+  ): void {
     const lockedTrim = locked.trim();
     const liveTrim = live.trim();
     const composed =
@@ -80,7 +90,11 @@ export class CanonAppendWsDomWriter {
     this.translationByRowId.set(rowId, composed);
     const handles = this.byRowId.get(rowId);
     const prev = this.translationPrefixLiveByRowId.get(rowId);
-    this.translationPrefixLiveByRowId.set(rowId, { locked: lockedTrim, live: liveTrim });
+    this.translationPrefixLiveByRowId.set(rowId, {
+      locked: lockedTrim,
+      live: liveTrim,
+      rtlBidiPaint: opts?.rtlBidiPaint,
+    });
     if (handles) this.paintTranslationPrefixLive(handles, prev);
   }
 
@@ -123,7 +137,7 @@ export class CanonAppendWsDomWriter {
 
   private paintTranslationPrefixLive(
     handles: EngineDomRowHandles,
-    prev: { locked: string; live: string } | undefined,
+    prev: { locked: string; live: string; rtlBidiPaint?: boolean } | undefined,
   ): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const parts = this.translationPrefixLiveByRowId.get(rowId);
@@ -132,6 +146,18 @@ export class CanonAppendWsDomWriter {
       return;
     }
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
+    const useBidi =
+      parts.rtlBidiPaint === true &&
+      shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
+    if (useBidi) {
+      handles.translationEl.setAttribute("dir", "rtl");
+      if (prev?.locked !== parts.locked) {
+        lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
+      }
+      liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
+      return;
+    }
+    handles.translationEl.removeAttribute("dir");
     if (prev?.locked !== parts.locked) {
       lockedEl.textContent = parts.locked;
     }

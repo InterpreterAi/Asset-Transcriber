@@ -130,9 +130,14 @@ export class CanonAppendWsIsolatedRuntime {
     }
   }
 
-  setRowTranslationPrefixLive(rowId: string, locked: string, live: string): void {
+  setRowTranslationPrefixLive(
+    rowId: string,
+    locked: string,
+    live: string,
+    opts?: { rtlBidiPaint?: boolean },
+  ): void {
     this.hooks.onBeforeDomPaint?.();
-    this.writer.setRowTranslationPrefixLive(rowId, locked, live);
+    this.writer.setRowTranslationPrefixLive(rowId, locked, live, opts);
     if (this.containerEl) {
       this.notifyAfterPaint();
     }
