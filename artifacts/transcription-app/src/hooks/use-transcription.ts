@@ -2476,12 +2476,9 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
+/** Canon-append-ws plans share the fast live bridge (52ms debounce + single-flight queue). Morsy keeps its own direction + server SKU. */
 function planUsesLegacyCanonTranslationBridge(planTypeLower: string): boolean {
-  return planUsesCanonAppendWsStt(planTypeLower) && !isBasicMorsyUrgentPlan(planTypeLower);
-}
-
-function usesMorsyCanonTranslationOrchestration(planTypeLower: string): boolean {
-  return isBasicMorsyUrgentPlan(planTypeLower);
+  return planUsesCanonAppendWsStt(planTypeLower);
 }
 
 /**
@@ -3069,23 +3066,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         setHasTranscript(eng.peekHasRenderableText());
       },
       onActiveRowStableGrow: (payload) => {
-        if (usesMorsyCanonTranslationOrchestration(planTypeRef.current)) {
-          dispatchCanonStableGrowRef.current(payload);
-        } else if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
+        if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           dispatchCanonTrialLiveGrowRef.current(payload);
         }
       },
       onActiveRowVolatilePulse: (payload) => {
-        if (usesMorsyCanonTranslationOrchestration(planTypeRef.current)) {
-          dispatchCanonVolatilePulseRef.current(payload);
-        } else if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
+        if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           dispatchCanonTrialLiveGrowRef.current(payload);
         }
       },
       onActiveRowTranslationFlush: (payload) => {
-        if (usesMorsyCanonTranslationOrchestration(planTypeRef.current)) {
-          dispatchCanonActiveRowTranslationFlushRef.current(payload);
-        } else if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
+        if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           dispatchCanonTrialEndpointFlushRef.current(payload);
         }
       },
@@ -5389,6 +5380,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
     const eng = canonWsIsolationEngineRef.current;
 
+    const morsyUrgentCanonFetchOpts = () => {
+      if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return {};
+      return {
+        ...(morsyUrgentAttachOpenAiExperimentRef.current
+          ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
+          : {}),
+        ...(experimentMorsyUrgentIntercallRef.current
+          ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
+          : {}),
+      };
+    };
+
     const runFinalFetch = async (finalSource: string) => {
       rowState.pendingLiveSource = null;
       rowState.pendingLivePayload = null;
@@ -5411,6 +5414,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ...(sessionIdRef.current != null && sessionIdRef.current > 0
               ? { sessionId: sessionIdRef.current }
               : {}),
+            ...morsyUrgentCanonFetchOpts(),
           },
         );
         if (tr.dailyLimitReached) {
@@ -5467,6 +5471,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(sessionIdRef.current != null && sessionIdRef.current > 0
                 ? { sessionId: sessionIdRef.current }
                 : {}),
+              ...morsyUrgentCanonFetchOpts(),
             },
           );
           if (rowState.locked) break;
