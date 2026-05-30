@@ -12,7 +12,9 @@ export type ChunkV2TranslateTrigger =
   | "timeout"
   | "endpoint"
   | "watchdog"
-  | "live_preview";
+  | "live_preview"
+  | "first_chunk"
+  | "debounce";
 
 export type ChunkV2TelemetryEvent = {
   trigger: ChunkV2TranslateTrigger;
@@ -109,6 +111,24 @@ export type SelectStableChunkResult = {
   chunk: string;
   trigger: ChunkV2TranslateTrigger;
 };
+
+/** Pending stable delta to translate on debounce / first grow (append-only, never whole segment). */
+export function selectPendingStableDelta(args: {
+  pending: string;
+  committedSource: string;
+  firstChunk?: boolean;
+  debounceFlush?: boolean;
+}): SelectStableChunkResult | null {
+  const pending = args.pending;
+  if (!pending.trim()) return null;
+  if (args.firstChunk && !args.committedSource.trim() && pending.trim().length >= 3) {
+    return { chunk: pending, trigger: "first_chunk" };
+  }
+  if (args.debounceFlush && pending.trim().length >= 3) {
+    return { chunk: pending, trigger: "debounce" };
+  }
+  return null;
+}
 
 export function selectAccumulatedStableChunk(args: {
   pending: string;
