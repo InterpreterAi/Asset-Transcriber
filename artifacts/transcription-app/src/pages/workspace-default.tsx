@@ -19,6 +19,10 @@ import {
   readMorsyBasicCleanTranslationExperiment,
   writeMorsyBasicCleanTranslationExperiment,
 } from "@/experiments/basic-morsy-urgent/cleanTranslation/gate";
+import {
+  readMorsyChunkTranslationV2Experiment,
+  writeMorsyChunkTranslationV2Experiment,
+} from "@/experiments/basic-morsy-urgent/chunkTranslationV2/gate";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -287,9 +291,15 @@ export default function WorkspaceDefault() {
   const [morsyCleanTranslationExperiment, setMorsyCleanTranslationExperiment] = useState(
     () => readMorsyBasicCleanTranslationExperiment(),
   );
+  const [morsyChunkTranslationV2Experiment, setMorsyChunkTranslationV2Experiment] = useState(
+    () => readMorsyChunkTranslationV2Experiment(),
+  );
   useEffect(() => {
     writeMorsyBasicCleanTranslationExperiment(morsyCleanTranslationExperiment);
   }, [morsyCleanTranslationExperiment]);
+  useEffect(() => {
+    writeMorsyChunkTranslationV2Experiment(morsyChunkTranslationV2Experiment);
+  }, [morsyChunkTranslationV2Experiment]);
   const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
     ? "morsy-intercall-isolated-experiment"
     : "morsy-urgent-cbf";
@@ -330,7 +340,9 @@ export default function WorkspaceDefault() {
     experimentMorsyUrgentIntercallOrchestration: false,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
     experimentMorsyBasicCleanTranslation:
-      pt === "morsy-urgent" && morsyCleanTranslationExperiment,
+      pt === "morsy-urgent" && morsyCleanTranslationExperiment && !morsyChunkTranslationV2Experiment,
+    experimentMorsyUrgentChunkTranslationV2:
+      pt === "morsy-urgent" && morsyChunkTranslationV2Experiment,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -2358,7 +2370,42 @@ export default function WorkspaceDefault() {
                 <button
                   type="button"
                   disabled={transcription.isRecording}
-                  onClick={() => setMorsyCleanTranslationExperiment(v => !v)}
+                  onClick={() => {
+                    setMorsyChunkTranslationV2Experiment(v => {
+                      const next = !v;
+                      if (next) setMorsyCleanTranslationExperiment(false);
+                      return next;
+                    });
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
+                    morsyChunkTranslationV2Experiment
+                      ? wsDark
+                        ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                        : "border-sky-600/40 bg-sky-50 text-sky-800"
+                      : wsDark
+                        ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                        : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  title="Append-only chunk translation: translate new Soniox finals only, never retranslate committed text"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {morsyChunkTranslationV2Experiment ? "Chunk V2 on" : "Chunk V2"}
+                  </span>
+                </button>
+              )}
+              {isMorsyUrgentWorkspace && (
+                <button
+                  type="button"
+                  disabled={transcription.isRecording}
+                  onClick={() => {
+                    setMorsyCleanTranslationExperiment(v => {
+                      const next = !v;
+                      if (next) setMorsyChunkTranslationV2Experiment(false);
+                      return next;
+                    });
+                  }}
                   className={cn(
                     "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
                     morsyCleanTranslationExperiment

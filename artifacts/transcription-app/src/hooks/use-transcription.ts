@@ -97,6 +97,11 @@ import {
   applyMorsyCanonLiveTranslationPaint,
   finalizeMorsyCanonTranslationPrefix,
 } from "@/hooks/morsy-urgent-canon-translation-prefix";
+import {
+  appendTranslationChunk,
+  extractLiveTail,
+  extractNewStableChunk,
+} from "@/hooks/morsy-urgent-chunk-translation-v2";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
   emitNfEntityTrace,
@@ -1274,6 +1279,8 @@ type TranslateApiOptions = {
    * Basic · Morsy Urgent only: minimal OpenAI translation experiment (no glossary/repair/retries).
    */
   experimentalMorsyBasicCleanTranslation?: boolean;
+  /** Basic · Morsy Urgent only: append-only chunk translation experiment. */
+  experimentalMorsyUrgentChunkTranslationV2?: boolean;
 };
 
 async function translateViaPrimaryApi(
@@ -1315,6 +1322,7 @@ async function translateViaPrimaryApi(
     }
     try {
       const cleanExperiment = options?.experimentalMorsyBasicCleanTranslation === true;
+      const chunkV2Experiment = options?.experimentalMorsyUrgentChunkTranslationV2 === true;
       const terminologyMode = readTerminologyMode() === "hybrid" ? "hybrid" : "full";
       const bodyObj = {
         text,
@@ -1322,12 +1330,15 @@ async function translateViaPrimaryApi(
         tgtLang:              targetLang,
         streamingDelta:       Boolean(options?.streamingDelta),
         isFinal:              Boolean(options?.isFinal),
-        glossaryStrictMode:   cleanExperiment ? false : readGlossaryStrictEnabled(),
-        terminologyMode:      cleanExperiment ? "full" : terminologyMode,
+        glossaryStrictMode:   cleanExperiment || chunkV2Experiment ? false : readGlossaryStrictEnabled(),
+        terminologyMode:      cleanExperiment || chunkV2Experiment ? "full" : terminologyMode,
         ...(options?.sessionId != null && options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
         ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
         ...(options?.clientSeq != null ? { clientSeq: options.clientSeq } : {}),
-        ...(cleanExperiment
+        ...(chunkV2Experiment
+          ? { experimentalMorsyUrgentChunkTranslationV2: true as const }
+          : {}),
+        ...(cleanExperiment && !chunkV2Experiment
           ? { experimentalMorsyBasicCleanTranslation: true as const }
           : {}),
         ...(!cleanExperiment && options?.experimentalBasicMorsyOpenAiOnly === true
@@ -2779,6 +2790,8 @@ export type UseTranscriptionOptions = {
   morsyUrgentTranslateAttachOpenAiExperiment?: boolean;
   /** Basic · Morsy Urgent only: isolated minimal OpenAI translation experiment. */
   experimentMorsyBasicCleanTranslation?: boolean;
+  /** Basic · Morsy Urgent only: append-only chunk translation (no whole-row retranslation). */
+  experimentMorsyUrgentChunkTranslationV2?: boolean;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -2861,10 +2874,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       options?.experimentMorsyBasicCleanTranslation ?? false;
   }, [options?.experimentMorsyBasicCleanTranslation]);
 
+  const experimentMorsyUrgentChunkTranslationV2Ref = useRef(
+    options?.experimentMorsyUrgentChunkTranslationV2 ?? false,
+  );
+  useEffect(() => {
+    experimentMorsyUrgentChunkTranslationV2Ref.current =
+      options?.experimentMorsyUrgentChunkTranslationV2 ?? false;
+  }, [options?.experimentMorsyUrgentChunkTranslationV2]);
+
   function morsyUsesCleanTranslationExperiment(): boolean {
     return (
       isBasicMorsyUrgentPlan(planTypeRef.current) &&
-      experimentMorsyBasicCleanTranslationRef.current
+      experimentMorsyBasicCleanTranslationRef.current &&
+      !experimentMorsyUrgentChunkTranslationV2Ref.current
+    );
+  }
+
+  function morsyUsesChunkTranslationV2Experiment(): boolean {
+    return (
+      isBasicMorsyUrgentPlan(planTypeRef.current) &&
+      experimentMorsyUrgentChunkTranslationV2Ref.current
     );
   }
 
@@ -2915,6 +2944,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchCanonTrialLiveGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonTrialEndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonActiveRowTranslationFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
+  const dispatchMorsyChunkV2StableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
+  const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
+  const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   /** Chat-style latch: glued to tail *before* canon DOM growth (same as Trial/Hetzner `transcriptWsTailHintRef`). */
   const canonWsTailFollowLatchRef = useRef(true);
 
@@ -2952,6 +2984,27 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     /** Basic · Morsy Urgent: Soniox finals covered by locked translation prefix. */
     lockedStableSource: string;
     lockedTranslationPrefix: string;
+    /** Chunk V2 append-only translation buffers. */
+    committedSource: string;
+    committedTranslation: string;
+    liveSource: string;
+    liveTranslation: string;
+    chunkInFlight: boolean;
+    chunkAbort: AbortController | null;
+    chunkPendingStable: boolean;
+    chunkPendingLive: boolean;
+    chunkPendingEndpoint: boolean;
+    chunkPendingPayload: CanonRowDualBufferPayload | null;
+    chunkStableDebounceTimer: ReturnType<typeof setTimeout> | null;
+    chunkStableMaxWaitTimer: ReturnType<typeof setTimeout> | null;
+    chunkLiveDebounceTimer: ReturnType<typeof setTimeout> | null;
+    chunkLiveMaxWaitTimer: ReturnType<typeof setTimeout> | null;
+    lastStablePreviewWordsSent: number;
+    lastStablePreviewCharsSent: number;
+    lastLivePreviewWordsSent: number;
+    lastLivePreviewCharsSent: number;
+    chunkStableEarlyHintSent: boolean;
+    chunkLiveEarlyHintSent: boolean;
   };
   const canonTrialRowTransRef = useRef(new Map<string, CanonTrialRowTranslationState>());
 
@@ -2981,6 +3034,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       st.liveInFlight = false;
       st.pendingLiveSource = null;
       st.pendingLivePayload = null;
+      if (st.chunkStableDebounceTimer !== null) {
+        clearTimeout(st.chunkStableDebounceTimer);
+        st.chunkStableDebounceTimer = null;
+      }
+      if (st.chunkStableMaxWaitTimer !== null) {
+        clearTimeout(st.chunkStableMaxWaitTimer);
+        st.chunkStableMaxWaitTimer = null;
+      }
+      if (st.chunkLiveDebounceTimer !== null) {
+        clearTimeout(st.chunkLiveDebounceTimer);
+        st.chunkLiveDebounceTimer = null;
+      }
+      if (st.chunkLiveMaxWaitTimer !== null) {
+        clearTimeout(st.chunkLiveMaxWaitTimer);
+        st.chunkLiveMaxWaitTimer = null;
+      }
+      st.chunkAbort?.abort();
+      st.chunkAbort = null;
+      st.chunkInFlight = false;
+      st.chunkPendingStable = false;
+      st.chunkPendingLive = false;
+      st.chunkPendingEndpoint = false;
+      st.chunkPendingPayload = null;
     }
     canonTrialRowTransRef.current.clear();
     canonRowTranslateSeqRef.current.clear();
@@ -3005,6 +3081,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         lastPendingLang: undefined,
         lockedStableSource: "",
         lockedTranslationPrefix: "",
+        committedSource: "",
+        committedTranslation: "",
+        liveSource: "",
+        liveTranslation: "",
+        chunkInFlight: false,
+        chunkAbort: null,
+        chunkPendingStable: false,
+        chunkPendingLive: false,
+        chunkPendingEndpoint: false,
+        chunkPendingPayload: null,
+        chunkStableDebounceTimer: null,
+        chunkStableMaxWaitTimer: null,
+        chunkLiveDebounceTimer: null,
+        chunkLiveMaxWaitTimer: null,
+        lastStablePreviewWordsSent: 0,
+        lastStablePreviewCharsSent: 0,
+        lastLivePreviewWordsSent: 0,
+        lastLivePreviewCharsSent: 0,
+        chunkStableEarlyHintSent: false,
+        chunkLiveEarlyHintSent: false,
       };
       canonTrialRowTransRef.current.set(rowId, st);
     }
@@ -3095,6 +3191,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     eng.setRowTranslation(rowId, trimmed);
   }, [getCanonTrialRowTransState]);
 
+  const paintMorsyChunkV2Row = useCallback((
+    rowId: string,
+    committedTranslation: string,
+    liveTranslation: string,
+  ) => {
+    const trialSt = getCanonTrialRowTransState(rowId);
+    if (trialSt.locked) return;
+    const eng = canonWsIsolationEngineRef.current;
+    if (!eng) return;
+    const committed = committedTranslation.trim();
+    const live = liveTranslation.trim();
+    const current = eng.getRowTranslation(rowId).trim();
+    const composed = committed && live ? `${committed} ${live}` : committed || live;
+    if (!composed.length && current.length) return;
+    if (composed === current) return;
+    eng.setRowTranslationPrefixLive(rowId, committed, live);
+  }, [getCanonTrialRowTransState]);
+
   const lockCanonRowTranslation = useCallback((rowId: string) => {
     const st = getCanonRowTransState(rowId);
     st.locked = true;
@@ -3122,6 +3236,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     trialSt.liveInFlight = false;
     trialSt.pendingLiveSource = null;
     trialSt.pendingLivePayload = null;
+    if (trialSt.chunkStableDebounceTimer !== null) {
+      clearTimeout(trialSt.chunkStableDebounceTimer);
+      trialSt.chunkStableDebounceTimer = null;
+    }
+    if (trialSt.chunkStableMaxWaitTimer !== null) {
+      clearTimeout(trialSt.chunkStableMaxWaitTimer);
+      trialSt.chunkStableMaxWaitTimer = null;
+    }
+    if (trialSt.chunkLiveDebounceTimer !== null) {
+      clearTimeout(trialSt.chunkLiveDebounceTimer);
+      trialSt.chunkLiveDebounceTimer = null;
+    }
+    if (trialSt.chunkLiveMaxWaitTimer !== null) {
+      clearTimeout(trialSt.chunkLiveMaxWaitTimer);
+      trialSt.chunkLiveMaxWaitTimer = null;
+    }
+    trialSt.chunkAbort?.abort();
+    trialSt.chunkAbort = null;
+    trialSt.chunkInFlight = false;
+    trialSt.chunkPendingStable = false;
+    trialSt.chunkPendingLive = false;
+    trialSt.chunkPendingEndpoint = false;
+    trialSt.chunkPendingPayload = null;
   }, [getCanonRowTransState, getCanonTrialRowTransState]);
 
   const setCanonIntercallLayoutStacked = useCallback((stacked: boolean) => {
@@ -3145,17 +3282,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowStableGrow: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          dispatchCanonTrialLiveGrowRef.current(payload);
+          if (
+            isBasicMorsyUrgentPlan(planTypeRef.current) &&
+            experimentMorsyUrgentChunkTranslationV2Ref.current
+          ) {
+            dispatchMorsyChunkV2StableGrowRef.current(payload);
+          } else {
+            dispatchCanonTrialLiveGrowRef.current(payload);
+          }
         }
       },
       onActiveRowVolatilePulse: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          dispatchCanonTrialLiveGrowRef.current(payload);
+          if (
+            isBasicMorsyUrgentPlan(planTypeRef.current) &&
+            experimentMorsyUrgentChunkTranslationV2Ref.current
+          ) {
+            dispatchMorsyChunkV2LivePreviewRef.current(payload);
+          } else {
+            dispatchCanonTrialLiveGrowRef.current(payload);
+          }
         }
       },
       onActiveRowTranslationFlush: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          dispatchCanonTrialEndpointFlushRef.current(payload);
+          if (
+            isBasicMorsyUrgentPlan(planTypeRef.current) &&
+            experimentMorsyUrgentChunkTranslationV2Ref.current
+          ) {
+            dispatchMorsyChunkV2EndpointFlushRef.current(payload);
+          } else {
+            dispatchCanonTrialEndpointFlushRef.current(payload);
+          }
         }
       },
       onRowFrozen: (payload) => {
@@ -5169,14 +5327,65 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
       : {};
 
+    const morsyChunkV2ExperimentOpts = morsyUsesChunkTranslationV2Experiment()
+      ? ({ experimentalMorsyUrgentChunkTranslationV2: true } as const)
+      : {};
+
+    if (morsyUsesChunkTranslationV2Experiment()) {
+      const delta = extractNewStableChunk(sourceNorm, trialSt.committedSource).trim();
+      let composed = trialSt.committedTranslation.trim();
+      if (delta.length >= 3) {
+        const sourceLang = resolveSourceLangForCanon(delta, sonioxHint, pair);
+        const targetLang = targetOppositeInPair(sourceLang, pair);
+        const tr = await fetchTranslation(
+          delta,
+          sourceLang,
+          targetLang,
+          (m) => translationConfigReporterRef.current(m),
+          {
+            isFinal: true,
+            onGlossaryApplied: t => glossaryNotifyRef.current(t),
+            ...(sessionIdRef.current != null && sessionIdRef.current > 0
+              ? { sessionId: sessionIdRef.current }
+              : {}),
+            ...morsyChunkV2ExperimentOpts,
+          },
+        );
+        if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
+        if (tr.dailyLimitReached) {
+          dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+          return;
+        }
+        if (tr.text.trim().length > 0) {
+          composed = appendTranslationChunk(composed, tr.text.trim());
+        }
+      }
+      if (composed.length > 0) {
+        trialSt.committedSource = sourceNorm;
+        trialSt.committedTranslation = composed;
+        trialSt.liveSource = "";
+        trialSt.liveTranslation = "";
+        paintMorsyChunkV2Row(rowId, composed, "");
+        st.lastFinalSource = sourceNorm;
+        st.lastStableDispatched = sourceNorm;
+        st.lastVolatileDispatched = sourceNorm;
+        trialSt.lastFinalSource = sourceNorm;
+        trialSt.lastDispatchedSource = sourceNorm;
+      }
+      onAdminSnapshotBuffersUpdatedRef.current?.();
+      return;
+    }
+
     const basicMorsyOpenAiExperimentOpts =
       !morsyUsesCleanTranslationExperiment() &&
+      !morsyUsesChunkTranslationV2Experiment() &&
       morsyUrgentAttachOpenAiExperimentRef.current
         ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
         : {};
 
     const morsyIntercallEmbeddedEnglishPromptOpts =
       !morsyUsesCleanTranslationExperiment() &&
+      !morsyUsesChunkTranslationV2Experiment() &&
       experimentMorsyUrgentIntercallRef.current
         ? ({ experimentalMorsyIntercallEmbeddedEnglishPrompt: true } as const)
         : {};
@@ -5259,6 +5468,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     lockCanonRowTranslation,
     paintCanonRowTranslationIfAllowed,
     paintMorsyCanonFinalRowTranslation,
+    paintMorsyChunkV2Row,
   ]);
 
   const executeCanonDualBufferTranslation = useCallback(async (
@@ -5477,6 +5687,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const morsyUrgentCanonFetchOpts = () => {
       if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return {};
+      if (morsyUsesChunkTranslationV2Experiment()) {
+        return { experimentalMorsyUrgentChunkTranslationV2: true as const };
+      }
       if (morsyUsesCleanTranslationExperiment()) {
         return { experimentalMorsyBasicCleanTranslation: true as const };
       }
@@ -5559,7 +5772,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const stableText = (dualSnap?.stableText ?? pendingPayload.stableText).trim();
         const morsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current);
         const morsyClean = morsyUsesCleanTranslationExperiment();
-        const morsyPrefixLive = morsyUrgent && !morsyClean;
+        const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
+        const morsyPrefixLive = morsyUrgent && !morsyClean && !morsyChunkV2;
 
         rowState.liveAbort?.abort();
         const ac = new AbortController();
@@ -5646,6 +5860,341 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     paintMorsyCanonLiveRowTranslation,
     paintMorsyCanonFinalRowTranslation,
   ]);
+
+  const executeMorsyChunkV2Translation = useCallback(async (
+    payload: CanonRowDualBufferPayload,
+    opts: { mode: "stable" | "live" | "endpoint" },
+  ) => {
+    if (!translationEnabledRef.current) return;
+    if (!canonWsIsolationGateNow()) return;
+    if (!isRecRef.current && opts.mode !== "endpoint") return;
+
+    const rowId = payload.utterance.utterance_id;
+    const rowState = getCanonTrialRowTransState(rowId);
+    if (rowState.locked && opts.mode !== "endpoint") return;
+
+    rowState.chunkPendingPayload = payload;
+    if (opts.mode === "stable") rowState.chunkPendingStable = true;
+    if (opts.mode === "live") rowState.chunkPendingLive = true;
+    if (opts.mode === "endpoint") rowState.chunkPendingEndpoint = true;
+    if (rowState.chunkInFlight) return;
+
+    rowState.chunkInFlight = true;
+    const pair = langPairRef.current;
+    const eng = canonWsIsolationEngineRef.current;
+
+    try {
+      while (!rowState.locked || rowState.chunkPendingEndpoint) {
+        const pendingPayload = rowState.chunkPendingPayload ?? payload;
+        rowState.lastPendingLang = pendingPayload.utterance.language;
+        const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
+        const snap = eng?.getRowDualBuffer(rowId);
+        const stableText = (snap?.stableText ?? pendingPayload.stableText).trim();
+        const visibleText = (snap?.visibleText ?? pendingPayload.visibleText).trim();
+        const finalSource = visibleText.length >= stableText.length ? visibleText : stableText;
+
+        let sourceToTranslate = "";
+        let requestMode: "stable" | "live" | "endpoint-final" | null = null;
+        let nextCommittedSource = rowState.committedSource;
+
+        if (rowState.chunkPendingStable || rowState.chunkPendingEndpoint) {
+          const newStableChunk = extractNewStableChunk(stableText, rowState.committedSource).trim();
+          if (newStableChunk.length >= 3) {
+            sourceToTranslate = newStableChunk;
+            requestMode = "stable";
+            nextCommittedSource = stableText;
+            rowState.chunkPendingStable = false;
+          } else if (rowState.chunkPendingStable) {
+            rowState.chunkPendingStable = false;
+          }
+        }
+
+        if (!sourceToTranslate && rowState.chunkPendingLive) {
+          const liveTail = extractLiveTail(visibleText, stableText).trim();
+          if (liveTail.length >= 3) {
+            sourceToTranslate = liveTail;
+            requestMode = "live";
+            rowState.chunkPendingLive = false;
+          } else {
+            if (rowState.liveSource.length || rowState.liveTranslation.length) {
+              rowState.liveSource = "";
+              rowState.liveTranslation = "";
+              paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "");
+            }
+            rowState.chunkPendingLive = false;
+          }
+        }
+
+        if (!sourceToTranslate && rowState.chunkPendingEndpoint) {
+          const remainder = extractNewStableChunk(finalSource, rowState.committedSource).trim();
+          if (remainder.length >= 3) {
+            sourceToTranslate = remainder;
+            requestMode = "endpoint-final";
+            nextCommittedSource = finalSource;
+          }
+          rowState.chunkPendingEndpoint = false;
+        }
+
+        if (!sourceToTranslate) break;
+
+        rowState.chunkAbort?.abort();
+        const ac = new AbortController();
+        rowState.chunkAbort = ac;
+
+        const sourceLang = resolveSourceLangForCanon(sourceToTranslate, sonioxHint, pair);
+        const targetLang = targetOppositeInPair(sourceLang, pair);
+
+        try {
+          const tr = await fetchTranslation(
+            sourceToTranslate,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            {
+              isFinal: requestMode === "endpoint-final",
+              signal: ac.signal,
+              onGlossaryApplied: t => glossaryNotifyRef.current(t),
+              ...(sessionIdRef.current != null && sessionIdRef.current > 0
+                ? { sessionId: sessionIdRef.current }
+                : {}),
+              experimentalMorsyUrgentChunkTranslationV2: true,
+            },
+          );
+          if (rowState.locked && opts.mode !== "endpoint") break;
+          if (tr.dailyLimitReached) {
+            dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+            break;
+          }
+          const next = tr.text.trim();
+          if (!next.length) {
+            if (
+              !rowState.chunkPendingStable &&
+              !rowState.chunkPendingLive &&
+              !rowState.chunkPendingEndpoint
+            ) {
+              break;
+            }
+            continue;
+          }
+
+          if (requestMode === "stable" || requestMode === "endpoint-final") {
+            rowState.committedTranslation = appendTranslationChunk(
+              rowState.committedTranslation,
+              next,
+            );
+            rowState.committedSource = nextCommittedSource;
+            rowState.liveSource = "";
+            rowState.liveTranslation = "";
+            paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "");
+            if (requestMode === "endpoint-final") {
+              rowState.lastFinalSource = finalSource;
+              rowState.lastDispatchedSource = finalSource;
+            }
+          } else {
+            rowState.liveSource = sourceToTranslate;
+            rowState.liveTranslation = next;
+            paintMorsyChunkV2Row(rowId, rowState.committedTranslation, next);
+          }
+        } catch {
+          /* abort / network */
+        }
+
+        if (
+          !rowState.chunkPendingStable &&
+          !rowState.chunkPendingLive &&
+          !rowState.chunkPendingEndpoint
+        ) {
+          break;
+        }
+      }
+
+      if (opts.mode === "endpoint") {
+        rowState.liveSource = "";
+        rowState.liveTranslation = "";
+        paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "");
+        const finalSnap = eng?.getRowDualBuffer(rowId);
+        const finalVisible = (finalSnap?.visibleText ?? payload.visibleText).trim();
+        const finalStable = (finalSnap?.stableText ?? payload.stableText).trim();
+        const finalSource = finalVisible.length >= finalStable.length ? finalVisible : finalStable;
+        if (finalSource.length >= 3) {
+          rowState.lastFinalSource = finalSource;
+          rowState.lastDispatchedSource = finalSource;
+          if (finalSource.startsWith(rowState.committedSource)) {
+            rowState.committedSource = finalSource;
+          }
+        }
+      }
+    } finally {
+      rowState.chunkInFlight = false;
+      rowState.chunkAbort = null;
+      if (
+        (rowState.chunkPendingStable ||
+          rowState.chunkPendingLive ||
+          rowState.chunkPendingEndpoint) &&
+        !rowState.locked
+      ) {
+        const followPayload = rowState.chunkPendingPayload ?? payload;
+        const followMode: "stable" | "live" | "endpoint" = rowState.chunkPendingEndpoint
+          ? "endpoint"
+          : rowState.chunkPendingStable
+            ? "stable"
+            : "live";
+        void executeMorsyChunkV2Translation(followPayload, { mode: followMode });
+      }
+    }
+  }, [getCanonTrialRowTransState, paintMorsyChunkV2Row]);
+
+  const dispatchMorsyChunkV2StableGrow = useCallback((payload: CanonRowDualBufferPayload) => {
+    if (!translationEnabledRef.current) return;
+    if (!canonWsIsolationGateNow()) return;
+    if (!isRecRef.current) return;
+
+    const rowId = payload.utterance.utterance_id;
+    const st = getCanonTrialRowTransState(rowId);
+    if (st.locked) return;
+
+    const eng = canonWsIsolationEngineRef.current;
+    const snap = eng?.getRowDualBuffer(rowId);
+    const stable = (snap?.stableText ?? payload.stableText).trim();
+    const newChunk = extractNewStableChunk(stable, st.committedSource).trim();
+    if (newChunk.length < 3) return;
+
+    const wordsNow = countWords(stable);
+    const charsNow = stable.length;
+    const grewByWords =
+      !st.chunkStableEarlyHintSent ||
+      wordsNow - st.lastStablePreviewWordsSent >= CANON_TRIAL_LIVE_PREVIEW_WORD_STEP;
+    const grewByChars =
+      !st.chunkStableEarlyHintSent ||
+      charsNow - st.lastStablePreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
+    if (!grewByWords && !grewByChars) {
+      if (st.chunkStableEarlyHintSent && wordsNow <= st.lastStablePreviewWordsSent) return;
+      if (!st.chunkStableEarlyHintSent && wordsNow < CANON_TRIAL_LIVE_PREVIEW_WORD_STEP) return;
+    }
+    st.chunkStableEarlyHintSent = true;
+    st.lastStablePreviewWordsSent = wordsNow;
+    st.lastStablePreviewCharsSent = charsNow;
+    st.lastPendingLang = payload.utterance.language;
+    st.chunkPendingPayload = snap ?? payload;
+
+    const scheduleStableCommit = () => {
+      const freshSnap = eng?.getRowDualBuffer(rowId);
+      const freshStable = (freshSnap?.stableText ?? stable).trim();
+      if (extractNewStableChunk(freshStable, st.committedSource).trim().length < 3) return;
+      void executeMorsyChunkV2Translation(freshSnap ?? payload, { mode: "stable" });
+    };
+
+    if (st.chunkStableDebounceTimer !== null) clearTimeout(st.chunkStableDebounceTimer);
+    if (st.chunkStableMaxWaitTimer === null) {
+      st.chunkStableMaxWaitTimer = setTimeout(() => {
+        st.chunkStableMaxWaitTimer = null;
+        if (st.chunkStableDebounceTimer !== null) {
+          clearTimeout(st.chunkStableDebounceTimer);
+          st.chunkStableDebounceTimer = null;
+        }
+        scheduleStableCommit();
+      }, CANON_TRIAL_LIVE_MAX_WAIT_MS);
+    }
+    st.chunkStableDebounceTimer = setTimeout(() => {
+      st.chunkStableDebounceTimer = null;
+      if (st.chunkStableMaxWaitTimer !== null) {
+        clearTimeout(st.chunkStableMaxWaitTimer);
+        st.chunkStableMaxWaitTimer = null;
+      }
+      scheduleStableCommit();
+    }, CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS);
+  }, [executeMorsyChunkV2Translation, getCanonTrialRowTransState]);
+
+  const dispatchMorsyChunkV2LivePreview = useCallback((payload: CanonRowDualBufferPayload) => {
+    if (!translationEnabledRef.current) return;
+    if (!canonWsIsolationGateNow()) return;
+    if (!isRecRef.current) return;
+
+    const rowId = payload.utterance.utterance_id;
+    const st = getCanonTrialRowTransState(rowId);
+    if (st.locked) return;
+
+    const eng = canonWsIsolationEngineRef.current;
+    const snap = eng?.getRowDualBuffer(rowId);
+    const visible = (snap?.visibleText ?? payload.visibleText).trim();
+    const stable = (snap?.stableText ?? payload.stableText).trim();
+    const liveTail = extractLiveTail(visible, stable).trim();
+    if (liveTail.length < 3) {
+      if (st.liveSource.length || st.liveTranslation.length) {
+        st.liveSource = "";
+        st.liveTranslation = "";
+        paintMorsyChunkV2Row(rowId, st.committedTranslation, "");
+      }
+      return;
+    }
+
+    const wordsNow = countWords(liveTail);
+    const charsNow = liveTail.length;
+    const grewByWords =
+      !st.chunkLiveEarlyHintSent ||
+      wordsNow - st.lastLivePreviewWordsSent >= CANON_TRIAL_LIVE_PREVIEW_WORD_STEP;
+    const grewByChars =
+      !st.chunkLiveEarlyHintSent ||
+      charsNow - st.lastLivePreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
+    if (!grewByWords && !grewByChars) {
+      if (st.chunkLiveEarlyHintSent && wordsNow <= st.lastLivePreviewWordsSent) return;
+      if (!st.chunkLiveEarlyHintSent && wordsNow < CANON_TRIAL_LIVE_PREVIEW_WORD_STEP) return;
+    }
+    st.chunkLiveEarlyHintSent = true;
+    st.lastLivePreviewWordsSent = wordsNow;
+    st.lastLivePreviewCharsSent = charsNow;
+    st.lastPendingLang = payload.utterance.language;
+    st.chunkPendingPayload = snap ?? payload;
+
+    const scheduleLivePreview = () => {
+      const freshSnap = eng?.getRowDualBuffer(rowId);
+      const freshVisible = (freshSnap?.visibleText ?? visible).trim();
+      const freshStable = (freshSnap?.stableText ?? stable).trim();
+      const freshTail = extractLiveTail(freshVisible, freshStable).trim();
+      if (freshTail.length < 3) {
+        if (st.liveSource.length || st.liveTranslation.length) {
+          st.liveSource = "";
+          st.liveTranslation = "";
+          paintMorsyChunkV2Row(rowId, st.committedTranslation, "");
+        }
+        return;
+      }
+      void executeMorsyChunkV2Translation(freshSnap ?? payload, { mode: "live" });
+    };
+
+    if (st.chunkLiveDebounceTimer !== null) clearTimeout(st.chunkLiveDebounceTimer);
+    if (st.chunkLiveMaxWaitTimer === null) {
+      st.chunkLiveMaxWaitTimer = setTimeout(() => {
+        st.chunkLiveMaxWaitTimer = null;
+        if (st.chunkLiveDebounceTimer !== null) {
+          clearTimeout(st.chunkLiveDebounceTimer);
+          st.chunkLiveDebounceTimer = null;
+        }
+        scheduleLivePreview();
+      }, CANON_TRIAL_LIVE_MAX_WAIT_MS);
+    }
+    st.chunkLiveDebounceTimer = setTimeout(() => {
+      st.chunkLiveDebounceTimer = null;
+      if (st.chunkLiveMaxWaitTimer !== null) {
+        clearTimeout(st.chunkLiveMaxWaitTimer);
+        st.chunkLiveMaxWaitTimer = null;
+      }
+      scheduleLivePreview();
+    }, CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS);
+  }, [executeMorsyChunkV2Translation, getCanonTrialRowTransState, paintMorsyChunkV2Row]);
+
+  const dispatchMorsyChunkV2EndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {
+    const rowId = payload.utterance.utterance_id;
+    setTimeout(() => {
+      const eng = canonWsIsolationEngineRef.current;
+      const snap = eng?.getRowDualBuffer(rowId);
+      const visible = snap?.visibleText.trim() ?? payload.visibleText.trim();
+      const stable = snap?.stableText.trim() ?? payload.stableText.trim();
+      const sourceText = visible.length >= stable.length ? visible : stable;
+      if (sourceText.length < 3) return;
+      void executeMorsyChunkV2Translation(snap ?? payload, { mode: "endpoint" });
+    }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
+  }, [executeMorsyChunkV2Translation]);
 
   const dispatchCanonTrialLiveGrow = useCallback((payload: CanonRowDualBufferPayload) => {
     if (!translationEnabledRef.current) return;
@@ -5760,6 +6309,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dispatchCanonTrialEndpointFlush(payload);
     };
   }, [dispatchCanonTrialEndpointFlush]);
+
+  useEffect(() => {
+    dispatchMorsyChunkV2StableGrowRef.current = (payload) => {
+      dispatchMorsyChunkV2StableGrow(payload);
+    };
+  }, [dispatchMorsyChunkV2StableGrow]);
+
+  useEffect(() => {
+    dispatchMorsyChunkV2LivePreviewRef.current = (payload) => {
+      dispatchMorsyChunkV2LivePreview(payload);
+    };
+  }, [dispatchMorsyChunkV2LivePreview]);
+
+  useEffect(() => {
+    dispatchMorsyChunkV2EndpointFlushRef.current = (payload) => {
+      dispatchMorsyChunkV2EndpointFlush(payload);
+    };
+  }, [dispatchMorsyChunkV2EndpointFlush]);
 
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
