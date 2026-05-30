@@ -324,7 +324,10 @@ export class CanonAppendWsDomWriter {
       renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
       renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
-        this.paintTranslationPrefixLive(handles, undefined);
+        this.paintTranslationPrefixLive(
+          handles,
+          this.translationPrefixLiveByRowId.get(proj.row_id),
+        );
       } else {
         this.paintTranslation(handles);
       }
