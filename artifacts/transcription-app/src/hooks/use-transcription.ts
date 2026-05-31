@@ -5973,7 +5973,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const morsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current);
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
-        const morsyPrefixLive = morsyUrgent && !morsyClean && !morsyChunkV2;
+        const morsyCanonIntercallLive = morsyUrgent && !morsyClean && !morsyChunkV2;
+        // Full visibleText replace each live update — prefix lock kept English from earlier partial responses.
+        const morsyPrefixLive = false;
         const canonAnchoringDiag = !morsyClean && !morsyChunkV2;
         const stableTextAtDispatch = stableText;
         const visibleTextSent = liveSource;
@@ -6029,7 +6031,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 translationReturned,
               )).composed
             : translationReturned;
-          const rejected = prevShown.length > 0 &&
+          const rejected =
+            !morsyCanonIntercallLive &&
+            prevShown.length > 0 &&
             shouldRejectLegacyCanonTrialLiveTranslation(
               prevShown,
               paintCandidate,

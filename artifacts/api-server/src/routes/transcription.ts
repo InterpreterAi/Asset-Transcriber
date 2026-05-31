@@ -974,6 +974,9 @@ async function finalizeTranslationOutput(
     tgtCode === "ar"
   ) {
     t = applyArabicStaticLeakReplacements(t);
+    if (/[A-Za-z]{3,}/.test(t)) {
+      t = applyArabicStaticLeakReplacements(t);
+    }
   }
   if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t;
@@ -1959,6 +1962,11 @@ router.post("/translate", requireAuth, async (req, res) => {
   let slotToEntryIndex: Map<number, number>;
   let hadPlaceholders: boolean;
   if (useMachineTranslation) {
+    afterGlossary = prot.masked;
+    slotToEntryIndex = new Map();
+    hadPlaceholders = false;
+  } else if (planLower === "morsy-urgent" && !isFinalSegment) {
+    // Live Morsy: let the model translate the full utterance — TERM_* restore can re-inject English.
     afterGlossary = prot.masked;
     slotToEntryIndex = new Map();
     hadPlaceholders = false;
