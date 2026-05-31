@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Star, CheckCircle, AlertCircle } from "lucide-react";
+import { CheckCircle, AlertCircle } from "lucide-react";
+import { FeedbackStarRating } from "@/components/FeedbackStarRating";
 import { isTrialLikePlanType } from "@/lib/utils";
 
 type Props = {
@@ -164,8 +165,6 @@ export function PaidPostSessionFeedbackPrompt({
 
   if (!visible) return null;
 
-  const displayStar = hovered || rating;
-
   return (
     <div
       className={`fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 transition-opacity duration-300 ${
@@ -198,34 +197,20 @@ export function PaidPostSessionFeedbackPrompt({
                   Quick feedback after your session
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  You&apos;ve used about half of today&apos;s allowance. Please leave a rating and short comment once
-                  before your next session.
+                  You&apos;ve used about half of today&apos;s allowance. Please leave a rating and short comment once before your next session (one-time per account).
                 </p>
               </div>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-xs text-muted-foreground">
-                Stars and a comment (at least {MIN_COMMENT_LENGTH} characters) are required. One submission covers
-                today. Submit retries automatically if the network is briefly busy.
+                Tap the stars, then add a comment (at least {MIN_COMMENT_LENGTH} characters). One submission per account — switching plans won&apos;t ask again.
               </p>
-              <div className="flex justify-center gap-1" onMouseLeave={() => setHovered(0)}>
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onMouseEnter={() => setHovered(s)}
-                    onClick={() => setRating(s)}
-                    className="p-1 transition-transform hover:scale-110"
-                    aria-label={`${s} stars`}
-                  >
-                    <Star
-                      className={`w-8 h-8 ${
-                        s <= displayStar ? "text-amber-400 fill-amber-400" : "text-muted/30"
-                      }`}
-                    />
-                  </button>
-                ))}
-              </div>
+              <FeedbackStarRating
+                value={rating}
+                hovered={hovered}
+                onHover={setHovered}
+                onSelect={setRating}
+              />
               <div>
                 <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
                   Comment <span className="text-destructive">*</span>

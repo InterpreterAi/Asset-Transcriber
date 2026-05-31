@@ -147,6 +147,24 @@ export async function hasSubmittedPaidPostSessionFeedbackToday(userId: number): 
   return Number(row?.count ?? 0) > 0;
 }
 
+/**
+ * Mandatory session gate satisfied — **once per account, ever** after any qualifying submission
+ * (stars + min comment). Plan switches (trial ↔ paid ↔ *-openai) must not re-trigger the gate.
+ */
+export async function hasMandatoryFeedbackGateSatisfied(userId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(feedbackTable)
+    .where(
+      and(
+        eq(feedbackTable.userId, userId),
+        gte(feedbackTable.rating, 1),
+        sql`length(trim(coalesce(${feedbackTable.comment}, ''))) >= ${MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH}`,
+      ),
+    );
+  return Number(row?.count ?? 0) > 0;
+}
+
 async function latestPaidPostSessionMandatoryFeedbackSubmittedAt(userId: number): Promise<Date | null> {
   const [row] = await db
     .select({ createdAt: feedbackTable.createdAt })

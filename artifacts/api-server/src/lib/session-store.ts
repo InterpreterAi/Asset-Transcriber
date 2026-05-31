@@ -13,6 +13,10 @@ export interface SessionSnapshot {
   translationLines?: string[];
   /** Monotonic per client session — stale snapshot PUTs (out-of-order HTTP) are ignored. */
   snapshotSeq?: number;
+  /** User workspace viewer prefs — admin live view mirrors these. */
+  viewerTheme?: "light" | "dark";
+  workspaceFontPx?: number;
+  layoutMode?: "stacked" | "side-by-side";
   updatedAt:   number;
 }
 

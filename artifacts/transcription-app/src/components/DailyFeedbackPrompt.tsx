@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Star, X, Send, CheckCircle, Sparkles } from "lucide-react";
+import { X, Send, CheckCircle, Sparkles, Star } from "lucide-react";
+import { FeedbackStarRating } from "@/components/FeedbackStarRating";
 
 interface Props {
   minutesUsedToday: number;
@@ -73,11 +74,9 @@ export function DailyFeedbackPrompt({ minutesUsedToday, triggerMinutes = 180 }: 
 
   if (!visible) return null;
 
-  const displayStar = hovered || rating;
-
   return (
     <div
-      className={`fixed bottom-5 right-5 z-50 w-80 bg-white rounded-2xl shadow-2xl border border-border overflow-hidden transition-all duration-350 ${
+      className={`fixed bottom-5 right-5 z-50 w-80 bg-card text-card-foreground rounded-2xl shadow-2xl border border-border overflow-hidden transition-all duration-350 ${
         animateIn ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
       }`}
       style={{ transition: "transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.25s ease" }}
@@ -118,21 +117,18 @@ export function DailyFeedbackPrompt({ minutesUsedToday, triggerMinutes = 180 }: 
             {/* ── Stars ────────────────────────────────────────────── */}
             <div>
               <p className="text-xs text-muted-foreground mb-2.5">How would you rate InterpreterAI?</p>
-              <div className="flex items-center gap-1" onMouseLeave={() => setHovered(0)}>
-                {[1, 2, 3, 4, 5].map(s => (
-                  <button
-                    key={s}
-                    type="button"
-                    onMouseEnter={() => setHovered(s)}
-                    onClick={() => setRating(s)}
-                    className="transition-transform hover:scale-110 active:scale-95 focus:outline-none"
-                  >
-                    <Star className={`w-7 h-7 transition-colors ${s <= displayStar ? "text-amber-400 fill-amber-400" : "text-gray-200 fill-gray-200"}`} />
-                  </button>
-                ))}
-                {displayStar > 0 && (
-                  <span className={`ml-1.5 text-xs font-medium ${displayStar >= 4 ? "text-green-600" : displayStar === 3 ? "text-amber-600" : "text-red-500"}`}>
-                    {STAR_LABELS[displayStar]}
+              <div className="flex items-center gap-1 flex-wrap">
+                <FeedbackStarRating
+                  value={rating}
+                  hovered={hovered}
+                  onHover={setHovered}
+                  onSelect={setRating}
+                  size="md"
+                  className="justify-start"
+                />
+                {(hovered || rating) > 0 && (
+                  <span className={`ml-1.5 text-xs font-medium ${(hovered || rating) >= 4 ? "text-green-600 dark:text-green-400" : (hovered || rating) === 3 ? "text-amber-600 dark:text-amber-400" : "text-red-500"}`}>
+                    {STAR_LABELS[hovered || rating]}
                   </span>
                 )}
               </div>

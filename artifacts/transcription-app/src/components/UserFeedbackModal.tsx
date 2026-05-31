@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Star, X, Send, CheckCircle } from "lucide-react";
+import { FeedbackStarRating } from "@/components/FeedbackStarRating";
 
 interface Props {
   isOpen: boolean;
@@ -44,8 +45,6 @@ export function UserFeedbackModal({ isOpen, onClose }: Props) {
       setLoading(false);
     }
   };
-
-  const displayStar = hovered || rating;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -97,33 +96,17 @@ export function UserFeedbackModal({ isOpen, onClose }: Props) {
 
               {/* Star picker */}
               <div className="flex flex-col items-center gap-2 py-2">
-                <div
-                  className="flex gap-1.5"
-                  onMouseLeave={() => setHovered(0)}
-                >
-                  {[1, 2, 3, 4, 5].map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onMouseEnter={() => setHovered(s)}
-                      onClick={() => setRating(s)}
-                      className="transition-transform hover:scale-110 active:scale-95 focus:outline-none"
-                      aria-label={`${s} star${s !== 1 ? "s" : ""}`}
-                    >
-                      <Star
-                        className={`w-9 h-9 transition-colors ${
-                          s <= displayStar
-                            ? "text-amber-400 fill-amber-400"
-                            : "text-gray-200 fill-gray-200"
-                        }`}
-                      />
-                    </button>
-                  ))}
-                </div>
-                <p className={`text-xs font-semibold transition-opacity ${displayStar ? "opacity-100" : "opacity-0"} ${
-                  displayStar >= 4 ? "text-green-600" : displayStar === 3 ? "text-amber-600" : "text-red-500"
+                <FeedbackStarRating
+                  value={rating}
+                  hovered={hovered}
+                  onHover={setHovered}
+                  onSelect={setRating}
+                  size="lg"
+                />
+                <p className={`text-xs font-semibold transition-opacity ${(hovered || rating) ? "opacity-100" : "opacity-0"} ${
+                  (hovered || rating) >= 4 ? "text-green-600 dark:text-green-400" : (hovered || rating) === 3 ? "text-amber-600 dark:text-amber-400" : "text-red-500"
                 }`}>
-                  {STAR_LABELS[displayStar]}
+                  {STAR_LABELS[hovered || rating]}
                 </p>
               </div>
 

@@ -4,8 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import {
-  hasPaidPostSessionFeedbackGateSatisfied,
-  hasSubmittedTrialMandatoryFeedbackToday,
+  hasMandatoryFeedbackGateSatisfied,
   isMandatoryFeedbackEligible,
   isMandatoryFeedbackRequiredByUsageWithLive,
   isMandatoryFeedbackRequiredByUsage,
@@ -16,6 +15,10 @@ import {
   PAID_POST_SESSION_FEEDBACK_SOURCE,
 } from "../lib/feedback-gate.js";
 import { getUserWithResetCheck } from "../lib/usage.js";
+
+function feedbackGateBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean {
+  return user.isAdmin === true;
+}
 
 const router = Router();
 
@@ -40,16 +43,21 @@ router.get("/status", requireAuth, async (req, res) => {
   }
   const liveOpenMinutes = await sumOpenSessionsBillableMinutes(user.id);
 
-  const trialRequired =
+  const gateSatisfied =
+    feedbackGateBypassedForAdmin(user) || (await hasMandatoryFeedbackGateSatisfied(user.id));
+
+  const trialUsageRequires =
     isMandatoryFeedbackEligible(user) &&
     isMandatoryFeedbackRequiredByUsageWithLive(user, liveOpenMinutes);
-  const trialSubmitted = trialRequired ? await hasSubmittedTrialMandatoryFeedbackToday(user.id) : false;
+  const trialRequired = trialUsageRequires && !gateSatisfied;
+  const trialSubmitted = trialUsageRequires && gateSatisfied;
 
-  const paidRequired =
+  const paidUsageRequires =
     isPaidPostSessionFeedbackEligible(user) &&
     liveOpenMinutes < 1e-6 &&
     isPaidPostSessionFeedbackRequiredByUsage(user);
-  const paidSubmitted = paidRequired ? await hasPaidPostSessionFeedbackGateSatisfied(user.id, user.email ?? null) : false;
+  const paidRequired = paidUsageRequires && !gateSatisfied;
+  const paidSubmitted = paidUsageRequires && gateSatisfied;
 
   res.json({
     required: trialRequired,
