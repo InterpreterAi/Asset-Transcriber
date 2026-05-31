@@ -96,6 +96,7 @@ import {
 import {
   applyMorsyCanonLiveTranslationPaint,
   finalizeMorsyCanonTranslationPrefix,
+  type MorsyCanonTranslationPrefixState,
 } from "@/hooks/morsy-urgent-canon-translation-prefix";
 import {
   appendTranslationChunk,
@@ -118,6 +119,11 @@ import {
   logChunkV2VisualRegression,
   nextChunkV2RequestId,
 } from "@/hooks/morsy-chunk-v2-instrumentation";
+import {
+  buildPrefixLockPaintMeta,
+  logCanonAnchoringLiveUpdate,
+  nextCanonAnchoringLiveSeq,
+} from "@/hooks/canon-intercall-anchoring-instrumentation";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
   emitNfEntityTrace,
@@ -5900,24 +5906,39 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         const next = tr.text.trim();
         if (!next.length) return;
-        if (isBasicMorsyUrgentPlan(planTypeRef.current)) {
-          const latinMatches = next.match(/(?<![A-Za-z])[A-Za-z]{3,}(?![A-Za-z])/g) ?? [];
-          console.info("[morsy_canon_translate_response]", {
-            isFinal: true,
-            requestLatencyMs: Date.now() - fetchStartedAt,
-            sourceChars: finalSource.length,
-            responseChars: next.length,
-            embeddedEnglishPrompt: morsySendsEmbeddedEnglishLivePrompt(),
-            latinLeakCount: latinMatches.length,
-            latinLeakTokens: latinMatches.slice(0, 20),
-          });
-        }
+        const previousRenderedFinal =
+          canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
         rowState.lastDispatchedSource = finalSource;
         rowState.lastFinalSource = finalSource;
         if (isBasicMorsyUrgentPlan(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
           paintMorsyCanonFinalRowTranslation(rowId, finalSource, next);
         } else {
           paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
+        }
+        if (!morsyUsesCleanTranslationExperiment() && !morsyUsesChunkTranslationV2Experiment()) {
+          const translationRenderedFinal =
+            canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
+          logCanonAnchoringLiveUpdate({
+            seq: nextCanonAnchoringLiveSeq(),
+            rowId,
+            phase: "final_update",
+            requestLatencyMs: Date.now() - fetchStartedAt,
+            visibleTextSent: finalSource,
+            stableTextAtDispatch: finalSource,
+            stableTextAtResponse: finalSource,
+            volatileTailAtDispatch: "",
+            translationReturned: next,
+            translationRendered: translationRenderedFinal,
+            prefixLockApplied: false,
+            previousRendered: previousRenderedFinal,
+            divergences: {
+              composedDiffersFromReturned: false,
+              renderedDiffersFromReturned: translationRenderedFinal.trim() !== next.trim(),
+              renderedDiffersFromComposed: translationRenderedFinal.trim() !== next.trim(),
+              stableGrewDuringFetch: false,
+              visibleIncludesVolatileTail: false,
+            },
+          });
         }
       } catch {
         /* network */
@@ -5948,10 +5969,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const prevShown = eng?.getRowTranslation(rowId).trim() ?? "";
         const dualSnap = eng?.getRowDualBuffer(rowId);
         const stableText = (dualSnap?.stableText ?? pendingPayload.stableText).trim();
+        const volatileTailAtDispatch = (dualSnap?.volatileTail ?? pendingPayload.volatileTail ?? "").trim();
         const morsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current);
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
         const morsyPrefixLive = morsyUrgent && !morsyClean && !morsyChunkV2;
+        const canonAnchoringDiag = !morsyClean && !morsyChunkV2;
+        const stableTextAtDispatch = stableText;
+        const visibleTextSent = liveSource;
+        const anchoringSeq = canonAnchoringDiag ? nextCanonAnchoringLiveSeq() : 0;
+        const prefixBeforePaint: MorsyCanonTranslationPrefixState = {
+          lockedStableSource: rowState.lockedStableSource,
+          lockedTranslationPrefix: rowState.lockedTranslationPrefix,
+        };
 
         rowState.liveAbort?.abort();
         const ac = new AbortController();
@@ -5984,46 +6014,122 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!rowState.pendingLiveSource) break;
             continue;
           }
-          if (morsyUrgent) {
-            const latinMatches = next.match(/(?<![A-Za-z])[A-Za-z]{3,}(?![A-Za-z])/g) ?? [];
-            console.info("[morsy_canon_translate_response]", {
-              isFinal: false,
-              requestLatencyMs: Date.now() - fetchStartedAt,
-              sourceChars: liveSource.length,
-              responseChars: next.length,
-              embeddedEnglishPrompt: morsySendsEmbeddedEnglishLivePrompt(),
-              latinLeakCount: latinMatches.length,
-              latinLeakTokens: latinMatches.slice(0, 20),
-            });
-          }
+          const dualSnapAtResponse = eng?.getRowDualBuffer(rowId);
+          const stableTextAtResponse = (dualSnapAtResponse?.stableText ?? stableTextAtDispatch).trim();
+          const translationReturned = next;
+          let paintApplied: ReturnType<typeof applyMorsyCanonLiveTranslationPaint> | null = null;
           const paintCandidate = morsyPrefixLive
-            ? applyMorsyCanonLiveTranslationPaint(
+            ? (paintApplied = applyMorsyCanonLiveTranslationPaint(
                 {
                   lockedStableSource: rowState.lockedStableSource,
                   lockedTranslationPrefix: rowState.lockedTranslationPrefix,
                 },
-                stableText,
+                stableTextAtDispatch,
                 liveSource,
-                next,
-              ).composed
-            : next;
-          if (
-            prevShown.length > 0 &&
+                translationReturned,
+              )).composed
+            : translationReturned;
+          const rejected = prevShown.length > 0 &&
             shouldRejectLegacyCanonTrialLiveTranslation(
               prevShown,
               paintCandidate,
               liveSource,
               rowState.lastDispatchedSource,
-            )
-          ) {
+            );
+          if (rejected) {
+            if (canonAnchoringDiag) {
+              logCanonAnchoringLiveUpdate({
+                seq: anchoringSeq,
+                rowId,
+                phase: "live_rejected",
+                requestLatencyMs: Date.now() - fetchStartedAt,
+                visibleTextSent,
+                stableTextAtDispatch,
+                stableTextAtResponse,
+                volatileTailAtDispatch,
+                translationReturned,
+                translationRendered: prevShown,
+                prefixLockApplied: morsyPrefixLive,
+                ...(paintApplied && morsyPrefixLive
+                  ? {
+                      prefixLock: buildPrefixLockPaintMeta(prefixBeforePaint, paintApplied.prefixState, {
+                        locked: paintApplied.locked,
+                        live: paintApplied.live,
+                        composed: paintApplied.composed,
+                      }),
+                    }
+                  : {}),
+                previousRendered: prevShown,
+                divergences: {
+                  composedDiffersFromReturned:
+                    morsyPrefixLive && paintApplied
+                      ? paintApplied.composed.trim() !== translationReturned.trim()
+                      : false,
+                  renderedDiffersFromReturned: prevShown.trim() !== translationReturned.trim(),
+                  renderedDiffersFromComposed:
+                    morsyPrefixLive && paintApplied
+                      ? prevShown.trim() !== paintApplied.composed.trim()
+                      : false,
+                  stableGrewDuringFetch:
+                    stableTextAtResponse.length > stableTextAtDispatch.length &&
+                    (stableTextAtDispatch.length === 0 ||
+                      stableTextAtResponse.startsWith(stableTextAtDispatch)),
+                  visibleIncludesVolatileTail:
+                    visibleTextSent.trim().length > stableTextAtDispatch.trim().length,
+                },
+                rejectReason: "legacy_canon_shrink_guard",
+              });
+            }
             if (!rowState.pendingLiveSource) break;
             continue;
           }
           rowState.lastDispatchedSource = liveSource;
           if (morsyPrefixLive) {
-            paintMorsyCanonLiveRowTranslation(rowId, stableText, liveSource, next);
+            paintMorsyCanonLiveRowTranslation(rowId, stableTextAtDispatch, liveSource, translationReturned);
           } else {
-            paintCanonRowTranslationIfAllowed(rowId, next);
+            paintCanonRowTranslationIfAllowed(rowId, translationReturned);
+          }
+          if (canonAnchoringDiag) {
+            const translationRendered = eng?.getRowTranslation(rowId).trim() ?? "";
+            const prefixAfterPaint: MorsyCanonTranslationPrefixState = {
+              lockedStableSource: rowState.lockedStableSource,
+              lockedTranslationPrefix: rowState.lockedTranslationPrefix,
+            };
+            const composedBeforePaint = paintApplied?.composed ?? translationReturned;
+            logCanonAnchoringLiveUpdate({
+              seq: anchoringSeq,
+              rowId,
+              phase: "live_update",
+              requestLatencyMs: Date.now() - fetchStartedAt,
+              visibleTextSent,
+              stableTextAtDispatch,
+              stableTextAtResponse,
+              volatileTailAtDispatch,
+              translationReturned,
+              translationRendered,
+              prefixLockApplied: morsyPrefixLive,
+              ...(paintApplied && morsyPrefixLive
+                ? {
+                    prefixLock: buildPrefixLockPaintMeta(prefixBeforePaint, prefixAfterPaint, {
+                      locked: paintApplied.locked,
+                      live: paintApplied.live,
+                      composed: paintApplied.composed,
+                    }),
+                  }
+                : {}),
+              previousRendered: prevShown,
+              divergences: {
+                composedDiffersFromReturned: composedBeforePaint.trim() !== translationReturned.trim(),
+                renderedDiffersFromReturned: translationRendered.trim() !== translationReturned.trim(),
+                renderedDiffersFromComposed: translationRendered.trim() !== composedBeforePaint.trim(),
+                stableGrewDuringFetch:
+                  stableTextAtResponse.length > stableTextAtDispatch.length &&
+                  (stableTextAtDispatch.length === 0 ||
+                    stableTextAtResponse.startsWith(stableTextAtDispatch)),
+                visibleIncludesVolatileTail:
+                  visibleTextSent.trim().length > stableTextAtDispatch.trim().length,
+              },
+            });
           }
         } catch {
           /* abort / network — drain pending if any */
