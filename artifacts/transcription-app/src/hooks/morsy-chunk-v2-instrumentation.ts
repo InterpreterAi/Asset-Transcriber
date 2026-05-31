@@ -189,38 +189,6 @@ export function logChunkV2BoundaryHold(args: {
   console.info("[chunk_v2_boundary_hold]", args);
 }
 
-export function logChunkV2ShadowValidation(args: {
-  rowId: string;
-  stableSourceLength: number;
-  liveAppendedLength: number;
-  fullStableTranslationLength: number;
-  significant: boolean;
-  reasons: string[];
-  stableSourceSnippet: string;
-  liveAppendedSnippet: string;
-  fullStableTranslationSnippet: string;
-  requestLatencyMs: number;
-}): void {
-  const level = args.significant ? "warn" : "info";
-  const payload = {
-    rowId: args.rowId,
-    stableSourceLength: args.stableSourceLength,
-    liveAppendedLength: args.liveAppendedLength,
-    fullStableTranslationLength: args.fullStableTranslationLength,
-    significant: args.significant,
-    reasons: args.reasons,
-    stableSourceSnippet: args.stableSourceSnippet,
-    liveAppendedSnippet: args.liveAppendedSnippet,
-    fullStableTranslationSnippet: args.fullStableTranslationSnippet,
-    requestLatencyMs: args.requestLatencyMs,
-  };
-  if (level === "warn") {
-    console.warn("[chunk_v2_shadow_validation]", payload);
-  } else {
-    console.info("[chunk_v2_shadow_validation]", payload);
-  }
-}
-
 export function logChunkV2ExecuteGate(args: {
   rowId: string;
   mode: string;
