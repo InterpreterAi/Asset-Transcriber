@@ -362,7 +362,7 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial", label: "Trial · OpenAI (legacy)" },
   { value: "basic-openai", label: "Basic · OpenAI" },
   { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy STT, OpenAI translation)" },
-  { value: "legacy2", label: "Basic · Legacy 2 (Final Boss 3 STT + Chunk V2 MT)" },
+  { value: "legacy2", label: "Basic · Legacy 2 (Final Boss 3 STT + Clean MT)" },
   { value: "professional-openai", label: "Professional · OpenAI" },
   { value: "platinum-openai", label: "Platinum · OpenAI" },
 ];

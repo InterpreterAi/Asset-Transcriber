@@ -1828,8 +1828,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   // ── Basic · Morsy Urgent — chunk append translation V2 (highest priority experiment) ──
   const morsyChunkV2Applies =
-    experimentalMorsyUrgentChunkTranslationV2 &&
-    (planLower === "morsy-urgent" || planLower === "legacy2");
+    experimentalMorsyUrgentChunkTranslationV2 && planLower === "morsy-urgent";
   if (morsyChunkV2Applies) {
     if (!isOpenAiConfigured()) {
       res.status(503).json({
@@ -1887,7 +1886,8 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   // ── Basic · Morsy Urgent — clean translation experiment (isolated minimal path) ──
   const morsyBasicCleanApplies =
-    experimentalMorsyBasicCleanTranslation && planLower === "morsy-urgent";
+    planLower === "legacy2" ||
+    (experimentalMorsyBasicCleanTranslation && planLower === "morsy-urgent");
   if (morsyBasicCleanApplies) {
     if (!isOpenAiConfigured()) {
       res.status(503).json({
