@@ -39,7 +39,6 @@ import {
   formatMinutes,
   isTrialLikePlanType,
   planUsesLibreEngine,
-  planUsesOpenAiMorsyCanonTranslation,
   workspacePlanDisplayName,
   workspacePlanTierKey,
   workspaceUsageShowsSlashUnlimited,
@@ -292,7 +291,6 @@ export default function WorkspaceDefault() {
    */
   const pt = (user?.planType ?? "").toLowerCase();
   const usesCanonAppendWsStt = planUsesCanonAppendWsStt(pt);
-  const usesOpenAiMorsyCanon = planUsesOpenAiMorsyCanonTranslation(pt);
   const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const isMorsyChunkV2Workspace = isMorsyUrgentWorkspace;
   const [morsyCleanTranslationExperiment, setMorsyCleanTranslationExperiment] = useState(
@@ -344,7 +342,7 @@ export default function WorkspaceDefault() {
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && usesCanonAppendWsStt,
     experimentMorsyUrgentIntercallOrchestration: false,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
-    experimentMorsyIntercallEmbeddedEnglishPrompt: usesOpenAiMorsyCanon,
+    experimentMorsyIntercallEmbeddedEnglishPrompt: false,
     experimentMorsyBasicCleanTranslation:
       pt === "morsy-urgent" && morsyCleanTranslationExperiment && !morsyChunkTranslationV2Experiment,
     experimentMorsyUrgentChunkTranslationV2:

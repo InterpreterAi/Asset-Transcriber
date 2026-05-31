@@ -56,18 +56,23 @@ export function workspaceUsageShowsSlashUnlimited(planType: string | null | unde
 }
 
 /**
- * Client mirror of server {@link planUsesOpenAiMorsyInterpreterStack} — OpenAI tiers using
- * Basic · Morsy Urgent canon translation/STT (excludes Libre, Hetzner, legacy2).
+ * OpenAI tiers using **Basic · Legacy 2 Morsy** clean translation (minimal OpenAI, no live re-append).
+ * Includes `legacy2`, `morsy-urgent`, trial/*-openai/platinum/unlimited; excludes Libre/Hetzner.
  */
-export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | undefined): boolean {
+export function planUsesOpenAiLegacy2CleanTranslation(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (!p || p === "legacy2" || p === "trial-hetzner") return false;
+  if (!p || p === "trial-hetzner") return false;
   if (p === "trial-libre" || p === "basic-libre" || p === "professional-libre" || p === "platinum-libre") return false;
   if (p.includes("-openai")) return true;
-  if (p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
+  if (p === "legacy2" || p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
   if (p === "platinum" || p === "unlimited") return true;
   if (p === "basic" || p === "professional") return false;
   return false;
+}
+
+/** @deprecated Use {@link planUsesOpenAiLegacy2CleanTranslation}. Kept for grep compatibility — always mirrors legacy2 stack. */
+export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | undefined): boolean {
+  return planUsesOpenAiLegacy2CleanTranslation(planType);
 }
 
 /**

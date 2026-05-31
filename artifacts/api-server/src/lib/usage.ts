@@ -94,18 +94,23 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
 }
 
 /**
- * OpenAI interpreter SKUs aligned with Basic · Morsy Urgent (Final Boss 3 canon translation + STT).
- * Excludes Libre/Hetzner (`*-libre`, `trial-hetzner`) and transcription-only `legacy2`.
+ * OpenAI interpreter SKUs on **Basic · Legacy 2 Morsy** clean translation (minimal OpenAI path).
+ * Includes `legacy2`, `morsy-urgent`, trial/*-openai/platinum; excludes Libre/Hetzner machine stack.
  */
-export function planUsesOpenAiMorsyInterpreterStack(planType: string | null | undefined): boolean {
+export function planUsesOpenAiLegacy2CleanStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  if (!p || p === "legacy2" || p === "trial-hetzner") return false;
+  if (!p || p === "trial-hetzner") return false;
   if (p === "trial-libre" || p === "basic-libre" || p === "professional-libre" || p === "platinum-libre") return false;
   if (p.includes("-openai")) return true;
-  if (p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
+  if (p === "legacy2" || p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
   if (p === "platinum" || p === "unlimited") return true;
   if (p === "basic" || p === "professional") return false;
   return false;
+}
+
+/** @deprecated Alias for {@link planUsesOpenAiLegacy2CleanStack}. */
+export function planUsesOpenAiMorsyInterpreterStack(planType: string | null | undefined): boolean {
+  return planUsesOpenAiLegacy2CleanStack(planType);
 }
 
 /** Runtime translation engine selector for /translate. */

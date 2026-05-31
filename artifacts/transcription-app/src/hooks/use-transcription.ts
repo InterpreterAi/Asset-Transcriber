@@ -84,7 +84,7 @@ import {
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import { gateCanonAppendWsIsolatedRebuild, planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
-import { planUsesOpenAiMorsyCanonTranslation } from "@/lib/utils";
+import { planUsesOpenAiLegacy2CleanTranslation } from "@/lib/utils";
 import {
   CanonAppendWsIsolatedRuntime,
   type CanonFrozenRowPayload,
@@ -3087,12 +3087,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       options?.experimentMorsyIntercallEmbeddedEnglishPrompt ?? false;
   }, [options?.experimentMorsyIntercallEmbeddedEnglishPrompt]);
 
+  function openAiLegacy2CleanTranslationActive(): boolean {
+    return (
+      planUsesOpenAiLegacy2CleanTranslation(planTypeRef.current) &&
+      !morsyUsesCleanTranslationExperiment() &&
+      !morsyUsesChunkTranslationV2Experiment()
+    );
+  }
+
   function morsySendsEmbeddedEnglishLivePrompt(): boolean {
-    if (!planUsesOpenAiMorsyCanonTranslation(planTypeRef.current)) return false;
-    if (morsyUsesCleanTranslationExperiment() || morsyUsesChunkTranslationV2Experiment()) {
-      return false;
-    }
-    return true;
+    return false;
   }
 
   function morsyUrgentEmbeddedEnglishFetchOpts() {
@@ -3346,11 +3350,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   function morsyUrgentCanonLivePathNow(): boolean {
-    return (
-      planUsesOpenAiMorsyCanonTranslation(planTypeRef.current) &&
-      !experimentMorsyBasicCleanTranslationRef.current &&
-      !experimentMorsyUrgentChunkTranslationV2Ref.current
-    );
+    return false;
   }
 
   const getCanonTrialRowTransState = useCallback((rowId: string): CanonTrialRowTranslationState => {
@@ -3619,6 +3619,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowStableGrow: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
+          if (openAiLegacy2CleanTranslationActive()) return;
           if (morsyUsesChunkTranslationV2Experiment()) {
             dispatchMorsyChunkV2StableGrowRef.current(payload);
           } else {
@@ -3628,6 +3629,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowVolatilePulse: (payload) => {
         if (!planUsesLegacyCanonTranslationBridge(planTypeRef.current)) return;
+        if (openAiLegacy2CleanTranslationActive()) return;
         if (morsyUsesChunkTranslationV2Experiment()) {
           dispatchMorsyChunkV2LivePreviewRef.current(payload);
           return;
@@ -5641,15 +5643,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const pair = langPairRef.current;
     const sonioxHint = utterance.language ?? detectedLangRef.current;
-    const morsyUrgentCanon =
-      planUsesOpenAiMorsyCanonTranslation(planTypeRef.current) &&
-      !morsyUsesCleanTranslationExperiment() &&
-      !morsyUsesChunkTranslationV2Experiment();
+    const openAiLegacy2Clean = openAiLegacy2CleanTranslationActive();
+    const morsyUrgentCanon = false;
     const sourceLang = resolveSourceLangForCanon(sourceNorm, sonioxHint, pair);
     const targetLang = targetOppositeInPair(sourceLang, pair);
 
-    if (morsyUrgentCanon && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
-      paintMorsyCanonFinalRowTranslation(rowId, sourceNorm, sourceNorm);
+    if (openAiLegacy2Clean && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
+      paintCanonRowTranslationIfAllowed(rowId, sourceNorm, { force: true });
       st.lastFinalSource = sourceNorm;
       st.lastStableDispatched = sourceNorm;
       st.lastVolatileDispatched = sourceNorm;
@@ -5680,19 +5680,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       pendingDelta,
       chunkV2,
     });
-    const existingFailsOppositeContract =
-      morsyUrgentCanon &&
-      morsyCanonTranslationViolatesOppositeContract(sourceNorm, existing, targetLang);
+    const existingFailsOppositeContract = false;
     const skipFrozenTranslation =
       !implOpts?.force &&
       (chunkV2
         ? pendingDelta.length === 0 && existing.length >= 3
-        : morsyUrgentCanon
-          ? existing.length >= 3 &&
-            lastFinalSource === sourceNorm &&
-            !canonTranslationProbablyIncomplete(sourceNorm, existing) &&
-            !existingFailsOppositeContract
-          : existing.length >= 3 &&
+        : existing.length >= 3 &&
             lastFinalSource === sourceNorm &&
             !canonTranslationProbablyIncomplete(sourceNorm, existing) &&
             !existingFailsOppositeContract);
@@ -5803,31 +5796,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
         : {};
 
-    const morsyIntercallEmbeddedEnglishPromptOpts = morsyUrgentEmbeddedEnglishFetchOpts();
-
     let translated = "";
-    if (morsyUrgentCanon) {
-      const tr = await fetchMorsyCanonFrozenRowTranslation(
-        sourceNorm,
-        sourceLang,
-        targetLang,
-        (m) => translationConfigReporterRef.current(m),
-        {
-          isFinal: true,
-          onGlossaryApplied: t => glossaryNotifyRef.current(t),
-          ...(sessionIdRef.current != null && sessionIdRef.current > 0
-            ? { sessionId: sessionIdRef.current }
-            : {}),
-          ...basicMorsyOpenAiExperimentOpts,
-          ...morsyIntercallEmbeddedEnglishPromptOpts,
-        },
-      );
-      if (tr.dailyLimitReached) {
-        dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
-        return;
-      }
-      translated = tr.text.trim();
-    } else {
+    {
       for (let attempt = 0; attempt < 2; attempt++) {
         const tr = await fetchTranslation(
           sourceNorm,
@@ -5836,13 +5806,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           (m) => translationConfigReporterRef.current(m),
           {
             isFinal: true,
-            onGlossaryApplied: t => glossaryNotifyRef.current(t),
             ...(sessionIdRef.current != null && sessionIdRef.current > 0
               ? { sessionId: sessionIdRef.current }
               : {}),
             ...morsyCleanExperimentOpts,
+            ...morsyChunkV2ExperimentOpts,
             ...basicMorsyOpenAiExperimentOpts,
-            ...morsyIntercallEmbeddedEnglishPromptOpts,
           },
         );
         if (tr.dailyLimitReached) {
@@ -5858,7 +5827,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
     if (
-      !morsyUrgentCanon &&
       translated.length > 0 &&
       looksLikeUntranslatedCopy(sourceNorm, translated)
     ) {
@@ -5869,12 +5837,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         (m) => translationConfigReporterRef.current(m),
         {
           isFinal: true,
-          onGlossaryApplied: t => glossaryNotifyRef.current(t),
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
             ? { sessionId: sessionIdRef.current }
             : {}),
           ...basicMorsyOpenAiExperimentOpts,
-          ...morsyIntercallEmbeddedEnglishPromptOpts,
         },
       );
       if (trOpp.dailyLimitReached) {
@@ -5888,35 +5854,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
-    const frozenAcceptable =
-      !morsyUrgentCanon ||
-      !translated.length ||
-      morsyCanonFrozenTranslationAcceptable(sourceNorm, translated, targetLang);
+    const frozenAcceptable = true;
 
     if (translated.length > 0 && frozenAcceptable) {
-      if (planUsesOpenAiMorsyCanonTranslation(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
-        paintMorsyCanonFinalRowTranslation(rowId, sourceNorm, translated);
-      } else {
-        paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
-      }
+      paintCanonRowTranslationIfAllowed(rowId, translated, { force: true });
       st.lastFinalSource = sourceNorm;
       st.lastStableDispatched = sourceNorm;
       st.lastVolatileDispatched = sourceNorm;
       trialSt.lastFinalSource = sourceNorm;
       trialSt.lastDispatchedSource = sourceNorm;
       morsyCanonFrozenRetryCountRef.current.delete(rowId);
-    } else if (
-      morsyUrgentCanon &&
-      translationEnabledRef.current &&
-      isRecRef.current
-    ) {
-      const tries = (morsyCanonFrozenRetryCountRef.current.get(rowId) ?? 0) + 1;
-      if (tries <= MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES) {
-        morsyCanonFrozenRetryCountRef.current.set(rowId, tries);
-        setTimeout(() => {
-          enqueueMorsyCanonFrozenTranslationRef.current(payload, true);
-        }, 500 + tries * 200);
-      }
     }
     onAdminSnapshotBuffersUpdatedRef.current?.();
     } finally {
@@ -6223,27 +6170,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const sourceNow = opts.sourceText.trim();
     if (sourceNow.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
 
+    if (!opts.isFinal && openAiLegacy2CleanTranslationActive()) return;
+
     rowState.lastPendingLang = payload.utterance.language;
 
     const pair = langPairRef.current;
     const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
     const eng = canonWsIsolationEngineRef.current;
 
-    const morsyUrgentCanonFetchOpts = () => {
-      if (!planUsesOpenAiMorsyCanonTranslation(planTypeRef.current)) return {};
-      if (morsyUsesChunkTranslationV2Experiment()) {
-        return { experimentalMorsyUrgentChunkTranslationV2: true as const };
-      }
-      if (morsyUsesCleanTranslationExperiment()) {
-        return { experimentalMorsyBasicCleanTranslation: true as const };
-      }
-      return {
-        ...(morsyUrgentAttachOpenAiExperimentRef.current
-          ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
-          : {}),
-        ...morsyUrgentEmbeddedEnglishFetchOpts(),
-      };
-    };
+    const morsyUrgentCanonFetchOpts = () => ({});
 
     const runFinalFetch = async (finalSource: string) => {
       rowState.endpointFinalInFlight = true;
@@ -6264,37 +6199,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const sourceLang = resolveSourceLangForCanon(finalSource, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
-      const morsyUrgent = planUsesOpenAiMorsyCanonTranslation(planTypeRef.current);
-      const morsyClean = morsyUsesCleanTranslationExperiment();
-      const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
-      const morsyCanonIntercall = morsyUrgent && !morsyClean && !morsyChunkV2;
+      const openAiLegacy2Clean = openAiLegacy2CleanTranslationActive();
 
       try {
-        if (morsyCanonIntercall && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
+        if (openAiLegacy2Clean && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
           rowState.lastDispatchedSource = finalSource;
           rowState.lastFinalSource = finalSource;
-          paintMorsyCanonFinalRowTranslation(rowId, finalSource, finalSource);
+          paintCanonRowTranslationIfAllowed(rowId, finalSource, { force: true });
           return;
         }
 
         const fetchStartedAt = Date.now();
         const fetchOpts = {
           isFinal: true,
-          onGlossaryApplied: (terms: string[]) => glossaryNotifyRef.current(terms),
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
             ? { sessionId: sessionIdRef.current }
             : {}),
           ...morsyUrgentCanonFetchOpts(),
         };
-        const tr = morsyCanonIntercall
-          ? await fetchMorsyCanonFrozenRowTranslation(
-              finalSource,
-              sourceLang,
-              targetLang,
-              (m) => translationConfigReporterRef.current(m),
-              fetchOpts,
-            )
-          : await fetchTranslation(
+        const tr = await fetchTranslation(
               finalSource,
               sourceLang,
               targetLang,
@@ -6305,25 +6228,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
           return;
         }
-        let next = tr.text.trim();
-        if (
-          next.length > 0 &&
-          morsyCanonIntercall &&
-          !morsyCanonFrozenTranslationAcceptable(finalSource, next, targetLang)
-        ) {
-          next = "";
-        }
+        const next = tr.text.trim();
         if (!next.length) {
-          if (morsyCanonIntercall && translationEnabledRef.current && isRecRef.current) {
-            enqueueMorsyCanonFrozenTranslationRef.current(
-              {
-                utterance: payload.utterance,
-                lineIndex: 0,
-                committedText: finalSource,
-              },
-              true,
-            );
-          }
           return;
         }
         const previousRenderedFinal =
@@ -6331,11 +6237,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.lastDispatchedSource = finalSource;
         rowState.lastFinalSource = finalSource;
         morsyCanonFrozenRetryCountRef.current.delete(rowId);
-        if (planUsesOpenAiMorsyCanonTranslation(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
-          paintMorsyCanonFinalRowTranslation(rowId, finalSource, next);
-        } else {
-          paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
-        }
+        paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
         if (!morsyUsesCleanTranslationExperiment() && !morsyUsesChunkTranslationV2Experiment()) {
           const translationRenderedFinal =
             canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
@@ -6397,10 +6299,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const dualSnap = eng?.getRowDualBuffer(rowId);
         const stableText = (dualSnap?.stableText ?? pendingPayload.stableText).trim();
         const volatileTailAtDispatch = (dualSnap?.volatileTail ?? pendingPayload.volatileTail ?? "").trim();
-        const morsyUrgent = planUsesOpenAiMorsyCanonTranslation(planTypeRef.current);
+        const morsyUrgent = false;
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
-        const morsyCanonIntercallLive = morsyUrgent && !morsyClean && !morsyChunkV2;
+        const morsyCanonIntercallLive = false;
 
         if (morsyCanonIntercallLive && morsyCanonThirdLanguagePassthrough(liveSource, sonioxHint, pair)) {
           rowState.lastDispatchedSource = liveSource;
@@ -6988,10 +6890,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const grewByChars =
       !st.earlyHintSent ||
       charsNow - st.lastPreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
-    const morsyCanonLive =
-      planUsesOpenAiMorsyCanonTranslation(planTypeRef.current) &&
-      !morsyUsesCleanTranslationExperiment() &&
-      !morsyUsesChunkTranslationV2Experiment();
+    const morsyCanonLive = false;
     const grewSinceLastDispatch =
       morsyCanonLive &&
       visible.length > st.lastDispatchedSource.trim().length + 12;

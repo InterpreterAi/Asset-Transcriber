@@ -19,7 +19,7 @@ import {
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
-  planUsesOpenAiMorsyInterpreterStack,
+  planUsesOpenAiLegacy2CleanStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -694,7 +694,7 @@ function liveEmbeddedEnglishSupplementBlock(
 ): string {
   if (isFinalSegment) return "";
   const p = planLower.trim().toLowerCase();
-  const openAiMorsyStack = planUsesOpenAiMorsyInterpreterStack(p);
+  const openAiMorsyStack = planUsesOpenAiLegacy2CleanStack(p);
   const morsyIntercall = morsyIntercallEmbeddedEnglishHint && openAiMorsyStack;
   if (!openAiMorsyStack && !morsyIntercall && !planGetsLiveEmbeddedEnglishPrompt(p)) return "";
   return (
@@ -1887,11 +1887,11 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  // ── Basic · Morsy Urgent — clean translation experiment (isolated minimal path) ──
-  const morsyBasicCleanApplies =
-    planLower === "legacy2" ||
+  // ── Basic · Legacy 2 Morsy — clean OpenAI translation (all OpenAI SKUs + legacy2) ──
+  const openAiLegacy2CleanApplies =
+    planUsesOpenAiLegacy2CleanStack(planLower) ||
     (experimentalMorsyBasicCleanTranslation && planLower === "morsy-urgent");
-  if (morsyBasicCleanApplies) {
+  if (openAiLegacy2CleanApplies) {
     if (!isOpenAiConfigured()) {
       res.status(503).json({
         error:
@@ -1964,8 +1964,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     afterGlossary = prot.masked;
     slotToEntryIndex = new Map();
     hadPlaceholders = false;
-  } else if (planUsesOpenAiMorsyInterpreterStack(planLower) && !isFinalSegment) {
-    // Live OpenAI Morsy stack: let the model translate the full utterance — TERM_* restore can re-inject English.
+  } else if (planUsesOpenAiLegacy2CleanStack(planLower) && !isFinalSegment) {
+    // Legacy 2 clean stack live: full utterance to model — no TERM_* glossary restore.
     afterGlossary = prot.masked;
     slotToEntryIndex = new Map();
     hadPlaceholders = false;
@@ -2401,7 +2401,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- "my number" in this context is an interpreter ID, not a phone number.\n` +
     `- Translate exactly as spoken: "اسمي X ورقمي هو 3602" — never add "هاتفي" or "تليفوني"\n\n` +
 
-    (planUsesOpenAiMorsyInterpreterStack(planLower)
+    (planUsesOpenAiLegacy2CleanStack(planLower)
       ? morsyUrgentInterpreterWhenInDoubtSection(srcName, tgtName, whenInDoubtTranscriptScope)
       : `WHEN IN DOUBT:\n` +
         `- Prefer faithful literal rendering over creative paraphrase.\n` +
@@ -2517,7 +2517,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     // Morsy Urgent live: retry only when output looks truncated (not every interim tick).
     // Other plans: live cumulative updates skip the second call to protect latency.
     const openAiMorsyLiveIncompleteRetry =
-      planUsesOpenAiMorsyInterpreterStack(planLower) && !isFinalSegment && !streamingDelta;
+      planUsesOpenAiLegacy2CleanStack(planLower) && !isFinalSegment && !streamingDelta;
     const needIncompleteRetry =
       (isFinalSegment || openAiMorsyLiveIncompleteRetry) &&
       !streamingDelta &&
@@ -2698,7 +2698,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     diagCounter.translationSegments += 1;
     diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outAi });
-    if (planUsesOpenAiMorsyInterpreterStack(planLower)) {
+    if (planUsesOpenAiLegacy2CleanStack(planLower)) {
       const leakDiag = diagnoseEnglishLeakageInTranslation(outAi, srcCode, tgtCode);
       logger.info(
         {
