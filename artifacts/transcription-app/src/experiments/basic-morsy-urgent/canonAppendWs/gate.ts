@@ -7,6 +7,8 @@ export const BASIC_MORSY_CANON_WS_ENGINE_LS = "interpreterai_basic_morsy_canon_w
 /** Plans that use the isolated canonAppendWs Soniox STT engine (shared segmentation/diarization). */
 export const CANON_APPEND_WS_STT_PLAN_TYPES = [
   "morsy-urgent",
+  /** Transcription-only tier — same canonAppendWs STT as Morsy; translation disabled client-side. */
+  "legacy2",
   "trial-openai",
   "trial-hetzner",
   "trial-libre",

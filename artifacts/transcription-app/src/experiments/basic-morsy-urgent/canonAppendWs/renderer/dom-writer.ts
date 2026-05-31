@@ -22,10 +22,19 @@ export type EngineDomRowHandles = {
   translationEl: HTMLElement;
 };
 
-function stripeColorClass(language?: string): string {
+/** Per-row stripe palette — speaker and/or language changes get the next slot (blue → yellow → …). */
+const ROW_STRIPE_COLOR_CLASSES = [
+  "bg-blue-500",
+  "bg-amber-400",
+  "bg-emerald-500",
+  "bg-violet-500",
+  "bg-rose-500",
+] as const;
+
+function stripeColorFallback(language?: string): string {
   const b = (language ?? "").split("-")[0]!.toLowerCase();
-  if (b === "en") return "bg-blue-500";
-  if (b === "es") return "bg-amber-400";
+  if (b === "en") return ROW_STRIPE_COLOR_CLASSES[0]!;
+  if (b === "es") return ROW_STRIPE_COLOR_CLASSES[1]!;
   return "bg-muted-foreground/35";
 }
 
@@ -51,7 +60,22 @@ function translationTextClass(layout: CanonAppendWsLayoutMode): string {
 export class CanonAppendWsDomWriter {
   private readonly byRowId = new Map<string, EngineDomRowHandles>();
 
+  /** First-seen speaker+language keys map to stable stripe colors across the session. */
+  private readonly rowStripeSlotByKey = new Map<string, number>();
+
   private layoutMode: CanonAppendWsLayoutMode = "side-by-side";
+
+  private stripeColorForRow(speaker?: string, language?: string): string {
+    const sp = (speaker ?? "").trim();
+    const lang = (language ?? "").split("-")[0]!.toLowerCase();
+    const key = `${sp}|${lang}`;
+    if (!sp && !lang) return stripeColorFallback(language);
+    if (!this.rowStripeSlotByKey.has(key)) {
+      this.rowStripeSlotByKey.set(key, this.rowStripeSlotByKey.size);
+    }
+    const idx = this.rowStripeSlotByKey.get(key)! % ROW_STRIPE_COLOR_CLASSES.length;
+    return ROW_STRIPE_COLOR_CLASSES[idx]!;
+  }
 
   private readonly translationByRowId = new Map<string, string>();
 
@@ -229,7 +253,7 @@ export class CanonAppendWsDomWriter {
     card.className = origCardClass();
 
     const stripe = doc.createElement("div");
-    stripe.className = `w-1 shrink-0 self-stretch ${stripeColorClass(proj.language)}`;
+    stripe.className = `w-1 shrink-0 self-stretch rounded-full min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
 
     const body = doc.createElement("div");
     body.className = "min-w-0 flex-1 space-y-1 py-0.5 pl-3";
@@ -317,7 +341,7 @@ export class CanonAppendWsDomWriter {
 
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
-      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${stripeColorClass(proj.language)}`;
+      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
 
       if (!line || !hypo) continue;
 
@@ -354,6 +378,7 @@ export class CanonAppendWsDomWriter {
     this.byRowId.clear();
     this.translationByRowId.clear();
     this.translationPrefixLiveByRowId.clear();
+    this.rowStripeSlotByKey.clear();
   }
 }
 

@@ -34,6 +34,8 @@ import { SonioxRealtimeClient } from "../ws/soniox-client";
 /** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
 const CANON_VOLATILE_TAIL_PULSE_MS = 800;
 const CANON_VOLATILE_TAIL_MIN_CHARS = 6;
+/** Short back-and-forth utterances ("Yeah.", "6.") must still reach translation hooks. */
+const CANON_MIN_TRANSLATION_SOURCE_CHARS = 1;
 
 export type CanonFrozenRowPayload = {
   utterance: CanonUtterance;
@@ -208,7 +210,7 @@ export class CanonAppendWsIsolatedRuntime {
     const au = this.state.activeUtterance;
     if (!au) return null;
     const snap = this.dualBufferFromUtterance(au);
-    return snap.visibleText.length >= 3 ? snap : null;
+    return snap.visibleText.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS ? snap : null;
   }
 
   private hasVolatileTail(snap: CanonRowDualBufferPayload): boolean {
@@ -254,7 +256,10 @@ export class CanonAppendWsIsolatedRuntime {
       this.lastActiveStableEmitted = "";
       this.clearVolatilePulseTimer();
     }
-    if (snap.stableText.length >= 3 && snap.stableText !== this.lastActiveStableEmitted) {
+    if (
+      snap.stableText.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS &&
+      snap.stableText !== this.lastActiveStableEmitted
+    ) {
       this.lastActiveStableEmitted = snap.stableText;
       this.hooks.onActiveRowStableGrow?.(snap);
     }
