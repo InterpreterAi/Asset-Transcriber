@@ -19,6 +19,7 @@ import {
   getUserWithResetCheck,
   isTrialExpired,
   isTrialLikePlanType,
+  planUsesOpenAiMorsyInterpreterStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -698,9 +699,9 @@ function liveEmbeddedEnglishSupplementBlock(
 ): string {
   if (isFinalSegment) return "";
   const p = planLower.trim().toLowerCase();
-  const standardSku = planGetsLiveEmbeddedEnglishPrompt(p);
-  const morsyIntercall = morsyIntercallEmbeddedEnglishHint && p === "morsy-urgent";
-  if (!standardSku && !morsyIntercall) return "";
+  const openAiMorsyStack = planUsesOpenAiMorsyInterpreterStack(p);
+  const morsyIntercall = morsyIntercallEmbeddedEnglishHint && openAiMorsyStack;
+  if (!openAiMorsyStack && !morsyIntercall && !planGetsLiveEmbeddedEnglishPrompt(p)) return "";
   return (
     `EMBEDDED ENGLISH (LIVE INTERIM ONLY):\n` +
     `- Interpreter speech may mix ${srcDisplayName} with English medical, legal, insurance, or procedural terms (Latin letters).\n` +
@@ -711,9 +712,10 @@ function liveEmbeddedEnglishSupplementBlock(
 }
 
 /**
- * **Basic · Morsy Urgent only** (`plan_type === "morsy-urgent"`, OpenAI interpreter path): replays simultaneous-booth delivery —
- * natural conversational target-language phrasing, clause reordering, and oral compression permitted only where **material** meaning is unchanged.
- * Does not attach to Libre/Hetzner tiers or platinum/unlimited stacks.
+ * OpenAI interpreter SKUs aligned with Basic · Morsy Urgent simultaneous-booth delivery —
+ * natural conversational target-language phrasing, clause reordering, and oral compression
+ * permitted only where **material** meaning is unchanged.
+ * Does not attach to Libre/Hetzner tiers.
  */
 function morsyUrgentInterpreterWhenInDoubtSection(
   srcDisplayName: string,
@@ -1965,8 +1967,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     afterGlossary = prot.masked;
     slotToEntryIndex = new Map();
     hadPlaceholders = false;
-  } else if (planLower === "morsy-urgent" && !isFinalSegment) {
-    // Live Morsy: let the model translate the full utterance — TERM_* restore can re-inject English.
+  } else if (planUsesOpenAiMorsyInterpreterStack(planLower) && !isFinalSegment) {
+    // Live OpenAI Morsy stack: let the model translate the full utterance — TERM_* restore can re-inject English.
     afterGlossary = prot.masked;
     slotToEntryIndex = new Map();
     hadPlaceholders = false;
@@ -2402,7 +2404,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     `- "my number" in this context is an interpreter ID, not a phone number.\n` +
     `- Translate exactly as spoken: "اسمي X ورقمي هو 3602" — never add "هاتفي" or "تليفوني"\n\n` +
 
-    (planLower === "morsy-urgent"
+    (planUsesOpenAiMorsyInterpreterStack(planLower)
       ? morsyUrgentInterpreterWhenInDoubtSection(srcName, tgtName, whenInDoubtTranscriptScope)
       : `WHEN IN DOUBT:\n` +
         `- Prefer faithful literal rendering over creative paraphrase.\n` +
@@ -2517,10 +2519,10 @@ router.post("/translate", requireAuth, async (req, res) => {
     // Model often stops after the first clause on long turns — one automatic full retry.
     // Morsy Urgent live: retry only when output looks truncated (not every interim tick).
     // Other plans: live cumulative updates skip the second call to protect latency.
-    const morsyUrgentLiveIncompleteRetry =
-      planLower === "morsy-urgent" && !isFinalSegment && !streamingDelta;
+    const openAiMorsyLiveIncompleteRetry =
+      planUsesOpenAiMorsyInterpreterStack(planLower) && !isFinalSegment && !streamingDelta;
     const needIncompleteRetry =
-      (isFinalSegment || morsyUrgentLiveIncompleteRetry) &&
+      (isFinalSegment || openAiMorsyLiveIncompleteRetry) &&
       !streamingDelta &&
       result.text.length > 0 &&
       (result.finishReason === "length" ||
@@ -2699,7 +2701,7 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     diagCounter.translationSegments += 1;
     diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outAi });
-    if (planLower === "morsy-urgent") {
+    if (planUsesOpenAiMorsyInterpreterStack(planLower)) {
       const leakDiag = diagnoseEnglishLeakageInTranslation(outAi, srcCode, tgtCode);
       logger.info(
         {

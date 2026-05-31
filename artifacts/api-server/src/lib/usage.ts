@@ -93,6 +93,21 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
   return true;
 }
 
+/**
+ * OpenAI interpreter SKUs aligned with Basic · Morsy Urgent (Final Boss 3 canon translation + STT).
+ * Excludes Libre/Hetzner (`*-libre`, `trial-hetzner`) and transcription-only `legacy2`.
+ */
+export function planUsesOpenAiMorsyInterpreterStack(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (!p || p === "legacy2" || p === "trial-hetzner") return false;
+  if (p === "trial-libre" || p === "basic-libre" || p === "professional-libre" || p === "platinum-libre") return false;
+  if (p.includes("-openai")) return true;
+  if (p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
+  if (p === "platinum" || p === "unlimited") return true;
+  if (p === "basic" || p === "professional") return false;
+  return false;
+}
+
 /** Runtime translation engine selector for /translate. */
 export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {
   const eff = effectivePlanTypeForTranslation(user as User);

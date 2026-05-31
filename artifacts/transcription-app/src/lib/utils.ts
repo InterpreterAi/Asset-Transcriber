@@ -56,6 +56,21 @@ export function workspaceUsageShowsSlashUnlimited(planType: string | null | unde
 }
 
 /**
+ * Client mirror of server {@link planUsesOpenAiMorsyInterpreterStack} — OpenAI tiers using
+ * Basic · Morsy Urgent canon translation/STT (excludes Libre, Hetzner, legacy2).
+ */
+export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (!p || p === "legacy2" || p === "trial-hetzner") return false;
+  if (p === "trial-libre" || p === "basic-libre" || p === "professional-libre" || p === "platinum-libre") return false;
+  if (p.includes("-openai")) return true;
+  if (p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
+  if (p === "platinum" || p === "unlimited") return true;
+  if (p === "basic" || p === "professional") return false;
+  return false;
+}
+
+/**
  * True when the account uses the machine translation stack — mirrors server `planUsesMachineTranslationStack`
  * (Final Boss 3: Libre for Basic/Professional *-libre and `trial-hetzner`; OpenAI for `trial-libre`, legacy OpenAI trials, Platinum, Unlimited).
  */
