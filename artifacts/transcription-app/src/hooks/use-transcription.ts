@@ -303,6 +303,8 @@ const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 /** Morsy Urgent dual-buffer: debounce stable (committed) translate triggers. */
 const CANON_STABLE_TRANSLATION_DEBOUNCE_MS = 180;
 /** Legacy canon bridge (Trial + paid OpenAI/Hetzner): live translate scheduling. */
+/** Short back-and-forth rows ("Yeah.", "6.") must still reach translation. */
+const CANON_MIN_TRANSLATION_SOURCE_CHARS = 1;
 const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
 const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
 const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 1;
@@ -2630,7 +2632,7 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
-/** Basic · Legacy 2 — original Final Boss 3 bubble STT; Clean MT translation layered on top. */
+/** Basic · Legacy 2 — transcription-only tier (canonAppendWs STT; no translation). */
 function isLegacy2Plan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "legacy2";
 }
@@ -3063,11 +3065,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
   }
 
-  /** Legacy2 always uses Clean MT (same OpenAI path as Morsy Urgent Clean experiment). */
-  function legacy2UsesCleanTranslation(): boolean {
-    return isLegacy2Plan(planTypeRef.current);
-  }
-
   const dailyCapRef = options?.dailyCapRef;
   const onRecordingStoppedRef = useRef<(() => void) | undefined>(undefined);
   onRecordingStoppedRef.current = options?.onRecordingStopped;
@@ -3264,9 +3261,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     pendingFrozenTranslationsRef.current = 0;
   }, []);
 
-  const pauseCanonTrialLiveForFrozenPriority = useCallback(() => {
-    for (const st of canonTrialRowTransRef.current.values()) {
+  const pauseCanonTrialLiveForFrozenPriority = useCallback((onlyRowId?: string) => {
+    for (const [rowId, st] of canonTrialRowTransRef.current.entries()) {
       if (st.locked) continue;
+      if (onlyRowId !== undefined && rowId !== onlyRowId) continue;
       if (st.debounceTimer !== null) {
         clearTimeout(st.debounceTimer);
         st.debounceTimer = null;
@@ -5056,9 +5054,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ? ({ experimentalBasicMorsyOpenAiOnly: true } as const)
             : {};
         const morsyIntercallEmbeddedEnglishPromptOpts = morsyUrgentEmbeddedEnglishFetchOpts();
-        const legacy2CleanOpts = legacy2UsesCleanTranslation()
-          ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
-          : {};
         const guardSnap = () => ({
           mySeq,
           lastAppliedSeq: state.lastAppliedSeq,
@@ -5153,7 +5148,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
               ...basicMorsyOpenAiExperimentOpts,
               ...morsyIntercallEmbeddedEnglishPromptOpts,
-              ...legacy2CleanOpts,
             },
           );
           if (tr.dailyLimitReached) {
@@ -5204,7 +5198,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
               ...basicMorsyOpenAiExperimentOpts,
               ...morsyIntercallEmbeddedEnglishPromptOpts,
-              ...legacy2CleanOpts,
             },
           );
           if (trRetry.dailyLimitReached) {
@@ -5236,7 +5229,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ...(recordingSessionId != null && recordingSessionId > 0 ? { sessionId: recordingSessionId } : {}),
               ...basicMorsyOpenAiExperimentOpts,
               ...morsyIntercallEmbeddedEnglishPromptOpts,
-              ...legacy2CleanOpts,
             },
           );
           if (trOppRetry.dailyLimitReached) {
@@ -5568,10 +5560,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const { utterance, committedText } = payload;
     const rowId = utterance.utterance_id;
     const sourceNorm = committedText.trim();
-    if (sourceNorm.length < 3) return;
+    if (sourceNorm.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
 
     pendingFrozenTranslationsRef.current += 1;
-    pauseCanonTrialLiveForFrozenPriority();
+    pauseCanonTrialLiveForFrozenPriority(rowId);
 
     try {
     const st = getCanonRowTransState(rowId);
@@ -5787,6 +5779,35 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
     }
 
+    if (
+      morsyUrgentCanon &&
+      !translated.length &&
+      canonRowTranslateSeqRef.current.get(rowId) === seq
+    ) {
+      await new Promise<void>(res => setTimeout(res, 400));
+      if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
+      const trRetry = await fetchMorsyCanonOppositeTranslation(
+        sourceNorm,
+        sourceLang,
+        targetLang,
+        (m) => translationConfigReporterRef.current(m),
+        {
+          isFinal: true,
+          onGlossaryApplied: t => glossaryNotifyRef.current(t),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          ...basicMorsyOpenAiExperimentOpts,
+          ...morsyIntercallEmbeddedEnglishPromptOpts,
+        },
+      );
+      if (trRetry.dailyLimitReached) {
+        dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+        return;
+      }
+      translated = trRetry.text.trim();
+    }
+
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
     if (
@@ -5995,7 +6016,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const snap = eng?.getRowDualBuffer(rowId);
       const fresh = getCanonRowTransState(rowId);
       const sourceText = snap?.stableText.trim() || fresh.lastPendingStable;
-      if (sourceText.length < 3) return;
+      if (sourceText.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
       void executeCanonDualBufferTranslation(snap ?? payload, {
         channel: "stable",
         sourceText,
@@ -6036,7 +6057,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const visible = snap?.visibleText.trim() ?? payload.visibleText.trim();
       const stable = snap?.stableText.trim() ?? payload.stableText.trim();
       const sourceText = visible.length >= stable.length ? visible : stable;
-      if (sourceText.length < 3) return;
+      if (sourceText.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
       void executeCanonDualBufferTranslation(
         snap ?? payload,
         { channel: "endpoint", sourceText, endpointFinal: true },
@@ -6057,7 +6078,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (rowState.locked && !opts.isFinal) return;
 
     const sourceNow = opts.sourceText.trim();
-    if (sourceNow.length < 3) return;
+    if (sourceNow.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
 
     rowState.lastPendingLang = payload.utterance.language;
 
@@ -6205,11 +6226,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       while (!rowState.locked) {
         const pendingSource = rowState.pendingLiveSource;
         const pendingPayload = rowState.pendingLivePayload ?? payload;
-        if (!pendingSource || pendingSource.length < 3) break;
+        if (!pendingSource || pendingSource.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) break;
         rowState.pendingLiveSource = null;
         rowState.pendingLivePayload = null;
 
         const liveSource = pendingSource.trim();
+        if (liveSource.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) {
+          if (!rowState.pendingLiveSource) break;
+          continue;
+        }
         const sourceLang = resolveSourceLangForCanon(liveSource, sonioxHint, pair);
         const targetLang = targetOppositeInPair(sourceLang, pair);
         const prevShown = eng?.getRowTranslation(rowId).trim() ?? "";
@@ -6755,9 +6780,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getRowDualBuffer(rowId);
     const visible = (snap?.visibleText ?? payload.visibleText).trim();
-    if (visible.length < 3) return;
+    if (visible.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
 
     const stableOnly = (snap?.stableText ?? payload.stableText).trim();
+
+    // Chunk V2 parity: first stable finals on a new row translate immediately (no debounce).
+    if (
+      morsyCanonLivePath &&
+      stableOnly.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS &&
+      !st.lastDispatchedSource.trim()
+    ) {
+      st.earlyHintSent = true;
+      st.lastPreviewWordsSent = countWords(visible);
+      st.lastPreviewCharsSent = visible.length;
+      st.lastPendingLang = payload.utterance.language;
+      const sourceText =
+        visible.length >= stableOnly.length ? visible : stableOnly;
+      void executeCanonTrialRowTranslation(snap ?? payload, {
+        sourceText,
+        isFinal: false,
+      });
+      return;
+    }
+
     const existingTranslation = eng?.getRowTranslation(rowId).trim() ?? "";
     const pair = langPairRef.current;
     const sonioxHint = payload.utterance.language ?? detectedLangRef.current;
@@ -6765,6 +6810,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       resolveSourceLangForCanon(stableOnly, sonioxHint, pair),
       pair,
     );
+    const resumeBlankTranslation =
+      morsyCanonLivePath &&
+      stableOnly.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS &&
+      !existingTranslation.length;
     const resumeIncompleteLive =
       morsyCanonLivePath &&
       stableOnly.length >= 24 &&
@@ -6790,7 +6839,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const grewSinceLastDispatch =
       morsyCanonLive &&
       visible.length > st.lastDispatchedSource.trim().length + 12;
-    if (!grewByWords && !grewByChars && !grewSinceLastDispatch && !resumeIncompleteLive) {
+    if (!grewByWords && !grewByChars && !grewSinceLastDispatch && !resumeIncompleteLive && !resumeBlankTranslation) {
       if (st.earlyHintSent && wordsNow <= st.lastPreviewWordsSent) return;
       if (!st.earlyHintSent && wordsNow < CANON_TRIAL_LIVE_PREVIEW_WORD_STEP) return;
     }
@@ -6802,7 +6851,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const scheduleCanonTrialLiveTranslation = () => {
       const freshSnap = eng?.getRowDualBuffer(rowId);
       const sourceText = freshSnap?.visibleText.trim() || visible;
-      if (sourceText.length < 3) return;
+      if (sourceText.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
       void executeCanonTrialRowTranslation(freshSnap ?? payload, {
         sourceText,
         isFinal: false,
@@ -6832,7 +6881,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const dispatchCanonTrialEndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {
     const rowId = payload.utterance.utterance_id;
-    pauseCanonTrialLiveForFrozenPriority();
+    pauseCanonTrialLiveForFrozenPriority(rowId);
     const st = getCanonTrialRowTransState(rowId);
     st.endpointFinalInFlight = true;
     st.liveFetchGeneration += 1;
@@ -6854,7 +6903,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const visible = snap?.visibleText.trim() ?? payload.visibleText.trim();
       const stable = snap?.stableText.trim() ?? payload.stableText.trim();
       const sourceText = visible.length >= stable.length ? visible : stable;
-      if (sourceText.length < 3) return;
+      if (sourceText.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
       void executeCanonTrialRowTranslation(snap ?? payload, {
         sourceText,
         isFinal: true,

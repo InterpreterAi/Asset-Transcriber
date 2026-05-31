@@ -24,7 +24,7 @@ const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
 const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "basic-openai", label: "Basic · OpenAI", group: "paid" },
   { planType: "morsy-urgent", label: "Basic · Morsy Urgent (legacy STT)", group: "paid" },
-  { planType: "legacy2", label: "Basic · Legacy 2 (Final Boss 3 STT + Clean MT)", group: "paid" },
+  { planType: "legacy2", label: "Basic · Legacy 2 (Morsy STT, transcription only)", group: "paid" },
   { planType: "professional-openai", label: "Professional · OpenAI", group: "paid" },
   { planType: "platinum-openai", label: "Platinum · OpenAI", group: "paid" },
   { planType: "basic-libre", label: "Basic · Hetzner", group: "paid" },
