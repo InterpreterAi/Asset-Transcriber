@@ -2515,10 +2515,12 @@ router.post("/translate", requireAuth, async (req, res) => {
     };
 
     // Model often stops after the first clause on long turns — one automatic full retry.
-    // Live cumulative updates (!isFinal): never run a second OpenAI call here — it doubled latency per word.
-    // Authoritative final segment still retries for full coverage.
+    // Morsy Urgent live: retry only when output looks truncated (not every interim tick).
+    // Other plans: live cumulative updates skip the second call to protect latency.
+    const morsyUrgentLiveIncompleteRetry =
+      planLower === "morsy-urgent" && !isFinalSegment && !streamingDelta;
     const needIncompleteRetry =
-      isFinalSegment &&
+      (isFinalSegment || morsyUrgentLiveIncompleteRetry) &&
       !streamingDelta &&
       result.text.length > 0 &&
       (result.finishReason === "length" ||
@@ -2547,6 +2549,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         tgtCode,
         tgtLangResolved,
         {
+          interim: !isFinalSegment,
           skipLeakRepair: skipLeakRepairForOpenAi,
           lightweightArabicStaticLeakPass: skipLeakRepairForOpenAi,
         },

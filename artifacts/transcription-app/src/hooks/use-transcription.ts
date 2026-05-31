@@ -228,6 +228,19 @@ function legacyCanonSourceGrewMaterially(sourceNow: string, lastDispatchedSource
   );
 }
 
+/** Client-side mirror of server truncation heuristic for frozen-row skip decisions. */
+function canonTranslationProbablyIncomplete(source: string, translated: string): boolean {
+  const s = source.replace(/\s+/g, " ").trim();
+  const t = translated.replace(/\s+/g, " ").trim();
+  if (!s) return false;
+  if (!t) return true;
+  if (s.length > 80 && t.length < s.length * 0.45) return true;
+  const srcWords = countWords(s);
+  const outWords = countWords(t);
+  if (srcWords >= 12 && outWords < srcWords * 0.52) return true;
+  return false;
+}
+
 /** Legacy canon bridge live paint guard — only blocks shorter junk when source did not grow. */
 function shouldRejectLegacyCanonTrialLiveTranslation(
   prevShown: string,
@@ -3083,6 +3096,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     chunkQueueEnqueuedAt: number;
     chunkWatchdogTimer: ReturnType<typeof setTimeout> | null;
     chunkAccumTimeoutTimer: ReturnType<typeof setTimeout> | null;
+    /** Bumped when endpoint/final starts — stale live responses must not paint over finals. */
+    liveFetchGeneration: number;
+    endpointFinalInFlight: boolean;
   };
   const canonTrialRowTransRef = useRef(new Map<string, CanonTrialRowTranslationState>());
 
@@ -3195,6 +3211,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         chunkQueueEnqueuedAt: 0,
         chunkWatchdogTimer: null,
         chunkAccumTimeoutTimer: null,
+        liveFetchGeneration: 0,
+        endpointFinalInFlight: false,
       };
       canonTrialRowTransRef.current.set(rowId, st);
     }
@@ -3387,6 +3405,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     trialSt.chunkPendingEndpoint = false;
     trialSt.chunkPendingForceWatchdog = false;
     trialSt.chunkPendingPayload = null;
+    trialSt.endpointFinalInFlight = false;
+    trialSt.liveFetchGeneration += 1;
   }, [getCanonRowTransState, getCanonTrialRowTransState]);
 
   const setCanonIntercallLayoutStacked = useCallback((stacked: boolean) => {
@@ -5451,7 +5471,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     });
     const skipFrozenTranslation = chunkV2
       ? pendingDelta.length === 0 && existing.length >= 3
-      : lastFinalSource === sourceNorm && existing.length >= 3;
+      : lastFinalSource === sourceNorm &&
+        existing.length >= 3 &&
+        !canonTranslationProbablyIncomplete(sourceNorm, existing);
     if (skipFrozenTranslation) {
       onAdminSnapshotBuffersUpdatedRef.current?.();
       return;
@@ -5875,11 +5897,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     };
 
     const runFinalFetch = async (finalSource: string) => {
+      rowState.endpointFinalInFlight = true;
+      rowState.liveFetchGeneration += 1;
       rowState.pendingLiveSource = null;
       rowState.pendingLivePayload = null;
       rowState.liveAbort?.abort();
       rowState.liveAbort = null;
       rowState.liveInFlight = false;
+      if (rowState.debounceTimer !== null) {
+        clearTimeout(rowState.debounceTimer);
+        rowState.debounceTimer = null;
+      }
+      if (rowState.maxWaitTimer !== null) {
+        clearTimeout(rowState.maxWaitTimer);
+        rowState.maxWaitTimer = null;
+      }
 
       const sourceLang = resolveSourceLangForCanon(finalSource, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
@@ -5942,6 +5974,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       } catch {
         /* network */
+      } finally {
+        rowState.endpointFinalInFlight = false;
       }
     };
 
@@ -5988,6 +6022,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.liveAbort?.abort();
         const ac = new AbortController();
         rowState.liveAbort = ac;
+        const liveFetchGeneration = rowState.liveFetchGeneration;
 
         try {
           const fetchStartedAt = Date.now();
@@ -6007,6 +6042,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             },
           );
           if (rowState.locked) break;
+          if (liveFetchGeneration !== rowState.liveFetchGeneration || rowState.endpointFinalInFlight) {
+            if (!rowState.pendingLiveSource) break;
+            continue;
+          }
           if (tr.dailyLimitReached) {
             dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
             break;
@@ -6491,7 +6530,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const grewByChars =
       !st.earlyHintSent ||
       charsNow - st.lastPreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
-    if (!grewByWords && !grewByChars) {
+    const morsyCanonLive =
+      isBasicMorsyUrgentPlan(planTypeRef.current) &&
+      !morsyUsesCleanTranslationExperiment() &&
+      !morsyUsesChunkTranslationV2Experiment();
+    const grewSinceLastDispatch =
+      morsyCanonLive &&
+      visible.length > st.lastDispatchedSource.trim().length + 12;
+    if (!grewByWords && !grewByChars && !grewSinceLastDispatch) {
       if (st.earlyHintSent && wordsNow <= st.lastPreviewWordsSent) return;
       if (!st.earlyHintSent && wordsNow < CANON_TRIAL_LIVE_PREVIEW_WORD_STEP) return;
     }
@@ -6533,6 +6579,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const dispatchCanonTrialEndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {
     const rowId = payload.utterance.utterance_id;
+    const st = getCanonTrialRowTransState(rowId);
+    st.endpointFinalInFlight = true;
+    st.liveFetchGeneration += 1;
+    st.liveAbort?.abort();
+    st.liveAbort = null;
+    st.pendingLiveSource = null;
+    st.pendingLivePayload = null;
+    if (st.debounceTimer !== null) {
+      clearTimeout(st.debounceTimer);
+      st.debounceTimer = null;
+    }
+    if (st.maxWaitTimer !== null) {
+      clearTimeout(st.maxWaitTimer);
+      st.maxWaitTimer = null;
+    }
     setTimeout(() => {
       const eng = canonWsIsolationEngineRef.current;
       const snap = eng?.getRowDualBuffer(rowId);
@@ -6545,7 +6606,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         isFinal: true,
       });
     }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
-  }, [executeCanonTrialRowTranslation]);
+  }, [executeCanonTrialRowTranslation, getCanonTrialRowTransState]);
 
   useEffect(() => {
     dispatchCanonFrozenRowTranslationRef.current = (payload) => {
