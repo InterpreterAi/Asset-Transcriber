@@ -307,8 +307,6 @@ const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
 const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
 const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 1;
 const CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP = 24;
-/** Morsy canon (Chunk V2 off): cap wasteful live retrains — endpoint/frozen deliver full coverage. */
-const MORSY_CANON_MAX_LIVE_TRANSLATES_PER_ROW = 2;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
@@ -3101,8 +3099,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     /** Bumped when endpoint/final starts — stale live responses must not paint over finals. */
     liveFetchGeneration: number;
     endpointFinalInFlight: boolean;
-    /** Live OpenAI calls completed this row (Morsy canon cap). */
-    liveTranslateCount: number;
   };
   const canonTrialRowTransRef = useRef(new Map<string, CanonTrialRowTranslationState>());
   /** While > 0, defer active-row live translate so frozen segments fill first. */
@@ -3246,7 +3242,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         chunkAccumTimeoutTimer: null,
         liveFetchGeneration: 0,
         endpointFinalInFlight: false,
-        liveTranslateCount: 0,
       };
       canonTrialRowTransRef.current.set(rowId, st);
     }
@@ -6175,9 +6170,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           } else {
             paintCanonRowTranslationIfAllowed(rowId, translationReturned);
           }
-          if (morsyCanonIntercallLive) {
-            rowState.liveTranslateCount += 1;
-          }
           if (canonAnchoringDiag) {
             const translationRendered = eng?.getRowTranslation(rowId).trim() ?? "";
             const prefixAfterPaint: MorsyCanonTranslationPrefixState = {
@@ -6565,14 +6557,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const morsyCanonLivePath = morsyUrgentCanonLivePathNow();
     if (morsyCanonLivePath && pendingFrozenTranslationsRef.current > 0) return;
-    if (morsyCanonLivePath && st.liveTranslateCount >= MORSY_CANON_MAX_LIVE_TRANSLATES_PER_ROW) {
-      return;
-    }
 
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getRowDualBuffer(rowId);
     const visible = (snap?.visibleText ?? payload.visibleText).trim();
     if (visible.length < 3) return;
+
+    const stableOnly = (snap?.stableText ?? payload.stableText).trim();
+    const existingTranslation = eng?.getRowTranslation(rowId).trim() ?? "";
+    const resumeIncompleteLive =
+      morsyCanonLivePath &&
+      stableOnly.length >= 24 &&
+      canonTranslationProbablyIncomplete(stableOnly, existingTranslation);
 
     const wordsNow = countWords(visible);
     const charsNow = visible.length;
@@ -6589,7 +6585,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const grewSinceLastDispatch =
       morsyCanonLive &&
       visible.length > st.lastDispatchedSource.trim().length + 12;
-    if (!grewByWords && !grewByChars && !grewSinceLastDispatch) {
+    if (!grewByWords && !grewByChars && !grewSinceLastDispatch && !resumeIncompleteLive) {
       if (st.earlyHintSent && wordsNow <= st.lastPreviewWordsSent) return;
       if (!st.earlyHintSent && wordsNow < CANON_TRIAL_LIVE_PREVIEW_WORD_STEP) return;
     }
@@ -6599,13 +6595,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     st.lastPendingLang = payload.utterance.language;
 
     const scheduleCanonTrialLiveTranslation = () => {
-      const freshSt = getCanonTrialRowTransState(rowId);
-      if (
-        morsyUrgentCanonLivePathNow() &&
-        freshSt.liveTranslateCount >= MORSY_CANON_MAX_LIVE_TRANSLATES_PER_ROW
-      ) {
-        return;
-      }
       const freshSnap = eng?.getRowDualBuffer(rowId);
       const sourceText = freshSnap?.visibleText.trim() || visible;
       if (sourceText.length < 3) return;
