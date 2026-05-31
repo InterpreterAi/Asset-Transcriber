@@ -1221,6 +1221,102 @@ function targetOppositeInPair(sourceMember: string, pair: { a: string; b: string
   return matchesLang(sourceMember, pair.a) ? pair.b : pair.a;
 }
 
+/** True when output's dominant script does not match the requested target language. */
+function dominantScriptSupportsTargetLang(text: string, targetLang: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  const dominant = detectDominantScript(t);
+  if (!dominant) return true;
+  return scriptSupportsLang(dominant.langs, targetLang);
+}
+
+/**
+ * Morsy canon: translation must be the opposite pair language — not a source echo or wrong script.
+ */
+function morsyCanonTranslationViolatesOppositeContract(
+  source: string,
+  translated: string,
+  targetLang: string,
+): boolean {
+  const tr = translated.trim();
+  if (!tr) return false;
+  if (looksLikeUntranslatedCopy(source, tr)) return true;
+  if (!dominantScriptSupportsTargetLang(tr, targetLang)) return true;
+  return false;
+}
+
+/**
+ * Morsy Basic Urgent: segment is outside chosen A↔B — passthrough original in translation column.
+ */
+function morsyCanonThirdLanguagePassthrough(
+  text: string,
+  sonioxHint: string,
+  pair: { a: string; b: string },
+): boolean {
+  const t = text.trim();
+  if (t.length < 3) return false;
+
+  const sonioxInPair =
+    matchesLang(sonioxHint, pair.a) || matchesLang(sonioxHint, pair.b);
+  const sonioxBase = sonioxHint.split("-")[0]!.toLowerCase();
+  const dominant = detectDominantScript(t);
+
+  if (!sonioxInPair && sonioxBase.length >= 2) {
+    if (!dominant || scriptSupportsLang(dominant.langs, sonioxBase)) {
+      return true;
+    }
+  }
+
+  if (!dominant) return false;
+
+  const aFits = scriptSupportsLang(dominant.langs, pair.a);
+  const bFits = scriptSupportsLang(dominant.langs, pair.b);
+  if (aFits && !bFits) return false;
+  if (bFits && !aFits) return false;
+  if (!aFits && !bFits) return true;
+  if (!sonioxInPair) return true;
+  return false;
+}
+
+type FetchTranslationOpts = Parameters<typeof fetchTranslation>[4];
+
+/** Fetch with empty retry, flip-direction retry, and opposite-language contract checks (Morsy canon). */
+async function fetchMorsyCanonOppositeTranslation(
+  sourceText: string,
+  sourceLang: string,
+  targetLang: string,
+  reportConfig: (m: string) => void,
+  fetchOpts: FetchTranslationOpts,
+): Promise<Awaited<ReturnType<typeof fetchTranslation>>> {
+  const sourceNorm = sourceText.trim();
+  let lastResult: Awaited<ReturnType<typeof fetchTranslation>> = {
+    text: "",
+    replaceStreamColumn: false,
+  };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const tr = await fetchTranslation(sourceNorm, sourceLang, targetLang, reportConfig, fetchOpts);
+    lastResult = tr;
+    if (tr.dailyLimitReached) return tr;
+    const text = tr.text.trim();
+    if (text && !morsyCanonTranslationViolatesOppositeContract(sourceNorm, text, targetLang)) {
+      return tr;
+    }
+    if (text) {
+      const trFlip = await fetchTranslation(sourceNorm, targetLang, sourceLang, reportConfig, fetchOpts);
+      lastResult = trFlip;
+      if (trFlip.dailyLimitReached) return trFlip;
+      const flipText = trFlip.text.trim();
+      if (flipText && !morsyCanonTranslationViolatesOppositeContract(sourceNorm, flipText, targetLang)) {
+        return trFlip;
+      }
+    }
+    if (attempt === 0) await new Promise<void>(res => setTimeout(res, 450));
+  }
+
+  return lastResult;
+}
+
 /** Canon row freeze: pick pair member A or B from Soniox tag + text evidence. */
 function resolveSourceLangForCanon(
   text: string,
@@ -5482,6 +5578,26 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const trialSt = getCanonTrialRowTransState(rowId);
     lockCanonRowTranslation(rowId);
 
+    const pair = langPairRef.current;
+    const sonioxHint = utterance.language ?? detectedLangRef.current;
+    const morsyUrgentCanon =
+      isBasicMorsyUrgentPlan(planTypeRef.current) &&
+      !morsyUsesCleanTranslationExperiment() &&
+      !morsyUsesChunkTranslationV2Experiment();
+    const sourceLang = resolveSourceLangForCanon(sourceNorm, sonioxHint, pair);
+    const targetLang = targetOppositeInPair(sourceLang, pair);
+
+    if (morsyUrgentCanon && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
+      paintMorsyCanonFinalRowTranslation(rowId, sourceNorm, sourceNorm);
+      st.lastFinalSource = sourceNorm;
+      st.lastStableDispatched = sourceNorm;
+      st.lastVolatileDispatched = sourceNorm;
+      trialSt.lastFinalSource = sourceNorm;
+      trialSt.lastDispatchedSource = sourceNorm;
+      onAdminSnapshotBuffersUpdatedRef.current?.();
+      return;
+    }
+
     const eng = canonWsIsolationEngineRef.current;
     const existing = eng?.getRowTranslation(rowId).trim() ?? "";
     const lastFinalSource = planUsesLegacyCanonTranslationBridge(planTypeRef.current)
@@ -5503,11 +5619,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       pendingDelta,
       chunkV2,
     });
+    const existingFailsOppositeContract =
+      morsyUrgentCanon &&
+      morsyCanonTranslationViolatesOppositeContract(sourceNorm, existing, targetLang);
     const skipFrozenTranslation = chunkV2
       ? pendingDelta.length === 0 && existing.length >= 3
       : existing.length >= 3 &&
         lastFinalSource === sourceNorm &&
-        !canonTranslationProbablyIncomplete(sourceNorm, existing);
+        !canonTranslationProbablyIncomplete(sourceNorm, existing) &&
+        !existingFailsOppositeContract;
     if (skipFrozenTranslation) {
       onAdminSnapshotBuffersUpdatedRef.current?.();
       return;
@@ -5515,11 +5635,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const seq = (canonRowTranslateSeqRef.current.get(rowId) ?? 0) + 1;
     canonRowTranslateSeqRef.current.set(rowId, seq);
-
-    const pair = langPairRef.current;
-    const sonioxHint = utterance.language ?? detectedLangRef.current;
-    const sourceLang = resolveSourceLangForCanon(sourceNorm, sonioxHint, pair);
-    const targetLang = targetOppositeInPair(sourceLang, pair);
 
     const morsyCleanExperimentOpts = morsyUsesCleanTranslationExperiment()
       ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
@@ -5623,8 +5738,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const morsyIntercallEmbeddedEnglishPromptOpts = morsyUrgentEmbeddedEnglishFetchOpts();
 
     let translated = "";
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const tr = await fetchTranslation(
+    if (morsyUrgentCanon) {
+      const tr = await fetchMorsyCanonOppositeTranslation(
         sourceNorm,
         sourceLang,
         targetLang,
@@ -5635,7 +5750,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
             ? { sessionId: sessionIdRef.current }
             : {}),
-          ...morsyCleanExperimentOpts,
           ...basicMorsyOpenAiExperimentOpts,
           ...morsyIntercallEmbeddedEnglishPromptOpts,
         },
@@ -5645,20 +5759,45 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         return;
       }
       translated = tr.text.trim();
-      if (translated.length > 0) break;
-      if (attempt === 0) await new Promise<void>(res => setTimeout(res, 450));
+    } else {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const tr = await fetchTranslation(
+          sourceNorm,
+          sourceLang,
+          targetLang,
+          (m) => translationConfigReporterRef.current(m),
+          {
+            isFinal: true,
+            onGlossaryApplied: t => glossaryNotifyRef.current(t),
+            ...(sessionIdRef.current != null && sessionIdRef.current > 0
+              ? { sessionId: sessionIdRef.current }
+              : {}),
+            ...morsyCleanExperimentOpts,
+            ...basicMorsyOpenAiExperimentOpts,
+            ...morsyIntercallEmbeddedEnglishPromptOpts,
+          },
+        );
+        if (tr.dailyLimitReached) {
+          dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+          return;
+        }
+        translated = tr.text.trim();
+        if (translated.length > 0) break;
+        if (attempt === 0) await new Promise<void>(res => setTimeout(res, 450));
+      }
     }
 
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
     if (
+      !morsyUrgentCanon &&
       translated.length > 0 &&
       looksLikeUntranslatedCopy(sourceNorm, translated)
     ) {
       const trOpp = await fetchTranslation(
         sourceNorm,
-        sourceLang,
         targetLang,
+        sourceLang,
         (m) => translationConfigReporterRef.current(m),
         {
           isFinal: true,
@@ -5680,6 +5819,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
+
+    if (
+      translated.length > 0 &&
+      morsyUrgentCanon &&
+      morsyCanonTranslationViolatesOppositeContract(sourceNorm, translated, targetLang)
+    ) {
+      translated = "";
+    }
 
     if (translated.length > 0) {
       if (isBasicMorsyUrgentPlan(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
@@ -5953,28 +6100,55 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const sourceLang = resolveSourceLangForCanon(finalSource, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
+      const morsyUrgent = isBasicMorsyUrgentPlan(planTypeRef.current);
+      const morsyClean = morsyUsesCleanTranslationExperiment();
+      const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
+      const morsyCanonIntercall = morsyUrgent && !morsyClean && !morsyChunkV2;
 
       try {
+        if (morsyCanonIntercall && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
+          rowState.lastDispatchedSource = finalSource;
+          rowState.lastFinalSource = finalSource;
+          paintMorsyCanonFinalRowTranslation(rowId, finalSource, finalSource);
+          return;
+        }
+
         const fetchStartedAt = Date.now();
-        const tr = await fetchTranslation(
-          finalSource,
-          sourceLang,
-          targetLang,
-          (m) => translationConfigReporterRef.current(m),
-          {
-            isFinal: true,
-            onGlossaryApplied: t => glossaryNotifyRef.current(t),
-            ...(sessionIdRef.current != null && sessionIdRef.current > 0
-              ? { sessionId: sessionIdRef.current }
-              : {}),
-            ...morsyUrgentCanonFetchOpts(),
-          },
-        );
+        const fetchOpts = {
+          isFinal: true,
+          onGlossaryApplied: (terms: string[]) => glossaryNotifyRef.current(terms),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          ...morsyUrgentCanonFetchOpts(),
+        };
+        const tr = morsyCanonIntercall
+          ? await fetchMorsyCanonOppositeTranslation(
+              finalSource,
+              sourceLang,
+              targetLang,
+              (m) => translationConfigReporterRef.current(m),
+              fetchOpts,
+            )
+          : await fetchTranslation(
+              finalSource,
+              sourceLang,
+              targetLang,
+              (m) => translationConfigReporterRef.current(m),
+              fetchOpts,
+            );
         if (tr.dailyLimitReached) {
           dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
           return;
         }
-        const next = tr.text.trim();
+        let next = tr.text.trim();
+        if (
+          next.length > 0 &&
+          morsyCanonIntercall &&
+          morsyCanonTranslationViolatesOppositeContract(finalSource, next, targetLang)
+        ) {
+          next = "";
+        }
         if (!next.length) return;
         const previousRenderedFinal =
           canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
@@ -6046,6 +6220,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
         const morsyCanonIntercallLive = morsyUrgent && !morsyClean && !morsyChunkV2;
+
+        if (morsyCanonIntercallLive && morsyCanonThirdLanguagePassthrough(liveSource, sonioxHint, pair)) {
+          rowState.lastDispatchedSource = liveSource;
+          paintCanonRowTranslationIfAllowed(rowId, liveSource);
+          if (!rowState.pendingLiveSource) break;
+          continue;
+        }
+
         // Full visibleText replace each live update — prefix lock kept English from earlier partial responses.
         const morsyPrefixLive = false;
         const canonAnchoringDiag = !morsyClean && !morsyChunkV2;
@@ -6064,21 +6246,30 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         try {
           const fetchStartedAt = Date.now();
-          const tr = await fetchTranslation(
-            liveSource,
-            sourceLang,
-            targetLang,
-            (m) => translationConfigReporterRef.current(m),
-            {
-              isFinal: false,
-              signal: ac.signal,
-              onGlossaryApplied: t => glossaryNotifyRef.current(t),
-              ...(sessionIdRef.current != null && sessionIdRef.current > 0
-                ? { sessionId: sessionIdRef.current }
-                : {}),
-              ...morsyUrgentCanonFetchOpts(),
-            },
-          );
+          const liveFetchOpts = {
+            isFinal: false,
+            signal: ac.signal,
+            onGlossaryApplied: (terms: string[]) => glossaryNotifyRef.current(terms),
+            ...(sessionIdRef.current != null && sessionIdRef.current > 0
+              ? { sessionId: sessionIdRef.current }
+              : {}),
+            ...morsyUrgentCanonFetchOpts(),
+          };
+          const tr = morsyCanonIntercallLive
+            ? await fetchMorsyCanonOppositeTranslation(
+                liveSource,
+                sourceLang,
+                targetLang,
+                (m) => translationConfigReporterRef.current(m),
+                liveFetchOpts,
+              )
+            : await fetchTranslation(
+                liveSource,
+                sourceLang,
+                targetLang,
+                (m) => translationConfigReporterRef.current(m),
+                liveFetchOpts,
+              );
           if (rowState.locked) break;
           if (liveFetchGeneration !== rowState.liveFetchGeneration || rowState.endpointFinalInFlight) {
             if (!rowState.pendingLiveSource) break;
@@ -6109,14 +6300,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               )).composed
             : translationReturned;
           const rejected =
-            !morsyCanonIntercallLive &&
-            prevShown.length > 0 &&
-            shouldRejectLegacyCanonTrialLiveTranslation(
-              prevShown,
-              paintCandidate,
-              liveSource,
-              rowState.lastDispatchedSource,
-            );
+            (!morsyCanonIntercallLive &&
+              prevShown.length > 0 &&
+              shouldRejectLegacyCanonTrialLiveTranslation(
+                prevShown,
+                paintCandidate,
+                liveSource,
+                rowState.lastDispatchedSource,
+              )) ||
+            (morsyCanonIntercallLive &&
+              morsyCanonTranslationViolatesOppositeContract(liveSource, paintCandidate, targetLang));
           if (rejected) {
             if (canonAnchoringDiag) {
               logCanonAnchoringLiveUpdate({
@@ -6158,7 +6351,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   visibleIncludesVolatileTail:
                     visibleTextSent.trim().length > stableTextAtDispatch.trim().length,
                 },
-                rejectReason: "legacy_canon_shrink_guard",
+                rejectReason: morsyCanonIntercallLive
+                  ? "morsy_opposite_language_contract"
+                  : "legacy_canon_shrink_guard",
               });
             }
             if (!rowState.pendingLiveSource) break;
@@ -6556,7 +6751,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (st.locked) return;
 
     const morsyCanonLivePath = morsyUrgentCanonLivePathNow();
-    if (morsyCanonLivePath && pendingFrozenTranslationsRef.current > 0) return;
 
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getRowDualBuffer(rowId);
@@ -6565,10 +6759,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const stableOnly = (snap?.stableText ?? payload.stableText).trim();
     const existingTranslation = eng?.getRowTranslation(rowId).trim() ?? "";
+    const pair = langPairRef.current;
+    const sonioxHint = payload.utterance.language ?? detectedLangRef.current;
+    const resumeTargetLang = targetOppositeInPair(
+      resolveSourceLangForCanon(stableOnly, sonioxHint, pair),
+      pair,
+    );
     const resumeIncompleteLive =
       morsyCanonLivePath &&
       stableOnly.length >= 24 &&
-      canonTranslationProbablyIncomplete(stableOnly, existingTranslation);
+      (canonTranslationProbablyIncomplete(stableOnly, existingTranslation) ||
+        morsyCanonTranslationViolatesOppositeContract(
+          stableOnly,
+          existingTranslation,
+          resumeTargetLang,
+        ));
 
     const wordsNow = countWords(visible);
     const charsNow = visible.length;
