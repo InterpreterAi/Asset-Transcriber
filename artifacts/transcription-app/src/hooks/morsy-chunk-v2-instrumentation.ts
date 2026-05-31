@@ -181,14 +181,6 @@ export function logChunkV2RawModelResponse(args: {
   });
 }
 
-export function logChunkV2BoundaryHold(args: {
-  rowId: string;
-  reason: string;
-  pendingTail: string;
-}): void {
-  console.info("[chunk_v2_boundary_hold]", args);
-}
-
 export function logChunkV2ExecuteGate(args: {
   rowId: string;
   mode: string;
