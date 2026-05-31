@@ -2,46 +2,19 @@
  * Basic · Morsy Urgent — chunk append translation (client-side state helpers).
  */
 
-export const CHUNK_V2_WATCHDOG_FLUSH_MS = 1000;
-export const CHUNK_V2_ACCUM_WORD_LIMIT = 10;
-export const CHUNK_V2_ACCUM_TIMEOUT_MS = 1500;
-
-export type ChunkV2TranslateTrigger =
-  | "punctuation"
-  | "word_limit"
-  | "timeout"
-  | "endpoint"
-  | "watchdog"
-  | "live_preview"
-  | "first_chunk"
-  | "debounce";
-
-export type ChunkV2TelemetryEvent = {
-  trigger: ChunkV2TranslateTrigger;
-  sourceChars: number;
-  sourceWords: number;
-  translatedChars: number;
-  requestLatencyMs: number;
-  queueWaitMs: number;
-  stallDetected?: boolean;
-  rowId?: string;
-};
+export type ChunkV2TranslateTrigger = "first_chunk" | "debounce" | "freeze";
 
 export type MorsyChunkTranslationRowState = {
   committedSource: string;
   committedTranslation: string;
-  liveSource: string;
-  liveTranslation: string;
+  preservedLiterals: string[];
 };
-
-const CLAUSE_PUNCT_RE = /[.,;:?!\u061F\u060C\u061B]/;
 
 export function emptyMorsyChunkTranslationRowState(): MorsyChunkTranslationRowState {
   return {
     committedSource: "",
     committedTranslation: "",
-    liveSource: "",
-    liveTranslation: "",
+    preservedLiterals: [],
   };
 }
 
@@ -55,18 +28,6 @@ export function extractNewStableChunk(stableText: string, committedSource: strin
     return stable.slice(committed.length);
   }
   return stable;
-}
-
-/** Non-final NF tail after committed Soniox finals. */
-export function extractLiveTail(visibleText: string, stableText: string): string {
-  const visible = visibleText;
-  const stable = stableText;
-  if (!visible.length) return "";
-  if (!stable.length) return visible;
-  if (visible.startsWith(stable)) {
-    return visible.slice(stable.length);
-  }
-  return visible;
 }
 
 /** Append a translated chunk without re-translating prior committed text. */
@@ -85,34 +46,12 @@ export function countChunkWords(text: string): number {
   return t.split(/\s+/).filter(Boolean).length;
 }
 
-/** Commit boundary through the last clause punctuation in pending (inclusive). */
-export function chunkThroughLastPunctuation(pending: string): string | null {
-  let lastIdx = -1;
-  for (let i = 0; i < pending.length; i++) {
-    if (CLAUSE_PUNCT_RE.test(pending[i]!)) lastIdx = i;
-  }
-  if (lastIdx < 0) return null;
-  const slice = pending.slice(0, lastIdx + 1);
-  return slice.trim().length >= 1 ? slice : null;
-}
-
-/** First {@link wordLimit} words from pending (preserves leading whitespace). */
-export function chunkThroughWordLimit(pending: string, wordLimit: number): string | null {
-  if (countChunkWords(pending) < wordLimit) return null;
-  const leadWs = pending.length - pending.trimStart().length;
-  const trimmed = pending.slice(leadWs);
-  const re = new RegExp(`^(\\S+(?:\\s+\\S+){${wordLimit - 1}}\\s*)`);
-  const m = trimmed.match(re);
-  if (!m?.[1]) return null;
-  return pending.slice(0, leadWs + m[1].length);
-}
-
 export type SelectStableChunkResult = {
   chunk: string;
   trigger: ChunkV2TranslateTrigger;
 };
 
-/** Pending stable delta to translate on debounce / first grow (append-only, never whole segment). */
+/** Pending stable delta to translate on debounce / first grow (append-only). */
 export function selectPendingStableDelta(args: {
   pending: string;
   committedSource: string;
@@ -130,39 +69,6 @@ export function selectPendingStableDelta(args: {
   return null;
 }
 
-export function selectAccumulatedStableChunk(args: {
-  pending: string;
-  chunkStartTs: number;
-  nowMs: number;
-  minChars?: number;
-  forceAll?: boolean;
-  forceTrigger?: ChunkV2TranslateTrigger;
-}): SelectStableChunkResult | null {
-  const pending = args.pending;
-  const minChars = args.minChars ?? 3;
-  if (!pending.trim()) return null;
-
-  if (args.forceAll && args.forceTrigger) {
-    return { chunk: pending, trigger: args.forceTrigger };
-  }
-
-  const throughPunct = chunkThroughLastPunctuation(pending);
-  if (throughPunct && throughPunct.trim().length >= minChars) {
-    return { chunk: throughPunct, trigger: "punctuation" };
-  }
-
-  const throughWords = chunkThroughWordLimit(pending, CHUNK_V2_ACCUM_WORD_LIMIT);
-  if (throughWords && throughWords.trim().length >= minChars) {
-    return { chunk: throughWords, trigger: "word_limit" };
-  }
-
-  if (args.nowMs - args.chunkStartTs >= CHUNK_V2_ACCUM_TIMEOUT_MS && pending.trim().length >= minChars) {
-    return { chunk: pending, trigger: "timeout" };
-  }
-
-  return null;
-}
-
 /** Advance committedSource by translated chunk; returns new committed source prefix. */
 export function advanceCommittedSource(
   committedSource: string,
@@ -175,6 +81,18 @@ export function advanceCommittedSource(
     return stableText.slice(0, committedSource.length + translatedChunkSource.length);
   }
   return next;
+}
+
+export function mergePreservedLiterals(existing: string[], added: string[]): string[] {
+  const seen = new Set(existing);
+  const out = [...existing];
+  for (const lit of added) {
+    const t = lit.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out.sort((a, b) => b.length - a.length);
 }
 
 export function validateChunkV2Invariants(args: {
@@ -213,8 +131,4 @@ export function validateChunkV2Invariants(args: {
       committedTranslationLen: args.committedTranslation.length,
     });
   }
-}
-
-export function logChunkV2Telemetry(event: ChunkV2TelemetryEvent): void {
-  console.info("[chunk_v2_translation]", event);
 }

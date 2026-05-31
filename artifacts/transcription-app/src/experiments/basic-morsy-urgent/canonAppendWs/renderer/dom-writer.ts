@@ -4,7 +4,6 @@ import {
   renderMorsyChunkV2BidiHtml,
   shouldMorsyChunkV2BidiPaint,
 } from "@/hooks/morsy-chunk-v2-bidi-render";
-import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
 
 import type { CommittedDomMirror } from "./committed-renderer";
 import {
@@ -58,7 +57,7 @@ export class CanonAppendWsDomWriter {
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
   private readonly translationPrefixLiveByRowId = new Map<
     string,
-    { locked: string; live: string; rtlBidiPaint?: boolean }
+    { locked: string; live: string; rtlBidiPaint?: boolean; preservedLiterals?: string[] }
   >();
 
   setLayoutMode(mode: CanonAppendWsLayoutMode): void {
@@ -71,21 +70,8 @@ export class CanonAppendWsDomWriter {
   }
 
   setRowTranslation(rowId: string, text: string): void {
-    const hadPrefix = this.translationPrefixLiveByRowId.has(rowId);
-    const prevRendered = this.translationByRowId.get(rowId) ?? "";
     this.translationPrefixLiveByRowId.delete(rowId);
     this.translationByRowId.set(rowId, text);
-    if (hadPrefix) {
-      logChunkV2DomPaint({
-        rowId,
-        method: "setRowTranslation",
-        previousRendered: prevRendered,
-        nextLocked: text,
-        nextLive: "",
-        nextComposed: text,
-        caller: "setRowTranslation_clears_prefix_live",
-      });
-    }
     const handles = this.byRowId.get(rowId);
     if (handles) this.paintTranslation(handles);
   }
@@ -95,13 +81,12 @@ export class CanonAppendWsDomWriter {
     rowId: string,
     locked: string,
     live: string,
-    opts?: { rtlBidiPaint?: boolean },
+    opts?: { rtlBidiPaint?: boolean; preservedLiterals?: string[] },
   ): void {
     const lockedTrim = locked.trim();
     const liveTrim = live.trim();
     const composed =
       lockedTrim && liveTrim ? `${lockedTrim} ${liveTrim}` : lockedTrim || liveTrim;
-    const prevRendered = this.translationByRowId.get(rowId) ?? "";
     this.translationByRowId.set(rowId, composed);
     const handles = this.byRowId.get(rowId);
     const prev = this.translationPrefixLiveByRowId.get(rowId);
@@ -109,14 +94,7 @@ export class CanonAppendWsDomWriter {
       locked: lockedTrim,
       live: liveTrim,
       rtlBidiPaint: opts?.rtlBidiPaint,
-    });
-    logChunkV2DomPaint({
-      rowId,
-      method: "setRowTranslationPrefixLive",
-      previousRendered: prevRendered,
-      nextLocked: lockedTrim,
-      nextLive: liveTrim,
-      nextComposed: composed,
+      preservedLiterals: opts?.preservedLiterals,
     });
     if (handles) this.paintTranslationPrefixLive(handles, prev);
   }
@@ -132,24 +110,12 @@ export class CanonAppendWsDomWriter {
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
-    const prevRendered = handles.translationEl.textContent ?? "";
     if (this.layoutMode === "stacked") {
       handles.translationEl.innerHTML = text.length
         ? `<span class="text-muted-foreground/55 mr-1.5 select-none" aria-hidden="true">↳</span><span>${escapeHtml(text)}</span>`
         : "";
     } else {
       handles.translationEl.textContent = text;
-    }
-    if (!this.translationPrefixLiveByRowId.has(rowId)) {
-      logChunkV2DomPaint({
-        rowId,
-        method: "paintTranslation",
-        previousRendered: prevRendered,
-        nextLocked: text,
-        nextLive: "",
-        nextComposed: text,
-        caller: "full_replace_paint",
-      });
     }
   }
 
@@ -172,7 +138,7 @@ export class CanonAppendWsDomWriter {
 
   private paintTranslationPrefixLive(
     handles: EngineDomRowHandles,
-    prev: { locked: string; live: string; rtlBidiPaint?: boolean } | undefined,
+    prev: { locked: string; live: string; rtlBidiPaint?: boolean; preservedLiterals?: string[] } | undefined,
   ): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const parts = this.translationPrefixLiveByRowId.get(rowId);
@@ -181,25 +147,20 @@ export class CanonAppendWsDomWriter {
       return;
     }
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
-    const prevRendered = handles.translationEl.textContent ?? "";
+    const composed = `${parts.locked}${parts.live ? ` ${parts.live}` : ""}`.trim();
+    const literals = parts.preservedLiterals ?? [];
     const useBidi =
-      parts.rtlBidiPaint === true &&
-      shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
+      parts.rtlBidiPaint === true && shouldMorsyChunkV2BidiPaint(composed);
     if (useBidi) {
       handles.translationEl.setAttribute("dir", "rtl");
       if (prev?.locked !== parts.locked) {
-        lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
+        lockedEl.innerHTML = parts.locked.length
+          ? renderMorsyChunkV2BidiHtml(parts.locked, literals)
+          : "";
       }
-      liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
-      logChunkV2DomPaint({
-        rowId,
-        method: "paintTranslationPrefixLive",
-        previousRendered: prevRendered,
-        nextLocked: parts.locked,
-        nextLive: parts.live,
-        nextComposed: `${parts.locked}${parts.live ? ` ${parts.live}` : ""}`.trim(),
-        caller: prev === undefined ? "syncRows_repaint" : "prefix_live_bidi",
-      });
+      liveEl.innerHTML = parts.live.length
+        ? renderMorsyChunkV2BidiHtml(parts.live, literals)
+        : "";
       return;
     }
     handles.translationEl.removeAttribute("dir");
@@ -207,15 +168,6 @@ export class CanonAppendWsDomWriter {
       lockedEl.textContent = parts.locked;
     }
     liveEl.textContent = parts.live;
-    logChunkV2DomPaint({
-      rowId,
-      method: "paintTranslationPrefixLive",
-      previousRendered: prevRendered,
-      nextLocked: parts.locked,
-      nextLive: parts.live,
-      nextComposed: `${parts.locked}${parts.live ? ` ${parts.live}` : ""}`.trim(),
-      caller: prev === undefined ? "syncRows_repaint" : "prefix_live_text",
-    });
   }
 
   private buildOrigCard(doc: Document, proj: RowProjection): {
