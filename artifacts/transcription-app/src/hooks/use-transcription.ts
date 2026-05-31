@@ -3619,7 +3619,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowStableGrow: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          if (openAiLegacy2CleanTranslationActive()) return;
           if (morsyUsesChunkTranslationV2Experiment()) {
             dispatchMorsyChunkV2StableGrowRef.current(payload);
           } else {
@@ -3629,7 +3628,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowVolatilePulse: (payload) => {
         if (!planUsesLegacyCanonTranslationBridge(planTypeRef.current)) return;
-        if (openAiLegacy2CleanTranslationActive()) return;
         if (morsyUsesChunkTranslationV2Experiment()) {
           dispatchMorsyChunkV2LivePreviewRef.current(payload);
           return;
@@ -6170,8 +6168,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const sourceNow = opts.sourceText.trim();
     if (sourceNow.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
 
-    if (!opts.isFinal && openAiLegacy2CleanTranslationActive()) return;
-
     rowState.lastPendingLang = payload.utterance.language;
 
     const pair = langPairRef.current;
@@ -6303,8 +6299,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
         const morsyCanonIntercallLive = false;
+        const openAiLegacy2Clean = openAiLegacy2CleanTranslationActive();
 
-        if (morsyCanonIntercallLive && morsyCanonThirdLanguagePassthrough(liveSource, sonioxHint, pair)) {
+        if (
+          (morsyCanonIntercallLive || openAiLegacy2Clean) &&
+          morsyCanonThirdLanguagePassthrough(liveSource, sonioxHint, pair)
+        ) {
           rowState.lastDispatchedSource = liveSource;
           paintCanonRowTranslationIfAllowed(rowId, liveSource);
           if (!rowState.pendingLiveSource) break;
