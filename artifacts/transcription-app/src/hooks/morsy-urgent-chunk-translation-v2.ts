@@ -57,6 +57,15 @@ export function extractNewStableChunk(stableText: string, committedSource: strin
   return stable;
 }
 
+/** Raw stable suffix vs trimmed text for POST /translate (spacing preserved in raw only). */
+export function splitChunkV2Pending(stableText: string, committedSource: string): {
+  pendingRaw: string;
+  apiText: string;
+} {
+  const pendingRaw = extractNewStableChunk(stableText, committedSource);
+  return { pendingRaw, apiText: pendingRaw.trim() };
+}
+
 /** Non-final NF tail after committed Soniox finals. */
 export function extractLiveTail(visibleText: string, stableText: string): string {
   const visible = visibleText;
@@ -163,18 +172,25 @@ export function selectAccumulatedStableChunk(args: {
   return null;
 }
 
-/** Advance committedSource by translated chunk; returns new committed source prefix. */
+/**
+ * Advance committedSource through {@link sourceSpanLength} chars of stableText suffix.
+ * Span length must come from untrimmed pendingRaw — not trimmed apiText — so inter-word
+ * spaces Soniox embeds in token text stay aligned with stableText.
+ */
 export function advanceCommittedSource(
   committedSource: string,
   stableText: string,
-  translatedChunkSource: string,
+  sourceSpanLength: number,
 ): string {
-  const next = committedSource + translatedChunkSource;
-  if (stableText.startsWith(next)) return next;
-  if (stableText.startsWith(committedSource)) {
-    return stableText.slice(0, committedSource.length + translatedChunkSource.length);
+  if (sourceSpanLength <= 0) return committedSource;
+  if (committedSource.length > 0 && !stableText.startsWith(committedSource)) {
+    return committedSource;
   }
-  return next;
+  const nextLen = committedSource.length + sourceSpanLength;
+  if (nextLen > stableText.length) {
+    return stableText;
+  }
+  return stableText.slice(0, nextLen);
 }
 
 export function validateChunkV2Invariants(args: {

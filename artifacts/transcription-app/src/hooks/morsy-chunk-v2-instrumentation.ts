@@ -130,9 +130,13 @@ export function logChunkV2Request(args: {
   sourceText: string;
   stableText: string;
   committedSource: string;
-  pendingDelta: string;
+  pendingRaw: string;
+  apiText: string;
+  /** @deprecated use pendingRaw — kept for log continuity */
+  pendingDelta?: string;
 }): void {
-  const pendingLength = args.pendingDelta.length;
+  const pendingRawLength = args.pendingRaw.length;
+  const apiLength = args.apiText.length;
   const sourceLength = args.sourceText.length;
   console.info("[chunk_v2_request]", {
     requestId: args.requestId,
@@ -141,17 +145,24 @@ export function logChunkV2Request(args: {
     mode: args.mode,
     stableLength: args.stableText.length,
     committedLength: args.committedSource.length,
-    pendingLength,
+    pendingRawLength,
+    apiLength,
     sourceLength,
     sourceWords: args.sourceText.trim().split(/\s+/).filter(Boolean).length,
     tinySource: sourceLength > 0 && sourceLength <= 3,
-    tinyPending: pendingLength > 0 && pendingLength <= 3,
-    stableText: snippet(args.stableText, 160),
-    committedSource: snippet(args.committedSource, 160),
-    pendingDelta: snippet(args.pendingDelta, 160),
-    pendingText: snippet(args.pendingDelta, 160),
-    sourceText: snippet(args.sourceText, 160),
+    tinyPending: apiLength > 0 && apiLength <= 3,
+    stableText: args.stableText,
+    committedSource: args.committedSource,
+    pendingRaw: args.pendingRaw,
+    apiText: args.apiText,
+    stableTextSnippet: snippet(args.stableText, 160),
+    committedSourceSnippet: snippet(args.committedSource, 160),
+    pendingRawSnippet: snippet(args.pendingRaw, 160),
+    apiTextSnippet: snippet(args.apiText, 160),
+    sourceTextSnippet: snippet(args.sourceText, 160),
     sourceTextRaw: args.sourceText,
+    committedSourceIsPrefixOfStable:
+      args.committedSource.length === 0 || args.stableText.startsWith(args.committedSource),
   });
 }
 
