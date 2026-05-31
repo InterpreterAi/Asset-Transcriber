@@ -32,6 +32,35 @@ export function buildMorsyChunkV2SystemPrompt(tgtName: string): string {
   );
 }
 
+export function buildMorsyChunkV2ContinuationSystemPrompt(tgtName: string): string {
+  return (
+    `${buildMorsyChunkV2SystemPrompt(tgtName)}\n\n` +
+    `CONTINUATION:\n` +
+    `You are continuing an existing translation.\n` +
+    `The previous source and previous translation are provided only as context.\n` +
+    `Translate ONLY the new source delta.\n` +
+    `Do not repeat concepts already translated.\n` +
+    `Do not rewrite previous output.\n` +
+    `Return only the translation for the new delta.`
+  );
+}
+
+function buildContinuationUserMessage(args: {
+  deltaMasked: string;
+  previousSourceContext?: string;
+  previousTranslationContext?: string;
+}): string {
+  const prevSrc = args.previousSourceContext?.trim() ?? "";
+  const prevTr = args.previousTranslationContext?.trim() ?? "";
+  const delta = args.deltaMasked.trim();
+  if (!prevSrc && !prevTr) return delta;
+  return (
+    `PREVIOUS SOURCE (context only — do not translate):\n${prevSrc}\n\n` +
+    `PREVIOUS TRANSLATION (context only — do not repeat):\n${prevTr}\n\n` +
+    `NEW SOURCE DELTA (translate only this):\n${delta}`
+  );
+}
+
 export type MorsyChunkV2TranslationResult = {
   text: string;
   promptTokens: number;
@@ -41,10 +70,25 @@ export type MorsyChunkV2TranslationResult = {
 export async function runMorsyChunkV2Translation(args: {
   text: string;
   tgtName: string;
+  previousSourceContext?: string;
+  previousTranslationContext?: string;
+  /** Full-stable shadow reference — uses whole-text prompt, not continuation. */
+  shadowFullStable?: boolean;
 }): Promise<MorsyChunkV2TranslationResult> {
   const numMask = applyMorsyCleanNumberProtection(args.text);
-  const systemPrompt = buildMorsyChunkV2SystemPrompt(args.tgtName);
-  const userMessage = numMask.masked.trim();
+  const useContinuation =
+    !args.shadowFullStable &&
+    Boolean(args.previousSourceContext?.trim() || args.previousTranslationContext?.trim());
+  const systemPrompt = useContinuation
+    ? buildMorsyChunkV2ContinuationSystemPrompt(args.tgtName)
+    : buildMorsyChunkV2SystemPrompt(args.tgtName);
+  const userMessage = useContinuation
+    ? buildContinuationUserMessage({
+        deltaMasked: numMask.masked.trim(),
+        previousSourceContext: args.previousSourceContext,
+        previousTranslationContext: args.previousTranslationContext,
+      })
+    : numMask.masked.trim();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30_000);
