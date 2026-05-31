@@ -289,7 +289,7 @@ export default function WorkspaceDefault() {
   const usesCanonAppendWsStt = planUsesCanonAppendWsStt(pt);
   const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const isLegacy2Workspace = pt === "legacy2";
-  const isMorsyChunkV2Workspace = isMorsyUrgentWorkspace || isLegacy2Workspace;
+  const isMorsyChunkV2Workspace = isMorsyUrgentWorkspace;
   const [morsyCleanTranslationExperiment, setMorsyCleanTranslationExperiment] = useState(
     () => readMorsyBasicCleanTranslationExperiment(),
   );
@@ -327,7 +327,7 @@ export default function WorkspaceDefault() {
   }, [user?.id, segmentBoundaryGuardsEffective]);
 
   const transcription = useTranscription(user?.isAdmin ?? false, {
-    translationEnabled: (user?.translationEnabled ?? true) || isMorsyChunkV2Workspace,
+    translationEnabled: (user?.translationEnabled ?? true) || isMorsyUrgentWorkspace || isLegacy2Workspace,
     translationUiMode: ["morsy-urgent", "legacy2"].includes((user?.planType ?? "").toLowerCase())
       ? "hidden"
       : "upsell",
@@ -344,7 +344,7 @@ export default function WorkspaceDefault() {
     experimentMorsyBasicCleanTranslation:
       pt === "morsy-urgent" && morsyCleanTranslationExperiment && !morsyChunkTranslationV2Experiment,
     experimentMorsyUrgentChunkTranslationV2:
-      isMorsyChunkV2Workspace && morsyChunkTranslationV2Experiment,
+      isMorsyUrgentWorkspace && morsyChunkTranslationV2Experiment,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });

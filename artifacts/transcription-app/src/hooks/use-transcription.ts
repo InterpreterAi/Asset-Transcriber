@@ -2514,10 +2514,9 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
-/** Basic · Morsy Urgent + Legacy2 — append-only Chunk V2 translation experiment. */
-function planUsesMorsyChunkV2TranslationPlan(planTypeLower: string): boolean {
-  const p = planTypeLower.trim().toLowerCase();
-  return p === "morsy-urgent" || p === "legacy2";
+/** Basic · Legacy 2 — original Final Boss 3 bubble STT; Chunk V2 translation layered on top. */
+function isLegacy2Plan(planTypeLower: string): boolean {
+  return planTypeLower.trim().toLowerCase() === "legacy2";
 }
 
 /** Canon-append-ws plans share the fast live bridge (52ms debounce + single-flight queue). Morsy keeps its own direction + server SKU. */
@@ -2913,9 +2912,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   function morsyUsesChunkTranslationV2Experiment(): boolean {
     return (
-      planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
+      isBasicMorsyUrgentPlan(planTypeRef.current) &&
       experimentMorsyUrgentChunkTranslationV2Ref.current
     );
+  }
+
+  /** Legacy2 always uses Chunk V2 OpenAI translation (no workspace toggle). */
+  function legacy2UsesChunkTranslationV2(): boolean {
+    return isLegacy2Plan(planTypeRef.current);
+  }
+
+  function usesChunkTranslationV2(): boolean {
+    return morsyUsesChunkTranslationV2Experiment() || legacy2UsesChunkTranslationV2();
   }
 
   const dailyCapRef = options?.dailyCapRef;
@@ -3253,12 +3261,44 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   ) => {
     const trialSt = getCanonTrialRowTransState(rowId);
     if (trialSt.locked && !opts?.allowWhenLocked) return;
-    const eng = canonWsIsolationEngineRef.current;
-    if (!eng) return;
     const committed = committedTranslation.trim();
     const live = liveTranslation.trim();
-    const current = eng.getRowTranslation(rowId).trim();
     const composed = committed && live ? `${committed} ${live}` : committed || live;
+
+    const legacy2Bubble = isLegacy2Plan(planTypeRef.current)
+      ? segmentStateByIdRef.current.get(rowId)
+      : undefined;
+    if (legacy2Bubble?.transTextEl) {
+      const current = (legacy2Bubble.transTextEl.textContent ?? "").trim();
+      if (!composed.length && current.length) return;
+      if (composed === current) return;
+
+      const prevPaint = chunkV2LastPaintByRowRef.current.get(rowId);
+      const prevCommitted = (prevPaint?.committedTranslation ?? trialSt.committedTranslation).trim();
+      if (committed.length < prevCommitted.length) return;
+      if (composed.length < current.length && committed.length <= prevCommitted.length) return;
+
+      logChunkV2VisualRegression({
+        rowId,
+        source: paintSource,
+        previousCommittedTranslation: prevPaint?.committedTranslation ?? trialSt.committedTranslation,
+        nextCommittedTranslation: committed,
+        nextLiveTranslation: live,
+        previousRenderedTranslation: prevPaint?.renderedTranslation ?? current,
+        nextRenderedTranslation: composed,
+      });
+
+      applyTranslationTypography(legacy2Bubble.transTextEl, composed);
+      chunkV2LastPaintByRowRef.current.set(rowId, {
+        committedTranslation: committed,
+        renderedTranslation: composed,
+      });
+      return;
+    }
+
+    const eng = canonWsIsolationEngineRef.current;
+    if (!eng) return;
+    const current = eng.getRowTranslation(rowId).trim();
     if (!composed.length && current.length) return;
     if (composed === current) return;
 
@@ -3369,10 +3409,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowStableGrow: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          if (
-            planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
-            experimentMorsyUrgentChunkTranslationV2Ref.current
-          ) {
+          if (morsyUsesChunkTranslationV2Experiment()) {
             dispatchMorsyChunkV2StableGrowRef.current(payload);
           } else {
             dispatchCanonTrialLiveGrowRef.current(payload);
@@ -3381,10 +3418,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowVolatilePulse: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          if (
-            planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
-            experimentMorsyUrgentChunkTranslationV2Ref.current
-          ) {
+          if (morsyUsesChunkTranslationV2Experiment()) {
             dispatchMorsyChunkV2LivePreviewRef.current(payload);
           } else {
             dispatchCanonTrialLiveGrowRef.current(payload);
@@ -3393,10 +3427,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onActiveRowTranslationFlush: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
-          if (
-            planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
-            experimentMorsyUrgentChunkTranslationV2Ref.current
-          ) {
+          if (morsyUsesChunkTranslationV2Experiment()) {
             dispatchMorsyChunkV2EndpointFlushRef.current(payload);
           } else {
             dispatchCanonTrialEndpointFlushRef.current(payload);
@@ -3640,6 +3671,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (canonWsIsolationGateNow()) {
       return;
     }
+    if (legacy2UsesChunkTranslationV2()) {
+      return;
+    }
     liveTranslationDebouncePayloadRef.current = { text, lang, segmentId };
     if (liveTranslationDebounceTimerRef.current !== null) {
       clearTimeout(liveTranslationDebounceTimerRef.current);
@@ -3836,6 +3870,31 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       });
     }
     finalRenderQueueRef.current = [];
+    const maybeLegacy2ChunkV2StableGrow = (
+      bubbleSt: BubbleTransState | undefined,
+      committedSpan?: HTMLSpanElement,
+    ) => {
+      if (!bubbleSt || bubbleSt.isClosed) return;
+      if (!isLegacy2Plan(planTypeRef.current.trim())) return;
+      if (!translationEnabledRef.current) return;
+      const stable = (
+        bubbleSt.lockedCommittedFinalOriginal.trim() ||
+        (committedSpan?.isConnected ? (committedSpan.textContent ?? "") : "").trim()
+      ).trim();
+      if (stable.length < 3) return;
+      dispatchMorsyChunkV2StableGrowRef.current({
+        utterance: {
+          utterance_id: bubbleSt.segmentId,
+          finalTokens: [],
+          nonFinalTokens: [],
+          is_final: false,
+          language: bubbleSt.segmentSourceLang ?? detectedLangRef.current,
+        },
+        stableText: stable,
+        volatileTail: "",
+        visibleText: stable,
+      });
+    };
     for (const item of q) {
       const { target, text, segmentId } = item;
       if (!target.isConnected) continue;
@@ -3933,6 +3992,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             appendedSnippet:  flushText.length > 96 ? `${flushText.slice(0, 96)}…` : flushText,
           });
         }
+        maybeLegacy2ChunkV2StableGrow(gateSt, target);
       } else {
         const isoRescue =
           segmentBoundaryGuardsRef.current || morsyUrgentTranscriptSegmentGuardsRef.current;
@@ -3986,6 +4046,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               activeBubbleStateRef.current.lockedCommittedFinalOriginal += flushText;
             }
           }
+
+          maybeLegacy2ChunkV2StableGrow(
+            gateSt ??
+              (target === activeBubbleRef.current ? activeBubbleStateRef.current ?? undefined : undefined),
+            target,
+          );
 
           if (committedOrigDomIntegrityTraceEnabled()) {
             let lockedCanonSnapshot = "";
@@ -4615,6 +4681,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!state || text.trim().length < 3) return;
 
     if (canonWsIsolationGateNow()) return;
+    if (legacy2UsesChunkTranslationV2()) return;
 
     const requestSegmentId = segmentIdLock ?? state.segmentId;
     if (requestSegmentId !== state.segmentId) return;
@@ -5830,7 +5897,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const eng = canonWsIsolationEngineRef.current;
 
     const morsyUrgentCanonFetchOpts = () => {
-      if (!planUsesMorsyChunkV2TranslationPlan(planTypeRef.current)) return {};
+      if (legacy2UsesChunkTranslationV2()) {
+        return { experimentalMorsyUrgentChunkTranslationV2: true as const };
+      }
+      if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return {};
       if (morsyUsesChunkTranslationV2Experiment()) {
         return { experimentalMorsyUrgentChunkTranslationV2: true as const };
       }
@@ -6014,7 +6084,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     },
   ) => {
     if (!translationEnabledRef.current) return;
-    if (!canonWsIsolationGateNow()) return;
+    if (!usesChunkTranslationV2()) return;
+    if (!canonWsIsolationGateNow() && !legacy2UsesChunkTranslationV2()) return;
     if (!isRecRef.current && opts.mode !== "endpoint") return;
 
     const rowId = payload.utterance.utterance_id;
@@ -6173,7 +6244,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const pendingPayload = rowState.chunkPendingPayload ?? payload;
       rowState.lastPendingLang = pendingPayload.utterance.language;
-      const snap = eng?.getRowDualBuffer(rowId);
+      const legacy2Bubble = legacy2UsesChunkTranslationV2();
+      const snap = legacy2Bubble ? null : eng?.getRowDualBuffer(rowId);
       const stableText = (snap?.stableText ?? pendingPayload.stableText).trim();
       const pending = extractNewStableChunk(stableText, rowState.committedSource).trim();
 
@@ -6191,6 +6263,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.lastDispatchedSource = stableText;
         rowState.chunkEndpointFinalized = true;
         paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "", "endpointFinal");
+        if (legacy2UsesChunkTranslationV2()) {
+          const idx = adminSegmentRowIndexRef.current.get(rowId);
+          if (idx !== undefined && idx >= 0) {
+            while (translationBufRef.current.length <= idx) {
+              translationBufRef.current.push("");
+            }
+            translationBufRef.current[idx] = rowState.committedTranslation.trim();
+            onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
+        }
       } else if (opts.mode === "stable" && pending.length > 0) {
         const selection =
           selectPendingStableDelta({
@@ -6226,15 +6308,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const dispatchMorsyChunkV2StableGrow = useCallback((payload: CanonRowDualBufferPayload) => {
     if (!translationEnabledRef.current) return;
-    if (!canonWsIsolationGateNow()) return;
+    if (!usesChunkTranslationV2()) return;
+    if (!canonWsIsolationGateNow() && !legacy2UsesChunkTranslationV2()) return;
     if (!isRecRef.current) return;
 
     const rowId = payload.utterance.utterance_id;
     const st = getCanonTrialRowTransState(rowId);
     if (st.locked) return;
 
+    const legacy2Bubble = legacy2UsesChunkTranslationV2();
     const eng = canonWsIsolationEngineRef.current;
-    const snap = eng?.getRowDualBuffer(rowId);
+    const snap = legacy2Bubble ? null : eng?.getRowDualBuffer(rowId);
     const stable = (snap?.stableText ?? payload.stableText).trim();
     const pending = extractNewStableChunk(stable, st.committedSource).trim();
     if (!pending.length || stable.length < 3) return;
@@ -6250,8 +6334,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const scheduleDebouncedChunk = () => {
       if (st.locked || !isRecRef.current) return;
-      const freshSnap = eng?.getRowDualBuffer(rowId);
-      const freshStable = (freshSnap?.stableText ?? stable).trim();
+      const freshSnap = legacy2Bubble ? null : eng?.getRowDualBuffer(rowId);
+      const freshStable = legacy2Bubble
+        ? (() => {
+            const bubbleSt = segmentStateByIdRef.current.get(rowId);
+            const locked = bubbleSt?.lockedCommittedFinalOriginal.trim() ?? "";
+            if (locked.length > 0) return locked;
+            if (
+              activeBubbleStateRef.current?.segmentId === rowId &&
+              activeBubbleRef.current?.isConnected
+            ) {
+              return (activeBubbleRef.current.textContent ?? "").trim();
+            }
+            return payload.stableText.trim();
+          })()
+        : (freshSnap?.stableText ?? stable).trim();
       if (!extractNewStableChunk(freshStable, st.committedSource).trim()) return;
       void executeMorsyChunkV2TranslationRef.current(freshSnap ?? payload, {
         mode: "stable",
@@ -6770,20 +6867,38 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
       onAdminSnapshotBuffersUpdatedRef.current?.();
       // Final pass: on speaker_change, defer hardFinal until response so live in-flight is not dropped.
-      dispatchTranslation(
-        finalText,
-        detectedLangRef.current,
-        true,
-        {
-          lockOnFinal: true,
-          suppressEarlyHardFinal: closeKind === "speaker_change",
-          skipOpenAiLiveDebounce: true,
-          adminSnapshotLineIndex,
-        },
-        segId,
-      );
+      if (legacy2UsesChunkTranslationV2() && bubbleSt && segId) {
+        bubbleSt.translationLocked = true;
+        const trialSt = getCanonTrialRowTransState(segId);
+        trialSt.locked = true;
+        dispatchMorsyChunkV2EndpointFlushRef.current({
+          utterance: {
+            utterance_id: segId,
+            finalTokens: [],
+            nonFinalTokens: [],
+            is_final: true,
+            language: bubbleSt.segmentSourceLang ?? detectedLangRef.current,
+          },
+          stableText: finalText,
+          volatileTail: "",
+          visibleText: finalText,
+        });
+      } else {
+        dispatchTranslation(
+          finalText,
+          detectedLangRef.current,
+          true,
+          {
+            lockOnFinal: true,
+            suppressEarlyHardFinal: closeKind === "speaker_change",
+            skipOpenAiLiveDebounce: true,
+            adminSnapshotLineIndex,
+          },
+          segId,
+        );
+      }
     }
-  }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce]);
+  }, [dispatchTranslation, stopTranslationInterval, flushFinalTextRenderQueue, cancelOpenAiLiveDebounce, getCanonTrialRowTransState]);
 
   // ── finalizeLiveBubble ────────────────────────────────────────────────────
   const finalizeLiveBubble = useCallback((closeKind: SegmentCloseKind = "session_end") => {
@@ -8015,6 +8130,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             adminSnapshotLineIndex = transcriptBufRef.current.length - 1;
             map.set(seg, adminSnapshotLineIndex);
             onAdminSnapshotBuffersUpdatedRef.current?.();
+          }
+          if (legacy2UsesChunkTranslationV2()) {
+            stEnd.translationLocked = true;
+            const trialSt = getCanonTrialRowTransState(seg);
+            trialSt.locked = true;
+            dispatchMorsyChunkV2EndpointFlushRef.current({
+              utterance: {
+                utterance_id: seg,
+                finalTokens: [],
+                nonFinalTokens: [],
+                is_final: true,
+                language: stEnd.segmentSourceLang ?? detectedLangRef.current,
+              },
+              stableText: srcEnd,
+              volatileTail: "",
+              visibleText: srcEnd,
+            });
+            return;
           }
           dispatchTranslation(
             srcEnd,
