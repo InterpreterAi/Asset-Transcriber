@@ -170,7 +170,7 @@ export function hetznerWorkerHostGroupLabel(baseUrl: string): string {
 
 export function isPaidMachinePlanType(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "basic-libre" || p === "professional-libre" || p === "platinum-libre";
+  return p === "basic-libre" || p === "basic-hetzner" || p === "professional-libre" || p === "platinum-libre";
 }
 
 function authoritativeRoute(lane: CoreLane): CoreRoute {

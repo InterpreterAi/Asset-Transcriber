@@ -467,20 +467,25 @@ export async function sendSubscriptionConfirmationEmail(
   nextBillingDate: string,
   displayName: string | null | undefined,
   recipientUserId: number,
+  opts?: { planBenefitsLine?: string },
 ): Promise<boolean> {
   if (!isResendConfigured()) return false;
   const base = appBaseUrl();
   const subject = "Your InterpreterAI subscription is active";
+  const bodyParts = [
+    emailStandardGreeting(to, displayName),
+    emailParagraph("Your subscription has been successfully activated."),
+    emailParagraph(`Plan: ${planName}`),
+  ];
+  if (opts?.planBenefitsLine?.trim()) {
+    bodyParts.push(emailParagraph(opts.planBenefitsLine.trim()));
+  }
+  bodyParts.push(emailParagraph(`Next billing date: ${nextBillingDate}`));
   const html = renderInterpreterAiEmail({
     appBaseUrl: base,
     recipientUserId,
     heading: "Your subscription is active",
-    bodyHtml: [
-      emailStandardGreeting(to, displayName),
-      emailParagraph("Your subscription has been successfully activated."),
-      emailParagraph(`Plan: ${planName}`),
-      emailParagraph(`Next billing date: ${nextBillingDate}`),
-    ].join(""),
+    bodyHtml: bodyParts.join(""),
     primaryButton: { href: billingUrl(), label: "Manage Billing" },
   });
 
