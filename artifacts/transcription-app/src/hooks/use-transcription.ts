@@ -105,13 +105,11 @@ import {
   extractNewStableChunk,
   logChunkV2Telemetry,
   selectPendingStableDelta,
-  shouldHoldStableDelta,
   validateChunkV2Invariants,
   type ChunkV2TranslateTrigger,
 } from "@/hooks/morsy-urgent-chunk-translation-v2";
 import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render";
 import {
-  logChunkV2BoundaryHold,
   logChunkV2ExecuteGate,
   logChunkV2FrozenGate,
   logChunkV2RawModelResponse,
@@ -6188,15 +6186,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.chunkEndpointFinalized = true;
         paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "", "endpointFinal");
       } else if (opts.mode === "stable" && pending.length > 0) {
-        const boundaryHold = shouldHoldStableDelta(pending);
-        if (boundaryHold.hold) {
-          logChunkV2BoundaryHold({
-            rowId,
-            reason: boundaryHold.reason ?? "unknown",
-            pendingTail: pending.slice(-48),
-          });
-          return;
-        }
         const selection =
           selectPendingStableDelta({
             pending,
@@ -6247,6 +6236,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     st.lastPendingLang = payload.utterance.language;
     st.chunkPendingPayload = snap ?? payload;
 
+    // Fast start — mirror clean MT: first stable finals translate immediately.
+    if (!st.committedSource.trim()) {
+      void executeMorsyChunkV2Translation(snap ?? payload, { mode: "stable", firstChunk: true });
+      return;
+    }
+
     const scheduleDebouncedChunk = () => {
       if (st.locked || !isRecRef.current) return;
       const freshSnap = eng?.getRowDualBuffer(rowId);
@@ -6255,7 +6250,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       void executeMorsyChunkV2TranslationRef.current(freshSnap ?? payload, {
         mode: "stable",
         debounceFlush: true,
-        ...(!st.committedSource.trim() ? { firstChunk: true as const } : {}),
       });
     };
 
