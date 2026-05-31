@@ -1909,6 +1909,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         text,
         srcName,
         tgtName,
+        tgtLang,
       });
       const callCost = +(
         clean.promptTokens * OPENAI_INPUT_COST_PER_TOKEN +
