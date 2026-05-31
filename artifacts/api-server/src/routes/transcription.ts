@@ -1862,8 +1862,12 @@ router.post("/translate", requireAuth, async (req, res) => {
       const chunk = await runMorsyChunkV2Translation({
         text,
         tgtName,
-        ...(prevSourceCtx?.trim() ? { previousSourceContext: prevSourceCtx } : {}),
-        ...(prevTranslationCtx?.trim() ? { previousTranslationContext: prevTranslationCtx } : {}),
+        ...(prevSourceCtx?.trim() && prevTranslationCtx?.trim()
+          ? {
+              previousSourceContext: prevSourceCtx,
+              previousTranslationContext: prevTranslationCtx,
+            }
+          : {}),
         ...(shadowFullStable ? { shadowFullStable: true } : {}),
       });
       const callCost = +(
@@ -1887,7 +1891,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           textLen: text.length,
           outLen: chunk.text.length,
           isFinalSegment,
-          chunkV2Continuation: Boolean(prevSourceCtx?.trim() || prevTranslationCtx?.trim()),
+          chunkV2Continuation: Boolean(prevSourceCtx?.trim() && prevTranslationCtx?.trim()),
           chunkV2ShadowValidation: shadowFullStable,
         },
         "POST /translate chunk V2 experiment",

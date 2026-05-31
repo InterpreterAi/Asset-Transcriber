@@ -1365,11 +1365,13 @@ async function translateViaPrimaryApi(
         ...(chunkV2Experiment
           ? { experimentalMorsyUrgentChunkTranslationV2: true as const }
           : {}),
-        ...(chunkV2Experiment && options?.previousSourceContext?.trim()
-          ? { previousSourceContext: options.previousSourceContext }
-          : {}),
-        ...(chunkV2Experiment && options?.previousTranslationContext?.trim()
-          ? { previousTranslationContext: options.previousTranslationContext }
+        ...(chunkV2Experiment &&
+        options?.previousSourceContext?.trim() &&
+        options?.previousTranslationContext?.trim()
+          ? {
+              previousSourceContext: options.previousSourceContext,
+              previousTranslationContext: options.previousTranslationContext,
+            }
           : {}),
         ...(chunkV2Experiment && options?.chunkV2ShadowValidation
           ? { chunkV2ShadowValidation: true as const }
@@ -5557,26 +5559,41 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           committedSource: trialSt.committedSource,
           pendingDelta: delta,
         });
-        const tr = await fetchTranslation(
+        const frozenFetchOpts = {
+          isFinal: true,
+          onGlossaryApplied: (t: string[]) => glossaryNotifyRef.current(t),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          ...morsyChunkV2ExperimentOpts,
+          ...(prevSourceCtx.length > 0 && prevTranslationCtx.length > 0
+            ? {
+                previousSourceContext: prevSourceCtx,
+                previousTranslationContext: prevTranslationCtx,
+              }
+            : {}),
+        };
+        let tr = await fetchTranslation(
           delta,
           sourceLang,
           targetLang,
           (m) => translationConfigReporterRef.current(m),
-          {
-            isFinal: true,
-            onGlossaryApplied: t => glossaryNotifyRef.current(t),
-            ...(sessionIdRef.current != null && sessionIdRef.current > 0
-              ? { sessionId: sessionIdRef.current }
-              : {}),
-            ...morsyChunkV2ExperimentOpts,
-            ...(prevSourceCtx || prevTranslationCtx
-              ? {
-                  previousSourceContext: prevSourceCtx,
-                  previousTranslationContext: prevTranslationCtx,
-                }
-              : {}),
-          },
+          frozenFetchOpts,
         );
+        if (
+          prevSourceCtx.length > 0 &&
+          prevTranslationCtx.length > 0 &&
+          !tr.text.trim().length &&
+          !tr.dailyLimitReached
+        ) {
+          tr = await fetchTranslation(
+            delta,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            { ...frozenFetchOpts, previousSourceContext: undefined, previousTranslationContext: undefined },
+          );
+        }
         if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
         if (tr.dailyLimitReached) {
           dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
@@ -6194,7 +6211,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const previousSourceContext = rowState.committedSource.trim();
       const previousTranslationContext = rowState.committedTranslation.trim();
       const hasContinuationContext =
-        previousSourceContext.length > 0 || previousTranslationContext.length > 0;
+        previousSourceContext.length > 0 && previousTranslationContext.length > 0;
 
       rowState.chunkAbort?.abort();
       const ac = new AbortController();
@@ -6217,27 +6234,41 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       });
 
       try {
-        const tr = await fetchTranslation(
+        const fetchOpts = {
+          isFinal: endpointFinal,
+          signal: ac.signal,
+          onGlossaryApplied: (t: string[]) => glossaryNotifyRef.current(t),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          experimentalMorsyUrgentChunkTranslationV2: true as const,
+          ...(hasContinuationContext
+            ? {
+                previousSourceContext: previousSourceContext,
+                previousTranslationContext: previousTranslationContext,
+              }
+            : {}),
+        };
+        let tr = await fetchTranslation(
           sourceToTranslate,
           sourceLang,
           targetLang,
           (m) => translationConfigReporterRef.current(m),
-          {
-            isFinal: endpointFinal,
-            signal: ac.signal,
-            onGlossaryApplied: t => glossaryNotifyRef.current(t),
-            ...(sessionIdRef.current != null && sessionIdRef.current > 0
-              ? { sessionId: sessionIdRef.current }
-              : {}),
-            experimentalMorsyUrgentChunkTranslationV2: true,
-            ...(hasContinuationContext
-              ? {
-                  previousSourceContext: previousSourceContext,
-                  previousTranslationContext: previousTranslationContext,
-                }
-              : {}),
-          },
+          fetchOpts,
         );
+        if (
+          hasContinuationContext &&
+          !tr.text.trim().length &&
+          !tr.dailyLimitReached
+        ) {
+          tr = await fetchTranslation(
+            sourceToTranslate,
+            sourceLang,
+            targetLang,
+            (m) => translationConfigReporterRef.current(m),
+            { ...fetchOpts, previousSourceContext: undefined, previousTranslationContext: undefined },
+          );
+        }
         if (rowState.locked && opts.mode !== "endpoint") return false;
         if (tr.dailyLimitReached) {
           dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
@@ -6338,7 +6369,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           ),
         });
       } else if (opts.mode === "stable" && pending.length > 0) {
-        const boundaryHold = shouldHoldStableDelta(pending);
+        const boundaryHold =
+          rowState.committedSource.trim().length > 0
+            ? shouldHoldStableDelta(pending)
+            : { hold: false as const };
         if (boundaryHold.hold) {
           logChunkV2BoundaryHold({
             rowId,
@@ -6396,6 +6430,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     st.lastPendingLang = payload.utterance.language;
     st.chunkPendingPayload = snap ?? payload;
+
+    // Fast start — first stable finals attempt immediately (boundary hold skipped until first commit).
+    if (!st.committedSource.trim()) {
+      void executeMorsyChunkV2Translation(snap ?? payload, { mode: "stable", firstChunk: true });
+      return;
+    }
 
     const scheduleDebouncedChunk = () => {
       if (st.locked || !isRecRef.current) return;
