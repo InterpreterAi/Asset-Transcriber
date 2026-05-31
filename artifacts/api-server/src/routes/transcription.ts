@@ -52,8 +52,7 @@ import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import type { HetznerMtWireDebugMeta } from "../lib/hetzner-translate.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
-  hasPaidPostSessionFeedbackGateSatisfied,
-  hasSubmittedTrialMandatoryFeedbackToday,
+  hasMandatoryFeedbackGateSatisfied,
   isMandatoryFeedbackEligible,
   isMandatoryFeedbackRequiredByUsageWithLive,
   isPaidPostSessionFeedbackEligible,
@@ -269,6 +268,22 @@ function isDailyCapReachedWithLiveExtra(
 
 function trialLimitBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean {
   return user.isAdmin === true;
+}
+
+/** Mandatory feedback (trial mid-session or paid post-session): once per account ever; admins bypass for plan testing. */
+async function mandatoryFeedbackGateSatisfied(
+  user: User,
+  liveBillableMinutes: number,
+): Promise<boolean> {
+  if (trialLimitBypassedForAdmin(user)) return true;
+  const usageRequiresFeedback =
+    (isMandatoryFeedbackEligible(user) &&
+      isMandatoryFeedbackRequiredByUsageWithLive(user, liveBillableMinutes)) ||
+    (isPaidPostSessionFeedbackEligible(user) &&
+      liveBillableMinutes < 1e-6 &&
+      isPaidPostSessionFeedbackRequiredByUsage(user));
+  if (!usageRequiresFeedback) return true;
+  return hasMandatoryFeedbackGateSatisfied(user.id);
 }
 
 async function maybeSendDailyLimitReachedEmail(
@@ -520,32 +535,12 @@ router.post("/token", requireAuth, async (req, res) => {
       });
       return;
     }
-    if (
-      isMandatoryFeedbackEligible(user) &&
-      isMandatoryFeedbackRequiredByUsageWithLive(user, liveBillable)
-    ) {
-      const submitted = await hasSubmittedTrialMandatoryFeedbackToday(user.id);
-      if (!submitted) {
-        res.status(403).json({
-          error: "Daily feedback required before starting another session.",
-          code: "FEEDBACK_REQUIRED",
-        });
-        return;
-      }
-    }
-    if (
-      isPaidPostSessionFeedbackEligible(user) &&
-      liveBillable < 1e-6 &&
-      isPaidPostSessionFeedbackRequiredByUsage(user)
-    ) {
-      const submitted = await hasPaidPostSessionFeedbackGateSatisfied(user.id, user.email ?? null);
-      if (!submitted) {
-        res.status(403).json({
-          error: "Daily feedback required before starting another session.",
-          code: "FEEDBACK_REQUIRED",
-        });
-        return;
-      }
+    if (!(await mandatoryFeedbackGateSatisfied(user, liveBillable))) {
+      res.status(403).json({
+        error: "Daily feedback required before starting another session.",
+        code: "FEEDBACK_REQUIRED",
+      });
+      return;
     }
 
     // Global safety cap
@@ -1171,35 +1166,15 @@ router.post("/session/start", requireAuth, async (req, res) => {
     });
     return;
   }
-  if (
-    isMandatoryFeedbackEligible(userForCap) &&
-    isMandatoryFeedbackRequiredByUsageWithLive(userForCap, liveAfterOrphans)
-  ) {
-    const submitted = await hasSubmittedTrialMandatoryFeedbackToday(userForCap.id);
-    if (!submitted) {
-      res.status(403).json({
-        error: "Daily feedback required before starting another session.",
-        code: "FEEDBACK_REQUIRED",
-      });
-      return;
-    }
-  }
-  if (
-    isPaidPostSessionFeedbackEligible(userForCap) &&
-    liveAfterOrphans < 1e-6 &&
-    isPaidPostSessionFeedbackRequiredByUsage(userForCap)
-  ) {
-    const submitted = await hasPaidPostSessionFeedbackGateSatisfied(userForCap.id, userForCap.email ?? null);
-    if (!submitted) {
-      res.status(403).json({
-        error: "Daily feedback required before starting another session.",
-        code: "FEEDBACK_REQUIRED",
-      });
-      return;
-    }
+  if (!(await mandatoryFeedbackGateSatisfied(userForCap, liveAfterOrphans))) {
+    res.status(403).json({
+      error: "Daily feedback required before starting another session.",
+      code: "FEEDBACK_REQUIRED",
+    });
+    return;
   }
 
-  // Language pair sent by the client (e.g. { srcLang: "en", tgtLang: "ar" })
+  // Language pair sent by the client
   const { srcLang, tgtLang } = (req.body ?? {}) as { srcLang?: string; tgtLang?: string };
   const langPair = (srcLang && tgtLang)
     ? `${langName(srcLang)} → ${langName(tgtLang)}`
@@ -1381,6 +1356,9 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     transcriptLines?: unknown;
     translationLines?: unknown;
     snapshotSeq?: unknown;
+    viewerTheme?: unknown;
+    workspaceFontPx?: unknown;
+    layoutMode?: unknown;
   };
   const { sessionId, langA, langB, micLabel, transcript, translation } = body;
 
@@ -1441,6 +1419,22 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
   const translationLines = normalizeSnapshotLines(body.translationLines);
   const resolvedSnapshotSeq = incomingSeq != null ? incomingSeq : prevSnap?.snapshotSeq;
 
+  const viewerThemeRaw = body.viewerTheme;
+  const viewerTheme =
+    viewerThemeRaw === "light" || viewerThemeRaw === "dark" ? viewerThemeRaw : prevSnap?.viewerTheme;
+  const fontRaw = body.workspaceFontPx;
+  const workspaceFontPx =
+    typeof fontRaw === "number" && Number.isFinite(fontRaw) && fontRaw >= 10 && fontRaw <= 48
+      ? Math.round(fontRaw)
+      : typeof fontRaw === "string" && /^\d+$/.test(fontRaw.trim())
+        ? Math.min(48, Math.max(10, Number.parseInt(fontRaw.trim(), 10)))
+        : prevSnap?.workspaceFontPx;
+  const layoutRaw = body.layoutMode;
+  const layoutMode =
+    layoutRaw === "stacked" || layoutRaw === "side-by-side"
+      ? layoutRaw
+      : prevSnap?.layoutMode;
+
   // Update in-memory snapshot (admin-visible only, never persisted).
   sessionStore.set(sessionId, {
     langA,
@@ -1451,6 +1445,9 @@ router.put("/session/snapshot", requireAuth, async (req, res) => {
     ...(transcriptLines && transcriptLines.length > 0 ? { transcriptLines } : {}),
     ...(translationLines && translationLines.length > 0 ? { translationLines } : {}),
     ...(resolvedSnapshotSeq != null ? { snapshotSeq: resolvedSnapshotSeq } : {}),
+    ...(viewerTheme ? { viewerTheme } : {}),
+    ...(workspaceFontPx != null ? { workspaceFontPx } : {}),
+    ...(layoutMode ? { layoutMode } : {}),
     updatedAt: Date.now(),
   });
 

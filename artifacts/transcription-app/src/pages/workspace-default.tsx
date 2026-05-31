@@ -256,6 +256,10 @@ export default function WorkspaceDefault() {
     document.documentElement.classList.toggle("dark", workspaceTheme === "dark");
   }, [workspaceTheme]);
   const wsDark = workspaceTheme === "dark";
+  const workspaceThemeRef = useRef(workspaceTheme);
+  useEffect(() => {
+    workspaceThemeRef.current = workspaceTheme;
+  }, [workspaceTheme]);
 
   const [wideWorkspace, setWideWorkspace] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -357,6 +361,7 @@ export default function WorkspaceDefault() {
         if (!t?.isRecording || !t.sessionId) return;
         const snap = t.getSnapshot();
         snapshotSeqRef.current += 1;
+        const layoutStacked = Boolean(t.canonIntercallLayoutStacked);
         void fetch("/api/transcription/session/snapshot", {
           method:      "PUT",
           headers:     { "Content-Type": "application/json" },
@@ -371,6 +376,9 @@ export default function WorkspaceDefault() {
             transcriptLines:  snap.transcriptLines,
             translationLines: snap.translationLines,
             snapshotSeq:      snapshotSeqRef.current,
+            viewerTheme:      workspaceThemeRef.current,
+            workspaceFontPx:  workspaceFontPxRef.current,
+            layoutMode:       layoutStacked ? "stacked" : "side-by-side",
           }),
         }).catch(() => { /* best-effort */ });
       }, 400);
@@ -479,6 +487,10 @@ export default function WorkspaceDefault() {
   const [workspaceFontPx, setWorkspaceFontPx] = useState<MorsyFontPx>(() =>
     readMorsyFontPx(MORSY_WS_FONT_LS, 16),
   );
+  const workspaceFontPxRef = useRef(workspaceFontPx);
+  useEffect(() => {
+    workspaceFontPxRef.current = workspaceFontPx;
+  }, [workspaceFontPx]);
   const [notesFontPx, setNotesFontPx] = useState<MorsyFontPx>(() =>
     readMorsyFontPx(MORSY_NOTES_FONT_LS, 18),
   );
@@ -792,6 +804,7 @@ export default function WorkspaceDefault() {
       if (!t?.isRecording || !t.sessionId) return;
       const snap = t.getSnapshot();
       snapshotSeqRef.current += 1;
+      const layoutStacked = Boolean(t.canonIntercallLayoutStacked);
       void fetch("/api/transcription/session/snapshot", {
         method:      "PUT",
         headers:     { "Content-Type": "application/json" },
@@ -806,6 +819,9 @@ export default function WorkspaceDefault() {
           transcriptLines:  snap.transcriptLines,
           translationLines: snap.translationLines,
           snapshotSeq:      snapshotSeqRef.current,
+          viewerTheme:      workspaceThemeRef.current,
+          workspaceFontPx:  workspaceFontPxRef.current,
+          layoutMode:       layoutStacked ? "stacked" : "side-by-side",
         }),
       }).catch(() => { /* best-effort */ });
     };
