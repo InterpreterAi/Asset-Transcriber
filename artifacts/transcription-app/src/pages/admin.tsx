@@ -373,7 +373,8 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
   { value: "trial-hetzner", label: "Trial · Hetzner (7 days, full Hetzner)" },
   { value: "trial-libre", label: "Trial · Mixed (days 1–4 OpenAI, then Hetzner)" },
-  { value: "basic-libre", label: "Basic · Hetzner / machine" },
+  { value: "basic-hetzner", label: "Basic · Hetzner (PayPal default, 5h/day)" },
+  { value: "basic-libre", label: "Basic · Hetzner / machine (legacy)" },
   { value: "professional-libre", label: "Professional · Hetzner / machine" },
   { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
 ];

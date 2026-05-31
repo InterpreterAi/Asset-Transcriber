@@ -27,7 +27,8 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "legacy2", label: "Basic · Legacy 2 (Morsy STT, transcription only)", group: "paid" },
   { planType: "professional-openai", label: "Professional · OpenAI", group: "paid" },
   { planType: "platinum-openai", label: "Platinum · OpenAI", group: "paid" },
-  { planType: "basic-libre", label: "Basic · Hetzner", group: "paid" },
+  { planType: "basic-hetzner", label: "Basic · Hetzner (PayPal default)", group: "paid" },
+  { planType: "basic-libre", label: "Basic · Hetzner (legacy label)", group: "paid" },
   { planType: "professional-libre", label: "Professional · Hetzner", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Hetzner", group: "paid" },
 ];

@@ -100,7 +100,15 @@ export function planUsesMachineTranslationStack(planType: string | null | undefi
 export function planUsesOpenAiLegacy2CleanStack(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (!p || p === "trial-hetzner") return false;
-  if (p === "trial-libre" || p === "basic-libre" || p === "professional-libre" || p === "platinum-libre") return false;
+  if (
+    p === "trial-libre" ||
+    p === "basic-libre" ||
+    p === "basic-hetzner" ||
+    p === "professional-libre" ||
+    p === "platinum-libre"
+  ) {
+    return false;
+  }
   if (p.includes("-openai")) return true;
   if (p === "legacy2" || p === "trial" || p === "trial-openai" || p === "morsy-urgent") return true;
   if (p === "platinum" || p === "unlimited") return true;
@@ -163,6 +171,7 @@ function isPaidTranslationPlan(eff: string): boolean {
     e === "basic" ||
     e === "basic-openai" ||
     e === "basic-libre" ||
+    e === "basic-hetzner" ||
     e === "morsy-basic" ||
     e === "professional" ||
     e === "professional-openai" ||
@@ -199,15 +208,15 @@ export function effectivePlanTypeForTranslation(user: User): string {
     (sp === "basic" || sp === "professional" || sp === "platinum" || sp === "unlimited") &&
     isTrialLikePlanType(user.planType)
   ) {
-    // Trial · Mixed (`trial-libre`): OpenAI interpreter only — while plan_type is still trial-libre during
-    // subscription lag, resolve paid SKU to *-openai (never basic-libre / professional-libre / Hetzner).
+    // PayPal Basic → Hetzner machine stack for every trial variant (OpenAI, Hetzner, or mixed).
+    if (sp === "basic") return "basic-hetzner";
+    // Trial · Mixed (`trial-libre`): OpenAI interpreter for Professional/Platinum while plan_type lags.
     if (p === "trial-libre") {
-      if (sp === "basic") return "basic-openai";
       if (sp === "professional") return "professional-openai";
       if (sp === "platinum") return "platinum";
       if (sp === "unlimited") return "unlimited";
     }
-    if (originalPlanWasOpenAi && (sp === "basic" || sp === "professional" || sp === "platinum")) {
+    if (originalPlanWasOpenAi && (sp === "professional" || sp === "platinum")) {
       return `${sp}-openai`;
     }
     return sp;

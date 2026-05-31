@@ -6,6 +6,7 @@ import {
   billingPlanTierDisplayName,
   billingProductKeyFromPlanType,
   createPayPalSubscription,
+  dbPlanTypeFromPayPalBilling,
   extractPayPalSubscriptionId,
   extractPayPalCustomId,
   extractPayPalSubscriberEmail,
@@ -22,6 +23,7 @@ import {
   verifyPayPalWebhookSignature,
 } from "../lib/paypal.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
+import { formatEmailDate } from "../lib/email-template.js";
 import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
 import { isTrialLikePlanType } from "../lib/usage.js";
 import { stripeService } from "../lib/stripeService.js";
@@ -46,19 +48,14 @@ function paypalManageBillingUrl(): string {
     : "https://www.sandbox.paypal.com/myaccount/autopay/";
 }
 
-/** Final Boss 3: PayPal billing tier → DB `plan_type` (Basic/Prof = Libre; Platinum = OpenAI). */
-function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
-  if (plan === "basic") return "basic-libre";
-  if (plan === "professional") return "professional-libre";
-  return "platinum";
-}
-
 /** PayPal `custom_id` historically used `unlimited`; map to platinum. Also accept `*-libre` / `*-openai` segment variants. */
 function billingPlanFromCustomIdSegment(raw: string): BillingPlanType | null {
   const s = raw.trim().toLowerCase();
   if (!s) return null;
   if (s === "unlimited") return "platinum";
-  if (s === "basic" || s === "basic-libre" || s === "basic-openai" || s === "morsy-basic") return "basic";
+  if (s === "basic" || s === "basic-libre" || s === "basic-hetzner" || s === "basic-openai" || s === "morsy-basic") {
+    return "basic";
+  }
   if (s === "professional" || s === "professional-libre" || s === "professional-openai") return "professional";
   if (s === "platinum" || s === "platinum-libre" || s === "platinum-openai") return "platinum";
   return isBillingPlanType(s) ? s : null;
@@ -94,12 +91,25 @@ async function sendPayPalSubscriptionConfirmationIfNeeded(
     const [activatedUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
     const em = activatedUser?.email?.trim().toLowerCase();
     if (em && !activatedUser.subscriptionConfirmationSentAt) {
+      let nextBillingDate = "Your next billing date is available in your PayPal account";
+      const periodRaw = activatedUser.subscriptionPeriodEndsAt;
+      if (periodRaw) {
+        const periodEnd = periodRaw instanceof Date ? periodRaw : new Date(periodRaw);
+        if (Number.isFinite(periodEnd.getTime())) {
+          nextBillingDate = formatEmailDate(periodEnd);
+        }
+      }
+      const planBenefitsLine =
+        confirmPlan === "basic"
+          ? "Your Basic plan includes 5 hours of interpretation per day for 30 days."
+          : undefined;
       const ok = await sendSubscriptionConfirmationEmail(
         em,
         billingPlanTierDisplayName(confirmPlan),
-        "Your next billing date is available in your PayPal account",
+        nextBillingDate,
         activatedUser.username,
         activatedUser.id,
+        { planBenefitsLine },
       );
       if (ok) {
         await db
@@ -503,6 +513,7 @@ const ADMIN_TEST_PLAN_TYPES = [
   "legacy2",
   "basic-openai",
   "basic-libre",
+  "basic-hetzner",
   "professional",
   "professional-openai",
   "professional-libre",
@@ -529,7 +540,14 @@ function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number 
   ) {
     return TRIAL_DAILY_LIMIT_MINUTES;
   }
-  if (planType === "basic" || planType === "morsy-urgent" || planType === "legacy2" || planType === "basic-openai" || planType === "basic-libre") {
+  if (
+    planType === "basic" ||
+    planType === "morsy-urgent" ||
+    planType === "legacy2" ||
+    planType === "basic-openai" ||
+    planType === "basic-libre" ||
+    planType === "basic-hetzner"
+  ) {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
   if (planType === "professional" || planType === "professional-openai" || planType === "professional-libre") {

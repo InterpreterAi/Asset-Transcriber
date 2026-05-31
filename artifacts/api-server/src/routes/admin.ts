@@ -92,6 +92,7 @@ const PLAN_PRICES: Record<string, number> = {
   "morsy-urgent":      59,
   "legacy2":           59,
   "basic-libre":       59,
+  "basic-hetzner":     59,
   "basic-openai":      59,
   professional:        99,
   "professional-libre": 99,
@@ -107,7 +108,7 @@ const PLAN_PRICES: Record<string, number> = {
 
 /** Analytics stack split mirrors strict live translation routing by effective plan family. */
 const MACHINE_STACK_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'professional-libre', 'platinum-libre')
+  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic-hetzner', 'professional-libre', 'platinum-libre')
 )`;
 const OPENAI_STACK_ANALYTICS_WHERE = sql`NOT (${MACHINE_STACK_ANALYTICS_WHERE})`;
 
@@ -1856,6 +1857,7 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
     "legacy2",
     "basic-openai",
     "basic-libre",
+    "basic-hetzner",
     "professional",
     "professional-openai",
     "professional-libre",

@@ -179,11 +179,28 @@ export async function fetchPayPalSubscription(subscriptionId: string): Promise<u
   return json;
 }
 
+/** PayPal billing tier → DB `plan_type` (Basic = Hetzner machine stack; Prof = Libre; Platinum = OpenAI). */
+export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
+  if (plan === "basic") return "basic-hetzner";
+  if (plan === "professional") return "professional-libre";
+  return "platinum";
+}
+
 /** Maps app `plan_type` (incl. basic-openai) to PayPal billing product key. Trials → null. */
 export function billingProductKeyFromPlanType(planType: string): BillingPlanType | null {
   const p = planType.trim().toLowerCase();
-  if (p === "trial" || p === "trial-openai" || p === "trial-libre") return null;
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "basic";
+  if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return null;
+  if (
+    p === "basic" ||
+    p === "basic-openai" ||
+    p === "basic-libre" ||
+    p === "basic-hetzner" ||
+    p === "morsy-basic" ||
+    p === "morsy-urgent" ||
+    p === "legacy2"
+  ) {
+    return "basic";
+  }
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return "platinum";
   return null;
