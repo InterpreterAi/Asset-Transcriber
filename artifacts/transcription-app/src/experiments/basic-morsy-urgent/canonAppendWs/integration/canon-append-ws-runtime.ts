@@ -400,6 +400,11 @@ export class CanonAppendWsIsolatedRuntime {
     return this.projections.getProjection().liveCombined;
   }
 
+  /** Row projections for backfill / diagnostics (includes finalized rows). */
+  getTranscriptProjection(): ReturnType<typeof projectTranscriptView> {
+    return this.projections.getProjection();
+  }
+
   peekHasRenderableText(): boolean {
     const proj = projectTranscriptView(this.projections.getState());
     return proj.rows.some(r => r.committedText.length > 0 || r.liveText.length > 0);
