@@ -36,6 +36,102 @@ export type MorsyChunkTranslationRowState = {
 
 const CLAUSE_PUNCT_RE = /[.,;:?!\u061F\u060C\u061B]/;
 
+/** Sentence-ending punct only — comma/semicolon do not release a held pending delta. */
+const SENTENCE_END_PUNCT_RE = /[.?\u061F!]\s*$/;
+
+/** Leading compound tokens — head nouns (failure, disease, mellitus) intentionally omitted. */
+const COMPOUND_MODIFIER_WORDS = new Set([
+  "heart",
+  "artery",
+  "coronary",
+  "congestive",
+  "chronic",
+  "acute",
+  "type",
+  "stage",
+  "ejection",
+  "fraction",
+]);
+
+export type StableDeltaBoundaryHoldReason =
+  | "partial_number"
+  | "incomplete_decimal"
+  | "incomplete_percentage"
+  | "compound_modifier";
+
+export type StableDeltaBoundaryContext = {
+  /** Endpoint / frozen-row tail flush — bypass all holds. */
+  forceFlush?: boolean;
+};
+
+export type StableDeltaBoundaryDecision = {
+  hold: boolean;
+  reason?: StableDeltaBoundaryHoldReason;
+};
+
+function pendingLastWord(pending: string): string {
+  const words = pending.trim().split(/\s+/);
+  return (words[words.length - 1] ?? "").replace(/[^\w'-]/g, "").toLowerCase();
+}
+
+export function pendingEndsWithSentencePunctuation(pending: string): boolean {
+  return SENTENCE_END_PUNCT_RE.test(pending.trimEnd());
+}
+
+/** Trailing 1–3 digits likely still growing (1482, 2019 finalize as 4+). */
+export function pendingEndsWithPartialNumber(pending: string): boolean {
+  const t = pending.trimEnd();
+  if (!t) return false;
+  if (/\d+\.\d+\s*$/.test(t)) return false;
+  if (/\d+\.\s*$/.test(t)) return false;
+  if (/\d{4,}\s*$/.test(t)) return false;
+  if (/\d{1,3}\s*$/.test(t)) return true;
+  return false;
+}
+
+/** e.g. "8." before "4" or "%". */
+export function pendingEndsWithIncompleteDecimal(pending: string): boolean {
+  return /\d+\.\s*$/.test(pending.trimEnd());
+}
+
+/** e.g. "8.4" before "%". */
+export function pendingEndsWithIncompletePercentage(pending: string): boolean {
+  const t = pending.trimEnd();
+  if (!t || t.endsWith("%")) return false;
+  return /\d+\.\d+\s*$/.test(t);
+}
+
+export function pendingEndsWithCompoundModifier(pending: string): boolean {
+  const w = pendingLastWord(pending);
+  return w.length > 0 && COMPOUND_MODIFIER_WORDS.has(w);
+}
+
+/**
+ * Passive boundary hold before stable dispatch — no timers; wait for next Soniox final or endpoint.
+ */
+export function shouldHoldStableDelta(
+  pending: string,
+  ctx: StableDeltaBoundaryContext = {},
+): StableDeltaBoundaryDecision {
+  if (ctx.forceFlush || !pending.trim()) return { hold: false };
+  if (pendingEndsWithSentencePunctuation(pending)) return { hold: false };
+  if (pending.trimEnd().endsWith("%")) return { hold: false };
+
+  if (pendingEndsWithIncompleteDecimal(pending)) {
+    return { hold: true, reason: "incomplete_decimal" };
+  }
+  if (pendingEndsWithIncompletePercentage(pending)) {
+    return { hold: true, reason: "incomplete_percentage" };
+  }
+  if (pendingEndsWithPartialNumber(pending)) {
+    return { hold: true, reason: "partial_number" };
+  }
+  if (pendingEndsWithCompoundModifier(pending)) {
+    return { hold: true, reason: "compound_modifier" };
+  }
+  return { hold: false };
+}
+
 export function emptyMorsyChunkTranslationRowState(): MorsyChunkTranslationRowState {
   return {
     committedSource: "",
