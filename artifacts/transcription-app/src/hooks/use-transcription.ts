@@ -100,23 +100,13 @@ import {
 import {
   appendTranslationChunk,
   advanceCommittedSource,
-  countChunkWords,
-  extractLiveTail,
   extractNewStableChunk,
-  logChunkV2Telemetry,
+  mergePreservedLiterals,
   selectPendingStableDelta,
   validateChunkV2Invariants,
   type ChunkV2TranslateTrigger,
 } from "@/hooks/morsy-urgent-chunk-translation-v2";
 import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render";
-import {
-  logChunkV2ExecuteGate,
-  logChunkV2FrozenGate,
-  logChunkV2RawModelResponse,
-  logChunkV2Request,
-  logChunkV2VisualRegression,
-  nextChunkV2RequestId,
-} from "@/hooks/morsy-chunk-v2-instrumentation";
 import { applyNfHypothesisMinimalDiff } from "@/hooks/morsy-urgent-nf-dom-stable";
 import {
   emitNfEntityTrace,
@@ -1263,7 +1253,13 @@ function majoritySourceFromFirstWords(
 type TranslationEngineHint = "libre" | "openai" | "passthrough";
 
 type PrimaryTranslationResult =
-  | { outcome: "ok"; text: string; appliedGlossaryTerms?: string[]; translationEngine?: TranslationEngineHint }
+  | {
+      outcome: "ok";
+      text: string;
+      preservedLiterals?: string[];
+      appliedGlossaryTerms?: string[];
+      translationEngine?: TranslationEngineHint;
+    }
   | { outcome: "daily_limit"; message: string }
   | { outcome: "try_fallback"; userMessage?: string };
 
@@ -1388,6 +1384,7 @@ async function translateViaPrimaryApi(
       if (r.ok) {
         const d = await r.json() as {
           translated?: string;
+          preservedLiterals?: string[];
           appliedGlossaryTerms?: string[];
           translationEngine?: TranslationEngineHint;
         };
@@ -1418,6 +1415,9 @@ async function translateViaPrimaryApi(
         return {
           outcome: "ok",
           text: d.translated?.trim() ?? "",
+          preservedLiterals: Array.isArray(d.preservedLiterals)
+            ? d.preservedLiterals.filter((x): x is string => typeof x === "string")
+            : undefined,
           appliedGlossaryTerms: Array.isArray(d.appliedGlossaryTerms) ? d.appliedGlossaryTerms : undefined,
           translationEngine: d.translationEngine,
         };
@@ -1588,6 +1588,7 @@ type FetchTranslationOptions = TranslateApiOptions & {
 
 type FetchTranslationResult = {
   text: string;
+  preservedLiterals?: string[];
   /** Public fallback translated the full segment while we were in delta mode — replace the cell, do not append. */
   replaceStreamColumn: boolean;
   dailyLimitReached?: boolean;
@@ -1675,6 +1676,7 @@ async function fetchTranslation(
     if (applied.length) options?.onGlossaryApplied?.(applied);
     return {
       text: primary.text,
+      preservedLiterals: primary.preservedLiterals,
       replaceStreamColumn: false,
       translationEngine: primary.translationEngine,
     };
@@ -2960,11 +2962,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchCanonTrialEndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonActiveRowTranslationFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2StableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
-  const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
-  const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
+  const cancelMorsyChunkV2DebouncersRef = useRef<(rowId: string) => void>(() => {});
   const executeMorsyChunkV2TranslationRef = useRef<(
     payload: CanonRowDualBufferPayload,
-    opts: { mode: "stable" | "live" | "endpoint"; firstChunk?: boolean; debounceFlush?: boolean },
+    opts: { firstChunk?: boolean; debounceFlush?: boolean },
   ) => void>(() => {});
   const chunkV2LastPaintByRowRef = useRef(new Map<string, {
     committedTranslation: string;
@@ -3010,32 +3011,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     /** Chunk V2 append-only translation buffers. */
     committedSource: string;
     committedTranslation: string;
-    liveSource: string;
-    liveTranslation: string;
+    preservedLiterals: string[];
     chunkInFlight: boolean;
     chunkAbort: AbortController | null;
-    chunkPendingStable: boolean;
-    chunkPendingLive: boolean;
-    chunkPendingEndpoint: boolean;
-    chunkPendingForceWatchdog: boolean;
-    /** Set after endpoint flush synced committedSource to stable (frozen uses pendingDelta only). */
-    chunkEndpointFinalized: boolean;
     chunkPendingPayload: CanonRowDualBufferPayload | null;
     chunkStableDebounceTimer: ReturnType<typeof setTimeout> | null;
     chunkStableMaxWaitTimer: ReturnType<typeof setTimeout> | null;
-    chunkLiveDebounceTimer: ReturnType<typeof setTimeout> | null;
-    chunkLiveMaxWaitTimer: ReturnType<typeof setTimeout> | null;
-    lastStablePreviewWordsSent: number;
-    lastStablePreviewCharsSent: number;
-    lastLivePreviewWordsSent: number;
-    lastLivePreviewCharsSent: number;
-    chunkStableEarlyHintSent: boolean;
-    chunkLiveEarlyHintSent: boolean;
-    chunkAccumStartTs: number;
-    lastCommitTs: number;
-    chunkQueueEnqueuedAt: number;
-    chunkWatchdogTimer: ReturnType<typeof setTimeout> | null;
-    chunkAccumTimeoutTimer: ReturnType<typeof setTimeout> | null;
   };
   const canonTrialRowTransRef = useRef(new Map<string, CanonTrialRowTranslationState>());
 
@@ -3073,29 +3054,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         clearTimeout(st.chunkStableMaxWaitTimer);
         st.chunkStableMaxWaitTimer = null;
       }
-      if (st.chunkLiveDebounceTimer !== null) {
-        clearTimeout(st.chunkLiveDebounceTimer);
-        st.chunkLiveDebounceTimer = null;
-      }
-      if (st.chunkLiveMaxWaitTimer !== null) {
-        clearTimeout(st.chunkLiveMaxWaitTimer);
-        st.chunkLiveMaxWaitTimer = null;
-      }
-      if (st.chunkWatchdogTimer !== null) {
-        clearTimeout(st.chunkWatchdogTimer);
-        st.chunkWatchdogTimer = null;
-      }
-      if (st.chunkAccumTimeoutTimer !== null) {
-        clearTimeout(st.chunkAccumTimeoutTimer);
-        st.chunkAccumTimeoutTimer = null;
-      }
       st.chunkAbort?.abort();
       st.chunkAbort = null;
       st.chunkInFlight = false;
-      st.chunkPendingStable = false;
-      st.chunkPendingLive = false;
-      st.chunkPendingEndpoint = false;
-      st.chunkPendingForceWatchdog = false;
       st.chunkPendingPayload = null;
     }
     canonTrialRowTransRef.current.clear();
@@ -3123,31 +3084,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         lockedTranslationPrefix: "",
         committedSource: "",
         committedTranslation: "",
-        liveSource: "",
-        liveTranslation: "",
+        preservedLiterals: [],
         chunkInFlight: false,
         chunkAbort: null,
-        chunkPendingStable: false,
-        chunkPendingLive: false,
-        chunkPendingEndpoint: false,
-        chunkPendingForceWatchdog: false,
-        chunkEndpointFinalized: false,
         chunkPendingPayload: null,
         chunkStableDebounceTimer: null,
         chunkStableMaxWaitTimer: null,
-        chunkLiveDebounceTimer: null,
-        chunkLiveMaxWaitTimer: null,
-        lastStablePreviewWordsSent: 0,
-        lastStablePreviewCharsSent: 0,
-        lastLivePreviewWordsSent: 0,
-        lastLivePreviewCharsSent: 0,
-        chunkStableEarlyHintSent: false,
-        chunkLiveEarlyHintSent: false,
-        chunkAccumStartTs: 0,
-        lastCommitTs: 0,
-        chunkQueueEnqueuedAt: 0,
-        chunkWatchdogTimer: null,
-        chunkAccumTimeoutTimer: null,
       };
       canonTrialRowTransRef.current.set(rowId, st);
     }
@@ -3241,8 +3183,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const paintMorsyChunkV2Row = useCallback((
     rowId: string,
     committedTranslation: string,
-    liveTranslation: string,
-    paintSource = "paintMorsyChunkV2Row",
     opts?: { allowWhenLocked?: boolean },
   ) => {
     const trialSt = getCanonTrialRowTransState(rowId);
@@ -3250,34 +3190,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const eng = canonWsIsolationEngineRef.current;
     if (!eng) return;
     const committed = committedTranslation.trim();
-    const live = liveTranslation.trim();
     const current = eng.getRowTranslation(rowId).trim();
-    const composed = committed && live ? `${committed} ${live}` : committed || live;
-    if (!composed.length && current.length) return;
-    if (composed === current) return;
+    if (!committed.length && current.length) return;
+    if (committed === current) return;
 
     const prevPaint = chunkV2LastPaintByRowRef.current.get(rowId);
     const prevCommitted = (prevPaint?.committedTranslation ?? trialSt.committedTranslation).trim();
     if (committed.length < prevCommitted.length) return;
-    // Never shorten visible translation unless committed grew (append-only paint).
-    if (composed.length < current.length && committed.length <= prevCommitted.length) return;
-
-    logChunkV2VisualRegression({
-      rowId,
-      source: paintSource,
-      previousCommittedTranslation: prevPaint?.committedTranslation ?? trialSt.committedTranslation,
-      nextCommittedTranslation: committed,
-      nextLiveTranslation: live,
-      previousRenderedTranslation: prevPaint?.renderedTranslation ?? current,
-      nextRenderedTranslation: composed,
-    });
+    if (committed.length < current.length && committed.length <= prevCommitted.length) return;
 
     const rtlBidiPaint =
-      morsyUsesChunkTranslationV2Experiment() && shouldMorsyChunkV2BidiPaint(composed);
-    eng.setRowTranslationPrefixLive(rowId, committed, live, { rtlBidiPaint });
+      morsyUsesChunkTranslationV2Experiment() && shouldMorsyChunkV2BidiPaint(committed);
+    eng.setRowTranslationPrefixLive(rowId, committed, "", {
+      rtlBidiPaint,
+      preservedLiterals: trialSt.preservedLiterals,
+    });
     chunkV2LastPaintByRowRef.current.set(rowId, {
       committedTranslation: committed,
-      renderedTranslation: composed,
+      renderedTranslation: committed,
     });
   }, [getCanonTrialRowTransState]);
 
@@ -3316,29 +3246,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       clearTimeout(trialSt.chunkStableMaxWaitTimer);
       trialSt.chunkStableMaxWaitTimer = null;
     }
-    if (trialSt.chunkLiveDebounceTimer !== null) {
-      clearTimeout(trialSt.chunkLiveDebounceTimer);
-      trialSt.chunkLiveDebounceTimer = null;
-    }
-    if (trialSt.chunkLiveMaxWaitTimer !== null) {
-      clearTimeout(trialSt.chunkLiveMaxWaitTimer);
-      trialSt.chunkLiveMaxWaitTimer = null;
-    }
-    if (trialSt.chunkWatchdogTimer !== null) {
-      clearTimeout(trialSt.chunkWatchdogTimer);
-      trialSt.chunkWatchdogTimer = null;
-    }
-    if (trialSt.chunkAccumTimeoutTimer !== null) {
-      clearTimeout(trialSt.chunkAccumTimeoutTimer);
-      trialSt.chunkAccumTimeoutTimer = null;
-    }
     trialSt.chunkAbort?.abort();
     trialSt.chunkAbort = null;
     trialSt.chunkInFlight = false;
-    trialSt.chunkPendingStable = false;
-    trialSt.chunkPendingLive = false;
-    trialSt.chunkPendingEndpoint = false;
-    trialSt.chunkPendingForceWatchdog = false;
     trialSt.chunkPendingPayload = null;
   }, [getCanonRowTransState, getCanonTrialRowTransState]);
 
@@ -3379,10 +3289,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             isBasicMorsyUrgentPlan(planTypeRef.current) &&
             experimentMorsyUrgentChunkTranslationV2Ref.current
           ) {
-            dispatchMorsyChunkV2LivePreviewRef.current(payload);
-          } else {
-            dispatchCanonTrialLiveGrowRef.current(payload);
+            // Chunk V2: append-only on stable finals — no volatile live preview.
+            return;
           }
+          dispatchCanonTrialLiveGrowRef.current(payload);
         }
       },
       onActiveRowTranslationFlush: (payload) => {
@@ -3391,10 +3301,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             isBasicMorsyUrgentPlan(planTypeRef.current) &&
             experimentMorsyUrgentChunkTranslationV2Ref.current
           ) {
-            dispatchMorsyChunkV2EndpointFlushRef.current(payload);
-          } else {
-            dispatchCanonTrialEndpointFlushRef.current(payload);
+            cancelMorsyChunkV2DebouncersRef.current(payload.utterance.utterance_id);
+            return;
           }
+          dispatchCanonTrialEndpointFlushRef.current(payload);
         }
       },
       onRowFrozen: (payload) => {
@@ -5395,18 +5305,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const pendingDelta = chunkV2
       ? extractNewStableChunk(sourceNorm, trialSt.committedSource).trim()
       : "";
-    logChunkV2FrozenGate({
-      rowId,
-      stableLength: sourceNorm.length,
-      committedSourceLength: trialSt.committedSource.length,
-      pendingDeltaLength: pendingDelta.length,
-      lastFinalSourceLength: lastFinalSource.length,
-      sourceNormLength: sourceNorm.length,
-      existingTranslationLength: existing.length,
-      legacyEarlyReturnMatch: lastFinalSource === sourceNorm,
-      pendingDelta,
-      chunkV2,
-    });
     const skipFrozenTranslation = chunkV2
       ? pendingDelta.length === 0 && existing.length >= 3
       : lastFinalSource === sourceNorm && existing.length >= 3;
@@ -5437,18 +5335,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const prevCommittedSource = trialSt.committedSource;
       const prevCommittedTranslation = trialSt.committedTranslation;
       if (delta.length > 0) {
-        const fetchStartedAt = Date.now();
-        const requestId = nextChunkV2RequestId();
-        logChunkV2Request({
-          requestId,
-          rowId,
-          trigger: "endpoint",
-          mode: "endpoint",
-          sourceText: delta,
-          stableText: sourceNorm,
-          committedSource: trialSt.committedSource,
-          pendingDelta: delta,
-        });
         const tr = await fetchTranslation(
           delta,
           sourceLang,
@@ -5469,25 +5355,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           return;
         }
         const translated = tr.text.trim();
-        logChunkV2RawModelResponse({
-          requestId,
-          rowId,
-          trigger: "endpoint",
-          sourceText: delta,
-          rawResponse: tr.text,
-          mode: "endpoint",
-        });
-        logChunkV2Telemetry({
-          trigger: "endpoint",
-          sourceChars: delta.length,
-          sourceWords: countChunkWords(delta),
-          translatedChars: translated.length,
-          requestLatencyMs: Date.now() - fetchStartedAt,
-          queueWaitMs: 0,
-          rowId,
-        });
         if (translated.length > 0) {
           composed = appendTranslationChunk(composed, translated);
+        }
+        if (tr.preservedLiterals?.length) {
+          trialSt.preservedLiterals = mergePreservedLiterals(
+            trialSt.preservedLiterals,
+            tr.preservedLiterals,
+          );
         }
       }
       trialSt.committedSource = sourceNorm;
@@ -5501,9 +5376,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         prevCommittedTranslation,
       });
       if (composed.length > 0) {
-        trialSt.liveSource = "";
-        trialSt.liveTranslation = "";
-        paintMorsyChunkV2Row(rowId, composed, "", "frozenFinal", { allowWhenLocked: true });
+        paintMorsyChunkV2Row(rowId, composed, { allowWhenLocked: true });
         st.lastFinalSource = sourceNorm;
         st.lastStableDispatched = sourceNorm;
         st.lastVolatileDispatched = sourceNorm;
@@ -6002,48 +5875,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const executeMorsyChunkV2Translation = useCallback(async (
     payload: CanonRowDualBufferPayload,
     opts: {
-      mode: "stable" | "live" | "endpoint";
       firstChunk?: boolean;
       debounceFlush?: boolean;
     },
   ) => {
     if (!translationEnabledRef.current) return;
     if (!canonWsIsolationGateNow()) return;
-    if (!isRecRef.current && opts.mode !== "endpoint") return;
+    if (!isRecRef.current) return;
 
     const rowId = payload.utterance.utterance_id;
     const rowState = getCanonTrialRowTransState(rowId);
     const firstChunk = opts.firstChunk === true;
     const debounceFlush = opts.debounceFlush === true;
-    if (rowState.locked && opts.mode !== "endpoint") {
-      logChunkV2ExecuteGate({
-        rowId,
-        mode: opts.mode,
-        rejected: true,
-        reason: "row_locked",
-        locked: true,
-      });
-      return;
-    }
+    if (rowState.locked) return;
 
     rowState.chunkPendingPayload = payload;
-    if (opts.mode === "stable") rowState.chunkPendingStable = true;
-    if (opts.mode === "live") rowState.chunkPendingLive = true;
-    if (opts.mode === "endpoint") rowState.chunkPendingEndpoint = true;
     if (rowState.chunkInFlight) {
-      logChunkV2ExecuteGate({
-        rowId,
-        mode: opts.mode,
-        rejected: true,
-        reason: "chunkInFlight",
-        chunkInFlight: true,
-        locked: rowState.locked,
-      });
-      if (
-        !rowState.locked &&
-        opts.mode === "stable" &&
-        (debounceFlush || firstChunk)
-      ) {
+      if (debounceFlush || firstChunk) {
         const retryPayload = rowState.chunkPendingPayload ?? payload;
         setTimeout(() => {
           void executeMorsyChunkV2TranslationRef.current(retryPayload, opts);
@@ -6052,163 +5900,89 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    if (rowState.chunkQueueEnqueuedAt === 0) {
-      rowState.chunkQueueEnqueuedAt = Date.now();
-    }
     rowState.chunkInFlight = true;
     const pair = langPairRef.current;
     const eng = canonWsIsolationEngineRef.current;
-    const queueWaitMs = Date.now() - rowState.chunkQueueEnqueuedAt;
 
-    const commitStableChunk = async (
-      pendingPayload: CanonRowDualBufferPayload,
-      selection: { chunk: string; trigger: ChunkV2TranslateTrigger },
-      stableText: string,
-      endpointFinal: boolean,
-    ): Promise<boolean> => {
+    try {
+      const pendingPayload = rowState.chunkPendingPayload ?? payload;
+      rowState.lastPendingLang = pendingPayload.utterance.language;
+      const snap = eng?.getRowDualBuffer(rowId);
+      const stableText = (snap?.stableText ?? pendingPayload.stableText).trim();
+      const pending = extractNewStableChunk(stableText, rowState.committedSource).trim();
+      if (!pending.length) return;
+
+      const selection =
+        selectPendingStableDelta({
+          pending,
+          committedSource: rowState.committedSource,
+          firstChunk,
+          debounceFlush,
+        }) ??
+        (debounceFlush || firstChunk
+          ? { chunk: pending, trigger: (firstChunk ? "first_chunk" : "debounce") as ChunkV2TranslateTrigger }
+          : null);
+      if (!selection) return;
+
       const sourceToTranslate = selection.chunk;
-      if (!sourceToTranslate.trim()) return false;
-
       rowState.chunkAbort?.abort();
       const ac = new AbortController();
       rowState.chunkAbort = ac;
       const sonioxHint = rowState.lastPendingLang ?? pendingPayload.utterance.language ?? detectedLangRef.current;
       const sourceLang = resolveSourceLangForCanon(sourceToTranslate, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
-      const fetchStartedAt = Date.now();
-      const requestId = nextChunkV2RequestId();
-      const pendingDelta = extractNewStableChunk(stableText, rowState.committedSource);
-      logChunkV2Request({
-        requestId,
-        rowId,
-        trigger: selection.trigger,
-        mode: opts.mode,
-        sourceText: sourceToTranslate,
+
+      const tr = await fetchTranslation(
+        sourceToTranslate,
+        sourceLang,
+        targetLang,
+        (m) => translationConfigReporterRef.current(m),
+        {
+          isFinal: false,
+          signal: ac.signal,
+          onGlossaryApplied: t => glossaryNotifyRef.current(t),
+          ...(sessionIdRef.current != null && sessionIdRef.current > 0
+            ? { sessionId: sessionIdRef.current }
+            : {}),
+          experimentalMorsyUrgentChunkTranslationV2: true,
+        },
+      );
+      if (rowState.locked) return;
+      if (tr.dailyLimitReached) {
+        dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
+        return;
+      }
+      const next = tr.text.trim();
+      if (!next.length) return;
+
+      const prevCommittedSource = rowState.committedSource;
+      const prevCommittedTranslation = rowState.committedTranslation;
+      rowState.committedTranslation = appendTranslationChunk(rowState.committedTranslation, next);
+      rowState.committedSource = advanceCommittedSource(
+        rowState.committedSource,
         stableText,
+        sourceToTranslate,
+      );
+      if (tr.preservedLiterals?.length) {
+        rowState.preservedLiterals = mergePreservedLiterals(
+          rowState.preservedLiterals,
+          tr.preservedLiterals,
+        );
+      }
+      validateChunkV2Invariants({
+        rowId,
         committedSource: rowState.committedSource,
-        pendingDelta,
+        committedTranslation: rowState.committedTranslation,
+        stableText,
+        prevCommittedSource,
+        prevCommittedTranslation,
       });
-
-      try {
-        const tr = await fetchTranslation(
-          sourceToTranslate,
-          sourceLang,
-          targetLang,
-          (m) => translationConfigReporterRef.current(m),
-          {
-            isFinal: endpointFinal,
-            signal: ac.signal,
-            onGlossaryApplied: t => glossaryNotifyRef.current(t),
-            ...(sessionIdRef.current != null && sessionIdRef.current > 0
-              ? { sessionId: sessionIdRef.current }
-              : {}),
-            experimentalMorsyUrgentChunkTranslationV2: true,
-          },
-        );
-        if (rowState.locked && opts.mode !== "endpoint") return false;
-        if (tr.dailyLimitReached) {
-          dailyLimitShutdownRef.current(tr.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
-          return false;
-        }
-        const next = tr.text.trim();
-        logChunkV2RawModelResponse({
-          requestId,
-          rowId,
-          trigger: selection.trigger,
-          sourceText: sourceToTranslate,
-          rawResponse: tr.text,
-          mode: opts.mode,
-        });
-        const requestLatencyMs = Date.now() - fetchStartedAt;
-        logChunkV2Telemetry({
-          trigger: selection.trigger,
-          sourceChars: sourceToTranslate.length,
-          sourceWords: countChunkWords(sourceToTranslate),
-          translatedChars: next.length,
-          requestLatencyMs,
-          queueWaitMs,
-          rowId,
-        });
-        if (!next.length) return false;
-
-        const prevCommittedSource = rowState.committedSource;
-        const prevCommittedTranslation = rowState.committedTranslation;
-        rowState.committedTranslation = appendTranslationChunk(
-          rowState.committedTranslation,
-          next,
-        );
-        rowState.committedSource = advanceCommittedSource(
-          rowState.committedSource,
-          stableText,
-          sourceToTranslate,
-        );
-        validateChunkV2Invariants({
-          rowId,
-          committedSource: rowState.committedSource,
-          committedTranslation: rowState.committedTranslation,
-          stableText,
-          prevCommittedSource,
-          prevCommittedTranslation,
-        });
-        rowState.lastCommitTs = Date.now();
-        rowState.liveSource = "";
-        rowState.liveTranslation = "";
-        paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "", "commitStableChunk");
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    try {
-      rowState.chunkPendingStable = false;
-      rowState.chunkPendingLive = false;
-      rowState.chunkPendingEndpoint = false;
-
-      const pendingPayload = rowState.chunkPendingPayload ?? payload;
-      rowState.lastPendingLang = pendingPayload.utterance.language;
-      const snap = eng?.getRowDualBuffer(rowId);
-      const stableText = (snap?.stableText ?? pendingPayload.stableText).trim();
-      const pending = extractNewStableChunk(stableText, rowState.committedSource).trim();
-
-      if (opts.mode === "endpoint") {
-        if (pending.length > 0) {
-          await commitStableChunk(
-            snap ?? pendingPayload,
-            { chunk: pending, trigger: "endpoint" },
-            stableText,
-            true,
-          );
-        }
-        rowState.committedSource = stableText;
-        rowState.lastFinalSource = stableText;
-        rowState.lastDispatchedSource = stableText;
-        rowState.chunkEndpointFinalized = true;
-        paintMorsyChunkV2Row(rowId, rowState.committedTranslation, "", "endpointFinal");
-      } else if (opts.mode === "stable" && pending.length > 0) {
-        const selection =
-          selectPendingStableDelta({
-            pending,
-            committedSource: rowState.committedSource,
-            firstChunk,
-            debounceFlush,
-          }) ??
-          (debounceFlush || firstChunk
-            ? { chunk: pending, trigger: (firstChunk ? "first_chunk" : "debounce") as ChunkV2TranslateTrigger }
-            : null);
-        if (selection) {
-          await commitStableChunk(
-            snap ?? pendingPayload,
-            selection,
-            stableText,
-            false,
-          );
-        }
-      }
+      paintMorsyChunkV2Row(rowId, rowState.committedTranslation);
+    } catch {
+      /* abort / network — keep prior committed translation */
     } finally {
       rowState.chunkInFlight = false;
       rowState.chunkAbort = null;
-      rowState.chunkQueueEnqueuedAt = 0;
     }
   }, [getCanonTrialRowTransState, paintMorsyChunkV2Row]);
 
@@ -6238,7 +6012,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     // Fast start — mirror clean MT: first stable finals translate immediately.
     if (!st.committedSource.trim()) {
-      void executeMorsyChunkV2Translation(snap ?? payload, { mode: "stable", firstChunk: true });
+      void executeMorsyChunkV2Translation(snap ?? payload, { firstChunk: true });
       return;
     }
 
@@ -6247,10 +6021,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const freshSnap = eng?.getRowDualBuffer(rowId);
       const freshStable = (freshSnap?.stableText ?? stable).trim();
       if (!extractNewStableChunk(freshStable, st.committedSource).trim()) return;
-      void executeMorsyChunkV2TranslationRef.current(freshSnap ?? payload, {
-        mode: "stable",
-        debounceFlush: true,
-      });
+      void executeMorsyChunkV2TranslationRef.current(freshSnap ?? payload, { debounceFlush: true });
     };
 
     if (st.chunkStableDebounceTimer !== null) clearTimeout(st.chunkStableDebounceTimer);
@@ -6274,20 +6045,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }, CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS);
   }, [executeMorsyChunkV2Translation, getCanonTrialRowTransState]);
 
-  const dispatchMorsyChunkV2LivePreview = useCallback((_payload: CanonRowDualBufferPayload) => {
-    // Chunk V2 is append-only on Soniox stable finals. NF live preview painted uncommitted
-    // translation into the visible column, then livePreview_clear / commitStableChunk cleared
-    // it — causing collapse to an earlier committed prefix (Bug 1).
-  }, []);
-
-  const dispatchMorsyChunkV2EndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {
-    const rowId = payload.utterance.utterance_id;
-    setTimeout(() => {
-      const eng = canonWsIsolationEngineRef.current;
-      const snap = eng?.getRowDualBuffer(rowId);
-      void executeMorsyChunkV2TranslationRef.current(snap ?? payload, { mode: "endpoint" });
-    }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
-  }, []);
+  const cancelMorsyChunkV2Debouncers = useCallback((rowId: string) => {
+    const st = getCanonTrialRowTransState(rowId);
+    if (st.chunkStableDebounceTimer !== null) {
+      clearTimeout(st.chunkStableDebounceTimer);
+      st.chunkStableDebounceTimer = null;
+    }
+    if (st.chunkStableMaxWaitTimer !== null) {
+      clearTimeout(st.chunkStableMaxWaitTimer);
+      st.chunkStableMaxWaitTimer = null;
+    }
+  }, [getCanonTrialRowTransState]);
 
   const dispatchCanonTrialLiveGrow = useCallback((payload: CanonRowDualBufferPayload) => {
     if (!translationEnabledRef.current) return;
@@ -6410,16 +6178,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, [dispatchMorsyChunkV2StableGrow]);
 
   useEffect(() => {
-    dispatchMorsyChunkV2LivePreviewRef.current = (payload) => {
-      dispatchMorsyChunkV2LivePreview(payload);
+    cancelMorsyChunkV2DebouncersRef.current = (rowId) => {
+      cancelMorsyChunkV2Debouncers(rowId);
     };
-  }, [dispatchMorsyChunkV2LivePreview]);
-
-  useEffect(() => {
-    dispatchMorsyChunkV2EndpointFlushRef.current = (payload) => {
-      dispatchMorsyChunkV2EndpointFlush(payload);
-    };
-  }, [dispatchMorsyChunkV2EndpointFlush]);
+  }, [cancelMorsyChunkV2Debouncers]);
 
   // ── stopTranslationInterval ────────────────────────────────────────────────
   const stopTranslationInterval = useCallback(() => {
