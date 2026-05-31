@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
+import { applyArabicStaticLeakReplacements } from "./en-to-arabic-script-clinical-leaks.js";
 import {
   INTERPRETER_GLOSSARY_LANG_CODES,
   type InterpreterGlossaryLangCode,
@@ -325,7 +326,11 @@ export function pickTranslationForLang(
     const t = entry.translations[base];
     if (t) return t;
   }
-  return entry.translations.en;
+  const en = entry.translations.en;
+  if ((full === "ar" || base === "ar") && en) {
+    return applyArabicStaticLeakReplacements(en);
+  }
+  return en;
 }
 
 /**
