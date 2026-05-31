@@ -8,6 +8,7 @@ import {
 } from "../lib/hetzner-mt-db-routing.js";
 import { HetznerTrialRoutingBlockedError } from "../lib/hetzner-slot-allocator.js";
 import { repairEnglishDomainLeaksInTranslation } from "../lib/english-domain-leak-repair.js";
+import { diagnoseEnglishLeakageInTranslation } from "../lib/morsy-urgent-launch-translation-diag.js";
 import { fetchGlobalTermMemoryHints } from "../lib/global-interpreter-term-memory.js";
 import { db, usersTable, sessionsTable, glossaryEntriesTable, referralsTable, type User } from "@workspace/db";
 import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
@@ -2687,6 +2688,28 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     diagCounter.translationSegments += 1;
     diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outAi });
+    if (planLower === "morsy-urgent") {
+      const leakDiag = diagnoseEnglishLeakageInTranslation(outAi, srcCode, tgtCode);
+      logger.info(
+        {
+          msg: "morsy_urgent_translation_diag",
+          embeddedEnglishBlockInjected: liveEmbeddedEnglishSupplement.length > 0,
+          experimentalMorsyIntercallEmbeddedEnglishPrompt,
+          isFinalSegment,
+          srcLang,
+          tgtLang,
+          systemPromptChars: systemPrompt.length,
+          systemPrompt,
+          sourceChars: text.length,
+          translatedLength: outAi.length,
+          latinLeakCount: leakDiag.latinTokenCount,
+          latinLeakTokens: leakDiag.latinTokens,
+          phraseLeakHitCount: leakDiag.phraseLeakHitCount,
+          phraseLeakHits: leakDiag.phraseLeakHits,
+        },
+        "Morsy Urgent translation quality diag",
+      );
+    }
     logger.info(
       {
         ts: diagNowIso(),

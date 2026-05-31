@@ -291,11 +291,18 @@ export default function WorkspaceDefault() {
   const isLegacy2Workspace = pt === "legacy2";
   const isMorsyChunkV2Workspace = isMorsyUrgentWorkspace;
   const [morsyCleanTranslationExperiment, setMorsyCleanTranslationExperiment] = useState(
-    () => readMorsyBasicCleanTranslationExperiment(),
+    () => (isMorsyUrgentWorkspace ? false : readMorsyBasicCleanTranslationExperiment()),
   );
   const [morsyChunkTranslationV2Experiment, setMorsyChunkTranslationV2Experiment] = useState(
-    () => readMorsyChunkTranslationV2Experiment(),
+    () => (isMorsyUrgentWorkspace ? false : readMorsyChunkTranslationV2Experiment()),
   );
+  useEffect(() => {
+    if (!isMorsyUrgentWorkspace) return;
+    writeMorsyBasicCleanTranslationExperiment(false);
+    writeMorsyChunkTranslationV2Experiment(false);
+    setMorsyCleanTranslationExperiment(false);
+    setMorsyChunkTranslationV2Experiment(false);
+  }, [isMorsyUrgentWorkspace]);
   useEffect(() => {
     writeMorsyBasicCleanTranslationExperiment(morsyCleanTranslationExperiment);
   }, [morsyCleanTranslationExperiment]);
@@ -341,10 +348,9 @@ export default function WorkspaceDefault() {
     morsyUrgentTranscriptSegmentGuards: Boolean(user) && usesCanonAppendWsStt,
     experimentMorsyUrgentIntercallOrchestration: false,
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
-    experimentMorsyBasicCleanTranslation:
-      pt === "morsy-urgent" && morsyCleanTranslationExperiment && !morsyChunkTranslationV2Experiment,
-    experimentMorsyUrgentChunkTranslationV2:
-      isMorsyUrgentWorkspace && morsyChunkTranslationV2Experiment,
+    experimentMorsyIntercallEmbeddedEnglishPrompt: isMorsyUrgentWorkspace,
+    experimentMorsyBasicCleanTranslation: false,
+    experimentMorsyUrgentChunkTranslationV2: false,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -2371,59 +2377,33 @@ export default function WorkspaceDefault() {
               {isMorsyChunkV2Workspace && (
                 <button
                   type="button"
-                  disabled={transcription.isRecording}
-                  onClick={() => {
-                    setMorsyChunkTranslationV2Experiment(v => {
-                      const next = !v;
-                      if (next) setMorsyCleanTranslationExperiment(false);
-                      return next;
-                    });
-                  }}
+                  disabled
                   className={cn(
-                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
-                    morsyChunkTranslationV2Experiment
-                      ? wsDark
-                        ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
-                        : "border-sky-600/40 bg-sky-50 text-sky-800"
-                      : wsDark
-                        ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
-                        : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors opacity-50 cursor-not-allowed",
+                    wsDark
+                      ? "border-white/10 bg-card/90 text-muted-foreground"
+                      : "border-border bg-white text-muted-foreground",
                   )}
-                  title="Append-only chunk translation: translate new Soniox finals only, never retranslate committed text"
+                  title="Chunk V2 off for launch (Intercall canon path)"
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">
-                    {morsyChunkTranslationV2Experiment ? "Chunk V2 on" : "Chunk V2"}
-                  </span>
+                  <span className="hidden sm:inline">Chunk V2 off</span>
                 </button>
               )}
               {isMorsyUrgentWorkspace && (
                 <button
                   type="button"
-                  disabled={transcription.isRecording}
-                  onClick={() => {
-                    setMorsyCleanTranslationExperiment(v => {
-                      const next = !v;
-                      if (next) setMorsyChunkTranslationV2Experiment(false);
-                      return next;
-                    });
-                  }}
+                  disabled
                   className={cn(
-                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
-                    morsyCleanTranslationExperiment
-                      ? wsDark
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                        : "border-emerald-600/40 bg-emerald-50 text-emerald-800"
-                      : wsDark
-                        ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
-                        : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors opacity-50 cursor-not-allowed",
+                    wsDark
+                      ? "border-white/10 bg-card/90 text-muted-foreground"
+                      : "border-border bg-white text-muted-foreground",
                   )}
-                  title="Compare production Morsy translation vs minimal clean OpenAI experiment"
+                  title="Clean MT off for launch (Final Boss 3 OpenAI path)"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">
-                    {morsyCleanTranslationExperiment ? "Clean MT on" : "Clean MT"}
-                  </span>
+                  <span className="hidden sm:inline">Clean MT off</span>
                 </button>
               )}
             </div>
