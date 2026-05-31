@@ -1828,7 +1828,8 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   // ── Basic · Morsy Urgent — chunk append translation V2 (highest priority experiment) ──
   const morsyChunkV2Applies =
-    experimentalMorsyUrgentChunkTranslationV2 && planLower === "morsy-urgent";
+    experimentalMorsyUrgentChunkTranslationV2 &&
+    (planLower === "morsy-urgent" || planLower === "legacy2");
   if (morsyChunkV2Applies) {
     if (!isOpenAiConfigured()) {
       res.status(503).json({

@@ -212,7 +212,7 @@ export function translationEnabledForUser(user: User): boolean {
   const eff = effectivePlanTypeForTranslation(user);
   // Basic · Morsy Urgent: paid SKU historically hid UI translation; interpreter uses OpenAI (not Hetzner) per engine routing.
   if (eff === "morsy-urgent") return true;
-  if (eff === "legacy2") return false;
+  if (eff === "legacy2") return true;
   if (isPaidTranslationPlan(eff)) return true;
   if (isTrialLikePlanType(user.planType)) return !isTrialExpired(user);
   return false;

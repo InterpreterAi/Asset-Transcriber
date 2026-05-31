@@ -2514,6 +2514,12 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
+/** Basic · Morsy Urgent + Legacy2 — append-only Chunk V2 translation experiment. */
+function planUsesMorsyChunkV2TranslationPlan(planTypeLower: string): boolean {
+  const p = planTypeLower.trim().toLowerCase();
+  return p === "morsy-urgent" || p === "legacy2";
+}
+
 /** Canon-append-ws plans share the fast live bridge (52ms debounce + single-flight queue). Morsy keeps its own direction + server SKU. */
 function planUsesLegacyCanonTranslationBridge(planTypeLower: string): boolean {
   return planUsesCanonAppendWsStt(planTypeLower);
@@ -2907,7 +2913,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   function morsyUsesChunkTranslationV2Experiment(): boolean {
     return (
-      isBasicMorsyUrgentPlan(planTypeRef.current) &&
+      planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
       experimentMorsyUrgentChunkTranslationV2Ref.current
     );
   }
@@ -3364,7 +3370,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onActiveRowStableGrow: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           if (
-            isBasicMorsyUrgentPlan(planTypeRef.current) &&
+            planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
             experimentMorsyUrgentChunkTranslationV2Ref.current
           ) {
             dispatchMorsyChunkV2StableGrowRef.current(payload);
@@ -3376,7 +3382,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onActiveRowVolatilePulse: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           if (
-            isBasicMorsyUrgentPlan(planTypeRef.current) &&
+            planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
             experimentMorsyUrgentChunkTranslationV2Ref.current
           ) {
             dispatchMorsyChunkV2LivePreviewRef.current(payload);
@@ -3388,7 +3394,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       onActiveRowTranslationFlush: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
           if (
-            isBasicMorsyUrgentPlan(planTypeRef.current) &&
+            planUsesMorsyChunkV2TranslationPlan(planTypeRef.current) &&
             experimentMorsyUrgentChunkTranslationV2Ref.current
           ) {
             dispatchMorsyChunkV2EndpointFlushRef.current(payload);
@@ -5824,7 +5830,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const eng = canonWsIsolationEngineRef.current;
 
     const morsyUrgentCanonFetchOpts = () => {
-      if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return {};
+      if (!planUsesMorsyChunkV2TranslationPlan(planTypeRef.current)) return {};
       if (morsyUsesChunkTranslationV2Experiment()) {
         return { experimentalMorsyUrgentChunkTranslationV2: true as const };
       }
