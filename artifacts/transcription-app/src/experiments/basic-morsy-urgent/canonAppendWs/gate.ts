@@ -16,8 +16,6 @@ export const CANON_APPEND_WS_STT_PLAN_TYPES = [
   "basic-libre",
   "professional-libre",
   "platinum-libre",
-  /** Legacy2 experiment: same canonAppendWs + Chunk V2 translation as Basic · Morsy Urgent. */
-  "legacy2",
   /** Legacy DB plan_type values (same STT path). */
   "trial",
   "basic",
