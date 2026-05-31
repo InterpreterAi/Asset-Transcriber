@@ -1282,7 +1282,60 @@ function morsyCanonThirdLanguagePassthrough(
 
 type FetchTranslationOpts = Parameters<typeof fetchTranslation>[4];
 
-/** Fetch with empty retry, flip-direction retry, and opposite-language contract checks (Morsy canon). */
+/**
+ * Frozen-row acceptance — Chunk V2 parity: paint any non-empty API result unless a long
+ * segment is clearly an untranslated echo (short numerals / "Yeah." may match source).
+ */
+function morsyCanonFrozenTranslationAcceptable(
+  source: string,
+  translated: string,
+  _targetLang: string,
+): boolean {
+  const tr = translated.trim();
+  if (!tr) return false;
+  const s = source.trim();
+  if (s.length >= 16 && looksLikeUntranslatedCopy(s, tr)) return false;
+  return true;
+}
+
+/** Serial frozen fetches with retries — matches Chunk V2 reliability under fast dialogue. */
+async function fetchMorsyCanonFrozenRowTranslation(
+  sourceText: string,
+  sourceLang: string,
+  targetLang: string,
+  reportConfig: (m: string) => void,
+  fetchOpts: FetchTranslationOpts,
+): Promise<Awaited<ReturnType<typeof fetchTranslation>>> {
+  const sourceNorm = sourceText.trim();
+  let lastResult: Awaited<ReturnType<typeof fetchTranslation>> = {
+    text: "",
+    replaceStreamColumn: false,
+  };
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise<void>(res => setTimeout(res, 350 * attempt));
+    const tr = await fetchTranslation(sourceNorm, sourceLang, targetLang, reportConfig, fetchOpts);
+    lastResult = tr;
+    if (tr.dailyLimitReached) return tr;
+    const text = tr.text.trim();
+    if (text && morsyCanonFrozenTranslationAcceptable(sourceNorm, text, targetLang)) {
+      return tr;
+    }
+    if (text) {
+      const trFlip = await fetchTranslation(sourceNorm, targetLang, sourceLang, reportConfig, fetchOpts);
+      lastResult = trFlip;
+      if (trFlip.dailyLimitReached) return trFlip;
+      const flipText = trFlip.text.trim();
+      if (flipText && morsyCanonFrozenTranslationAcceptable(sourceNorm, flipText, targetLang)) {
+        return trFlip;
+      }
+    }
+  }
+
+  return lastResult;
+}
+
+/** Live interim fetches — strict opposite-language contract (final rows use {@link fetchMorsyCanonFrozenRowTranslation}). */
 async function fetchMorsyCanonOppositeTranslation(
   sourceText: string,
   sourceLang: string,
@@ -3106,6 +3159,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   /** True once a deterministic canon session mounted — snapshots read engine lines until cleared. */
   const canonWsSnapshotFromEngineRef = useRef(false);
   const canonRowTranslateSeqRef = useRef(new Map<string, number>());
+  const scanMorsyCanonBlankFrozenTranslationsRef = useRef<(() => void) | null>(null);
   const dispatchCanonFrozenRowTranslationRef = useRef<(payload: CanonFrozenRowPayload) => void>(() => {});
   const dispatchCanonStableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonVolatilePulseRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
@@ -3196,6 +3250,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const canonTrialRowTransRef = useRef(new Map<string, CanonTrialRowTranslationState>());
   /** While > 0, defer active-row live translate so frozen segments fill first. */
   const pendingFrozenTranslationsRef = useRef(0);
+  /** Serial frozen queue — Chunk V2 parity under fast back-and-forth (avoids API stampede + blank rows). */
+  type MorsyCanonFrozenQueueItem = { payload: CanonFrozenRowPayload; force: boolean };
+  const morsyCanonFrozenQueueRef = useRef<MorsyCanonFrozenQueueItem[]>([]);
+  const morsyCanonFrozenQueueDrainingRef = useRef(false);
+  const morsyCanonFrozenQueuedIdsRef = useRef(new Set<string>());
+  const morsyCanonFrozenRetryCountRef = useRef(new Map<string, number>());
+  const morsyCanonBackfillLastMsRef = useRef(0);
+  const MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES = 6;
 
   const clearCanonRowTranslationTimers = useCallback(() => {
     for (const st of canonRowTransRef.current.values()) {
@@ -3259,6 +3321,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     canonTrialRowTransRef.current.clear();
     canonRowTranslateSeqRef.current.clear();
     pendingFrozenTranslationsRef.current = 0;
+    morsyCanonFrozenQueueRef.current = [];
+    morsyCanonFrozenQueueDrainingRef.current = false;
+    morsyCanonFrozenQueuedIdsRef.current.clear();
+    morsyCanonFrozenRetryCountRef.current.clear();
+    morsyCanonBackfillLastMsRef.current = 0;
   }, []);
 
   const pauseCanonTrialLiveForFrozenPriority = useCallback((onlyRowId?: string) => {
@@ -3550,6 +3617,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const eng = canonWsIsolationEngineRef.current;
         if (!alive || !eng) return;
         setHasTranscript(eng.peekHasRenderableText());
+        scanMorsyCanonBlankFrozenTranslationsRef.current?.();
       },
       onActiveRowStableGrow: (payload) => {
         if (planUsesLegacyCanonTranslationBridge(planTypeRef.current)) {
@@ -5553,7 +5621,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     dispatchTranslationRef.current = dispatchTranslation;
   }, [dispatchTranslation]);
 
-  const dispatchCanonFrozenRowTranslation = useCallback(async (payload: CanonFrozenRowPayload) => {
+  const executeCanonFrozenRowTranslationImpl = useCallback(async (
+    payload: CanonFrozenRowPayload,
+    implOpts?: { force?: boolean },
+  ) => {
     if (!translationEnabledRef.current) return;
     if (!canonWsIsolationGateNow()) return;
 
@@ -5614,12 +5685,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const existingFailsOppositeContract =
       morsyUrgentCanon &&
       morsyCanonTranslationViolatesOppositeContract(sourceNorm, existing, targetLang);
-    const skipFrozenTranslation = chunkV2
-      ? pendingDelta.length === 0 && existing.length >= 3
-      : existing.length >= 3 &&
-        lastFinalSource === sourceNorm &&
-        !canonTranslationProbablyIncomplete(sourceNorm, existing) &&
-        !existingFailsOppositeContract;
+    const skipFrozenTranslation =
+      !implOpts?.force &&
+      (chunkV2
+        ? pendingDelta.length === 0 && existing.length >= 3
+        : morsyUrgentCanon
+          ? existing.length >= 3 &&
+            lastFinalSource === sourceNorm &&
+            !canonTranslationProbablyIncomplete(sourceNorm, existing) &&
+            !existingFailsOppositeContract
+          : existing.length >= 3 &&
+            lastFinalSource === sourceNorm &&
+            !canonTranslationProbablyIncomplete(sourceNorm, existing) &&
+            !existingFailsOppositeContract);
     if (skipFrozenTranslation) {
       onAdminSnapshotBuffersUpdatedRef.current?.();
       return;
@@ -5731,7 +5809,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     let translated = "";
     if (morsyUrgentCanon) {
-      const tr = await fetchMorsyCanonOppositeTranslation(
+      const tr = await fetchMorsyCanonFrozenRowTranslation(
         sourceNorm,
         sourceLang,
         targetLang,
@@ -5779,35 +5857,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       }
     }
 
-    if (
-      morsyUrgentCanon &&
-      !translated.length &&
-      canonRowTranslateSeqRef.current.get(rowId) === seq
-    ) {
-      await new Promise<void>(res => setTimeout(res, 400));
-      if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
-      const trRetry = await fetchMorsyCanonOppositeTranslation(
-        sourceNorm,
-        sourceLang,
-        targetLang,
-        (m) => translationConfigReporterRef.current(m),
-        {
-          isFinal: true,
-          onGlossaryApplied: t => glossaryNotifyRef.current(t),
-          ...(sessionIdRef.current != null && sessionIdRef.current > 0
-            ? { sessionId: sessionIdRef.current }
-            : {}),
-          ...basicMorsyOpenAiExperimentOpts,
-          ...morsyIntercallEmbeddedEnglishPromptOpts,
-        },
-      );
-      if (trRetry.dailyLimitReached) {
-        dailyLimitShutdownRef.current(trRetry.dailyLimitMessage ?? DAILY_LIMIT_STOP_MESSAGE);
-        return;
-      }
-      translated = trRetry.text.trim();
-    }
-
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
     if (
@@ -5841,15 +5890,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (canonRowTranslateSeqRef.current.get(rowId) !== seq) return;
 
-    if (
-      translated.length > 0 &&
-      morsyUrgentCanon &&
-      morsyCanonTranslationViolatesOppositeContract(sourceNorm, translated, targetLang)
-    ) {
-      translated = "";
-    }
+    const frozenAcceptable =
+      !morsyUrgentCanon ||
+      !translated.length ||
+      morsyCanonFrozenTranslationAcceptable(sourceNorm, translated, targetLang);
 
-    if (translated.length > 0) {
+    if (translated.length > 0 && frozenAcceptable) {
       if (isBasicMorsyUrgentPlan(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
         paintMorsyCanonFinalRowTranslation(rowId, sourceNorm, translated);
       } else {
@@ -5860,6 +5906,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       st.lastVolatileDispatched = sourceNorm;
       trialSt.lastFinalSource = sourceNorm;
       trialSt.lastDispatchedSource = sourceNorm;
+      morsyCanonFrozenRetryCountRef.current.delete(rowId);
+    } else if (
+      morsyUrgentCanon &&
+      translationEnabledRef.current &&
+      isRecRef.current
+    ) {
+      const tries = (morsyCanonFrozenRetryCountRef.current.get(rowId) ?? 0) + 1;
+      if (tries <= MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES) {
+        morsyCanonFrozenRetryCountRef.current.set(rowId, tries);
+        setTimeout(() => {
+          enqueueMorsyCanonFrozenTranslationRef.current(payload, true);
+        }, 500 + tries * 200);
+      }
     }
     onAdminSnapshotBuffersUpdatedRef.current?.();
     } finally {
@@ -5874,6 +5933,92 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     paintMorsyCanonFinalRowTranslation,
     paintMorsyChunkV2Row,
   ]);
+
+  const enqueueMorsyCanonFrozenTranslationRef = useRef<
+    (payload: CanonFrozenRowPayload, force?: boolean) => void
+  >(() => {});
+
+  const drainMorsyCanonFrozenQueue = useCallback(async () => {
+    if (morsyCanonFrozenQueueDrainingRef.current) return;
+    morsyCanonFrozenQueueDrainingRef.current = true;
+    try {
+      while (morsyCanonFrozenQueueRef.current.length > 0) {
+        const item = morsyCanonFrozenQueueRef.current.shift()!;
+        morsyCanonFrozenQueuedIdsRef.current.delete(item.payload.utterance.utterance_id);
+        await executeCanonFrozenRowTranslationImpl(item.payload, { force: item.force });
+      }
+    } finally {
+      morsyCanonFrozenQueueDrainingRef.current = false;
+    }
+  }, [executeCanonFrozenRowTranslationImpl]);
+
+  const enqueueMorsyCanonFrozenTranslation = useCallback((
+    payload: CanonFrozenRowPayload,
+    force = false,
+  ) => {
+    const rowId = payload.utterance.utterance_id;
+    const q = morsyCanonFrozenQueueRef.current;
+    const existingIdx = q.findIndex(i => i.payload.utterance.utterance_id === rowId);
+    if (existingIdx >= 0) {
+      q[existingIdx] = {
+        payload,
+        force: force || q[existingIdx]!.force,
+      };
+    } else {
+      q.push({ payload, force });
+      morsyCanonFrozenQueuedIdsRef.current.add(rowId);
+    }
+    void drainMorsyCanonFrozenQueue();
+  }, [drainMorsyCanonFrozenQueue]);
+
+  useEffect(() => {
+    enqueueMorsyCanonFrozenTranslationRef.current = enqueueMorsyCanonFrozenTranslation;
+  }, [enqueueMorsyCanonFrozenTranslation]);
+
+  const dispatchCanonFrozenRowTranslation = useCallback((payload: CanonFrozenRowPayload) => {
+    if (morsyUrgentCanonLivePathNow()) {
+      enqueueMorsyCanonFrozenTranslation(payload);
+      return;
+    }
+    void executeCanonFrozenRowTranslationImpl(payload);
+  }, [enqueueMorsyCanonFrozenTranslation, executeCanonFrozenRowTranslationImpl]);
+
+  const scanMorsyCanonBlankFrozenTranslations = useCallback(() => {
+    if (!translationEnabledRef.current || !isRecRef.current) return;
+    if (!morsyUrgentCanonLivePathNow() || !canonWsIsolationGateNow()) return;
+    const now = Date.now();
+    if (now - morsyCanonBackfillLastMsRef.current < 1200) return;
+    morsyCanonBackfillLastMsRef.current = now;
+
+    const eng = canonWsIsolationEngineRef.current;
+    if (!eng) return;
+    const proj = eng.getTranscriptProjection();
+    for (const row of proj.rows) {
+      if (!row.finalized) continue;
+      const committed = row.committedText.trim();
+      if (committed.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) continue;
+      const tr = eng.getRowTranslation(row.row_id).trim();
+      if (tr.length > 0) continue;
+      if (morsyCanonFrozenQueuedIdsRef.current.has(row.row_id)) continue;
+      const tries = morsyCanonFrozenRetryCountRef.current.get(row.row_id) ?? 0;
+      if (tries >= MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES) continue;
+      enqueueMorsyCanonFrozenTranslation(
+        {
+          utterance: {
+            utterance_id: row.row_id,
+            finalTokens: [],
+            nonFinalTokens: [],
+            speaker: row.speaker,
+            language: row.language,
+            is_final: true,
+          },
+          lineIndex: 0,
+          committedText: committed,
+        },
+        true,
+      );
+    }
+  }, [enqueueMorsyCanonFrozenTranslation]);
 
   const executeCanonDualBufferTranslation = useCallback(async (
     payload: CanonRowDualBufferPayload,
@@ -6144,7 +6289,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           ...morsyUrgentCanonFetchOpts(),
         };
         const tr = morsyCanonIntercall
-          ? await fetchMorsyCanonOppositeTranslation(
+          ? await fetchMorsyCanonFrozenRowTranslation(
               finalSource,
               sourceLang,
               targetLang,
@@ -6166,15 +6311,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (
           next.length > 0 &&
           morsyCanonIntercall &&
-          morsyCanonTranslationViolatesOppositeContract(finalSource, next, targetLang)
+          !morsyCanonFrozenTranslationAcceptable(finalSource, next, targetLang)
         ) {
           next = "";
         }
-        if (!next.length) return;
+        if (!next.length) {
+          if (morsyCanonIntercall && translationEnabledRef.current && isRecRef.current) {
+            enqueueMorsyCanonFrozenTranslationRef.current(
+              {
+                utterance: payload.utterance,
+                lineIndex: 0,
+                committedText: finalSource,
+              },
+              true,
+            );
+          }
+          return;
+        }
         const previousRenderedFinal =
           canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
         rowState.lastDispatchedSource = finalSource;
         rowState.lastFinalSource = finalSource;
+        morsyCanonFrozenRetryCountRef.current.delete(rowId);
         if (isBasicMorsyUrgentPlan(planTypeRef.current) && !morsyUsesCleanTranslationExperiment()) {
           paintMorsyCanonFinalRowTranslation(rowId, finalSource, next);
         } else {
@@ -6798,7 +6956,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         visible.length >= stableOnly.length ? visible : stableOnly;
       void executeCanonTrialRowTranslation(snap ?? payload, {
         sourceText,
-        isFinal: false,
+        isFinal: true,
       });
       return;
     }
@@ -6854,7 +7012,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (sourceText.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
       void executeCanonTrialRowTranslation(freshSnap ?? payload, {
         sourceText,
-        isFinal: false,
+        isFinal: morsyCanonLivePath,
       });
     };
 
@@ -6913,9 +7071,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   useEffect(() => {
     dispatchCanonFrozenRowTranslationRef.current = (payload) => {
-      void dispatchCanonFrozenRowTranslation(payload);
+      dispatchCanonFrozenRowTranslation(payload);
     };
   }, [dispatchCanonFrozenRowTranslation]);
+
+  useEffect(() => {
+    scanMorsyCanonBlankFrozenTranslationsRef.current = scanMorsyCanonBlankFrozenTranslations;
+  }, [scanMorsyCanonBlankFrozenTranslations]);
 
   useEffect(() => {
     dispatchCanonStableGrowRef.current = (payload) => {
