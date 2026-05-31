@@ -5,16 +5,16 @@
  */
 
 import { openai } from "./openai-client.js";
+import {
+  englishCalendarWordsPromptBlock,
+  repairEnglishCalendarWordsInCleanTranslation,
+} from "./english-calendar-i18n.js";
 
 export type MorsyCleanNumberMask = {
   masked: string;
   slotToLiteral: Map<number, string>;
   hadPlaceholders: boolean;
 };
-
-const MONTH =
-  "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|" +
-  "Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
 
 /** Preserve phones, IDs, money, dates/times, and digit runs for the clean experiment only. */
 export function applyMorsyCleanNumberProtection(text: string): MorsyCleanNumberMask {
@@ -30,7 +30,6 @@ export function applyMorsyCleanNumberProtection(text: string): MorsyCleanNumberM
     /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
     /\b(?:MRN|INV|CLM|ID|Acct|Account|Claim|Invoice|Record)[-#:\s]?[A-Z0-9][A-Z0-9-]{2,}\b/gi,
     /\$\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?|\b\d{1,3}(?:,\d{3})+\.\d{2}\b/g,
-    new RegExp(`\\b(?:${MONTH})\\.?\\s+\\d{1,2},?\\s+\\d{4}\\b`, "gi"),
     /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g,
     /\b\d{1,2}:\d{2}(?::\d{2})?\s?(?:AM|PM|am|pm)?\b/g,
     /\b\d+\b/g,
@@ -81,7 +80,11 @@ export function restoreMorsyCleanNumberProtection(
   return out;
 }
 
-export function buildMorsyBasicCleanSystemPrompt(srcName: string, tgtName: string): string {
+export function buildMorsyBasicCleanSystemPrompt(
+  srcName: string,
+  tgtName: string,
+  tgtLangBcp47 = "",
+): string {
   return (
     `You are a professional medical interpreter.\n` +
     `Translate the transcript from ${srcName} into ${tgtName}.\n` +
@@ -90,14 +93,14 @@ export function buildMorsyBasicCleanSystemPrompt(srcName: string, tgtName: strin
     `Do not omit information.\n` +
     `Do not answer the speaker.\n` +
     `Do not explain.\n` +
+    englishCalendarWordsPromptBlock(tgtName, tgtLangBcp47) +
     `Preserve only:\n` +
-    `- names\n` +
+    `- personal names and geographic place names (not calendar words)\n` +
     `- IDs\n` +
     `- phone numbers\n` +
     `- invoice numbers\n` +
     `- claim numbers\n` +
-    `- dates\n` +
-    `- times\n` +
+    `- numeric day/year/time values (digits)\n` +
     `If the transcript contains NUM_1, NUM_2, … tokens, copy each token exactly in place.\n` +
     `Return only the translation in ${tgtName}.`
   );
@@ -117,9 +120,11 @@ export async function runMorsyBasicCleanTranslation(args: {
   text: string;
   srcName: string;
   tgtName: string;
+  tgtLang?: string;
 }): Promise<MorsyBasicCleanTranslationResult> {
   const numMask = applyMorsyCleanNumberProtection(args.text);
-  const systemPrompt = buildMorsyBasicCleanSystemPrompt(args.srcName, args.tgtName);
+  const tgtLang = args.tgtLang ?? args.tgtName;
+  const systemPrompt = buildMorsyBasicCleanSystemPrompt(args.srcName, args.tgtName, tgtLang);
   const userMessage = buildMorsyBasicCleanUserMessage(numMask.masked);
 
   const controller = new AbortController();
@@ -140,8 +145,9 @@ export async function runMorsyBasicCleanTranslation(args: {
     clearTimeout(timeoutId);
     const raw = resp.choices[0]?.message?.content?.trim() ?? "";
     const restored = restoreMorsyCleanNumberProtection(raw, numMask.slotToLiteral);
+    const calendarRepaired = repairEnglishCalendarWordsInCleanTranslation(restored, tgtLang);
     return {
-      text: restored.trim(),
+      text: calendarRepaired.trim(),
       promptTokens: resp.usage?.prompt_tokens ?? 0,
       completionTokens: resp.usage?.completion_tokens ?? 0,
     };
