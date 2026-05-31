@@ -1603,6 +1603,9 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalMorsyIntercallEmbeddedEnglishPrompt: rawExperimentalMorsyIntercallEmbeddedEnglish,
     experimentalMorsyBasicCleanTranslation: rawExperimentalMorsyBasicClean,
     experimentalMorsyUrgentChunkTranslationV2: rawExperimentalMorsyChunkV2,
+    previousSourceContext: rawPreviousSourceContext,
+    previousTranslationContext: rawPreviousTranslationContext,
+    chunkV2ShadowValidation: rawChunkV2ShadowValidation,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1625,6 +1628,12 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalMorsyBasicCleanTranslation?: unknown;
     /** Basic · Morsy Urgent only: append-only chunk translation (no whole-row retranslation). */
     experimentalMorsyUrgentChunkTranslationV2?: unknown;
+    /** Chunk V2 continuation — already-committed source prefix (context only). */
+    previousSourceContext?: string;
+    /** Chunk V2 continuation — already-committed translation prefix (context only). */
+    previousTranslationContext?: string;
+    /** Chunk V2 shadow experiment — translate full stable text for offline comparison only. */
+    chunkV2ShadowValidation?: unknown;
   };
   const experimentalBasicMorsyOpenAiOnly = Boolean(rawExperimentalMorsyOpenAiOnly);
   const experimentalMorsyIntercallEmbeddedEnglishPrompt = Boolean(
@@ -1843,7 +1852,20 @@ router.post("/translate", requireAuth, async (req, res) => {
       return;
     }
     try {
-      const chunk = await runMorsyChunkV2Translation({ text, tgtName });
+      const prevSourceCtx =
+        typeof rawPreviousSourceContext === "string" ? rawPreviousSourceContext : undefined;
+      const prevTranslationCtx =
+        typeof rawPreviousTranslationContext === "string"
+          ? rawPreviousTranslationContext
+          : undefined;
+      const shadowFullStable = Boolean(rawChunkV2ShadowValidation);
+      const chunk = await runMorsyChunkV2Translation({
+        text,
+        tgtName,
+        ...(prevSourceCtx?.trim() ? { previousSourceContext: prevSourceCtx } : {}),
+        ...(prevTranslationCtx?.trim() ? { previousTranslationContext: prevTranslationCtx } : {}),
+        ...(shadowFullStable ? { shadowFullStable: true } : {}),
+      });
       const callCost = +(
         chunk.promptTokens * OPENAI_INPUT_COST_PER_TOKEN +
         chunk.completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
@@ -1865,6 +1887,8 @@ router.post("/translate", requireAuth, async (req, res) => {
           textLen: text.length,
           outLen: chunk.text.length,
           isFinalSegment,
+          chunkV2Continuation: Boolean(prevSourceCtx?.trim() || prevTranslationCtx?.trim()),
+          chunkV2ShadowValidation: shadowFullStable,
         },
         "POST /translate chunk V2 experiment",
       );
