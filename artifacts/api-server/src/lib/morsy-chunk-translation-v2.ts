@@ -78,7 +78,7 @@ export async function runMorsyChunkV2Translation(args: {
   const numMask = applyMorsyCleanNumberProtection(args.text);
   const useContinuation =
     !args.shadowFullStable &&
-    Boolean(args.previousSourceContext?.trim() && args.previousTranslationContext?.trim());
+    Boolean(args.previousSourceContext?.trim() || args.previousTranslationContext?.trim());
   const systemPrompt = useContinuation
     ? buildMorsyChunkV2ContinuationSystemPrompt(args.tgtName)
     : buildMorsyChunkV2SystemPrompt(args.tgtName);

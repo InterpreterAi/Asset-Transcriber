@@ -44,6 +44,11 @@ const COMPOUND_MODIFIER_WORDS = new Set([
   "heart",
   "artery",
   "coronary",
+  "congestive",
+  "chronic",
+  "acute",
+  "type",
+  "stage",
   "ejection",
   "fraction",
 ]);
