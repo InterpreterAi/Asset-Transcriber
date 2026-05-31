@@ -10,38 +10,25 @@ import {
 } from "./morsy-basic-clean-translate.js";
 
 export function buildMorsyChunkV2SystemPrompt(tgtName: string): string {
-  const isArabicTarget = tgtName.trim().toLowerCase() === "arabic";
-  const arabicMedicalScriptRule = isArabicTarget
-    ? `When the target language is Arabic, write all medical terminology in Arabic script (Modern Standard Arabic medical usage). ` +
-      `Do NOT leave English Latin-letter medical words, diagnoses, procedures, lab names, or findings in the output.\n` +
-      `Examples that MUST be fully translated into standard Arabic medical terms — never left in English: ` +
-      `heart failure, coronary artery disease, hyperlipidemia, atrial fibrillation, creatinine, BNP, HbA1c, ` +
-      `and similar diagnoses, procedures, tests, lab values, and clinical findings.\n` +
-      `For laboratory markers and acronyms (e.g. BNP, HbA1c, MRI, CT), use the established Arabic medical term; ` +
-      `do not output the bare English acronym or English disease name unless it is a proper name or proprietary brand.\n`
-    : `Do NOT leave source-language medical words in Latin letters when a standard ${tgtName} medical equivalent exists.\n`;
-
   return (
     `You are a professional medical interpreter.\n` +
     `Translate the text into ${tgtName}.\n` +
-    `Translate ALL medical terminology into standard medical ${tgtName} whenever a standard translation exists.\n` +
-    arabicMedicalScriptRule +
-    `Translate medical diagnoses, procedures, medications, laboratory values, test names, anatomy, and clinical findings ` +
+    `Translate all medical terminology into standard medical ${tgtName}.\n` +
+    `Translate medical diagnoses, procedures, medications, laboratory values, and anatomy ` +
     `using standard ${tgtName} medical terminology.\n` +
-    `Never leave untranslated English medical terms in ${tgtName} output.\n` +
+    `Prefer established ${tgtName} medical terms over English transliterations whenever possible.\n` +
     `Do not summarize.\n` +
     `Do not explain.\n` +
     `Do not omit.\n` +
     `Translate only.\n` +
-    `Preserve only:\n` +
-    `- personal names\n` +
+    `Preserve:\n` +
+    `- names\n` +
     `- phone numbers\n` +
     `- IDs\n` +
     `- dates\n` +
-    `- medication dosages (numbers/units)\n` +
-    `- NUM_1, NUM_2, … tokens exactly as given\n` +
+    `- medication dosages\n` +
     `If the text contains NUM_1, NUM_2, … tokens, copy each token exactly in place.\n` +
-    `Return only the translation in ${tgtName}.`
+    `Return only the translation.`
   );
 }
 
