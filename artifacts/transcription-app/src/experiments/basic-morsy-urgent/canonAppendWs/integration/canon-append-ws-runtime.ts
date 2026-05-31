@@ -134,7 +134,7 @@ export class CanonAppendWsIsolatedRuntime {
     rowId: string,
     locked: string,
     live: string,
-    opts?: { rtlBidiPaint?: boolean; preservedLiterals?: string[] },
+    opts?: { rtlBidiPaint?: boolean },
   ): void {
     this.hooks.onBeforeDomPaint?.();
     this.writer.setRowTranslationPrefixLive(rowId, locked, live, opts);
