@@ -105,6 +105,7 @@ import {
   extractNewStableChunk,
   logChunkV2Telemetry,
   selectPendingStableDelta,
+  splitChunkV2Pending,
   validateChunkV2Invariants,
   type ChunkV2TranslateTrigger,
 } from "@/hooks/morsy-urgent-chunk-translation-v2";
@@ -5439,7 +5440,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       : {};
 
     if (morsyUsesChunkTranslationV2Experiment()) {
-      const delta = extractNewStableChunk(sourceNorm, trialSt.committedSource).trim();
+      const { pendingRaw, apiText: delta } = splitChunkV2Pending(sourceNorm, trialSt.committedSource);
       let composed = trialSt.committedTranslation.trim();
       const prevCommittedSource = trialSt.committedSource;
       const prevCommittedTranslation = trialSt.committedTranslation;
@@ -5454,7 +5455,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           sourceText: delta,
           stableText: sourceNorm,
           committedSource: trialSt.committedSource,
-          pendingDelta: delta,
+          pendingRaw,
+          apiText: delta,
         });
         const tr = await fetchTranslation(
           delta,
@@ -6069,7 +6071,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const commitStableChunk = async (
       pendingPayload: CanonRowDualBufferPayload,
-      selection: { chunk: string; trigger: ChunkV2TranslateTrigger },
+      selection: {
+        chunk: string;
+        trigger: ChunkV2TranslateTrigger;
+        sourceSpanLength: number;
+        pendingRaw: string;
+        apiText: string;
+      },
       stableText: string,
       endpointFinal: boolean,
     ): Promise<boolean> => {
@@ -6084,7 +6092,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const targetLang = targetOppositeInPair(sourceLang, pair);
       const fetchStartedAt = Date.now();
       const requestId = nextChunkV2RequestId();
-      const pendingDelta = extractNewStableChunk(stableText, rowState.committedSource);
       logChunkV2Request({
         requestId,
         rowId,
@@ -6093,7 +6100,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         sourceText: sourceToTranslate,
         stableText,
         committedSource: rowState.committedSource,
-        pendingDelta,
+        pendingRaw: selection.pendingRaw,
+        apiText: selection.apiText,
       });
 
       try {
@@ -6147,7 +6155,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.committedSource = advanceCommittedSource(
           rowState.committedSource,
           stableText,
-          sourceToTranslate,
+          selection.sourceSpanLength,
         );
         validateChunkV2Invariants({
           rowId,
@@ -6176,13 +6184,24 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       rowState.lastPendingLang = pendingPayload.utterance.language;
       const snap = eng?.getRowDualBuffer(rowId);
       const stableText = (snap?.stableText ?? pendingPayload.stableText).trim();
-      const pending = extractNewStableChunk(stableText, rowState.committedSource).trim();
+      const { pendingRaw, apiText: pending } = splitChunkV2Pending(stableText, rowState.committedSource);
+
+      const chunkSelection = (
+        trigger: ChunkV2TranslateTrigger,
+        chunk: string,
+      ) => ({
+        chunk,
+        trigger,
+        sourceSpanLength: pendingRaw.length,
+        pendingRaw,
+        apiText: pending,
+      });
 
       if (opts.mode === "endpoint") {
         if (pending.length > 0) {
           await commitStableChunk(
             snap ?? pendingPayload,
-            { chunk: pending, trigger: "endpoint" },
+            chunkSelection("endpoint", pending),
             stableText,
             true,
           );
@@ -6206,7 +6225,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (selection) {
           await commitStableChunk(
             snap ?? pendingPayload,
-            selection,
+            chunkSelection(selection.trigger, selection.chunk),
             stableText,
             false,
           );
