@@ -917,7 +917,6 @@ export default function Admin() {
   const [terminateLoading, setTerminateLoading]   = useState(false);
   const [hetznerOverrideSavingId, setHetznerOverrideSavingId] = useState<number | null>(null);
   const viewPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sessionViewScrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchSessionDetail = useCallback(async (sessionId: number) => {
     try {
@@ -939,19 +938,6 @@ export default function Admin() {
     viewPollRef.current = setInterval(() => fetchSessionDetail(viewingSessionId), 2_000);
     return () => { if (viewPollRef.current) clearInterval(viewPollRef.current); };
   }, [viewingSessionId, fetchSessionDetail]);
-
-  useEffect(() => {
-    if (!sessionDetail?.isLive || !sessionViewScrollRef.current) return;
-    const el = sessionViewScrollRef.current;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
-  }, [
-    sessionDetail?.isLive,
-    sessionDetail?.snapshot?.updatedAt,
-    sessionDetail?.snapshot?.transcriptLines?.length,
-    sessionDetail?.snapshot?.translationLines?.length,
-  ]);
 
   const terminateSession = async (sessionId: number) => {
     if (!confirm("Terminate this user's session?")) return;
@@ -3182,7 +3168,7 @@ export default function Admin() {
             ) : null}
 
             {/* One <tr> per stable finalized pair: source column = lang A, translation column = lang B. */}
-            <div ref={sessionViewScrollRef} className="flex-1 overflow-y-auto min-h-0">
+            <div className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
                   Each row is one finalized segment: original and translation stay paired. An em dash means translation is still loading for that line.
@@ -3210,48 +3196,8 @@ export default function Admin() {
                     const n = stableRows.length;
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
-                    const userViewerDark = snap.viewerTheme !== "light";
-                    const userFontPx = snap.workspaceFontPx ?? 16;
-                    const layoutStacked = snap.layoutMode === "stacked";
-                    const viewerShellClass = cn(
-                      "rounded-lg border overflow-hidden leading-relaxed",
-                      userViewerDark
-                        ? "bg-[#141416] border-white/10 text-zinc-100"
-                        : "bg-white border-border text-foreground",
-                    );
-                    const rowMutedClass = userViewerDark ? "text-zinc-400" : "text-muted-foreground";
-                    const rowBorderClass = userViewerDark ? "border-white/10" : "border-border";
                     return (
-                      <div className={viewerShellClass} style={{ fontSize: `${userFontPx}px` }}>
-                        {layoutStacked ? (
-                          <div className={cn("divide-y", rowBorderClass)}>
-                            {Array.from({ length: n }, (_, i) => {
-                              const srcLine = stableRows[i]?.src ?? "";
-                              const tgtLine = stableRows[i]?.tgt ?? "";
-                              const rowIndex = stableRows[i]?.idx ?? i + 1;
-                              return (
-                                <div key={i} className="px-3 py-3 space-y-2">
-                                  <div className={cn("text-[0.65em] font-semibold uppercase tracking-wide", rowMutedClass)}>
-                                    #{rowIndex} · Original · {srcHead}
-                                  </div>
-                                  <div className="whitespace-pre-wrap">{srcLine}</div>
-                                  <div className={cn("text-[0.65em] font-semibold uppercase tracking-wide pt-1 border-t", rowBorderClass, rowMutedClass)}>
-                                    Translation · {trHead}
-                                  </div>
-                                  <div
-                                    className={cn(
-                                      "whitespace-pre-wrap",
-                                      tgtLine === ADMIN_SNAPSHOT_PENDING_CELL && "italic " + rowMutedClass,
-                                    )}
-                                    dir="auto"
-                                  >
-                                    {tgtLine}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
+                      <div className="rounded-lg border border-border overflow-hidden bg-card text-sm leading-relaxed">
                         <table className="w-full border-collapse table-fixed">
                           <colgroup>
                             <col className="w-11" />
@@ -3259,40 +3205,37 @@ export default function Admin() {
                             <col className="w-[50%]" />
                           </colgroup>
                           <thead>
-                            <tr className={cn("border-b text-[0.65em] font-semibold uppercase tracking-wide", rowBorderClass, rowMutedClass)}>
-                              <th className={cn("px-1.5 py-2.5 text-center font-mono text-[9px] border-r", rowBorderClass)}>#</th>
-                              <th className={cn("px-3 py-2.5 text-left border-r align-bottom", rowBorderClass)}>
-                                <span className="normal-case tracking-normal text-inherit">Original · {srcHead}</span>
-                                <span className={cn("block font-normal text-[9px] mt-0.5 normal-case tracking-normal", rowMutedClass)}>
+                            <tr className="bg-muted/50 border-b border-border text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                              <th className="px-1.5 py-2.5 text-center font-mono text-[9px] border-r border-border">#</th>
+                              <th className="px-3 py-2.5 text-left border-r border-border align-bottom">
+                                <span className="normal-case tracking-normal text-foreground">Original · {srcHead}</span>
+                                <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
                                   {snap.langA}
                                 </span>
                               </th>
                               <th className="px-3 py-2.5 text-left align-bottom">
-                                <span className="normal-case tracking-normal text-inherit">Translation · {trHead}</span>
-                                <span className={cn("block font-normal text-[9px] mt-0.5 normal-case tracking-normal", rowMutedClass)}>
+                                <span className="normal-case tracking-normal text-foreground">Translation · {trHead}</span>
+                                <span className="block font-normal text-[9px] text-muted-foreground mt-0.5 normal-case tracking-normal">
                                   {snap.langB}
                                 </span>
                               </th>
                             </tr>
                           </thead>
-                          <tbody className={cn("divide-y", rowBorderClass)}>
+                          <tbody className="divide-y divide-border">
                             {Array.from({ length: n }, (_, i) => {
                               const srcLine = stableRows[i]?.src ?? "";
                               const tgtLine = stableRows[i]?.tgt ?? "";
                               const rowIndex = stableRows[i]?.idx ?? i + 1;
                               return (
-                                <tr key={i} className="align-top">
-                                  <td className={cn("px-1.5 py-2.5 text-center font-mono text-[10px] border-r align-top", rowBorderClass, rowMutedClass)}>
+                                <tr key={i} className="hover:bg-muted/15 align-top">
+                                  <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
                                     {rowIndex}
                                   </td>
-                                  <td className={cn("px-3 py-2.5 whitespace-pre-wrap border-r align-top", rowBorderClass)}>
+                                  <td className="px-3 py-2.5 text-foreground leading-relaxed whitespace-pre-wrap border-r border-border align-top">
                                     {srcLine}
                                   </td>
                                   <td
-                                    className={cn(
-                                      "px-3 py-2.5 whitespace-pre-wrap align-top",
-                                      tgtLine === ADMIN_SNAPSHOT_PENDING_CELL && "italic " + rowMutedClass,
-                                    )}
+                                    className={`px-3 py-2.5 leading-relaxed whitespace-pre-wrap align-top ${tgtLine === ADMIN_SNAPSHOT_PENDING_CELL ? "text-muted-foreground italic" : "text-foreground"}`}
                                     dir="auto"
                                   >
                                     {tgtLine}
@@ -3302,7 +3245,6 @@ export default function Admin() {
                             })}
                           </tbody>
                         </table>
-                        )}
                       </div>
                     );
                   })()
@@ -3317,7 +3259,7 @@ export default function Admin() {
             </div>
 
             {/* Modal footer */}
-            <div className="p-3 border-t border-border bg-gray-50 flex items-center justify-between">
+            <div className="p-3 border-t border-border bg-muted/30 flex items-center justify-between">
               <span className="text-[11px] text-muted-foreground">
                 {sessionDetail?.isLive ? "Auto-refreshing every 2 s" : "Session ended"}
               </span>

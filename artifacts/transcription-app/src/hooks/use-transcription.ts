@@ -4337,9 +4337,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   /**
    * Tail-follow (Chat-style): snap to `scrollHeight` only if the user was already following the live tail *before*
-   * new transcript/translation DOM grew (`followPreGrowth === true`), or if no snapshot was passed and the
-   * post-layout viewport still sits within TRANSCRIPT_TAIL_STICK_EPS_PX of the bottom (`followPreGrowth` omitted).
-   * `followPreGrowth === false` skips snap (user had scrolled away before the growth — do not drag them down).
+   * new transcript/translation DOM grew (`followPreGrowth === true`). `followPreGrowth === false` or omitted skips
+   * snap (user scrolled away, or no pre-growth latch — do not drag them down).
    */
   const runScrollPanelCore = useCallback(
     (
@@ -4424,7 +4423,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let shouldSnapTail: boolean;
       if (followPreGrowth === false) shouldSnapTail = false;
       else if (followPreGrowth === true) shouldSnapTail = true;
-      else shouldSnapTail = epsilonNearBottom;
+      /** No pre-growth latch: do not infer from post-layout epsilon (stale after DOM growth). */
+      else shouldSnapTail = false;
 
       const diagStickyIntent =
         followPreGrowth === true ? true : followPreGrowth === false ? false : epsilonNearBottom;
@@ -4514,7 +4514,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const mergedSticky = scrollFollowDeferredStickyRef.current;
 
       /** Sticky-before-growth is explicit **false**: never RAF tail-follow (post-layout epsilon is stale after growth anyway). */
-      if (morsyUrgentVp && mergedSticky === false) {
+      if (mergedSticky === false) {
         if (scrollFollowRafRef.current !== 0) {
           cancelAnimationFrame(scrollFollowRafRef.current);
           scrollFollowRafRef.current = 0;
