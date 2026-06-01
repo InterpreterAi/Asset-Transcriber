@@ -135,6 +135,16 @@ type StableSnapshotRow = { idx: number; src: string; tgt: string };
 /** Shown when the translation cell has not arrived yet — keeps transcript rows visible and aligned. */
 const ADMIN_SNAPSHOT_PENDING_CELL = "\u2014";
 
+/** Match workspace tail-follow: snap only if viewport was within this many px of bottom before new rows. */
+const ADMIN_SESSION_TAIL_STICK_EPS_PX = 12;
+
+function adminSessionViewGluedToTail(scrollEl: HTMLElement | null | undefined): boolean {
+  if (!scrollEl) return false;
+  const distanceFromBottom =
+    scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+  return distanceFromBottom <= ADMIN_SESSION_TAIL_STICK_EPS_PX;
+}
+
 /**
  * One admin table row per finalized segment index. Prefer parallel snapshot arrays from the client
  * so speech cannot split rows on embedded newlines. Pad lengths so transcript and translation columns stay paired.
@@ -917,6 +927,9 @@ export default function Admin() {
   const [terminateLoading, setTerminateLoading]   = useState(false);
   const [hetznerOverrideSavingId, setHetznerOverrideSavingId] = useState<number | null>(null);
   const viewPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionViewScrollRef = useRef<HTMLDivElement | null>(null);
+  /** True when admin was following the live tail before the last snapshot paint (Chat-style latch). */
+  const sessionViewFollowTailRef = useRef(true);
 
   const fetchSessionDetail = useCallback(async (sessionId: number) => {
     try {
@@ -938,6 +951,37 @@ export default function Admin() {
     viewPollRef.current = setInterval(() => fetchSessionDetail(viewingSessionId), 2_000);
     return () => { if (viewPollRef.current) clearInterval(viewPollRef.current); };
   }, [viewingSessionId, fetchSessionDetail]);
+
+  useEffect(() => {
+    if (!viewingSessionId) {
+      sessionViewFollowTailRef.current = true;
+      return;
+    }
+    const el = sessionViewScrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      sessionViewFollowTailRef.current = adminSessionViewGluedToTail(el);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [viewingSessionId, viewLoading]);
+
+  useEffect(() => {
+    if (!sessionDetail?.isLive || !sessionViewScrollRef.current) return;
+    if (!sessionViewFollowTailRef.current) return;
+    const el = sessionViewScrollRef.current;
+    requestAnimationFrame(() => {
+      if (!sessionViewFollowTailRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      sessionViewFollowTailRef.current = adminSessionViewGluedToTail(el);
+    });
+  }, [
+    sessionDetail?.isLive,
+    sessionDetail?.snapshot?.updatedAt,
+    sessionDetail?.snapshot?.transcriptLines?.length,
+    sessionDetail?.snapshot?.translationLines?.length,
+  ]);
 
   const terminateSession = async (sessionId: number) => {
     if (!confirm("Terminate this user's session?")) return;
@@ -3168,7 +3212,7 @@ export default function Admin() {
             ) : null}
 
             {/* One <tr> per stable finalized pair: source column = lang A, translation column = lang B. */}
-            <div className="flex-1 overflow-y-auto min-h-0">
+            <div ref={sessionViewScrollRef} className="flex-1 overflow-y-auto min-h-0">
               <div className="px-4 sm:px-5 pt-2 pb-1">
                 <p className="text-[10px] text-muted-foreground leading-snug">
                   Each row is one finalized segment: original and translation stay paired. An em dash means translation is still loading for that line.
