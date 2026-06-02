@@ -30,7 +30,14 @@ import {
 import { sessionStore } from "../lib/session-store.js";
 import { logger } from "../lib/logger.js";
 import { effectiveMtLane } from "../lib/hetzner-mt-db-routing.js";
-import { getHetznerLaneBaseUrl, hetznerWorkerHostGroupLabel, type CoreLane } from "../lib/hetzner-core-router.js";
+import {
+  getHetznerLaneBaseUrl,
+  getHetznerRoutingNumSlots,
+  hetznerLaneBaseIsDistinctAmongActive,
+  hetznerWorkerHostGroupLabel,
+  isHetznerLaneActiveInRouter,
+  type CoreLane,
+} from "../lib/hetzner-core-router.js";
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
@@ -1636,6 +1643,28 @@ router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (re
   if (!open.length) {
     res.status(404).json({ error: "Session not found or already ended" });
     return;
+  }
+
+  if (lane != null) {
+    const numSlots = getHetznerRoutingNumSlots();
+    if (!isHetznerLaneActiveInRouter(lane)) {
+      res.status(400).json({
+        error: `Core ${lane} is not active on this API (${numSlots}-lane router). Set HETZNER_CORE3_TRANSLATE_BASE and HETZNER_CORE4_TRANSLATE_BASE (non-empty) with HETZNER_FOUR_LANE_ROUTER=1, then redeploy.`,
+        numSlots,
+        lane,
+      });
+      return;
+    }
+    if (!hetznerLaneBaseIsDistinctAmongActive(lane)) {
+      const base = getHetznerLaneBaseUrl(lane).trim();
+      res.status(400).json({
+        error: `Core ${lane} resolves to the same worker URL as another lane (${base}). Fix Railway env so Core 3/4 point at the secondary Hetzner host — otherwise server graphs for Core 3/4 will not move independently.`,
+        numSlots,
+        lane,
+        liveHetznerBaseUrl: base || null,
+      });
+      return;
+    }
   }
 
   await db
