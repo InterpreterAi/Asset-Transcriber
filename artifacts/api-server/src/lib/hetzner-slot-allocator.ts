@@ -24,9 +24,13 @@ export class HetznerTrialRoutingBlockedError extends Error {
   }
 }
 
-/** Paid exclusive fill: lane order 1 → 2 → 3 → 4 — duplicate capacity only; no cross-host skipping. */
-function physicalSpreadSlotIndices(numSlots: 2 | 4): readonly number[] {
-  if (numSlots === 4) return [0, 1, 2, 3];
+/**
+ * Paid exclusive fill order (slot index → lane = index + 1).
+ * Four lanes: **1 → 3 → 4 → 2** so the second paid lands on HZ-2 :5001 before HZ-1 :5002
+ * (CORE1/CORE3 on primary metal, CORE2/CORE4 on secondary — see deploy/hetzner-core-pinning).
+ */
+function paidExclusiveSlotIndices(numSlots: 2 | 4): readonly number[] {
+  if (numSlots === 4) return [0, 2, 3, 1];
   return [0, 1];
 }
 
@@ -79,7 +83,7 @@ export function seedCommittedLane(
 
 /** First NUM_SLOTS paid sessions claim empty workers; further paid share CORE1 (overflow). */
 export function allocatePaid(state: SlotAllocatorState, sessionId: number): CoreLane {
-  for (const idx of physicalSpreadSlotIndices(state.numSlots)) {
+  for (const idx of paidExclusiveSlotIndices(state.numSlots)) {
     if (idx >= state.numSlots) continue;
     if (state.slotPaidOwner[idx] === null) {
       state.slotPaidOwner[idx] = sessionId;

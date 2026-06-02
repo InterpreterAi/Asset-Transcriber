@@ -102,6 +102,23 @@ export function getHetznerRoutingNumSlots(): 2 | 4 {
   return NUM_SLOTS;
 }
 
+/** True when this lane is within the active router slot count (four-lane requires CORE3/CORE4 env). */
+export function isHetznerLaneActiveInRouter(lane: CoreLane): boolean {
+  return lane >= 1 && lane <= NUM_SLOTS;
+}
+
+/** Whether `lane` HTTP base is unique among active lanes (false ⇒ another lane shares host:port). */
+export function hetznerLaneBaseIsDistinctAmongActive(lane: CoreLane): boolean {
+  if (!isHetznerLaneActiveInRouter(lane)) return false;
+  const fp = laneBaseHostPortFingerprint(laneToBase[lane]);
+  const active = (NUM_SLOTS === 4 ? [1, 2, 3, 4] : [1, 2]) as CoreLane[];
+  let matches = 0;
+  for (const l of active) {
+    if (laneBaseHostPortFingerprint(laneToBase[l]) === fp) matches++;
+  }
+  return matches === 1;
+}
+
 function warnIfCore34SecondaryHostnameMismatch(): void {
   const expected = process.env.HETZNER_EXPECT_CORE34_SECONDARY_HOSTNAME?.trim();
   if (!expected || USE_LEGACY_EMERGENCY || NUM_SLOTS !== 4) return;
@@ -122,6 +139,46 @@ function warnIfCore34SecondaryHostnameMismatch(): void {
 }
 
 warnIfCore34SecondaryHostnameMismatch();
+
+function laneBaseHostPortFingerprint(baseUrl: string): string {
+  try {
+    const u = new URL(baseUrl.trim());
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return `${u.hostname}:${port}`.toLowerCase();
+  } catch {
+    return baseUrl.trim().toLowerCase();
+  }
+}
+
+/** Log when multiple lanes resolve to the same worker host:port (Core 3/4 graphs stay flat while admin shows lane 4). */
+function warnIfLaneBasesCollide(): void {
+  if (USE_LEGACY_EMERGENCY) return;
+  const lanes = (NUM_SLOTS === 4 ? [1, 2, 3, 4] : [1, 2]) as CoreLane[];
+  const byFp = new Map<string, CoreLane[]>();
+  for (const lane of lanes) {
+    const fp = laneBaseHostPortFingerprint(laneToBase[lane]);
+    const list = byFp.get(fp) ?? [];
+    list.push(lane);
+    byFp.set(fp, list);
+  }
+  for (const [fp, grouped] of byFp) {
+    if (grouped.length < 2) continue;
+    logger.error(
+      {
+        tag: "hetzner_lane_base_collision",
+        lanes: grouped,
+        hostPort: fp,
+        urls: Object.fromEntries(grouped.map((l) => [l, laneToBase[l]])),
+        core3ResolvedViaCore2Fallback: !core3EnvTrimmedForInit && !USE_LEGACY_EMERGENCY,
+        core4ResolvedViaCore2Fallback: !core4EnvTrimmedForInit && !USE_LEGACY_EMERGENCY,
+        numSlots: NUM_SLOTS,
+      },
+      "Hetzner: multiple CORE lanes share the same worker URL — traffic for Core 3/4 will not hit a separate host graph until env is fixed",
+    );
+  }
+}
+
+warnIfLaneBasesCollide();
 
 if (!USE_LEGACY_EMERGENCY && readFourLaneRouterEnv() && NUM_SLOTS === 2) {
   logger.warn(
@@ -268,7 +325,7 @@ export function logHetznerCoreRouterStartupHint(): void {
         hz1: urlHostname(CORE1_BASE),
         hz2: urlHostname(CORE3_BASE),
       },
-      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 2, 3, 4] : [1, 2],
+      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
       trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 1, 3, 4] : [2, 1],
     },
     "hetzner_lane_to_base_boot_verify",
@@ -285,7 +342,7 @@ export function logHetznerCoreRouterStartupHint(): void {
       fourLaneRouterEnv: fourLaneRequested,
       legacyEmergency: USE_LEGACY_EMERGENCY,
       legacyFallbackBase: LEGACY_TRANSLATE_BASE,
-      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 2, 3, 4] : [1, 2],
+      paidExclusiveLaneFillOrder: NUM_SLOTS === 4 ? [1, 3, 4, 2] : [1, 2],
       trialIdleLaneScanOrder: NUM_SLOTS === 4 ? [2, 1, 3, 4] : [2, 1],
       core3EnvDefined: c3Trimmed,
       core4EnvDefined: c4Trimmed,
