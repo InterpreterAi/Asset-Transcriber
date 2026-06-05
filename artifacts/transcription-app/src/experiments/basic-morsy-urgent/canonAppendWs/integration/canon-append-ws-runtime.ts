@@ -5,7 +5,7 @@
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
-import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
+import { buildSonioxLanguageHints, sonioxRealtimeSessionTuning } from "@/lib/soniox-stt-language-hints";
 
 import { LIVE_RENDER_BATCH_MS } from "../policies/segmentation-constants";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
@@ -338,9 +338,17 @@ export class CanonAppendWsIsolatedRuntime {
     const pair = langPair as { a: string; b: string };
     const hints = buildSonioxLanguageHints(pair);
     const interpreterContext = buildSonioxInterpreterContext(pair);
+    const tuning = sonioxRealtimeSessionTuning(pair);
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
-    this.client.connect({ apiKey, sampleRate, languageHints: hints, interpreterContext });
+    this.client.connect({
+      apiKey,
+      sampleRate,
+      languageHints: hints,
+      interpreterContext,
+      enableLanguageIdentification: tuning.enableLanguageIdentification,
+      maxEndpointDelayMs: tuning.maxEndpointDelayMs,
+    });
   }
 
   sendPcm(chunk: ArrayBuffer): void {

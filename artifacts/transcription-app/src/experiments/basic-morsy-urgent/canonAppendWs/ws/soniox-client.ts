@@ -15,6 +15,8 @@ export type SonioxClientConfig = {
   model?: string;
   sampleRate?: number;
   languageHints?: string[];
+  enableLanguageIdentification?: boolean;
+  maxEndpointDelayMs?: number;
   interpreterContext?: {
     general: { key: string; value: string }[];
     text: string;
@@ -56,10 +58,10 @@ export class SonioxRealtimeClient {
               context: config.interpreterContext,
             }
           : {}),
-        enable_language_identification: true,
+        enable_language_identification: config.enableLanguageIdentification ?? true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          1400,
+        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 1400,
       }));
       this.flushPcmQueue();
     };

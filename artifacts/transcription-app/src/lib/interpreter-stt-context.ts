@@ -50,6 +50,10 @@ function base(code: string): string {
   return (code || "en").split("-")[0]!.toLowerCase();
 }
 
+function pairIncludesSomali(pair: LangPair): boolean {
+  return base(pair.a) === "so" || base(pair.b) === "so";
+}
+
 export function getInterpreterDemonyms(pair: LangPair): string[] {
   return [...new Set([demonymFor(pair.a), demonymFor(pair.b)])];
 }
@@ -64,6 +68,87 @@ function demonymFor(code: string): string {
   return DEMONYM_BY_BASE[b] ?? b;
 }
 
+/** Common Somali words/phrases for Soniox `terms` when `so` is in the pair (Soniox has no native `so` STT). */
+const SOMALI_STT_BIAS_TERMS: readonly string[] = [
+  "nabadgelyo",
+  "nabad gelyo",
+  "mahadsanid",
+  "waad mahadsantahay",
+  "salaan",
+  "salaam",
+  "fadlan",
+  "waxaan",
+  "waan",
+  "waa",
+  "baa",
+  "ayuu",
+  "ayay",
+  "tahay",
+  "maya",
+  "haa",
+  "sidee",
+  "sidee tahay",
+  "turjumaan",
+  "turjubaan",
+  "af Ingiriisi",
+  "af Soomaali",
+  "Soomaali",
+  "Soomaaliya",
+  "caafimaad",
+  "dawlada",
+  "codsiga",
+  "waan ku",
+  "waan kuu",
+  "igu soo",
+  "maalin",
+  "wanaagsan",
+  "wanagsan",
+  "fiican",
+  "waan fahmay",
+  "ma fahmin",
+  "fadlan ii",
+  "fadlan i",
+  "waan rabaa",
+  "waxaad",
+  "waxay",
+  "waxuu",
+  "waxuu yiri",
+  "waxaan ku",
+  "waxaan idin",
+  "waan idin",
+  "waad",
+  "waan",
+  "aad",
+  "iyo",
+  "oo",
+  "ka",
+  "ku",
+  "la",
+  "ee",
+  "ah",
+  "ugu",
+  "ugu horeeya",
+  "daryeel",
+  "caafimaadka",
+  "dhakhtar",
+  "isbitaal",
+  "cuntada",
+  "guri",
+  "qoys",
+  "caruur",
+  "hooyo",
+  "aabo",
+  "walaal",
+  "saaxiib",
+];
+
+const SOMALI_STT_BIAS_TEXT =
+  "Waxaa socda wicitaan turjumaan telefoonka ah oo u dhexeeya af Ingiriisi iyo af Soomaali. " +
+  "Labada dhinac waxay ku hadlaan weedho gaagaaban oo cad. Turjumaanku wuxuu bilaabaa: nabadgelyo, " +
+  "mahadsanid, fadlan ku hadla weedho gaagaaban. Waxaa laga yaabaa in qofku yidhaahdo waxaan rabaa, " +
+  "sidee tahay, waan fahmay, ma fahmin, waad mahadsantahay, turjumaan, caafimaad, dawlada, codsiga. " +
+  "Bilingual English–Somali relay interpreting: parties alternate between English and Somali speech.";
+
 /** Fixed English phrases + pair-specific interpreter lines for STT biasing. */
 export function buildSonioxInterpreterContext(pair: LangPair): {
   general: { key: string; value: string }[];
@@ -73,6 +158,7 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
   const da = demonymFor(pair.a);
   const db = demonymFor(pair.b);
   const demonyms = [...new Set([da, db])].filter(Boolean);
+  const somaliPair = pairIncludesSomali(pair);
 
   const lines: string[] = [
     "Telephone or video relay interpreting session.",
@@ -83,6 +169,10 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "Confidentiality: all information discussed will remain confidential.",
     "Use \"you're\" (you are) for connection lines, \"to\" (not too or two) before the interpreter language, \"their/there/they're\" only in grammatical context.",
   ];
+
+  if (somaliPair) {
+    lines.push(SOMALI_STT_BIAS_TEXT);
+  }
 
   const terms: string[] = [];
 
@@ -118,20 +208,32 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "SSI benefits",
     "Medicaid",
     "Social Security",
-    "nabadgelyo",
-    "mahadsanid",
-    "salaan",
-    "waad mahadsantahay",
-    "fadlan",
-    "waxaan",
-    "waa",
   );
 
+  if (somaliPair) {
+    terms.push(...SOMALI_STT_BIAS_TERMS);
+  }
+
+  const general: { key: string; value: string }[] = [
+    { key: "domain", value: "Telephone and video interpreting" },
+    { key: "topic", value: "Live interpreter call — introductions, confidentiality, turn-taking" },
+  ];
+
+  if (somaliPair) {
+    general.push(
+      { key: "language", value: "English and Somali" },
+      {
+        key: "instructions",
+        value:
+          "Bilingual English and Somali relay call. Transcribe Somali speech in Somali Latin orthography. " +
+          "Transcribe English speech in English. Parties alternate languages.",
+      },
+      { key: "setting", value: "English–Somali telephone interpreting" },
+    );
+  }
+
   return {
-    general: [
-      { key: "domain", value: "Telephone and video interpreting" },
-      { key: "topic", value: "Live interpreter call — introductions, confidentiality, turn-taking" },
-    ],
+    general,
     text: lines.join(" "),
     terms: [...new Set(terms)],
   };

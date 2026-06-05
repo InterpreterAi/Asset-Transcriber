@@ -218,7 +218,26 @@ function workspaceLangToSonioxHint(code) {
   return SONIOX_STT_HINT_CODES.has(norm) ? norm : null;
 }
 
+function pairUsesSonioxSttProxy(langA, langB) {
+  const proxy = { so: "sw" };
+  const a = ((langA || "en").split("-")[0] || "en").toLowerCase();
+  const b = ((langB || "en").split("-")[0] || "en").toLowerCase();
+  return proxy[a] != null || proxy[b] != null;
+}
+
 function buildSonioxLanguageHints(langA, langB) {
+  const hasProxy = pairUsesSonioxSttProxy(langA, langB);
+  if (hasProxy) {
+    const out = [];
+    const seen = new Set();
+    for (const lang of [langA, langB]) {
+      const h = workspaceLangToSonioxHint(lang);
+      if (!h || seen.has(h) || h === "en") continue;
+      seen.add(h);
+      out.push(h);
+    }
+    if (out.length) return out;
+  }
   const out = [];
   const seen = new Set();
   for (const lang of [langA, langB, "en"]) {

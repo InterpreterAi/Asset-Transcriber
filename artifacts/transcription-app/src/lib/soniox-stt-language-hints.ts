@@ -5,8 +5,8 @@
  * Source of truth (sync periodically): https://soniox.com/docs/stt/concepts/supported-languages
  *
  * Workspace languages can include codes Soniox does **not** STT‑support yet (e.g. Somali `so`).
- * Those map to the nearest documented STT proxy (e.g. `so` → `sw`) so bilingual sessions are not
- * English-only biased. `enable_language_identification` stays enabled.
+ * Those map to the nearest documented STT proxy (e.g. `so` → `sw`). English in the same pair is
+ * left to Soniox auto-detection (no explicit `en` hint) so the proxy bias is not drowned out.
  */
 
 /** ISO codes listed on Soniox STT supported-languages doc (as of project sync). */
@@ -33,6 +33,14 @@ const WORKSPACE_STT_PROXY_HINT: Record<string, string> = {
 
 function baseIso(code: string): string {
   return (code || "en").split("-")[0]!.toLowerCase();
+}
+
+/** True when the pair includes a workspace language that uses an STT proxy (e.g. Somali). */
+export function pairUsesSonioxSttProxyLang(pair: { a: string; b: string }): boolean {
+  return (
+    WORKSPACE_STT_PROXY_HINT[baseIso(pair.a)] != null ||
+    WORKSPACE_STT_PROXY_HINT[baseIso(pair.b)] != null
+  );
 }
 
 /** Map a workspace language tag to Soniox’s STT hint code, or null if no proxy/doc match. */
@@ -69,10 +77,29 @@ export function workspacePairMemberForSonioxHint(
 }
 
 /**
- * Builds `language_hints` for Soniox WebSocket config. Unsupported workspace codes use STT proxies.
- * Always attempts to include English as a bias when not already present.
+ * Builds `language_hints` for Soniox WebSocket config.
+ *
+ * When the pair includes an STT-proxy language (Somali → `sw`), we send **only** the proxy hint.
+ * Soniox still auto-detects English without an explicit `en` hint; stacking `en` + `sw` was
+ * drowning Somali-side speech on production en↔so sessions.
  */
 export function buildSonioxLanguageHints(pair: { a: string; b: string }): string[] {
+  const hasProxy = pairUsesSonioxSttProxyLang(pair);
+
+  if (hasProxy) {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const lang of [pair.a, pair.b]) {
+      const h = workspaceLangToSonioxHint(lang);
+      if (!h || seen.has(h)) continue;
+      // Skip explicit English — auto-detect handles the English party.
+      if (h === "en") continue;
+      seen.add(h);
+      out.push(h);
+    }
+    if (out.length > 0) return out;
+  }
+
   const out: string[] = [];
   const seen = new Set<string>();
   for (const lang of [pair.a, pair.b, "en"]) {
@@ -82,4 +109,22 @@ export function buildSonioxLanguageHints(pair: { a: string; b: string }): string
     out.push(h);
   }
   return out.length > 0 ? out : ["en"];
+}
+
+/** Extra realtime session fields when STT-proxy languages need different Soniox tuning. */
+export function sonioxRealtimeSessionTuning(pair: { a: string; b: string }): {
+  enableLanguageIdentification: boolean;
+  maxEndpointDelayMs: number;
+} {
+  if (pairUsesSonioxSttProxyLang(pair)) {
+    return {
+      // LID can over-lock Latin/Latin pairs onto English before any text lands.
+      enableLanguageIdentification: false,
+      maxEndpointDelayMs: 1400,
+    };
+  }
+  return {
+    enableLanguageIdentification: true,
+    maxEndpointDelayMs: 800,
+  };
 }
