@@ -5,8 +5,8 @@
  * Source of truth (sync periodically): https://soniox.com/docs/stt/concepts/supported-languages
  *
  * Workspace languages can include codes Soniox does **not** STT‑support yet (e.g. Somali `so`).
- * Those are omitted from hints only; the session still starts with biased hints for supported
- * languages (`enable_language_identification` remains enabled).
+ * Those map to the nearest documented STT proxy (e.g. `so` → `sw`) so bilingual sessions are not
+ * English-only biased. `enable_language_identification` stays enabled.
  */
 
 /** ISO codes listed on Soniox STT supported-languages doc (as of project sync). */
@@ -23,19 +23,54 @@ const WORKSPACE_BASE_TO_SONIOX_HINT: Record<string, string> = {
   nn: "no",
 };
 
+/**
+ * Workspace languages missing from Soniox STT docs — use closest documented hint.
+ * Somali (`so`) is not listed; Swahili (`sw`) is the nearest East-African Latin-script STT model.
+ */
+const WORKSPACE_STT_PROXY_HINT: Record<string, string> = {
+  so: "sw",
+};
+
 function baseIso(code: string): string {
   return (code || "en").split("-")[0]!.toLowerCase();
 }
 
-/** Map a workspace language tag to Soniox’s STT hint code, or null if not in Soniox’s doc set. */
+/** Map a workspace language tag to Soniox’s STT hint code, or null if no proxy/doc match. */
 export function workspaceLangToSonioxHint(code: string): string | null {
-  const normalized = WORKSPACE_BASE_TO_SONIOX_HINT[baseIso(code)] ?? baseIso(code);
+  const base = baseIso(code);
+  const proxy = WORKSPACE_STT_PROXY_HINT[base];
+  if (proxy && SONIOX_STT_DOC_LANGUAGE_CODES.has(proxy)) return proxy;
+  const normalized = WORKSPACE_BASE_TO_SONIOX_HINT[base] ?? base;
   return SONIOX_STT_DOC_LANGUAGE_CODES.has(normalized) ? normalized : null;
 }
 
+/** True when a Soniox tag matches a workspace pair member (incl. STT proxies such as `sw` → `so`). */
+export function sonioxHintCorrespondsToWorkspaceLang(
+  sonioxHint: string,
+  workspaceCode: string,
+): boolean {
+  const h = baseIso(sonioxHint);
+  const w = baseIso(workspaceCode);
+  if (h === w) return true;
+  const mapped = workspaceLangToSonioxHint(workspaceCode);
+  return mapped !== null && h === mapped;
+}
+
+/** Map Soniox hint onto exactly one pair member when unambiguous (proxy-aware). */
+export function workspacePairMemberForSonioxHint(
+  sonioxHint: string,
+  pair: { a: string; b: string },
+): string | null {
+  const a = sonioxHintCorrespondsToWorkspaceLang(sonioxHint, pair.a);
+  const b = sonioxHintCorrespondsToWorkspaceLang(sonioxHint, pair.b);
+  if (a && !b) return pair.a;
+  if (b && !a) return pair.b;
+  return null;
+}
+
 /**
- * Builds `language_hints` for Soniox WebSocket config. Drops unsupported workspace codes.
- * Matches prior behavior by always attempting to include English as a bias.
+ * Builds `language_hints` for Soniox WebSocket config. Unsupported workspace codes use STT proxies.
+ * Always attempts to include English as a bias when not already present.
  */
 export function buildSonioxLanguageHints(pair: { a: string; b: string }): string[] {
   const out: string[] = [];

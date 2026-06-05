@@ -103,6 +103,7 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "thank you for calling the interpreter",
     "thank you for calling",
     "Arabic interpreter",
+    "Somali interpreter",
     "my interpreter ID number is",
     "my name is",
     "my ID number is",
@@ -117,6 +118,13 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     "SSI benefits",
     "Medicaid",
     "Social Security",
+    "nabadgelyo",
+    "mahadsanid",
+    "salaan",
+    "waad mahadsantahay",
+    "fadlan",
+    "waxaan",
+    "waa",
   );
 
   return {

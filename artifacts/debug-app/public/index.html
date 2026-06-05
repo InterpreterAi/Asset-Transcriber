@@ -211,6 +211,8 @@ const SONIOX_STT_HINT_CODES = new Set([
 
 function workspaceLangToSonioxHint(code) {
   const raw = ((code || "en").split("-")[0] || "en").toLowerCase();
+  const proxy = { so: "sw" };
+  if (proxy[raw] && SONIOX_STT_HINT_CODES.has(proxy[raw])) return proxy[raw];
   const remap = { nb: "no", nn: "no" };
   const norm = remap[raw] ?? raw;
   return SONIOX_STT_HINT_CODES.has(norm) ? norm : null;
