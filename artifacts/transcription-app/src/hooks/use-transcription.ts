@@ -2,7 +2,11 @@
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
-import { buildSonioxLanguageHints } from "@/lib/soniox-stt-language-hints";
+import {
+  buildSonioxLanguageHints,
+  sonioxHintCorrespondsToWorkspaceLang,
+  workspacePairMemberForSonioxHint,
+} from "@/lib/soniox-stt-language-hints";
 import {
   getTranslationTypographyMeta,
   wrapAsciiDigitRunsWithLtrSpans,
@@ -778,8 +782,49 @@ interface SonioxMessage {
   error?:         string;
   error_message?: string;
   error_code?:    number;
+  error_type?:    string;
+  request_id?:    string;
   code?:          number;
   message?:       string;
+}
+
+/** Map Soniox WS errors to operator-facing text (avoid raw “upstream …” infra jargon in the UI). */
+function sonioxWebSocketErrorForUser(msg: SonioxMessage): string {
+  const type = (msg.error_type ?? "").trim().toLowerCase();
+  const code = msg.error_code ?? msg.code;
+  const raw =
+    (typeof msg.error_message === "string" && msg.error_message.trim()) ||
+    (typeof msg.error === "string" && msg.error.trim()) ||
+    (typeof msg.message === "string" && msg.message.trim()) ||
+    "";
+  const req = typeof msg.request_id === "string" && msg.request_id.trim() ? msg.request_id.trim() : null;
+
+  if (type === "service_unavailable" || code === 503) {
+    const m = raw.match(/\(code\s+(\d+)\)/i);
+    const codeHint = m?.[1] ? ` (Soniox code ${m[1]})` : "";
+    return `Speech recognition paused — Soniox is temporarily overloaded or the session hit a limit${codeHint}. Stop and start a new session to continue.${req ? ` Ref: ${req}` : ""}`;
+  }
+  if (type === "invalid_request" || code === 400) {
+    return `Speech recognition could not start (${raw || "invalid request"}).${req ? ` Ref: ${req}` : ""}`;
+  }
+  if (type === "unauthenticated" || code === 401) {
+    return "Speech recognition auth failed — check SONIOX_API_KEY on the API server.";
+  }
+  if (type === "permission_denied" || code === 403) {
+    return "Speech recognition access denied — check Soniox account limits or API key.";
+  }
+  if (type === "rate_limited" || code === 429) {
+    return "Speech recognition rate limited — wait a moment and start a new session.";
+  }
+  if (/upstream/i.test(raw)) {
+    return `Speech recognition service unavailable — try stopping and starting again.${req ? ` Ref: ${req}` : ""}`;
+  }
+  if (raw) {
+    return code != null && Number.isFinite(Number(code)) ? `${raw} (${code})` : raw;
+  }
+  return code != null && Number.isFinite(Number(code))
+    ? `Speech recognition error (${code}). Stop and start a new session.`
+    : "Speech recognition error. Stop and start a new session.";
 }
 
 // ── Speaker normalization (temporal-LRU pool) ──────────────────────────────────
@@ -1151,6 +1196,40 @@ function detectDominantScript(
   return { name: dominant.name, langs: dominant.langs };
 }
 
+/** Lightweight Somali cue for Latin/Latin pairs (Soniox has no native `so` STT — often tags `sw` or `en`). */
+function looksLikeSomali(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (t.length < 2) return false;
+  if (
+    /\b(waxaan|mahadsanid|nabadgelyo|nabad\s*gelyo|salaan|waad\s*mahadsantahay|aad\s*baa|ayuu|ayay|tahay|waan|maalin|wanagsan|wanaagsan|fiican|maya|haa|waa|baa)\b/u.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  const words = t.split(/\s+/).filter((w) => w.length >= 2);
+  if (words.length < 2) return false;
+  let cues = 0;
+  for (const w of words) {
+    if (/aa|oo|ee|uu/.test(w)) cues += 1;
+    if (/^(wax|ma|ay|uu|iyo|ka|ku|la|so|na|ee|oo)$/.test(w)) cues += 1;
+  }
+  return cues >= 2;
+}
+
+function pairIncludesSomali(pair: { a: string; b: string }): boolean {
+  return (
+    pair.a.split("-")[0]!.toLowerCase() === "so" ||
+    pair.b.split("-")[0]!.toLowerCase() === "so"
+  );
+}
+
+function somaliPairMember(pair: { a: string; b: string }): string | null {
+  if (pair.a.split("-")[0]!.toLowerCase() === "so") return pair.a;
+  if (pair.b.split("-")[0]!.toLowerCase() === "so") return pair.b;
+  return null;
+}
+
 // Cross-validates Soniox's language tag against the dominant Unicode script of
 // the token text.  Only overrides when:
 //   1. The dominant script is detected with ≥ 60 % confidence.
@@ -1166,7 +1245,13 @@ function validateLangByScript(
   if (!dominant) return sonioxLang; // too short / too mixed — trust Soniox
 
   // If Soniox already agrees with the dominant script, nothing to fix.
-  if (scriptSupportsLang(dominant.langs, sonioxLang)) return sonioxLang;
+  if (scriptSupportsLang(dominant.langs, sonioxLang)) {
+    if (pairIncludesSomali(pair) && looksLikeSomali(tokenText)) {
+      const soMember = somaliPairMember(pair);
+      if (soMember) return soMember;
+    }
+    return sonioxLang;
+  }
 
   // Soniox disagrees with the dominant script.
   // Find which side of the pair uses the detected script.
@@ -1176,6 +1261,12 @@ function validateLangByScript(
   // Override only when exactly one side of the pair matches — unambiguous.
   if (aFits && !bFits) return pair.a;
   if (bFits && !aFits) return pair.b;
+
+  // Latin/Latin pairs (e.g. en↔so): disambiguate Somali from English when possible.
+  if (aFits && bFits && pairIncludesSomali(pair) && looksLikeSomali(tokenText)) {
+    const soMember = somaliPairMember(pair);
+    if (soMember) return soMember;
+  }
 
   // Both or neither pair language uses this script — cannot safely override.
   return sonioxLang;
@@ -1187,6 +1278,8 @@ function uniquePairMemberForLang(code: string, pair: { a: string; b: string }): 
   const mb = matchesLang(code, pair.b);
   if (ma && !mb) return pair.a;
   if (mb && !ma) return pair.b;
+  const proxy = workspacePairMemberForSonioxHint(code, pair);
+  if (proxy) return proxy;
   return null;
 }
 
@@ -1260,7 +1353,9 @@ function morsyCanonThirdLanguagePassthrough(
   if (t.length < 3) return false;
 
   const sonioxInPair =
-    matchesLang(sonioxHint, pair.a) || matchesLang(sonioxHint, pair.b);
+    sonioxHintCorrespondsToWorkspaceLang(sonioxHint, pair.a) ||
+    sonioxHintCorrespondsToWorkspaceLang(sonioxHint, pair.b) ||
+    (pairIncludesSomali(pair) && looksLikeSomali(t));
   const sonioxBase = sonioxHint.split("-")[0]!.toLowerCase();
   const dominant = detectDominantScript(t);
 
@@ -1379,6 +1474,10 @@ function resolveSourceLangForCanon(
   sonioxHint: string,
   pair: { a: string; b: string },
 ): string {
+  if (pairIncludesSomali(pair) && looksLikeSomali(text)) {
+    const soMember = somaliPairMember(pair);
+    if (soMember) return soMember;
+  }
   const majorityHint = majoritySourceFromFirstWords(text, sonioxHint, pair);
   const validatedSoniox = validateLangByScript(sonioxHint, text, pair);
   const uniqueFromValidated = uniquePairMemberForLang(validatedSoniox, pair);
@@ -1484,6 +1583,7 @@ async function translateViaPrimaryApi(
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
     "LIBRETRANSLATE_FAILED",
+    "HETZNER_MT_LANE_UNASSIGNED",
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",
@@ -7729,9 +7829,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             : typeof msg.message === "string" && msg.message.trim()
               ? msg.message.trim()
               : null;
-      const errCode = msg.error_code ?? msg.code;
-      if (errText) {
-        setError(errCode ? `${errText} (${errCode})` : errText);
+      if (errText || msg.error_type || msg.error_code != null || msg.code != null) {
+        setError(sonioxWebSocketErrorForUser(msg));
         void stop();
         return;
       }
