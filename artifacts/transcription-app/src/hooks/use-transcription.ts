@@ -5,6 +5,7 @@ import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxHintCorrespondsToWorkspaceLang,
+  sonioxRealtimeSessionTuning,
   workspacePairMemberForSonioxHint,
 } from "@/lib/soniox-stt-language-hints";
 import {
@@ -1201,7 +1202,7 @@ function looksLikeSomali(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (t.length < 2) return false;
   if (
-    /\b(waxaan|mahadsanid|nabadgelyo|nabad\s*gelyo|salaan|waad\s*mahadsantahay|aad\s*baa|ayuu|ayay|tahay|waan|maalin|wanagsan|wanaagsan|fiican|maya|haa|waa|baa)\b/u.test(
+    /\b(waxaan|waxaad|waxay|mahadsanid|nabadgelyo|nabad\s*gelyo|salaan|salaam|waad\s*mahadsantahay|aad\s*baa|ayuu|ayay|tahay|waan|maalin|wanagsan|wanaagsan|fiican|maya|haa|waa|baa|fadlan|turjumaan|turjubaan|soomaali|af\s*soomaali|sidee|caafimaad|dawlada|codsiga|waan\s*fahmay|ma\s*fahmin)\b/u.test(
       t,
     )
   ) {
@@ -1307,6 +1308,10 @@ function snapSourceLanguageToPair(
   const bs = sonioxHint.split("-")[0]!.toLowerCase();
   if (bs === ba && bs !== bb) return pair.a;
   if (bs === bb && bs !== ba) return pair.b;
+  if (pairIncludesSomali(pair) && looksLikeSomali(text)) {
+    const soMember = somaliPairMember(pair);
+    if (soMember) return soMember;
+  }
   return pair.a;
 }
 
@@ -7795,6 +7800,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const pair = langPairRef.current;
       const language_hints = buildSonioxLanguageHints(pair);
       const interpreterCtx = buildSonioxInterpreterContext(pair);
+      const tuning = sonioxRealtimeSessionTuning(pair);
       ws.send(JSON.stringify({
         api_key:                        apiKey,
         model:                          "stt-rt-v4",
@@ -7803,10 +7809,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         num_channels:                   1,
         language_hints,
         context:                        interpreterCtx,
-        enable_language_identification: true,
+        enable_language_identification: tuning.enableLanguageIdentification,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          800,
+        max_endpoint_delay_ms:          tuning.maxEndpointDelayMs,
       }));
       const w = wsRef.current;
       if (w && w.readyState === WebSocket.OPEN) {
