@@ -1,4 +1,4 @@
-import { translatePlainMachine } from "./basic-pro-translate.js";
+import { translatePlainMachine, type TranslateBasicProfessionalOpts } from "./basic-pro-translate.js";
 import {
   applyArabicStaticLeakReplacements,
   escapeRegExpForLeaks,
@@ -21,7 +21,11 @@ const MAX_RESIDUAL_TOKENS_MT = 20;
 /**
  * Phrase-list repair (non-Arabic targets): known English clinical phrases → MT.
  */
-async function repairPhraseListEnglishLeaks(translated: string, tgtLangBcp47: string): Promise<string> {
+async function repairPhraseListEnglishLeaks(
+  translated: string,
+  tgtLangBcp47: string,
+  mtOpts?: TranslateBasicProfessionalOpts,
+): Promise<string> {
   if (!/[A-Za-z]{2,}/.test(translated)) return translated;
 
   const phrases = getEnglishDomainLeakPhrasesSorted();
@@ -38,7 +42,7 @@ async function repairPhraseListEnglishLeaks(translated: string, tgtLangBcp47: st
       const k = en.toLowerCase();
       if (memo.has(k)) return;
       try {
-        const out = (await translatePlainMachine(en, "en", tgtLangBcp47)).trim();
+        const out = (await translatePlainMachine(en, "en", tgtLangBcp47, mtOpts)).trim();
         memo.set(k, out && out.toLowerCase() !== en.toLowerCase() ? out : en);
       } catch (err) {
         logger.warn({ err, en, tgtLangBcp47 }, "English domain leak MT repair failed for phrase");
@@ -58,21 +62,58 @@ async function repairPhraseListEnglishLeaks(translated: string, tgtLangBcp47: st
 }
 
 /**
- * Any remaining Latin tokens (e.g. "dialysis" after OpenAI): memory lookup → MT → learn.
- * Runs for all non-English targets when source is English.
+ * After OpenAI or MT, embedded English domain terms sometimes remain in the target column.
+ * - Static map for Arabic + phrase list for other targets + residual Latin token pass (MT + global DB memory).
  */
-async function repairResidualLatinWordLeaks(
+export async function repairEnglishDomainLeaksInTranslation(
   translated: string,
   srcCode: string,
   tgtCode: string,
   tgtLangBcp47: string,
+  opts?: { interim?: boolean; mtOpts?: TranslateBasicProfessionalOpts; maxResidualTokens?: number },
+): Promise<string> {
+  if (srcCode !== "en" || tgtCode === "en" || !translated?.trim()) {
+    return translated;
+  }
+
+  // Live interim OpenAI: only cheap Arabic static map — skip parallel MT / DB memory (major latency per chunk).
+  if (opts?.interim) {
+    if (tgtCode === "ar") return applyArabicStaticLeakReplacements(translated);
+    return translated;
+  }
+
+  let t = translated;
+  if (tgtCode === "ar") {
+    t = applyArabicStaticLeakReplacements(t);
+  } else {
+    t = await repairPhraseListEnglishLeaks(t, tgtLangBcp47, opts?.mtOpts);
+  }
+
+  t = await repairResidualLatinWordLeaksWithCap(
+    t,
+    srcCode,
+    tgtCode,
+    tgtLangBcp47,
+    opts?.mtOpts,
+    opts?.maxResidualTokens ?? MAX_RESIDUAL_TOKENS_MT,
+  );
+  return t;
+}
+
+async function repairResidualLatinWordLeaksWithCap(
+  translated: string,
+  srcCode: string,
+  tgtCode: string,
+  tgtLangBcp47: string,
+  mtOpts?: TranslateBasicProfessionalOpts,
+  maxTokens = MAX_RESIDUAL_TOKENS_MT,
 ): Promise<string> {
   if (srcCode !== "en" || tgtCode === "en" || !translated?.trim()) return translated;
   if (!/[A-Za-z]{3,}/.test(translated)) return translated;
 
   let tokens = latinTokensLeftInTranslatedText(translated, RESIDUAL_LATIN_MIN_LEN);
   if (tokens.length === 0) return translated;
-  tokens = tokens.slice(0, MAX_RESIDUAL_TOKENS_MT);
+  tokens = tokens.slice(0, maxTokens);
 
   const memory = await fetchTranslationsForLatinTokens(tokens, "en", tgtCode);
   const resolved = new Map<string, string>();
@@ -84,7 +125,7 @@ async function repairResidualLatinWordLeaks(
       continue;
     }
     try {
-      const out = (await translatePlainMachine(tok, "en", tgtLangBcp47)).trim();
+      const out = (await translatePlainMachine(tok, "en", tgtLangBcp47, mtOpts)).trim();
       if (!out || out.toLowerCase() === k) continue;
       if (tgtCode === "ar" && !hasArabicScript(out) && /^[a-z][a-z\s'-]*$/i.test(out)) {
         continue;
@@ -105,36 +146,4 @@ async function repairResidualLatinWordLeaks(
     t = t.replace(re, repl);
   }
   return t.replace(/\s{2,}/g, " ").trim();
-}
-
-/**
- * After OpenAI or MT, embedded English domain terms sometimes remain in the target column.
- * - Static map for Arabic + phrase list for other targets + residual Latin token pass (MT + global DB memory).
- */
-export async function repairEnglishDomainLeaksInTranslation(
-  translated: string,
-  srcCode: string,
-  tgtCode: string,
-  tgtLangBcp47: string,
-  opts?: { interim?: boolean },
-): Promise<string> {
-  if (srcCode !== "en" || tgtCode === "en" || !translated?.trim()) {
-    return translated;
-  }
-
-  // Live interim OpenAI: only cheap Arabic static map — skip parallel MT / DB memory (major latency per chunk).
-  if (opts?.interim) {
-    if (tgtCode === "ar") return applyArabicStaticLeakReplacements(translated);
-    return translated;
-  }
-
-  let t = translated;
-  if (tgtCode === "ar") {
-    t = applyArabicStaticLeakReplacements(t);
-  } else {
-    t = await repairPhraseListEnglishLeaks(t, tgtLangBcp47);
-  }
-
-  t = await repairResidualLatinWordLeaks(t, srcCode, tgtCode, tgtLangBcp47);
-  return t;
 }

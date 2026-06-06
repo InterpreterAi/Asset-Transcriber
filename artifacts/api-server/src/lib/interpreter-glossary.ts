@@ -388,6 +388,38 @@ export function restoreGlossaryPlaceholders(
 }
 
 /** System prompt fragment: model must keep TERM_n tokens verbatim when present. */
+/**
+ * trial-hetzner EN→AR: if source contained a glossary term but Libre left Latin letters in output,
+ * force the curated target-language gloss (no OpenAI).
+ */
+export function repairInterpreterGlossaryLeaksFromSource(
+  sourceText: string,
+  translated: string,
+  tgtLang: string,
+): string {
+  initInterpreterGlossaries();
+  if (!sourceText.trim() || !translated.trim() || phraseMatchers.length === 0) return translated;
+
+  const picked = pickNonOverlappingMatches(sourceText, phraseMatchers);
+  let out = translated;
+  for (const h of picked) {
+    const entry = entries[h.entryIndex];
+    if (!entry) continue;
+    const replacement = pickTranslationForLang(entry, tgtLang);
+    const surfaces = new Set<string>();
+    surfaces.add(entry.canonicalKey.trim());
+    surfaces.add(entry.translations.en.trim());
+    const matchedSurface = sourceText.slice(h.start, h.end).trim();
+    if (matchedSurface.length >= 2) surfaces.add(matchedSurface);
+    for (const surf of surfaces) {
+      if (!surf || surf.length < 2 || !/[A-Za-z]/.test(surf)) continue;
+      const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(surf)}(?![\\p{L}\\p{N}_])`, "giu");
+      if (re.test(out)) out = out.replace(re, () => replacement);
+    }
+  }
+  return out.replace(/\s{2,}/g, " ").trim();
+}
+
 export function glossaryPlaceholderPromptRule(slotCount: number): string {
   if (slotCount <= 0) return "";
   return (

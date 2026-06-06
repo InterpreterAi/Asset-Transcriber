@@ -12,10 +12,15 @@
  */
 
 import { callHetznerTranslate, type HetznerMtRoutingHint } from "./hetzner-translate.js";
-import { applyArabicStaticLeakReplacements } from "./en-to-arabic-script-clinical-leaks.js";
+import {
+  applyArabicStaticLeakReplacements,
+  polishArabicEnglishGlueLeaks,
+} from "./en-to-arabic-script-clinical-leaks.js";
+import { repairEnglishDomainLeaksInTranslation } from "./english-domain-leak-repair.js";
 import {
   applyGlossaryPlaceholders,
   initInterpreterGlossaries,
+  repairInterpreterGlossaryLeaksFromSource,
   restoreGlossaryPlaceholders,
 } from "./interpreter-glossary.js";
 import { repairEnglishCalendarWordsInCleanTranslation } from "./english-calendar-i18n.js";
@@ -60,19 +65,26 @@ function polishArabicTranslationOutput(text: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
-function finalizeTrialHetznerCleanOutput(
+async function finalizeTrialHetznerCleanOutput(
   restoredRaw: string,
+  sourcePlain: string,
   srcCode: string,
   tgtCode: string,
   tgtLangBcp47: string,
-): string {
+  mtOpts: TrialHetznerCleanMtOpts,
+): Promise<string> {
   let t = stripStrayLatinAuxiliaryTokens(restoredRaw, srcCode, tgtCode);
   t = repairEnglishCalendarWordsInCleanTranslation(t, tgtLangBcp47);
   if (srcCode === "en" && tgtCode === "ar") {
+    t = repairInterpreterGlossaryLeaksFromSource(sourcePlain, t, tgtLangBcp47);
+    t = polishArabicEnglishGlueLeaks(t);
     t = applyArabicStaticLeakReplacements(t);
-    if (/[A-Za-z]{3,}/.test(t)) {
-      t = applyArabicStaticLeakReplacements(t);
-    }
+    t = polishArabicEnglishGlueLeaks(t);
+    t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, {
+      mtOpts,
+      maxResidualTokens: 35,
+    });
+    t = polishArabicEnglishGlueLeaks(t);
   }
   if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t.trim();
@@ -117,7 +129,14 @@ export async function runTrialHetznerCleanTranslation(args: {
         : undefined,
     });
     const restored = restoreTrialHetznerCleanOutput(raw, numMask, glossary.slotToEntryIndex, tgtLangBcp47);
-    return finalizeTrialHetznerCleanOutput(restored, srcCode, tgtCode, tgtLangBcp47);
+    return finalizeTrialHetznerCleanOutput(
+      restored,
+      args.text,
+      srcCode,
+      tgtCode,
+      tgtLangBcp47,
+      args.mtOpts,
+    );
   }
 
   let out = await callOnce(0);

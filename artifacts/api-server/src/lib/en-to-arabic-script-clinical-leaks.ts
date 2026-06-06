@@ -148,10 +148,61 @@ const ENGLISH_TO_ARABIC_REPLACEMENTS_RAW: [string, string][] = [
   ["transient ischemic attack", "نوبة نقص تروية عابرة"],
   ["creatinine", "الكرياتينين"],
   ["hemoglobin a1c", "الهيموغلوبين الغليكوزيلي"],
+  ["glycosylated hemoglobin", "الهيموغلوبين الغليكوزيلي"],
   ["hba1c", "الهيموغلوبين الغليكوزيلي"],
   ["bnp", "الببتيد الناتريوريتي"],
   ["nt-probnp", "الببتيد الناتريوريتي"],
   ["mg/dl", "ملغ/دL"],
+  ["estimated glomerular filtration rate", "معدل الترشيح الكلوي المقدّر"],
+  ["glomerular filtration rate", "معدل الترشيح الكلوي"],
+  ["egfr", "معدل الترشيح الكلوي المقدّر"],
+  ["ml/min per 1.73 m2", "مل/دقيقة لكل 1.73 متر مربع"],
+  ["mL/min per 1.73 m2", "مل/دقيقة لكل 1.73 متر مربع"],
+  ["urine microalbumin-to-creatinine ratio", "نسبة الألبومين الجزيئي الدقيق في البول إلى الكرياتينين"],
+  ["microalbumin-to-creatinine ratio", "نسبة الألبومين الجزيئي الدقيق في البول إلى الكرياتينين"],
+  ["microalbumin", "الألبومين الجزيئي الدقيق"],
+  ["dyslipidemia", "خلل شحميات الدم"],
+  ["ischemic cardiomyopathy", "اعتلال عضلة القلب الإقفاري"],
+  ["hypertensive heart disease", "مرض القلب الضغطي"],
+  ["cardiomyopathy", "اعتلال عضلة القلب"],
+  ["microvascular complications", "مضاعفات الأوعية الدقيقة"],
+  ["long-standing", "مزمن"],
+  ["transthoracic echocardiogram", "تخطيط صدى القلب عبر الصدر"],
+  ["transthoracic", "عبر الصدر"],
+  ["coronary computed tomography angiography", "التصوير المقطعي المحوسب للأوعية التاجية"],
+  ["coronary ct angiography", "التصوير المقطعي المحوسب للأوعية التاجية"],
+  ["computed tomography angiography", "التصوير المقطعي المحوسب للأوعية"],
+  ["coronary angiography", "تصوير الأوعية التاجية"],
+  ["angiography", "تصوير الأوعية"],
+  ["ambulatory holter monitoring", "مراقبة هولتر الخارجية"],
+  ["holter monitoring", "مراقبة هولتر"],
+  ["holter", "هولتر"],
+  ["comprehensive metabolic panel", "لوحة الأيض الشاملة"],
+  ["comprehensive", "شامل"],
+  ["metabolic panel", "لوحة الأيض"],
+  ["coronary", "التاجي"],
+  ["urine", "البول"],
+  ["ratio", "النسبة"],
+  ["significantly elevated", "مرتفع بشكل ملحوظ"],
+  ["cardiac sympathetic", "الودي القلبي"],
+  ["sympathetic", "ودي"],
+  ["like to order", "أود أن أطلب"],
+  ["i would like to order", "أود أن أطلب"],
+  ["the different diagnosis", "التشخيصات المختلفة"],
+  ["the different diag", "التشخيصات المختلفة"],
+  ["different diag", "التشخيصات المختلفة"],
+  ["diag", "التشخيص"],
+  ["diagnosis", "التشخيص"],
+  ["diagnoses", "التشخيصات"],
+  ["includes", "يشمل"],
+  ["includess", "يشمل"],
+  ["secondary to", "ثانوي لـ"],
+  ["early stage", "المراحل المبكرة"],
+  ["early stages", "المراحل المبكرة"],
+  ["type ii", "النوع الثاني"],
+  ["type 2", "النوع الثاني"],
+  ["type i", "النوع الأول"],
+  ["type 1", "النوع الأول"],
 ];
 
 /**
@@ -210,5 +261,39 @@ export function applyArabicStaticLeakReplacements(translated: string): string {
     const re = new RegExp(`(?<![A-Za-z])${escapeRegExpForLeaks(en)}(?![A-Za-z])`, "gi");
     t = t.replace(re, ar);
   }
+  return t.replace(/\s{2,}/g, " ").trim();
+}
+
+/**
+ * Mixed Arabic/Latin glue from Libre partial translation (EN→AR live medical).
+ * Runs after static phrase map; cheap, no extra MT calls.
+ */
+export function polishArabicEnglishGlueLeaks(translated: string): string {
+  if (!translated || !/[\u0600-\u06FF]/.test(translated)) return translated;
+  let t = translated;
+  t = t.replace(
+    /([\u0600-\u06FF][\u0600-\u06FF\s،,؛]*?)\s+is\s+(NUM_\d+|\d[\d.,%]*)/giu,
+    "$1 يبلغ $2",
+  );
+  t = t.replace(/([\u0600-\u06FF][\u0600-\u06FF\s،,؛]*?)\s+is\s+/giu, "$1 ");
+  t = t.replace(/\b(and|or)\b/gi, "و");
+  t = t.replace(/\bto-\b/gi, "إلى");
+  t = t.replace(
+    /\burine\s+microalbumin-to-([\u0600-\u06FF]+)\s+ratio\b/giu,
+    "نسبة الألبومين الجزيئي الدقيق في البول إلى $1",
+  );
+  t = t.replace(
+    /\bالبول\s+microalbumin-to-([\u0600-\u06FF]+)\s+النسبة\b/giu,
+    "نسبة الألبومين الجزيئي الدقيق في البول إلى $1",
+  );
+  t = t.replace(
+    /\bالبول\s+الألبومين الجزيئي الدقيق-to-([\u0600-\u06FF]+)\s+النسبة\b/giu,
+    "نسبة الألبومين الجزيئي الدقيق في البول إلى $1",
+  );
+  t = t.replace(/\bThe\s+(?=[\u0600-\u06FF])/gi, "");
+  t = t.replace(/(?<=[\u0600-\u06FF][\u0600-\u06FF\s،,؛]*)\s+The\s+/giu, " ");
+  t = t.replace(/\bI\.\s+like\s+to\s+order\b/gi, "أود أن أطلب");
+  t = t.replace(/\bI\.\s+(?=[\u0600-\u06FF])/gi, "");
+  t = t.replace(/\ba\s+(?=[\u0600-\u06FF])/gi, "");
   return t.replace(/\s{2,}/g, " ").trim();
 }
