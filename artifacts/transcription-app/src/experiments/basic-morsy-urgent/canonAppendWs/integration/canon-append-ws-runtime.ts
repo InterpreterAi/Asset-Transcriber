@@ -58,6 +58,10 @@ export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
   /** Fired when Soniox returns non-empty speech tokens (not endpoint markers). */
   onSpeechToken?: () => void;
+  /** Clean MT: faster volatile pulse (default 800ms). */
+  getVolatilePulseIntervalMs?: () => number;
+  /** Clean MT: lower NF tail threshold before volatile translate (default 6). */
+  getVolatileTailMinChars?: () => number;
   /** Stable buffer grew (bold commits) — primary translate trigger. */
   onActiveRowStableGrow?: (payload: CanonRowDualBufferPayload) => void;
   /** Volatile tail pulse while grey NF grows without new commits. */
@@ -218,9 +222,19 @@ export class CanonAppendWsIsolatedRuntime {
     return snap.visibleText.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS ? snap : null;
   }
 
+  private volatileTailMinChars(): number {
+    const custom = this.hooks.getVolatileTailMinChars?.();
+    return typeof custom === "number" && custom > 0 ? custom : CANON_VOLATILE_TAIL_MIN_CHARS;
+  }
+
+  private volatilePulseIntervalMs(): number {
+    const custom = this.hooks.getVolatilePulseIntervalMs?.();
+    return typeof custom === "number" && custom > 0 ? custom : CANON_VOLATILE_TAIL_PULSE_MS;
+  }
+
   private hasVolatileTail(snap: CanonRowDualBufferPayload): boolean {
     return (
-      snap.volatileTail.length >= CANON_VOLATILE_TAIL_MIN_CHARS &&
+      snap.volatileTail.length >= this.volatileTailMinChars() &&
       snap.visibleText.length > snap.stableText.length
     );
   }
@@ -236,7 +250,7 @@ export class CanonAppendWsIsolatedRuntime {
       if (next && this.hasVolatileTail(next)) {
         this.scheduleVolatilePulseLoop();
       }
-    }, CANON_VOLATILE_TAIL_PULSE_MS);
+    }, this.volatilePulseIntervalMs());
   }
 
   private syncVolatilePulseLoop(snap: CanonRowDualBufferPayload | null): void {
