@@ -8,7 +8,7 @@ import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
 import {
   createWorkspaceCopyButton,
   markWorkspaceSelectableText,
-  runOrDeferPaintWhileSelecting,
+  runWorkspaceDomMutation,
   WORKSPACE_SELECTABLE_TEXT_CLASS,
 } from "@/lib/workspace-text-selection";
 
@@ -117,7 +117,9 @@ export class CanonAppendWsDomWriter {
       });
     }
     const handles = this.byRowId.get(rowId);
-    if (handles) this.paintTranslation(handles);
+    if (handles) {
+      runWorkspaceDomMutation(() => this.paintTranslation(handles!));
+    }
   }
 
   /** Locked stable prefix (DOM frozen) + live tail (updated each interim response). */
@@ -148,7 +150,9 @@ export class CanonAppendWsDomWriter {
       nextLive: liveTrim,
       nextComposed: composed,
     });
-    if (handles) this.paintTranslationPrefixLive(handles, prev);
+    if (handles) {
+      runWorkspaceDomMutation(() => this.paintTranslationPrefixLive(handles!, prev));
+    }
   }
 
   getRowTranslation(rowId: string): string {
@@ -182,18 +186,17 @@ export class CanonAppendWsDomWriter {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
     const prevRendered = handles.translationEl.textContent ?? "";
-    runOrDeferPaintWhileSelecting(handles.translationEl, () => {
-      if (this.layoutMode === "stacked") {
-        const textEl = this.stackedTranslationTextEl(handles.translationEl);
-        textEl.textContent = text;
-        const arrow = handles.translationEl.querySelector(`[data-caw-translation-arrow]`);
-        if (arrow instanceof HTMLElement) {
-          arrow.style.display = text.length ? "" : "none";
-        }
-      } else {
-        handles.translationEl.textContent = text;
+    if (this.layoutMode === "stacked") {
+      const textEl = this.stackedTranslationTextEl(handles.translationEl);
+      if (textEl.textContent === text) return;
+      textEl.textContent = text;
+      const arrow = handles.translationEl.querySelector(`[data-caw-translation-arrow]`);
+      if (arrow instanceof HTMLElement) {
+        arrow.style.display = text.length ? "" : "none";
       }
-    });
+    } else if (handles.translationEl.textContent !== text) {
+      handles.translationEl.textContent = text;
+    }
     if (!this.translationPrefixLiveByRowId.has(rowId)) {
       logChunkV2DomPaint({
         rowId,
@@ -234,28 +237,35 @@ export class CanonAppendWsDomWriter {
       this.paintTranslation(handles);
       return;
     }
+    const composedTarget =
+      parts.locked && parts.live
+        ? `${parts.locked} ${parts.live}`
+        : parts.locked || parts.live;
     const prevRendered = handles.translationEl.textContent ?? "";
-    runOrDeferPaintWhileSelecting(handles.translationEl, () => {
-      const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
-      const useBidi =
-        parts.rtlBidiPaint === true &&
-        shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
-      markWorkspaceSelectableText(lockedEl);
-      markWorkspaceSelectableText(liveEl);
-      if (useBidi) {
-        handles.translationEl.setAttribute("dir", "rtl");
-        if (prev?.locked !== parts.locked) {
-          lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
-        }
-        liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
-        return;
-      }
-      handles.translationEl.removeAttribute("dir");
+    if (prevRendered.trim() === composedTarget.trim()) return;
+    const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
+    const useBidi =
+      parts.rtlBidiPaint === true &&
+      shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
+    markWorkspaceSelectableText(lockedEl);
+    markWorkspaceSelectableText(liveEl);
+    if (useBidi) {
+      handles.translationEl.setAttribute("dir", "rtl");
       if (prev?.locked !== parts.locked) {
-        lockedEl.textContent = parts.locked;
+        lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
       }
+      if (liveEl.textContent !== parts.live) {
+        liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
+      }
+      return;
+    }
+    handles.translationEl.removeAttribute("dir");
+    if (prev?.locked !== parts.locked) {
+      lockedEl.textContent = parts.locked;
+    }
+    if (liveEl.textContent !== parts.live) {
       liveEl.textContent = parts.live;
-    });
+    }
     logChunkV2DomPaint({
       rowId,
       method: "paintTranslationPrefixLive",
@@ -369,8 +379,13 @@ export class CanonAppendWsDomWriter {
 
   /** Row-order sync — append-only committed per row; active tail via hypothesis span only. */
   syncRows(container: HTMLElement, projections: RowProjection[]): void {
+    runWorkspaceDomMutation(() => this.syncRowsImpl(container, projections));
+  }
+
+  private syncRowsImpl(container: HTMLElement, projections: RowProjection[]): void {
     const seen = new Set<string>();
-    for (const proj of projections) {
+    for (let i = 0; i < projections.length; i++) {
+      const proj = projections[i]!;
       seen.add(proj.row_id);
       let handles = this.byRowId.get(proj.row_id);
       if (!handles) {
@@ -380,7 +395,16 @@ export class CanonAppendWsDomWriter {
         this.byRowId.delete(proj.row_id);
         handles = this.createRow(container, proj);
       }
-      container.appendChild(handles.row);
+
+      const insertBefore =
+        i + 1 < projections.length
+          ? this.byRowId.get(projections[i + 1]!.row_id)?.row ?? null
+          : null;
+      if (handles.row.parentElement !== container) {
+        container.insertBefore(handles.row, insertBefore);
+      } else if (handles.row.nextElementSibling !== insertBefore) {
+        container.insertBefore(handles.row, insertBefore);
+      }
 
       const card = handles.row.firstElementChild;
       const body = card?.children[1] as HTMLElement | undefined;
@@ -389,16 +413,18 @@ export class CanonAppendWsDomWriter {
 
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
-      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
+      const stripeClass = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
+      if (handles.stripe.className !== stripeClass) {
+        handles.stripe.className = stripeClass;
+      }
 
       if (!line || !hypo) continue;
 
-      runOrDeferPaintWhileSelecting(line, () => {
-        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-      });
-      runOrDeferPaintWhileSelecting(hypo, () => {
-        renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
-      });
+      renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+      const nextHypo = proj.finalized ? "" : proj.liveText;
+      if (hypo.textContent !== nextHypo) {
+        renderHypothesisLcp(hypo, nextHypo);
+      }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(
           handles,

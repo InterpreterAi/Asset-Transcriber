@@ -7,6 +7,7 @@ import type { LangPair } from "@/lib/interpreter-stt-context";
 import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { buildSonioxLanguageHints, sonioxRealtimeSessionTuning } from "@/lib/soniox-stt-language-hints";
 
+import { shouldPauseWorkspaceDomPaint } from "@/lib/workspace-text-selection";
 import { LIVE_RENDER_BATCH_MS } from "../policies/segmentation-constants";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
@@ -101,6 +102,8 @@ export class CanonAppendWsIsolatedRuntime {
 
   private lastActiveStableEmitted = "";
 
+  private pendingDomFlush = false;
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -186,6 +189,7 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   private notifyAfterPaint(): void {
+    if (shouldPauseWorkspaceDomPaint()) return;
     this.hooks.onAfterDomPaint?.();
     this.hooks.onVisualTick?.();
   }
@@ -283,10 +287,34 @@ export class CanonAppendWsIsolatedRuntime {
     this.lastFrozenCount = frozen.length;
   }
 
+  /** Drop queued rAF paints — called when the user starts selecting text. */
+  cancelPendingDomPaint(): void {
+    this.scheduler.cancel();
+    this.pendingDomFlush = true;
+  }
+
+  /** Resume live transcript DOM after the user finishes selecting/copying text. */
+  flushPendingDom(): void {
+    if (!this.containerEl || shouldPauseWorkspaceDomPaint()) return;
+    if (!this.pendingDomFlush) return;
+    this.pendingDomFlush = false;
+    this.flushDomImmediate();
+  }
+
   private flushDomImmediate(): void {
     if (!this.containerEl) return;
+    if (shouldPauseWorkspaceDomPaint()) {
+      this.pendingDomFlush = true;
+      return;
+    }
+    this.pendingDomFlush = false;
     const snap = this.projections.getProjection();
     this.scheduler.schedule(() => {
+      if (shouldPauseWorkspaceDomPaint()) {
+        this.pendingDomFlush = true;
+        return;
+      }
+      this.pendingDomFlush = false;
       this.hooks.onBeforeDomPaint?.();
       this.writer.syncRows(this.containerEl!, snap.rows);
       this.notifyAfterPaint();
