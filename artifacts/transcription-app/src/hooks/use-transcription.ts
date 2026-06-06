@@ -326,6 +326,8 @@ const CLEAN_MT_VOLATILE_TAIL_MIN_CHARS = 3;
 const CLEAN_MT_LIVE_PREVIEW_CHAR_STEP = 8;
 const CLEAN_MT_LIVE_MAX_WAIT_MS = 180;
 const CLEAN_MT_LIVE_TRANSLATION_DEBOUNCE_MS = 35;
+const CLEAN_MT_BLANK_BACKFILL_MS = 400;
+const CLEAN_MT_STALE_ABORT_GROW_CHARS = 10;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
@@ -3312,6 +3314,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchCanonVolatilePulseRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonTrialLiveGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCleanMtSpeechTokenTranslateRef = useRef<() => void>(() => {});
+  const executeCanonFrozenRowTranslationImplRef = useRef<
+    (payload: CanonFrozenRowPayload, implOpts?: { force?: boolean }) => Promise<void>
+  >(async () => {});
+  const executeCanonTrialRowTranslationRef = useRef<
+    (payload: CanonRowDualBufferPayload, opts: { sourceText: string; isFinal: boolean }) => Promise<void>
+  >(async () => {});
   const dispatchCanonTrialEndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonActiveRowTranslationFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2StableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
@@ -6045,6 +6053,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       trialSt.lastFinalSource = sourceNorm;
       trialSt.lastDispatchedSource = sourceNorm;
       morsyCanonFrozenRetryCountRef.current.delete(rowId);
+    } else if (morsyUsesCleanTranslationExperiment()) {
+      const tries = morsyCanonFrozenRetryCountRef.current.get(rowId) ?? 0;
+      morsyCanonFrozenRetryCountRef.current.set(rowId, tries + 1);
+      if (tries < MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES) {
+        setTimeout(() => {
+          void executeCanonFrozenRowTranslationImpl(payload, { force: true });
+        }, 320);
+      }
     }
     onAdminSnapshotBuffersUpdatedRef.current?.();
     } finally {
@@ -6112,25 +6128,29 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const scanMorsyCanonBlankFrozenTranslations = useCallback(() => {
     if (!translationEnabledRef.current || !isRecRef.current) return;
     if (!canonWsIsolationGateNow()) return;
-    if (!morsyUsesCleanTranslationExperiment() && !morsyUrgentCanonLivePathNow()) return;
+    const cleanMt = morsyUsesCleanTranslationExperiment();
+    if (!cleanMt && !morsyUrgentCanonLivePathNow()) return;
     const now = Date.now();
-    if (now - morsyCanonBackfillLastMsRef.current < 1200) return;
+    const backfillMs = cleanMt ? CLEAN_MT_BLANK_BACKFILL_MS : 1200;
+    if (now - morsyCanonBackfillLastMsRef.current < backfillMs) return;
     morsyCanonBackfillLastMsRef.current = now;
 
     const eng = canonWsIsolationEngineRef.current;
     if (!eng) return;
     const proj = eng.getTranscriptProjection();
     for (const row of proj.rows) {
-      if (!row.finalized) continue;
       const committed = row.committedText.trim();
-      if (committed.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) continue;
+      const visible = (row.committedText + row.liveText).trim();
+      const source = visible.length >= committed.length ? visible : committed;
+      if (source.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) continue;
       const tr = eng.getRowTranslation(row.row_id).trim();
-      if (tr.length > 0 && !isCleanMtMetaOrRefusalTranslation(tr, committed)) continue;
+      if (tr.length > 0 && !isCleanMtMetaOrRefusalTranslation(tr, source)) continue;
       if (morsyCanonFrozenQueuedIdsRef.current.has(row.row_id)) continue;
       const tries = morsyCanonFrozenRetryCountRef.current.get(row.row_id) ?? 0;
       if (tries >= MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES) continue;
-      enqueueMorsyCanonFrozenTranslation(
-        {
+
+      if (row.finalized) {
+        const frozenPayload: CanonFrozenRowPayload = {
           utterance: {
             utterance_id: row.row_id,
             finalTokens: [],
@@ -6141,11 +6161,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           },
           lineIndex: 0,
           committedText: committed,
-        },
-        true,
-      );
+        };
+        if (cleanMt) {
+          void executeCanonFrozenRowTranslationImplRef.current(frozenPayload, { force: true });
+        } else {
+          enqueueMorsyCanonFrozenTranslation(frozenPayload, true);
+        }
+        continue;
+      }
+
+      if (!cleanMt) continue;
+      const trialSt = getCanonTrialRowTransState(row.row_id);
+      if (trialSt.liveInFlight || trialSt.locked) continue;
+      const snap = eng.getRowDualBuffer(row.row_id);
+      if (!snap) continue;
+      void executeCanonTrialRowTranslationRef.current(snap, { sourceText: source, isFinal: false });
     }
-  }, [enqueueMorsyCanonFrozenTranslation]);
+  }, [enqueueMorsyCanonFrozenTranslation, getCanonTrialRowTransState]);
 
   const executeCanonDualBufferTranslation = useCallback(async (
     payload: CanonRowDualBufferPayload,
@@ -6465,7 +6497,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     rowState.pendingLiveSource = sourceNow;
     rowState.pendingLivePayload = payload;
-    if (rowState.liveInFlight) return;
+    if (rowState.liveInFlight) {
+      if (
+        morsyUsesCleanTranslationExperiment() &&
+        sourceNow.length > rowState.lastDispatchedSource.trim().length + CLEAN_MT_STALE_ABORT_GROW_CHARS
+      ) {
+        rowState.liveAbort?.abort();
+      }
+      return;
+    }
 
     rowState.liveInFlight = true;
     let cleanMtJunkRetries = 0;
@@ -6655,11 +6695,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             if (!rowState.pendingLiveSource) break;
             continue;
           }
-          rowState.lastDispatchedSource = liveSource;
           if (morsyPrefixLive) {
             paintMorsyCanonLiveRowTranslation(rowId, stableTextAtDispatch, liveSource, translationReturned);
+            rowState.lastDispatchedSource = liveSource;
           } else {
-            paintCanonRowTranslationIfAllowed(rowId, translationReturned);
+            paintCanonRowTranslationIfAllowed(rowId, translationReturned, { force: morsyClean });
+            const rendered = eng?.getRowTranslation(rowId).trim() ?? "";
+            if (rendered.length > 0) {
+              rowState.lastDispatchedSource = liveSource;
+            }
           }
           if (canonAnchoringDiag) {
             const translationRendered = eng?.getRowTranslation(rowId).trim() ?? "";
@@ -7118,6 +7162,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const metaPollutedTranslation =
       morsyClean && isCleanMtMetaOrRefusalTranslation(existingTranslation, stableOnly || visible);
+    const cleanMtBlankResume =
+      morsyClean &&
+      stableOnly.length >= 3 &&
+      !existingTranslation.length &&
+      stableOnly === st.lastDispatchedSource.trim();
 
     // Clean MT: translate as soon as grey NF appears (keeps column live during dialogue).
     if (morsyClean && visible.length >= 3 && (!existingTranslation.length || metaPollutedTranslation)) {
@@ -7136,7 +7185,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (
       morsyClean &&
       stableOnly.length >= 3 &&
-      (stableOnly !== st.lastDispatchedSource.trim() || metaPollutedTranslation)
+      (stableOnly !== st.lastDispatchedSource.trim() || metaPollutedTranslation || cleanMtBlankResume)
     ) {
       st.earlyHintSent = true;
       st.lastPreviewWordsSent = countWords(visible);
@@ -7247,7 +7296,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (!translationEnabledRef.current || !canonWsIsolationGateNow() || !isRecRef.current) return;
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getActiveRowDualBuffer();
-    if (!snap || snap.volatileTail.trim().length < CLEAN_MT_VOLATILE_TAIL_MIN_CHARS) return;
+    if (!snap) return;
+    const visible = snap.visibleText.trim();
+    if (visible.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
     dispatchCanonTrialLiveGrow(snap);
   }, [dispatchCanonTrialLiveGrow]);
 
@@ -7310,6 +7361,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dispatchCanonActiveRowTranslationFlush(payload);
     };
   }, [dispatchCanonActiveRowTranslationFlush]);
+
+  useEffect(() => {
+    executeCanonFrozenRowTranslationImplRef.current = executeCanonFrozenRowTranslationImpl;
+  }, [executeCanonFrozenRowTranslationImpl]);
+
+  useEffect(() => {
+    executeCanonTrialRowTranslationRef.current = executeCanonTrialRowTranslation;
+  }, [executeCanonTrialRowTranslation]);
 
   useEffect(() => {
     dispatchCanonTrialLiveGrowRef.current = (payload) => {
