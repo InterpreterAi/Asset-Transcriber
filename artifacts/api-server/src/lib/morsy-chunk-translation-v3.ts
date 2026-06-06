@@ -1,17 +1,7 @@
 /**
- * Morsy Chunk V3 Translation Engine — multi-language rebuild.
- * Faithful "mirror" translation. All 31 pairs. Drop-proof. Western digits enforced.
+ * Morsy Chunk V3 — shared validation, prompts, and digit helpers.
+ * Live translation for morsy-urgent Chunk V3 uses trial-hetzner via `morsy-chunk-translation-v3-hetzner.ts`.
  */
-
-import { openai } from "./openai-client.js";
-import {
-  applyMorsyChunkV3EntityMask,
-  restoreMorsyChunkV3EntityMask,
-} from "./morsy-chunk-v3-entity-mask.js";
-import { logger } from "./logger.js";
-
-const chunkV3ServerDiagEnabled = () =>
-  String(process.env.MORSY_CHUNK_V3_DIAG ?? "").trim() === "1";
 
 const LANG_NAMES: Record<string, string> = {
   ar: "Arabic",
@@ -54,12 +44,6 @@ const LANG_NAMES: Record<string, string> = {
 
 function langName(code: string): string {
   return LANG_NAMES[code] ?? LANG_NAMES[code?.toLowerCase()] ?? code;
-}
-
-export interface MorsyChunkV3TranslationResult {
-  text: string;
-  promptTokens: number;
-  completionTokens: number;
 }
 
 const DIGIT_MAP: Record<string, string> = {};
@@ -116,121 +100,3 @@ export function validateChunkV3Input(text: string): string {
   return text.trim();
 }
 
-function isBadOutput(output: string, sourceText: string): boolean {
-  const t = output.trim();
-  if (t.length === 0) return true;
-
-  const lower = t.toLowerCase();
-  const refusalSignals = [
-    "i cannot help",
-    "i can't help",
-    "i'm sorry",
-    "i am sorry",
-    "sorry, i can",
-    "no text provided",
-    "as an ai",
-    "i cannot translate",
-  ];
-  if (t.length < 60 && refusalSignals.some((s) => lower.includes(s))) return true;
-
-  if (/\bNUM_\d+\b/.test(t)) return true;
-  if (/__(NUM|UNIT|NAME)_\d+__/.test(t)) return true;
-  if (t === sourceText.trim()) return true;
-
-  return false;
-}
-
-export async function translateMorsyChunkV3Sentence(args: {
-  text: string;
-  sourceLang: string;
-  targetLang: string;
-}): Promise<MorsyChunkV3TranslationResult> {
-  const text = validateChunkV3Input(args.text);
-  if (text === "") return { text: "", promptTokens: 0, completionTokens: 0 };
-
-  const sourceName = langName(args.sourceLang);
-  const targetName = langName(args.targetLang);
-
-  let promptTokens = 0;
-  let completionTokens = 0;
-
-  const entityMask = applyMorsyChunkV3EntityMask(text);
-  const maskedText = entityMask.masked.trim();
-
-  const estTokens = Math.min(2000, Math.max(256, text.length * 3));
-
-  let lastOpenAiRaw = "";
-  let attemptCount = 0;
-
-  async function call(systemPrompt: string): Promise<string> {
-    attemptCount += 1;
-    const resp = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0,
-      max_tokens: estTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: maskedText },
-      ],
-    });
-    promptTokens += resp.usage?.prompt_tokens ?? 0;
-    completionTokens += resp.usage?.completion_tokens ?? 0;
-    const raw = resp.choices[0]?.message?.content?.trim() ?? "";
-    lastOpenAiRaw = raw;
-    return restoreMorsyChunkV3EntityMask(raw, entityMask.slotToLiteral);
-  }
-
-  let translated = await call(buildMorsyChunkV3SystemPrompt(sourceName, targetName));
-
-  if (isBadOutput(translated, text)) {
-    translated = await call(buildMorsyChunkV3SystemPrompt(sourceName, targetName));
-  }
-
-  if (isBadOutput(translated, text)) {
-    translated = await call(buildMorsyChunkV3FallbackPrompt(sourceName, targetName));
-  }
-
-  if (isBadOutput(translated, text)) {
-    if (chunkV3ServerDiagEnabled()) {
-      logger.info(
-        {
-          msg: "morsy_chunk_v3_diag",
-          outcome: "bad_output_empty",
-          sourceLang: args.sourceLang,
-          targetLang: args.targetLang,
-          rawChunk: text,
-          maskedChunk: maskedText,
-          openAiRaw: lastOpenAiRaw,
-          restoredChunk: translated,
-          normalizedChunk: "",
-          attemptCount,
-        },
-        "Morsy chunk V3 diagnostic",
-      );
-    }
-    return { text: "", promptTokens, completionTokens };
-  }
-
-  const restoredChunk = translated.trim();
-  translated = normalizeDigits(restoredChunk);
-
-  if (chunkV3ServerDiagEnabled()) {
-    logger.info(
-      {
-        msg: "morsy_chunk_v3_diag",
-        outcome: "ok",
-        sourceLang: args.sourceLang,
-        targetLang: args.targetLang,
-        rawChunk: text,
-        maskedChunk: maskedText,
-        openAiRaw: lastOpenAiRaw,
-        restoredChunk,
-        normalizedChunk: translated,
-        attemptCount,
-      },
-      "Morsy chunk V3 diagnostic",
-    );
-  }
-
-  return { text: translated, promptTokens, completionTokens };
-}
