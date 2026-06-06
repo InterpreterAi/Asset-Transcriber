@@ -43,7 +43,7 @@ import {
 } from "../lib/number-placeholders.js";
 import { runMorsyBasicCleanTranslation } from "../lib/morsy-basic-clean-translate.js";
 import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js";
-import { translateMorsyChunkV3Sentence } from "../lib/morsy-chunk-translation-v3.js";
+import { translateMorsyChunkV3HetznerSentence } from "../lib/morsy-chunk-translation-v3-hetzner.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
@@ -1838,35 +1838,53 @@ router.post("/translate", requireAuth, async (req, res) => {
   const morsyChunkV3Applies =
     experimentalMorsyUrgentChunkTranslationV3 && planLower === "morsy-urgent";
   if (morsyChunkV3Applies) {
-    if (!isOpenAiConfigured()) {
-      res.status(503).json({
-        error:
-          "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
-        code: "TRANSLATION_NOT_CONFIGURED",
-      });
-      return;
-    }
     if (srcCode === tgtCode) {
       res.json({ translated: text.trim(), appliedGlossaryTerms: [] });
       return;
     }
-    try {
-      const chunk = await translateMorsyChunkV3Sentence({
-        text,
-        sourceLang: srcName,
-        targetLang: tgtName,
+    const effectiveHetznerLane = effectiveMtLane(
+      translateSessionRow.hetznerMtManualLane,
+      translateSessionRow.hetznerMtAssignedLane,
+    );
+    if (effectiveHetznerLane == null) {
+      res.status(503).json({
+        error:
+          "Machine translation routing is not initialized for this session. Start a new recording session and try again.",
+        code: "HETZNER_MT_LANE_UNASSIGNED",
       });
-      const callCost = +(
-        chunk.promptTokens * OPENAI_INPUT_COST_PER_TOKEN +
-        chunk.completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
-      ).toFixed(8);
-      void db
-        .update(sessionsTable)
-        .set({
-          translationTokens: sql`COALESCE(translation_tokens, 0) + ${chunk.promptTokens + chunk.completionTokens}`,
-          translationCost: sql`COALESCE(translation_cost, 0) + ${callCost}`,
-        })
-        .where(and(eq(sessionsTable.userId, userIdEarly), isNull(sessionsTable.endedAt)));
+      return;
+    }
+    try {
+      const mtRoutingOpts = {
+        sessionId: diagSessionId,
+        planType: effectivePlanTypeResolved,
+        userEmail: translateUser.email,
+        resolvedLane: effectiveHetznerLane,
+        manualLane: translateSessionRow.hetznerMtManualLane ?? null,
+        assignedLane: translateSessionRow.hetznerMtAssignedLane ?? null,
+        wireDebug: buildHetznerMtWireDebug({
+          incomingSessionId,
+          diagSessionId,
+          streamingDelta,
+          isFinalSegment,
+          mtInvocationIndex: 0,
+        }),
+      };
+      const chunk = await translateMorsyChunkV3HetznerSentence({
+        text,
+        sourceLang: srcLang,
+        targetLang: tgtLang,
+        mtOpts: mtRoutingOpts,
+        sessionId: diagSessionId,
+      });
+      if (!chunk.text.trim() && text.trim().length >= 1) {
+        res.status(503).json({
+          error:
+            "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
+          code: "LIBRETRANSLATE_FAILED",
+        });
+        return;
+      }
       logger.info(
         {
           msg: "morsy_chunk_v3_translation",
@@ -1877,19 +1895,26 @@ router.post("/translate", requireAuth, async (req, res) => {
           textLen: text.length,
           outLen: chunk.text.length,
           isFinalSegment,
+          effectiveHetznerLane,
+          translationEngine: "hetzner",
         },
-        "POST /translate chunk V3 experiment",
+        "POST /translate chunk V3 hetzner experiment",
       );
       res.json({
         translated: chunk.text,
         appliedGlossaryTerms: [],
-        translationEngine: "openai",
+        translationEngine: "hetzner",
       });
     } catch (err: unknown) {
-      logger.error({ err, srcLang, tgtLang }, "Morsy chunk V3 translation failed");
-      res.status(500).json({
-        error: "Translation failed",
-        code: "MORSY_CHUNK_V3_TRANSLATION_FAILED",
+      const status = isAxiosError(err) ? err.response?.status : undefined;
+      logger.error(
+        { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
+        "Morsy chunk V3 Hetzner translation failed",
+      );
+      res.status(503).json({
+        error:
+          "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
+        code: "LIBRETRANSLATE_FAILED",
       });
     }
     return;
