@@ -95,6 +95,7 @@ import {
   type CanonFrozenRowPayload,
   type CanonRowDualBufferPayload,
 } from "@/experiments/basic-morsy-urgent/canonAppendWs/integration/canon-append-ws-runtime";
+import { logChunkV3DisplayPaint } from "@/experiments/basic-morsy-urgent/chunkTranslationV3/chunk-translation-v3-diag";
 import { MorsyChunkV3Engine } from "@/experiments/basic-morsy-urgent/chunkTranslationV3/morsy-chunk-v3-engine";
 import {
   canonVisibleTraceStagingTailPeek,
@@ -6917,9 +6918,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   useEffect(() => {
     chunkV3EngineRef.current = new MorsyChunkV3Engine({
-      getVisibleTextFromSTT: () => {
+      getVisibleSnapFromSTT: () => {
         const snap = canonWsIsolationEngineRef.current?.getActiveRowDualBuffer() ?? null;
-        return snap?.visibleText.trim() ?? null;
+        if (!snap) return null;
+        return {
+          visibleText: snap.visibleText.trim(),
+          stableText: snap.stableText.trim(),
+          volatileTail: snap.volatileTail.trim(),
+        };
       },
       getActiveRowId: () =>
         canonWsIsolationEngineRef.current?.getActiveRowDualBuffer()?.utterance.utterance_id ?? null,
@@ -6942,8 +6948,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         return tr.text;
       },
-      displayTranslation: (rowId, translation) => {
+      displayTranslation: (rowId, translation, eventId) => {
         const rtlBidiPaint = shouldMorsyChunkV2BidiPaint(translation);
+        logChunkV3DisplayPaint({ rowId, eventId, displayedChunk: translation, rtlBidiPaint });
         canonWsIsolationEngineRef.current?.setRowTranslationPrefixLive(rowId, translation, "", {
           rtlBidiPaint,
         });
