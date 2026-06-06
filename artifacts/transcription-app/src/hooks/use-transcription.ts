@@ -18,6 +18,10 @@ import {
   installWorkspaceSelectionPaintDeferral,
   markWorkspaceSelectableRoot,
   markWorkspaceSelectableText,
+  onWorkspaceDomPaintPause,
+  onWorkspaceDomPaintResume,
+  runWorkspaceDomMutation,
+  shouldPauseWorkspaceDomPaint,
 } from "@/lib/workspace-text-selection";
 import { readTerminologyMode } from "@/lib/terminology-mode-storage";
 import {
@@ -3725,6 +3729,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
     canonWsIsolationEngineRef.current.setHooks({
       onVisualTick: () => {
+        if (shouldPauseWorkspaceDomPaint()) return;
         const alive =
           canonWsIsolationRecordingRef.current || canonWsSnapshotFromEngineRef.current;
         const eng = canonWsIsolationEngineRef.current;
@@ -3776,6 +3781,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
       onAfterDomPaint: () => {
         if (!canonWsIsolationRecordingRef.current) return;
+        if (shouldPauseWorkspaceDomPaint()) return;
         scrollPanelFnRef.current?.(false, "canon_ws", canonWsTailFollowLatchRef.current);
       },
     });
@@ -3809,7 +3815,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef       = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => installWorkspaceSelectionPaintDeferral(), []);
+  useEffect(() => {
+    const cleanupGuard = installWorkspaceSelectionPaintDeferral();
+    const cleanupPause = onWorkspaceDomPaintPause(() => {
+      canonWsIsolationEngineRef.current?.cancelPendingDomPaint();
+    });
+    const cleanupResume = onWorkspaceDomPaintResume(() => {
+      canonWsIsolationEngineRef.current?.flushPendingDom();
+    });
+    return () => {
+      cleanupGuard();
+      cleanupPause();
+      cleanupResume();
+    };
+  }, []);
   /** Filled each render — lets early declarations (flush queue) call the latest sticky-tail snap safely. */
   const scrollPanelFnRef   = useRef<
     (
@@ -3933,7 +3952,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (!nfEl || !nfEl.isConnected) return false;
       const candidateRaw = st.morsyVisibleNfStagingPaint ?? "";
       const prevCommitted = st.morsyVisibleNfCommittedPaint;
-      nfEl.textContent = candidateRaw;
+      runWorkspaceDomMutation(() => {
+        nfEl.textContent = candidateRaw;
+      });
       st.morsyVisibleNfCommittedPaint = candidateRaw;
       st.lastRenderedNfPaint = candidateRaw;
       return prevCommitted !== candidateRaw;
@@ -4596,6 +4617,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       source: Exclude<TranscriptScrollPanelSource, "force"> = "bubble",
       followPreGrowth?: boolean,
     ) => {
+      if (!force && shouldPauseWorkspaceDomPaint()) return;
       const diag = transcriptScrollDiagEnabled();
       const morsyUrgentVp = isBasicMorsyUrgentPlan(planTypeRef.current.trim());
       if (force) {
