@@ -326,7 +326,9 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
+    const frozenBefore = this.state.finalizedUtterances.length;
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
+    const rowFrozenThisFrame = this.state.finalizedUtterances.length > frozenBefore;
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
       this.hooks.onSpeechToken?.();
@@ -350,7 +352,8 @@ export class CanonAppendWsIsolatedRuntime {
       }
     }
 
-    this.scheduleDomBatch(Boolean(frame.endpoint));
+    // Speaker flip / row freeze must fire translation hooks immediately — not after render batch delay.
+    this.scheduleDomBatch(Boolean(frame.endpoint) || rowFrozenThisFrame);
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
