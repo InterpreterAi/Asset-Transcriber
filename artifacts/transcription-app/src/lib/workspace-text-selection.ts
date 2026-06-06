@@ -36,10 +36,10 @@ function isInteractiveWorkspaceTarget(el: HTMLElement): boolean {
   return !!el.closest("button,a,input,textarea,select,[role='button'],[contenteditable='true']");
 }
 
-/** Any pointer in the transcript panel (not chrome buttons) — freeze paints + scroll. */
+/** Pointer on transcript/translation text only — not empty panel chrome or scroll gutters. */
 function isWorkspacePointerTarget(el: HTMLElement): boolean {
   if (isInteractiveWorkspaceTarget(el)) return false;
-  return !!el.closest(`.${WORKSPACE_SELECTABLE_ROOT_CLASS}`);
+  return !!el.closest(`.${WORKSPACE_SELECTABLE_TEXT_CLASS}`);
 }
 
 function syncActiveTextSelectionFromDocument(): void {
@@ -101,7 +101,7 @@ function drainDeferredDomMutations(): void {
 function endPointerInteraction(): void {
   if (!pointerSelecting) return;
   pointerSelecting = false;
-  resumeCooldownUntil = Date.now() + 600;
+  resumeCooldownUntil = Date.now() + 200;
   syncActiveTextSelectionFromDocument();
   window.requestAnimationFrame(() => {
     if (shouldPauseWorkspaceDomPaint()) return;

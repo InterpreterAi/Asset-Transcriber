@@ -379,7 +379,8 @@ export class CanonAppendWsDomWriter {
 
   /** Row-order sync — append-only committed per row; active tail via hypothesis span only. */
   syncRows(container: HTMLElement, projections: RowProjection[]): void {
-    runWorkspaceDomMutation(() => this.syncRowsImpl(container, projections));
+    // Structural row splits are gated in canon-append-ws-runtime (flushPendingDom on resume).
+    this.syncRowsImpl(container, projections);
   }
 
   private syncRowsImpl(container: HTMLElement, projections: RowProjection[]): void {

@@ -138,10 +138,20 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   if (frame.endpoint) {
+    const au = next.activeUtterance;
     next = {
       ...next,
       endpointPending: true,
       endpointPendingAtMs: wallMs,
+      ...(au
+        ? {
+            activeUtterance: {
+              ...au,
+              // Soniox `<end>`: drop prefetch NF so quiet-timer row close is not blocked during pauses.
+              nonFinalTokens: [],
+            },
+          }
+        : {}),
     };
   }
 
