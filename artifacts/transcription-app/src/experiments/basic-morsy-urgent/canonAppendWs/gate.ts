@@ -55,7 +55,7 @@ export function readCanonAppendWsIsolatedOptOutLegacy(): boolean {
 
 /**
  * Canon-append-ws Soniox STT (shared diarization/segmentation for every workspace tier).
- * Translation mode (Clean MT, Chunk V2/V3, OpenAI SKU) does not affect this gate.
+ * Translation mode (Clean MT, Chunk V2, OpenAI SKU) does not affect this gate.
  */
 export function gateCanonAppendWsIsolatedRebuild(args: {
   planTypeLower: string;

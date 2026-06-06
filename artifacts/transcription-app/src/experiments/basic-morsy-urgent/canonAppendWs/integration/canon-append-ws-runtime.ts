@@ -152,7 +152,7 @@ export class CanonAppendWsIsolatedRuntime {
     return this.writer.getRowTranslation(rowId);
   }
 
-  /** Active row dual buffer (stable + volatile visible text). Chunk V3 sentence poll only. */
+  /** Active row dual buffer (stable + volatile visible text). */
   getActiveRowDualBuffer(): CanonRowDualBufferPayload | null {
     return this.activeRowDualBuffer();
   }
