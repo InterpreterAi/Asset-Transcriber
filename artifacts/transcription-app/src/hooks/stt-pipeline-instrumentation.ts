@@ -609,7 +609,9 @@ export function recordSttWsFrame(params: {
   }
 }
 
-export function recordSttSegmentClose(kind: "speaker_change" | "session_end"): void {
+export function recordSttSegmentClose(
+  kind: "speaker_change" | "session_end" | "endpoint_pause",
+): void {
   if (!sttPipelineInstrumentationEnabled()) return;
   if (kind === "speaker_change") state.segmentClosesSpeakerChange += 1;
   else state.segmentClosesSessionEnd += 1;

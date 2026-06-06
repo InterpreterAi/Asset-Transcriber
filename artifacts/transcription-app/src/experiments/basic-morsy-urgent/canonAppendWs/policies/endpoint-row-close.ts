@@ -34,16 +34,17 @@ export function endsWithIncompleteSentenceFragment(text: string): boolean {
  * Intercall-style row close after endpoint — NOT on every `<end>`.
  * Requires: no live tail, sentence-ending committed text, quiet since last token.
  */
-export function shouldCloseRowAfterEndpoint(args: {
-  row: CanonUtterance;
+export function shouldCloseSegmentAfterEndpoint(args: {
+  committedText: string;
+  liveText: string;
   endpointPending: boolean;
   wallMs: number;
   lastTokenActivityWallMs: number;
   minCommittedChars?: number;
 }): boolean {
   if (!args.endpointPending) return false;
-  const committed = utteranceCommittedText(args.row);
-  const live = utteranceLiveText(args.row);
+  const committed = args.committedText;
+  const live = args.liveText;
   if (!committed.length || live.length > 0) return false;
   if (!endsWithSentenceBoundary(committed)) return false;
   if (endsWithIncompleteSentenceFragment(committed)) return false;
@@ -51,4 +52,21 @@ export function shouldCloseRowAfterEndpoint(args: {
   if (committed.trim().length < min) return false;
   if (args.lastTokenActivityWallMs <= 0) return false;
   return args.wallMs - args.lastTokenActivityWallMs >= ENDPOINT_ROW_CLOSE_QUIET_MS;
+}
+
+export function shouldCloseRowAfterEndpoint(args: {
+  row: CanonUtterance;
+  endpointPending: boolean;
+  wallMs: number;
+  lastTokenActivityWallMs: number;
+  minCommittedChars?: number;
+}): boolean {
+  return shouldCloseSegmentAfterEndpoint({
+    committedText: utteranceCommittedText(args.row),
+    liveText: utteranceLiveText(args.row),
+    endpointPending: args.endpointPending,
+    wallMs: args.wallMs,
+    lastTokenActivityWallMs: args.lastTokenActivityWallMs,
+    minCommittedChars: args.minCommittedChars,
+  });
 }
