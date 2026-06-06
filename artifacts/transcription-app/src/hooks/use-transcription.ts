@@ -7992,9 +7992,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals.slice(finalCountRef.current);
       const newFinalSet = new Set(newFinals);
-      const useMorsyUrgentSpeakerGate = segmentModeUsesStabilizedSonioxSpeakerPivot(
-        segmentBehaviorModeRef.current,
-      );
+      /** Canon STT tiers: instant speaker pivot (matches canonAppendWs reducer). Legacy tiers keep stabilized gate. */
+      const useInstantCanonSpeakerPivot = planUsesCanonAppendWsStt(planTypeRef.current.trim());
+      const useMorsyUrgentSpeakerGate =
+        !useInstantCanonSpeakerPivot &&
+        segmentModeUsesStabilizedSonioxSpeakerPivot(segmentBehaviorModeRef.current);
       const nowMs = Date.now();
       const pendingSidAtStart = pendingSpeakerSwitchRef.current?.sid;
       let pendingSidSeenInMessage = false;
