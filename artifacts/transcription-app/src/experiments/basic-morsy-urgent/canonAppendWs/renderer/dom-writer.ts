@@ -5,6 +5,12 @@ import {
   shouldMorsyChunkV2BidiPaint,
 } from "@/hooks/morsy-chunk-v2-bidi-render";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
+import {
+  createWorkspaceCopyButton,
+  markWorkspaceSelectableText,
+  runOrDeferPaintWhileSelecting,
+  WORKSPACE_SELECTABLE_TEXT_CLASS,
+} from "@/lib/workspace-text-selection";
 
 import type { CommittedDomMirror } from "./committed-renderer";
 import {
@@ -153,17 +159,41 @@ export class CanonAppendWsDomWriter {
     return rowIds.map(id => this.translationByRowId.get(id) ?? "");
   }
 
+  private stackedTranslationTextEl(translationEl: HTMLElement): HTMLSpanElement {
+    let arrow = translationEl.querySelector<HTMLSpanElement>(`[data-caw-translation-arrow]`);
+    let textEl = translationEl.querySelector<HTMLSpanElement>(`[data-caw-translation-text]`);
+    if (!arrow || !textEl) {
+      translationEl.replaceChildren();
+      arrow = translationEl.ownerDocument.createElement("span");
+      arrow.dataset.cawTranslationArrow = "1";
+      arrow.className = "text-muted-foreground/55 mr-1.5 select-none";
+      arrow.setAttribute("aria-hidden", "true");
+      arrow.textContent = "↳";
+      textEl = translationEl.ownerDocument.createElement("span");
+      textEl.dataset.cawTranslationText = "1";
+      textEl.className = WORKSPACE_SELECTABLE_TEXT_CLASS;
+      translationEl.appendChild(arrow);
+      translationEl.appendChild(textEl);
+    }
+    return textEl;
+  }
+
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
     const prevRendered = handles.translationEl.textContent ?? "";
-    if (this.layoutMode === "stacked") {
-      handles.translationEl.innerHTML = text.length
-        ? `<span class="text-muted-foreground/55 mr-1.5 select-none" aria-hidden="true">↳</span><span>${escapeHtml(text)}</span>`
-        : "";
-    } else {
-      handles.translationEl.textContent = text;
-    }
+    runOrDeferPaintWhileSelecting(handles.translationEl, () => {
+      if (this.layoutMode === "stacked") {
+        const textEl = this.stackedTranslationTextEl(handles.translationEl);
+        textEl.textContent = text;
+        const arrow = handles.translationEl.querySelector(`[data-caw-translation-arrow]`);
+        if (arrow instanceof HTMLElement) {
+          arrow.style.display = text.length ? "" : "none";
+        }
+      } else {
+        handles.translationEl.textContent = text;
+      }
+    });
     if (!this.translationPrefixLiveByRowId.has(rowId)) {
       logChunkV2DomPaint({
         rowId,
@@ -204,33 +234,28 @@ export class CanonAppendWsDomWriter {
       this.paintTranslation(handles);
       return;
     }
-    const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
     const prevRendered = handles.translationEl.textContent ?? "";
-    const useBidi =
-      parts.rtlBidiPaint === true &&
-      shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
-    if (useBidi) {
-      handles.translationEl.setAttribute("dir", "rtl");
-      if (prev?.locked !== parts.locked) {
-        lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
+    runOrDeferPaintWhileSelecting(handles.translationEl, () => {
+      const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
+      const useBidi =
+        parts.rtlBidiPaint === true &&
+        shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
+      markWorkspaceSelectableText(lockedEl);
+      markWorkspaceSelectableText(liveEl);
+      if (useBidi) {
+        handles.translationEl.setAttribute("dir", "rtl");
+        if (prev?.locked !== parts.locked) {
+          lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
+        }
+        liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
+        return;
       }
-      liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
-      logChunkV2DomPaint({
-        rowId,
-        method: "paintTranslationPrefixLive",
-        previousRendered: prevRendered,
-        nextLocked: parts.locked,
-        nextLive: parts.live,
-        nextComposed: `${parts.locked}${parts.live ? ` ${parts.live}` : ""}`.trim(),
-        caller: prev === undefined ? "syncRows_repaint" : "prefix_live_bidi",
-      });
-      return;
-    }
-    handles.translationEl.removeAttribute("dir");
-    if (prev?.locked !== parts.locked) {
-      lockedEl.textContent = parts.locked;
-    }
-    liveEl.textContent = parts.live;
+      handles.translationEl.removeAttribute("dir");
+      if (prev?.locked !== parts.locked) {
+        lockedEl.textContent = parts.locked;
+      }
+      liveEl.textContent = parts.live;
+    });
     logChunkV2DomPaint({
       rowId,
       method: "paintTranslationPrefixLive",
@@ -238,7 +263,7 @@ export class CanonAppendWsDomWriter {
       nextLocked: parts.locked,
       nextLive: parts.live,
       nextComposed: `${parts.locked}${parts.live ? ` ${parts.live}` : ""}`.trim(),
-      caller: prev === undefined ? "syncRows_repaint" : "prefix_live_text",
+      caller: prev === undefined ? "syncRows_repaint" : "prefix_live_paint",
     });
   }
 
@@ -261,14 +286,23 @@ export class CanonAppendWsDomWriter {
     const header = doc.createElement("div");
     header.className = "font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70";
 
+    const origRow = doc.createElement("div");
+    origRow.className = "flex items-start gap-1 min-w-0";
+
     const line = doc.createElement("p");
-    line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap";
+    line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0";
     line.dataset.cawRole = "live-line";
+    markWorkspaceSelectableText(line);
     line.innerHTML =
-      '<span data-caw-engine="committed" class="text-foreground"></span><span data-caw-engine="hypothesis" class="text-muted-foreground/95 italic"></span>';
+      '<span data-caw-engine="committed" class="text-foreground workspace-selectable-text"></span><span data-caw-engine="hypothesis" class="text-muted-foreground/95 italic workspace-selectable-text"></span>';
+
+    origRow.appendChild(line);
+    origRow.appendChild(
+      createWorkspaceCopyButton(() => line.textContent ?? ""),
+    );
 
     body.appendChild(header);
-    body.appendChild(line);
+    body.appendChild(origRow);
     card.appendChild(stripe);
     card.appendChild(body);
 
@@ -290,18 +324,32 @@ export class CanonAppendWsDomWriter {
 
     if (this.layoutMode === "stacked") {
       row.appendChild(card);
+      const transRow = doc.createElement("div");
+      transRow.className = "flex items-start gap-1 min-w-0";
       translationEl = doc.createElement("p");
       translationEl.dataset.cawRole = "translation";
-      translationEl.className = translationTextClass("stacked");
+      translationEl.className = `${translationTextClass("stacked")} flex-1 min-w-0`;
+      markWorkspaceSelectableText(translationEl);
+      transRow.appendChild(translationEl);
+      transRow.appendChild(
+        createWorkspaceCopyButton(() => translationEl.textContent ?? ""),
+      );
       const body = card.children[1] as HTMLElement;
-      body.appendChild(translationEl);
+      body.appendChild(transRow);
     } else {
       const transWrap = doc.createElement("div");
       transWrap.className = "min-w-0 pt-0.5";
+      const transRow = doc.createElement("div");
+      transRow.className = "flex items-start gap-1 min-w-0";
       translationEl = doc.createElement("p");
       translationEl.dataset.cawRole = "translation";
-      translationEl.className = translationTextClass("side-by-side");
-      transWrap.appendChild(translationEl);
+      translationEl.className = `${translationTextClass("side-by-side")} flex-1 min-w-0`;
+      markWorkspaceSelectableText(translationEl);
+      transRow.appendChild(translationEl);
+      transRow.appendChild(
+        createWorkspaceCopyButton(() => translationEl.textContent ?? ""),
+      );
+      transWrap.appendChild(transRow);
       row.appendChild(card);
       row.appendChild(transWrap);
     }
@@ -345,8 +393,12 @@ export class CanonAppendWsDomWriter {
 
       if (!line || !hypo) continue;
 
-      renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-      renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      runOrDeferPaintWhileSelecting(line, () => {
+        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+      });
+      runOrDeferPaintWhileSelecting(hypo, () => {
+        renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      });
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(
           handles,
@@ -382,10 +434,3 @@ export class CanonAppendWsDomWriter {
   }
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
