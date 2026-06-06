@@ -6943,7 +6943,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         return tr.text;
       },
       displayTranslation: (rowId, translation) => {
-        canonWsIsolationEngineRef.current?.setRowTranslationPrefixLive(rowId, translation, "");
+        const rtlBidiPaint = shouldMorsyChunkV2BidiPaint(translation);
+        canonWsIsolationEngineRef.current?.setRowTranslationPrefixLive(rowId, translation, "", {
+          rtlBidiPaint,
+        });
       },
       resolveLangs: (text) => {
         const pair = langPairRef.current;
