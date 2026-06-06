@@ -88,6 +88,9 @@ export function buildMorsyBasicCleanSystemPrompt(
   return (
     `You are a professional medical interpreter.\n` +
     `Translate the transcript from ${srcName} into ${tgtName}.\n` +
+    `The input is live speech-to-text — partial words, cut-off sentences, and fragments are normal. Translate them anyway.\n` +
+    `Never refuse, apologize, warn, or say the text is incomplete, missing, or erroneous.\n` +
+    `Never ask for more text or a complete transcript.\n` +
     `Translate all medical terminology into ${tgtName} whenever a standard translation exists.\n` +
     `Do not summarize.\n` +
     `Do not omit information.\n` +
@@ -106,6 +109,75 @@ export function buildMorsyBasicCleanSystemPrompt(
   );
 }
 
+export function buildMorsyBasicCleanFallbackPrompt(srcName: string, tgtName: string): string {
+  return (
+    `Live ${srcName} caption — translate every word into ${tgtName}. ` +
+    `Partial sentences are expected. Never mention errors or missing text. ` +
+    `If NUM_1, NUM_2, … appear, copy each token exactly. ` +
+    `Output only the ${tgtName} translation.`
+  );
+}
+
+/** Meta/refusal detector — never return these strings to the client. */
+export function isMorsyCleanBadOutput(output: string, sourceText: string): boolean {
+  const t = output.trim();
+  if (!t) return true;
+
+  const s = sourceText.trim();
+  const lower = t.toLowerCase();
+
+  const refusalLatin = [
+    "i cannot help",
+    "i can't help",
+    "i'm sorry",
+    "i am sorry",
+    "sorry, i can",
+    "no text provided",
+    "as an ai",
+    "i cannot translate",
+    "unable to translate",
+    "cannot translate",
+    "please provide",
+    "provide a complete",
+    "provide the complete",
+    "provide full text",
+    "provide the full",
+    "complete text for translation",
+    "full text for translation",
+    "error in the provided",
+    "error in the text",
+    "there seems to be an error",
+    "there is an error in",
+    "incomplete text",
+    "missing text",
+    "no text to translate",
+    "text is incomplete",
+    "not enough text",
+  ];
+  if (t.length < 220 && refusalLatin.some((sig) => lower.includes(sig))) return true;
+
+  const refusalAr =
+    /خطأ\s*في\s*النص|النص\s*المقدم|نص\s*كامل|يرجى\s*تقديم|لا\s*يمكن\s*الترجمة|لا\s*أستطيع\s*الترجمة|النص\s*غير\s*مكتمل|نص\s*غير\s*كامل/u.test(
+      t,
+    );
+  if (refusalAr) return true;
+
+  const refusalEs =
+    /\b(lo siento|no puedo traducir|texto incompleto|proporcione el texto|error en el texto)\b/i.test(t);
+  if (refusalEs) return true;
+
+  const refusalFr =
+    /\b(je suis d[ée]sol[ée]|je ne peux pas traduire|texte incomplet|veuillez fournir|erreur dans le texte)\b/i.test(
+      t,
+    );
+  if (refusalFr) return true;
+
+  if (/\bNUM_\d+\b/.test(t)) return true;
+  if (s && t === s) return true;
+
+  return false;
+}
+
 export function buildMorsyBasicCleanUserMessage(body: string): string {
   return body.trim();
 }
@@ -122,14 +194,22 @@ export async function runMorsyBasicCleanTranslation(args: {
   tgtName: string;
   tgtLang?: string;
 }): Promise<MorsyBasicCleanTranslationResult> {
-  const numMask = applyMorsyCleanNumberProtection(args.text);
+  const sourceText = args.text.trim();
+  if (!sourceText) {
+    return { text: "", promptTokens: 0, completionTokens: 0 };
+  }
+
+  const numMask = applyMorsyCleanNumberProtection(sourceText);
   const tgtLang = args.tgtLang ?? args.tgtName;
-  const systemPrompt = buildMorsyBasicCleanSystemPrompt(args.srcName, args.tgtName, tgtLang);
   const userMessage = buildMorsyBasicCleanUserMessage(numMask.masked);
+
+  let promptTokens = 0;
+  let completionTokens = 0;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30_000);
-  try {
+
+  async function call(systemPrompt: string): Promise<string> {
     const resp = await openai.chat.completions.create(
       {
         model: "gpt-4o-mini",
@@ -142,15 +222,30 @@ export async function runMorsyBasicCleanTranslation(args: {
       },
       { signal: controller.signal },
     );
-    clearTimeout(timeoutId);
+    promptTokens += resp.usage?.prompt_tokens ?? 0;
+    completionTokens += resp.usage?.completion_tokens ?? 0;
     const raw = resp.choices[0]?.message?.content?.trim() ?? "";
     const restored = restoreMorsyCleanNumberProtection(raw, numMask.slotToLiteral);
     const calendarRepaired = repairEnglishCalendarWordsInCleanTranslation(restored, tgtLang);
-    return {
-      text: calendarRepaired.trim(),
-      promptTokens: resp.usage?.prompt_tokens ?? 0,
-      completionTokens: resp.usage?.completion_tokens ?? 0,
-    };
+    return calendarRepaired.trim();
+  }
+
+  try {
+    const prompts = [
+      buildMorsyBasicCleanSystemPrompt(args.srcName, args.tgtName, tgtLang),
+      buildMorsyBasicCleanSystemPrompt(args.srcName, args.tgtName, tgtLang),
+      buildMorsyBasicCleanFallbackPrompt(args.srcName, args.tgtName),
+    ];
+
+    let translated = "";
+    for (const systemPrompt of prompts) {
+      translated = await call(systemPrompt);
+      if (!isMorsyCleanBadOutput(translated, sourceText)) break;
+      translated = "";
+    }
+
+    clearTimeout(timeoutId);
+    return { text: translated, promptTokens, completionTokens };
   } catch (err) {
     clearTimeout(timeoutId);
     throw err;
