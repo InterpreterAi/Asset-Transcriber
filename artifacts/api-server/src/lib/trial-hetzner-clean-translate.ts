@@ -12,6 +12,8 @@
  */
 
 import { callHetznerTranslate, type HetznerMtRoutingHint } from "./hetzner-translate.js";
+import { applyTrialMedicalGlossaryOverride } from "./trial-medical-glossary-override.js";
+import { splitTrialHetznerMtChunks, trialHetznerUsesNllb } from "./trial-nllb-translate.js";
 import {
   applyArabicStaticLeakReplacements,
   polishArabicEnglishGlueLeaks,
@@ -75,16 +77,20 @@ async function finalizeTrialHetznerCleanOutput(
 ): Promise<string> {
   let t = stripStrayLatinAuxiliaryTokens(restoredRaw, srcCode, tgtCode);
   t = repairEnglishCalendarWordsInCleanTranslation(t, tgtLangBcp47);
-  if (srcCode === "en" && tgtCode === "ar") {
-    t = repairInterpreterGlossaryLeaksFromSource(sourcePlain, t, tgtLangBcp47);
-    t = polishArabicEnglishGlueLeaks(t);
-    t = applyArabicStaticLeakReplacements(t);
-    t = polishArabicEnglishGlueLeaks(t);
-    t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, {
-      mtOpts,
-      maxResidualTokens: 35,
-    });
-    t = polishArabicEnglishGlueLeaks(t);
+  if (srcCode === "en" && (tgtCode === "ar" || tgtCode === "es")) {
+    t = applyTrialMedicalGlossaryOverride(t, srcCode, tgtCode);
+    if (tgtCode === "ar") {
+      t = repairInterpreterGlossaryLeaksFromSource(sourcePlain, t, tgtLangBcp47);
+      t = polishArabicEnglishGlueLeaks(t);
+      t = applyArabicStaticLeakReplacements(t);
+      t = polishArabicEnglishGlueLeaks(t);
+      t = await repairEnglishDomainLeaksInTranslation(t, srcCode, tgtCode, tgtLangBcp47, {
+        mtOpts,
+        maxResidualTokens: trialHetznerUsesNllb() ? 20 : 35,
+      });
+      t = polishArabicEnglishGlueLeaks(t);
+      t = applyTrialMedicalGlossaryOverride(t, srcCode, tgtCode);
+    }
   }
   if (tgtCode === "ar") t = polishArabicTranslationOutput(t);
   return t.trim();
@@ -121,13 +127,23 @@ export async function runTrialHetznerCleanTranslation(args: {
   const glossary = applyGlossaryPlaceholders(numMask.masked);
   const mtInput = glossary.masked;
 
-  async function callOnce(invocationIndex: number): Promise<string> {
-    const raw = await callHetznerTranslate(mtInput, args.sourceLang, args.targetLang, {
+  async function translateMtInput(invocationIndex: number, chunkText: string): Promise<string> {
+    return callHetznerTranslate(chunkText, args.sourceLang, args.targetLang, {
       ...args.mtOpts,
+      planType: args.mtOpts.planType ?? "trial-hetzner",
       wireDebug: args.mtOpts.wireDebug
         ? { ...args.mtOpts.wireDebug, mtInvocationIndex: invocationIndex }
         : undefined,
     });
+  }
+
+  async function callOnce(invocationIndex: number): Promise<string> {
+    const chunks = splitTrialHetznerMtChunks(mtInput);
+    const rawParts: string[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      rawParts.push(await translateMtInput(invocationIndex, chunks[i]!));
+    }
+    const raw = rawParts.join(" ");
     const restored = restoreTrialHetznerCleanOutput(raw, numMask, glossary.slotToEntryIndex, tgtLangBcp47);
     return finalizeTrialHetznerCleanOutput(
       restored,

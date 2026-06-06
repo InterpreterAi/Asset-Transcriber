@@ -4,6 +4,7 @@ import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
 import { getHetznerLaneBaseUrl, selectAnonymousHetznerCoreRoute, type CoreLane } from "./hetzner-core-router.js";
+import { trialHetznerNllbBaseUrl } from "./trial-nllb-translate.js";
 
 /** Keep sockets warm — fewer TCP handshakes per segment. */
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
@@ -101,6 +102,8 @@ export type HetznerMtOutboundWireContext = {
   isFinal?: boolean;
   mtInvocationIndex?: number;
   translationPath?: string;
+  /** trial-hetzner routed to TRIAL_HETZNER_NLLB_BASE instead of Libre lane URL. */
+  nllbTrialWorker?: boolean;
 };
 
 function railwayWireFingerprint(): { railwayReplicaId: string | null; hostname: string | null } {
@@ -534,6 +537,9 @@ function requireValidHetznerMtBaseForLane(lane: CoreLane): string {
 
 /** `*-libre` tiers: one POST per segment. Session-bound callers **must** pass `resolvedLane` from Postgres.
  * Anonymous callers (no `sessionId`) use `selectAnonymousHetznerCoreRoute`. **No `CONFIGURED_BASE` fallback** when a lane is chosen.
+ *
+ * `trial-hetzner` only: when `TRIAL_HETZNER_NLLB_BASE` is set, all outbound MT for that plan uses the NLLB
+ * FastAPI worker instead of Libre lane URLs (`basic-libre` on :5001 is unchanged).
  */
 export async function callHetznerTranslate(
   text: string,
@@ -543,23 +549,33 @@ export async function callHetznerTranslate(
 ): Promise<string> {
   const plan = (routingHint?.planType ?? "").trim().toLowerCase();
   const useTrialOutboundGate = plan === "trial-hetzner";
+  const trialNllbBase = plan === "trial-hetzner" ? trialHetznerNllbBaseUrl() : null;
 
   const run = async () => {
     const sid = routingHint?.sessionId;
     const sessionBound = typeof sid === "number" && Number.isFinite(sid) && sid > 0;
 
     let lane: CoreLane;
-    if (sessionBound) {
-      if (routingHint?.resolvedLane == null) {
-        throw new Error("HETZNER_MT_RESOLVED_LANE_REQUIRED_FOR_SESSION_BOUND_TRANSLATE");
-      }
-      lane = routingHint.resolvedLane;
-    } else {
-      lane = selectAnonymousHetznerCoreRoute(routingHint?.planType ?? "trial-libre").lane;
-    }
+    let routerRaw: string;
+    let effectiveBase: string;
 
-    const routerRaw = getHetznerLaneBaseUrl(lane);
-    const effectiveBase = requireValidHetznerMtBaseForLane(lane);
+    if (trialNllbBase) {
+      lane = sessionBound ? (routingHint!.resolvedLane ?? 2) : 2;
+      routerRaw = trialNllbBase;
+      effectiveBase = trialNllbBase;
+    } else {
+      if (sessionBound) {
+        if (routingHint?.resolvedLane == null) {
+          throw new Error("HETZNER_MT_RESOLVED_LANE_REQUIRED_FOR_SESSION_BOUND_TRANSLATE");
+        }
+        lane = routingHint.resolvedLane;
+      } else {
+        lane = selectAnonymousHetznerCoreRoute(routingHint?.planType ?? "trial-libre").lane;
+      }
+
+      routerRaw = getHetznerLaneBaseUrl(lane);
+      effectiveBase = requireValidHetznerMtBaseForLane(lane);
+    }
 
     const wd = routingHint?.wireDebug;
 
@@ -574,6 +590,7 @@ export async function callHetznerTranslate(
       routerBaseUrlRaw: routerRaw,
       effectiveBaseForHttp: effectiveBase,
       fallbackToConfiguredPrimary: false,
+      nllbTrialWorker: Boolean(trialNllbBase),
       manualOverrideLane: routingHint?.manualLane ?? null,
       wireRequestId: wd?.requestId,
       incomingSessionId: wd?.incomingSessionId ?? null,
@@ -630,10 +647,13 @@ export function logHetznerMachineTranslationStartupHint(): void {
   const rawOverride =
     process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
     process.env.LIBRETRANSLATE_URL?.trim();
+  const nllbBase = trialHetznerNllbBaseUrl();
   logger.info(
     {
       primaryBaseUrl: CONFIGURED_BASE,
       trialHetznerMaxConcurrent: TRIAL_HETZNER_MAX_CONCURRENT,
+      trialHetznerNllbBase: nllbBase,
+      trialHetznerNllbEnabled: Boolean(nllbBase),
       fromEnvOverride: false,
       ignoredEnvOverride: Boolean(rawOverride),
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),

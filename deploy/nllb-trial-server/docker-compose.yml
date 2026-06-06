@@ -1,0 +1,20 @@
+# trial-hetzner NLLB worker — replaces libre-trial on :5002 for zero-cost medical MT upgrade.
+# Paid basic-libre keeps libre-paid on :5001 (do not change that service).
+#
+# RAM: ~2–2.5 GB for int8 NLLB-600M + ~1 GB OS headroom on 4 GB box.
+# Add 2 GB swap before first boot (see INSTALL.md).
+version: "3.8"
+
+services:
+  nllb-trial:
+    build: .
+    container_name: nllb-trial
+    ports:
+      - "5002:5000"
+    restart: unless-stopped
+    mem_limit: 2800m
+    environment:
+      NLLB_MODEL_ID: "facebook/nllb-200-distilled-600M"
+      NLLB_MAX_INPUT_CHARS: "512"
+      NLLB_MAX_NEW_TOKENS: "256"
+      NLLB_NUM_BEAMS: "1"
