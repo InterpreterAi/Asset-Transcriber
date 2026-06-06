@@ -149,6 +149,11 @@ export class CanonAppendWsIsolatedRuntime {
     return this.writer.getRowTranslation(rowId);
   }
 
+  /** Active row dual buffer (stable + volatile visible text). Chunk V3 sentence poll only. */
+  getActiveRowDualBuffer(): CanonRowDualBufferPayload | null {
+    return this.activeRowDualBuffer();
+  }
+
   /** Dual buffer snapshot for a row (active or frozen). */
   getRowDualBuffer(rowId: string): CanonRowDualBufferPayload | null {
     const active = this.state.activeUtterance;
