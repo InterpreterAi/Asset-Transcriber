@@ -1,4 +1,12 @@
 import { TranslationBuffer } from "./translation-buffer";
+import {
+  logChunkV3ChunkExtract,
+  logChunkV3DisplayPaint,
+  logChunkV3TranslateResult,
+  logChunkV3VisibleChange,
+  nextChunkV3EventId,
+  type ChunkV3VisibleSnap,
+} from "./chunk-translation-v3-diag";
 
 export const CHUNK_V3_POLL_MS = 100;
 export const CHUNK_V3_MAX_WAIT_MS = 800;
@@ -8,17 +16,18 @@ export type MorsyChunkV3RowState = {
   fedVisiblePrefix: string;
   displayedTranslation: string;
   lastBoundaryCheck: number;
+  lastLoggedVisible: string;
 };
 
 export type MorsyChunkV3EngineDeps = {
-  getVisibleTextFromSTT: () => string | null;
+  getVisibleSnapFromSTT: () => ChunkV3VisibleSnap | null;
   getActiveRowId: () => string | null;
   translateSentence: (
     text: string,
     sourceLang: string,
     targetLang: string,
   ) => Promise<string>;
-  displayTranslation: (rowId: string, translation: string) => void;
+  displayTranslation: (rowId: string, translation: string, eventId: string) => void;
   resolveLangs: (text: string) => { sourceLang: string; targetLang: string };
 };
 
@@ -43,6 +52,7 @@ export class MorsyChunkV3Engine {
         fedVisiblePrefix: "",
         displayedTranslation: "",
         lastBoundaryCheck: Date.now(),
+        lastLoggedVisible: "",
       };
       this.rows.set(rowId, st);
     }
@@ -61,7 +71,7 @@ export class MorsyChunkV3Engine {
       clearInterval(this.pollingInterval);
       this.pollingInterval = null;
     }
-    void this.forceFlushAll();
+    void this.forceFlushAll("stop");
   }
 
   clear(): void {
@@ -74,13 +84,18 @@ export class MorsyChunkV3Engine {
     if (!st) return;
     const remaining = st.buffer.forceFlush();
     if (remaining.trim()) {
-      await this.translateAndDisplay(rowId, remaining, st);
+      await this.translateAndDisplay(rowId, remaining, st, "force_flush_row");
     }
   }
 
-  private async forceFlushAll(): Promise<void> {
+  private async forceFlushAll(reason: "stop" | "force_flush_800ms"): Promise<void> {
     for (const rowId of this.rows.keys()) {
-      await this.forceFlushRow(rowId);
+      const st = this.rows.get(rowId);
+      if (!st) continue;
+      const remaining = st.buffer.forceFlush();
+      if (remaining.trim()) {
+        await this.translateAndDisplay(rowId, remaining, st, reason);
+      }
     }
   }
 
@@ -88,10 +103,22 @@ export class MorsyChunkV3Engine {
     const rowId = this.deps.getActiveRowId();
     if (!rowId) return;
 
-    const visible = this.deps.getVisibleTextFromSTT();
-    if (visible == null) return;
+    const snap = this.deps.getVisibleSnapFromSTT();
+    if (snap == null) return;
 
     const st = this.rowState(rowId);
+    const visible = snap.visibleText;
+
+    if (visible !== st.lastLoggedVisible) {
+      logChunkV3VisibleChange({
+        rowId,
+        snap,
+        fedVisiblePrefix: st.fedVisiblePrefix,
+        reason: "poll_delta",
+      });
+      st.lastLoggedVisible = visible;
+    }
+
     let newText = "";
     if (!st.fedVisiblePrefix.length) {
       newText = visible;
@@ -99,19 +126,32 @@ export class MorsyChunkV3Engine {
       newText = visible.slice(st.fedVisiblePrefix.length);
     } else {
       newText = visible;
+      logChunkV3VisibleChange({
+        rowId,
+        snap,
+        fedVisiblePrefix: st.fedVisiblePrefix,
+        reason: "prefix_reset",
+      });
       st.fedVisiblePrefix = "";
     }
+    const fedBefore = st.fedVisiblePrefix;
     st.fedVisiblePrefix = visible;
 
     const sentence = st.buffer.addText(newText);
     if (sentence) {
-      await this.translateAndDisplay(rowId, sentence, st);
+      logChunkV3VisibleChange({
+        rowId,
+        snap,
+        fedVisiblePrefix: fedBefore,
+        reason: "chunk_extract",
+      });
+      await this.translateAndDisplay(rowId, sentence, st, "sentence_boundary", snap, fedBefore);
     }
 
     if (Date.now() - st.lastBoundaryCheck > CHUNK_V3_MAX_WAIT_MS) {
       const remaining = st.buffer.forceFlush();
       if (remaining.trim()) {
-        await this.translateAndDisplay(rowId, remaining, st);
+        await this.translateAndDisplay(rowId, remaining, st, "force_flush_800ms", snap, fedBefore);
       }
       st.lastBoundaryCheck = Date.now();
     }
@@ -121,13 +161,51 @@ export class MorsyChunkV3Engine {
     rowId: string,
     text: string,
     st: MorsyChunkV3RowState,
+    extractReason: "sentence_boundary" | "force_flush_800ms" | "force_flush_row" | "stop",
+    snap?: ChunkV3VisibleSnap,
+    fedVisiblePrefixBefore?: string,
   ): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
+
+    const eventId = nextChunkV3EventId();
+    const visibleSnap = snap ?? this.deps.getVisibleSnapFromSTT() ?? {
+      visibleText: "",
+      stableText: "",
+      volatileTail: "",
+    };
+
+    logChunkV3ChunkExtract({
+      rowId,
+      eventId,
+      snap: visibleSnap,
+      extractReason,
+      rawChunk: trimmed,
+      fedVisiblePrefixBefore: fedVisiblePrefixBefore ?? st.fedVisiblePrefix,
+    });
+
     const { sourceLang, targetLang } = this.deps.resolveLangs(trimmed);
+    const displayedBefore = st.displayedTranslation;
+    const t0 = Date.now();
     const translation = await this.deps.translateSentence(trimmed, sourceLang, targetLang);
+    const requestLatencyMs = Date.now() - t0;
+
     if (!translation.trim()) return;
+
     st.displayedTranslation = appendTranslation(st.displayedTranslation, translation);
-    this.deps.displayTranslation(rowId, st.displayedTranslation);
+
+    logChunkV3TranslateResult({
+      rowId,
+      eventId,
+      rawChunk: trimmed,
+      sourceLang,
+      targetLang,
+      translationReturned: translation,
+      displayedBefore,
+      displayedAfter: st.displayedTranslation,
+      requestLatencyMs,
+    });
+
+    this.deps.displayTranslation(rowId, st.displayedTranslation, eventId);
   }
 }

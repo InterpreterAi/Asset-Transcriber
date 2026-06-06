@@ -5,9 +5,13 @@
 
 import { openai } from "./openai-client.js";
 import {
-  applyMorsyCleanNumberProtection,
-  restoreMorsyCleanNumberProtection,
-} from "./morsy-basic-clean-translate.js";
+  applyMorsyChunkV3EntityMask,
+  restoreMorsyChunkV3EntityMask,
+} from "./morsy-chunk-v3-entity-mask.js";
+import { logger } from "./logger.js";
+
+const chunkV3ServerDiagEnabled = () =>
+  String(process.env.MORSY_CHUNK_V3_DIAG ?? "").trim() === "1";
 
 const LANG_NAMES: Record<string, string> = {
   ar: "Arabic",
@@ -64,13 +68,13 @@ function registerDigits(zeroCodePoint: number) {
     DIGIT_MAP[String.fromCodePoint(zeroCodePoint + i)] = String(i);
   }
 }
-registerDigits(0x0660); // Arabic-Indic ٠-٩
-registerDigits(0x06f0); // Extended Arabic-Indic (Persian/Urdu) ۰-۹
-registerDigits(0x0966); // Devanagari (Hindi) ०-९
-registerDigits(0x09e6); // Bengali ০-৯
-registerDigits(0x0ce6); // Kannada
-registerDigits(0x0e50); // Thai ๐-๙
-registerDigits(0xff10); // Fullwidth ０-９ (CJK)
+registerDigits(0x0660);
+registerDigits(0x06f0);
+registerDigits(0x0966);
+registerDigits(0x09e6);
+registerDigits(0x0ce6);
+registerDigits(0x0e50);
+registerDigits(0xff10);
 
 export function normalizeDigits(text: string): string {
   let out = "";
@@ -80,22 +84,31 @@ export function normalizeDigits(text: string): string {
   return out;
 }
 
-function buildSystemPrompt(sourceName: string, targetName: string): string {
+export function buildMorsyChunkV3SystemPrompt(sourceName: string, targetName: string): string {
   return `You are a professional medical interpreter translating ${sourceName} into ${targetName}.
 
 Translate the user's text faithfully and completely. This is a live medical call — accuracy and completeness are critical.
 
 RULES:
 1. Translate the ENTIRE text. Never omit, skip, summarize, or shorten anything.
-2. Use correct, natural grammar and word order for ${targetName}. Do NOT translate word-for-word; produce a fluent, faithful translation that preserves all meaning.
-3. Write ALL numbers using Western Arabic numerals (0,1,2,3,4,5,6,7,8,9) ONLY. Never use Arabic-Indic, Persian, Devanagari, or any other digit script — even when translating into ${targetName}.
-4. Keep numbers in the same order they appear in the source. Preserve EXACTLY (do not translate or alter): all numbers, dates, times, dosages, measurements, units (mg/dL, %, mmHg, bpm, kg, mL, etc.), names, emails, phone numbers, and IDs.
-5. Never refuse. Never apologize. Never output an explanation, note, or the original ${sourceName} text.
-6. Output ONLY the ${targetName} translation — nothing else.`;
+2. Preserve grammatical tense exactly: past stays past, present stays present, future stays future. Completed actions remain completed (e.g. "I reviewed" must stay past tense in ${targetName}, never present). Never shift tense for fluency.
+3. Use natural word order for ${targetName} within each clause. Fluency must NOT change tense, clinical meaning, numbers, dates, dosages, measurements, lab values, blood pressure readings, or entity identity.
+4. Write ALL numbers using Western Arabic numerals (0,1,2,3,4,5,6,7,8,9) ONLY. Never use Arabic-Indic, Persian, Devanagari, or any other digit script — even when translating into ${targetName}.
+5. If the text contains NUM_1, NUM_2, … tokens, copy each token exactly in place. Never modify, infer, round, estimate, reorder, or omit numerical values inside those tokens.
+6. Preserve EXACTLY (do not translate or alter): all numbers, dates, times, dosages, measurements, units (mg/dL, %, mmHg, bpm, kg, mL, etc.), names, emails, phone numbers, and IDs. Keep numbers in the same order they appear in the source.
+7. Never refuse. Never apologize. Never output an explanation, note, or the original ${sourceName} text.
+8. Output ONLY the ${targetName} translation — nothing else.`;
 }
 
-function buildFallbackPrompt(sourceName: string, targetName: string): string {
-  return `Translate this ${sourceName} text into ${targetName}. Use only Western numerals (0-9). Preserve all numbers, units, and names exactly. Output only the ${targetName} translation, nothing else.`;
+export function buildMorsyChunkV3FallbackPrompt(sourceName: string, targetName: string): string {
+  return (
+    `Translate this ${sourceName} text into ${targetName}. ` +
+    `Preserve tense exactly (past stays past). ` +
+    `Use only Western numerals (0-9). ` +
+    `If NUM_1, NUM_2, … appear, copy each token exactly in place. ` +
+    `Preserve all numbers, units, dates, and names exactly. ` +
+    `Output only the ${targetName} translation, nothing else.`
+  );
 }
 
 export function validateChunkV3Input(text: string): string {
@@ -141,12 +154,16 @@ export async function translateMorsyChunkV3Sentence(args: {
   let promptTokens = 0;
   let completionTokens = 0;
 
-  const numMask = applyMorsyCleanNumberProtection(text);
-  const maskedText = numMask.masked.trim();
+  const entityMask = applyMorsyChunkV3EntityMask(text);
+  const maskedText = entityMask.masked.trim();
 
   const estTokens = Math.min(2000, Math.max(256, text.length * 3));
 
+  let lastOpenAiRaw = "";
+  let attemptCount = 0;
+
   async function call(systemPrompt: string): Promise<string> {
+    attemptCount += 1;
     const resp = await openai.chat.completions.create({
       model: "gpt-4o",
       temperature: 0,
@@ -159,24 +176,61 @@ export async function translateMorsyChunkV3Sentence(args: {
     promptTokens += resp.usage?.prompt_tokens ?? 0;
     completionTokens += resp.usage?.completion_tokens ?? 0;
     const raw = resp.choices[0]?.message?.content?.trim() ?? "";
-    return restoreMorsyCleanNumberProtection(raw, numMask.slotToLiteral);
+    lastOpenAiRaw = raw;
+    return restoreMorsyChunkV3EntityMask(raw, entityMask.slotToLiteral);
   }
 
-  let translated = await call(buildSystemPrompt(sourceName, targetName));
+  let translated = await call(buildMorsyChunkV3SystemPrompt(sourceName, targetName));
 
   if (isBadOutput(translated, text)) {
-    translated = await call(buildSystemPrompt(sourceName, targetName));
-  }
-
-  if (isBadOutput(translated, text)) {
-    translated = await call(buildFallbackPrompt(sourceName, targetName));
+    translated = await call(buildMorsyChunkV3SystemPrompt(sourceName, targetName));
   }
 
   if (isBadOutput(translated, text)) {
+    translated = await call(buildMorsyChunkV3FallbackPrompt(sourceName, targetName));
+  }
+
+  if (isBadOutput(translated, text)) {
+    if (chunkV3ServerDiagEnabled()) {
+      logger.info(
+        {
+          msg: "morsy_chunk_v3_diag",
+          outcome: "bad_output_empty",
+          sourceLang: args.sourceLang,
+          targetLang: args.targetLang,
+          rawChunk: text,
+          maskedChunk: maskedText,
+          openAiRaw: lastOpenAiRaw,
+          restoredChunk: translated,
+          normalizedChunk: "",
+          attemptCount,
+        },
+        "Morsy chunk V3 diagnostic",
+      );
+    }
     return { text: "", promptTokens, completionTokens };
   }
 
-  translated = normalizeDigits(translated.trim());
+  const restoredChunk = translated.trim();
+  translated = normalizeDigits(restoredChunk);
+
+  if (chunkV3ServerDiagEnabled()) {
+    logger.info(
+      {
+        msg: "morsy_chunk_v3_diag",
+        outcome: "ok",
+        sourceLang: args.sourceLang,
+        targetLang: args.targetLang,
+        rawChunk: text,
+        maskedChunk: maskedText,
+        openAiRaw: lastOpenAiRaw,
+        restoredChunk,
+        normalizedChunk: translated,
+        attemptCount,
+      },
+      "Morsy chunk V3 diagnostic",
+    );
+  }
 
   return { text: translated, promptTokens, completionTokens };
 }
