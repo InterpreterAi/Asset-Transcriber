@@ -23,6 +23,10 @@ import {
   readMorsyChunkTranslationV2Experiment,
   writeMorsyChunkTranslationV2Experiment,
 } from "@/experiments/basic-morsy-urgent/chunkTranslationV2/gate";
+import {
+  readMorsyChunkTranslationV3Experiment,
+  writeMorsyChunkTranslationV3Experiment,
+} from "@/experiments/basic-morsy-urgent/chunkTranslationV3/gate";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -299,12 +303,18 @@ export default function WorkspaceDefault() {
   const [morsyChunkTranslationV2Experiment, setMorsyChunkTranslationV2Experiment] = useState(
     () => readMorsyChunkTranslationV2Experiment(),
   );
+  const [morsyChunkTranslationV3Experiment, setMorsyChunkTranslationV3Experiment] = useState(
+    () => readMorsyChunkTranslationV3Experiment(),
+  );
   useEffect(() => {
     writeMorsyBasicCleanTranslationExperiment(morsyCleanTranslationExperiment);
   }, [morsyCleanTranslationExperiment]);
   useEffect(() => {
     writeMorsyChunkTranslationV2Experiment(morsyChunkTranslationV2Experiment);
   }, [morsyChunkTranslationV2Experiment]);
+  useEffect(() => {
+    writeMorsyChunkTranslationV3Experiment(morsyChunkTranslationV3Experiment);
+  }, [morsyChunkTranslationV3Experiment]);
   const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
     ? "morsy-intercall-isolated-experiment"
     : "morsy-urgent-cbf";
@@ -344,9 +354,16 @@ export default function WorkspaceDefault() {
     morsyUrgentTranslateAttachOpenAiExperiment: Boolean(user) && pt === "morsy-urgent",
     experimentMorsyIntercallEmbeddedEnglishPrompt: false,
     experimentMorsyBasicCleanTranslation:
-      pt === "morsy-urgent" && morsyCleanTranslationExperiment && !morsyChunkTranslationV2Experiment,
+      pt === "morsy-urgent" &&
+      morsyCleanTranslationExperiment &&
+      !morsyChunkTranslationV2Experiment &&
+      !morsyChunkTranslationV3Experiment,
     experimentMorsyUrgentChunkTranslationV2:
-      isMorsyUrgentWorkspace && morsyChunkTranslationV2Experiment,
+      isMorsyUrgentWorkspace &&
+      morsyChunkTranslationV2Experiment &&
+      !morsyChunkTranslationV3Experiment,
+    experimentMorsyUrgentChunkTranslationV3:
+      isMorsyUrgentWorkspace && morsyChunkTranslationV3Experiment,
     dailyCapRef,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
@@ -2389,7 +2406,10 @@ export default function WorkspaceDefault() {
                   onClick={() => {
                     setMorsyChunkTranslationV2Experiment(v => {
                       const next = !v;
-                      if (next) setMorsyCleanTranslationExperiment(false);
+                      if (next) {
+                        setMorsyCleanTranslationExperiment(false);
+                        setMorsyChunkTranslationV3Experiment(false);
+                      }
                       return next;
                     });
                   }}
@@ -2411,6 +2431,38 @@ export default function WorkspaceDefault() {
                   </span>
                 </button>
               )}
+              {isMorsyChunkV2Workspace && (
+                <button
+                  type="button"
+                  disabled={transcription.isRecording}
+                  onClick={() => {
+                    setMorsyChunkTranslationV3Experiment(v => {
+                      const next = !v;
+                      if (next) {
+                        setMorsyCleanTranslationExperiment(false);
+                        setMorsyChunkTranslationV2Experiment(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 h-9 px-2.5 rounded-lg border text-[11px] font-semibold shrink-0 transition-colors disabled:opacity-50",
+                    morsyChunkTranslationV3Experiment
+                      ? wsDark
+                        ? "border-violet-500/40 bg-violet-500/10 text-violet-300"
+                        : "border-violet-600/40 bg-violet-50 text-violet-800"
+                      : wsDark
+                        ? "border-white/10 bg-card/90 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                        : "border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  title="Sentence-poll translation V3: 100ms visible-text buffer, sentence boundaries only"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {morsyChunkTranslationV3Experiment ? "Chunk V3 on" : "Chunk V3"}
+                  </span>
+                </button>
+              )}
               {isMorsyUrgentWorkspace && (
                 <button
                   type="button"
@@ -2418,7 +2470,10 @@ export default function WorkspaceDefault() {
                   onClick={() => {
                     setMorsyCleanTranslationExperiment(v => {
                       const next = !v;
-                      if (next) setMorsyChunkTranslationV2Experiment(false);
+                      if (next) {
+                        setMorsyChunkTranslationV2Experiment(false);
+                        setMorsyChunkTranslationV3Experiment(false);
+                      }
                       return next;
                     });
                   }}

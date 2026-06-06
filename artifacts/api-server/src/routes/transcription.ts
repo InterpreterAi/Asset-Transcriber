@@ -43,6 +43,7 @@ import {
 } from "../lib/number-placeholders.js";
 import { runMorsyBasicCleanTranslation } from "../lib/morsy-basic-clean-translate.js";
 import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js";
+import { translateMorsyChunkV3Sentence } from "../lib/morsy-chunk-translation-v3.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
@@ -1606,6 +1607,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalMorsyIntercallEmbeddedEnglishPrompt: rawExperimentalMorsyIntercallEmbeddedEnglish,
     experimentalMorsyBasicCleanTranslation: rawExperimentalMorsyBasicClean,
     experimentalMorsyUrgentChunkTranslationV2: rawExperimentalMorsyChunkV2,
+    experimentalMorsyUrgentChunkTranslationV3: rawExperimentalMorsyChunkV3,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1628,6 +1630,8 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalMorsyBasicCleanTranslation?: unknown;
     /** Basic · Morsy Urgent only: append-only chunk translation (no whole-row retranslation). */
     experimentalMorsyUrgentChunkTranslationV2?: unknown;
+    /** Basic · Morsy Urgent only: sentence-poll chunk translation V3. */
+    experimentalMorsyUrgentChunkTranslationV3?: unknown;
   };
   const experimentalBasicMorsyOpenAiOnly = Boolean(rawExperimentalMorsyOpenAiOnly);
   const experimentalMorsyIntercallEmbeddedEnglishPrompt = Boolean(
@@ -1635,6 +1639,7 @@ router.post("/translate", requireAuth, async (req, res) => {
   );
   const experimentalMorsyBasicCleanTranslation = Boolean(rawExperimentalMorsyBasicClean);
   const experimentalMorsyUrgentChunkTranslationV2 = Boolean(rawExperimentalMorsyChunkV2);
+  const experimentalMorsyUrgentChunkTranslationV3 = Boolean(rawExperimentalMorsyChunkV3);
   const basicMorsyOpenAiExperimentServerEnabled =
     String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
 
@@ -1829,7 +1834,68 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  // ── Basic · Morsy Urgent — chunk append translation V2 (highest priority experiment) ──
+  // ── Basic · Morsy Urgent — sentence-poll chunk translation V3 (highest priority experiment) ──
+  const morsyChunkV3Applies =
+    experimentalMorsyUrgentChunkTranslationV3 && planLower === "morsy-urgent";
+  if (morsyChunkV3Applies) {
+    if (!isOpenAiConfigured()) {
+      res.status(503).json({
+        error:
+          "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
+        code: "TRANSLATION_NOT_CONFIGURED",
+      });
+      return;
+    }
+    if (srcCode === tgtCode) {
+      res.json({ translated: text.trim(), appliedGlossaryTerms: [] });
+      return;
+    }
+    try {
+      const chunk = await translateMorsyChunkV3Sentence({
+        text,
+        sourceLang: srcName,
+        targetLang: tgtName,
+      });
+      const callCost = +(
+        chunk.promptTokens * OPENAI_INPUT_COST_PER_TOKEN +
+        chunk.completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
+      ).toFixed(8);
+      void db
+        .update(sessionsTable)
+        .set({
+          translationTokens: sql`COALESCE(translation_tokens, 0) + ${chunk.promptTokens + chunk.completionTokens}`,
+          translationCost: sql`COALESCE(translation_cost, 0) + ${callCost}`,
+        })
+        .where(and(eq(sessionsTable.userId, userIdEarly), isNull(sessionsTable.endedAt)));
+      logger.info(
+        {
+          msg: "morsy_chunk_v3_translation",
+          userId: userIdEarly,
+          sessionId: diagSessionId,
+          srcLang,
+          tgtLang,
+          textLen: text.length,
+          outLen: chunk.text.length,
+          isFinalSegment,
+        },
+        "POST /translate chunk V3 experiment",
+      );
+      res.json({
+        translated: chunk.text,
+        appliedGlossaryTerms: [],
+        translationEngine: "openai",
+      });
+    } catch (err: unknown) {
+      logger.error({ err, srcLang, tgtLang }, "Morsy chunk V3 translation failed");
+      res.status(500).json({
+        error: "Translation failed",
+        code: "MORSY_CHUNK_V3_TRANSLATION_FAILED",
+      });
+    }
+    return;
+  }
+
+  // ── Basic · Morsy Urgent — chunk append translation V2 ──
   const morsyChunkV2Applies =
     experimentalMorsyUrgentChunkTranslationV2 && planLower === "morsy-urgent";
   if (morsyChunkV2Applies) {
