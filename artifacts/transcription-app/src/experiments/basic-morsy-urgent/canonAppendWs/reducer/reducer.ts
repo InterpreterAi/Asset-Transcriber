@@ -8,6 +8,7 @@ import {
   freezeActiveUtterance,
   openActiveUtterance,
   rowBreaksOnFinalToken,
+  rowBreaksOnTailSpeakerLang,
 } from "./row-lifecycle";
 import {
   canonTokensFromFrame,
@@ -99,6 +100,20 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
+
+  if (
+    next.activeUtterance &&
+    frameNonFinals.length > 0 &&
+    rowBreaksOnTailSpeakerLang(next.activeUtterance, tail.speaker, tail.language)
+  ) {
+    next = freezeActiveUtterance(next);
+    next = {
+      ...next,
+      endpointPending: false,
+      endpointPendingAtMs: 0,
+      metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+    };
+  }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {
     next = openActiveUtterance(next, tail.speaker, tail.language);

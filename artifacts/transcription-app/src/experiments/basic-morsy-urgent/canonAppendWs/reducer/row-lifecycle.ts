@@ -13,16 +13,37 @@ function langBase(s: string | undefined): string | undefined {
   return n ? n.split("-")[0]!.toLowerCase() : undefined;
 }
 
-/** New row when a final token's speaker or language differs from the active row. */
-export function rowBreaksOnFinalToken(row: CanonUtterance, tok: CanonToken): boolean {
-  if (!row.finalTokens.length) return false;
-  const rsp = norm(row.speaker);
-  const rlg = langBase(row.language);
-  const tsp = norm(tok.speaker);
-  const tlg = langBase(tok.language);
+function speakerLangDiffers(
+  rowSpeaker: string | undefined,
+  rowLanguage: string | undefined,
+  otherSpeaker: string | undefined,
+  otherLanguage: string | undefined,
+): boolean {
+  const rsp = norm(rowSpeaker);
+  const rlg = langBase(rowLanguage);
+  const tsp = norm(otherSpeaker);
+  const tlg = langBase(otherLanguage);
   if (rsp && tsp && rsp !== tsp) return true;
   if (rlg && tlg && rlg !== tlg) return true;
   return false;
+}
+
+/** New row when a final token's speaker or language differs from the active row. */
+export function rowBreaksOnFinalToken(row: CanonUtterance, tok: CanonToken): boolean {
+  if (!row.finalTokens.length) return false;
+  return speakerLangDiffers(row.speaker, row.language, tok.speaker, tok.language);
+}
+
+/** Interim Soniox tokens — open a new row as soon as tail speaker/lang diverges (desktop parity). */
+export function rowBreaksOnTailSpeakerLang(
+  row: CanonUtterance,
+  tailSpeaker: string | undefined,
+  tailLanguage: string | undefined,
+): boolean {
+  const hasCommitted = utteranceCommittedText(row).length > 0;
+  const hasLive = utteranceLiveText(row).length > 0;
+  if (!hasCommitted && !hasLive) return false;
+  return speakerLangDiffers(row.speaker, row.language, tailSpeaker, tailLanguage);
 }
 
 export function openActiveUtterance(
