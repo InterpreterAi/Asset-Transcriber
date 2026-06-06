@@ -4,6 +4,10 @@
  */
 
 import { openai } from "./openai-client.js";
+import {
+  applyMorsyCleanNumberProtection,
+  restoreMorsyCleanNumberProtection,
+} from "./morsy-basic-clean-translate.js";
 
 const LANG_NAMES: Record<string, string> = {
   ar: "Arabic",
@@ -116,6 +120,7 @@ function isBadOutput(output: string, sourceText: string): boolean {
   ];
   if (t.length < 60 && refusalSignals.some((s) => lower.includes(s))) return true;
 
+  if (/\bNUM_\d+\b/.test(t)) return true;
   if (/__(NUM|UNIT|NAME)_\d+__/.test(t)) return true;
   if (t === sourceText.trim()) return true;
 
@@ -136,6 +141,9 @@ export async function translateMorsyChunkV3Sentence(args: {
   let promptTokens = 0;
   let completionTokens = 0;
 
+  const numMask = applyMorsyCleanNumberProtection(text);
+  const maskedText = numMask.masked.trim();
+
   const estTokens = Math.min(2000, Math.max(256, text.length * 3));
 
   async function call(systemPrompt: string): Promise<string> {
@@ -145,12 +153,13 @@ export async function translateMorsyChunkV3Sentence(args: {
       max_tokens: estTokens,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: text },
+        { role: "user", content: maskedText },
       ],
     });
     promptTokens += resp.usage?.prompt_tokens ?? 0;
     completionTokens += resp.usage?.completion_tokens ?? 0;
-    return resp.choices[0]?.message?.content?.trim() ?? "";
+    const raw = resp.choices[0]?.message?.content?.trim() ?? "";
+    return restoreMorsyCleanNumberProtection(raw, numMask.slotToLiteral);
   }
 
   let translated = await call(buildSystemPrompt(sourceName, targetName));
