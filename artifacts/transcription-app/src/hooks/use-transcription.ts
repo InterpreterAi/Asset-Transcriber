@@ -317,6 +317,12 @@ const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
 const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
 const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 1;
 const CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP = 24;
+/** Clean MT only — word-by-word feel during grey NF (back-and-forth dialogue). */
+const CLEAN_MT_VOLATILE_PULSE_MS = 120;
+const CLEAN_MT_VOLATILE_TAIL_MIN_CHARS = 3;
+const CLEAN_MT_LIVE_PREVIEW_CHAR_STEP = 8;
+const CLEAN_MT_LIVE_MAX_WAIT_MS = 400;
+const CLEAN_MT_LIVE_TRANSLATION_DEBOUNCE_MS = 35;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
@@ -3302,6 +3308,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchCanonStableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonVolatilePulseRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonTrialLiveGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
+  const dispatchCleanMtSpeechTokenTranslateRef = useRef<() => void>(() => {});
   const dispatchCanonTrialEndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchCanonActiveRowTranslationFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2StableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
@@ -3746,6 +3753,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       readMorsySemanticLayoutPreferredStacked() ? "stacked" : "side-by-side",
     );
     canonWsIsolationEngineRef.current.setHooks({
+      getVolatilePulseIntervalMs: () =>
+        morsyUsesCleanTranslationExperiment() ? CLEAN_MT_VOLATILE_PULSE_MS : 800,
+      getVolatileTailMinChars: () =>
+        morsyUsesCleanTranslationExperiment() ? CLEAN_MT_VOLATILE_TAIL_MIN_CHARS : 6,
       onVisualTick: () => {
         const alive =
           canonWsIsolationRecordingRef.current || canonWsSnapshotFromEngineRef.current;
@@ -6492,6 +6503,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
         try {
           const fetchStartedAt = Date.now();
+          const morsyCleanExperimentOpts = morsyUsesCleanTranslationExperiment()
+            ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
+            : {};
           const liveFetchOpts = {
             isFinal: false,
             signal: ac.signal,
@@ -6500,6 +6514,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ? { sessionId: sessionIdRef.current }
               : {}),
             ...morsyUrgentCanonFetchOpts(),
+            ...morsyCleanExperimentOpts,
           };
           const tr = morsyCanonIntercallLive
             ? await fetchMorsyCanonOppositeTranslation(
@@ -7049,6 +7064,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (st.locked) return;
 
     const morsyCanonLivePath = morsyUrgentCanonLivePathNow();
+    const morsyClean = morsyUsesCleanTranslationExperiment();
+    const previewCharStep = morsyClean
+      ? CLEAN_MT_LIVE_PREVIEW_CHAR_STEP
+      : CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
+    const liveDebounceMs = morsyClean
+      ? CLEAN_MT_LIVE_TRANSLATION_DEBOUNCE_MS
+      : CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS;
+    const liveMaxWaitMs = morsyClean ? CLEAN_MT_LIVE_MAX_WAIT_MS : CANON_TRIAL_LIVE_MAX_WAIT_MS;
 
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getRowDualBuffer(rowId);
@@ -7056,6 +7079,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (visible.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
 
     const stableOnly = (snap?.stableText ?? payload.stableText).trim();
+    const existingTranslation = eng?.getRowTranslation(rowId).trim() ?? "";
+
+    // Clean MT: translate as soon as grey NF appears (keeps column live during dialogue).
+    if (morsyClean && visible.length >= 3 && !existingTranslation.length) {
+      st.earlyHintSent = true;
+      st.lastPreviewWordsSent = countWords(visible);
+      st.lastPreviewCharsSent = visible.length;
+      st.lastPendingLang = payload.utterance.language;
+      void executeCanonTrialRowTranslation(snap ?? payload, {
+        sourceText: visible,
+        isFinal: false,
+      });
+      return;
+    }
 
     // Chunk V2 parity: first stable finals on a new row translate immediately (no debounce).
     if (
@@ -7076,7 +7113,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return;
     }
 
-    const existingTranslation = eng?.getRowTranslation(rowId).trim() ?? "";
     const pair = langPairRef.current;
     const sonioxHint = payload.utterance.language ?? detectedLangRef.current;
     const resumeTargetLang = targetOppositeInPair(
@@ -7104,7 +7140,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       wordsNow - st.lastPreviewWordsSent >= CANON_TRIAL_LIVE_PREVIEW_WORD_STEP;
     const grewByChars =
       !st.earlyHintSent ||
-      charsNow - st.lastPreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
+      charsNow - st.lastPreviewCharsSent >= previewCharStep;
     const morsyCanonLive = false;
     const grewSinceLastDispatch =
       morsyCanonLive &&
@@ -7137,7 +7173,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           st.debounceTimer = null;
         }
         scheduleCanonTrialLiveTranslation();
-      }, CANON_TRIAL_LIVE_MAX_WAIT_MS);
+      }, liveMaxWaitMs);
     }
     st.debounceTimer = setTimeout(() => {
       st.debounceTimer = null;
@@ -7146,8 +7182,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         st.maxWaitTimer = null;
       }
       scheduleCanonTrialLiveTranslation();
-    }, CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS);
+    }, liveDebounceMs);
   }, [executeCanonTrialRowTranslation, getCanonTrialRowTransState]);
+
+  const dispatchCleanMtSpeechTokenTranslate = useCallback(() => {
+    if (!morsyUsesCleanTranslationExperiment()) return;
+    if (morsyUsesChunkTranslationV2Experiment() || morsyUsesChunkTranslationV3Experiment()) return;
+    if (!translationEnabledRef.current || !canonWsIsolationGateNow() || !isRecRef.current) return;
+    const eng = canonWsIsolationEngineRef.current;
+    const snap = eng?.getActiveRowDualBuffer();
+    if (!snap || snap.volatileTail.trim().length < CLEAN_MT_VOLATILE_TAIL_MIN_CHARS) return;
+    dispatchCanonTrialLiveGrow(snap);
+  }, [dispatchCanonTrialLiveGrow]);
 
   const dispatchCanonTrialEndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {
     const rowId = payload.utterance.utterance_id;
@@ -7214,6 +7260,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       dispatchCanonTrialLiveGrow(payload);
     };
   }, [dispatchCanonTrialLiveGrow]);
+
+  useEffect(() => {
+    dispatchCleanMtSpeechTokenTranslateRef.current = () => {
+      dispatchCleanMtSpeechTokenTranslate();
+    };
+  }, [dispatchCleanMtSpeechTokenTranslate]);
 
   useEffect(() => {
     dispatchCanonTrialEndpointFlushRef.current = (payload) => {
@@ -9149,6 +9201,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         onSpeechToken: canonWsIsolationRecordingRef.current
           ? () => {
               resetInactivityRef.current?.();
+              dispatchCleanMtSpeechTokenTranslateRef.current();
             }
           : undefined,
       });
