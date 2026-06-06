@@ -2073,12 +2073,15 @@ export default function WorkspaceDefault() {
                 TEXT_SIZE_VARS sets CSS custom properties that cascade to all
                 DOM-created text elements via var(--ts-font-size). */}
             <div
-              className="flex-1 overflow-y-auto p-5 relative [overflow-anchor:none]"
+              className="flex-1 overflow-y-auto p-5 relative [overflow-anchor:none] workspace-selectable-root"
               data-tsize={String(workspaceFontPx)}
               style={workspaceTextSizeStyle}
             >
               {/* Direct-to-DOM transcript container — React never touches contents */}
-              <div ref={transcription.containerRef} className="[overflow-anchor:none]" />
+              <div
+                ref={transcription.containerRef}
+                className="[overflow-anchor:none] workspace-selectable-root"
+              />
 
               {/* Empty state — absolute overlay, hidden once content exists */}
               {!transcription.hasTranscript && (

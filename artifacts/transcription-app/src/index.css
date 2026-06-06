@@ -289,6 +289,22 @@
     font-weight: 400;
     color: hsl(var(--muted-foreground));
   }
+
+  /* Workspace: always allow native partial select/copy (live, frozen, all translation modes). */
+  .workspace-selectable-root,
+  .workspace-selectable-root .workspace-selectable-text,
+  .workspace-selectable-root .ts-text,
+  .workspace-selectable-root [data-caw-role="live-line"],
+  .workspace-selectable-root [data-caw-role="translation"],
+  .workspace-selectable-root [data-caw-engine="committed"],
+  .workspace-selectable-root [data-caw-engine="hypothesis"],
+  .workspace-selectable-root [data-caw-part="locked"],
+  .workspace-selectable-root [data-caw-part="live"],
+  .workspace-selectable-root [data-caw-translation-text] {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
   
   /* Custom scrollbar */
   ::-webkit-scrollbar {

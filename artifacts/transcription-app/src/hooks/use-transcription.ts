@@ -13,6 +13,12 @@ import {
   wrapAsciiDigitRunsWithLtrSpans,
 } from "@/lib/wrap-ltr-numbers";
 import { readGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
+import {
+  createWorkspaceCopyButton,
+  installWorkspaceSelectionPaintDeferral,
+  markWorkspaceSelectableRoot,
+  markWorkspaceSelectableText,
+} from "@/lib/workspace-text-selection";
 import { readTerminologyMode } from "@/lib/terminology-mode-storage";
 import {
   logSttPipelineReportConsole,
@@ -1998,34 +2004,6 @@ function wireClickToCopy(el: HTMLElement): void {
   });
 }
 
-// ── Copy button (all users) ────────────────────────────────────────────────────
-// Renders a small clipboard icon that appears on row hover. Clicking it copies
-// the text returned by getTextFn() and briefly shows a checkmark confirmation.
-const COPY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
-const CHECK_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-
-function makeCopyBtn(getTextFn: () => string): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.type      = "button";
-  btn.title     = "Copy";
-  btn.className = "opacity-0 group-hover:opacity-100 transition-opacity shrink-0 self-start mt-0.5 p-0.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/40 focus:outline-none";
-  btn.innerHTML = COPY_ICON;
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const text = getTextFn().trim();
-    if (!text || text === "…") return;
-    void navigator.clipboard.writeText(text).then(() => {
-      btn.innerHTML = CHECK_ICON;
-      btn.classList.add("text-green-500");
-      setTimeout(() => {
-        btn.innerHTML = COPY_ICON;
-        btn.classList.remove("text-green-500");
-      }, 1200);
-    });
-  });
-  return btn;
-}
-
 // Apply inline font-size/line-height that inherit the CSS variables set by workspace.
 function applyTextStyle(el: HTMLElement) {
   el.style.fontSize   = "var(--ts-font-size, 14px)";
@@ -3830,6 +3808,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   // ── Direct-to-DOM transcript refs ─────────────────────────────────────────
   const containerRef       = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => installWorkspaceSelectionPaintDeferral(), []);
   /** Filled each render — lets early declarations (flush queue) call the latest sticky-tail snap safely. */
   const scrollPanelFnRef   = useRef<
     (
@@ -7249,6 +7229,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // requests for previous bubbles are structurally isolated.
   const createBubble = useCallback((rawSpeaker: number | string | undefined): HTMLSpanElement => {
     const container = containerRef.current!;
+    markWorkspaceSelectableRoot(container);
+    markWorkspaceSelectableRoot(container.parentElement);
     const { label, slot } = normalizeSpeaker(rawSpeaker);
     const tagCls = slot > 0
       ? SPEAKER_COLORS[Math.min(slot - 1, SPEAKER_COLORS.length - 1)]
@@ -7314,7 +7296,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     p.appendChild(finalCommitTarget);
     p.appendChild(nfSpan);
     origRow.appendChild(p);
-    origRow.appendChild(makeCopyBtn(() => p.textContent ?? ""));
+    markWorkspaceSelectableText(p);
+    markWorkspaceSelectableText(finalCommitTarget);
+    markWorkspaceSelectableText(nfSpan);
+    origRow.appendChild(createWorkspaceCopyButton(() => p.textContent ?? ""));
     colOrig.appendChild(origRow);
 
     const transRow = document.createElement("div");
@@ -7345,7 +7330,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     applyTextStyle(transTextP);
     transRow.appendChild(transTextP);
-    transRow.appendChild(makeCopyBtn(() => transTextP.textContent ?? ""));
+    markWorkspaceSelectableText(transTextP);
+    if (transStable) markWorkspaceSelectableText(transStable);
+    if (transLive) markWorkspaceSelectableText(transLive);
+    transRow.appendChild(createWorkspaceCopyButton(() => transTextP.textContent ?? ""));
 
     colTrans.appendChild(transRow);
 
@@ -9059,6 +9047,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         wsRef.current = null;
         eng.setLayoutMode(canonIntercallLayoutStacked ? "stacked" : "side-by-side");
         eng.attachDomRoot(containerRef.current);
+        markWorkspaceSelectableRoot(containerRef.current);
+        markWorkspaceSelectableRoot(containerRef.current.parentElement);
         canonWsTailFollowLatchRef.current = true;
         morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current = "";
         queueMicrotask(() => scrollPanelFnRef.current?.(true));
