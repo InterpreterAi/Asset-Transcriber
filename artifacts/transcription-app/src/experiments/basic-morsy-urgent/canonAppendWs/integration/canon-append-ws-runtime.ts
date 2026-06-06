@@ -58,10 +58,6 @@ export type CanonAppendWsRuntimeHooks = {
   onVisualTick?: () => void;
   /** Fired when Soniox returns non-empty speech tokens (not endpoint markers). */
   onSpeechToken?: () => void;
-  /** Clean MT: faster volatile pulse (default 800ms). */
-  getVolatilePulseIntervalMs?: () => number;
-  /** Clean MT: lower NF tail threshold before volatile translate (default 6). */
-  getVolatileTailMinChars?: () => number;
   /** Stable buffer grew (bold commits) — primary translate trigger. */
   onActiveRowStableGrow?: (payload: CanonRowDualBufferPayload) => void;
   /** Volatile tail pulse while grey NF grows without new commits. */
@@ -222,19 +218,9 @@ export class CanonAppendWsIsolatedRuntime {
     return snap.visibleText.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS ? snap : null;
   }
 
-  private volatileTailMinChars(): number {
-    const custom = this.hooks.getVolatileTailMinChars?.();
-    return typeof custom === "number" && custom > 0 ? custom : CANON_VOLATILE_TAIL_MIN_CHARS;
-  }
-
-  private volatilePulseIntervalMs(): number {
-    const custom = this.hooks.getVolatilePulseIntervalMs?.();
-    return typeof custom === "number" && custom > 0 ? custom : CANON_VOLATILE_TAIL_PULSE_MS;
-  }
-
   private hasVolatileTail(snap: CanonRowDualBufferPayload): boolean {
     return (
-      snap.volatileTail.length >= this.volatileTailMinChars() &&
+      snap.volatileTail.length >= CANON_VOLATILE_TAIL_MIN_CHARS &&
       snap.visibleText.length > snap.stableText.length
     );
   }
@@ -250,7 +236,7 @@ export class CanonAppendWsIsolatedRuntime {
       if (next && this.hasVolatileTail(next)) {
         this.scheduleVolatilePulseLoop();
       }
-    }, this.volatilePulseIntervalMs());
+    }, CANON_VOLATILE_TAIL_PULSE_MS);
   }
 
   private syncVolatilePulseLoop(snap: CanonRowDualBufferPayload | null): void {
@@ -326,9 +312,7 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
-    const frozenBefore = this.state.finalizedUtterances.length;
     this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
-    const rowFrozenThisFrame = this.state.finalizedUtterances.length > frozenBefore;
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
       this.hooks.onSpeechToken?.();
@@ -352,8 +336,7 @@ export class CanonAppendWsIsolatedRuntime {
       }
     }
 
-    // Speaker flip / row freeze must fire translation hooks immediately — not after render batch delay.
-    this.scheduleDomBatch(Boolean(frame.endpoint) || rowFrozenThisFrame);
+    this.scheduleDomBatch(Boolean(frame.endpoint));
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
