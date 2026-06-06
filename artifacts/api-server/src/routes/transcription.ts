@@ -45,7 +45,6 @@ import {
 import { runMorsyBasicCleanTranslation } from "../lib/morsy-basic-clean-translate.js";
 import { runTrialHetznerCleanTranslation } from "../lib/trial-hetzner-clean-translate.js";
 import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js";
-import { translateMorsyChunkV3HetznerSentence } from "../lib/morsy-chunk-translation-v3-hetzner.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
@@ -1609,7 +1608,6 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalMorsyIntercallEmbeddedEnglishPrompt: rawExperimentalMorsyIntercallEmbeddedEnglish,
     experimentalMorsyBasicCleanTranslation: rawExperimentalMorsyBasicClean,
     experimentalMorsyUrgentChunkTranslationV2: rawExperimentalMorsyChunkV2,
-    experimentalMorsyUrgentChunkTranslationV3: rawExperimentalMorsyChunkV3,
   } = req.body as {
     text?: string;
     srcLang?: string;
@@ -1632,8 +1630,6 @@ router.post("/translate", requireAuth, async (req, res) => {
     experimentalMorsyBasicCleanTranslation?: unknown;
     /** Basic · Morsy Urgent only: append-only chunk translation (no whole-row retranslation). */
     experimentalMorsyUrgentChunkTranslationV2?: unknown;
-    /** Basic · Morsy Urgent only: sentence-poll chunk translation V3. */
-    experimentalMorsyUrgentChunkTranslationV3?: unknown;
   };
   const experimentalBasicMorsyOpenAiOnly = Boolean(rawExperimentalMorsyOpenAiOnly);
   const experimentalMorsyIntercallEmbeddedEnglishPrompt = Boolean(
@@ -1641,7 +1637,6 @@ router.post("/translate", requireAuth, async (req, res) => {
   );
   const experimentalMorsyBasicCleanTranslation = Boolean(rawExperimentalMorsyBasicClean);
   const experimentalMorsyUrgentChunkTranslationV2 = Boolean(rawExperimentalMorsyChunkV2);
-  const experimentalMorsyUrgentChunkTranslationV3 = Boolean(rawExperimentalMorsyChunkV3);
   const basicMorsyOpenAiExperimentServerEnabled =
     String(process.env.BASIC_MORSY_OPENAI_EXPERIMENT ?? "").trim() === "1";
 
@@ -1833,92 +1828,6 @@ router.post("/translate", requireAuth, async (req, res) => {
       out = ensureGlossaryTranslationsFromSource(out, phraseEcho, userGlossary, applied);
     }
     res.json({ translated: out, appliedGlossaryTerms: applied });
-    return;
-  }
-
-  // ── Basic · Morsy Urgent — sentence-poll chunk translation V3 (highest priority experiment) ──
-  const morsyChunkV3Applies =
-    experimentalMorsyUrgentChunkTranslationV3 && planLower === "morsy-urgent";
-  if (morsyChunkV3Applies) {
-    if (srcCode === tgtCode) {
-      res.json({ translated: text.trim(), appliedGlossaryTerms: [] });
-      return;
-    }
-    const effectiveHetznerLane = effectiveMtLane(
-      translateSessionRow.hetznerMtManualLane,
-      translateSessionRow.hetznerMtAssignedLane,
-    );
-    if (effectiveHetznerLane == null) {
-      res.status(503).json({
-        error:
-          "Machine translation routing is not initialized for this session. Start a new recording session and try again.",
-        code: "HETZNER_MT_LANE_UNASSIGNED",
-      });
-      return;
-    }
-    try {
-      const mtRoutingOpts = {
-        sessionId: diagSessionId,
-        planType: effectivePlanTypeResolved,
-        userEmail: translateUser.email,
-        resolvedLane: effectiveHetznerLane,
-        manualLane: translateSessionRow.hetznerMtManualLane ?? null,
-        assignedLane: translateSessionRow.hetznerMtAssignedLane ?? null,
-        wireDebug: buildHetznerMtWireDebug({
-          incomingSessionId,
-          diagSessionId,
-          streamingDelta,
-          isFinalSegment,
-          mtInvocationIndex: 0,
-        }),
-      };
-      const chunk = await translateMorsyChunkV3HetznerSentence({
-        text,
-        sourceLang: srcLang,
-        targetLang: tgtLang,
-        mtOpts: mtRoutingOpts,
-        sessionId: diagSessionId,
-      });
-      if (!chunk.text.trim() && text.trim().length >= 1) {
-        res.status(503).json({
-          error:
-            "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
-          code: "LIBRETRANSLATE_FAILED",
-        });
-        return;
-      }
-      logger.info(
-        {
-          msg: "morsy_chunk_v3_translation",
-          userId: userIdEarly,
-          sessionId: diagSessionId,
-          srcLang,
-          tgtLang,
-          textLen: text.length,
-          outLen: chunk.text.length,
-          isFinalSegment,
-          effectiveHetznerLane,
-          translationEngine: "hetzner",
-        },
-        "POST /translate chunk V3 hetzner experiment",
-      );
-      res.json({
-        translated: chunk.text,
-        appliedGlossaryTerms: [],
-        translationEngine: "hetzner",
-      });
-    } catch (err: unknown) {
-      const status = isAxiosError(err) ? err.response?.status : undefined;
-      logger.error(
-        { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
-        "Morsy chunk V3 Hetzner translation failed",
-      );
-      res.status(503).json({
-        error:
-          "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
-        code: "LIBRETRANSLATE_FAILED",
-      });
-    }
     return;
   }
 
