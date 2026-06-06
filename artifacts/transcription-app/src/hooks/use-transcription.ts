@@ -8859,6 +8859,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Soniox semantic endpoint: finalize translation, then close row after quiet (canonAppendWs parity).
       if (sawSonioxEndpoint) {
         legacyEndpointPendingRef.current = true;
+        if (activeBubbleNFRef.current) {
+          activeBubbleNFRef.current.textContent = "";
+        }
         const semanticEndpointFinalizeForSegment = (stEnd: BubbleTransState, srcEnd: string): void => {
           if (!srcEnd || stEnd.translationLocked) return;
           const map = adminSegmentRowIndexRef.current;
@@ -9141,6 +9144,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (canonWsIsolationRecordingRef.current && canonWsIsolationEngineRef.current) {
           canonWsIsolationEngineRef.current.sendPcm(raw);
         } else {
+          tryLegacyEndpointSegmentClose(Date.now());
           const w = wsRef.current;
           if (w?.readyState === WebSocket.OPEN) {
             w.send(raw);
@@ -9270,7 +9274,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startInFlightRef.current = false;
       setStartBusy(false);
     }
-  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop]);
+  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, tryLegacyEndpointSegmentClose]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.
