@@ -100,7 +100,10 @@ import {
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import { gateCanonAppendWsIsolatedRebuild, planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import { shouldCloseSegmentAfterEndpoint } from "@/experiments/basic-morsy-urgent/canonAppendWs/policies/endpoint-row-close";
-import { planUsesOpenAiLegacy2CleanTranslation } from "@/lib/utils";
+import {
+  planUsesOpenAiLegacy2CleanTranslation,
+  planUsesTrialHetznerCleanTranslation,
+} from "@/lib/utils";
 import {
   CanonAppendWsIsolatedRuntime,
   type CanonFrozenRowPayload,
@@ -1587,6 +1590,8 @@ type TranslateApiOptions = {
   experimentalMorsyUrgentChunkTranslationV2?: boolean;
   /** Basic · Morsy Urgent only: sentence-poll chunk translation V3. */
   experimentalMorsyUrgentChunkTranslationV3?: boolean;
+  /** trial-hetzner only — server clean Hetzner path (glossaryStrict off; mirrors trial-openai dispatch). */
+  trialHetznerCleanTranslation?: boolean;
 };
 
 async function translateViaPrimaryApi(
@@ -1639,7 +1644,13 @@ async function translateViaPrimaryApi(
         tgtLang:              targetLang,
         streamingDelta:       Boolean(options?.streamingDelta),
         isFinal:              Boolean(options?.isFinal),
-        glossaryStrictMode:   cleanExperiment || chunkV2Experiment || chunkV3Experiment ? false : readGlossaryStrictEnabled(),
+        glossaryStrictMode:
+          cleanExperiment ||
+          chunkV2Experiment ||
+          chunkV3Experiment ||
+          options?.trialHetznerCleanTranslation
+            ? false
+            : readGlossaryStrictEnabled(),
         terminologyMode:      cleanExperiment || chunkV2Experiment || chunkV3Experiment ? "full" : terminologyMode,
         ...(options?.sessionId != null && options.sessionId > 0 ? { sessionId: options.sessionId } : {}),
         ...(options?.segmentId ? { segmentId: options.segmentId } : {}),
@@ -3203,6 +3214,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       !morsyUsesChunkTranslationV2Experiment() &&
       !morsyUsesChunkTranslationV3Experiment()
     );
+  }
+
+  function trialHetznerCleanTranslationActive(): boolean {
+    return planUsesTrialHetznerCleanTranslation(planTypeRef.current);
+  }
+
+  /** trial-openai clean OR trial-hetzner clean — shared client dispatch only; engines stay separate server-side. */
+  function canonTrialCleanTranslationActive(): boolean {
+    return openAiLegacy2CleanTranslationActive() || trialHetznerCleanTranslationActive();
+  }
+
+  function trialCanonFetchOpts(): { trialHetznerCleanTranslation?: true } {
+    return trialHetznerCleanTranslationActive()
+      ? { trialHetznerCleanTranslation: true as const }
+      : {};
   }
 
   function morsySendsEmbeddedEnglishLivePrompt(): boolean {
@@ -5789,12 +5815,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const pair = langPairRef.current;
     const sonioxHint = utterance.language ?? detectedLangRef.current;
-    const openAiLegacy2Clean = openAiLegacy2CleanTranslationActive();
+    const canonTrialClean = canonTrialCleanTranslationActive();
     const morsyUrgentCanon = false;
     const sourceLang = resolveSourceLangForCanon(sourceNorm, sonioxHint, pair);
     const targetLang = targetOppositeInPair(sourceLang, pair);
 
-    if (openAiLegacy2Clean && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
+    if (canonTrialClean && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
       paintCanonRowTranslationIfAllowed(rowId, sourceNorm, { force: true });
       st.lastFinalSource = sourceNorm;
       st.lastStableDispatched = sourceNorm;
@@ -5974,6 +6000,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ...morsyCleanExperimentOpts,
             ...morsyChunkV2ExperimentOpts,
             ...basicMorsyOpenAiExperimentOpts,
+            ...trialCanonFetchOpts(),
           },
         );
         if (tr.dailyLimitReached) {
@@ -6003,6 +6030,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ? { sessionId: sessionIdRef.current }
             : {}),
           ...basicMorsyOpenAiExperimentOpts,
+          ...trialCanonFetchOpts(),
         },
       );
       if (trOpp.dailyLimitReached) {
@@ -6338,7 +6366,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const sonioxHint = rowState.lastPendingLang ?? detectedLangRef.current;
     const eng = canonWsIsolationEngineRef.current;
 
-    const morsyUrgentCanonFetchOpts = () => ({});
+    const morsyUrgentCanonFetchOpts = () => trialCanonFetchOpts();
 
     const runFinalFetch = async (finalSource: string) => {
       rowState.endpointFinalInFlight = true;
@@ -6359,10 +6387,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const sourceLang = resolveSourceLangForCanon(finalSource, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
-      const openAiLegacy2Clean = openAiLegacy2CleanTranslationActive();
+      const canonTrialClean = canonTrialCleanTranslationActive();
 
       try {
-        if (openAiLegacy2Clean && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
+        if (canonTrialClean && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
           rowState.lastDispatchedSource = finalSource;
           rowState.lastFinalSource = finalSource;
           paintCanonRowTranslationIfAllowed(rowId, finalSource, { force: true });
@@ -6467,10 +6495,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
         const morsyCanonIntercallLive = false;
-        const openAiLegacy2Clean = openAiLegacy2CleanTranslationActive();
+        const canonTrialClean = canonTrialCleanTranslationActive();
 
         if (
-          (morsyCanonIntercallLive || openAiLegacy2Clean) &&
+          (morsyCanonIntercallLive || canonTrialClean) &&
           morsyCanonThirdLanguagePassthrough(liveSource, sonioxHint, pair)
         ) {
           rowState.lastDispatchedSource = liveSource;

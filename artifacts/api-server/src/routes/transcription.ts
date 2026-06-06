@@ -20,6 +20,7 @@ import {
   isTrialExpired,
   isTrialLikePlanType,
   planUsesOpenAiLegacy2CleanStack,
+  planUsesTrialHetznerCleanStack,
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
@@ -42,6 +43,7 @@ import {
   numberPlaceholderPromptRule,
 } from "../lib/number-placeholders.js";
 import { runMorsyBasicCleanTranslation } from "../lib/morsy-basic-clean-translate.js";
+import { runTrialHetznerCleanTranslation } from "../lib/trial-hetzner-clean-translate.js";
 import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js";
 import { translateMorsyChunkV3HetznerSentence } from "../lib/morsy-chunk-translation-v3-hetzner.js";
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
@@ -2036,6 +2038,91 @@ router.post("/translate", requireAuth, async (req, res) => {
       res.status(isTimeout ? 503 : 500).json({
         error: isTimeout ? "Translation timed out — please retry" : "Translation failed",
         code: isTimeout ? undefined : "MORSY_CLEAN_TRANSLATION_FAILED",
+      });
+    }
+    return;
+  }
+
+  // ── trial-hetzner — clean Hetzner path (isolated; mirrors trial-openai clean preprocessing) ──
+  const trialHetznerCleanApplies = planUsesTrialHetznerCleanStack(planLower);
+  if (trialHetznerCleanApplies) {
+    if (srcCode === tgtCode) {
+      res.json({ translated: text.trim(), appliedGlossaryTerms: [] });
+      return;
+    }
+    const effectiveHetznerLane = effectiveMtLane(
+      translateSessionRow.hetznerMtManualLane,
+      translateSessionRow.hetznerMtAssignedLane,
+    );
+    if (effectiveHetznerLane == null) {
+      res.status(503).json({
+        error:
+          "Machine translation routing is not initialized for this session. Start a new recording session and try again.",
+        code: "HETZNER_MT_LANE_UNASSIGNED",
+      });
+      return;
+    }
+    try {
+      const mtRoutingOpts = {
+        sessionId: diagSessionId,
+        planType: effectivePlanTypeResolved,
+        userEmail: translateUser.email,
+        resolvedLane: effectiveHetznerLane,
+        manualLane: translateSessionRow.hetznerMtManualLane ?? null,
+        assignedLane: translateSessionRow.hetznerMtAssignedLane ?? null,
+        wireDebug: buildHetznerMtWireDebug({
+          incomingSessionId,
+          diagSessionId,
+          streamingDelta,
+          isFinalSegment,
+          mtInvocationIndex: 0,
+        }),
+      };
+      const clean = await runTrialHetznerCleanTranslation({
+        text,
+        sourceLang: srcLang,
+        targetLang: tgtLang,
+        mtOpts: mtRoutingOpts,
+        sessionId: diagSessionId,
+      });
+      if (!clean.text.trim() && text.trim().length >= 1) {
+        res.status(503).json({
+          error:
+            "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
+          code: "LIBRETRANSLATE_FAILED",
+        });
+        return;
+      }
+      logger.info(
+        {
+          msg: "trial_hetzner_clean_translation",
+          userId: userIdEarly,
+          sessionId: diagSessionId,
+          srcLang,
+          tgtLang,
+          textLen: text.length,
+          outLen: clean.text.length,
+          isFinalSegment,
+          effectiveHetznerLane,
+          translationEngine: "hetzner",
+        },
+        "POST /translate trial-hetzner clean",
+      );
+      res.json({
+        translated: clean.text,
+        appliedGlossaryTerms: [],
+        translationEngine: "hetzner",
+      });
+    } catch (err: unknown) {
+      const status = isAxiosError(err) ? err.response?.status : undefined;
+      logger.error(
+        { err, srcLang, tgtLang, textLen: text.length, libreStatus: status },
+        "trial-hetzner clean translation failed",
+      );
+      res.status(503).json({
+        error:
+          "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
+        code: "LIBRETRANSLATE_FAILED",
       });
     }
     return;

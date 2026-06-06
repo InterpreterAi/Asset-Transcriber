@@ -84,6 +84,13 @@ export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | un
 }
 
 /**
+ * **trial-hetzner only** — isolated clean Hetzner path (mirrors trial-openai client dispatch; never OpenAI).
+ */
+export function planUsesTrialHetznerCleanTranslation(planType: string | null | undefined): boolean {
+  return (planType ?? "").trim().toLowerCase() === "trial-hetzner";
+}
+
+/**
  * True when the account uses the machine translation stack — mirrors server `planUsesMachineTranslationStack`
  * (Final Boss 3: Libre for Basic/Professional *-libre and `trial-hetzner`; OpenAI for `trial-libre`, legacy OpenAI trials, Platinum, Unlimited).
  */

@@ -121,6 +121,14 @@ export function planUsesOpenAiMorsyInterpreterStack(planType: string | null | un
   return planUsesOpenAiLegacy2CleanStack(planType);
 }
 
+/**
+ * **trial-hetzner only** — isolated clean Hetzner path (`runTrialHetznerCleanTranslation`).
+ * Mirrors trial-openai preprocessing/postprocessing; never routes to OpenAI.
+ */
+export function planUsesTrialHetznerCleanStack(planType: string | null | undefined): boolean {
+  return (planType ?? "").trim().toLowerCase() === "trial-hetzner";
+}
+
 /** Runtime translation engine selector for /translate. */
 export function userUsesMachineTranslationStack(user: TranslationRoutingUser): boolean {
   const eff = effectivePlanTypeForTranslation(user as User);
