@@ -379,14 +379,8 @@ export class CanonAppendWsDomWriter {
 
   /** Row-order sync — append-only committed per row; active tail via hypothesis span only. */
   syncRows(container: HTMLElement, projections: RowProjection[]): void {
-    // Structural row splits are gated in canon-append-ws-runtime (flushPendingDom on resume).
-    this.syncRowsImpl(container, projections);
-  }
-
-  private syncRowsImpl(container: HTMLElement, projections: RowProjection[]): void {
     const seen = new Set<string>();
-    for (let i = 0; i < projections.length; i++) {
-      const proj = projections[i]!;
+    for (const proj of projections) {
       seen.add(proj.row_id);
       let handles = this.byRowId.get(proj.row_id);
       if (!handles) {
@@ -396,16 +390,7 @@ export class CanonAppendWsDomWriter {
         this.byRowId.delete(proj.row_id);
         handles = this.createRow(container, proj);
       }
-
-      const insertBefore =
-        i + 1 < projections.length
-          ? this.byRowId.get(projections[i + 1]!.row_id)?.row ?? null
-          : null;
-      if (handles.row.parentElement !== container) {
-        container.insertBefore(handles.row, insertBefore);
-      } else if (handles.row.nextElementSibling !== insertBefore) {
-        container.insertBefore(handles.row, insertBefore);
-      }
+      container.appendChild(handles.row);
 
       const card = handles.row.firstElementChild;
       const body = card?.children[1] as HTMLElement | undefined;
@@ -414,18 +399,12 @@ export class CanonAppendWsDomWriter {
 
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
-      const stripeClass = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
-      if (handles.stripe.className !== stripeClass) {
-        handles.stripe.className = stripeClass;
-      }
+      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
 
       if (!line || !hypo) continue;
 
       renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-      const nextHypo = proj.finalized ? "" : proj.liveText;
-      if (hypo.textContent !== nextHypo) {
-        renderHypothesisLcp(hypo, nextHypo);
-      }
+      renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(
           handles,
