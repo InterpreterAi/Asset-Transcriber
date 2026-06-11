@@ -334,7 +334,8 @@ const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 /** After Soniox &lt;end&gt;, let final-token render queue settle before binding the translate request. */
 const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
-const SAME_SPEAKER_PAUSE_SPLIT_MS = 4000;
+/** Long pause only (6s) — matches canon STT; not every between-sentence pause. */
+const SAME_SPEAKER_PAUSE_SPLIT_MS = 6000;
 /** Legacy diagnostic slack label — not used for sticky-tail snap decisions anymore. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
 /**
