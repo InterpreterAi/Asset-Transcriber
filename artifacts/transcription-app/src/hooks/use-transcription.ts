@@ -99,7 +99,6 @@ import {
   reconcileCommittedTextNodeFromLockedString,
 } from "@/hooks/morsy-isolated-transcript-canonical";
 import { gateCanonAppendWsIsolatedRebuild, planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
-import { shouldCloseSegmentAfterEndpoint } from "@/experiments/basic-morsy-urgent/canonAppendWs/policies/endpoint-row-close";
 import {
   planUsesOpenAiLegacy2CleanTranslation,
   planUsesTrialHetznerCleanTranslation,
@@ -3847,8 +3846,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
-  /** Legacy WebSocket: Soniox `<end>` received — mirror canonAppendWs endpoint row close. */
-  const legacyEndpointPendingRef = useRef(false);
   const pendingSpeakerSwitchRef = useRef<{
     sid: string;
     messageStreak: number;
@@ -7369,8 +7366,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     return finalCommitTarget;
   }, []);
 
-  /** session_end = user pressed Stop; endpoint_pause = Soniox `<end>` sentence break (same speaker). */
-  type SegmentCloseKind = "session_end" | "speaker_change" | "endpoint_pause";
+  type SegmentCloseKind = "session_end" | "speaker_change";
 
   // ── softFinalize ──────────────────────────────────────────────────────────
   // Upgrades the active bubble style (grey/italic → bold) and dispatches a
@@ -7561,7 +7557,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     currentSpeakerRef.current = undefined;
     lastSpeakerSpeechTokenAtMsRef.current = 0;
-    legacyEndpointPendingRef.current = false;
     pendingSpeakerSwitchRef.current = null;
     if (committedOrigDomIntegrityTraceEnabled()) {
       emitCommittedOrigDomDetachPreNull("closeActiveSegmentBoundary/clear_refs", {
@@ -7834,38 +7829,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
-  /**
-   * Legacy WebSocket only — same-speaker multi-bubble splits after Soniox `<end>` pauses
-   * (canonAppendWs `shouldCloseSegmentAfterEndpoint` parity for OpenAI / pre-canon tiers).
-   */
-  const tryLegacyEndpointSegmentClose = useCallback((wallMs: number): boolean => {
-    if (!legacyEndpointPendingRef.current || !activeBubbleRef.current) return false;
-    const st = activeBubbleStateRef.current;
-    const committed =
-      (st?.lockedCommittedFinalOriginal ?? "").trim() ||
-      (activeBubbleRef.current.textContent ?? "").trim();
-    const live = (activeBubbleNFRef.current?.textContent ?? "").trim();
-    if (
-      !shouldCloseSegmentAfterEndpoint({
-        committedText: committed,
-        liveText: live,
-        endpointPending: true,
-        wallMs,
-        lastTokenActivityWallMs: lastSpeakerSpeechTokenAtMsRef.current,
-      })
-    ) {
-      return false;
-    }
-    const sid = currentSpeakerRef.current;
-    closeActiveSegmentBoundary("endpoint_pause");
-    legacyEndpointPendingRef.current = false;
-    if (sid !== undefined) {
-      activeBubbleRef.current = createBubble(sid);
-      setHasTranscript(true);
-    }
-    return true;
-  }, [closeActiveSegmentBoundary, createBubble]);
-
   // ── buildWs ───────────────────────────────────────────────────────────────
   // Soniox streaming: speaker boundaries use effectiveSpeakersForTokenBoundaries() to ignore
   // diarization flicker during fast bilingual turns (short A→B→A runs stay one segment).
@@ -7932,8 +7895,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const sawSonioxEndpoint = tokens.some(t => t.is_final && isSonioxEndpointToken(t));
       const nowMs = Date.now();
 
-      tryLegacyEndpointSegmentClose(nowMs);
-
       // Intercall: cancel pending semantic-endpoint final if new audio/context arrived (still growing).
       if (
         experimentMorsyUrgentIntercallRef.current &&
@@ -7950,11 +7911,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const finals    = tokens.filter(t => t.is_final && !isSonioxEndpointToken(t));
       const newFinals = finals.slice(finalCountRef.current);
       const newFinalSet = new Set(newFinals);
-      /** Canon STT tiers: instant speaker pivot (matches canonAppendWs reducer). Legacy tiers keep stabilized gate. */
-      const useInstantCanonSpeakerPivot = planUsesCanonAppendWsStt(planTypeRef.current.trim());
-      const useMorsyUrgentSpeakerGate =
-        !useInstantCanonSpeakerPivot &&
-        segmentModeUsesStabilizedSonioxSpeakerPivot(segmentBehaviorModeRef.current);
+      const useMorsyUrgentSpeakerGate = segmentModeUsesStabilizedSonioxSpeakerPivot(
+        segmentBehaviorModeRef.current,
+      );
       const pendingSidAtStart = pendingSpeakerSwitchRef.current?.sid;
       let pendingSidSeenInMessage = false;
       let pendingSidCountedInMessage = false;
@@ -8775,12 +8734,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
       }
 
-      // Soniox semantic endpoint: finalize translation, then close row after quiet (canonAppendWs parity).
+      // Soniox semantic endpoint: &lt;end&gt; triggers a full final translate pass (same bubble; speaker_id unchanged).
       if (sawSonioxEndpoint) {
-        legacyEndpointPendingRef.current = true;
-        if (activeBubbleNFRef.current) {
-          activeBubbleNFRef.current.textContent = "";
-        }
         const semanticEndpointFinalizeForSegment = (stEnd: BubbleTransState, srcEnd: string): void => {
           if (!srcEnd || stEnd.translationLocked) return;
           const map = adminSegmentRowIndexRef.current;
@@ -8844,7 +8799,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         } else {
           runSemanticEndpointFinalize();
         }
-        tryLegacyEndpointSegmentClose(Date.now());
       }
 
       if (sttClientDiagEnabled()) {
@@ -8893,7 +8847,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     scheduleDebouncedLiveTranslation,
     morsyIntercallSandboxSemanticStabilizeLive,
     scheduleMorsySemanticIsolatedNfPaint,
-    tryLegacyEndpointSegmentClose,
   ]);
 
   // ── start ─────────────────────────────────────────────────────────────────
@@ -9063,7 +9016,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (canonWsIsolationRecordingRef.current && canonWsIsolationEngineRef.current) {
           canonWsIsolationEngineRef.current.sendPcm(raw);
         } else {
-          tryLegacyEndpointSegmentClose(Date.now());
           const w = wsRef.current;
           if (w?.readyState === WebSocket.OPEN) {
             w.send(raw);
@@ -9190,7 +9142,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       startInFlightRef.current = false;
       setStartBusy(false);
     }
-  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop, tryLegacyEndpointSegmentClose]);
+  }, [getTokenMut, startSessionMut, stopSessionMut, buildWs, stop]);
 
   // ── setLangPair ────────────────────────────────────────────────────────────
   // Called by workspace whenever the user changes either language selector.

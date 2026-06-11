@@ -1,3 +1,5 @@
+import { morsyUrgentAppendOnlyTranscriptDomPath } from "@/hooks/morsy-isolated-transcript-canonical";
+
 import { CANON_SILENCE_SEGMENT_MS as CANON_SILENCE_SEGMENT_MS_POLICY } from "./policies/segmentation-constants";
 
 export const BASIC_MORSY_CANON_WS_ENGINE_LS = "interpreterai_basic_morsy_canon_ws_engine";
@@ -33,8 +35,8 @@ export function planUsesCanonAppendWsStt(planTypeLower: string): boolean {
 export const CANON_SILENCE_SEGMENT_MS = CANON_SILENCE_SEGMENT_MS_POLICY;
 
 /**
- * **All `CANON_APPEND_WS_STT_PLAN_TYPES` tiers**: isolated Soniox engine is **ON by default**
- * when transcript segment guards are enabled (signed-in workspace).
+ * **Basic · Morsy Urgent + canonAppendWs path**: isolated SONIOX engine is **ON by default**
+ * (`morsyUrgentAppendOnlyTranscriptDomPath` match).
  *
  * Opt back to legacy WebSocket/transcript reconciliation:
  * ```
@@ -53,17 +55,15 @@ export function readCanonAppendWsIsolatedOptOutLegacy(): boolean {
   }
 }
 
-/**
- * Canon-append-ws Soniox STT (shared diarization/segmentation for every workspace tier).
- * Translation mode (Clean MT, Chunk V2, OpenAI SKU) does not affect this gate.
- */
 export function gateCanonAppendWsIsolatedRebuild(args: {
   planTypeLower: string;
   segmentBehaviorMode: string;
   transcriptSegmentIsolationEnabled: boolean;
 }): boolean {
-  void args.segmentBehaviorMode;
   if (readCanonAppendWsIsolatedOptOutLegacy()) return false;
-  if (!planUsesCanonAppendWsStt(args.planTypeLower)) return false;
-  return args.transcriptSegmentIsolationEnabled;
+  return morsyUrgentAppendOnlyTranscriptDomPath({
+    planTypeLower: args.planTypeLower,
+    segmentBehaviorMode: args.segmentBehaviorMode,
+    transcriptSegIsolation: args.transcriptSegmentIsolationEnabled,
+  });
 }
