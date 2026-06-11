@@ -2,13 +2,14 @@ import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
-import { shouldCloseRowAfterEndpoint } from "../policies/endpoint-row-close";
+import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
   rowBreaksOnFinalToken,
 } from "./row-lifecycle";
+import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import {
   canonTokensFromFrame,
   inferTailSpeakerLang,
@@ -20,38 +21,35 @@ export type ReduceContext = {
   wallMs: number;
 };
 
-function tryEndpointRowClose(state: EngineState, wallMs: number): EngineState {
+/** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
+function tryLongPauseSameSpeakerRowSplit(state: EngineState, wallMs: number): EngineState {
   const au = state.activeUtterance;
-  if (!au) {
-    return state.endpointPending
-      ? { ...state, endpointPending: false, endpointPendingAtMs: 0 }
-      : state;
-  }
-  if (
-    shouldCloseRowAfterEndpoint({
-      row: au,
-      endpointPending: state.endpointPending,
-      wallMs,
-      lastTokenActivityWallMs: state.lastTokenActivityWallMs,
-    })
-  ) {
-    return {
-      ...freezeActiveUtterance(state),
-      endpointPending: false,
-      endpointPendingAtMs: 0,
-    };
-  }
-  return state;
+  if (!au || state.lastTokenActivityWallMs <= 0) return state;
+  const gap = wallMs - state.lastTokenActivityWallMs;
+  if (gap < SAME_SPEAKER_LONG_PAUSE_SPLIT_MS) return state;
+  const hasContent =
+    utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
+  if (!hasContent) return state;
+  return {
+    ...freezeActiveUtterance(state),
+    endpointPending: false,
+    endpointPendingAtMs: 0,
+  };
 }
 
 /**
  * Soniox real-time contract + Intercall row timing:
  * - Append finals once; replace non-finals each frame
  * - New row on speaker/language final boundary
- * - Endpoint marks pause; close row only after tail finalizes + quiet + sentence end
+ * - Same speaker: new row only after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
+
+  let next: EngineState = state;
+  if (frame.tokens.length > 0) {
+    next = tryLongPauseSameSpeakerRowSplit(next, wallMs);
+  }
 
   const finProc =
     typeof frame.final_audio_proc_ms === "number" && Number.isFinite(frame.final_audio_proc_ms)
@@ -64,12 +62,12 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   let lagComputed: number | null = null;
   if (finProc !== null && totProc !== null) lagComputed = Math.max(0, totProc - finProc);
 
-  let next: EngineState = {
-    ...state,
+  next = {
+    ...next,
     lastFrameSeq: frame.seq,
-    lastFinalAudioProcMs: finProc !== null ? finProc : state.lastFinalAudioProcMs,
-    lastTotalAudioProcMs: totProc !== null ? totProc : state.lastTotalAudioProcMs,
-    lastHypothesisLagMs: lagComputed !== null ? lagComputed : state.lastHypothesisLagMs,
+    lastFinalAudioProcMs: finProc !== null ? finProc : next.lastFinalAudioProcMs,
+    lastTotalAudioProcMs: totProc !== null ? totProc : next.lastTotalAudioProcMs,
+    lastHypothesisLagMs: lagComputed !== null ? lagComputed : next.lastHypothesisLagMs,
   };
 
   const canon = canonTokensFromFrame(frame.tokens);
@@ -130,12 +128,10 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     };
   }
 
-  next = tryEndpointRowClose(next, wallMs);
-
   return next;
 }
 
-/** Called between websocket frames (PCM ticks) to close row after endpoint quiet. */
-export function maybeCloseRowAfterEndpointQuiet(state: EngineState, wallMs: number): EngineState {
-  return tryEndpointRowClose(state, wallMs);
+/** PCM tick hook — row splits happen on speech resume in {@link reduceCanonAppendWs}, not on idle PCM. */
+export function maybeCloseRowAfterEndpointQuiet(state: EngineState, _wallMs: number): EngineState {
+  return state;
 }
