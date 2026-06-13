@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
 import type { CinematicTimeline } from "../motion/useCinematicTimeline";
-import { CINEMATIC_CONTENT } from "../data/cinematic-content";
 import { PRICING_PLANS } from "@/lib/pricing-copy";
 
 type NodeDef = {
@@ -19,13 +18,6 @@ const USE_NODES: NodeDef[] = [
   { id: "remote", label: "Remote", angle: 138, dist: 0.46, emergeAt: 0.56 },
 ];
 
-const TRUST_NODES = CINEMATIC_CONTENT.trust.bullets.map((b, i) => ({
-  id: `trust-${i}`,
-  label: b.title,
-  angle: -110 + i * 38,
-  dist: 0.48,
-}));
-
 const PRICING_NODES = PRICING_PLANS.map((plan, i) => ({
   id: plan.key,
   label: plan.name,
@@ -39,7 +31,7 @@ type Props = {
 };
 
 export function CinematicNetwork({ timeline }: Props) {
-  const { p, networkOpacity, secureIntensity, scaleIntensity, pricingIntensity, finaleCollapse } = timeline;
+  const { p, networkOpacity, scaleIntensity, pricingIntensity, finaleCollapse } = timeline;
   const cx = 50;
   const cy = 50;
   const collapse = finaleCollapse;
@@ -59,7 +51,7 @@ export function CinematicNetwork({ timeline }: Props) {
           <stop offset="0%" stopColor="rgba(34,211,238,0.45)" />
           <stop offset="100%" stopColor="rgba(34,211,238,0)" />
         </radialGradient>
-        <linearGradient id="cine-secure-line" x1="0%" y1="0%" x2="100%" y2="0%">
+        <linearGradient id="cine-comm-line" x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stopColor="rgba(34,211,238,0.15)" />
           <stop offset="50%" stopColor="rgba(34,211,238,0.75)" />
           <stop offset="100%" stopColor="rgba(34,211,238,0.15)" />
@@ -73,13 +65,7 @@ export function CinematicNetwork({ timeline }: Props) {
         </filter>
       </defs>
 
-      <circle
-        cx={cx}
-        cy={cy}
-        r={20 * nodeScale}
-        fill="url(#cine-core-glow)"
-        opacity={0.55 + scaleIntensity * 0.35}
-      />
+      <circle cx={cx} cy={cy} r={20 * nodeScale} fill="url(#cine-core-glow)" opacity={0.55 + scaleIntensity * 0.35} />
 
       <circle
         cx={cx}
@@ -101,16 +87,9 @@ export function CinematicNetwork({ timeline }: Props) {
 
         return (
           <g key={node.id} opacity={emerge * (1 - collapse)}>
-            <line
-              x1={cx}
-              y1={cy}
-              x2={x}
-              y2={y}
-              stroke={secureIntensity > 0.2 ? "url(#cine-secure-line)" : "rgba(56,189,248,0.35)"}
-              strokeWidth={0.4 + secureIntensity * 0.3}
-            />
+            <line x1={cx} y1={cy} x2={x} y2={y} stroke="url(#cine-comm-line)" strokeWidth={0.45} />
             <circle cx={x} cy={y} r={2 + scaleIntensity * 0.5} fill="rgba(34,211,238,0.9)" />
-            <text x={x} y={y - 3.5} textAnchor="middle" fill="rgba(203,213,225,0.95)" fontSize="2.3" fontWeight="600">
+            <text x={x} y={y - 3.5} textAnchor="middle" fill="rgba(203,213,225,0.95)" fontSize="2.4" fontWeight="600">
               {node.label}
             </text>
             {extraNodes > 1 &&
@@ -119,7 +98,7 @@ export function CinematicNetwork({ timeline }: Props) {
                 const oy = y + (j + 1) * 2;
                 return (
                   <g key={j}>
-                    <line x1={x} y1={y} x2={ox} y2={oy} stroke="rgba(56,189,248,0.2)" strokeWidth="0.25" />
+                    <line x1={x} y1={y} x2={ox} y2={oy} stroke="rgba(56,189,248,0.25)" strokeWidth="0.25" />
                     <circle cx={ox} cy={oy} r={1} fill="rgba(56,189,248,0.55)" />
                   </g>
                 );
@@ -127,33 +106,6 @@ export function CinematicNetwork({ timeline }: Props) {
           </g>
         );
       })}
-
-      {secureIntensity > 0.08 &&
-        TRUST_NODES.map((node, i) => {
-          const emerge = Math.min(1, Math.max(0, (secureIntensity - i * 0.08) / 0.35));
-          if (emerge <= 0) return null;
-          const rad = (node.angle * Math.PI) / 180;
-          const dist = node.dist * 36 * nodeScale * emerge;
-          const x = cx + Math.cos(rad) * dist;
-          const y = cy + Math.sin(rad) * dist;
-          return (
-            <g key={node.id} opacity={emerge * (1 - collapse)}>
-              <line
-                x1={cx}
-                y1={cy}
-                x2={x}
-                y2={y}
-                stroke="url(#cine-secure-line)"
-                strokeWidth={0.45}
-                strokeDasharray="1.2 0.8"
-              />
-              <circle cx={x} cy={y} r={1.6} fill="rgba(34,211,238,0.75)" />
-              <text x={x} y={y - 3} textAnchor="middle" fill="rgba(165,243,252,0.9)" fontSize="1.9" fontWeight="600">
-                {node.label}
-              </text>
-            </g>
-          );
-        })}
 
       {pricingIntensity > 0.05 &&
         PRICING_NODES.map((node, i) => {

@@ -27,11 +27,24 @@ export const CINEMATIC_CONTENT = {
   },
   hero: {
     h1: "Real-Time Support for Professional Interpreters",
+    h1Lead: "Real-Time Support for",
+    h1Accent: "Professional Interpreters",
     subhead:
       "Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows across 36 supported languages.",
     noCard: "No credit card required to start.",
     pills: ["Hear & capture", "Live captions", "Translation assist"] as const,
   },
+  /** Conversion pillars — original site positioning, preserved verbatim. */
+  positioningPillars: [
+    { title: "Real-Time AI Captioning", short: "Live captions" },
+    { title: "Translation Assistance", short: "Translation assist" },
+    { title: "Professional Interpreters", short: "Interpreter-first" },
+    { title: "OPI", short: "Over-the-phone" },
+    { title: "VRI", short: "Video remote" },
+    { title: "Speaker Identification", short: "Speaker ID" },
+    { title: "Privacy-First Workflows", short: "Privacy-first" },
+    { title: "36+ Languages", short: "36+ languages" },
+  ] as const,
   product: {
     title: "Your live session workspace",
     subtitle:
@@ -95,6 +108,9 @@ export const CINEMATIC_CONTENT = {
   trust: {
     landingTitle: "Trusted operations",
     landingIntro: "A calm foundation for teams that cannot afford ambiguity about security or privacy posture.",
+    privacyHeadline: "Privacy-first by design",
+    privacyBody:
+      "Session-oriented processing, minimized retention patterns, and interpreter-controlled workflows—your encounter data stays in your professional context.",
     securityHero:
       "InterpreterAI is designed with HIPAA-focused thinking and privacy-conscious architecture. We describe our practices carefully—without claiming certifications we have not earned.",
     bullets: [

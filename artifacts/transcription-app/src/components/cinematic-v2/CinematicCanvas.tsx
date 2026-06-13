@@ -19,10 +19,11 @@ export function CinematicCanvas() {
         <CinematicStreamLayer timeline={timeline} />
 
         <motion.div
-          className="relative w-full max-w-2xl px-4 flex items-center justify-center will-change-transform z-10"
+          className="relative w-full max-w-6xl px-3 sm:px-6 flex items-center justify-center will-change-transform z-10"
           style={{
             scale: workspaceScale,
             opacity: workspaceOpacity,
+            x: `${timeline.workspaceX}%`,
             y: timeline.workspaceY + collapse * 80,
             filter:
               collapse > 0
@@ -30,7 +31,7 @@ export function CinematicCanvas() {
                 : "none",
           }}
         >
-          <CinematicWorkspace dialogueProgress={timeline.dialogueProgress} />
+          <CinematicWorkspace />
         </motion.div>
 
         <CinematicChapterOverlays timeline={timeline} />
@@ -52,8 +53,7 @@ export function CinematicCanvas() {
           className="absolute inset-0 pointer-events-none z-[28]"
           style={{
             opacity: timeline.logoReveal * 0.6,
-            background:
-              "radial-gradient(circle at 50% 42%, rgba(34,211,238,0.25) 0%, transparent 42%)",
+            background: "radial-gradient(circle at 50% 42%, rgba(34,211,238,0.25) 0%, transparent 42%)",
           }}
           aria-hidden
         />
