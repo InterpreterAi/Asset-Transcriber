@@ -1848,7 +1848,7 @@ router.post("/translate", requireAuth, async (req, res) => {
       return;
     }
     try {
-      const chunk = await runMorsyChunkV2Translation({ text, tgtName });
+      const chunk = await runMorsyChunkV2Translation({ text, srcName, tgtName });
       const callCost = +(
         chunk.promptTokens * OPENAI_INPUT_COST_PER_TOKEN +
         chunk.completionTokens * OPENAI_OUTPUT_COST_PER_TOKEN
