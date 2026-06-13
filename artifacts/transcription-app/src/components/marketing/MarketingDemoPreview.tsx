@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Mic2, ArrowRight, Clock, Globe, BookOpen,
   Languages, StickyNote, BookMarked, Search, Stethoscope, History,
@@ -72,9 +74,59 @@ function BrandMini() {
 }
 
 /** Static product preview for marketing — not connected to live sessions. */
-export function MarketingDemoPreview() {
+export function MarketingDemoPreview({
+  compact = false,
+  animated = false,
+}: {
+  compact?: boolean;
+  animated?: boolean;
+}) {
+  const livePhrases = [
+    { orig: "Can I see a specialist this week", trans: "¿Puedo ver a un especialista esta semana?" },
+    { orig: "My insurance should cover the visit", trans: "Mi seguro debería cubrir la visita." },
+    { orig: "What time is the appointment available", trans: "¿A qué hora está disponible la cita?" },
+  ] as const;
+  const [phraseIdx, setPhraseIdx] = useState(0);
+  const [typedOrig, setTypedOrig] = useState("");
+  const [typedTrans, setTypedTrans] = useState("");
+  const [phase, setPhase] = useState<"orig" | "trans" | "pause">("orig");
+
+  useEffect(() => {
+    if (!animated) return;
+    const phrase = livePhrases[phraseIdx];
+    if (phase === "pause") {
+      const t = setTimeout(() => {
+        setPhraseIdx((i) => (i + 1) % livePhrases.length);
+        setTypedOrig("");
+        setTypedTrans("");
+        setPhase("orig");
+      }, 2200);
+      return () => clearTimeout(t);
+    }
+    const target = phase === "orig" ? phrase.orig : phrase.trans;
+    const current = phase === "orig" ? typedOrig : typedTrans;
+    if (current.length >= target.length) {
+      const t = setTimeout(() => setPhase(phase === "orig" ? "trans" : "pause"), 400);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => {
+      const next = target.slice(0, current.length + 1);
+      if (phase === "orig") setTypedOrig(next);
+      else setTypedTrans(next);
+    }, 28 + Math.random() * 18);
+    return () => clearTimeout(t);
+  }, [animated, phase, phraseIdx, typedOrig, typedTrans, livePhrases]);
+
+  const panelHeight = compact ? 300 : 420;
+  const liveOrig = animated ? typedOrig : "Can I see a specialist this week";
+  const liveTrans = animated ? (typedTrans || undefined) : undefined;
+
   return (
-    <div className="relative w-full max-w-5xl mx-auto select-none">
+    <motion.div
+      className="relative w-full max-w-5xl mx-auto select-none"
+      animate={animated ? { y: [0, -6, 0] } : undefined}
+      transition={animated ? { duration: 5, repeat: Infinity, ease: "easeInOut" } : undefined}
+    >
       <div className="absolute inset-0 -z-10 rounded-[28px] bg-gradient-to-b from-primary/[0.07] to-transparent blur-3xl scale-95 translate-y-8" />
       <div className="bg-white rounded-[20px] border border-border/80 shadow-[0_24px_80px_-24px_rgba(15,23,42,0.2)] overflow-hidden ring-1 ring-black/[0.04]">
         <div className="h-[46px] bg-white border-b border-border/80 flex items-center justify-between px-4 shrink-0">
@@ -96,8 +148,8 @@ export function MarketingDemoPreview() {
           </div>
         </div>
 
-        <div className="flex" style={{ height: "420px" }}>
-          <div className="w-[48px] bg-slate-50 border-r border-border/80 flex flex-col items-center pt-3 pb-2 gap-1.5 shrink-0">
+        <div className="flex" style={{ height: `${panelHeight}px` }}>
+          <div className={`${compact ? "w-[40px]" : "w-[48px]"} bg-slate-50 border-r border-border/80 flex flex-col items-center pt-3 pb-2 gap-1.5 shrink-0`}>
             {[{ Icon: Mic2, active: true }, { Icon: Globe, active: false }, { Icon: BookOpen, active: false }].map(({ Icon, active }, i) => (
               <div key={i} className={`w-8 h-8 rounded-xl flex items-center justify-center ${active ? "bg-white shadow-sm text-primary ring-1 ring-border/60" : "text-muted-foreground/30"}`}>
                 <Icon className="w-3.5 h-3.5" />
@@ -105,6 +157,7 @@ export function MarketingDemoPreview() {
             ))}
           </div>
 
+          {!compact && (
           <div className="w-[175px] shrink-0 flex flex-col gap-2 p-2 bg-slate-50/80 border-r border-border/80 overflow-hidden">
             <div className="bg-white rounded-xl border border-border/70 shadow-sm flex flex-col overflow-hidden h-[20%]">
               <div className="h-8 border-b border-border/60 bg-muted/10 flex items-center gap-1.5 px-2.5 shrink-0">
@@ -197,6 +250,7 @@ export function MarketingDemoPreview() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="h-9 border-b border-border/80 bg-muted/10 flex items-center justify-between px-4 shrink-0">
@@ -214,10 +268,19 @@ export function MarketingDemoPreview() {
               <span className="text-[9px] font-semibold text-muted-foreground/70 uppercase tracking-wider">Assist column</span>
             </div>
             <div className="flex-1 overflow-hidden py-2 px-1 space-y-1">
-              <DemoRow speaker={1} orig="Good morning, how can I help you today?" trans="Buenos días, ¿cómo puedo ayudarle hoy?" />
-              <DemoRow speaker={2} orig="I need to schedule a follow-up appointment." trans="Necesito programar una cita de seguimiento." />
-              <DemoRow speaker={1} orig="The rotator cuff requires physical therapy." trans="El manguito rotador requiere fisioterapia." highlight />
-              <DemoRow speaker={2} orig="Can I see a specialist this week" live />
+              {!compact && (
+                <>
+                  <DemoRow speaker={1} orig="Good morning, how can I help you today?" trans="Buenos días, ¿cómo puedo ayudarle hoy?" />
+                  <DemoRow speaker={2} orig="I need to schedule a follow-up appointment." trans="Necesito programar una cita de seguimiento." />
+                  <DemoRow speaker={1} orig="The rotator cuff requires physical therapy." trans="El manguito rotador requiere fisioterapia." highlight />
+                </>
+              )}
+              <DemoRow
+                speaker={2}
+                orig={liveOrig || (animated ? "" : "Can I see a specialist this week")}
+                trans={liveTrans || (animated ? undefined : undefined)}
+                live
+              />
             </div>
           </div>
         </div>
@@ -243,6 +306,6 @@ export function MarketingDemoPreview() {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
