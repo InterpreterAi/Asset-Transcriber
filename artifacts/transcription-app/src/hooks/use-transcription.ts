@@ -3202,6 +3202,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     return openAiLegacy2CleanTranslationActive() || trialHetznerCleanTranslationActive();
   }
 
+  /**
+   * A↔B pair lock: lang C (outside chosen pair) → copy original into translation column (no MT).
+   * Trial clean stacks + Morsy Clean MT experiment (Chunk V2 uses frozen-row gate in executeCanonFrozenRowTranslationImpl).
+   */
+  function canonPathUsesThirdLanguagePassthrough(): boolean {
+    return canonTrialCleanTranslationActive() || morsyUsesCleanTranslationExperiment();
+  }
+
   function trialCanonFetchOpts(): { trialHetznerCleanTranslation?: true } {
     return trialHetznerCleanTranslationActive()
       ? { trialHetznerCleanTranslation: true as const }
@@ -5769,12 +5777,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const pair = langPairRef.current;
     const sonioxHint = utterance.language ?? detectedLangRef.current;
-    const canonTrialClean = canonTrialCleanTranslationActive();
     const morsyUrgentCanon = false;
     const sourceLang = resolveSourceLangForCanon(sourceNorm, sonioxHint, pair);
     const targetLang = targetOppositeInPair(sourceLang, pair);
 
-    if (canonTrialClean && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
+    if (canonPathUsesThirdLanguagePassthrough() && morsyCanonThirdLanguagePassthrough(sourceNorm, sonioxHint, pair)) {
       paintCanonRowTranslationIfAllowed(rowId, sourceNorm, { force: true });
       st.lastFinalSource = sourceNorm;
       st.lastStableDispatched = sourceNorm;
@@ -6325,10 +6332,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       const sourceLang = resolveSourceLangForCanon(finalSource, sonioxHint, pair);
       const targetLang = targetOppositeInPair(sourceLang, pair);
-      const canonTrialClean = canonTrialCleanTranslationActive();
 
       try {
-        if (canonTrialClean && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
+        if (canonPathUsesThirdLanguagePassthrough() && morsyCanonThirdLanguagePassthrough(finalSource, sonioxHint, pair)) {
           rowState.lastDispatchedSource = finalSource;
           rowState.lastFinalSource = finalSource;
           paintCanonRowTranslationIfAllowed(rowId, finalSource, { force: true });
@@ -6436,10 +6442,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const morsyClean = morsyUsesCleanTranslationExperiment();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
         const morsyCanonIntercallLive = false;
-        const canonTrialClean = canonTrialCleanTranslationActive();
 
         if (
-          (morsyCanonIntercallLive || canonTrialClean) &&
+          (morsyCanonIntercallLive || canonPathUsesThirdLanguagePassthrough()) &&
           morsyCanonThirdLanguagePassthrough(liveSource, sonioxHint, pair)
         ) {
           rowState.lastDispatchedSource = liveSource;
@@ -6984,6 +6989,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const stableOnly = (snap?.stableText ?? payload.stableText).trim();
 
+    const pair = langPairRef.current;
+    const sonioxHint = payload.utterance.language ?? detectedLangRef.current;
+    const passthroughSource =
+      stableOnly.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS
+        ? stableOnly
+        : visible;
+    if (
+      canonPathUsesThirdLanguagePassthrough() &&
+      morsyCanonThirdLanguagePassthrough(passthroughSource, sonioxHint, pair)
+    ) {
+      paintCanonRowTranslationIfAllowed(rowId, passthroughSource);
+      st.lastDispatchedSource = passthroughSource;
+      st.lastPreviewWordsSent = countWords(passthroughSource);
+      st.lastPreviewCharsSent = passthroughSource.length;
+      st.earlyHintSent = true;
+      st.lastPendingLang = payload.utterance.language;
+      return;
+    }
+
     // Chunk V2 / Clean MT parity: first stable finals on a new row translate immediately (no debounce).
     if (
       morsyCanonLivePath &&
@@ -7002,8 +7026,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
 
     const existingTranslation = eng?.getRowTranslation(rowId).trim() ?? "";
-    const pair = langPairRef.current;
-    const sonioxHint = payload.utterance.language ?? detectedLangRef.current;
     const resumeTargetLang = targetOppositeInPair(
       resolveSourceLangForCanon(stableOnly, sonioxHint, pair),
       pair,
