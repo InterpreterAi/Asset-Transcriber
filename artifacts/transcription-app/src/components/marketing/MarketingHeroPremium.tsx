@@ -1,7 +1,8 @@
 import { Link } from "wouter";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, Mic2, Languages, Captions } from "lucide-react";
-import { MarketingDemoPreview } from "./MarketingDemoPreview";
+import { MarketingAnimatedWorkspaceAuto } from "./MarketingAnimatedWorkspace";
+import { MEDICAL_DIALOGUE } from "./marketing-dialogue-script";
 
 const CAPTION_STREAMS = [
   { en: "Good morning, how can I help you today?", es: "Buenos días, ¿cómo puedo ayudarle hoy?", side: "left" as const },
@@ -207,12 +208,11 @@ export function MarketingHeroPremium() {
             className="relative"
           >
             <div className="marketing-laptop-frame">
-              <div className="marketing-laptop-screen">
-                <MarketingDemoPreview compact animated />
+              <div className="marketing-laptop-screen p-1">
+                <MarketingAnimatedWorkspaceAuto lines={MEDICAL_DIALOGUE} scenario="medical" compact />
               </div>
               <div className="marketing-laptop-base" aria-hidden />
             </div>
-            <p className="text-center text-[11px] text-slate-500 mt-4">Illustrative interface — not a live session.</p>
           </motion.div>
         </div>
       </div>

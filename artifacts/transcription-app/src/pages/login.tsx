@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic2, Lock, Mail, ShieldCheck, ArrowLeft } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
+import { MarketingAuthLayout } from "@/components/marketing/MarketingAuthLayout";
 import { postLoginDestination } from "@/lib/auth-redirect";
 
 const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
@@ -166,33 +167,21 @@ export default function Login() {
   };
 
   return (
-    <div className="public-marketing-surface min-h-screen flex items-center justify-center relative overflow-hidden bg-[#f5f5f7] text-slate-900">
-      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: "radial-gradient(#000 1px, transparent 1px)", backgroundSize: "24px 24px" }} aria-hidden />
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" as const }}
-        className="w-full max-w-[400px] px-4 relative z-10"
-      >
-        <div className="text-center mb-10">
-          <button onClick={() => setLocation("/")} className="inline-block" aria-label="Go to homepage">
-            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-slate-200/80 hover:shadow-md transition-shadow">
-              {step === "2fa"
-                ? <ShieldCheck className="w-8 h-8 text-primary" />
-                : <Mic2 className="w-8 h-8 text-primary" />}
-            </div>
-          </button>
-          <h1 className="text-3xl font-display font-semibold text-slate-900 mb-2 tracking-tight">InterpreterAI</h1>
-          <p className="text-slate-600 text-sm">
-            {step === "2fa" ? "Two-factor authentication" : "Professional Transcription & Translation"}
-          </p>
+    <MarketingAuthLayout
+      title="Professional Transcription & Translation"
+      subtitle="Sign in to your interpreter workspace — real-time captions and multilingual assistance for OPI and VRI sessions."
+    >
+      <div className="lg:hidden text-center mb-8">
+        <div className="w-14 h-14 bg-sky-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-sky-500/20">
+          {step === "2fa" ? <ShieldCheck className="w-7 h-7 text-sky-300" /> : <Mic2 className="w-7 h-7 text-sky-300" />}
         </div>
+        <h1 className="text-2xl font-semibold text-white tracking-tight">InterpreterAI</h1>
+      </div>
 
-        <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait">
           {step === "credentials" && (
             <motion.div key="credentials" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }}>
-              <Card className="p-8 bg-white border border-slate-200/90 shadow-md rounded-2xl">
+              <Card className="p-8 bg-white/95 backdrop-blur border border-white/20 shadow-2xl rounded-2xl">
                 <a
                   href="/api/auth/google"
                   className="flex items-center justify-center gap-2.5 w-full h-12 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-5"
@@ -283,7 +272,7 @@ export default function Login() {
 
           {step === "2fa" && (
             <motion.div key="2fa" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }}>
-              <Card className="p-8 bg-white border border-slate-200/90 shadow-md rounded-2xl">
+              <Card className="p-8 bg-white/95 backdrop-blur border border-white/20 shadow-2xl rounded-2xl">
                 <div className="mb-5">
                   <h2 className="text-lg font-semibold text-slate-900 mb-1">Verification required</h2>
                   <p className="text-sm text-slate-600">
@@ -343,7 +332,6 @@ export default function Login() {
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.div>
-    </div>
+    </MarketingAuthLayout>
   );
 }

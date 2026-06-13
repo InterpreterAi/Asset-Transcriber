@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
-import { motion } from "framer-motion";
 import { Mic2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
 import { postLoginDestination } from "@/lib/auth-redirect";
+import { MarketingAuthLayout } from "@/components/marketing/MarketingAuthLayout";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -76,35 +76,22 @@ export default function Signup() {
   };
 
   return (
-    <div className="public-marketing-surface min-h-screen flex items-center justify-center bg-[#f5f5f7] text-slate-900 relative overflow-hidden px-4">
-      <div
-        className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none"
-        style={{ backgroundImage: "radial-gradient(#000 1px, transparent 1px)", backgroundSize: "24px 24px" }}
-        aria-hidden
-      />
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-[400px] relative z-10"
-      >
-        <div className="text-center mb-8">
-          <button type="button" onClick={() => setLocation("/")} className="inline-block">
-            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-sm border border-slate-200/80">
-              <Mic2 className="w-7 h-7 text-primary" />
-            </div>
-          </button>
-          <h1 className="text-2xl font-display font-semibold tracking-tight mb-1 text-slate-900">Create your account</h1>
-          <p className="text-sm text-slate-600">7-day free trial · No credit card required · Start in one step</p>
-          {referrerUserId && (
-            <p className="text-xs font-medium text-primary mt-1.5 bg-primary/8 px-3 py-1 rounded-full inline-block border border-primary/20">
-              You were invited by a colleague
-            </p>
-          )}
+    <MarketingAuthLayout
+      title="Create your account"
+      subtitle="7-day free trial · No credit card required · Start in one step"
+    >
+      <div className="lg:hidden text-center mb-6">
+        <div className="w-14 h-14 bg-sky-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-sky-500/20">
+          <Mic2 className="w-7 h-7 text-sky-300" />
         </div>
+        {referrerUserId && (
+          <p className="text-xs font-medium text-sky-300 mt-2 bg-sky-500/10 px-3 py-1 rounded-full inline-block border border-sky-500/20">
+            You were invited by a colleague
+          </p>
+        )}
+      </div>
 
-        <Card className="p-7 bg-white border border-slate-200/90 shadow-md rounded-2xl">
+        <Card className="p-7 bg-white/95 backdrop-blur border border-white/20 shadow-2xl rounded-2xl">
               <a
                 href={referrerUserId ? `/api/auth/google?ref=${referrerUserId}` : "/api/auth/google"}
                 className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-4"
@@ -209,7 +196,6 @@ export default function Signup() {
             Log in
           </button>
         </p>
-      </motion.div>
-    </div>
+    </MarketingAuthLayout>
   );
 }
