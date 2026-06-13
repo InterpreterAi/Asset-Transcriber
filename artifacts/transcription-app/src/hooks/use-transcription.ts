@@ -18,8 +18,6 @@ import {
   installWorkspaceSelectionPaintDeferral,
   markWorkspaceSelectableRoot,
   markWorkspaceSelectableText,
-  onWorkspaceDomPaintPause,
-  onWorkspaceDomPaintResume,
   runWorkspaceDomMutation,
   shouldPauseWorkspaceDomPaint,
 } from "@/lib/workspace-text-selection";
@@ -328,6 +326,8 @@ const CANON_TRIAL_LIVE_TRANSLATION_DEBOUNCE_MS = 52;
 const CANON_TRIAL_LIVE_MAX_WAIT_MS = 800;
 const CANON_TRIAL_LIVE_PREVIEW_WORD_STEP = 1;
 const CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP = 24;
+/** Clean MT — tighter stable-grow gate so translation keeps pace with fast dialogue. */
+const CANON_CLEAN_MT_LIVE_PREVIEW_CHAR_STEP = 8;
 /** Legacy bubble-path debounce (non-canon Morsy Intercall experiment). */
 const INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS = 400;
 /** Morsy Urgent Intercall experiment: OpenAI-path scheduling debounce alongside {@link INTERCALL_LIVE_TRANSLATION_DEBOUNCE_MS}. */
@@ -3810,18 +3810,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const containerRef       = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const cleanupGuard = installWorkspaceSelectionPaintDeferral();
-    const cleanupPause = onWorkspaceDomPaintPause(() => {
-      canonWsIsolationEngineRef.current?.cancelPendingDomPaint();
-    });
-    const cleanupResume = onWorkspaceDomPaintResume(() => {
-      canonWsIsolationEngineRef.current?.flushPendingDom();
-    });
-    return () => {
-      cleanupGuard();
-      cleanupPause();
-      cleanupResume();
-    };
+    installWorkspaceSelectionPaintDeferral();
   }, []);
   /** Filled each render — lets early declarations (flush queue) call the latest sticky-tail snap safely. */
   const scrollPanelFnRef   = useRef<
@@ -6347,12 +6336,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
 
         const fetchStartedAt = Date.now();
+        const cleanMtFetchOpts = morsyUsesCleanTranslationExperiment()
+          ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
+          : {};
         const fetchOpts = {
           isFinal: true,
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
             ? { sessionId: sessionIdRef.current }
             : {}),
           ...morsyUrgentCanonFetchOpts(),
+          ...cleanMtFetchOpts,
         };
         const tr = await fetchTranslation(
               finalSource,
@@ -6481,6 +6474,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ? { sessionId: sessionIdRef.current }
               : {}),
             ...morsyUrgentCanonFetchOpts(),
+            ...(morsyClean
+              ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
+              : {}),
           };
           const tr = morsyCanonIntercallLive
             ? await fetchMorsyCanonOppositeTranslation(
@@ -6527,7 +6523,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               )).composed
             : translationReturned;
           const rejected =
-            (!morsyCanonIntercallLive &&
+            (!morsyClean &&
+              !morsyCanonIntercallLive &&
               prevShown.length > 0 &&
               shouldRejectLegacyCanonTrialLiveTranslation(
                 prevShown,
@@ -6977,7 +6974,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const st = getCanonTrialRowTransState(rowId);
     if (st.locked) return;
 
-    const morsyCanonLivePath = morsyUrgentCanonLivePathNow();
+    const morsyCleanMt = morsyUsesCleanTranslationExperiment();
+    const morsyCanonLivePath = morsyUrgentCanonLivePathNow() || morsyCleanMt;
 
     const eng = canonWsIsolationEngineRef.current;
     const snap = eng?.getRowDualBuffer(rowId);
@@ -6986,20 +6984,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const stableOnly = (snap?.stableText ?? payload.stableText).trim();
 
-    // Chunk V2 parity: first stable finals on a new row translate immediately (no debounce).
+    // Chunk V2 / Clean MT parity: first stable finals on a new row translate immediately (no debounce).
     if (
       morsyCanonLivePath &&
       stableOnly.length >= CANON_MIN_TRANSLATION_SOURCE_CHARS &&
       !st.lastDispatchedSource.trim()
     ) {
       st.earlyHintSent = true;
-      st.lastPreviewWordsSent = countWords(visible);
-      st.lastPreviewCharsSent = visible.length;
+      st.lastPreviewWordsSent = countWords(stableOnly);
+      st.lastPreviewCharsSent = stableOnly.length;
       st.lastPendingLang = payload.utterance.language;
-      const sourceText =
-        visible.length >= stableOnly.length ? visible : stableOnly;
       void executeCanonTrialRowTranslation(snap ?? payload, {
-        sourceText,
+        sourceText: stableOnly,
         isFinal: true,
       });
       return;
@@ -7026,14 +7022,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           resumeTargetLang,
         ));
 
-    const wordsNow = countWords(visible);
-    const charsNow = visible.length;
+    const wordsNow = countWords(morsyCleanMt ? stableOnly : visible);
+    const charsNow = morsyCleanMt ? stableOnly.length : visible.length;
     const grewByWords =
       !st.earlyHintSent ||
       wordsNow - st.lastPreviewWordsSent >= CANON_TRIAL_LIVE_PREVIEW_WORD_STEP;
     const grewByChars =
       !st.earlyHintSent ||
-      charsNow - st.lastPreviewCharsSent >= CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP;
+      charsNow - st.lastPreviewCharsSent >=
+        (morsyCleanMt ? CANON_CLEAN_MT_LIVE_PREVIEW_CHAR_STEP : CANON_TRIAL_LIVE_PREVIEW_CHAR_STEP);
     const morsyCanonLive = false;
     const grewSinceLastDispatch =
       morsyCanonLive &&
@@ -7049,11 +7046,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const scheduleCanonTrialLiveTranslation = () => {
       const freshSnap = eng?.getRowDualBuffer(rowId);
-      const sourceText = freshSnap?.visibleText.trim() || visible;
+      const sourceText = morsyCleanMt
+        ? (freshSnap?.stableText.trim() || stableOnly)
+        : (freshSnap?.visibleText.trim() || visible);
       if (sourceText.length < CANON_MIN_TRANSLATION_SOURCE_CHARS) return;
       void executeCanonTrialRowTranslation(freshSnap ?? payload, {
         sourceText,
-        isFinal: morsyCanonLivePath,
+        isFinal: false,
       });
     };
 
