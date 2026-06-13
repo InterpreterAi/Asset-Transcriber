@@ -280,6 +280,15 @@
   .cinematic-listening-pulse {
     animation: cinematic-listening 2s ease-in-out infinite;
   }
+
+  .cinematic-testimonial-scroll {
+    animation: cinematic-testimonial-scroll 48s linear infinite;
+  }
+
+  .mask-fade-y {
+    mask-image: linear-gradient(to bottom, transparent, black 8%, black 92%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 8%, black 92%, transparent);
+  }
 }
 
 @keyframes marketing-marquee {
@@ -307,6 +316,16 @@
   50% { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.15), 0 0 24px -4px rgba(34, 211, 238, 0.2); }
 }
 
+@keyframes cinematic-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes cinematic-testimonial-scroll {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
 @keyframes marketing-gradient-shift {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -321,7 +340,8 @@
     animation: none;
   }
 
-  .cinematic-listening-pulse {
+  .cinematic-listening-pulse,
+  .cinematic-testimonial-scroll {
     animation: none;
   }
 
