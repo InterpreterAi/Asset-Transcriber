@@ -19,8 +19,7 @@ import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import { MarketingHeroPremium } from "@/components/marketing/MarketingHeroPremium";
 import { MarketingScrollDialogueSection } from "@/components/marketing/MarketingScrollDialogueSection";
 import { MarketingSecurityLockReveal } from "@/components/marketing/MarketingSecurityLockReveal";
-import { MarketingAnimatedWorkspaceAuto } from "@/components/marketing/MarketingAnimatedWorkspace";
-import { MEDICAL_DIALOGUE, LEGAL_DIALOGUE } from "@/components/marketing/marketing-dialogue-script";
+import { MEDICAL_DIALOGUE } from "@/components/marketing/marketing-dialogue-script";
 import { marketingFade, marketingScale } from "@/components/marketing/marketing-motion";
 import { TestimonialMarquee } from "@/components/marketing/TestimonialMarquee";
 
@@ -96,7 +95,7 @@ export default function Landing() {
   }, [loc]);
 
   return (
-    <MarketingPageShell premiumNav>
+    <MarketingPageShell premiumNav dark>
       <MarketingHeroPremium />
 
       <MarketingScrollDialogueSection
@@ -108,18 +107,18 @@ export default function Landing() {
         scenario="medical"
       />
 
-      <section id="capabilities" className="scroll-mt-28 py-20 sm:py-28 bg-white/80 backdrop-blur-sm border-y border-border/50 relative">
+      <section id="capabilities" className="scroll-mt-28 py-16 sm:py-24 relative border-y border-white/[0.06]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <motion.div {...marketingFade(0)} className="text-center max-w-2xl mx-auto mb-14">
-            <h2 className="text-2xl sm:text-4xl font-semibold tracking-tight">Platform capabilities</h2>
-            <p className="mt-4 text-muted-foreground leading-relaxed text-[17px]">
+            <h2 className="text-2xl sm:text-4xl font-semibold tracking-tight text-white">Platform capabilities</h2>
+            <p className="mt-4 text-slate-400 leading-relaxed text-[17px]">
               Clear, workflow-centered support for live interpretation—real-time captions, multilingual assistance, and tools aligned
               with how professional interpreters work.
             </p>
           </motion.div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {capabilityCards.map(({ icon: Icon, title, body }, i) => (
-              <motion.div key={title} {...marketingScale(0.04 + i * 0.04)} className="marketing-premium-card p-7">
+              <motion.div key={title} {...marketingScale(0.04 + i * 0.04)} className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur p-7">
                 <motion.div
                   whileHover={{ rotate: [0, -8, 8, 0] }}
                   transition={{ duration: 0.5 }}
@@ -127,19 +126,19 @@ export default function Landing() {
                 >
                   <Icon className="w-5 h-5" strokeWidth={1.75} />
                 </motion.div>
-                <h3 className="text-[16px] font-semibold tracking-tight">{title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{body}</p>
+                <h3 className="text-[16px] font-semibold tracking-tight text-white">{title}</h3>
+                <p className="mt-2 text-sm text-slate-400 leading-relaxed">{body}</p>
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="py-20 sm:py-28 relative overflow-hidden">
+      <section className="py-16 sm:py-24 relative overflow-hidden">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <motion.div {...marketingFade(0)} className="text-center max-w-3xl mx-auto mb-14">
-            <h2 className="text-2xl sm:text-4xl font-semibold tracking-tight">How InterpreterAI Supports Live Sessions</h2>
-            <p className="mt-4 text-muted-foreground text-lg leading-relaxed">
+            <h2 className="text-2xl sm:text-4xl font-semibold tracking-tight text-white">How InterpreterAI Supports Live Sessions</h2>
+            <p className="mt-4 text-slate-400 text-lg leading-relaxed">
               The platform provides real-time captions, translation assistance, and multilingual workflow support designed for
               professional interpretation environments.
             </p>
@@ -150,14 +149,14 @@ export default function Landing() {
                 key={title}
                 {...marketingFade(0.06 + i * 0.05)}
                 whileHover={{ x: 6 }}
-                className="relative flex gap-5 rounded-2xl border border-border/80 bg-white/90 backdrop-blur p-7 shadow-lg marketing-premium-card"
+                className="relative flex gap-5 rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur p-7"
               >
                 <div className="shrink-0 w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
                   <Icon className="w-6 h-6" strokeWidth={1.6} />
                 </div>
                 <div>
-                  <h3 className="text-[16px] font-semibold tracking-tight">{title}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{body}</p>
+                  <h3 className="text-[16px] font-semibold tracking-tight text-white">{title}</h3>
+                  <p className="mt-2 text-sm text-slate-400 leading-relaxed">{body}</p>
                 </div>
               </motion.div>
             ))}
@@ -165,16 +164,16 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-white to-sky-50/50 overflow-hidden">
+      <section className="py-16 sm:py-24 overflow-hidden border-y border-white/[0.06]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <motion.div {...marketingFade(0)} className="order-2 lg:order-1">
               <LanguagesGlobeVisual />
             </motion.div>
             <motion.div {...marketingFade(0.08)} className="order-1 lg:order-2 text-center lg:text-left">
-              <p className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Coverage</p>
-              <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">31 Supported Languages</h2>
-              <p className="mt-5 text-muted-foreground text-lg leading-relaxed max-w-xl mx-auto lg:mx-0">
+              <p className="text-sm font-semibold text-sky-400 uppercase tracking-wider mb-3">Coverage</p>
+              <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">31 Supported Languages</h2>
+              <p className="mt-5 text-slate-400 text-lg leading-relaxed max-w-xl mx-auto lg:mx-0">
                 Built for multilingual interpretation workflows across medical, customer support, and remote communication
                 environments.
               </p>
@@ -191,17 +190,17 @@ export default function Landing() {
         />
       </section>
 
-      <MarketingScrollDialogueSection
-        id="solutions"
-        eyebrow="Solutions"
-        title="OPI & VRI workflows"
-        subtitle="Over-the-phone (OPI) and video remote (VRI) sessions need legible real-time captions and calm translation assistance. InterpreterAI is structured as professional workflow infrastructure—built for interpreters, not generic meeting tooling."
-        lines={LEGAL_DIALOGUE}
-        scenario="legal"
-      />
-
-      <section className="py-16 sm:py-20 bg-[#0F172A] text-white border-t border-white/5">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid md:grid-cols-2 gap-8">
+      <section id="solutions" className="scroll-mt-28 py-16 sm:py-20 border-t border-white/[0.06]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <motion.div {...marketingFade(0)} className="text-center max-w-3xl mx-auto mb-12">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-400/90 mb-3">Solutions</p>
+            <h2 className="text-2xl sm:text-4xl font-semibold tracking-tight text-white">OPI &amp; VRI workflows</h2>
+            <p className="mt-4 text-slate-400 text-lg leading-relaxed">
+              Over-the-phone (OPI) and video remote (VRI) sessions need legible real-time captions and calm translation assistance.
+              InterpreterAI is structured as professional workflow infrastructure—built for interpreters, not generic meeting tooling.
+            </p>
+          </motion.div>
+          <div className="grid md:grid-cols-2 gap-8">
           <motion.div {...marketingFade(0)} className="rounded-2xl border border-white/10 bg-white/[0.04] p-8">
             <Headphones className="w-9 h-9 text-blue-300 mb-4" />
             <h3 className="text-xl font-semibold">OPI</h3>
@@ -218,58 +217,45 @@ export default function Landing() {
               assistance support bilingual workflows.
             </p>
           </motion.div>
+          </div>
         </div>
       </section>
 
-      <section className="py-20 sm:py-28 bg-[#F1F5F9]/80">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <motion.div {...marketingFade(0)} className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">See captions and translation build live</h2>
-            <p className="mt-4 text-muted-foreground text-lg max-w-2xl mx-auto">
-              Original speech and assist text appear in real time—the same side-by-side layout interpreters use in session.
-            </p>
-          </motion.div>
-          <motion.div {...marketingScale(0.1)}>
-            <MarketingAnimatedWorkspaceAuto lines={MEDICAL_DIALOGUE} scenario="medical" />
-          </motion.div>
-        </div>
-      </section>
-
-      <section className="py-20 sm:py-28 overflow-hidden">
+      <section className="py-16 sm:py-24 overflow-hidden">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center mb-12">
-          <motion.h2 {...marketingFade(0)} className="text-3xl sm:text-4xl font-semibold tracking-tight">
+          <motion.h2 {...marketingFade(0)} className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
             Teams expect calm, credible tooling
           </motion.h2>
-          <motion.p {...marketingFade(0.05)} className="mt-4 text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
+          <motion.p {...marketingFade(0.05)} className="mt-4 text-slate-400 text-lg max-w-2xl mx-auto leading-relaxed">
             Curated feedback from interpreters using InterpreterAI in professional settings.
           </motion.p>
         </div>
         <TestimonialMarquee />
       </section>
 
-      <section className="py-20 sm:py-28 bg-white border-y border-border/60">
+      <section className="py-16 sm:py-24 border-y border-white/[0.06]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-12 items-center">
           <motion.div {...marketingFade(0)}>
-            <p className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">Product development</p>
-            <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">Built With Interpreter Feedback</h2>
-            <p className="mt-5 text-muted-foreground text-lg leading-relaxed">
+            <p className="text-sm font-semibold text-sky-400 uppercase tracking-wider mb-3">Product development</p>
+            <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">Built With Interpreter Feedback</h2>
+            <p className="mt-5 text-slate-400 text-lg leading-relaxed">
               We continuously improve the platform using real interpreter workflow feedback to enhance speed, clarity, and
               reliability.
             </p>
-            <Link href="/signup" className="inline-flex items-center gap-2 mt-8 text-[15px] font-semibold text-primary hover:text-[#1D4ED8] transition-colors">
+            <Link href="/signup" className="inline-flex items-center gap-2 mt-8 text-[15px] font-semibold text-sky-400 hover:text-sky-300 transition-colors">
               Start Free Trial
               <ArrowRight className="w-4 h-4" />
             </Link>
           </motion.div>
           <motion.div {...marketingFade(0.1)} className="relative">
-            <div className="absolute left-[15px] top-3 bottom-3 w-px bg-gradient-to-b from-primary/50 via-border to-transparent" />
+            <div className="absolute left-[15px] top-3 bottom-3 w-px bg-gradient-to-b from-sky-500/50 via-white/10 to-transparent" />
             <ul className="space-y-10 pl-10">
               {timelineSteps.map((step, i) => (
                 <motion.li key={step.label} {...marketingFade(0.12 + i * 0.08)} className="relative">
-                  <span className="absolute left-[-29px] top-1.5 w-3 h-3 rounded-full border-2 border-primary bg-white shadow-[0_0_0_4px_rgba(37,99,235,0.12)]" />
-                  <p className="text-xs font-bold uppercase tracking-wider text-primary/90">Step {i + 1}</p>
-                  <p className="mt-1 text-lg font-semibold">{step.label}</p>
-                  <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{step.detail}</p>
+                  <span className="absolute left-[-29px] top-1.5 w-3 h-3 rounded-full border-2 border-sky-400 bg-[#060B14] shadow-[0_0_0_4px_rgba(56,189,248,0.12)]" />
+                  <p className="text-xs font-bold uppercase tracking-wider text-sky-400/90">Step {i + 1}</p>
+                  <p className="mt-1 text-lg font-semibold text-white">{step.label}</p>
+                  <p className="mt-2 text-sm text-slate-400 leading-relaxed">{step.detail}</p>
                 </motion.li>
               ))}
             </ul>
@@ -277,13 +263,13 @@ export default function Landing() {
         </div>
       </section>
 
-      <section id="enterprise" className="scroll-mt-28 py-20 sm:py-28">
+      <section id="enterprise" className="scroll-mt-28 py-16 sm:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <motion.div {...marketingScale(0)} className="rounded-3xl border border-border bg-white/95 backdrop-blur p-10 sm:p-14 shadow-2xl marketing-premium-card">
+          <motion.div {...marketingScale(0)} className="rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur p-10 sm:p-14">
             <div className="grid lg:grid-cols-2 gap-10 items-center">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">Enterprise-friendly posture</h2>
-                <p className="mt-4 text-muted-foreground leading-relaxed text-[17px]">
+                <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Enterprise-friendly posture</h2>
+                <p className="mt-4 text-slate-400 leading-relaxed text-[17px]">
                   InterpreterAI is built for organizations that review vendor practices before rollout. Explore our trust center for
                   security framing, and our privacy page for data-handling expectations.
                 </p>
@@ -291,14 +277,14 @@ export default function Landing() {
                   <Link href="/security" className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl text-[14px] font-semibold bg-primary text-primary-foreground hover:bg-[#1D4ED8] transition-colors">
                     Security center
                   </Link>
-                  <Link href="/privacy" className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl text-[14px] font-semibold border border-border bg-white hover:border-primary/20 transition-colors">
+                  <Link href="/privacy" className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl text-[14px] font-semibold border border-white/15 bg-white/[0.04] text-white hover:border-white/25 transition-colors">
                     Privacy policy
                   </Link>
                 </div>
               </div>
               <div className="grid gap-4">
                 {["HIPAA-focused architecture", "Session-oriented design", "Continuous platform improvements"].map((t, i) => (
-                  <motion.div key={t} {...marketingFade(0.08 + i * 0.06)} className="flex items-center gap-4 rounded-2xl border border-border/80 bg-slate-50/80 px-5 py-4 text-[15px] font-medium">
+                  <motion.div key={t} {...marketingFade(0.08 + i * 0.06)} className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 text-[15px] font-medium text-slate-200">
                     <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
                     {t}
                   </motion.div>
@@ -309,10 +295,10 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-20 bg-gradient-to-br from-primary/5 via-white to-sky-50/40 text-center">
+      <section className="py-16 bg-gradient-to-br from-sky-500/[0.08] via-transparent to-blue-600/[0.06] text-center border-t border-white/[0.06]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <motion.h2 {...marketingFade(0)} className="text-3xl sm:text-4xl font-semibold tracking-tight">Transparent pricing</motion.h2>
-          <motion.p {...marketingFade(0.06)} className="mt-4 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
+          <motion.h2 {...marketingFade(0)} className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">Transparent pricing</motion.h2>
+          <motion.p {...marketingFade(0.06)} className="mt-4 text-lg text-slate-400 max-w-xl mx-auto leading-relaxed">
             Compare plans with a clear feature matrix—built for interpreters who need predictable, professional software.
           </motion.p>
           <motion.div {...marketingFade(0.12)} className="mt-8">
@@ -324,10 +310,10 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-14 bg-slate-50/80 border-t border-border/60">
+      <section className="py-12 border-t border-white/[0.06]">
         <motion.div {...marketingFade(0)} className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Notice:</strong> InterpreterAI is a professional support tool. You remain
+          <p className="text-sm text-slate-500 leading-relaxed">
+            <strong className="text-slate-300">Notice:</strong> InterpreterAI is a professional support tool. You remain
             responsible for compliance with employer policies, contractual duties, and applicable law when using any assistive
             software during interpreted encounters.
           </p>
