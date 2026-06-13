@@ -18,6 +18,7 @@ const MIXED_LTR_TOKEN_RE = new RegExp(
     String.raw`\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b`,
     String.raw`\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b`,
     String.raw`\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?`,
+    String.raw`\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*\$`,
     String.raw`\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b`,
     String.raw`\b\d{1,3}(?:,\d{3})+\b`,
     String.raw`%\s*\d+(?:\.\d+)?\s*%?`,

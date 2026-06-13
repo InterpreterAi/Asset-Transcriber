@@ -21,7 +21,7 @@ export function escapeHtml(s: string): string {
 export function wrapAsciiDigitRunsWithLtrSpans(text: string): string {
   if (!text) return "";
   const re =
-    /\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+\b/g;
+    /\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*\$|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+\b/g;
   let out = "";
   let last = 0;
   let m: RegExpExecArray | null;
