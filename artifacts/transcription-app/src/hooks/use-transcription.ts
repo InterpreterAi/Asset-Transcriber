@@ -3164,18 +3164,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const experimentMorsyBasicCleanTranslationRef = useRef(
     options?.experimentMorsyBasicCleanTranslation ?? false,
   );
-  useEffect(() => {
-    experimentMorsyBasicCleanTranslationRef.current =
-      options?.experimentMorsyBasicCleanTranslation ?? false;
-  }, [options?.experimentMorsyBasicCleanTranslation]);
+  experimentMorsyBasicCleanTranslationRef.current =
+    options?.experimentMorsyBasicCleanTranslation ?? false;
 
   const experimentMorsyUrgentChunkTranslationV2Ref = useRef(
     options?.experimentMorsyUrgentChunkTranslationV2 ?? false,
   );
-  useEffect(() => {
-    experimentMorsyUrgentChunkTranslationV2Ref.current =
-      options?.experimentMorsyUrgentChunkTranslationV2 ?? false;
-  }, [options?.experimentMorsyUrgentChunkTranslationV2]);
+  experimentMorsyUrgentChunkTranslationV2Ref.current =
+    options?.experimentMorsyUrgentChunkTranslationV2 ?? false;
 
   const experimentMorsyIntercallEmbeddedEnglishPromptRef = useRef(
     options?.experimentMorsyIntercallEmbeddedEnglishPrompt ?? false,

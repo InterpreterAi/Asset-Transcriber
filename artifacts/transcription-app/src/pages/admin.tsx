@@ -13,6 +13,7 @@ import {
   getAdminListFeedbackQueryKey,
 } from "@workspace/api-client-react";
 import type { AdminSharedLoginIpCluster } from "@workspace/api-client-react";
+import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format, differenceInDays } from "date-fns";
 import {
@@ -1076,7 +1077,14 @@ export default function Admin() {
 
   // ── User handlers ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!meLoading && !me?.isAdmin) setLocation("/");
+    if (meLoading) return;
+    if (!me) {
+      setLocation(loginUrlForReturnTo("/admin"));
+      return;
+    }
+    if (!me.isAdmin) {
+      setLocation("/workspace");
+    }
   }, [me, meLoading, setLocation]);
 
   if (meLoading || usersLoading) {

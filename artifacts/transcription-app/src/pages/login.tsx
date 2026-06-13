@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic2, Lock, Mail, ShieldCheck, ArrowLeft } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
+import { postLoginDestination } from "@/lib/auth-redirect";
 
 const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_cancelled: "Google sign-in was cancelled.",
@@ -63,7 +64,10 @@ export default function Login() {
     e.preventDefault();
     // OAuth failures put ?error= in the URL; that is unrelated to email/password — drop it so the banner matches this attempt.
     if (oauthError) {
-      setLocation("/login");
+      const p = new URLSearchParams(search);
+      p.delete("error");
+      const q = p.toString();
+      setLocation(q ? `/login?${q}` : "/login");
     }
     setError("");
     try {
@@ -74,7 +78,7 @@ export default function Login() {
         return;
       }
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      setLocation("/workspace");
+      setLocation(postLoginDestination(search));
     } catch (err: unknown) {
       // customFetch throws ApiError with JSON on `.data` (not axios `.response.data`).
       let status: number | undefined;
@@ -148,7 +152,7 @@ export default function Login() {
         return;
       }
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      setLocation("/workspace");
+      setLocation(postLoginDestination(search));
     } catch {
       setError("Connection error — please try again");
     } finally {

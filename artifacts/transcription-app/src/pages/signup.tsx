@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
 import { motion } from "framer-motion";
 import { Mic2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
+import { postLoginDestination } from "@/lib/auth-redirect";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -65,7 +67,7 @@ export default function Signup() {
       }
 
       await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      setLocation("/workspace");
+      setLocation(postLoginDestination(search));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");
     } finally {

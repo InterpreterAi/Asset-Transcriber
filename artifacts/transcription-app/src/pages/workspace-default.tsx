@@ -16,13 +16,12 @@ import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import {
-  readMorsyBasicCleanTranslationExperiment,
-  writeMorsyBasicCleanTranslationExperiment,
-} from "@/experiments/basic-morsy-urgent/cleanTranslation/gate";
-import {
-  readMorsyChunkTranslationV2Experiment,
-  writeMorsyChunkTranslationV2Experiment,
-} from "@/experiments/basic-morsy-urgent/chunkTranslationV2/gate";
+  readMorsyTranslationStackInitial,
+  persistMorsyTranslationStackFlags,
+  workspacePathWithMtQuery,
+  type MorsyTranslationStackFlags,
+} from "@/experiments/basic-morsy-urgent/translationStackMode";
+import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -293,18 +292,22 @@ export default function WorkspaceDefault() {
   const usesCanonAppendWsStt = planUsesCanonAppendWsStt(pt);
   const isMorsyUrgentWorkspace = pt === "morsy-urgent";
   const isMorsyChunkV2Workspace = isMorsyUrgentWorkspace;
-  const [morsyCleanTranslationExperiment, setMorsyCleanTranslationExperiment] = useState(
-    () => readMorsyBasicCleanTranslationExperiment(),
+  const [morsyStackFlags, setMorsyStackFlags] = useState<MorsyTranslationStackFlags>(
+    () => readMorsyTranslationStackInitial(),
   );
-  const [morsyChunkTranslationV2Experiment, setMorsyChunkTranslationV2Experiment] = useState(
-    () => readMorsyChunkTranslationV2Experiment(),
-  );
-  useEffect(() => {
-    writeMorsyBasicCleanTranslationExperiment(morsyCleanTranslationExperiment);
-  }, [morsyCleanTranslationExperiment]);
-  useEffect(() => {
-    writeMorsyChunkTranslationV2Experiment(morsyChunkTranslationV2Experiment);
-  }, [morsyChunkTranslationV2Experiment]);
+  const morsyCleanTranslationExperiment = morsyStackFlags.clean;
+  const morsyChunkTranslationV2Experiment = morsyStackFlags.chunkV2;
+
+  const applyMorsyStackFlags = (flags: MorsyTranslationStackFlags) => {
+    persistMorsyTranslationStackFlags(flags);
+    setMorsyStackFlags(flags);
+    const path = workspacePathWithMtQuery(
+      window.location.pathname,
+      window.location.search,
+      flags,
+    );
+    window.history.replaceState(null, "", path);
+  };
   const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
     ? "morsy-intercall-isolated-experiment"
     : "morsy-urgent-cbf";
@@ -763,11 +766,16 @@ export default function WorkspaceDefault() {
     if (!userError) return;
     if (userError instanceof ApiError) {
       if (userError.status === 401) {
-        setLocation("/login");
+        setLocation(loginUrlForReturnTo());
       }
       return;
     }
   }, [userError, setLocation]);
+
+  useEffect(() => {
+    if (userLoading || user) return;
+    setLocation(loginUrlForReturnTo());
+  }, [userLoading, user, setLocation]);
 
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
@@ -2392,12 +2400,10 @@ export default function WorkspaceDefault() {
                   type="button"
                   disabled={transcription.isRecording}
                   onClick={() => {
-                    setMorsyChunkTranslationV2Experiment(v => {
-                      const next = !v;
-                      if (next) {
-                        setMorsyCleanTranslationExperiment(false);
-                      }
-                      return next;
+                    const nextChunk = !morsyChunkTranslationV2Experiment;
+                    applyMorsyStackFlags({
+                      chunkV2: nextChunk,
+                      clean: nextChunk ? false : morsyCleanTranslationExperiment,
                     });
                   }}
                   className={cn(
@@ -2423,12 +2429,10 @@ export default function WorkspaceDefault() {
                   type="button"
                   disabled={transcription.isRecording}
                   onClick={() => {
-                    setMorsyCleanTranslationExperiment(v => {
-                      const next = !v;
-                      if (next) {
-                        setMorsyChunkTranslationV2Experiment(false);
-                      }
-                      return next;
+                    const nextClean = !morsyCleanTranslationExperiment;
+                    applyMorsyStackFlags({
+                      clean: nextClean,
+                      chunkV2: nextClean ? false : morsyChunkTranslationV2Experiment,
                     });
                   }}
                   className={cn(
