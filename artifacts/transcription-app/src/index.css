@@ -141,6 +141,13 @@
 }
 
 @layer utilities {
+  .marketing-nav-premium {
+    background: rgba(6, 11, 20, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
   .marketing-nav-glass {
     background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(12px);
@@ -166,6 +173,92 @@
       0 4px 24px -4px rgba(37, 99, 235, 0.12),
       0 12px 40px -12px rgba(15, 23, 42, 0.08);
   }
+
+  .marketing-cta-glow {
+    box-shadow:
+      0 0 0 1px rgba(59, 130, 246, 0.35),
+      0 8px 32px -6px rgba(37, 99, 235, 0.55),
+      0 0 60px -12px rgba(56, 189, 248, 0.35);
+  }
+
+  .marketing-glass-card {
+    @apply rounded-2xl border border-white/12 bg-white/[0.07] backdrop-blur-xl px-4 py-3.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.5)];
+  }
+
+  .marketing-premium-card {
+    @apply rounded-2xl border border-border/70 bg-white/90 backdrop-blur-sm transition-all duration-500;
+    box-shadow:
+      0 0 0 1px rgba(37, 99, 235, 0.04),
+      0 8px 32px -12px rgba(15, 23, 42, 0.1);
+  }
+
+  .marketing-premium-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(37, 99, 235, 0.22);
+    box-shadow:
+      0 0 0 1px rgba(37, 99, 235, 0.1),
+      0 24px 56px -16px rgba(37, 99, 235, 0.2);
+  }
+
+  .marketing-aurora-bg {
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(56, 189, 248, 0.18), transparent 55%),
+      radial-gradient(ellipse 60% 45% at 85% 15%, rgba(37, 99, 235, 0.2), transparent 50%),
+      radial-gradient(ellipse 70% 40% at 50% 100%, rgba(30, 64, 175, 0.15), transparent 55%),
+      linear-gradient(180deg, #060b14 0%, #0a1220 45%, #060b14 100%);
+  }
+
+  .marketing-laptop-frame {
+    position: relative;
+    padding: 10px 10px 0;
+    border-radius: 16px 16px 0 0;
+    background: linear-gradient(145deg, #2a3142 0%, #1a1f2e 50%, #12151f 100%);
+    box-shadow:
+      0 40px 80px -24px rgba(0, 0, 0, 0.65),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  .marketing-laptop-screen {
+    border-radius: 8px 8px 0 0;
+    overflow: hidden;
+    background: #0f172a;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  }
+
+  .marketing-laptop-base {
+    height: 14px;
+    margin: 0 -2px;
+    border-radius: 0 0 12px 12px;
+    background: linear-gradient(180deg, #3d4556 0%, #252a38 100%);
+    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+  }
+
+  .marketing-laptop-base::after {
+    content: "";
+    display: block;
+    width: 72px;
+    height: 4px;
+    margin: 4px auto 0;
+    border-radius: 0 0 4px 4px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .marketing-section-reveal {
+    @apply relative overflow-hidden;
+  }
+
+  .marketing-orbit-badge {
+    animation: marketing-orbit 24s linear infinite;
+  }
+
+  .marketing-float-slow {
+    animation: marketing-float 8s ease-in-out infinite;
+  }
+
+  .marketing-float-slow-reverse {
+    animation: marketing-float 9s ease-in-out infinite reverse;
+  }
 }
 
 @keyframes marketing-marquee {
@@ -178,10 +271,32 @@
   100% { transform: translateX(0); }
 }
 
+@keyframes marketing-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-18px) scale(1.03); }
+}
+
+@keyframes marketing-orbit {
+  0% { transform: rotate(0deg) translateX(118px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateX(118px) rotate(-360deg); }
+}
+
+@keyframes marketing-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .marketing-marquee-track,
-  .marketing-marquee-track-reverse {
+  .marketing-marquee-track-reverse,
+  .marketing-orbit-badge,
+  .marketing-float-slow,
+  .marketing-float-slow-reverse {
     animation: none;
+  }
+
+  .marketing-premium-card:hover {
+    transform: none;
   }
 }
 

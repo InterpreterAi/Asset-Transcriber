@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
+import { MarketingHeroPremium } from "@/components/marketing/MarketingHeroPremium";
 import { MarketingDemoPreview } from "@/components/marketing/MarketingDemoPreview";
 import { TestimonialMarquee } from "@/components/marketing/TestimonialMarquee";
 
@@ -27,37 +28,41 @@ const fade = (delay = 0) => ({
   transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] as const, delay },
 });
 
-function HeroWaveform() {
+function LanguagesGlobeVisual() {
+  const orbitCodes = ["EN", "ES", "FR", "AR", "ZH", "PT", "DE", "JA"];
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-[0.45]" aria-hidden>
-      <svg className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[min(1400px,220%)] h-48 sm:h-64" viewBox="0 0 1200 200" fill="none">
+    <div className="relative mx-auto w-full max-w-[420px] aspect-square" aria-hidden>
+      <div className="absolute inset-[12%] rounded-full bg-gradient-to-br from-primary/25 via-[#3B82F6]/15 to-transparent ring-1 ring-primary/20 shadow-[0_24px_80px_-20px_rgba(37,99,235,0.45)] marketing-float-slow" />
+      <svg viewBox="0 0 400 400" className="relative w-full h-full text-primary/40">
+        <circle cx="200" cy="200" r="118" fill="none" stroke="currentColor" strokeWidth="1.2" />
+        <ellipse cx="200" cy="200" rx="118" ry="48" fill="none" stroke="currentColor" strokeWidth="1" />
+        <ellipse cx="200" cy="200" rx="48" ry="118" fill="none" stroke="currentColor" strokeWidth="1" />
         <path
-          d="M0 120 Q 150 60 300 100 T 600 90 T 900 110 T 1200 85 L 1200 200 L 0 200 Z"
-          className="fill-[#3B82F6]/[0.07]"
-        />
-        <path
-          d="M0 140 Q 200 80 400 120 T 800 100 T 1200 115 L 1200 200 L 0 200 Z"
-          className="fill-[#2563EB]/[0.06]"
-        />
-        <path
-          stroke="url(#wgrad)"
-          strokeWidth="1.2"
+          d="M82 200h236M200 82v236"
           fill="none"
-          d="M0 105 C 200 140, 400 55, 600 95 S 1000 125, 1200 88"
-          className="opacity-40"
+          stroke="currentColor"
+          strokeWidth="0.8"
+          strokeDasharray="4 6"
+          opacity="0.5"
         />
-        <defs>
-          <linearGradient id="wgrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#3B82F6" stopOpacity="0" />
-            <stop offset="45%" stopColor="#2563EB" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="#1D4ED8" stopOpacity="0" />
-          </linearGradient>
-        </defs>
+        <circle cx="200" cy="200" r="4" className="fill-primary/60" />
       </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="relative w-[236px] h-[236px]">
+          {orbitCodes.map((code, i) => (
+            <span
+              key={code}
+              className="marketing-orbit-badge absolute left-1/2 top-1/2 -ml-4 -mt-3 text-[10px] sm:text-[11px] font-bold tracking-wide text-primary bg-white/95 border border-primary/15 rounded-md px-2 py-0.5 shadow-md"
+              style={{ animationDelay: `${i * -3}s` }}
+            >
+              {code}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
-
 const trustItems = [
   { icon: Shield, title: "HIPAA-focused architecture", desc: "Designed with regulated healthcare workflows in mind." },
   { icon: Radio, title: "Secure real-time processing", desc: "Session-oriented streaming with modern transport security." },
@@ -124,38 +129,6 @@ const howItWorksSteps = [
   },
 ] as const;
 
-function LanguagesGlobeVisual() {
-  return (
-    <div className="relative mx-auto w-full max-w-[420px] aspect-square" aria-hidden>
-      <div className="absolute inset-[12%] rounded-full bg-gradient-to-br from-primary/20 via-[#3B82F6]/10 to-transparent ring-1 ring-primary/15 shadow-[0_24px_80px_-20px_rgba(37,99,235,0.35)]" />
-      <svg viewBox="0 0 400 400" className="relative w-full h-full text-primary/35">
-        <circle cx="200" cy="200" r="118" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        <ellipse cx="200" cy="200" rx="118" ry="48" fill="none" stroke="currentColor" strokeWidth="1" />
-        <ellipse cx="200" cy="200" rx="48" ry="118" fill="none" stroke="currentColor" strokeWidth="1" />
-        <path
-          d="M82 200h236M200 82v236"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="0.8"
-          strokeDasharray="4 6"
-          opacity="0.5"
-        />
-        <circle cx="200" cy="200" r="4" className="fill-primary/50" />
-      </svg>
-      <div className="absolute inset-0 flex flex-wrap items-center justify-center gap-2 px-10 opacity-90">
-        {["EN", "ES", "FR", "AR", "ZH", "PT", "DE", "JA", "RU", "HI"].map((code) => (
-          <span
-            key={code}
-            className="text-[10px] sm:text-[11px] font-semibold tracking-wide text-primary/80 bg-white/85 border border-primary/12 rounded-md px-2 py-0.5 shadow-sm"
-          >
-            {code}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 const timelineSteps = [
   { label: "Workflow research", detail: "Interpreter sessions and feedback inform what we build next." },
   { label: "Platform iteration", detail: "Speed, clarity, and reliability improvements ship continuously." },
@@ -176,67 +149,9 @@ export default function Landing() {
 
   return (
     <div className="public-marketing-surface min-h-screen bg-[#F8FAFC] text-foreground overflow-x-hidden">
-      <MarketingNav />
+      <MarketingNav premium />
 
-      {/* Hero */}
-      <section className="relative pt-8 pb-16 sm:pt-12 sm:pb-24 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-white via-[#F8FAFC] to-[#F1F5F9]" />
-        <div className="absolute inset-0 bg-[radial-gradient(90%_60%_at_50%_-20%,rgba(37,99,235,0.11),transparent_65%)]" />
-        <HeroWaveform />
-
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 text-center">
-          <motion.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45 }}
-            className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold tracking-wide uppercase text-primary mb-6"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            Professional interpreter infrastructure
-          </motion.p>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.05 }}
-            className="text-[2rem] sm:text-5xl lg:text-[3.35rem] font-semibold tracking-tight text-foreground leading-[1.12] max-w-4xl mx-auto"
-          >
-            Real-Time Support for Professional Interpreters
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed"
-          >
-            Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows
-            across 36 supported languages.
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: 0.18 }}
-            className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
-          >
-            <Link
-              href="/signup"
-              className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl text-[15px] font-semibold text-primary-foreground bg-primary hover:bg-[#1D4ED8] shadow-[0_8px_28px_-6px_rgba(37,99,235,0.45)] hover:shadow-[0_12px_32px_-8px_rgba(37,99,235,0.5)] transition-all duration-300 hover:-translate-y-0.5 w-full sm:w-auto min-w-[200px]"
-            >
-              Start Free Trial
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="/security"
-              className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl text-[15px] font-semibold border border-border bg-white/80 text-foreground hover:bg-white hover:border-primary/25 shadow-sm transition-all duration-300 w-full sm:w-auto min-w-[200px]"
-            >
-              View Security &amp; Privacy
-            </Link>
-          </motion.div>
-          <p className="mt-4 text-sm text-muted-foreground">No credit card required to start.</p>
-        </div>
-      </section>
+      <MarketingHeroPremium />
 
       {/* Capabilities — what the platform does */}
       <section id="capabilities" className="scroll-mt-28 py-16 sm:py-20 bg-white border-b border-border/60">
@@ -253,7 +168,7 @@ export default function Landing() {
               <motion.div
                 key={title}
                 {...fade(0.04 + i * 0.03)}
-                className="rounded-2xl border border-border/80 bg-[#F8FAFC]/90 p-7 hover:bg-white hover:border-primary/20 hover:shadow-[0_16px_48px_-20px_rgba(37,99,235,0.18)] transition-all duration-300"
+                className="marketing-premium-card p-7"
               >
                 <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-5">
                   <Icon className="w-5 h-5" strokeWidth={1.75} />
@@ -397,7 +312,7 @@ export default function Landing() {
             </p>
           </motion.div>
           <motion.div {...fade(0.08)}>
-            <MarketingDemoPreview />
+            <MarketingDemoPreview animated />
           </motion.div>
           <p className="text-center text-sm text-muted-foreground mt-6">Illustrative interface — not a live session.</p>
         </div>
