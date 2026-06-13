@@ -19,11 +19,14 @@ export const CINEMATIC_CONTENT = {
     ch4: "36+ languages. One conversation.",
     ch4Sub:
       "Connect people across borders without interrupting the flow of communication.",
-    ch5: "Where communication matters most.",
-    ch6: "Trust built into every conversation.",
     ch7: "Built for every stage of growth.",
     ch7Sub: "From independent professionals to enterprise deployments.",
     ch9: "Every Conversation.\nAny Language.",
+  },
+  testimonials: {
+    eyebrow: "Social proof",
+    title: "Trusted by professional interpreters",
+    subtitle: "Workflow feedback from OPI, VRI, and multilingual sessions—emerging from the same live conversation you just watched.",
   },
   hero: {
     h1: "Real-Time Support for Professional Interpreters",

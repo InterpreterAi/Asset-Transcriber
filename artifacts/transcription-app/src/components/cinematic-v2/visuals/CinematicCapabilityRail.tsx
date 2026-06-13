@@ -7,12 +7,12 @@ const ICONS = [Captions, Languages, Users, Phone, Video, UserRound, Shield, Glob
 type Props = { timeline: CinematicTimeline };
 
 export function CinematicCapabilityRail({ timeline }: Props) {
-  const intensity = timeline.capabilityIntensity * (1 - timeline.finaleCollapse);
-  if (intensity <= 0.02) return null;
+  const intensity = timeline.capabilityIntensity;
+  if (!timeline.visibility.capabilityRail || intensity <= 0.02) return null;
 
   return (
     <div
-      className="absolute left-[3%] sm:left-[5%] bottom-[12%] sm:bottom-[18%] z-[15] max-w-sm sm:max-w-md pointer-events-none"
+      className="absolute left-[3%] sm:left-[5%] top-[14%] z-[15] max-w-sm sm:max-w-md pointer-events-none"
       style={{ opacity: intensity }}
     >
       <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-400/90 mb-4">

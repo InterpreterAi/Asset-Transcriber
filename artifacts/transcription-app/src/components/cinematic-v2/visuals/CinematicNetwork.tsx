@@ -31,6 +31,7 @@ type Props = {
 };
 
 export function CinematicNetwork({ timeline }: Props) {
+  if (!timeline.visibility.network) return null;
   const { p, networkOpacity, scaleIntensity, pricingIntensity, finaleCollapse } = timeline;
   const cx = 50;
   const cy = 50;

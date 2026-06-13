@@ -43,12 +43,12 @@ export function MarketingFooter() {
               <ul className="space-y-2 text-muted-foreground">
                 <li>
                   <Link href="/security" className="hover:text-foreground transition-colors">
-                    Security
+                    Security &amp; Privacy
                   </Link>
                 </li>
                 <li>
-                  <Link href="/privacy" className="hover:text-foreground transition-colors">
-                    Privacy
+                  <Link href="/security#privacy-policy" className="hover:text-foreground transition-colors">
+                    Privacy policy
                   </Link>
                 </li>
                 <li>
@@ -78,7 +78,7 @@ export function MarketingFooter() {
         <div className="mt-12 pt-8 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <span>© {new Date().getFullYear()} InterpreterAI · All rights reserved</span>
           <div className="flex items-center gap-6">
-            <Link href="/privacy" className="hover:text-foreground transition-colors">
+            <Link href="/security#privacy-policy" className="hover:text-foreground transition-colors">
               Privacy
             </Link>
             <Link href="/security" className="hover:text-foreground transition-colors">

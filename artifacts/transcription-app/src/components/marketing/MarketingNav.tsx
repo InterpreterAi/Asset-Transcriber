@@ -55,10 +55,7 @@ export function MarketingNav({ premium = false }: { premium?: boolean }) {
             Solutions
           </button>
           <Link href="/security" className={linkCls}>
-            Security
-          </Link>
-          <Link href="/privacy" className={linkCls}>
-            Privacy
+            Security &amp; Privacy
           </Link>
           <button type="button" className={linkCls} onClick={() => goHomeSection("enterprise")}>
             Enterprise
@@ -109,10 +106,7 @@ export function MarketingNav({ premium = false }: { premium?: boolean }) {
             Solutions
           </button>
           <Link href="/security" className={`${linkCls} py-3 px-2 block`} onClick={() => setOpen(false)}>
-            Security
-          </Link>
-          <Link href="/privacy" className={`${linkCls} py-3 px-2 block`} onClick={() => setOpen(false)}>
-            Privacy
+            Security &amp; Privacy
           </Link>
           <button type="button" className={`${linkCls} text-left py-3 px-2`} onClick={() => goHomeSection("enterprise")}>
             Enterprise

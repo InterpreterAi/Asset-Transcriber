@@ -17,15 +17,15 @@ const PORT = 4173;
 const BASE = `http://127.0.0.1:${PORT}/`;
 
 const CHAPTERS = [
-  { id: "01-problem", progress: 0.06, label: "Ch1 The Problem" },
-  { id: "02-conversation", progress: 0.2, label: "Ch2 The Conversation" },
-  { id: "03-interpreterai", progress: 0.33, label: "Ch3 InterpreterAI" },
-  { id: "04-languages", progress: 0.43, label: "Ch4 Languages" },
-  { id: "05-uses", progress: 0.53, label: "Ch5 Real-World Uses" },
-  { id: "06-trust", progress: 0.63, label: "Ch6 Trust" },
-  { id: "07-scale", progress: 0.73, label: "Ch7 Scale" },
-  { id: "08-pricing", progress: 0.84, label: "Ch8 Pricing" },
-  { id: "09-finale", progress: 0.96, label: "Ch9 Final Moment" },
+  { id: "01-problem", progress: 0.045, label: "Ch1 Hero" },
+  { id: "02-conversation", progress: 0.14, label: "Ch2 Conversation" },
+  { id: "03-interpreterai", progress: 0.25, label: "Ch3 Product" },
+  { id: "04-languages", progress: 0.35, label: "Ch4 Languages" },
+  { id: "05-testimonials", progress: 0.45, label: "Ch5 Testimonials" },
+  { id: "06-trust", progress: 0.55, label: "Ch6 Security & Privacy" },
+  { id: "07-scale", progress: 0.65, label: "Ch7 Enterprise" },
+  { id: "08-pricing", progress: 0.78, label: "Ch8 Pricing" },
+  { id: "09-finale", progress: 0.93, label: "Ch9 Finale" },
 ];
 
 function run(cmd, args, cwd) {
@@ -69,6 +69,7 @@ async function main() {
     const browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
 
     for (const ch of CHAPTERS) {
       await page.evaluate((progress) => {
@@ -79,7 +80,7 @@ async function main() {
           : scroller.scrollHeight - scroller.clientHeight;
         scroller.scrollTop = Math.max(0, max * progress);
       }, ch.progress);
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(1200);
       const file = path.join(OUT, `${ch.id}.png`);
       await page.screenshot({ path: file, fullPage: false });
       console.log(`✓ ${ch.label} → ${file}`);

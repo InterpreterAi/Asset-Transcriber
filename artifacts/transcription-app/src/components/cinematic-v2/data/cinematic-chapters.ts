@@ -3,7 +3,7 @@ export type CinematicChapterId =
   | "conversation"
   | "interpreterai"
   | "languages"
-  | "uses"
+  | "testimonials"
   | "trust"
   | "scale"
   | "pricing"
@@ -15,20 +15,19 @@ export type CinematicChapterMeta = {
   label: string;
   /** Master scroll progress range [start, end] */
   range: readonly [number, number];
-  /** Section height in vh */
-  heightVh: number;
 };
 
+/** Story: Hero → Conversation → Product → Languages → Feedback → Trust → Enterprise → Pricing → Finale */
 export const CINEMATIC_CHAPTERS: readonly CinematicChapterMeta[] = [
-  { id: "problem", index: 1, label: "The Problem", range: [0, 0.12], heightVh: 0 },
-  { id: "conversation", index: 2, label: "The Conversation", range: [0.12, 0.28], heightVh: 0 },
-  { id: "interpreterai", index: 3, label: "InterpreterAI", range: [0.28, 0.38], heightVh: 0 },
-  { id: "languages", index: 4, label: "Languages", range: [0.38, 0.48], heightVh: 0 },
-  { id: "uses", index: 5, label: "Real-World Uses", range: [0.48, 0.58], heightVh: 0 },
-  { id: "trust", index: 6, label: "Trust", range: [0.58, 0.68], heightVh: 0 },
-  { id: "scale", index: 7, label: "Scale", range: [0.68, 0.78], heightVh: 0 },
-  { id: "pricing", index: 8, label: "Pricing", range: [0.78, 0.9], heightVh: 0 },
-  { id: "finale", index: 9, label: "Final Moment", range: [0.9, 1], heightVh: 0 },
+  { id: "problem", index: 1, label: "Hero", range: [0, 0.09] },
+  { id: "conversation", index: 2, label: "The Conversation", range: [0.09, 0.2] },
+  { id: "interpreterai", index: 3, label: "Product", range: [0.2, 0.3] },
+  { id: "languages", index: 4, label: "Languages", range: [0.3, 0.4] },
+  { id: "testimonials", index: 5, label: "Interpreter Feedback", range: [0.4, 0.5] },
+  { id: "trust", index: 6, label: "Security & Privacy", range: [0.5, 0.6] },
+  { id: "scale", index: 7, label: "Enterprise", range: [0.6, 0.7] },
+  { id: "pricing", index: 8, label: "Pricing", range: [0.7, 0.86] },
+  { id: "finale", index: 9, label: "Final Moment", range: [0.86, 1] },
 ];
 
 export function chapterProgress(global: number, chapter: CinematicChapterMeta): number {

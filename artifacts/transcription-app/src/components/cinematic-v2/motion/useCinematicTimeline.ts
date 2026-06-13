@@ -1,33 +1,22 @@
 import { useEffect, useState } from "react";
 import { useTransform, type MotionValue } from "framer-motion";
 import { CINEMATIC_CHAPTERS, chapterProgress, type CinematicChapterId } from "../data/cinematic-chapters";
-
-export type CinematicSceneMode =
-  | "hero"
-  | "workflow"
-  | "product"
-  | "languages"
-  | "solutions"
-  | "privacy"
-  | "scale"
-  | "pricing"
-  | "finale";
+import { layoutForChapter, type ChapterVisibility } from "./cinematic-layout";
 
 export type CinematicTimeline = {
   p: number;
   chapterId: CinematicChapterId;
   chapterLocal: number;
-  sceneMode: CinematicSceneMode;
   workspaceScale: number;
   workspaceOpacity: number;
   workspaceX: number;
   workspaceY: number;
+  visibility: ChapterVisibility;
   networkOpacity: number;
   streamOpacity: number;
-  languageWallIntensity: number;
   capabilityIntensity: number;
+  testimonialIntensity: number;
   privacyIntensity: number;
-  secureIntensity: number;
   scaleIntensity: number;
   pricingIntensity: number;
   finaleCollapse: number;
@@ -45,23 +34,15 @@ function ease(p: number): number {
   return p * p * (3 - 2 * p);
 }
 
-function sceneModeFor(id: CinematicChapterId): CinematicSceneMode {
-  const map: Record<CinematicChapterId, CinematicSceneMode> = {
-    problem: "hero",
-    conversation: "workflow",
-    interpreterai: "product",
-    languages: "languages",
-    uses: "solutions",
-    trust: "privacy",
-    scale: "scale",
-    pricing: "pricing",
-    finale: "finale",
-  };
-  return map[id];
-}
-
-function blend(a: number, b: number, t: number): number {
-  return a + (b - a) * ease(Math.min(1, Math.max(0, t)));
+function chapterFade(p: number, id: CinematicChapterId): number {
+  const ch = CINEMATIC_CHAPTERS.find((c) => c.id === id);
+  if (!ch) return 0;
+  const [a, b] = ch.range;
+  const fade = 0.04;
+  if (p < a - fade || p > b + fade) return 0;
+  if (p < a) return (p - (a - fade)) / fade;
+  if (p > b) return 1 - (p - b) / fade;
+  return 1;
 }
 
 export function computeTimeline(p: number): CinematicTimeline {
@@ -69,124 +50,46 @@ export function computeTimeline(p: number): CinematicTimeline {
   const id = activeChapter(clamped);
   const ch = CINEMATIC_CHAPTERS.find((c) => c.id === id)!;
   const local = chapterProgress(clamped, ch);
-  const sceneMode = sceneModeFor(id);
+  const layout = layoutForChapter(id);
+  const fade = chapterFade(clamped, id);
 
-  const workspaceScale =
-    clamped < 0.12
-      ? blend(1.02, 1.12, clamped / 0.12)
-      : clamped < 0.28
-        ? 1.12
-        : clamped < 0.38
-          ? blend(1.12, 1.04, (clamped - 0.28) / 0.1)
-          : clamped < 0.48
-            ? blend(1.04, 0.98, (clamped - 0.38) / 0.1)
-            : clamped < 0.88
-              ? 0.96
-              : blend(0.96, 0.2, (clamped - 0.88) / 0.08);
+  const finaleCollapse = clamped < 0.84 ? 0 : ease(Math.min(1, (clamped - 0.84) / 0.1));
+  const logoReveal = clamped < 0.9 ? 0 : ease(Math.min(1, (clamped - 0.9) / 0.08));
 
-  const workspaceX =
-    id === "interpreterai"
-      ? blend(0, 14, local)
-      : id === "languages"
-        ? blend(-10, -16, local)
-        : id === "trust"
-          ? blend(0, 12, local)
-          : id === "scale"
-            ? blend(0, -14, local)
-            : 0;
+  const workspaceOpacity =
+    id === "finale" ? 0 : layout.visibility.workspace ? 1 - finaleCollapse * 0.5 : 0;
 
-  const workspaceY =
-    id === "problem"
-      ? blend(110, 80, chapterProgress(clamped, CINEMATIC_CHAPTERS[0]!))
-      : clamped < 0.28
-        ? blend(80, 0, (clamped - 0.12) / 0.16)
-        : id === "uses" || id === "pricing"
-          ? -8
-          : clamped >= 0.88
-            ? blend(0, 72, (clamped - 0.88) / 0.08)
-            : 0;
-
-  const workspaceOpacity = clamped < 0.92 ? 1 : 1 - ease((clamped - 0.92) / 0.04);
-
-  const networkOpacity =
-    clamped < 0.46
-      ? 0
-      : clamped < 0.56
-        ? ease((clamped - 0.46) / 0.1)
-        : clamped < 0.9
-          ? 1
-          : 1 - ease((clamped - 0.9) / 0.06);
-
-  const streamOpacity =
-    clamped < 0.36
-      ? 0
-      : clamped < 0.48
-        ? ease((clamped - 0.36) / 0.12)
-        : clamped < 0.58
-          ? 1
-          : 1 - ease((clamped - 0.58) / 0.1);
-
-  const languageWallIntensity =
-    clamped < 0.36
-      ? 0
-      : clamped < 0.48
-        ? ease((clamped - 0.36) / 0.12)
-        : clamped < 0.56
-          ? 1
-          : 1 - ease((clamped - 0.56) / 0.08);
-
-  const capabilityIntensity =
-    clamped < 0.28
-      ? 0
-      : clamped < 0.32
-        ? ease((clamped - 0.28) / 0.04)
-        : clamped < 0.36
-          ? 1
-          : clamped < 0.4
-            ? 1 - ease((clamped - 0.36) / 0.04)
-            : 0;
-
-  const privacyIntensity =
-    clamped < 0.56
-      ? 0
-      : clamped < 0.66
-        ? ease((clamped - 0.56) / 0.1)
-        : clamped < 0.76
-          ? 1
-          : 1 - ease((clamped - 0.76) / 0.08);
-
-  const secureIntensity = privacyIntensity;
-
-  const scaleIntensity =
-    clamped < 0.66
-      ? 0
-      : clamped < 0.76
-        ? ease((clamped - 0.66) / 0.1)
-        : clamped < 0.88
-          ? 1
-          : 1 - ease((clamped - 0.88) / 0.06);
-
-  const pricingIntensity =
-    clamped < 0.74 ? 0 : clamped < 0.88 ? ease((clamped - 0.74) / 0.14) : 1 - ease((clamped - 0.88) / 0.06);
-
-  const finaleCollapse = clamped < 0.86 ? 0 : ease(Math.min(1, (clamped - 0.86) / 0.1));
-  const logoReveal = clamped < 0.92 ? 0 : ease(Math.min(1, (clamped - 0.92) / 0.06));
+  const networkOpacity = id === "scale" ? fade * (1 - finaleCollapse) : 0;
+  const streamOpacity = id === "languages" ? fade * (1 - finaleCollapse) : 0;
+  const capabilityIntensity = id === "interpreterai" ? fade * (1 - finaleCollapse) : 0;
+  const testimonialIntensity = id === "testimonials" ? fade * (1 - finaleCollapse) : 0;
+  const privacyIntensity = id === "trust" ? fade * (1 - finaleCollapse) : 0;
+  const scaleIntensity = id === "scale" ? fade * (1 - finaleCollapse) : 0;
+  const pricingIntensity = id === "pricing" ? fade * (1 - finaleCollapse) : 0;
 
   return {
     p: clamped,
     chapterId: id,
     chapterLocal: local,
-    sceneMode,
-    workspaceScale,
+    workspaceScale: layout.workspace.scale * (1 - finaleCollapse * 0.4),
     workspaceOpacity,
-    workspaceX,
-    workspaceY,
+    workspaceX: layout.workspace.xPercent,
+    workspaceY: layout.workspace.yPx + finaleCollapse * 60,
+    visibility: {
+      ...layout.visibility,
+      workspace: layout.visibility.workspace && workspaceOpacity > 0.05,
+      translationStreams: layout.visibility.translationStreams && streamOpacity > 0.05,
+      capabilityRail: layout.visibility.capabilityRail && capabilityIntensity > 0.05,
+      testimonials: layout.visibility.testimonials && testimonialIntensity > 0.05,
+      privacyPaths: layout.visibility.privacyPaths && privacyIntensity > 0.05,
+      network: layout.visibility.network && networkOpacity > 0.05,
+      chapterCopy: layout.visibility.chapterCopy && fade > 0.05 && logoReveal < 0.5,
+    },
     networkOpacity,
     streamOpacity,
-    languageWallIntensity,
     capabilityIntensity,
+    testimonialIntensity,
     privacyIntensity,
-    secureIntensity,
     scaleIntensity,
     pricingIntensity,
     finaleCollapse,
@@ -205,9 +108,8 @@ export function useCinematicTimeline(scrollYProgress: MotionValue<number>) {
 
   const workspaceScale = useTransform(scrollYProgress, (p) => computeTimeline(p).workspaceScale);
   const workspaceOpacity = useTransform(scrollYProgress, (p) => computeTimeline(p).workspaceOpacity);
-  const networkOpacity = useTransform(scrollYProgress, (p) => computeTimeline(p).networkOpacity);
 
-  return { timeline, workspaceScale, workspaceOpacity, networkOpacity };
+  return { timeline, workspaceScale, workspaceOpacity };
 }
 
-export const CINEMATIC_SCROLL_VH = 820;
+export const CINEMATIC_SCROLL_VH = 900;
