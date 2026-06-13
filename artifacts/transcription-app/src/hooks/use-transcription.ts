@@ -3593,7 +3593,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const current = eng.getRowTranslation(rowId).trim();
     if (!applied.composed.length && current.length) return;
     if (applied.composed === current) return;
-    eng.setRowTranslationPrefixLive(rowId, applied.locked, applied.live);
+    const rtlBidiPaint =
+      morsyUsesCleanTranslationExperiment() && shouldMorsyChunkV2BidiPaint(applied.composed);
+    eng.setRowTranslationPrefixLive(rowId, applied.locked, applied.live, { rtlBidiPaint });
   }, [getCanonTrialRowTransState]);
 
   const paintMorsyCanonFinalRowTranslation = useCallback((
@@ -3611,7 +3613,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const finalized = finalizeMorsyCanonTranslationPrefix(finalSource, trimmed);
     trialSt.lockedStableSource = finalized.lockedStableSource;
     trialSt.lockedTranslationPrefix = finalized.lockedTranslationPrefix;
-    eng.setRowTranslation(rowId, trimmed);
+    const rtlBidiPaint =
+      morsyUsesCleanTranslationExperiment() && shouldMorsyChunkV2BidiPaint(trimmed);
+    if (rtlBidiPaint) {
+      eng.setRowTranslationPrefixLive(rowId, trimmed, "", { rtlBidiPaint: true });
+    } else {
+      eng.setRowTranslation(rowId, trimmed);
+    }
   }, [getCanonTrialRowTransState]);
 
   const paintMorsyChunkV2Row = useCallback((

@@ -22,6 +22,7 @@ import {
   type MorsyTranslationStackFlags,
 } from "@/experiments/basic-morsy-urgent/translationStackMode";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { useUrlEnumState } from "@/lib/url-page-state";
 import { useSessionHeartbeat } from "@/hooks/use-session-heartbeat";
 import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -397,7 +398,9 @@ export default function WorkspaceDefault() {
   const [showUserFeedback, setShowUserFeedback] = useState(false);
   const [inviteCopied, setInviteCopied]         = useState(false);
   const [showInviteModal, setShowInviteModal]   = useState(false);
-  const [activeTab, setActiveTab]               = useState("mic");
+  const WORKSPACE_PANELS = ["mic", "profile", "lang", "glossary", "support", "referrals"] as const;
+  type WorkspacePanel = (typeof WORKSPACE_PANELS)[number];
+  const [activeTab, setActiveTab] = useUrlEnumState<WorkspacePanel>("panel", WORKSPACE_PANELS, "mic");
   const [referralsData, setReferralsData] = useState<{
     referralLink: string;
     successfulReferrals: number;
@@ -1140,13 +1143,13 @@ export default function WorkspaceDefault() {
         </div>
 
         <div className="flex-1 flex flex-col gap-1 md:gap-1.5 px-2 md:px-0 md:items-center">
-          {[
-            { id: "profile",  icon: <User className="w-5 h-5" />,      title: "Profile" },
-            { id: "mic",      icon: <Mic2 className="w-5 h-5" />,      title: "Audio" },
-            { id: "lang",     icon: <Languages className="w-5 h-5" />, title: "Languages" },
-            { id: "glossary", icon: <BookOpen className="w-5 h-5" />,  title: "Glossary" },
-            { id: "support",  icon: <LifeBuoy className="w-5 h-5" />,  title: "Support" },
-          ].map(({ id, icon, title }) => (
+          {([
+            { id: "profile" as const,  icon: <User className="w-5 h-5" />,      title: "Profile" },
+            { id: "mic" as const,      icon: <Mic2 className="w-5 h-5" />,      title: "Audio" },
+            { id: "lang" as const,     icon: <Languages className="w-5 h-5" />, title: "Languages" },
+            { id: "glossary" as const, icon: <BookOpen className="w-5 h-5" />,  title: "Glossary" },
+            { id: "support" as const,  icon: <LifeBuoy className="w-5 h-5" />,  title: "Support" },
+          ] as const).map(({ id, icon, title }) => (
             <button
               key={id}
               className={cn(
@@ -1157,7 +1160,7 @@ export default function WorkspaceDefault() {
                     : "bg-white text-primary shadow-sm"
                   : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
               )}
-              onClick={() => { setActiveTab(id); setSettingsOpen(false); }}
+              onClick={() => { setActiveTab(id as WorkspacePanel); setSettingsOpen(false); }}
               title={title}
             >
               <span className="shrink-0">{icon}</span>

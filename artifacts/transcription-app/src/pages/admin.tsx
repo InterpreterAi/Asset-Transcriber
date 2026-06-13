@@ -14,6 +14,7 @@ import {
 } from "@workspace/api-client-react";
 import type { AdminSharedLoginIpCluster } from "@workspace/api-client-react";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { useUrlEnumState } from "@/lib/url-page-state";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow, format, differenceInDays } from "date-fns";
 import {
@@ -550,8 +551,12 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
 
-  // ── Main tabs ─────────────────────────────────────────────────────────────
-  const [mainTab, setMainTab] = useState<"overview" | "analytics" | "users" | "ipWatch" | "languages" | "feedback" | "support" | "errors" | "monitor" | "referrals">("overview");
+  // ── Main tabs (persisted in ?tab= so refresh stays on the same section) ──
+  const ADMIN_MAIN_TABS = [
+    "overview", "analytics", "users", "ipWatch", "languages", "feedback", "support", "errors", "monitor", "referrals",
+  ] as const;
+  type AdminMainTab = (typeof ADMIN_MAIN_TABS)[number];
+  const [mainTab, setMainTab] = useUrlEnumState<AdminMainTab>("tab", ADMIN_MAIN_TABS, "overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const pollUsersForAdmin =
@@ -707,7 +712,12 @@ export default function Admin() {
   const [editError,  setEditError]   = useState<string | null>(null);
 
   // ── Errors tab state ──────────────────────────────────────────────────────
-  const [errorsSubTab, setErrorsSubTab]       = useState<"api" | "login">("api");
+  const ADMIN_ERRORS_SUBTABS = ["api", "login"] as const;
+  const [errorsSubTab, setErrorsSubTab] = useUrlEnumState<"api" | "login">(
+    "errorsView",
+    ADMIN_ERRORS_SUBTABS,
+    "api",
+  );
   const [loginEventFilter, setLoginEventFilter] = useState("all");
   const [errorTypeFilter, setErrorTypeFilter] = useState("all");
   const { data: errorsData, refetch: refetchErrors, isLoading: errorsLoading } = useQuery({
