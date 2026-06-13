@@ -6,14 +6,8 @@ export const WORKSPACE_SELECTABLE_TEXT_CLASS = "workspace-selectable-text";
 const COPY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
 const CHECK_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 
-const deferredDomMutations: Array<() => void> = [];
 const resumeListeners = new Set<() => void>();
 const pauseListeners = new Set<() => void>();
-
-let guardInstalled = false;
-let pointerSelecting = false;
-let activeTextSelection = false;
-let resumeCooldownUntil = 0;
 
 export function markWorkspaceSelectableText(el: HTMLElement): void {
   el.classList.add(WORKSPACE_SELECTABLE_TEXT_CLASS);
@@ -24,89 +18,20 @@ export function markWorkspaceSelectableRoot(el: HTMLElement | null | undefined):
   el.classList.add(WORKSPACE_SELECTABLE_ROOT_CLASS);
 }
 
-function selectionTouchesWorkspace(sel: Selection): boolean {
-  if (sel.rangeCount === 0) return false;
-  const range = sel.getRangeAt(0);
-  const node = range.commonAncestorContainer;
-  const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
-  return !!el?.closest(`.${WORKSPACE_SELECTABLE_ROOT_CLASS}`);
-}
-
-function isInteractiveWorkspaceTarget(el: HTMLElement): boolean {
-  return !!el.closest("button,a,input,textarea,select,[role='button'],[contenteditable='true']");
-}
-
-/** Pointer on transcript/translation text only — not empty panel chrome or scroll gutters. */
-function isWorkspacePointerTarget(el: HTMLElement): boolean {
-  if (isInteractiveWorkspaceTarget(el)) return false;
-  return !!el.closest(`.${WORKSPACE_SELECTABLE_TEXT_CLASS}`);
-}
-
-function syncActiveTextSelectionFromDocument(): void {
-  const sel = document.getSelection();
-  activeTextSelection = !!(
-    sel &&
-    !sel.isCollapsed &&
-    selectionTouchesWorkspace(sel)
-  );
-}
-
-function notifyDomPaintPause(): void {
-  for (const listener of pauseListeners) {
-    try {
-      listener();
-    } catch {
-      /* pause */
-    }
-  }
-}
-
-/** True while the user is dragging a selection or briefly after — freeze live DOM paints. */
+/**
+ * Live transcript/translation paints never pause for native text selection.
+ * Users can highlight/copy while speech continues word-by-word without batching or DOM stalls.
+ */
 export function shouldPauseWorkspaceDomPaint(): boolean {
-  if (pointerSelecting || activeTextSelection) return true;
-  return Date.now() < resumeCooldownUntil;
+  return false;
 }
 
 export function deferWorkspaceDomMutation(mutate: () => void): void {
-  deferredDomMutations.push(mutate);
-}
-
-export function runWorkspaceDomMutation(mutate: () => void): void {
-  if (shouldPauseWorkspaceDomPaint()) {
-    deferWorkspaceDomMutation(mutate);
-    return;
-  }
   mutate();
 }
 
-function drainDeferredDomMutations(): void {
-  if (shouldPauseWorkspaceDomPaint()) return;
-  const queue = deferredDomMutations.splice(0);
-  for (const mutate of queue) {
-    try {
-      mutate();
-    } catch {
-      /* paint */
-    }
-  }
-  for (const listener of resumeListeners) {
-    try {
-      listener();
-    } catch {
-      /* resume */
-    }
-  }
-}
-
-function endPointerInteraction(): void {
-  if (!pointerSelecting) return;
-  pointerSelecting = false;
-  resumeCooldownUntil = Date.now() + 200;
-  syncActiveTextSelectionFromDocument();
-  window.requestAnimationFrame(() => {
-    if (shouldPauseWorkspaceDomPaint()) return;
-    drainDeferredDomMutations();
-  });
+export function runWorkspaceDomMutation(mutate: () => void): void {
+  mutate();
 }
 
 export function onWorkspaceDomPaintResume(listener: () => void): () => void {
@@ -119,58 +44,9 @@ export function onWorkspaceDomPaintPause(listener: () => void): () => void {
   return () => pauseListeners.delete(listener);
 }
 
+/** No-op — selection no longer defers DOM paints (see {@link shouldPauseWorkspaceDomPaint}). */
 export function installWorkspaceSelectionPaintDeferral(): () => void {
-  if (guardInstalled) return () => {};
-  guardInstalled = true;
-
-  const beginPointerPause = (target: EventTarget | null) => {
-    if (!(target instanceof HTMLElement)) return;
-    if (!isWorkspacePointerTarget(target)) return;
-    pointerSelecting = true;
-    notifyDomPaintPause();
-  };
-
-  const onPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0) return;
-    beginPointerPause(e.target);
-  };
-
-  const onMouseDown = (e: MouseEvent) => {
-    if (e.button !== 0) return;
-    beginPointerPause(e.target);
-  };
-
-  const onPointerUp = () => {
-    endPointerInteraction();
-  };
-
-  const onSelectionChange = () => {
-    syncActiveTextSelectionFromDocument();
-    if (shouldPauseWorkspaceDomPaint()) return;
-    drainDeferredDomMutations();
-  };
-
-  document.addEventListener("pointerdown", onPointerDown, true);
-  document.addEventListener("mousedown", onMouseDown, true);
-  document.addEventListener("pointerup", onPointerUp, true);
-  document.addEventListener("pointercancel", onPointerUp, true);
-  document.addEventListener("mouseup", onPointerUp, true);
-  document.addEventListener("selectionchange", onSelectionChange);
-
-  return () => {
-    document.removeEventListener("pointerdown", onPointerDown, true);
-    document.removeEventListener("mousedown", onMouseDown, true);
-    document.removeEventListener("pointerup", onPointerUp, true);
-    document.removeEventListener("pointercancel", onPointerUp, true);
-    document.removeEventListener("mouseup", onPointerUp, true);
-    document.removeEventListener("selectionchange", onSelectionChange);
-    deferredDomMutations.length = 0;
-    resumeListeners.clear();
-    pauseListeners.clear();
-    pointerSelecting = false;
-    activeTextSelection = false;
-    guardInstalled = false;
-  };
+  return () => {};
 }
 
 /** @deprecated Use runWorkspaceDomMutation — kept for existing call sites. */
