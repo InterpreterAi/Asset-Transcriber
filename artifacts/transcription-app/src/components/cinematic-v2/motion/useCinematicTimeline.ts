@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { useTransform, type MotionValue } from "framer-motion";
 import { CINEMATIC_CHAPTERS, chapterProgress, type CinematicChapterId } from "../data/cinematic-chapters";
-import { layoutForChapter, type ChapterVisibility } from "./cinematic-layout";
+import { layoutForChapter, type ChapterLayout, type ChapterLayoutMode, type ChapterVisibility } from "./cinematic-layout";
 
 export type CinematicTimeline = {
   p: number;
   chapterId: CinematicChapterId;
   chapterLocal: number;
+  layout: ChapterLayout;
+  layoutMode: ChapterLayoutMode;
   workspaceScale: number;
+  workspaceMaxWidth: "sm" | "md" | "lg";
   workspaceOpacity: number;
-  workspaceX: number;
-  workspaceY: number;
   visibility: ChapterVisibility;
   networkOpacity: number;
   streamOpacity: number;
@@ -56,25 +57,25 @@ export function computeTimeline(p: number): CinematicTimeline {
   const finaleCollapse = clamped < 0.84 ? 0 : ease(Math.min(1, (clamped - 0.84) / 0.1));
   const logoReveal = clamped < 0.9 ? 0 : ease(Math.min(1, (clamped - 0.9) / 0.08));
 
-  const workspaceOpacity =
-    id === "finale" ? 0 : layout.visibility.workspace ? 1 - finaleCollapse * 0.5 : 0;
-
-  const networkOpacity = id === "scale" ? fade * (1 - finaleCollapse) : 0;
-  const streamOpacity = id === "languages" ? fade * (1 - finaleCollapse) : 0;
-  const capabilityIntensity = id === "interpreterai" ? fade * (1 - finaleCollapse) : 0;
-  const testimonialIntensity = id === "testimonials" ? fade * (1 - finaleCollapse) : 0;
-  const privacyIntensity = id === "trust" ? fade * (1 - finaleCollapse) : 0;
-  const scaleIntensity = id === "scale" ? fade * (1 - finaleCollapse) : 0;
+  const networkOpacity = layout.visibility.network ? fade * (1 - finaleCollapse) : 0;
+  const streamOpacity = layout.visibility.translationStreams ? fade * (1 - finaleCollapse) : 0;
+  const capabilityIntensity = layout.visibility.capabilityRail ? fade * (1 - finaleCollapse) : 0;
+  const testimonialIntensity = layout.visibility.testimonials ? fade * (1 - finaleCollapse) : 0;
+  const privacyIntensity = layout.visibility.privacyPaths ? fade * (1 - finaleCollapse) : 0;
+  const scaleIntensity = layout.visibility.network ? fade * (1 - finaleCollapse) : 0;
   const pricingIntensity = id === "pricing" ? fade * (1 - finaleCollapse) : 0;
+
+  const workspaceOpacity = layout.visibility.workspace && id !== "finale" ? fade * (1 - finaleCollapse) : 0;
 
   return {
     p: clamped,
     chapterId: id,
     chapterLocal: local,
-    workspaceScale: layout.workspace.scale * (1 - finaleCollapse * 0.4),
+    layout,
+    layoutMode: layout.mode,
+    workspaceScale: layout.workspaceScale,
+    workspaceMaxWidth: layout.workspaceMaxWidth,
     workspaceOpacity,
-    workspaceX: layout.workspace.xPercent,
-    workspaceY: layout.workspace.yPx + finaleCollapse * 60,
     visibility: {
       ...layout.visibility,
       workspace: layout.visibility.workspace && workspaceOpacity > 0.05,
@@ -83,6 +84,7 @@ export function computeTimeline(p: number): CinematicTimeline {
       testimonials: layout.visibility.testimonials && testimonialIntensity > 0.05,
       privacyPaths: layout.visibility.privacyPaths && privacyIntensity > 0.05,
       network: layout.visibility.network && networkOpacity > 0.05,
+      companyMarquee: layout.visibility.companyMarquee && fade > 0.05,
       chapterCopy: layout.visibility.chapterCopy && fade > 0.05 && logoReveal < 0.5,
     },
     networkOpacity,

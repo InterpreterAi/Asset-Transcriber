@@ -93,7 +93,7 @@ export function CinematicWorkspace() {
   return (
     <div className="relative mx-auto w-full max-w-4xl z-10">
       <div
-        className={`rounded-2xl border border-white/12 bg-[#0b0e14]/96 shadow-[0_40px_100px_-28px_rgba(0,0,0,0.9),0_0_0_1px_rgba(34,211,238,0.08)] overflow-hidden ring-1 ring-white/[0.08] ${
+        className={`rounded-2xl border border-white/12 bg-[#0b0e14] shadow-[0_40px_100px_-28px_rgba(0,0,0,0.9),0_0_0_1px_rgba(34,211,238,0.08)] overflow-hidden ring-1 ring-white/[0.08] ${
           isListening ? "cinematic-listening-pulse" : ""
         }`}
       >
@@ -125,7 +125,7 @@ export function CinematicWorkspace() {
           <Waveform phase={activePhase} />
         </div>
 
-        <div className="overflow-y-auto px-4 sm:px-5 py-4 space-y-5" style={{ minHeight: 280, maxHeight: 380 }}>
+        <div className="overflow-y-auto px-4 sm:px-5 py-4 space-y-5" style={{ minHeight: 220, maxHeight: 300 }}>
           {rows.map(({ turn, orig, trans, phase, live, showTrans }) => (
             <div key={turn.id} className="grid grid-cols-2 gap-4 sm:gap-6 items-start">
               <div className="flex min-w-0 items-start">

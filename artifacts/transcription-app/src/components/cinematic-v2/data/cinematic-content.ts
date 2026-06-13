@@ -139,6 +139,7 @@ export const CINEMATIC_CONTENT = {
       body: "InterpreterAI is built for organizations that review vendor practices before rollout. Explore our trust center for security framing, and our privacy page for data-handling expectations.",
       bullets: ["HIPAA-focused architecture", "Session-oriented design", "Continuous platform improvements"] as const,
     },
+    marqueeLabel: "Interpreters at leading language service organizations",
     footerTagline: "Professional infrastructure for real-time interpreter support across OPI and VRI workflows.",
   },
   pricing: {

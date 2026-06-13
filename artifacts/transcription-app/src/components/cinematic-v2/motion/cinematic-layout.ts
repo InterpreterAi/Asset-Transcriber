@@ -1,5 +1,7 @@
 import type { CinematicChapterId } from "../data/cinematic-chapters";
 
+export type ChapterLayoutMode = "stack-copy-top" | "stack-copy-bottom" | "split-copy-left" | "split-copy-right" | "finale";
+
 export type ChapterVisibility = {
   workspace: boolean;
   translationStreams: boolean;
@@ -7,24 +9,23 @@ export type ChapterVisibility = {
   testimonials: boolean;
   privacyPaths: boolean;
   network: boolean;
+  companyMarquee: boolean;
   chapterCopy: boolean;
 };
 
-export type WorkspaceLayout = {
-  scale: number;
-  xPercent: number;
-  yPx: number;
-};
-
 export type ChapterLayout = {
-  workspace: WorkspaceLayout;
+  mode: ChapterLayoutMode;
+  workspaceScale: number;
+  workspaceMaxWidth: "sm" | "md" | "lg";
   visibility: ChapterVisibility;
 };
 
-/** Per-chapter layout — zero collision zones, one dominant message per viewport. */
+/** Grid-based zones — copy and workspace never share the same cell. */
 export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
   problem: {
-    workspace: { scale: 1.1, xPercent: 0, yPx: 100 },
+    mode: "stack-copy-top",
+    workspaceScale: 0.62,
+    workspaceMaxWidth: "md",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -32,11 +33,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: false,
+      companyMarquee: false,
       chapterCopy: true,
     },
   },
   conversation: {
-    workspace: { scale: 1.08, xPercent: 0, yPx: -20 },
+    mode: "stack-copy-bottom",
+    workspaceScale: 0.68,
+    workspaceMaxWidth: "md",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -44,11 +48,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: false,
+      companyMarquee: false,
       chapterCopy: true,
     },
   },
   interpreterai: {
-    workspace: { scale: 0.92, xPercent: 18, yPx: 0 },
+    mode: "split-copy-left",
+    workspaceScale: 0.68,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -56,11 +63,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: false,
-      chapterCopy: false,
+      companyMarquee: false,
+      chapterCopy: true,
     },
   },
   languages: {
-    workspace: { scale: 0.85, xPercent: -16, yPx: 0 },
+    mode: "split-copy-right",
+    workspaceScale: 0.7,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: true,
       translationStreams: true,
@@ -68,11 +78,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: false,
+      companyMarquee: false,
       chapterCopy: true,
     },
   },
   testimonials: {
-    workspace: { scale: 0.88, xPercent: 16, yPx: 0 },
+    mode: "split-copy-left",
+    workspaceScale: 0.72,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -80,11 +93,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: true,
       privacyPaths: false,
       network: false,
+      companyMarquee: false,
       chapterCopy: false,
     },
   },
   trust: {
-    workspace: { scale: 0.82, xPercent: 20, yPx: 0 },
+    mode: "split-copy-left",
+    workspaceScale: 0.7,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -92,11 +108,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: true,
       network: false,
+      companyMarquee: false,
       chapterCopy: true,
     },
   },
   scale: {
-    workspace: { scale: 0.86, xPercent: -14, yPx: 0 },
+    mode: "split-copy-right",
+    workspaceScale: 0.7,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -104,11 +123,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: true,
+      companyMarquee: true,
       chapterCopy: true,
     },
   },
   pricing: {
-    workspace: { scale: 0.78, xPercent: 0, yPx: -100 },
+    mode: "stack-copy-bottom",
+    workspaceScale: 0.62,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: true,
       translationStreams: false,
@@ -116,11 +138,14 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: false,
+      companyMarquee: false,
       chapterCopy: true,
     },
   },
   finale: {
-    workspace: { scale: 0.3, xPercent: 0, yPx: 40 },
+    mode: "finale",
+    workspaceScale: 0,
+    workspaceMaxWidth: "sm",
     visibility: {
       workspace: false,
       translationStreams: false,
@@ -128,6 +153,7 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
       testimonials: false,
       privacyPaths: false,
       network: false,
+      companyMarquee: false,
       chapterCopy: true,
     },
   },
@@ -136,3 +162,5 @@ export const CHAPTER_LAYOUTS: Record<CinematicChapterId, ChapterLayout> = {
 export function layoutForChapter(id: CinematicChapterId): ChapterLayout {
   return CHAPTER_LAYOUTS[id];
 }
+
+export const WORKSPACE_MAX_W = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" } as const;
