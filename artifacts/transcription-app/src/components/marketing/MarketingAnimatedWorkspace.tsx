@@ -8,6 +8,32 @@ const STRIPE: Record<MarketingDialogueLine["stripe"], string> = {
   amber: "bg-amber-400",
 };
 
+function splitToWords(text: string): string[] {
+  return text.match(/\S+\s*/g) ?? (text ? [text] : []);
+}
+
+/** Word-by-word reveal — translation starts early and trails ~1 word behind original. */
+function lineWordProgress(frac: number, original: string, translation: string) {
+  const origWords = splitToWords(original);
+  const transWords = splitToWords(translation);
+  const clamped = Math.min(1, Math.max(0, frac));
+
+  const origCount = clamped <= 0 ? 0 : clamped >= 1 ? origWords.length : Math.ceil(clamped * origWords.length);
+  const transLag = origWords.length > 0 ? 0.06 : 0.04;
+  const transFrac = Math.max(0, clamped - transLag);
+  const transCount =
+    transFrac <= 0 ? 0 : transFrac >= 1 ? transWords.length : Math.ceil(transFrac * transWords.length);
+
+  return {
+    orig: origWords.slice(0, origCount).join(""),
+    trans: transWords.slice(0, transCount).join(""),
+    origComplete: origCount >= origWords.length,
+    transComplete: transCount >= transWords.length,
+    hasOrig: origCount > 0,
+    hasTrans: transCount > 0,
+  };
+}
+
 function ParticipantAvatar({
   role,
   side,
@@ -66,37 +92,34 @@ function ParticipantAvatar({
 
 function WorkspaceRow({
   line,
-  visibleCharsOrig,
-  visibleCharsTrans,
+  origShown,
+  transShown,
   isLive,
   layout,
+  origComplete,
+  transComplete,
+  hasOrig,
 }: {
   line: MarketingDialogueLine;
-  visibleCharsOrig: number;
-  visibleCharsTrans: number;
+  origShown: string;
+  transShown: string;
   isLive?: boolean;
   layout: "stacked" | "side-by-side";
+  origComplete: boolean;
+  transComplete: boolean;
+  hasOrig: boolean;
 }) {
-  const origShown = line.original.slice(0, visibleCharsOrig);
-  const transShown = line.translation.slice(0, visibleCharsTrans);
-  const showTrans = visibleCharsTrans > 0;
-
-  const translationBlock = showTrans ? (
+  const translationBlock = hasOrig ? (
     <p
-      className="text-[13px] sm:text-sm leading-relaxed text-slate-300/90 italic pl-4 border-l border-white/10 ml-1 mt-1.5 ts-translation"
+      className="text-[13px] sm:text-sm leading-relaxed text-slate-300/90 italic pl-4 border-l border-white/10 ml-1 mt-1.5 ts-translation min-h-[1.25rem]"
       dir={line.translationDir ?? "ltr"}
     >
       {transShown}
-      {isLive && visibleCharsTrans > 0 && visibleCharsTrans < line.translation.length && (
+      {isLive && !transComplete && (
         <span className="inline-block w-[2px] h-[14px] bg-emerald-400/80 ml-0.5 animate-pulse align-middle rounded-sm" />
       )}
     </p>
-  ) : (
-    <p className="text-[11px] text-slate-500/50 italic flex items-center gap-1.5 mt-1.5 pl-4 border-l border-white/5 ml-1">
-      <span className="w-1 h-1 rounded-full bg-sky-400/50 animate-pulse" />
-      Processing…
-    </p>
-  );
+  ) : null;
 
   if (layout === "stacked") {
     return (
@@ -109,7 +132,7 @@ function WorkspaceRow({
             </div>
             <p className="text-[13px] sm:text-sm leading-relaxed text-slate-100 font-normal">
               {origShown}
-              {isLive && visibleCharsOrig < line.original.length && (
+              {isLive && !origComplete && (
                 <span className="inline-block w-[2px] h-[14px] bg-sky-400 ml-0.5 animate-pulse align-middle rounded-sm" />
               )}
             </p>
@@ -134,7 +157,7 @@ function WorkspaceRow({
           </div>
           <p className="text-[13px] sm:text-sm leading-relaxed text-slate-100 font-normal">
             {origShown}
-            {isLive && visibleCharsOrig < line.original.length && (
+            {isLive && !origComplete && (
               <span className="inline-block w-[2px] h-[14px] bg-sky-400 ml-0.5 animate-pulse align-middle rounded-sm" />
             )}
           </p>
@@ -181,15 +204,27 @@ export function MarketingAnimatedWorkspace({
   const rowStates = useMemo(() => {
     return lines.map((line, i) => {
       if (i < fullLines) {
-        return { orig: line.original.length, trans: line.translation.length, live: false };
+        return {
+          origShown: line.original,
+          transShown: line.translation,
+          origComplete: true,
+          transComplete: true,
+          hasOrig: true,
+          live: false,
+        };
       }
       if (i === fullLines && activeLine) {
-        const origLen = Math.floor(line.original.length * Math.min(1, frac * 2));
-        const transFrac = Math.max(0, (frac - 0.45) * 2);
-        const transLen = Math.floor(line.translation.length * Math.min(1, transFrac));
-        return { orig: origLen, trans: transLen, live: true };
+        const wp = lineWordProgress(frac, line.original, line.translation);
+        return { ...wp, origShown: wp.orig, transShown: wp.trans, live: true };
       }
-      return { orig: 0, trans: 0, live: false };
+      return {
+        origShown: "",
+        transShown: "",
+        origComplete: false,
+        transComplete: false,
+        hasOrig: false,
+        live: false,
+      };
     });
   }, [lines, fullLines, frac, activeLine]);
 
@@ -238,14 +273,17 @@ export function MarketingAnimatedWorkspace({
           style={{ minHeight: compact ? 220 : 280, maxHeight: compact ? 280 : 360 }}
         >
           {lines.map((line, i) =>
-            rowStates[i]!.orig > 0 || rowStates[i]!.trans > 0 ? (
+            rowStates[i]!.hasOrig ? (
               <WorkspaceRow
                 key={line.id}
                 line={line}
-                visibleCharsOrig={rowStates[i]!.orig}
-                visibleCharsTrans={rowStates[i]!.trans}
+                origShown={rowStates[i]!.origShown}
+                transShown={rowStates[i]!.transShown}
                 isLive={rowStates[i]!.live}
                 layout={layout}
+                origComplete={rowStates[i]!.origComplete}
+                transComplete={rowStates[i]!.transComplete}
+                hasOrig={rowStates[i]!.hasOrig}
               />
             ) : null,
           )}
