@@ -3556,7 +3556,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const current = eng.getRowTranslation(rowId).trim();
     if (!trimmed.length && current.length) return;
     if (trimmed === current) return;
-    eng.setRowTranslation(rowId, trimmed);
+    const rtlBidiPaint =
+      morsyUsesCleanTranslationExperiment() && shouldMorsyChunkV2BidiPaint(trimmed);
+    if (rtlBidiPaint) {
+      eng.setRowTranslationPrefixLive(rowId, trimmed, "", { rtlBidiPaint: true });
+    } else {
+      eng.setRowTranslation(rowId, trimmed);
+    }
   }, [getCanonRowTransState, getCanonTrialRowTransState]);
 
   const paintMorsyCanonLiveRowTranslation = useCallback((
