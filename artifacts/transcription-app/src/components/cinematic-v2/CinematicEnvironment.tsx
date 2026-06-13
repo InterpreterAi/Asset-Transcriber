@@ -10,7 +10,7 @@ export function CinematicEnvironment({ children }: { children: ReactNode }) {
   const coreGlow = useTransform(scrollYProgress, [0.28, 0.42, 0.94, 1], [0, 1, 1, 0.3]);
 
   return (
-    <div className="cinematic-v2-root min-h-screen bg-[#030508] text-slate-100 overflow-x-hidden">
+    <div className="cinematic-v2-root min-h-0 bg-[#030508] text-slate-100 overflow-x-clip">
       <div className="cinematic-v2-aurora fixed inset-0 pointer-events-none" aria-hidden />
       <motion.div
         style={{ y: blob1Y }}

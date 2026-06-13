@@ -104,7 +104,7 @@ function App() {
         className="flex flex-col overflow-hidden isolate"
         style={{ height: `calc(100dvh - ${bannerOffset}px)`, marginTop: bannerOffset }}
       >
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div id="app-scroll" className="flex-1 min-h-0 overflow-y-auto">
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <Router />
           </WouterRouter>
