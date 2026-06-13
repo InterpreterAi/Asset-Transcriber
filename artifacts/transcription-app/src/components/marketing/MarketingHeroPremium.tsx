@@ -1,52 +1,14 @@
-import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, Mic2, Languages, Captions } from "lucide-react";
+import { MarketingAnimatedWorkspaceAuto } from "./MarketingAnimatedWorkspace";
+import { MEDICAL_DIALOGUE } from "./marketing-dialogue-script";
 
 const CAPTION_STREAMS = [
   { en: "Good morning, how can I help you today?", es: "Buenos días, ¿cómo puedo ayudarle hoy?", side: "left" as const },
   { en: "The rotator cuff requires physical therapy.", es: "El manguito rotador requiere fisioterapia.", side: "right" as const },
   { en: "I need to schedule a follow-up appointment.", es: "Necesito programar una cita de seguimiento.", side: "left" as const },
 ] as const;
-
-function HeroCaptionStream() {
-  const [active, setActive] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setActive((i) => (i + 1) % CAPTION_STREAMS.length), 4200);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const stream = CAPTION_STREAMS[active]!;
-  const stripe = stream.side === "left" ? "bg-blue-500" : "bg-amber-400";
-  const lang = stream.side === "left" ? "EN" : "ES";
-
-  return (
-    <div className="rounded-xl border border-white/10 bg-[#0b0e14]/90 p-4 space-y-4 min-h-[220px]">
-      <div className="flex items-center justify-between text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-        <span className="flex items-center gap-1.5 text-sky-300">
-          <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-          Live assist
-        </span>
-        <span>English ↔ Spanish</span>
-      </div>
-      <AudioWaveBars />
-      <motion.div
-        key={active}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45 }}
-        className="flex min-w-0 items-start"
-      >
-        <div className={`w-1 shrink-0 self-stretch rounded-full min-h-[2.5rem] ${stripe}`} />
-        <div className="min-w-0 flex-1 pl-3 space-y-2">
-          <div className="font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-500/80">{lang}</div>
-          <p className="text-sm text-slate-100 leading-relaxed">{stream.en}</p>
-          <p className="text-sm text-slate-300/90 italic leading-relaxed border-l border-white/10 pl-3">{stream.es}</p>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
 
 function AudioWaveBars() {
   const heights = [14, 22, 36, 28, 44, 32, 48, 26, 40, 18, 34, 42, 20, 38, 30, 46, 24, 36, 16, 40];
@@ -246,8 +208,8 @@ export function MarketingHeroPremium() {
             className="relative"
           >
             <div className="marketing-laptop-frame">
-              <div className="marketing-laptop-screen p-3 sm:p-4">
-                <HeroCaptionStream />
+              <div className="marketing-laptop-screen p-1">
+                <MarketingAnimatedWorkspaceAuto lines={MEDICAL_DIALOGUE} scenario="medical" compact />
               </div>
               <div className="marketing-laptop-base" aria-hidden />
             </div>

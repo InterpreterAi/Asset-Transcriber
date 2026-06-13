@@ -55,7 +55,7 @@ export function MarketingScrollDialogueSection({
       id={id}
       ref={ref}
       className="relative scroll-mt-24"
-      style={{ height: `${Math.max(130, lines.length * 22 + 80)}vh` }}
+      style={{ height: `${Math.max(220, lines.length * 55 + 140)}vh` }}
     >
       <div className="sticky top-0 h-screen flex items-center overflow-hidden bg-[#060B14]">
         <motion.div
