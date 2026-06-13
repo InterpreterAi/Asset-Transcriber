@@ -1,6 +1,7 @@
 /**
- * Interpreter-only guards for clean OpenAI stacks (Morsy Clean MT, etc.).
+ * Interpreter-only guards for clean OpenAI stacks (Morsy Clean MT, Chunk V2, etc.).
  * Detects chat-assistant / refusal / conversational-reply outputs and builds strict retry prompts.
+ * Prompts use dynamic ${srcName}/${tgtName} — same rules for every workspace language pair.
  */
 
 export function wrapInterpreterTranscriptUserMessage(
@@ -47,15 +48,29 @@ export function morsyCleanTranslationNeedsStrictRetry(
     return true;
   }
 
-  // Spanish refusal / apology meta (short outputs)
+  // Spanish / French refusal meta
   if (/\b(lo siento,? pero|no puedo ayudar|lamento,? pero|no puedo asistir)\b/i.test(lowerT)) {
     return true;
   }
+  if (/\b(je suis d[ée]sol[ée]|je ne peux pas vous aider|je ne peux pas traduire)\b/i.test(lowerT)) {
+    return true;
+  }
 
-  // Conversational reply instead of translation (Gracias → De nada, Thanks → You're welcome)
+  // Arabic assistant refusal / apology (common chatbot leaks)
   if (
-    /\b(de nada|you'?re welcome|prego|bitte schön|je vous en prie|pas de quoi)\b/i.test(lowerT) &&
-    /\b(gracias|thank you|thanks|merci|danke|grazie)\b/i.test(lowerS) &&
+    /أعتذر|اعتذر|لا\s*أستطيع|لا\s*يمكنني|لا\s*أستطيع\s*المساعدة|عذراً|عذرا|لا\s*يمكن\s*المساعدة|لا\s*أستطيع\s+مساعدتك|مساعدتك\s+في\s+ذلك/u.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+
+  // Conversational reply instead of translation (thank-you → you're-welcome in any common pair)
+  if (
+    /\b(de nada|you'?re welcome|prego|bitte schön|je vous en prie|pas de quoi|ничего|пожалуйста)\b/i.test(
+      lowerT,
+    ) &&
+    /\b(gracias|thank you|thanks|merci|danke|grazie|спасибо|شكرا|شكراً)\b/i.test(lowerS) &&
     s.length <= 64
   ) {
     return true;
