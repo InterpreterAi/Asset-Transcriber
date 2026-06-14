@@ -65,7 +65,12 @@ export function computeTimeline(p: number): CinematicTimeline {
   const scaleIntensity = layout.visibility.network ? fade * (1 - finaleCollapse) : 0;
   const pricingIntensity = id === "pricing" ? fade * (1 - finaleCollapse) : 0;
 
-  const workspaceOpacity = layout.visibility.workspace && id !== "finale" ? fade * (1 - finaleCollapse) : 0;
+  const workspaceOpacity =
+    layout.visibility.workspace && id !== "finale" && clamped < 0.86
+      ? 1 * (1 - finaleCollapse)
+      : clamped >= 0.86
+        ? Math.max(0, 1 - ease(Math.min(1, (clamped - 0.86) / 0.12)))
+        : 0;
 
   return {
     p: clamped,
@@ -78,7 +83,7 @@ export function computeTimeline(p: number): CinematicTimeline {
     workspaceOpacity,
     visibility: {
       ...layout.visibility,
-      workspace: layout.visibility.workspace && workspaceOpacity > 0.05,
+      workspace: layout.visibility.workspace && clamped < 0.92 && workspaceOpacity > 0.05,
       translationStreams: layout.visibility.translationStreams && streamOpacity > 0.05,
       capabilityRail: layout.visibility.capabilityRail && capabilityIntensity > 0.05,
       testimonials: layout.visibility.testimonials && testimonialIntensity > 0.05,

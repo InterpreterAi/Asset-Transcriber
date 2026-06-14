@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Mic2, Clock, Languages, UserRound } from "lucide-react";
 import { CINEMATIC_CONTENT } from "../data/cinematic-content";
@@ -9,7 +9,7 @@ import { dialogueProgressToTurn, turnRevealState, type TurnPhase } from "./works
 const STRIPE = { blue: "bg-blue-500", amber: "bg-amber-400" } as const;
 
 function Waveform({ phase }: { phase: TurnPhase }) {
-  const active = phase === "speaking";
+  const active = phase === "speaking" || phase === "translating";
   const heights = [12, 22, 36, 18, 40, 28, 44, 24, 38, 16, 32, 42, 14, 30];
   return (
     <div className="flex items-end justify-center gap-[3px] h-12 sm:h-14 w-full opacity-75" aria-hidden>
@@ -51,6 +51,7 @@ function SpeakerBadge({ role, active }: { role: "doctor" | "patient"; active: bo
 export function CinematicWorkspace() {
   const autoplayProgress = useWorkspaceAutoplay();
   const { turnIndex, turnFrac } = dialogueProgressToTurn(CINEMATIC_DIALOGUE, autoplayProgress);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const rows = useMemo(() => {
     return CINEMATIC_DIALOGUE.map((turn, i) => {
@@ -71,7 +72,6 @@ export function CinematicWorkspace() {
           trans: st.transVisible,
           phase: st.phase,
           live: true,
-          showTrans: st.showTranslationSlot,
         };
       }
       return null;
@@ -81,22 +81,22 @@ export function CinematicWorkspace() {
       trans: string;
       phase: TurnPhase;
       live: boolean;
-      showTrans?: boolean;
     }[];
+  }, [turnIndex, turnFrac]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [turnIndex, turnFrac]);
 
   const activeTurn = CINEMATIC_DIALOGUE[turnIndex];
   const activePhase = rows.find((r) => r.live)?.phase ?? "complete";
   const activeSpeaker = activeTurn?.speaker ?? "doctor";
-  const isListening = activePhase === "listening";
 
   return (
-    <div className="relative mx-auto w-full max-w-4xl z-10">
-      <div
-        className={`rounded-2xl border border-white/12 bg-[#0b0e14] shadow-[0_40px_100px_-28px_rgba(0,0,0,0.9),0_0_0_1px_rgba(34,211,238,0.08)] overflow-hidden ring-1 ring-white/[0.08] ${
-          isListening ? "cinematic-listening-pulse" : ""
-        }`}
-      >
+    <div className="relative w-full z-10">
+      <div className="rounded-2xl border border-white/12 bg-[#0b0e14] shadow-[0_40px_100px_-28px_rgba(0,0,0,0.9),0_0_0_1px_rgba(34,211,238,0.08)] overflow-hidden ring-1 ring-white/[0.08]">
         <div className="h-12 sm:h-14 border-b border-white/[0.08] bg-[#0f1419] flex items-center justify-between px-4 sm:px-5">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-7 h-7 rounded-lg bg-sky-500/15 text-sky-300 flex items-center justify-center">
@@ -106,7 +106,7 @@ export function CinematicWorkspace() {
               Interpreter<span className="text-sky-400">AI</span>
             </span>
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/25">
-              <span className={`w-1.5 h-1.5 rounded-full bg-sky-400 ${activePhase === "speaking" ? "animate-pulse" : ""}`} />
+              <span className={`w-1.5 h-1.5 rounded-full bg-sky-400 ${activePhase !== "complete" ? "animate-pulse" : ""}`} />
               {CINEMATIC_CONTENT.workspace.langPair}
             </span>
           </div>
@@ -125,8 +125,12 @@ export function CinematicWorkspace() {
           <Waveform phase={activePhase} />
         </div>
 
-        <div className="overflow-y-auto px-4 sm:px-5 py-3 space-y-4" style={{ minHeight: 200, maxHeight: 260 }}>
-          {rows.map(({ turn, orig, trans, phase, live, showTrans }) => (
+        <div
+          ref={scrollRef}
+          className="overflow-y-auto px-4 sm:px-5 py-3 space-y-4 scroll-smooth"
+          style={{ minHeight: 200, maxHeight: 260 }}
+        >
+          {rows.map(({ turn, orig, trans, phase, live }) => (
             <div key={turn.id} className="grid grid-cols-2 gap-4 sm:gap-6 items-start">
               <div className="flex min-w-0 items-start">
                 <div className={`w-1.5 shrink-0 self-stretch rounded-full min-h-[1.5rem] ${STRIPE[turn.stripe]}`} />
@@ -139,33 +143,19 @@ export function CinematicWorkspace() {
                   </div>
                   <p className="text-[13px] sm:text-sm text-slate-50 leading-relaxed font-normal">
                     {orig}
-                    {live && phase === "speaking" && orig.length < turn.original.length && (
+                    {live && orig.length < turn.original.length && (
                       <span className="inline-block w-[2px] h-4 bg-sky-400 ml-0.5 animate-pulse align-middle" />
                     )}
                   </p>
                 </div>
               </div>
               <div className="min-w-0 pt-6 sm:pt-7">
-                {(showTrans || trans.length > 0 || phase === "complete") && (
-                  <p className="text-[13px] sm:text-sm text-slate-200/95 italic leading-relaxed ts-translation">
-                    {trans}
-                    {live && phase === "translating" && trans.length < turn.translation.length && (
-                      <span className="inline-block w-[2px] h-4 bg-emerald-400/80 ml-0.5 animate-pulse align-middle" />
-                    )}
-                  </p>
-                )}
-                {live && phase === "listening" && (
-                  <p className="text-sm text-slate-400 italic flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    Listening…
-                  </p>
-                )}
-                {live && phase === "speaking" && !showTrans && trans.length === 0 && (
-                  <p className="text-sm text-slate-500/70 italic flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse" />
-                    Awaiting translation…
-                  </p>
-                )}
+                <p className="text-[13px] sm:text-sm text-slate-200/95 italic leading-relaxed ts-translation min-h-[1.25rem]">
+                  {trans}
+                  {live && trans.length > 0 && trans.length < turn.translation.length && (
+                    <span className="inline-block w-[2px] h-4 bg-emerald-400/80 ml-0.5 animate-pulse align-middle" />
+                  )}
+                </p>
               </div>
             </div>
           ))}

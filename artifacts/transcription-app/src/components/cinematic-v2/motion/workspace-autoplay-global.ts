@@ -1,16 +1,17 @@
 import type { CinematicTurn } from "../data/cinematic-dialogue";
 import { CINEMATIC_DIALOGUE } from "../data/cinematic-dialogue";
 
-const PAUSE_AT_END_MS = 5000;
+const PAUSE_AT_END_MS = 4000;
+const MS_PER_ORIG_WORD = 380;
+const MS_PER_TRANS_TAIL_WORD = 320;
 
-/** Realistic pacing: ~140 wpm speech + interpreter listen + translation reveal. */
+/** Overlapping live stream — one timeline per turn, no listen/translate gap. */
 export function turnDurationMs(turn: CinematicTurn): number {
   const origWords = turn.original.split(/\s+/).filter(Boolean).length;
   const transWords = turn.translation.split(/\s+/).filter(Boolean).length;
-  const speak = Math.max(8000, origWords * 420);
-  const listen = 1800;
-  const translate = Math.max(6000, transWords * 340);
-  return speak + listen + translate;
+  const origTime = origWords * MS_PER_ORIG_WORD;
+  const transTail = Math.max(0, transWords - origWords + 2) * MS_PER_TRANS_TAIL_WORD;
+  return Math.max(5000, origTime + transTail);
 }
 
 function turnDurations(): number[] {
@@ -21,7 +22,6 @@ function cycleMs(): number {
   return turnDurations().reduce((a, b) => a + b, 0) + PAUSE_AT_END_MS;
 }
 
-/** Module singleton — survives scroll + route changes within the SPA session. */
 let sessionStartMs: number | null = null;
 
 function ensureSessionStart(): number {
@@ -29,7 +29,6 @@ function ensureSessionStart(): number {
   return sessionStartMs;
 }
 
-/** Continuous progress in turn units (0 … turnCount). Loops after full script + pause. */
 export function getDialogueAutoplayProgress(): number {
   const durations = turnDurations();
   const total = cycleMs();

@@ -1,17 +1,5 @@
 import type { CinematicTurn } from "../data/cinematic-dialogue";
 
-/** Split on phrase boundaries for speech-like chunks (not char-by-char). */
-export function splitSpeechChunks(text: string): string[] {
-  const parts = text.match(/[^.!?…?,]+[.!?…?,]?/g);
-  if (!parts) return text ? [text] : [];
-  return parts.map((p) => p.trim()).filter(Boolean);
-}
-
-export function chunksToVisible(chunks: string[], count: number): string {
-  if (count <= 0) return "";
-  return chunks.slice(0, count).join(" ").replace(/\s+([.!?,])/g, "$1");
-}
-
 function splitWords(text: string): string[] {
   return text.match(/\S+\s*/g) ?? (text ? [text] : []);
 }
@@ -24,7 +12,7 @@ export function wordReveal(text: string, progress: number): string {
   return words.slice(0, n).join("");
 }
 
-export type TurnPhase = "speaking" | "listening" | "translating" | "complete";
+export type TurnPhase = "speaking" | "translating" | "complete";
 
 export type TurnRevealState = {
   phase: TurnPhase;
@@ -35,22 +23,18 @@ export type TurnRevealState = {
   showTranslationSlot: boolean;
 };
 
-/**
- * Product-accurate turn timing:
- *  speak → transcript chunks (0–48%)
- *  pause / listening (48–58%) — original complete, no translation
- *  translate word-by-word (58–100%)
- */
-const SPEAK_END = 0.48;
-const LISTEN_END = 0.58;
-const TRANS_START = 0.58;
+/** Translation trails original by ~2 words and advances slightly slower — both stream live. */
+const TRANSLATION_LAG_WORDS = 2;
+const TRANSLATION_RATE = 0.88;
 
 export function turnRevealState(turn: CinematicTurn, turnProgress: number): TurnRevealState {
   const clamped = Math.min(1, Math.max(0, turnProgress));
-  const origChunks = splitSpeechChunks(turn.original);
-  const chunkCount = origChunks.length;
+  const origWords = splitWords(turn.original);
+  const transWords = splitWords(turn.translation);
+  const origLen = origWords.length;
+  const transLen = transWords.length;
 
-  if (clamped >= 1) {
+  if (clamped >= 1 || origLen === 0) {
     return {
       phase: "complete",
       origVisible: turn.original,
@@ -61,40 +45,33 @@ export function turnRevealState(turn: CinematicTurn, turnProgress: number): Turn
     };
   }
 
-  if (clamped < SPEAK_END) {
-    const speakFrac = clamped / SPEAK_END;
-    const visibleChunks = Math.min(chunkCount, Math.max(0, Math.ceil(speakFrac * chunkCount)));
-    return {
-      phase: "speaking",
-      origVisible: chunksToVisible(origChunks, visibleChunks),
-      transVisible: "",
-      origComplete: visibleChunks >= chunkCount,
-      transComplete: false,
-      showTranslationSlot: false,
-    };
+  const origProgress = Math.min(1, clamped / 0.96);
+  const origCount = Math.min(origLen, Math.max(0, Math.ceil(origProgress * origLen)));
+  const origVisible = origWords.slice(0, origCount).join("");
+
+  let transCount = 0;
+  if (origCount > TRANSLATION_LAG_WORDS && origLen > TRANSLATION_LAG_WORDS) {
+    const spokenBeyondLag = origCount - TRANSLATION_LAG_WORDS;
+    const speakableSpan = origLen - TRANSLATION_LAG_WORDS;
+    const transProgress = (spokenBeyondLag / speakableSpan) * TRANSLATION_RATE;
+    transCount = Math.min(transLen, Math.max(0, Math.ceil(transProgress * transLen)));
   }
 
-  if (clamped < LISTEN_END) {
-    return {
-      phase: "listening",
-      origVisible: turn.original,
-      transVisible: "",
-      origComplete: true,
-      transComplete: false,
-      showTranslationSlot: false,
-    };
-  }
+  const transVisible = transWords.slice(0, transCount).join("");
+  const origComplete = origCount >= origLen;
+  const transComplete = transCount >= transLen;
 
-  const transFrac = (clamped - TRANS_START) / (1 - TRANS_START);
-  const transVisible = wordReveal(turn.translation, transFrac);
+  let phase: TurnPhase = "speaking";
+  if (origComplete && !transComplete) phase = "translating";
+  if (origComplete && transComplete) phase = "complete";
 
   return {
-    phase: "translating",
-    origVisible: turn.original,
+    phase,
+    origVisible,
     transVisible,
-    origComplete: true,
-    transComplete: transFrac >= 1,
-    showTranslationSlot: true,
+    origComplete,
+    transComplete,
+    showTranslationSlot: transCount > 0,
   };
 }
 
