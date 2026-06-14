@@ -13,7 +13,7 @@ type Props = { timeline: CinematicTimeline };
 
 function HeroCopy({ opacity }: { opacity: number }) {
   return (
-    <motion.div className="px-4 sm:px-6 text-center" style={{ opacity }}>
+    <motion.div className="px-1 sm:px-2 text-left w-full" style={{ opacity }}>
       <p className="text-xs sm:text-sm font-bold uppercase tracking-[0.2em] text-cyan-400/90 mb-3">
         {CINEMATIC_CONTENT.eyebrow.infrastructure}
       </p>
@@ -23,11 +23,11 @@ function HeroCopy({ opacity }: { opacity: number }) {
           {CINEMATIC_CONTENT.hero.h1Accent}
         </span>
       </h1>
-      <p className="mt-4 text-sm sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
+      <p className="mt-4 text-sm sm:text-lg text-slate-300 max-w-xl leading-relaxed">
         {CINEMATIC_CONTENT.hero.subhead}
       </p>
       <p className="mt-3 text-sm text-slate-500">{CINEMATIC_CONTENT.hero.noCard}</p>
-      <div className="mt-5 flex flex-wrap justify-center gap-3">
+      <div className="mt-5 flex flex-wrap gap-2">
         {[
           { icon: Mic2, label: CINEMATIC_CONTENT.hero.pills[0] },
           { icon: Captions, label: CINEMATIC_CONTENT.hero.pills[1] },
@@ -127,31 +127,31 @@ function EnterpriseCopy({ opacity, showMarquee }: { opacity: number; showMarquee
 
 function PricingCopy({ opacity }: { opacity: number }) {
   return (
-    <motion.div className="px-3 sm:px-4 text-center max-w-4xl mx-auto pointer-events-auto" style={{ opacity }}>
+    <motion.div className="w-full max-w-lg mx-auto pointer-events-auto" style={{ opacity }}>
       <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-400/90 mb-2">Pricing</p>
-      <p className="text-lg sm:text-xl font-semibold text-white">{CINEMATIC_CONTENT.pricing.pageTitle}</p>
-      <p className="mt-2 text-xs sm:text-sm text-slate-400 max-w-2xl mx-auto">{CINEMATIC_CONTENT.pricing.pageIntro}</p>
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
+      <p className="text-lg sm:text-xl font-semibold text-white leading-tight">{CINEMATIC_CONTENT.pricing.pageTitle}</p>
+      <p className="mt-2 text-xs sm:text-sm text-slate-400 leading-relaxed">{CINEMATIC_CONTENT.pricing.pageIntro}</p>
+      <div className="mt-5 grid grid-cols-1 gap-3">
         {PRICING_PLANS.map((plan) => (
           <Link
             key={plan.key}
             href={`/signup?plan=${plan.key}`}
             className={`block cinematic-v2-glass rounded-xl p-4 text-left transition-all hover:ring-1 hover:ring-cyan-400/40 ${
-              plan.highlight ? "ring-1 ring-cyan-400/60" : ""
+              plan.highlight ? "ring-1 ring-cyan-400/60 bg-white/[0.06]" : ""
             }`}
           >
             {plan.highlight && (
               <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-300">Most popular</span>
             )}
             <p className="text-xs text-slate-400 mt-1">{plan.name}</p>
-            <p className={`text-2xl font-bold mt-1 ${plan.highlight ? "text-cyan-300" : "text-white"}`}>
+            <p className={`text-2xl font-bold mt-0.5 ${plan.highlight ? "text-cyan-300" : "text-white"}`}>
               {plan.priceLabel}
               <span className="text-sm font-medium text-slate-500">/mo</span>
             </p>
             <p className="text-[11px] text-slate-400 mt-1">{plan.tagline}</p>
-            <ul className="mt-3 space-y-1.5">
-              {plan.features.slice(0, 4).map((f) => (
-                <li key={f} className="flex gap-1.5 text-[10px] text-slate-300">
+            <ul className="mt-2.5 space-y-1">
+              {plan.features.slice(0, 5).map((f) => (
+                <li key={f} className="flex gap-1.5 text-[10px] sm:text-[11px] text-slate-300">
                   <Check className="w-3 h-3 text-cyan-400 shrink-0 mt-0.5" />
                   {f}
                 </li>

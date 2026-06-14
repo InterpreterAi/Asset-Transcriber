@@ -90,7 +90,7 @@ export function computeTimeline(p: number): CinematicTimeline {
       privacyPaths: layout.visibility.privacyPaths && privacyIntensity > 0.05,
       network: layout.visibility.network && networkOpacity > 0.05,
       companyMarquee: layout.visibility.companyMarquee && fade > 0.05,
-      chapterCopy: layout.visibility.chapterCopy && fade > 0.05 && logoReveal < 0.5,
+      chapterCopy: layout.visibility.chapterCopy && (fade > 0.05 || id === "pricing") && logoReveal < 0.5,
     },
     networkOpacity,
     streamOpacity,

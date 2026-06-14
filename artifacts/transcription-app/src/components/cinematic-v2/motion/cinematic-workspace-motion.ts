@@ -1,24 +1,23 @@
-/** Scroll-driven workspace position — smooth lerp between chapter anchors (never unmounts). */
+/** Horizontal half-pane only — workspace stays in one 50% column, never over copy. */
 export type WorkspaceMotion = {
-  x: number;
-  y: number;
-  w: number;
-  scale: number;
+  /** 0 = left half, 50 = right half (interpolated smoothly) */
+  left: number;
   opacity: number;
 };
 
-type Anchor = { p: number; x: number; y: number; w: number; scale: number };
+type Anchor = { p: number; left: number };
 
+/** left: 50 → workspace on RIGHT (copy on left). left: 0 → workspace on LEFT (copy on right). */
 const ANCHORS: readonly Anchor[] = [
-  { p: 0, x: 50, y: 66, w: 92, scale: 0.92 },
-  { p: 0.145, x: 50, y: 34, w: 92, scale: 0.9 },
-  { p: 0.25, x: 73, y: 50, w: 46, scale: 0.95 },
-  { p: 0.35, x: 27, y: 50, w: 46, scale: 0.95 },
-  { p: 0.45, x: 73, y: 50, w: 46, scale: 0.95 },
-  { p: 0.55, x: 73, y: 50, w: 46, scale: 0.93 },
-  { p: 0.65, x: 27, y: 50, w: 46, scale: 0.93 },
-  { p: 0.78, x: 50, y: 36, w: 90, scale: 0.88 },
-  { p: 0.86, x: 50, y: 50, w: 70, scale: 0.75 },
+  { p: 0, left: 50 },
+  { p: 0.145, left: 0 },
+  { p: 0.25, left: 50 },
+  { p: 0.35, left: 0 },
+  { p: 0.45, left: 50 },
+  { p: 0.55, left: 50 },
+  { p: 0.65, left: 0 },
+  { p: 0.78, left: 50 },
+  { p: 0.86, left: 50 },
 ];
 
 function smoothstep(t: number): number {
@@ -35,14 +34,7 @@ export function interpolateWorkspaceMotion(p: number): WorkspaceMotion {
 
   if (clamped >= 0.86) {
     const t = smoothstep((clamped - 0.86) / 0.14);
-    const last = ANCHORS[ANCHORS.length - 1]!;
-    return {
-      x: last.x,
-      y: last.y,
-      w: lerp(last.w, 40, t),
-      scale: lerp(last.scale, 0.2, t),
-      opacity: 1 - t,
-    };
+    return { left: 50, opacity: 1 - t };
   }
 
   for (let i = 0; i < ANCHORS.length - 1; i++) {
@@ -51,16 +43,14 @@ export function interpolateWorkspaceMotion(p: number): WorkspaceMotion {
     if (clamped >= a.p && clamped <= b.p) {
       const span = b.p - a.p || 1;
       const t = smoothstep((clamped - a.p) / span);
-      return {
-        x: lerp(a.x, b.x, t),
-        y: lerp(a.y, b.y, t),
-        w: lerp(a.w, b.w, t),
-        scale: lerp(a.scale, b.scale, t),
-        opacity: 1,
-      };
+      return { left: lerp(a.left, b.left, t), opacity: 1 };
     }
   }
 
-  const first = ANCHORS[0]!;
-  return { x: first.x, y: first.y, w: first.w, scale: first.scale, opacity: 1 };
+  return { left: ANCHORS[0]!.left, opacity: 1 };
+}
+
+/** Copy always occupies the opposite half. */
+export function copyPaneLeft(wsLeft: number): number {
+  return wsLeft >= 25 ? 0 : 50;
 }
