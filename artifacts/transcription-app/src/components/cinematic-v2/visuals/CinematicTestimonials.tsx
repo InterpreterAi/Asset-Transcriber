@@ -3,13 +3,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Star, X } from "lucide-react";
 import { MARKETING_TESTIMONIALS_ENRICHED } from "@/components/marketing/marketing-testimonials";
 import { CINEMATIC_CONTENT } from "../data/cinematic-content";
-import { CINEMATIC_MARIA_DIALOGUE } from "../data/cinematic-dialogue";
+import { CINEMATIC_DIALOGUE } from "../data/cinematic-dialogue";
 import type { CinematicTimeline } from "../motion/useCinematicTimeline";
 
 type Props = { timeline: CinematicTimeline; inline?: boolean };
 
 function MiniReplay({ lineIndex, onClose }: { lineIndex: number; onClose: () => void }) {
-  const turn = CINEMATIC_MARIA_DIALOGUE[lineIndex];
+  const turn = CINEMATIC_DIALOGUE[lineIndex];
   if (!turn) return null;
 
   return (

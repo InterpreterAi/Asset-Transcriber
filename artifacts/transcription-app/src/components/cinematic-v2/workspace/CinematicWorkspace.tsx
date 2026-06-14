@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Mic2, Clock, Languages, UserRound } from "lucide-react";
 import { CINEMATIC_CONTENT } from "../data/cinematic-content";
-import { CINEMATIC_MARIA_DIALOGUE } from "../data/cinematic-dialogue";
+import { CINEMATIC_DIALOGUE } from "../data/cinematic-dialogue";
 import { useWorkspaceAutoplay } from "../motion/useWorkspaceAutoplay";
 import { dialogueProgressToTurn, turnRevealState, type TurnPhase } from "./workspace-reveal";
 
@@ -50,10 +50,10 @@ function SpeakerBadge({ role, active }: { role: "doctor" | "patient"; active: bo
 
 export function CinematicWorkspace() {
   const autoplayProgress = useWorkspaceAutoplay();
-  const { turnIndex, turnFrac } = dialogueProgressToTurn(CINEMATIC_MARIA_DIALOGUE, autoplayProgress);
+  const { turnIndex, turnFrac } = dialogueProgressToTurn(CINEMATIC_DIALOGUE, autoplayProgress);
 
   const rows = useMemo(() => {
-    return CINEMATIC_MARIA_DIALOGUE.map((turn, i) => {
+    return CINEMATIC_DIALOGUE.map((turn, i) => {
       if (i < turnIndex) {
         return {
           turn,
@@ -76,7 +76,7 @@ export function CinematicWorkspace() {
       }
       return null;
     }).filter(Boolean) as {
-      turn: (typeof CINEMATIC_MARIA_DIALOGUE)[number];
+      turn: (typeof CINEMATIC_DIALOGUE)[number];
       orig: string;
       trans: string;
       phase: TurnPhase;
@@ -85,7 +85,7 @@ export function CinematicWorkspace() {
     }[];
   }, [turnIndex, turnFrac]);
 
-  const activeTurn = CINEMATIC_MARIA_DIALOGUE[turnIndex];
+  const activeTurn = CINEMATIC_DIALOGUE[turnIndex];
   const activePhase = rows.find((r) => r.live)?.phase ?? "complete";
   const activeSpeaker = activeTurn?.speaker ?? "doctor";
   const isListening = activePhase === "listening";
@@ -125,7 +125,7 @@ export function CinematicWorkspace() {
           <Waveform phase={activePhase} />
         </div>
 
-        <div className="overflow-y-auto px-4 sm:px-5 py-4 space-y-5" style={{ minHeight: 220, maxHeight: 300 }}>
+        <div className="overflow-y-auto px-4 sm:px-5 py-3 space-y-4" style={{ minHeight: 200, maxHeight: 260 }}>
           {rows.map(({ turn, orig, trans, phase, live, showTrans }) => (
             <div key={turn.id} className="grid grid-cols-2 gap-4 sm:gap-6 items-start">
               <div className="flex min-w-0 items-start">
@@ -137,7 +137,7 @@ export function CinematicWorkspace() {
                     </span>
                     {live && <SpeakerBadge role={turn.speaker} active />}
                   </div>
-                  <p className="text-[15px] sm:text-base text-slate-50 leading-relaxed font-normal">
+                  <p className="text-[13px] sm:text-sm text-slate-50 leading-relaxed font-normal">
                     {orig}
                     {live && phase === "speaking" && orig.length < turn.original.length && (
                       <span className="inline-block w-[2px] h-4 bg-sky-400 ml-0.5 animate-pulse align-middle" />
@@ -147,7 +147,7 @@ export function CinematicWorkspace() {
               </div>
               <div className="min-w-0 pt-6 sm:pt-7">
                 {(showTrans || trans.length > 0 || phase === "complete") && (
-                  <p className="text-[15px] sm:text-base text-slate-200/95 italic leading-relaxed ts-translation">
+                  <p className="text-[13px] sm:text-sm text-slate-200/95 italic leading-relaxed ts-translation">
                     {trans}
                     {live && phase === "translating" && trans.length < turn.translation.length && (
                       <span className="inline-block w-[2px] h-4 bg-emerald-400/80 ml-0.5 animate-pulse align-middle" />

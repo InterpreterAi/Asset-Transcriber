@@ -10,7 +10,7 @@ export type CinematicTimeline = {
   layout: ChapterLayout;
   layoutMode: ChapterLayoutMode;
   workspaceScale: number;
-  workspaceMaxWidth: "sm" | "md" | "lg";
+  workspaceMaxWidth: "sm" | "md" | "lg" | "xl";
   workspaceOpacity: number;
   visibility: ChapterVisibility;
   networkOpacity: number;

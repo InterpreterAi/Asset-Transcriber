@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight, Zap, Mic2, Captions, Languages } from "lucide-react";
+import { ArrowRight, Zap, Mic2, Captions, Languages, Check } from "lucide-react";
 import { PRICING_PLANS } from "@/lib/pricing-copy";
 import { CINEMATIC_CONTENT } from "../data/cinematic-content";
 import type { CinematicTimeline } from "../motion/useCinematicTimeline";
@@ -60,13 +60,13 @@ function ConversationCopy({ opacity }: { opacity: number }) {
 
 function ProductCopy({ opacity }: { opacity: number }) {
   return (
-    <motion.div className="px-2 sm:px-4 h-full flex flex-col justify-center" style={{ opacity }}>
-      <p className="text-2xl sm:text-3xl font-semibold text-white leading-tight">
+    <motion.div className="px-2 sm:px-4 shrink-0" style={{ opacity }}>
+      <p className="text-xl sm:text-2xl font-semibold text-white leading-tight">
         {CINEMATIC_CONTENT.chapterFrames.ch3}
       </p>
-      <p className="mt-3 text-sm text-slate-300 leading-relaxed">{CINEMATIC_CONTENT.capabilities.sectionSub}</p>
-      <p className="mt-4 text-sm font-medium text-cyan-200/90">{CINEMATIC_CONTENT.product.title}</p>
-      <p className="mt-1 text-xs text-slate-400">{CINEMATIC_CONTENT.product.subtitle}</p>
+      <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed">{CINEMATIC_CONTENT.capabilities.sectionSub}</p>
+      <p className="mt-3 text-sm font-medium text-cyan-200/90">{CINEMATIC_CONTENT.product.title}</p>
+      <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">{CINEMATIC_CONTENT.product.subtitle}</p>
     </motion.div>
   );
 }
@@ -127,22 +127,43 @@ function EnterpriseCopy({ opacity, showMarquee }: { opacity: number; showMarquee
 
 function PricingCopy({ opacity }: { opacity: number }) {
   return (
-    <motion.div className="px-4 text-center max-w-3xl mx-auto" style={{ opacity }}>
+    <motion.div className="px-3 sm:px-4 text-center max-w-4xl mx-auto pointer-events-auto" style={{ opacity }}>
+      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-400/90 mb-2">Pricing</p>
       <p className="text-lg sm:text-xl font-semibold text-white">{CINEMATIC_CONTENT.pricing.pageTitle}</p>
-      <p className="mt-2 text-sm text-slate-400">{CINEMATIC_CONTENT.pricing.pageIntro}</p>
-      <div className="mt-4 grid grid-cols-3 gap-3 max-w-2xl mx-auto">
+      <p className="mt-2 text-xs sm:text-sm text-slate-400 max-w-2xl mx-auto">{CINEMATIC_CONTENT.pricing.pageIntro}</p>
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
         {PRICING_PLANS.map((plan) => (
-          <div
+          <Link
             key={plan.key}
-            className={`cinematic-v2-glass rounded-xl p-3 text-center ${plan.highlight ? "ring-1 ring-cyan-400/60" : ""}`}
+            href={`/signup?plan=${plan.key}`}
+            className={`block cinematic-v2-glass rounded-xl p-4 text-left transition-all hover:ring-1 hover:ring-cyan-400/40 ${
+              plan.highlight ? "ring-1 ring-cyan-400/60" : ""
+            }`}
           >
-            <p className="text-[10px] text-slate-400">{plan.name}</p>
-            <p className={`text-lg font-bold mt-1 ${plan.highlight ? "text-cyan-300" : "text-white"}`}>
+            {plan.highlight && (
+              <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-300">Most popular</span>
+            )}
+            <p className="text-xs text-slate-400 mt-1">{plan.name}</p>
+            <p className={`text-2xl font-bold mt-1 ${plan.highlight ? "text-cyan-300" : "text-white"}`}>
               {plan.priceLabel}
+              <span className="text-sm font-medium text-slate-500">/mo</span>
             </p>
-          </div>
+            <p className="text-[11px] text-slate-400 mt-1">{plan.tagline}</p>
+            <ul className="mt-3 space-y-1.5">
+              {plan.features.slice(0, 4).map((f) => (
+                <li key={f} className="flex gap-1.5 text-[10px] text-slate-300">
+                  <Check className="w-3 h-3 text-cyan-400 shrink-0 mt-0.5" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <span className="mt-3 inline-block text-[11px] font-semibold text-cyan-400">Start free trial →</span>
+          </Link>
         ))}
       </div>
+      <Link href="/pricing" className="mt-4 inline-block text-xs text-slate-500 hover:text-cyan-400">
+        View full plan comparison →
+      </Link>
     </motion.div>
   );
 }
@@ -179,9 +200,14 @@ function FinaleCopy({ opacity }: { opacity: number }) {
   );
 }
 
+function panelOpacity(timeline: CinematicTimeline): number {
+  if (timeline.logoReveal > 0.01) return timeline.logoReveal;
+  return 1 - timeline.finaleCollapse;
+}
+
 export function CinematicChapterPanels({ timeline }: Props) {
   const id = timeline.chapterId;
-  const op = timeline.workspaceOpacity > 0 ? 1 : timeline.p;
+  const op = panelOpacity(timeline);
 
   if (id === "problem") return <HeroCopy opacity={op} />;
   if (id === "conversation") return <ConversationCopy opacity={op} />;

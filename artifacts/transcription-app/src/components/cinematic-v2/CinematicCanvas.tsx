@@ -9,10 +9,10 @@ import { CinematicPrivacyPaths } from "./visuals/CinematicPrivacyPaths";
 import { CinematicChapterPanels, CinematicChapterSidePanels } from "./visuals/CinematicChapterPanels";
 
 const GRID: Record<ChapterLayoutMode, string> = {
-  "stack-copy-top": "grid-rows-[minmax(0,44%)_minmax(0,56%)] grid-cols-1",
-  "stack-copy-bottom": "grid-rows-[minmax(0,56%)_minmax(0,44%)] grid-cols-1",
-  "split-copy-left": "grid-cols-1 lg:grid-cols-[minmax(0,46%)_minmax(0,54%)] grid-rows-1",
-  "split-copy-right": "grid-cols-1 lg:grid-cols-[minmax(0,54%)_minmax(0,46%)] grid-rows-1",
+  "stack-copy-top": "grid-rows-[minmax(0,38%)_minmax(0,62%)] grid-cols-1",
+  "stack-copy-bottom": "grid-rows-[minmax(0,58%)_minmax(0,42%)] grid-cols-1",
+  "split-copy-left": "grid-cols-1 lg:grid-cols-2 grid-rows-1",
+  "split-copy-right": "grid-cols-1 lg:grid-cols-2 grid-rows-1",
   finale: "grid-cols-1 grid-rows-1",
 };
 
@@ -42,6 +42,11 @@ export function CinematicCanvas() {
   const showCopy = timeline.visibility.chapterCopy || timeline.visibility.testimonials;
   const showWorkspace = timeline.visibility.workspace && !showFinale;
 
+  const copyAlign =
+    timeline.chapterId === "interpreterai"
+      ? "justify-start pt-1"
+      : "justify-center";
+
   return (
     <div className="sticky top-16 h-[calc(100vh-4rem)] w-full overflow-hidden">
       <div className="absolute inset-0 pointer-events-none z-0">
@@ -59,7 +64,7 @@ export function CinematicCanvas() {
 
         {showCopy && !showFinale && (
           <div
-            className={`flex flex-col justify-center min-h-0 overflow-y-auto overflow-x-hidden pointer-events-auto ${copyOrder(mode)}`}
+            className={`flex flex-col min-h-0 overflow-y-auto overflow-x-hidden pointer-events-auto ${copyAlign} ${copyOrder(mode)}`}
           >
             {timeline.visibility.chapterCopy && <CinematicChapterPanels timeline={timeline} />}
             <CinematicChapterSidePanels timeline={timeline} />

@@ -68,5 +68,9 @@ export function renderMorsyChunkV2BidiHtml(text: string): string {
 }
 
 export function shouldMorsyChunkV2BidiPaint(text: string): boolean {
-  return isRtlTranslationText(text);
+  if (isRtlTranslationText(text)) return true;
+  // Clean MT: long Spanish/medical LTR strings get stable-prefix live reconcile (same as Arabic).
+  const t = text.trim();
+  if (t.length >= 40 && /[áéíóúñüÁÉÍÓÚÑÜ]/.test(t)) return true;
+  return false;
 }
