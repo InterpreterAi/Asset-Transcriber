@@ -1,6 +1,7 @@
 import { useTransform, motion } from "framer-motion";
 import { useCinematicStory } from "./CinematicStoryContext";
 import { useCinematicTimeline } from "./motion/useCinematicTimeline";
+import { useCinematicAutoplayScrollGate } from "./motion/useCinematicAutoplayScrollGate";
 import { copyPaneLeft, interpolateWorkspaceMotion } from "./motion/cinematic-workspace-motion";
 import { CinematicWorkspace } from "./workspace/CinematicWorkspace";
 import { CinematicNetwork } from "./visuals/CinematicNetwork";
@@ -10,6 +11,7 @@ import { CinematicChapterPanels, CinematicChapterSidePanels } from "./visuals/Ci
 
 export function CinematicCanvas() {
   const { scrollYProgress } = useCinematicStory();
+  useCinematicAutoplayScrollGate(true);
   const { timeline } = useCinematicTimeline(scrollYProgress);
   const collapse = timeline.finaleCollapse;
   const showFinale = timeline.chapterId === "finale" || timeline.logoReveal > 0.01;
@@ -47,7 +49,7 @@ export function CinematicCanvas() {
           )}
 
           <motion.div
-            className="absolute top-0 h-full w-1/2 z-10 flex items-center justify-center px-2 sm:px-4 pointer-events-none"
+            className="absolute top-0 h-full w-1/2 z-10 flex items-center justify-center px-2 sm:px-4"
             style={{
               left: wsLeft,
               opacity: wsOpacity,

@@ -1,12 +1,13 @@
-import { useMemo, useEffect, useRef } from "react";
+import { useMemo, useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Mic2, Clock, Languages, UserRound } from "lucide-react";
 import { CINEMATIC_CONTENT } from "../data/cinematic-content";
 import { CINEMATIC_DIALOGUE } from "../data/cinematic-dialogue";
-import { useWorkspaceAutoplay } from "../motion/useWorkspaceAutoplay";
+import { useWorkspaceAutoplay, useWorkspaceAutoplayLive } from "../motion/useWorkspaceAutoplay";
 import { dialogueProgressToTurn, turnRevealState, type TurnPhase } from "./workspace-reveal";
 
 const STRIPE = { blue: "bg-blue-500", amber: "bg-amber-400" } as const;
+const TRANSCRIPT_TAIL_EPS_PX = 20;
 
 function Waveform({ phase }: { phase: TurnPhase }) {
   const active = phase === "speaking" || phase === "translating";
@@ -50,8 +51,11 @@ function SpeakerBadge({ role, active }: { role: "doctor" | "patient"; active: bo
 
 export function CinematicWorkspace() {
   const autoplayProgress = useWorkspaceAutoplay();
+  const sessionLive = useWorkspaceAutoplayLive();
   const { turnIndex, turnFrac } = dialogueProgressToTurn(CINEMATIC_DIALOGUE, autoplayProgress);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const followTailRef = useRef(true);
+  const [showResumeHint, setShowResumeHint] = useState(false);
 
   const rows = useMemo(() => {
     return CINEMATIC_DIALOGUE.map((turn, i) => {
@@ -84,18 +88,43 @@ export function CinematicWorkspace() {
     }[];
   }, [turnIndex, turnFrac]);
 
+  const updateFollowTail = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    followTailRef.current = dist <= TRANSCRIPT_TAIL_EPS_PX;
+    setShowResumeHint(!followTailRef.current && sessionLive);
+  }, [sessionLive]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    updateFollowTail();
+    el.addEventListener("scroll", updateFollowTail, { passive: true });
+    return () => el.removeEventListener("scroll", updateFollowTail);
+  }, [updateFollowTail]);
+
+  useEffect(() => {
+    if (!sessionLive || !followTailRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [turnIndex, turnFrac]);
+  }, [turnIndex, turnFrac, sessionLive, rows.length]);
+
+  const scrollTranscriptToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    followTailRef.current = true;
+    setShowResumeHint(false);
+  };
 
   const activeTurn = CINEMATIC_DIALOGUE[turnIndex];
   const activePhase = rows.find((r) => r.live)?.phase ?? "complete";
   const activeSpeaker = activeTurn?.speaker ?? "doctor";
 
   return (
-    <div className="relative w-full z-10">
+    <div className="relative w-full z-10 pointer-events-auto">
       <div className="rounded-2xl border border-white/12 bg-[#0b0e14] shadow-[0_40px_100px_-28px_rgba(0,0,0,0.9),0_0_0_1px_rgba(34,211,238,0.08)] overflow-hidden ring-1 ring-white/[0.08]">
         <div className="h-12 sm:h-14 border-b border-white/[0.08] bg-[#0f1419] flex items-center justify-between px-4 sm:px-5">
           <div className="flex items-center gap-3 min-w-0">
@@ -106,7 +135,11 @@ export function CinematicWorkspace() {
               Interpreter<span className="text-sky-400">AI</span>
             </span>
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/25">
-              <span className={`w-1.5 h-1.5 rounded-full bg-sky-400 ${activePhase !== "complete" ? "animate-pulse" : ""}`} />
+              <span
+                className={`w-1.5 h-1.5 rounded-full bg-sky-400 ${
+                  sessionLive && activePhase !== "complete" ? "animate-pulse" : ""
+                }`}
+              />
               {CINEMATIC_CONTENT.workspace.langPair}
             </span>
           </div>
@@ -122,53 +155,65 @@ export function CinematicWorkspace() {
         </div>
 
         <div className="px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
-          <Waveform phase={activePhase} />
+          <Waveform phase={sessionLive ? activePhase : "complete"} />
         </div>
 
-        <div
-          ref={scrollRef}
-          className="overflow-y-auto px-4 sm:px-5 py-3 space-y-4 scroll-smooth"
-          style={{ minHeight: 200, maxHeight: 260 }}
-        >
-          {rows.map(({ turn, orig, trans, phase, live }) => (
-            <div key={turn.id} className="grid grid-cols-2 gap-4 sm:gap-6 items-start">
-              <div className="flex min-w-0 items-start">
-                <div className={`w-1.5 shrink-0 self-stretch rounded-full min-h-[1.5rem] ${STRIPE[turn.stripe]}`} />
-                <div className="min-w-0 flex-1 pl-3">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      {turn.spokenLang}
-                    </span>
-                    {live && <SpeakerBadge role={turn.speaker} active />}
+        <div className="relative">
+          <div
+            ref={scrollRef}
+            className="overflow-y-auto px-4 sm:px-5 py-3 space-y-4 scroll-smooth"
+            style={{ minHeight: 200, maxHeight: 260 }}
+          >
+            {rows.map(({ turn, orig, trans, phase, live }) => (
+              <div key={turn.id} className="grid grid-cols-2 gap-4 sm:gap-6 items-start">
+                <div className="flex min-w-0 items-start">
+                  <div className={`w-1.5 shrink-0 self-stretch rounded-full min-h-[1.5rem] ${STRIPE[turn.stripe]}`} />
+                  <div className="min-w-0 flex-1 pl-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {turn.spokenLang}
+                      </span>
+                      {live && sessionLive && <SpeakerBadge role={turn.speaker} active />}
+                    </div>
+                    <p className="text-[13px] sm:text-sm text-slate-50 leading-relaxed font-normal">
+                      {orig}
+                      {live && sessionLive && orig.length < turn.original.length && (
+                        <span className="inline-block w-[2px] h-4 bg-sky-400 ml-0.5 animate-pulse align-middle" />
+                      )}
+                    </p>
                   </div>
-                  <p className="text-[13px] sm:text-sm text-slate-50 leading-relaxed font-normal">
-                    {orig}
-                    {live && orig.length < turn.original.length && (
-                      <span className="inline-block w-[2px] h-4 bg-sky-400 ml-0.5 animate-pulse align-middle" />
+                </div>
+                <div className="min-w-0 pt-6 sm:pt-7">
+                  <p className="text-[13px] sm:text-sm text-slate-200/95 italic leading-relaxed ts-translation min-h-[1.25rem]">
+                    {trans}
+                    {live && sessionLive && trans.length > 0 && trans.length < turn.translation.length && (
+                      <span className="inline-block w-[2px] h-4 bg-emerald-400/80 ml-0.5 animate-pulse align-middle" />
                     )}
                   </p>
                 </div>
               </div>
-              <div className="min-w-0 pt-6 sm:pt-7">
-                <p className="text-[13px] sm:text-sm text-slate-200/95 italic leading-relaxed ts-translation min-h-[1.25rem]">
-                  {trans}
-                  {live && trans.length > 0 && trans.length < turn.translation.length && (
-                    <span className="inline-block w-[2px] h-4 bg-emerald-400/80 ml-0.5 animate-pulse align-middle" />
-                  )}
-                </p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          {showResumeHint && (
+            <button
+              type="button"
+              onClick={scrollTranscriptToBottom}
+              className="absolute bottom-2 right-3 z-10 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-cyan-500/20 text-cyan-200 border border-cyan-400/30 hover:bg-cyan-500/30 transition-colors"
+            >
+              Jump to live ↓
+            </button>
+          )}
         </div>
 
         <div className="h-11 border-t border-white/[0.08] bg-[#0f1419] flex items-center justify-between px-4 sm:px-5">
           <div className="h-8 px-3.5 rounded-full bg-red-500/90 text-white text-[11px] font-semibold flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            <span className={`w-1.5 h-1.5 rounded-full bg-white ${sessionLive ? "animate-pulse" : ""}`} />
             Stop
           </div>
           <div className="flex items-center gap-4">
-            <SpeakerBadge role="doctor" active={activeSpeaker === "doctor"} />
-            <SpeakerBadge role="patient" active={activeSpeaker === "patient"} />
+            <SpeakerBadge role="doctor" active={sessionLive && activeSpeaker === "doctor"} />
+            <SpeakerBadge role="patient" active={sessionLive && activeSpeaker === "patient"} />
             <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400">
               <Languages className="w-3.5 h-3.5" />
               {CINEMATIC_CONTENT.workspace.langPair}
