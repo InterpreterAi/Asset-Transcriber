@@ -128,6 +128,7 @@ import {
   type ChunkV2TranslateTrigger,
 } from "@/hooks/morsy-urgent-chunk-translation-v2";
 import { shouldMorsyChunkV2BidiPaint } from "@/hooks/morsy-chunk-v2-bidi-render";
+import { isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import {
   logChunkV2ExecuteGate,
   logChunkV2FrozenGate,
@@ -3235,6 +3236,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     return morsyUsesCleanTranslationExperiment() || openAiLegacy2CleanTranslationActive();
   }
 
+  /**
+   * Clean canon stacks (OpenAI Clean MT, Morsy Clean MT, trial-hetzner clean): stable-source fetch +
+   * locked-prefix live reconcile paint — same self-correction behavior for Arabic, Spanish, all pairs.
+   */
+  function canonCleanStackLiveReconcile(): boolean {
+    return usesCleanMtTranslationStack() || trialHetznerCleanTranslationActive();
+  }
+
   function morsyUsesChunkTranslationV2Experiment(): boolean {
     return (
       isBasicMorsyUrgentPlan(planTypeRef.current) &&
@@ -3565,7 +3574,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const current = eng.getRowTranslation(rowId).trim();
     if (!trimmed.length && current.length) return;
     if (trimmed === current) return;
-    const rtlBidiPaint = usesCleanMtTranslationStack() && shouldMorsyChunkV2BidiPaint(trimmed);
+    const rtlBidiPaint = canonCleanStackLiveReconcile() && isRtlTranslationText(trimmed);
     if (rtlBidiPaint) {
       eng.setRowTranslationPrefixLive(rowId, trimmed, "", { rtlBidiPaint: true });
     } else {
@@ -3583,6 +3592,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (trialSt.locked) return;
     const eng = canonWsIsolationEngineRef.current;
     if (!eng) return;
+    const trimmed = fullTranslation.trim();
+    if (
+      trimmed.length > 0 &&
+      looksLikeUntranslatedCopy(visibleSource, trimmed)
+    ) {
+      paintCanonRowTranslationIfAllowed(rowId, trimmed);
+      return;
+    }
     const applied = applyMorsyCanonLiveTranslationPaint(
       {
         lockedStableSource: trialSt.lockedStableSource,
@@ -3597,9 +3614,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const current = eng.getRowTranslation(rowId).trim();
     if (!applied.composed.length && current.length) return;
     if (applied.composed === current) return;
-    const rtlBidiPaint = usesCleanMtTranslationStack() && shouldMorsyChunkV2BidiPaint(applied.composed);
+    const rtlBidiPaint = canonCleanStackLiveReconcile() && isRtlTranslationText(applied.composed);
     eng.setRowTranslationPrefixLive(rowId, applied.locked, applied.live, { rtlBidiPaint });
-  }, [getCanonTrialRowTransState]);
+  }, [getCanonTrialRowTransState, paintCanonRowTranslationIfAllowed]);
 
   const paintMorsyCanonFinalRowTranslation = useCallback((
     rowId: string,
@@ -3616,7 +3633,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const finalized = finalizeMorsyCanonTranslationPrefix(finalSource, trimmed);
     trialSt.lockedStableSource = finalized.lockedStableSource;
     trialSt.lockedTranslationPrefix = finalized.lockedTranslationPrefix;
-    const rtlBidiPaint = usesCleanMtTranslationStack() && shouldMorsyChunkV2BidiPaint(trimmed);
+    const rtlBidiPaint = canonCleanStackLiveReconcile() && isRtlTranslationText(trimmed);
     if (rtlBidiPaint) {
       eng.setRowTranslationPrefixLive(rowId, trimmed, "", { rtlBidiPaint: true });
     } else {
@@ -6380,7 +6397,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         rowState.lastDispatchedSource = finalSource;
         rowState.lastFinalSource = finalSource;
         morsyCanonFrozenRetryCountRef.current.delete(rowId);
-        paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
+        if (canonCleanStackLiveReconcile()) {
+          paintMorsyCanonFinalRowTranslation(rowId, finalSource, next);
+        } else {
+          paintCanonRowTranslationIfAllowed(rowId, next, { force: true });
+        }
         if (
           !morsyUsesCleanTranslationExperiment() &&
           !morsyUsesChunkTranslationV2Experiment()
@@ -6447,6 +6468,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const volatileTailAtDispatch = (dualSnap?.volatileTail ?? pendingPayload.volatileTail ?? "").trim();
         const morsyUrgent = false;
         const morsyClean = usesCleanMtTranslationStack();
+        const morsyCleanLive = canonCleanStackLiveReconcile();
         const morsyChunkV2 = morsyUsesChunkTranslationV2Experiment();
         const morsyCanonIntercallLive = false;
 
@@ -6460,9 +6482,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           continue;
         }
 
-        // Full visibleText replace each live update — prefix lock kept English from earlier partial responses.
-        const morsyPrefixLive = false;
-        const canonAnchoringDiag = !morsyClean && !morsyChunkV2;
+        // Stable-source fetch + visible-text paint: lock finalized translation prefix, refine live tail.
+        const morsyPrefixLive = morsyCleanLive;
+        const canonAnchoringDiag = !morsyCleanLive && !morsyChunkV2;
         const stableTextAtDispatch = stableText;
         const visibleTextSent = liveSource;
         const anchoringSeq = canonAnchoringDiag ? nextCanonAnchoringLiveSeq() : 0;
@@ -6521,6 +6543,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           const dualSnapAtResponse = eng?.getRowDualBuffer(rowId);
           const stableTextAtResponse = (dualSnapAtResponse?.stableText ?? stableTextAtDispatch).trim();
+          const visibleAtResponse = (dualSnapAtResponse?.visibleText ?? liveSource).trim();
           const translationReturned = next;
           let paintApplied: ReturnType<typeof applyMorsyCanonLiveTranslationPaint> | null = null;
           const paintCandidate = morsyPrefixLive
@@ -6530,12 +6553,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   lockedTranslationPrefix: rowState.lockedTranslationPrefix,
                 },
                 stableTextAtDispatch,
-                liveSource,
+                visibleAtResponse,
                 translationReturned,
               )).composed
             : translationReturned;
           const rejected =
-            (!morsyClean &&
+            (!morsyCleanLive &&
               !morsyCanonIntercallLive &&
               prevShown.length > 0 &&
               shouldRejectLegacyCanonTrialLiveTranslation(
@@ -6597,7 +6620,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           rowState.lastDispatchedSource = liveSource;
           if (morsyPrefixLive) {
-            paintMorsyCanonLiveRowTranslation(rowId, stableTextAtDispatch, liveSource, translationReturned);
+            paintMorsyCanonLiveRowTranslation(
+              rowId,
+              stableTextAtDispatch,
+              visibleAtResponse,
+              translationReturned,
+            );
           } else {
             paintCanonRowTranslationIfAllowed(rowId, translationReturned);
           }
@@ -6986,7 +7014,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const st = getCanonTrialRowTransState(rowId);
     if (st.locked) return;
 
-    const morsyCleanMt = usesCleanMtTranslationStack();
+    const morsyCleanMt = canonCleanStackLiveReconcile();
     const morsyCanonLivePath = morsyUrgentCanonLivePathNow() || morsyCleanMt;
 
     const eng = canonWsIsolationEngineRef.current;
