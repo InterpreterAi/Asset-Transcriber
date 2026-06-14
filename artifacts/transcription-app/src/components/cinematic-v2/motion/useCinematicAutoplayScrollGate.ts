@@ -1,11 +1,13 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useCinematicStory } from "../CinematicStoryContext";
 import {
   freezeDialogueAutoplayAtCurrent,
+  resetDialogueAutoplayLive,
   unfreezeDialogueAutoplay,
 } from "./workspace-autoplay-global";
 
 const PAGE_LIVE_EDGE_PX = 96;
+const SCROLL_UP_EPS_PX = 48;
 
 function scrollContainerForTrack(track: HTMLElement | null): HTMLElement | null {
   let node = track?.parentElement ?? null;
@@ -24,19 +26,45 @@ function isScrollerAtLiveEdge(scroller: HTMLElement): boolean {
 }
 
 /**
- * Landing page only: freeze workspace demo when the user scrolls up (reading history).
- * At the bottom of the page, resume live autoplay like the real session workspace.
+ * Landing page: demo runs on load and while scrolling down.
+ * Freezes only when the user scrolls **back up** to re-read earlier chapters.
+ * Unfreezes at the page bottom or when they scroll down again.
  */
-export function useCinematicPageLiveEdge(): boolean {
+export function useCinematicAutoplayScrollGate(enabled = true): void {
   const { scrollRef } = useCinematicStory();
-  const [atLiveEdge, setAtLiveEdge] = useState(true);
+  const furthestScrollTopRef = useRef(0);
+  const isFrozenRef = useRef(false);
 
   useLayoutEffect(() => {
+    if (!enabled) return;
+
     const track = scrollRef.current;
     const scroller = scrollContainerForTrack(track);
     if (!scroller) return;
 
-    const update = () => setAtLiveEdge(isScrollerAtLiveEdge(scroller));
+    furthestScrollTopRef.current = scroller.scrollTop;
+    resetDialogueAutoplayLive();
+    isFrozenRef.current = false;
+
+    const update = () => {
+      const top = scroller.scrollTop;
+      if (top > furthestScrollTopRef.current) {
+        furthestScrollTopRef.current = top;
+      }
+
+      const atBottom = isScrollerAtLiveEdge(scroller);
+      const scrolledUpFromFurthest = top < furthestScrollTopRef.current - SCROLL_UP_EPS_PX;
+      const shouldFreeze = scrolledUpFromFurthest && !atBottom;
+
+      if (shouldFreeze && !isFrozenRef.current) {
+        freezeDialogueAutoplayAtCurrent();
+        isFrozenRef.current = true;
+      } else if (!shouldFreeze && isFrozenRef.current) {
+        unfreezeDialogueAutoplay();
+        isFrozenRef.current = false;
+      }
+    };
+
     update();
     scroller.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
@@ -49,29 +77,16 @@ export function useCinematicPageLiveEdge(): boolean {
       scroller.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
       ro.disconnect();
+      if (isFrozenRef.current) {
+        unfreezeDialogueAutoplay();
+        isFrozenRef.current = false;
+      }
     };
-  }, [scrollRef]);
-
-  return atLiveEdge;
-}
-
-export function useCinematicAutoplayScrollGate(enabled = true): void {
-  const atLiveEdge = useCinematicPageLiveEdge();
+  }, [enabled, scrollRef]);
 
   useEffect(() => {
     if (!enabled) {
       unfreezeDialogueAutoplay();
-      return;
     }
-    if (atLiveEdge) {
-      unfreezeDialogueAutoplay();
-    } else {
-      freezeDialogueAutoplayAtCurrent();
-    }
-  }, [enabled, atLiveEdge]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    return () => unfreezeDialogueAutoplay();
   }, [enabled]);
 }

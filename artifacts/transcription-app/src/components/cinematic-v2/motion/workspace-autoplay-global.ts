@@ -89,6 +89,12 @@ export function unfreezeDialogueAutoplay(): void {
   frozenProgress = null;
 }
 
+/** Force live autoplay (e.g. landing mount after a bad freeze). */
+export function resetDialogueAutoplayLive(): void {
+  frozenProgress = null;
+  ensureSessionStart();
+}
+
 export function getDialogueAutoplayProgress(): number {
   if (frozenProgress !== null) return frozenProgress;
   return liveDialogueAutoplayProgress();
