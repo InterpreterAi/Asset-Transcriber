@@ -9610,9 +9610,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         canonWsTailFollowLatchRef.current = true;
         morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current = "";
         queueMicrotask(() => scrollPanelFnRef.current?.(true));
-        eng.setMorsyUrgentPreemptiveSpeakerFreeze(
-          planTypeRef.current.trim().toLowerCase() === "morsy-urgent",
-        );
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
         canonWsIsolationRecordingRef.current = false;
