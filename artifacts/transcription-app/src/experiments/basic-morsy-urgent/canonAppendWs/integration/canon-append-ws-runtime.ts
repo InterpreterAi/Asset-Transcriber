@@ -104,8 +104,15 @@ export class CanonAppendWsIsolatedRuntime {
 
   private pendingDomFlush = false;
 
+  /** Basic · Morsy Urgent — preemptive row freeze when NF tail is a new speaker. */
+  private morsyUrgentPreemptiveSpeakerFreeze = false;
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
+  }
+
+  setMorsyUrgentPreemptiveSpeakerFreeze(enabled: boolean): void {
+    this.morsyUrgentPreemptiveSpeakerFreeze = enabled;
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -340,7 +347,11 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
-    this.state = reduceCanonAppendWs(this.state, frame, { ledger: this.ledger, wallMs });
+    this.state = reduceCanonAppendWs(this.state, frame, {
+      ledger: this.ledger,
+      wallMs,
+      morsyUrgentPreemptiveSpeakerFreeze: this.morsyUrgentPreemptiveSpeakerFreeze,
+    });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
       this.hooks.onSpeechToken?.();

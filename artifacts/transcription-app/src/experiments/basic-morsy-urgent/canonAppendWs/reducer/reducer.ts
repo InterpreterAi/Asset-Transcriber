@@ -19,6 +19,8 @@ import {
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
+  /** Basic · Morsy Urgent only — freeze active row when NF tail is a different speaker. */
+  morsyUrgentPreemptiveSpeakerFreeze?: boolean;
 };
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
@@ -97,6 +99,21 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
+
+  if (ctx.morsyUrgentPreemptiveSpeakerFreeze) {
+    const tailSpeaker = tail.speaker;
+    const activeSpeaker = next.activeUtterance?.speaker;
+    if (
+      activeSpeaker &&
+      tailSpeaker &&
+      tailSpeaker !== activeSpeaker &&
+      frameNonFinals.length > 0 &&
+      utteranceCommittedText(next.activeUtterance!).trim().length > 0
+    ) {
+      next = freezeActiveUtterance(next);
+      next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
+    }
+  }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {
     next = openActiveUtterance(next, tail.speaker, tail.language);
