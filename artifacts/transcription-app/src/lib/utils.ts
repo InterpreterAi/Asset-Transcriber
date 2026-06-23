@@ -84,12 +84,12 @@ export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | un
 }
 
 /**
- * **trial-hetzner + basic-hetzner** — shared canon-append STT path: immediate committed append,
- * speaker-transition experiments, merged-original presentation. Translation uses machine MT (not clean stack).
+ * **trial-hetzner + basic-hetzner (+ legacy basic-libre)** — shared canon-append STT + translation path:
+ * immediate committed append, serial frozen-row queue, blank-bubble backfill, first-stable translate.
  */
 export function planUsesHetznerCanonStreamingStt(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial-hetzner" || p === "basic-hetzner";
+  return p === "trial-hetzner" || p === "basic-hetzner" || p === "basic-libre";
 }
 
 /** @deprecated Prefer {@link planUsesHetznerCanonStreamingStt}. */

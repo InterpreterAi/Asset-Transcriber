@@ -2623,7 +2623,7 @@ type BubbleTransCanonPromotionPaintState = Pick<
 
 /**
  * Sole committed originals DOM writer on **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`**:
- * - **Basic · `morsy-urgent`, `trial-hetzner`, `basic-hetzner`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
+ * - **Basic · `morsy-urgent`, `trial-hetzner`, `basic-hetzner`, `basic-libre`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
  * - **Other isolated experiment plans:** promotion scratch + **`{@link projectCommittedOriginalsVisibleUtf16}`**.
  */
 function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
@@ -3538,8 +3538,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
   }, []);
 
+  /** Hetzner canon STT plans — serial frozen queue + blank-bubble backfill (matches trial-hetzner reliability). */
   function morsyUrgentCanonLivePathNow(): boolean {
-    return false;
+    return planUsesHetznerCanonStreamingStt(planTypeRef.current);
   }
 
   const getCanonTrialRowTransState = useCallback((rowId: string): CanonTrialRowTranslationState => {
@@ -6113,6 +6114,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       trialSt.lastFinalSource = sourceNorm;
       trialSt.lastDispatchedSource = sourceNorm;
       morsyCanonFrozenRetryCountRef.current.delete(rowId);
+    } else if (!implOpts?.force) {
+      const tries = (morsyCanonFrozenRetryCountRef.current.get(rowId) ?? 0) + 1;
+      morsyCanonFrozenRetryCountRef.current.set(rowId, tries);
+      st.locked = false;
+      trialSt.locked = false;
     }
     onAdminSnapshotBuffersUpdatedRef.current?.();
     } finally {
@@ -6179,7 +6185,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const scanMorsyCanonBlankFrozenTranslations = useCallback(() => {
     if (!translationEnabledRef.current || !isRecRef.current) return;
-    if (!morsyUrgentCanonLivePathNow() || !canonWsIsolationGateNow()) return;
+    if (!planUsesHetznerCanonStreamingStt(planTypeRef.current) || !canonWsIsolationGateNow()) return;
     const now = Date.now();
     if (now - morsyCanonBackfillLastMsRef.current < 1200) return;
     morsyCanonBackfillLastMsRef.current = now;
