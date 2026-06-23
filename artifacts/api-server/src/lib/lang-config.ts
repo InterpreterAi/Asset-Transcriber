@@ -1,32 +1,11 @@
 // In-memory language configuration managed by admin.
 // Resets to defaults on server restart — acceptable for admin tooling.
 //
-// Interpreter AI — **Libre stack**: these codes match a typical 20-language
-// LibreTranslate loadout (en, ar, zh, es, …). Override enabled set via admin UI.
+// Interpreter AI — language catalog is shared with workspace pickers (Phase A).
 
-export const ALL_LANGUAGES = [
-  { value: "en",    label: "English" },
-  { value: "ar",    label: "Arabic" },
-  { value: "zh-CN", label: "Chinese (Simplified)" },
-  { value: "es",    label: "Spanish" },
-  { value: "fr",    label: "French" },
-  { value: "hi",    label: "Hindi" },
-  { value: "pt",    label: "Portuguese" },
-  { value: "ru",    label: "Russian" },
-  { value: "so",    label: "Somali" },
-  { value: "ja",    label: "Japanese" },
-  { value: "de",    label: "German" },
-  { value: "ko",    label: "Korean" },
-  { value: "tr",    label: "Turkish" },
-  { value: "it",    label: "Italian" },
-  { value: "id",    label: "Indonesian" },
-  { value: "vi",    label: "Vietnamese" },
-  { value: "nl",    label: "Dutch" },
-  { value: "pl",    label: "Polish" },
-  { value: "th",    label: "Thai" },
-  { value: "fa",    label: "Persian (Farsi)" },
-  { value: "ur",    label: "Urdu" },
-];
+import { workspaceLanguageOptions } from "./workspace-languages.js";
+
+export const ALL_LANGUAGES = workspaceLanguageOptions();
 
 export interface LangConfig {
   enabledLanguages: string[];   // language value codes that are active

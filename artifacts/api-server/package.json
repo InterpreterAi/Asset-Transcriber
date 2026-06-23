@@ -12,6 +12,7 @@
     "glossary:generate": "node ./scripts/generate-interpreter-glossaries.mjs",
     "glossary:verify": "tsx ./scripts/verify-interpreter-glossary.ts",
     "glossary:audit": "tsx ./scripts/audit-interpreter-glossary.ts",
+    "glossary:catalog-report": "tsx ./scripts/language-catalog-report.ts",
     "glossary:fill-mt": "node ./scripts/fill-interpreter-glossary-mt.mjs",
     "glossary:fill-mt:ar-es": "node ./scripts/fill-interpreter-glossary-mt.mjs --langs ar,es --domains insurance,medical,legal --limit 500",
     "email:send-account-active-reminder-now": "tsx ./src/lib/send-account-active-reminder-now.ts",

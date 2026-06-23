@@ -8,7 +8,7 @@ export type TranslationFragment = {
   rtl?: boolean;
 };
 
-/** Key line: "When did the symptoms first start?" and related phrases across 36 languages. */
+/** Key line: "When did the symptoms first start?" and related phrases across workspace languages. */
 export const CINEMATIC_TRANSLATION_FRAGMENTS: readonly TranslationFragment[] = [
   { id: "es", text: "¿Puede decirme cuándo comenzaron los síntomas?" },
   { id: "ar", text: "متى بدأت الأعراض؟", rtl: true },

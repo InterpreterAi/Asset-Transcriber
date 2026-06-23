@@ -3,6 +3,10 @@
  * OpenAI tiers use Clean MT translation stack.
  */
 
+import { WORKSPACE_LANGUAGE_COUNT } from "./workspace-languages";
+
+export const SUPPORTED_LANGUAGES_FEATURE = `${WORKSPACE_LANGUAGE_COUNT}+ supported languages`;
+
 export const PRICING_SHARED_FEATURES_SECTION_TITLE = "Core features";
 
 export const PRICING_SHARED_FEATURES: readonly string[] = [
@@ -10,7 +14,7 @@ export const PRICING_SHARED_FEATURES: readonly string[] = [
   "Speaker identification",
   "Tab audio capture",
   "Personal glossary support",
-  "36+ supported languages",
+  SUPPORTED_LANGUAGES_FEATURE,
   "Clean MT translation assist (OpenAI tiers)",
 ];
 
@@ -54,7 +58,7 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
-      "36+ supported languages",
+      SUPPORTED_LANGUAGES_FEATURE,
     ],
   },
   {
@@ -72,7 +76,7 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
-      "36+ supported languages",
+      SUPPORTED_LANGUAGES_FEATURE,
     ],
   },
   {
@@ -91,7 +95,7 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
-      "36+ supported languages",
+      SUPPORTED_LANGUAGES_FEATURE,
     ],
   },
 ];

@@ -2,10 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src"],
+  "include": ["src", "../transcription-app/src/lib/workspace-languages.ts"],
   "references": [
     {
       "path": "../../lib/db"

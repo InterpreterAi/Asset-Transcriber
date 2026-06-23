@@ -1,41 +1,19 @@
-/** Workspace language catalog — 36 supported languages for cinematic scale visuals. */
-export const CINEMATIC_LANGUAGE_CATALOG = [
-  { code: "EN", label: "English" },
-  { code: "ES", label: "Spanish" },
-  { code: "AR", label: "Arabic" },
-  { code: "ZH", label: "Chinese" },
-  { code: "FR", label: "French" },
-  { code: "DE", label: "German" },
-  { code: "PT", label: "Portuguese" },
-  { code: "IT", label: "Italian" },
-  { code: "JA", label: "Japanese" },
-  { code: "KO", label: "Korean" },
-  { code: "RU", label: "Russian" },
-  { code: "HI", label: "Hindi" },
-  { code: "TR", label: "Turkish" },
-  { code: "PL", label: "Polish" },
-  { code: "NL", label: "Dutch" },
-  { code: "SV", label: "Swedish" },
-  { code: "DA", label: "Danish" },
-  { code: "FI", label: "Finnish" },
-  { code: "NB", label: "Norwegian" },
-  { code: "CS", label: "Czech" },
-  { code: "SK", label: "Slovak" },
-  { code: "HU", label: "Hungarian" },
-  { code: "RO", label: "Romanian" },
-  { code: "BG", label: "Bulgarian" },
-  { code: "HR", label: "Croatian" },
-  { code: "EL", label: "Greek" },
-  { code: "HE", label: "Hebrew" },
-  { code: "FA", label: "Persian" },
-  { code: "UR", label: "Urdu" },
-  { code: "VI", label: "Vietnamese" },
-  { code: "TH", label: "Thai" },
-  { code: "ID", label: "Indonesian" },
-  { code: "MS", label: "Malay" },
-  { code: "UK", label: "Ukrainian" },
-  { code: "BN", label: "Bengali" },
-  { code: "SO", label: "Somali" },
-] as const;
+import {
+  WORKSPACE_LANGUAGES,
+  WORKSPACE_LANGUAGE_COUNT,
+} from "@/lib/workspace-languages";
 
-export const CINEMATIC_LANGUAGE_COUNT = CINEMATIC_LANGUAGE_CATALOG.length;
+/** Short display code for cinematic ring / stream visuals. */
+function cinematicDisplayCode(value: string): string {
+  if (value === "zh-CN" || value === "zh-TW") return "ZH";
+  return value.split("-")[0]!.toUpperCase();
+}
+
+/** Workspace language catalog for cinematic scale visuals (derived from shared catalog). */
+export const CINEMATIC_LANGUAGE_CATALOG = WORKSPACE_LANGUAGES.map((l) => ({
+  code: cinematicDisplayCode(l.value),
+  label: l.label,
+  value: l.value,
+}));
+
+export const CINEMATIC_LANGUAGE_COUNT = WORKSPACE_LANGUAGE_COUNT;

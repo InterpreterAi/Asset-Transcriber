@@ -172,28 +172,21 @@
 </div>
 
 <script>
-// ── Language list ─────────────────────────────────────────────────────────
-const LANGS = [
-  ["ar","Arabic"],["bg","Bulgarian"],["zh-CN","Chinese (Simplified)"],
-  ["zh-TW","Chinese (Traditional)"],["hr","Croatian"],["cs","Czech"],
-  ["da","Danish"],["nl","Dutch"],["en","English"],["fa","Persian (Farsi)"],
-  ["fi","Finnish"],["fr","French"],["de","German"],["el","Greek"],
-  ["he","Hebrew"],["hi","Hindi"],["hu","Hungarian"],["id","Indonesian"],
-  ["it","Italian"],["ja","Japanese"],["ko","Korean"],["ms","Malay"],
-  ["nb","Norwegian"],["pl","Polish"],["pt","Portuguese"],["ro","Romanian"],
-  ["ru","Russian"],["sk","Slovak"],["so","Somali"],["es","Spanish"],["sv","Swedish"],
-  ["th","Thai"],["tr","Turkish"],["uk","Ukrainian"],["ur","Urdu"],["vi","Vietnamese"],
-];
-
-// Populate language dropdowns
+// ── Language list (canonical: transcription-app/src/lib/workspace-languages.ts) ─
 const selA = document.getElementById("sel-a");
 const selB = document.getElementById("sel-b");
-LANGS.forEach(([code, name]) => {
-  selA.insertAdjacentHTML("beforeend", `<option value="${code}">${name}</option>`);
-  selB.insertAdjacentHTML("beforeend", `<option value="${code}">${name}</option>`);
-});
-selA.value = "es";
-selB.value = "en";
+
+async function populateLanguageSelects() {
+  const catalog = await fetch("./workspace-languages.json").then((r) => r.json());
+  for (const { value, label } of catalog) {
+    selA.insertAdjacentHTML("beforeend", `<option value="${value}">${label}</option>`);
+    selB.insertAdjacentHTML("beforeend", `<option value="${value}">${label}</option>`);
+  }
+  selA.value = "es";
+  selB.value = "en";
+}
+
+void populateLanguageSelects();
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const SONIOX_WS      = "wss://stt-rt.soniox.com/transcribe-websocket";

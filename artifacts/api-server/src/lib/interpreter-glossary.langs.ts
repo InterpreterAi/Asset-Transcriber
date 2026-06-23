@@ -5,43 +5,9 @@
  * load with that English string so every target resolves; prefer adding real
  * target-language strings in data files for production quality.
  */
-export const INTERPRETER_GLOSSARY_LANG_CODES = [
-  "ar",
-  "bg",
-  "zh-CN",
-  "zh-TW",
-  "hr",
-  "cs",
-  "da",
-  "nl",
-  "en",
-  "fa",
-  "fi",
-  "fr",
-  "de",
-  "el",
-  "he",
-  "hi",
-  "hu",
-  "id",
-  "it",
-  "ja",
-  "ko",
-  "ms",
-  "nb",
-  "pl",
-  "pt",
-  "ro",
-  "ru",
-  "sk",
-  "so",
-  "es",
-  "sv",
-  "th",
-  "tr",
-  "uk",
-  "ur",
-  "vi",
-] as const;
+import { workspaceLanguageCodes } from "./workspace-languages.js";
 
-export type InterpreterGlossaryLangCode = (typeof INTERPRETER_GLOSSARY_LANG_CODES)[number];
+/** All workspace languages — missing JSON cells fall back to English at load. */
+export const INTERPRETER_GLOSSARY_LANG_CODES = workspaceLanguageCodes();
+
+export type InterpreterGlossaryLangCode = string;

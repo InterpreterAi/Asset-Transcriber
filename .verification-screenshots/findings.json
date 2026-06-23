@@ -1,0 +1,97 @@
+[
+  {
+    "section": "API server",
+    "status": "BLOCKED",
+    "detail": "Not reachable (fetch failed) — admin/workspace auth tests skipped"
+  },
+  {
+    "section": "Debug app count",
+    "status": "PASS",
+    "detail": "sel-a=62, sel-b=62"
+  },
+  {
+    "section": "Debug app · Bengali",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Tagalog",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Tamil",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Telugu",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Punjabi",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Afrikaans",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Welsh",
+    "status": "PASS",
+    "detail": "present"
+  },
+  {
+    "section": "Debug app · Arabic",
+    "status": "PASS",
+    "detail": "ar → Arabic"
+  },
+  {
+    "section": "Debug app · Spanish",
+    "status": "PASS",
+    "detail": "es → Spanish"
+  },
+  {
+    "section": "Debug app · Portuguese",
+    "status": "PASS",
+    "detail": "pt → Portuguese"
+  },
+  {
+    "section": "Debug app · Somali",
+    "status": "PASS",
+    "detail": "so → Somali"
+  },
+  {
+    "section": "Debug app · Chinese (Simplified)",
+    "status": "PASS",
+    "detail": "zh-CN → Chinese (Simplified)"
+  },
+  {
+    "section": "Debug app · Chinese (Traditional)",
+    "status": "PASS",
+    "detail": "zh-TW → Chinese (Traditional)"
+  },
+  {
+    "section": "Debug app · Norwegian",
+    "status": "PASS",
+    "detail": "nb → Norwegian"
+  },
+  {
+    "section": "Debug app screenshot",
+    "status": "PASS",
+    "detail": "debug-app-bengali-selected.png"
+  },
+  {
+    "section": "Workspace UI",
+    "status": "BLOCKED",
+    "detail": "Redirected to login — API auth unavailable locally"
+  },
+  {
+    "section": "Browser console",
+    "status": "WARN",
+    "detail": "3 error(s): Failed to load resource: the server responded with a status of 500 (Internal Server Error) | Failed to load resource: the server responded with a status of 500 (Internal Server Error) | Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  }
+]

@@ -2,26 +2,13 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { openai } from "../lib/openai-client.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
+import { workspaceLanguageLabel } from "../lib/workspace-languages.js";
 
 const router = Router();
 router.use(requireJsonObjectBody);
 
-// ── Language code → readable name map ────────────────────────────────────────
-const LANG_NAMES: Record<string, string> = {
-  en: "English", ar: "Arabic", es: "Spanish", fr: "French", de: "German",
-  it: "Italian", pt: "Portuguese", ru: "Russian", zh: "Chinese",
-  "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional)",
-  ja: "Japanese", ko: "Korean", hi: "Hindi", fa: "Persian",
-  he: "Hebrew", tr: "Turkish", pl: "Polish", nl: "Dutch",
-  sv: "Swedish", da: "Danish", no: "Norwegian", fi: "Finnish",
-  cs: "Czech", hu: "Hungarian", ro: "Romanian", bg: "Bulgarian",
-  hr: "Croatian", sk: "Slovak", so: "Somali", uk: "Ukrainian", ur: "Urdu",
-  vi: "Vietnamese", th: "Thai", ms: "Malay", id: "Indonesian",
-  el: "Greek", nb: "Norwegian",
-};
-
 function langName(code: string): string {
-  return LANG_NAMES[code] ?? code;
+  return workspaceLanguageLabel(code);
 }
 
 // ── POST /api/terminology/search ──────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, Mic2, Languages, Captions } from "lucide-react";
 import { MarketingAnimatedWorkspaceAuto } from "./MarketingAnimatedWorkspace";
 import { MEDICAL_DIALOGUE } from "./marketing-dialogue-script";
+import { WORKSPACE_LANGUAGE_COUNT } from "@/lib/workspace-languages";
 
 const CAPTION_STREAMS = [
   { en: "Good morning, how can I help you today?", es: "Buenos días, ¿cómo puedo ayudarle hoy?", side: "left" as const },
@@ -140,7 +141,7 @@ export function MarketingHeroPremium() {
               className="mt-6 text-base sm:text-lg lg:text-xl text-slate-300/90 max-w-xl mx-auto lg:mx-0 leading-relaxed"
             >
               Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows
-              across 36 supported languages.
+              across {WORKSPACE_LANGUAGE_COUNT} supported languages.
             </motion.p>
 
             <motion.div

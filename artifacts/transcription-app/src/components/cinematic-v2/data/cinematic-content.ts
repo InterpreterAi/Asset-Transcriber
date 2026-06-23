@@ -3,6 +3,10 @@
  * Do not paraphrase for cinematic v2 home.
  */
 
+import { WORKSPACE_LANGUAGE_COUNT } from "@/lib/workspace-languages";
+
+const LANG_COUNT = WORKSPACE_LANGUAGE_COUNT;
+
 export const CINEMATIC_CONTENT = {
   eyebrow: {
     infrastructure: "Professional interpreter infrastructure",
@@ -16,7 +20,7 @@ export const CINEMATIC_CONTENT = {
   chapterFrames: {
     ch1: "Communication should never be the barrier.",
     ch3: "Every conversation passes through understanding.",
-    ch4: "36+ languages. One conversation.",
+    ch4: `${LANG_COUNT}+ languages. One conversation.`,
     ch4Sub:
       "Connect people across borders without interrupting the flow of communication.",
     ch7: "Built for every stage of growth.",
@@ -33,7 +37,7 @@ export const CINEMATIC_CONTENT = {
     h1Lead: "Real-Time Support for",
     h1Accent: "Professional Interpreters",
     subhead:
-      "Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows across 36 supported languages.",
+      `Real-time captions and multilingual language assistance designed for professional OPI and VRI interpretation workflows across ${LANG_COUNT} supported languages.`,
     noCard: "No credit card required to start.",
     pills: ["Hear & capture", "Live captions", "Translation assist"] as const,
   },
@@ -46,7 +50,7 @@ export const CINEMATIC_CONTENT = {
     { title: "VRI", short: "Video remote" },
     { title: "Speaker Identification", short: "Speaker ID" },
     { title: "Privacy-First Workflows", short: "Privacy-first" },
-    { title: "36+ Languages", short: "36+ languages" },
+    { title: `${LANG_COUNT}+ Languages`, short: `${LANG_COUNT}+ languages` },
   ] as const,
   product: {
     title: "Your live session workspace",
@@ -86,12 +90,12 @@ export const CINEMATIC_CONTENT = {
       },
       {
         title: "Multilingual coverage",
-        body: "The platform supports 36 languages for varied OPI, VRI, and remote communication contexts.",
+        body: `The platform supports ${LANG_COUNT} languages for varied OPI, VRI, and remote communication contexts.`,
       },
     ] as const,
   },
   languages: {
-    title: "36+ Supported Languages",
+    title: `${LANG_COUNT}+ Supported Languages`,
     body: "Built for multilingual interpretation workflows across medical, customer support, and remote communication environments.",
     streamCodes: ["EN", "ES", "AR", "FR", "ZH", "DE", "PT", "IT", "JA", "KO"] as const,
   },

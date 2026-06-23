@@ -22,6 +22,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "..", "data");
+const WORKSPACE_CATALOG_JSON = path.resolve(
+  __dirname,
+  "../../debug-app/public/workspace-languages.json",
+);
 
 /** Default domain order for --domains insurance,medical,legal */
 const DOMAIN_TO_FILE = {
@@ -31,79 +35,77 @@ const DOMAIN_TO_FILE = {
   immigration: "glossary_immigration.json",
 };
 
-const ALL_LANGS = [
-  "ar",
-  "bg",
-  "zh-CN",
-  "zh-TW",
-  "hr",
-  "cs",
-  "da",
-  "nl",
-  "fa",
-  "fi",
-  "fr",
-  "de",
-  "el",
-  "he",
-  "hi",
-  "hu",
-  "id",
-  "it",
-  "ja",
-  "ko",
-  "ms",
-  "nb",
-  "pl",
-  "pt",
-  "ro",
-  "ru",
-  "sk",
-  "es",
-  "sv",
-  "th",
-  "tr",
-  "uk",
-  "ur",
-  "vi",
-];
+/** Target fill langs: all workspace codes except English (source). */
+function loadWorkspaceFillLangCodes() {
+  const catalog = JSON.parse(fs.readFileSync(WORKSPACE_CATALOG_JSON, "utf8"));
+  return catalog.map((l) => l.value).filter((c) => c !== "en");
+}
+
+const ALL_LANGS = loadWorkspaceFillLangCodes();
 
 /** LibreTranslate `target` parameter (may differ from our BCP-47 tags). */
 const TO_LIBRE = {
+  af: "af",
   ar: "ar",
+  az: "az",
+  be: "be",
   bg: "bg",
+  bn: "bn",
+  bs: "bs",
+  ca: "ca",
   "zh-CN": "zh",
   "zh-TW": "zh",
   hr: "hr",
   cs: "cs",
+  cy: "cy",
   da: "da",
   nl: "nl",
+  et: "et",
+  eu: "eu",
   fa: "fa",
   fi: "fi",
   fr: "fr",
   de: "de",
   el: "el",
+  gl: "gl",
+  gu: "gu",
   he: "he",
   hi: "hi",
   hu: "hu",
   id: "id",
   it: "it",
   ja: "ja",
+  kn: "kn",
+  kk: "kk",
   ko: "ko",
+  lv: "lv",
+  lt: "lt",
+  mk: "mk",
+  ml: "ml",
+  mr: "mr",
   ms: "ms",
   nb: "no",
+  pa: "pa",
   pl: "pl",
   pt: "pt",
   ro: "ro",
   ru: "ru",
   sk: "sk",
+  sl: "sl",
+  sq: "sq",
+  sr: "sr",
   es: "es",
   sv: "sv",
+  sw: "sw",
+  ta: "ta",
+  te: "te",
   th: "th",
+  tl: "tl",
   tr: "tr",
   uk: "uk",
   ur: "ur",
   vi: "vi",
+  so: "so",
 };
 
 function isLikelyAcronymGloss(en) {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Search, BookMarked, Loader2, ArrowRight, AlertCircle, Stethoscope, Scale, Globe2 } from "lucide-react";
+import { workspaceLanguageLabel } from "@/lib/workspace-languages";
 
 interface TermResult {
   source: string;
@@ -13,19 +14,8 @@ interface Props {
   langB: string;
 }
 
-const LANG_NAMES: Record<string, string> = {
-  en: "English", ar: "Arabic", es: "Spanish", fr: "French", de: "German",
-  it: "Italian", pt: "Portuguese", ru: "Russian", ja: "Japanese", ko: "Korean",
-  hi: "Hindi", fa: "Persian", he: "Hebrew", tr: "Turkish", pl: "Polish",
-  nl: "Dutch", sv: "Swedish", da: "Danish", fi: "Finnish", cs: "Czech",
-  hu: "Hungarian", ro: "Romanian", bg: "Bulgarian", hr: "Croatian", sk: "Slovak",
-  so: "Somali",
-  uk: "Ukrainian", ur: "Urdu", vi: "Vietnamese", th: "Thai", ms: "Malay",
-  id: "Indonesian", el: "Greek", nb: "Norwegian", "zh-CN": "Chinese", "zh-TW": "Chinese (Trad.)",
-};
-
 function langShort(code: string): string {
-  return LANG_NAMES[code] ?? code;
+  return workspaceLanguageLabel(code);
 }
 
 const DOMAIN_STYLES: Record<string, { label: string; icon: React.ReactNode; pill: string }> = {
