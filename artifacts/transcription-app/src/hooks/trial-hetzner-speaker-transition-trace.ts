@@ -9,8 +9,6 @@
  *   copy(JSON.stringify(window.__trialHetznerSpeakerTrace.getSwitches(), null, 2))
  */
 
-import { planUsesTrialHetznerCleanTranslation } from "@/lib/utils";
-
 const LS_KEY = "interpreterai_trial_hetzner_speaker_trace";
 const API_KEY = "__trialHetznerSpeakerTrace";
 

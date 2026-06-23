@@ -11,6 +11,7 @@ export const CANON_APPEND_WS_STT_PLAN_TYPES = [
   "legacy2",
   "trial-openai",
   "trial-hetzner",
+  "basic-hetzner",
   "trial-libre",
   "basic-openai",
   "professional-openai",
