@@ -181,6 +181,27 @@ import {
   traceTrialHetznerSegmentClose,
   traceTrialHetznerWsFrame,
 } from "@/hooks/trial-hetzner-stream-trace";
+import {
+  registerTrialHetznerSpeakerTracePlanGate,
+  resetTrialHetznerSpeakerTraceSession,
+  traceSpeakerChangeDetected,
+  traceSpeakerConfirm,
+  traceSpeakerFirstVisiblePaint,
+  traceSpeakerNewRowCreated,
+  traceSpeakerPendingAbandonedFlushOldRow,
+  traceSpeakerPendingToken,
+} from "@/hooks/trial-hetzner-speaker-transition-trace";
+import {
+  isProvisionalSpeakerRowPending,
+  registerTrialHetznerProvisionalRowPlanGate,
+  resetTrialHetznerProvisionalRowSession,
+  traceProvisionalConfirm,
+  traceProvisionalFirstPaint,
+  traceProvisionalOpen,
+  traceProvisionalRollback,
+  trialHetznerProvisionalRowExperimentEnabled,
+  type PendingSpeakerSwitchProvisional,
+} from "@/hooks/trial-hetzner-provisional-row";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -3890,12 +3911,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
   const currentSpeakerRef = useRef<string | undefined>(undefined);
   const lastSpeakerSpeechTokenAtMsRef = useRef<number>(0);
-  const pendingSpeakerSwitchRef = useRef<{
-    sid: string;
-    messageStreak: number;
-    firstMs: number;
-    bufferedFinalText: string;
-  } | null>(null);
+  const pendingSpeakerSwitchRef = useRef<PendingSpeakerSwitchProvisional | null>(null);
   /** PCM chunks while WebSocket is still CONNECTING — avoids dropped audio and Soniox timeouts. */
   const pcmBacklogRef     = useRef<ArrayBuffer[]>([]);
   const activeBubbleRef   = useRef<HTMLSpanElement | null>(null);  // final-text span
@@ -4811,6 +4827,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }, []);
 
   useEffect(() => {
+    registerTrialHetznerSpeakerTracePlanGate(() =>
+      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+    );
+    return () => registerTrialHetznerSpeakerTracePlanGate(() => false);
+  }, []);
+
+  useEffect(() => {
+    registerTrialHetznerProvisionalRowPlanGate(() =>
+      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+    );
+    return () => registerTrialHetznerProvisionalRowPlanGate(() => false);
+  }, []);
+
+  useEffect(() => {
     transcriptScrollDiagInstallGlobalDumpHook();
   }, []);
 
@@ -5045,6 +5075,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (requestSegmentId !== state.segmentId) return;
 
     if (!translationEnabledRef.current) return;
+
+    if (isProvisionalSpeakerRowPending(pendingSpeakerSwitchRef.current, state.segmentId)) return;
 
     if (state.translationLocked) return;
     if (segmentBoundaryGuardsRef.current && !isFinal && (state.finalizing || state.isClosed)) return;
@@ -7662,6 +7694,155 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     styleUpgradedRef.current  = false;
   }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
 
+  const openProvisionalSpeakerRow = useCallback((pendingSid: string | number) => {
+    const pending = pendingSpeakerSwitchRef.current;
+    if (!pending || pending.provisionalOpened || !trialHetznerProvisionalRowExperimentEnabled()) {
+      return;
+    }
+    pending.provisionalOpened = true;
+    pending.previousBubbleRef = activeBubbleRef.current;
+    pending.previousBubbleStateRef = activeBubbleStateRef.current;
+    pending.previousNfRef = activeBubbleNFRef.current;
+    pending.previousRowEl =
+      (activeBubbleRef.current?.closest(`.${CLS.row}`) as HTMLDivElement | null) ?? null;
+    pending.provisionalLockedAtOpen = 0;
+
+    activeBubbleRef.current = createBubble(pendingSid);
+    setHasTranscript(true);
+    pending.provisionalSegmentId = activeBubbleStateRef.current?.segmentId ?? null;
+
+    traceProvisionalOpen({
+      pendingSpeakerId: String(pendingSid),
+      previousSpeakerId:
+        currentSpeakerRef.current !== undefined ? String(currentSpeakerRef.current) : null,
+      previousSegmentId: pending.previousBubbleStateRef?.segmentId ?? null,
+      provisionalSegmentId: pending.provisionalSegmentId,
+    });
+    traceSpeakerNewRowCreated({
+      pendingSpeakerId: String(pendingSid),
+      newSegmentId: pending.provisionalSegmentId ?? "",
+    });
+  }, [createBubble]);
+
+  const commitProvisionalSpeakerRow = useCallback((
+    confirm: PendingSpeakerSwitchProvisional,
+    sid: string | number,
+    nowMs: number,
+    confirmReason: "streak" | "age",
+  ) => {
+    traceSpeakerConfirm({
+      reason: confirmReason,
+      streak: confirm.messageStreak,
+      ageMs: nowMs - confirm.firstMs,
+      bufferedChars: 0,
+      bufferedTokens: 0,
+    });
+    traceTrialHetznerSpeakerConfirmed({
+      segmentId: confirm.previousBubbleStateRef?.segmentId ?? null,
+      speakerId: sid,
+      flushedBufferedLen: 0,
+    });
+
+    const prevBubble = confirm.previousBubbleRef;
+    const prevState = confirm.previousBubbleStateRef as BubbleTransState | null | undefined;
+    const prevNf = confirm.previousNfRef;
+    const provBubble = activeBubbleRef.current;
+    const provState = activeBubbleStateRef.current;
+    const provNf = activeBubbleNFRef.current;
+
+    if (prevBubble && prevState) {
+      activeBubbleRef.current = prevBubble;
+      activeBubbleStateRef.current = prevState;
+      activeBubbleNFRef.current = prevNf;
+      liveBufferRef.current = prevState.lockedCommittedFinalOriginal.trim();
+
+      traceTrialHetznerSegmentClose({
+        segmentId: prevState.segmentId,
+        reason: "speaker_change",
+      });
+      flushFinalTextRenderQueue();
+      recordSttSegmentClose("speaker_change");
+      finalizeLiveBubble("speaker_change");
+
+      prevState.isClosed = true;
+      prevState.liveTranslationAbort?.abort();
+      if (experimentMorsyUrgentIntercallRef.current) {
+        intercallFinalizedSegmentIdsRef.current.push(prevState.segmentId);
+      }
+    }
+
+    activeBubbleRef.current = provBubble;
+    activeBubbleStateRef.current = provState;
+    activeBubbleNFRef.current = provNf;
+    if (provState) {
+      liveBufferRef.current = `${provState.lockedCommittedFinalOriginal.trimEnd()}${provState.lastNfRawText ?? ""}`.trim();
+    }
+
+    currentSpeakerRef.current = sid;
+    lastSpeakerSpeechTokenAtMsRef.current = nowMs;
+    traceProvisionalConfirm({
+      provisionalSegmentId: confirm.provisionalSegmentId ?? provState?.segmentId ?? null,
+      previousSegmentId: prevState?.segmentId ?? null,
+      reason: confirmReason,
+    });
+    pendingSpeakerSwitchRef.current = null;
+  }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
+
+  const rollbackProvisionalSpeakerRow = useCallback((reason: string) => {
+    const pending = pendingSpeakerSwitchRef.current;
+    if (!pending?.provisionalOpened) return;
+
+    const prevBubble = pending.previousBubbleRef;
+    const prevState = pending.previousBubbleStateRef as BubbleTransState | null | undefined;
+    const prevNf = pending.previousNfRef;
+    const provState = activeBubbleStateRef.current;
+    const provBubble = activeBubbleRef.current;
+    const delta = (provState?.lockedCommittedFinalOriginal ?? "").slice(
+      pending.provisionalLockedAtOpen ?? 0,
+    );
+
+    traceProvisionalRollback({
+      provisionalSegmentId: pending.provisionalSegmentId ?? null,
+      previousSegmentId: prevState?.segmentId ?? null,
+      mergedChars: delta.length,
+      reason,
+    });
+
+    activeBubbleRef.current = prevBubble ?? null;
+    activeBubbleStateRef.current = prevState ?? null;
+    activeBubbleNFRef.current = prevNf ?? null;
+
+    if (prevState && prevBubble && delta.length > 0) {
+      prevState.lockedCommittedFinalOriginal += delta;
+      paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
+        prevBubble,
+        prevState,
+        Date.now(),
+        canonImmediateCommittedAppend(planTypeRef.current),
+      );
+    }
+
+    const provRow = (provBubble?.closest(`.${CLS.row}`) as HTMLDivElement | null) ?? null;
+    if (provRow?.parentElement) {
+      provRow.parentElement.removeChild(provRow);
+    }
+    if (provState) {
+      provState.isClosed = true;
+      provState.liveTranslationAbort?.abort();
+      segmentStateByIdRef.current.delete(provState.segmentId);
+      adminSegmentRowIndexRef.current.delete(provState.segmentId);
+    }
+
+    liveBufferRef.current = prevState?.lockedCommittedFinalOriginal.trim() ?? "";
+    traceSpeakerPendingAbandonedFlushOldRow({
+      pendingSpeakerId: String(pending.sid),
+      oldSegmentId: prevState?.segmentId ?? null,
+      flushedChars: delta.length,
+      reason,
+    });
+    pendingSpeakerSwitchRef.current = null;
+  }, []);
+
   // ── doClear ────────────────────────────────────────────────────────────────
   // Wipes all transcript/translation DOM content and resets every per-bubble
   // ref. Used by the exported `clear` (manual Clear button) and by the
@@ -8078,7 +8259,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           if (
             activeBubbleRef.current &&
             tokenSuitable &&
-            sameSpeaker(sid, currentSpeakerRef.current)
+            sameSpeaker(sid, currentSpeakerRef.current) &&
+            !pendingSpeakerSwitchRef.current?.provisionalOpened
           ) {
             const lastTokenAt = lastSpeakerSpeechTokenAtMsRef.current;
             if (lastTokenAt > 0 && nowMs - lastTokenAt >= SAME_SPEAKER_PAUSE_SPLIT_MS) {
@@ -8109,8 +8291,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           } else if (!sameSpeaker(sid, currentSpeakerRef.current)) {
             if (useMorsyUrgentSpeakerGate) {
               if (tokenSuitable) {
-                handledByPendingSwitchLogic = true;
-                const pending = pendingSpeakerSwitchRef.current;
+                const provExp = trialHetznerProvisionalRowExperimentEnabled();
+                let pending = pendingSpeakerSwitchRef.current;
                 if (!pending || pending.sid !== sid) {
                   pendingSpeakerSwitchRef.current = {
                     sid,
@@ -8118,7 +8300,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                     firstMs: nowMs,
                     bufferedFinalText: "",
                   };
+                  pending = pendingSpeakerSwitchRef.current;
                   pendingSidCountedInMessage = true;
+                  traceSpeakerChangeDetected({
+                    pendingSpeakerId: String(sid),
+                    previousSpeakerId:
+                      currentSpeakerRef.current !== undefined
+                        ? String(currentSpeakerRef.current)
+                        : undefined,
+                    oldSegmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                    streak: 1,
+                  });
+                  if (provExp) {
+                    openProvisionalSpeakerRow(sid);
+                  }
                 } else if (!pendingSidCountedInMessage) {
                   pending.messageStreak += 1;
                   pendingSidCountedInMessage = true;
@@ -8126,71 +8321,128 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 if (pendingSpeakerSwitchRef.current?.sid === sid) {
                   pendingSidSeenInMessage = true;
                 }
-                if (t.is_final && newFinalSet.has(t)) {
-                  const ps = pendingSpeakerSwitchRef.current;
-                  if (ps && ps.sid === sid) {
-                    ps.bufferedFinalText += t.text;
-                    traceTrialHetznerSpeakerPending({
-                      segmentId: activeBubbleStateRef.current?.segmentId ?? null,
-                      pendingSpeakerId: sid,
-                      streak: ps.messageStreak,
-                      bufferedLen: ps.bufferedFinalText.length,
-                    });
-                  }
-                }
                 const confirm = pendingSpeakerSwitchRef.current;
+                const minStreak = morsySemanticIsoPresentationUx
+                  ? MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_STREAK
+                  : FAST_SWITCH_MIN_STREAK;
+                const minAgeMs = morsySemanticIsoPresentationUx
+                  ? MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_AGE_MS
+                  : FAST_SWITCH_MIN_AGE_MS;
                 const speakerConfirmed =
                   !!confirm &&
                   confirm.sid === sid &&
                   (
-                    confirm.messageStreak >=
-                      (morsySemanticIsoPresentationUx ? MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_STREAK : FAST_SWITCH_MIN_STREAK) ||
+                    confirm.messageStreak >= minStreak ||
                     (
-                      nowMs - confirm.firstMs >=
-                        (morsySemanticIsoPresentationUx ? MORSY_SEMANTIC_ISO_FAST_SWITCH_MIN_AGE_MS : FAST_SWITCH_MIN_AGE_MS)
-                      &&
+                      nowMs - confirm.firstMs >= minAgeMs &&
                       confirm.messageStreak >= 1
                     )
                   );
-                if (speakerConfirmed && tokenSuitable) {
-                  traceTrialHetznerSpeakerConfirmed({
-                    segmentId: activeBubbleStateRef.current?.segmentId ?? null,
-                    speakerId: sid,
-                    flushedBufferedLen: confirm.bufferedFinalText.length,
-                  });
-                  closeActiveSegmentBoundary("speaker_change");
-                  currentSpeakerRef.current = sid;
-                  lastSpeakerSpeechTokenAtMsRef.current = nowMs;
-                  activeBubbleRef.current = createBubble(sid);
-                  setHasTranscript(true);
-                  if (activeBubbleRef.current && confirm.bufferedFinalText) {
-                    const sidBuf = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
-                    let bufferedCanon = confirm.bufferedFinalText;
-                    if (sidBuf && isolatedEnqueueCanonRoll && bufferedCanon) {
-                      bufferedCanon = rollEnqueueForSegment(sidBuf, bufferedCanon);
-                    }
-                    if (canonAppendWs && activeBubbleStateRef.current && bufferedCanon.length > 0) {
-                      activeBubbleStateRef.current.lockedCommittedFinalOriginal += bufferedCanon;
-                    } else if (bufferedCanon.length > 0) {
-                      finalRenderQueueRef.current.push({
-                        target: activeBubbleRef.current,
-                        text: bufferedCanon,
-                        ...(transcriptSegIsolationWs && activeBubbleStateRef.current
-                          ? { segmentId: activeBubbleStateRef.current.segmentId }
-                          : {}),
+                if (provExp && confirm?.provisionalOpened) {
+                  if (t.is_final && newFinalSet.has(t)) {
+                    traceSpeakerPendingToken({
+                      text: t.text ?? "",
+                      isFinal: true,
+                      blockedOnOldRow: false,
+                    });
+                    traceTrialHetznerSpeakerPending({
+                      segmentId: confirm.provisionalSegmentId ?? activeBubbleStateRef.current?.segmentId ?? null,
+                      pendingSpeakerId: sid,
+                      streak: confirm.messageStreak,
+                      bufferedLen: activeBubbleStateRef.current?.lockedCommittedFinalOriginal.length ?? 0,
+                    });
+                  } else if (tokenSuitable) {
+                    traceSpeakerPendingToken({
+                      text: t.text ?? "",
+                      isFinal: false,
+                      blockedOnOldRow: false,
+                    });
+                  }
+                  if (speakerConfirmed) {
+                    const confirmReason: "streak" | "age" =
+                      confirm.messageStreak >= minStreak ? "streak" : "age";
+                    commitProvisionalSpeakerRow(confirm, sid, nowMs, confirmReason);
+                  }
+                } else {
+                  handledByPendingSwitchLogic = true;
+                  if (t.is_final && newFinalSet.has(t)) {
+                    const ps = pendingSpeakerSwitchRef.current;
+                    if (ps && ps.sid === sid) {
+                      ps.bufferedFinalText += t.text;
+                      traceSpeakerPendingToken({
+                        text: t.text ?? "",
+                        isFinal: true,
+                        blockedOnOldRow: true,
                       });
-                      if (committedOrigDomIntegrityTraceEnabled()) {
-                        emitCommittedOrigDomOrchestration({
-                          phase: "queue_push",
-                          source: "buildWs/speaker_confirm_bufferedCanon",
-                          segmentId: activeBubbleStateRef.current?.segmentId ?? null,
-                          queueLenAfter: finalRenderQueueRef.current.length,
-                          detail: { pushedUtf16Len: bufferedCanon.length },
+                      traceTrialHetznerSpeakerPending({
+                        segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                        pendingSpeakerId: sid,
+                        streak: ps.messageStreak,
+                        bufferedLen: ps.bufferedFinalText.length,
+                      });
+                    }
+                  } else if (tokenSuitable) {
+                    traceSpeakerPendingToken({
+                      text: t.text ?? "",
+                      isFinal: false,
+                      blockedOnOldRow: true,
+                    });
+                  }
+                  if (speakerConfirmed) {
+                    const confirmReason: "streak" | "age" =
+                      confirm!.messageStreak >= minStreak ? "streak" : "age";
+                    traceSpeakerConfirm({
+                      reason: confirmReason,
+                      streak: confirm!.messageStreak,
+                      ageMs: nowMs - confirm!.firstMs,
+                      bufferedChars: confirm!.bufferedFinalText.length,
+                      bufferedTokens: confirm!.bufferedFinalText.trim()
+                        ? confirm!.bufferedFinalText.trim().split(/\s+/).length
+                        : 0,
+                    });
+                    traceTrialHetznerSpeakerConfirmed({
+                      segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                      speakerId: sid,
+                      flushedBufferedLen: confirm!.bufferedFinalText.length,
+                    });
+                    closeActiveSegmentBoundary("speaker_change");
+                    currentSpeakerRef.current = sid;
+                    lastSpeakerSpeechTokenAtMsRef.current = nowMs;
+                    activeBubbleRef.current = createBubble(sid);
+                    traceSpeakerNewRowCreated({
+                      pendingSpeakerId: String(sid),
+                      newSegmentId: activeBubbleStateRef.current?.segmentId ?? "",
+                    });
+                    setHasTranscript(true);
+                    if (activeBubbleRef.current && confirm!.bufferedFinalText) {
+                      const sidBuf = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
+                      let bufferedCanon = confirm!.bufferedFinalText;
+                      if (sidBuf && isolatedEnqueueCanonRoll && bufferedCanon) {
+                        bufferedCanon = rollEnqueueForSegment(sidBuf, bufferedCanon);
+                      }
+                      if (canonAppendWs && activeBubbleStateRef.current && bufferedCanon.length > 0) {
+                        activeBubbleStateRef.current.lockedCommittedFinalOriginal += bufferedCanon;
+                      } else if (bufferedCanon.length > 0) {
+                        finalRenderQueueRef.current.push({
+                          target: activeBubbleRef.current,
+                          text: bufferedCanon,
+                          ...(transcriptSegIsolationWs && activeBubbleStateRef.current
+                            ? { segmentId: activeBubbleStateRef.current.segmentId }
+                            : {}),
                         });
+                        if (committedOrigDomIntegrityTraceEnabled()) {
+                          emitCommittedOrigDomOrchestration({
+                            phase: "queue_push",
+                            source: "buildWs/speaker_confirm_bufferedCanon",
+                            segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                            queueLenAfter: finalRenderQueueRef.current.length,
+                            detail: { pushedUtf16Len: bufferedCanon.length },
+                          });
+                        }
                       }
                     }
+                    pendingSpeakerSwitchRef.current = null;
                   }
-                  pendingSpeakerSwitchRef.current = null;
                 }
               }
             } else {
@@ -8201,7 +8453,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               setHasTranscript(true);
             }
           } else if (useMorsyUrgentSpeakerGate) {
-            pendingSpeakerSwitchRef.current = null;
+            if (!pendingSpeakerSwitchRef.current?.provisionalOpened) {
+              pendingSpeakerSwitchRef.current = null;
+            }
           }
         }
         if (!activeBubbleRef.current) continue;
@@ -8219,52 +8473,88 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
-          const sidTk = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
+          let appendBubble = activeBubbleRef.current;
+          let appendState = activeBubbleStateRef.current;
+          const pendingProv = pendingSpeakerSwitchRef.current;
+          if (
+            trialHetznerProvisionalRowExperimentEnabled() &&
+            pendingProv?.provisionalOpened &&
+            sid !== undefined &&
+            sameSpeaker(sid, currentSpeakerRef.current)
+          ) {
+            appendBubble = pendingProv.previousBubbleRef ?? appendBubble;
+            appendState =
+              (pendingProv.previousBubbleStateRef as BubbleTransState | null | undefined) ??
+              appendState;
+          }
+          if (!appendBubble || !appendState) continue;
+          const sidTk = transcriptSegIsolationWs && appendState.segmentId;
           const piece = t.text ?? "";
           let pushCanon = piece;
           if (sidTk && isolatedEnqueueCanonRoll && piece) {
             pushCanon = rollEnqueueForSegment(sidTk, piece);
           }
-          if (canonAppendWs && activeBubbleStateRef.current && pushCanon.length > 0) {
-            activeBubbleStateRef.current.lockedCommittedFinalOriginal += pushCanon;
+          if (canonAppendWs && pushCanon.length > 0) {
+            appendState.lockedCommittedFinalOriginal += pushCanon;
             traceTrialHetznerFinalToken({
-              segmentId: activeBubbleStateRef.current.segmentId,
+              segmentId: appendState.segmentId,
               text: pushCanon,
               speakerId: sid !== undefined ? String(sid) : undefined,
-              lockedLenAfter: activeBubbleStateRef.current.lockedCommittedFinalOriginal.length,
+              lockedLenAfter: appendState.lockedCommittedFinalOriginal.length,
             });
+            if (
+              trialHetznerProvisionalRowExperimentEnabled() &&
+              pendingProv?.provisionalOpened &&
+              appendBubble === pendingProv.previousBubbleRef
+            ) {
+              paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
+                appendBubble,
+                appendState,
+                nowMs,
+                canonImmediateCommittedAppend(planTypeRef.current),
+              );
+            }
           } else if (pushCanon.length > 0) {
             finalRenderQueueRef.current.push({
-              target: activeBubbleRef.current,
+              target: appendBubble,
               text: pushCanon,
-              ...(transcriptSegIsolationWs && activeBubbleStateRef.current
-                ? { segmentId: activeBubbleStateRef.current.segmentId }
-                : {}),
+              ...(transcriptSegIsolationWs ? { segmentId: appendState.segmentId } : {}),
             });
             if (committedOrigDomIntegrityTraceEnabled()) {
               emitCommittedOrigDomOrchestration({
                 phase: "queue_push",
                 source: "buildWs/per_token_final",
-                segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                segmentId: appendState.segmentId,
                 queueLenAfter: finalRenderQueueRef.current.length,
                 detail: { pushedUtf16Len: pushCanon.length },
               });
             }
           }
-          if (activeBubbleStateRef.current) {
-            activeBubbleStateRef.current.finalTokensSeen += 1;
-          }
+          appendState.finalTokensSeen += 1;
         }
       }
       if (useMorsyUrgentSpeakerGate) {
         if (pendingSidAtStart && !pendingSidSeenInMessage) {
-          pendingSpeakerSwitchRef.current = null;
+          if (pendingSpeakerSwitchRef.current?.provisionalOpened) {
+            rollbackProvisionalSpeakerRow("pending_sid_missing_this_frame");
+          } else {
+            pendingSpeakerSwitchRef.current = null;
+          }
         }
         const pendingAfter = pendingSpeakerSwitchRef.current;
         const pendingFlushMax =
           morsySemanticIsoPresentationUx ? MORSY_SEMANTIC_ISO_PENDING_FLUSH_MAX_STREAK : 3;
         if (
           pendingAfter &&
+          pendingAfter.provisionalOpened &&
+          pendingAfter.messageStreak < pendingFlushMax &&
+          currentSpeakerSeenInMessage &&
+          activeBubbleRef.current
+        ) {
+          rollbackProvisionalSpeakerRow("current_speaker_seen_same_frame_streak_lt_max");
+        } else if (
+          pendingAfter &&
+          !pendingAfter.provisionalOpened &&
           pendingAfter.messageStreak < pendingFlushMax &&
           currentSpeakerSeenInMessage &&
           activeBubbleRef.current
@@ -8277,6 +8567,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             }
             if (canonAppendWs && activeBubbleStateRef.current && pendCanon.length > 0) {
               activeBubbleStateRef.current.lockedCommittedFinalOriginal += pendCanon;
+              traceSpeakerPendingAbandonedFlushOldRow({
+                pendingSpeakerId: String(pendingAfter.sid),
+                oldSegmentId: activeBubbleStateRef.current.segmentId,
+                flushedChars: pendCanon.length,
+                reason: "current_speaker_seen_same_frame_streak_lt_max",
+              });
             } else if (pendCanon.length > 0) {
               finalRenderQueueRef.current.push({
                 target: activeBubbleRef.current,
@@ -8354,9 +8650,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         );
         const stCanon = activeBubbleStateRef.current;
         const lockedCanon = stCanon?.lockedCommittedFinalOriginal ?? "";
+        const pendingProvNf = pendingSpeakerSwitchRef.current;
+        let nfTokens = tokens;
+        let nfEffSpk = effSpk;
+        if (
+          trialHetznerProvisionalRowExperimentEnabled() &&
+          pendingProvNf?.provisionalOpened
+        ) {
+          const pendSid = pendingProvNf.sid;
+          const idxs: number[] = [];
+          for (let ni = 0; ni < tokens.length; ni++) {
+            const sp = effSpk[ni];
+            if (sp !== undefined && sameSpeaker(sp, pendSid)) idxs.push(ni);
+          }
+          nfTokens = idxs.map((i) => tokens[i]!);
+          nfEffSpk = idxs.map((i) => effSpk[i]!);
+        }
         const { nfRaw, tailSpk } = morsyIsolatedVerbatimRawNfHypothesis({
-          tokens,
-          effSpk,
+          tokens: nfTokens,
+          effSpk: nfEffSpk,
           isEndpointToken: isSonioxEndpointToken,
         });
 
@@ -8509,6 +8821,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             msBacklogLag: paintMeta.msBacklogLag,
             newFinalUtf16ThisMsg: traceCanonNewFinalUtf16,
           });
+          traceSpeakerFirstVisiblePaint({
+            segmentId: stPromoCanon.segmentId,
+            domCommittedLen: committedSpanCanon.textContent?.length ?? 0,
+            lockedLen: lockedCanon.length,
+            flushedBufferedChars: 0, // filled from open switch inside trace
+          });
+          const pendingProvPaint = pendingSpeakerSwitchRef.current;
+          if (
+            pendingProvPaint?.provisionalOpened &&
+            pendingProvPaint.provisionalSegmentId === stPromoCanon.segmentId &&
+            !pendingProvPaint.provisionalFirstPaintEmitted
+          ) {
+            pendingProvPaint.provisionalFirstPaintEmitted = true;
+            traceProvisionalFirstPaint({
+              provisionalSegmentId: stPromoCanon.segmentId,
+              domCommittedLen: committedSpanCanon.textContent?.length ?? 0,
+              lockedLen: lockedCanon.length,
+            });
+          }
           if (
             morsyIsolatedSemanticPresentationEnabled({
               planTypeLower: planTypeRef.current.trim(),
@@ -8523,7 +8854,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ) &&
             !stPromoCanon.translationLocked &&
             !stPromoCanon.finalizing &&
-            !(segmentBoundaryGuardsRef.current && stPromoCanon.isClosed)
+            !(segmentBoundaryGuardsRef.current && stPromoCanon.isClosed) &&
+            !isProvisionalSpeakerRowPending(pendingSpeakerSwitchRef.current, stPromoCanon.segmentId)
           ) {
             const hintedCanon = collapseWs(
               `${stPromoCanon.lockedCommittedFinalOriginal.trimEnd()}${nfRaw}`,
@@ -8865,6 +9197,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         !st.translationLocked &&
         !st.finalizing &&
         !(segmentBoundaryGuardsRef.current && st.isClosed) &&
+        !isProvisionalSpeakerRowPending(pendingSpeakerSwitchRef.current, st.segmentId) &&
         st.finalTokensSeen >= 2 &&
         hintSource.length >= 20 &&
         wordsNow >= EARLY_HINT_MIN_WORDS
@@ -8883,6 +9216,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (sawSonioxEndpoint) {
         const semanticEndpointFinalizeForSegment = (stEnd: BubbleTransState, srcEnd: string): void => {
           if (!srcEnd || stEnd.translationLocked) return;
+          if (isProvisionalSpeakerRowPending(pendingSpeakerSwitchRef.current, stEnd.segmentId)) return;
           const map = adminSegmentRowIndexRef.current;
           const seg = stEnd.segmentId;
           let adminSnapshotLineIndex: number | undefined;
@@ -8984,6 +9318,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     stop,
     closeActiveSegmentBoundary,
     createBubble,
+    openProvisionalSpeakerRow,
+    commitProvisionalSpeakerRow,
+    rollbackProvisionalSpeakerRow,
+    finalizeLiveBubble,
     scrollPanel,
     scheduleFinalTextRenderFlush,
     getBufferedFinalTextForActiveBubble,
@@ -9022,6 +9360,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
       resetSttPipelineInstrumentationSession();
       resetTrialHetznerStreamTraceSession();
+      resetTrialHetznerSpeakerTraceSession();
+      resetTrialHetznerProvisionalRowSession();
       liveBlankTraceSessionReset();
       liveDirectionTraceSessionReset();
 
