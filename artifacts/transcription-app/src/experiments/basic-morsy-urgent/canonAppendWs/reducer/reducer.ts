@@ -19,16 +19,19 @@ import {
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
-  /** Basic · Morsy Urgent only — freeze active row when NF tail is a different speaker. */
-  morsyUrgentPreemptiveSpeakerFreeze?: boolean;
+  sameSpeakerLongPauseSplitMs?: number;
 };
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
-function tryLongPauseSameSpeakerRowSplit(state: EngineState, wallMs: number): EngineState {
+function tryLongPauseSameSpeakerRowSplit(
+  state: EngineState,
+  wallMs: number,
+  pauseSplitMs: number,
+): EngineState {
   const au = state.activeUtterance;
   if (!au || state.lastTokenActivityWallMs <= 0) return state;
   const gap = wallMs - state.lastTokenActivityWallMs;
-  if (gap < SAME_SPEAKER_LONG_PAUSE_SPLIT_MS) return state;
+  if (gap < pauseSplitMs) return state;
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
@@ -49,8 +52,9 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   const wallMs = ctx.wallMs;
 
   let next: EngineState = state;
+  const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
   if (frame.tokens.length > 0) {
-    next = tryLongPauseSameSpeakerRowSplit(next, wallMs);
+    next = tryLongPauseSameSpeakerRowSplit(next, wallMs, pauseSplitMs);
   }
 
   const finProc =
@@ -100,19 +104,19 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
 
-  if (ctx.morsyUrgentPreemptiveSpeakerFreeze) {
-    const tailSpeaker = tail.speaker;
-    const activeSpeaker = next.activeUtterance?.speaker;
-    if (
-      activeSpeaker &&
-      tailSpeaker &&
-      tailSpeaker !== activeSpeaker &&
-      frameNonFinals.length > 0 &&
-      utteranceCommittedText(next.activeUtterance!).trim().length > 0
-    ) {
-      next = freezeActiveUtterance(next);
-      next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
-    }
+  // If non-final tokens signal a different speaker than the active row,
+  // pre-emptively freeze the active row so B's hypothesis appears immediately.
+  const tailSpeaker = tail.speaker;
+  const activeSpeaker = next.activeUtterance?.speaker;
+  if (
+    activeSpeaker &&
+    tailSpeaker &&
+    tailSpeaker !== activeSpeaker &&
+    frameNonFinals.length > 0 &&
+    utteranceCommittedText(next.activeUtterance!).trim().length > 0
+  ) {
+    next = freezeActiveUtterance(next);
+    next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {

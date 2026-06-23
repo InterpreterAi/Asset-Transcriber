@@ -19,10 +19,24 @@ export const CANON_SILENCE_SEGMENT_MS = 2200;
  * Intentionally longer than brief between-sentence pauses so we do not split every clause.
  */
 export const SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 6000;
+/** Basic · Morsy Urgent — faster same-speaker row split after pause. */
+export const MORSY_URGENT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 2000;
 
 export const MAX_UTTERANCE_WALL_MS = 120_000;
 
 export const LIVE_RENDER_BATCH_MS = 80;
+/** Basic · Morsy Urgent — tighter DOM paint batching. */
+export const MORSY_URGENT_LIVE_RENDER_BATCH_MS = 32;
+
+export function sameSpeakerLongPauseSplitMs(morsyUrgent: boolean): number {
+  return morsyUrgent
+    ? MORSY_URGENT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS
+    : SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
+}
+
+export function liveRenderBatchMs(morsyUrgent: boolean): number {
+  return morsyUrgent ? MORSY_URGENT_LIVE_RENDER_BATCH_MS : LIVE_RENDER_BATCH_MS;
+}
 
 /** After `<end>`, require paint quiet for this long before structural freeze. */
 export const STABILIZATION_QUIET_MS = 480;

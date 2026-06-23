@@ -8,7 +8,10 @@ import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { buildSonioxLanguageHints, sonioxRealtimeSessionTuning } from "@/lib/soniox-stt-language-hints";
 
 import { shouldPauseWorkspaceDomPaint } from "@/lib/workspace-text-selection";
-import { LIVE_RENDER_BATCH_MS } from "../policies/segmentation-constants";
+import {
+  liveRenderBatchMs,
+  sameSpeakerLongPauseSplitMs,
+} from "../policies/segmentation-constants";
 import { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import { ProjectionStore } from "../projection/projection-store";
 import { projectTranscriptView } from "../projection/transcript-view";
@@ -104,15 +107,15 @@ export class CanonAppendWsIsolatedRuntime {
 
   private pendingDomFlush = false;
 
-  /** Basic · Morsy Urgent — preemptive row freeze when NF tail is a new speaker. */
-  private morsyUrgentPreemptiveSpeakerFreeze = false;
+  /** Basic · Morsy Urgent — faster endpoint, pause split, and DOM batch tuning. */
+  private morsyUrgentTuning = false;
 
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
 
-  setMorsyUrgentPreemptiveSpeakerFreeze(enabled: boolean): void {
-    this.morsyUrgentPreemptiveSpeakerFreeze = enabled;
+  setMorsyUrgentTuning(enabled: boolean): void {
+    this.morsyUrgentTuning = enabled;
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -343,14 +346,14 @@ export class CanonAppendWsIsolatedRuntime {
       this.emitActiveRowTranslationTick();
       this.emitNewlyFrozenRows();
       this.flushDomImmediate();
-    }, LIVE_RENDER_BATCH_MS);
+    }, liveRenderBatchMs(this.morsyUrgentTuning));
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {
     this.state = reduceCanonAppendWs(this.state, frame, {
       ledger: this.ledger,
       wallMs,
-      morsyUrgentPreemptiveSpeakerFreeze: this.morsyUrgentPreemptiveSpeakerFreeze,
+      sameSpeakerLongPauseSplitMs: sameSpeakerLongPauseSplitMs(this.morsyUrgentTuning),
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
@@ -382,7 +385,7 @@ export class CanonAppendWsIsolatedRuntime {
     const pair = langPair as { a: string; b: string };
     const hints = buildSonioxLanguageHints(pair);
     const interpreterContext = buildSonioxInterpreterContext(pair);
-    const tuning = sonioxRealtimeSessionTuning(pair);
+    const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
     this.client.connect({
@@ -392,7 +395,13 @@ export class CanonAppendWsIsolatedRuntime {
       interpreterContext,
       enableLanguageIdentification: tuning.enableLanguageIdentification,
       maxEndpointDelayMs: tuning.maxEndpointDelayMs,
+      morsyUrgentTuning: this.morsyUrgentTuning,
     });
+  }
+
+  /** Reconnect Soniox with updated language hints (mid-session language switch). */
+  restartSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
+    this.startSoniox(apiKey, langPair, sampleRate);
   }
 
   sendPcm(chunk: ArrayBuffer): void {

@@ -17,6 +17,8 @@ export type SonioxClientConfig = {
   languageHints?: string[];
   enableLanguageIdentification?: boolean;
   maxEndpointDelayMs?: number;
+  /** Basic · Morsy Urgent — faster endpoint fallback when maxEndpointDelayMs omitted. */
+  morsyUrgentTuning?: boolean;
   interpreterContext?: {
     general: { key: string; value: string }[];
     text: string;
@@ -61,7 +63,7 @@ export class SonioxRealtimeClient {
         enable_language_identification: config.enableLanguageIdentification ?? true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 1400,
+        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? (config.morsyUrgentTuning ? 300 : 1400),
       }));
       this.flushPcmQueue();
     };
