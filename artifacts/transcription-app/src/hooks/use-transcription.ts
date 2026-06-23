@@ -99,7 +99,7 @@ import {
 import { gateCanonAppendWsIsolatedRebuild, planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import {
   planUsesOpenAiLegacy2CleanTranslation,
-  planUsesTrialHetznerCleanTranslation,
+  planUsesHetznerCanonStreamingStt,
 } from "@/lib/utils";
 import {
   CanonAppendWsIsolatedRuntime,
@@ -719,7 +719,7 @@ function transcriptScrollDiagCountApply(src: TranscriptScrollPanelSource): void 
  *
  * - **`morsy-urgent-cbf`**: stabilized Soniox speaker segmentation pivot used by **all production workspace tiers**
  *   (trial OpenAI / basic[-libre|-openai] / professional / platinum / unlimited, etc.).
- * - **`morsy-intercall-isolated-experiment`**: **`planUsesCanonAppendWsStt`** plans (`morsy-urgent`, `trial-openai`, `trial-hetzner`) —
+ * - **`morsy-intercall-isolated-experiment`**: **`planUsesCanonAppendWsStt`** plans (`morsy-urgent`, `trial-openai`, `trial-hetzner`, `basic-hetzner`) —
  *   Workspace keeps this segment mode for **translation layout** (dual stable/live spans when guards allow; `{@link morsyStableTranslationTailKillSwitchEngaged}` overrides).
  *   **Original column (Soniox-aligned):** with transcript segment guards, **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`** —
  *   append-only **`lockedCommittedFinalOriginal`** +
@@ -2623,7 +2623,7 @@ type BubbleTransCanonPromotionPaintState = Pick<
 
 /**
  * Sole committed originals DOM writer on **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`**:
- * - **Basic · `morsy-urgent` or `trial-hetzner`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
+ * - **Basic · `morsy-urgent`, `trial-hetzner`, `basic-hetzner`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
  * - **Other isolated experiment plans:** promotion scratch + **`{@link projectCommittedOriginalsVisibleUtf16}`**.
  */
 function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
@@ -2836,10 +2836,10 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
-/** Immediate committed-original DOM append — no `visibleCommittedBoundary` lag (morsy-urgent + trial-hetzner). */
+/** Immediate committed-original DOM append — no `visibleCommittedBoundary` lag (morsy-urgent + Hetzner canon STT). */
 function canonImmediateCommittedAppend(planTypeLower: string): boolean {
   const p = planTypeLower.trim();
-  return isBasicMorsyUrgentPlan(p) || planUsesTrialHetznerCleanTranslation(p);
+  return isBasicMorsyUrgentPlan(p) || planUsesHetznerCanonStreamingStt(p);
 }
 
 /** Basic · Legacy 2 — transcription-only tier (canonAppendWs STT; no translation). */
@@ -4841,35 +4841,35 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   useEffect(() => {
     registerTrialHetznerStreamTracePlanGate(() =>
-      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+      planUsesHetznerCanonStreamingStt(planTypeRef.current),
     );
     return () => registerTrialHetznerStreamTracePlanGate(() => false);
   }, []);
 
   useEffect(() => {
     registerTrialHetznerSpeakerTracePlanGate(() =>
-      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+      planUsesHetznerCanonStreamingStt(planTypeRef.current),
     );
     return () => registerTrialHetznerSpeakerTracePlanGate(() => false);
   }, []);
 
   useEffect(() => {
     registerTrialHetznerProvisionalRowPlanGate(() =>
-      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+      planUsesHetznerCanonStreamingStt(planTypeRef.current),
     );
     return () => registerTrialHetznerProvisionalRowPlanGate(() => false);
   }, []);
 
   useEffect(() => {
     registerTrialHetznerDomAuditPlanGate(() =>
-      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+      planUsesHetznerCanonStreamingStt(planTypeRef.current),
     );
     return () => registerTrialHetznerDomAuditPlanGate(() => false);
   }, []);
 
   useEffect(() => {
     registerTrialHetznerMergedOriginalPlanGate(() =>
-      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+      planUsesHetznerCanonStreamingStt(planTypeRef.current),
     );
     return () => registerTrialHetznerMergedOriginalPlanGate(() => false);
   }, []);
