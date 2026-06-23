@@ -778,7 +778,7 @@ const CLS_ROW_SEMANTIC_STACK =
 const TRANSLATION_PLATINUM_PLACEHOLDER =
   "InterpreterAI Translation is available on the Platinum plan.";
 
-// ── Soniox v4 types ────────────────────────────────────────────────────────────
+// ── Soniox real-time types ───────────────────────────────────────────────────
 interface SonioxToken {
   text:      string;
   is_final:  boolean;
@@ -844,7 +844,7 @@ function sonioxWebSocketErrorForUser(msg: SonioxMessage): string {
 }
 
 // ── Speaker normalization (temporal-LRU pool) ──────────────────────────────────
-// Soniox v4 returns `speaker` as a string (e.g. "1"); older responses used numbers.
+// Soniox returns `speaker` as a string (e.g. "1"); older responses used numbers.
 const _speakerMap  = new Map<string, number>();
 const _slotLastMs  = new Map<number, number>();
 let   _slotCount   = 0;
@@ -7905,7 +7905,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const tuning = sonioxRealtimeSessionTuning(pair);
       ws.send(JSON.stringify({
         api_key:                        apiKey,
-        model:                          "stt-rt-v4",
+        model:                          "stt-rt-v5",
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
