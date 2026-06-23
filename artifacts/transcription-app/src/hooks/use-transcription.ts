@@ -3347,6 +3347,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const canonWsIsolationEngineRef = useRef<CanonAppendWsIsolatedRuntime | null>(null);
   const canonWsIsolationRecordingRef = useRef(false);
+  /** Soniox API key for the active session — used to restart STT on mid-session language change. */
+  const sonioxSessionApiKeyRef = useRef<string | null>(null);
   /** True once a deterministic canon session mounted — snapshots read engine lines until cleared. */
   const canonWsSnapshotFromEngineRef = useRef(false);
   const canonRowTranslateSeqRef = useRef(new Map<string, number>());
@@ -8014,6 +8016,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     finalizeLiveBubble();
 
     canonWsIsolationRecordingRef.current = false;
+    sonioxSessionApiKeyRef.current = null;
 
     canonWsIsolationEngineRef.current?.stopSoniox();
     canonWsIsolationEngineRef.current?.setHooks({ onSpeechToken: undefined });
@@ -9610,9 +9613,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         canonWsTailFollowLatchRef.current = true;
         morsyUrgentStickyTrueTailScrollDedupeFingerprintRef.current = "";
         queueMicrotask(() => scrollPanelFnRef.current?.(true));
+        sonioxSessionApiKeyRef.current = tokenRes.apiKey;
+        eng.setMorsyUrgentTuning(isBasicMorsyUrgentPlan(planTypeRef.current.trim()));
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
         canonWsIsolationRecordingRef.current = false;
+        sonioxSessionApiKeyRef.current = tokenRes.apiKey;
         const ws = buildWs(tokenRes.apiKey);
         wsRef.current = ws;
       }
@@ -9767,7 +9773,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Per-segment target is resolved at dispatchTranslation time: if Soniox
   // detected language matches B → translate to A, otherwise → translate to B.
   const setLangPair = useCallback((a: string, b: string) => {
+    const prev = langPairRef.current;
     langPairRef.current = { a, b };
+    if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return;
+    if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
+    if (prev.a === a && prev.b === b) return;
+    const eng = canonWsIsolationEngineRef.current;
+    const apiKey = sonioxSessionApiKeyRef.current;
+    if (!eng || !apiKey) return;
+    eng.restartSoniox(apiKey, { a, b }, TARGET_RATE);
   }, []);
 
   // ── getSnapshot ────────────────────────────────────────────────────────────
