@@ -75,6 +75,11 @@ import {
   type UserGlossaryRow,
 } from "../lib/user-glossary.js";
 import { applyArabicStaticLeakReplacements } from "../lib/en-to-arabic-script-clinical-leaks.js";
+import { workspaceLanguageLabel } from "../lib/workspace-languages.js";
+
+function langName(code: string): string {
+  return workspaceLanguageLabel(code);
+}
 
 // ── HIPAA / Ephemeral-only processing ─────────────────────────────────────
 //
@@ -617,24 +622,6 @@ async function sweepStaleSessions(): Promise<void> {
   }
 }
 setInterval(sweepStaleSessions, 5 * 60_000); // every 5 minutes
-
-// ── Language code → display name lookup ────────────────────────────────────
-const LANG_NAMES: Record<string, string> = {
-  ar: "Arabic", bg: "Bulgarian", "zh-CN": "Chinese (Simplified)",
-  "zh-TW": "Chinese (Traditional)", hr: "Croatian", cs: "Czech",
-  da: "Danish", nl: "Dutch", en: "English", fa: "Persian (Farsi)",
-  fi: "Finnish", fr: "French", de: "German", el: "Greek",
-  he: "Hebrew", hi: "Hindi", hu: "Hungarian", id: "Indonesian",
-  it: "Italian", ja: "Japanese", ko: "Korean", ms: "Malay",
-  nb: "Norwegian", pl: "Polish", pt: "Portuguese", ro: "Romanian",
-  ru: "Russian", sk: "Slovak", so: "Somali", es: "Spanish", sv: "Swedish",
-  th: "Thai", tr: "Turkish", uk: "Ukrainian", ur: "Urdu",
-  vi: "Vietnamese",
-};
-
-function langName(code: string): string {
-  return LANG_NAMES[code] ?? code;
-}
 
 // STREAMING_FRAGMENT_RULES removed — this route always treats the user message as one continuous transcript block.
 
