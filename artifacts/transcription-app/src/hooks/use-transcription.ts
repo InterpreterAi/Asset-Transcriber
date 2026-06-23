@@ -192,6 +192,21 @@ import {
   traceSpeakerPendingToken,
 } from "@/hooks/trial-hetzner-speaker-transition-trace";
 import {
+  registerTrialHetznerMergedOriginalPlanGate,
+  setupTrialHetznerMergedOriginalDom,
+  syncTrialHetznerMergedOriginalFromCommittedSpan,
+  syncTrialHetznerMergedOriginalFromSpans,
+  trialHetznerMergedOriginalRenderEnabled,
+} from "@/hooks/trial-hetzner-merged-original-render";
+import {
+  domAuditBeginSpeakerTransition,
+  domAuditEndTransition,
+  domAuditSnapshot,
+  registerTrialHetznerDomAuditPlanGate,
+  resetTrialHetznerDomAuditSession,
+  trialHetznerDomAuditEnabled,
+} from "@/hooks/trial-hetzner-dom-transition-audit";
+import {
   isProvisionalSpeakerRowPending,
   registerTrialHetznerProvisionalRowPlanGate,
   resetTrialHetznerProvisionalRowSession,
@@ -2638,6 +2653,7 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
     st.visibleCommittedBoundary = locked.length;
 
     if (prevDomText === locked) {
+      syncTrialHetznerMergedOriginalFromCommittedSpan(committedSpan);
       return {
         promoted: false,
         promoteReason: "none",
@@ -2713,6 +2729,7 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
       });
     }
 
+    syncTrialHetznerMergedOriginalFromCommittedSpan(committedSpan);
     return {
       promoted: false,
       promoteReason: "none",
@@ -2748,6 +2765,7 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
   const noopProjection =
     prevBoundary === st.visibleCommittedBoundary && prevDomText === visiblePrefix;
   if (noopProjection) {
+    syncTrialHetznerMergedOriginalFromCommittedSpan(committedSpan);
     return {
       promoted: stepRes.promoted,
       promoteReason: stepRes.promoteReason,
@@ -2793,6 +2811,7 @@ function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
       },
     });
   }
+  syncTrialHetznerMergedOriginalFromCommittedSpan(committedSpan);
   return {
     promoted: stepRes.promoted,
     promoteReason: stepRes.promoteReason,
@@ -4838,6 +4857,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       planUsesTrialHetznerCleanTranslation(planTypeRef.current),
     );
     return () => registerTrialHetznerProvisionalRowPlanGate(() => false);
+  }, []);
+
+  useEffect(() => {
+    registerTrialHetznerDomAuditPlanGate(() =>
+      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+    );
+    return () => registerTrialHetznerDomAuditPlanGate(() => false);
+  }, []);
+
+  useEffect(() => {
+    registerTrialHetznerMergedOriginalPlanGate(() =>
+      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+    );
+    return () => registerTrialHetznerMergedOriginalPlanGate(() => false);
   }, []);
 
   useEffect(() => {
@@ -7356,6 +7389,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     }
     p.appendChild(finalCommitTarget);
     p.appendChild(nfSpan);
+    if (trialHetznerMergedOriginalRenderEnabled()) {
+      setupTrialHetznerMergedOriginalDom({
+        paragraph: p,
+        committedSpan: finalCommitTarget,
+        nfSpan,
+      });
+    }
     origRow.appendChild(p);
     markWorkspaceSelectableText(p);
     markWorkspaceSelectableText(finalCommitTarget);
@@ -7602,6 +7642,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     if (activeBubbleNFRef.current) {
       activeBubbleNFRef.current.textContent = "";
+      syncTrialHetznerMergedOriginalFromSpans(activeBubbleRef.current, activeBubbleNFRef.current);
     }
 
     // Original column: exact ASR mirror only — no phrase rewrites or “corrections” to similar wording.
@@ -7722,6 +7763,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       pendingSpeakerId: String(pendingSid),
       newSegmentId: pending.provisionalSegmentId ?? "",
     });
+    domAuditSnapshot({
+      moment: "provisional_open",
+      speakerId: String(pendingSid),
+      oldCommitted: pending.previousBubbleRef,
+      oldNF: pending.previousNfRef,
+      newCommitted: activeBubbleRef.current,
+      newNF: activeBubbleNFRef.current,
+    });
   }, [createBubble]);
 
   const commitProvisionalSpeakerRow = useCallback((
@@ -7785,6 +7834,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       previousSegmentId: prevState?.segmentId ?? null,
       reason: confirmReason,
     });
+    domAuditSnapshot({
+      moment: "speaker_confirm",
+      speakerId: String(sid),
+      oldCommitted: prevBubble,
+      oldNF: prevNf,
+      newCommitted: provBubble,
+      newNF: provNf,
+    });
+    domAuditEndTransition();
     pendingSpeakerSwitchRef.current = null;
   }, [finalizeLiveBubble, flushFinalTextRenderQueue]);
 
@@ -7807,6 +7865,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       mergedChars: delta.length,
       reason,
     });
+    domAuditSnapshot({
+      moment: "provisional_rollback",
+      speakerId: String(pending.sid),
+      oldCommitted: prevBubble,
+      oldNF: prevNf,
+      newCommitted: provBubble,
+      newNF: activeBubbleNFRef.current,
+    });
 
     activeBubbleRef.current = prevBubble ?? null;
     activeBubbleStateRef.current = prevState ?? null;
@@ -7820,6 +7886,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         Date.now(),
         canonImmediateCommittedAppend(planTypeRef.current),
       );
+      syncTrialHetznerMergedOriginalFromSpans(prevBubble, prevNf);
     }
 
     const provRow = (provBubble?.closest(`.${CLS.row}`) as HTMLDivElement | null) ?? null;
@@ -7841,6 +7908,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       reason,
     });
     pendingSpeakerSwitchRef.current = null;
+    domAuditEndTransition();
   }, []);
 
   // ── doClear ────────────────────────────────────────────────────────────────
@@ -8302,6 +8370,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   };
                   pending = pendingSpeakerSwitchRef.current;
                   pendingSidCountedInMessage = true;
+                  domAuditBeginSpeakerTransition(String(sid));
                   traceSpeakerChangeDetected({
                     pendingSpeakerId: String(sid),
                     previousSpeakerId:
@@ -8468,6 +8537,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               blockedReason: "speaker_stabilization_pending",
               lockedLenAfter: activeBubbleStateRef.current?.lockedCommittedFinalOriginal.length,
             });
+            const pBlock = pendingSpeakerSwitchRef.current;
+            if (pBlock && trialHetznerDomAuditEnabled() && !pBlock.provisionalOpened) {
+              domAuditSnapshot({
+                moment: "first_new_speaker_final",
+                speakerId: pBlock.sid,
+                oldCommitted: activeBubbleRef.current,
+                oldNF: activeBubbleNFRef.current,
+                newCommitted: null,
+                newNF: null,
+              });
+            }
           }
           continue;
         }
@@ -8513,6 +8593,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 nowMs,
                 canonImmediateCommittedAppend(planTypeRef.current),
               );
+              syncTrialHetznerMergedOriginalFromSpans(appendBubble, pendingProv.previousNfRef);
             }
           } else if (pushCanon.length > 0) {
             finalRenderQueueRef.current.push({
@@ -8729,6 +8810,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   basicMorsyUrgentNfStable ? domApply : "full_replace",
               });
             }
+            const pNfAudit = pendingSpeakerSwitchRef.current;
+            if (pNfAudit && trialHetznerDomAuditEnabled()) {
+              if (pNfAudit.provisionalOpened) {
+                domAuditSnapshot({
+                  moment: "first_new_speaker_nonfinal",
+                  speakerId: pNfAudit.sid,
+                  oldCommitted: pNfAudit.previousBubbleRef,
+                  oldNF: pNfAudit.previousNfRef,
+                  newCommitted: activeBubbleRef.current,
+                  newNF: nfElC,
+                });
+              } else {
+                domAuditSnapshot({
+                  moment: "first_new_speaker_nonfinal",
+                  speakerId: pNfAudit.sid,
+                  oldCommitted: activeBubbleRef.current,
+                  oldNF: nfElC,
+                  newCommitted: null,
+                  newNF: null,
+                });
+              }
+            }
           } else {
             resetMorsyUrgentNfPresentationScratch(stCanon.morsyUrgentNfPresentation);
             if (basicMorsyUrgentNfStable) {
@@ -8756,8 +8859,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           clearMorsyIsolatedSemanticUiTimers(stCanon);
           stCanon.morsyVisibleNfStagingPaint = "";
           stCanon.morsyVisibleNfCommittedPaint = "";
+          syncTrialHetznerMergedOriginalFromSpans(activeBubbleRef.current, nfElC);
         } else if (nfElC) {
           nfElC.textContent = "";
+          syncTrialHetznerMergedOriginalFromSpans(activeBubbleRef.current, nfElC);
         }
 
         if (
@@ -8839,6 +8944,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               domCommittedLen: committedSpanCanon.textContent?.length ?? 0,
               lockedLen: lockedCanon.length,
             });
+            const pPaint = pendingSpeakerSwitchRef.current;
+            domAuditSnapshot({
+              moment: "provisional_first_paint",
+              speakerId: pPaint?.sid ?? null,
+              oldCommitted: pPaint?.previousBubbleRef,
+              oldNF: pPaint?.previousNfRef,
+              newCommitted: committedSpanCanon,
+              newNF: activeBubbleNFRef.current,
+            });
+            if (traceCanonNewFinalUtf16 > 0) {
+              domAuditSnapshot({
+                moment: "first_new_speaker_final",
+                speakerId: pPaint?.sid ?? null,
+                oldCommitted: pPaint?.previousBubbleRef,
+                oldNF: pPaint?.previousNfRef,
+                newCommitted: committedSpanCanon,
+                newNF: activeBubbleNFRef.current,
+              });
+            }
           }
           if (
             morsyIsolatedSemanticPresentationEnabled({
@@ -9362,6 +9486,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       resetTrialHetznerStreamTraceSession();
       resetTrialHetznerSpeakerTraceSession();
       resetTrialHetznerProvisionalRowSession();
+      resetTrialHetznerDomAuditSession();
       liveBlankTraceSessionReset();
       liveDirectionTraceSessionReset();
 
