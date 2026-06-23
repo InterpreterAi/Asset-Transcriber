@@ -3247,11 +3247,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
   }
 
+  /** trial-hetzner translation uses basic machine MT dispatch — not the isolated clean stack. */
   function trialHetznerCleanTranslationActive(): boolean {
-    return planUsesTrialHetznerCleanTranslation(planTypeRef.current);
+    return false;
   }
 
-  /** trial-openai clean OR trial-hetzner clean — shared client dispatch only; engines stay separate server-side. */
+  /** trial-openai clean — shared client dispatch only; trial-hetzner uses basic machine MT. */
   function canonTrialCleanTranslationActive(): boolean {
     return openAiLegacy2CleanTranslationActive() || trialHetznerCleanTranslationActive();
   }
@@ -3294,11 +3295,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }
 
   /**
-   * Clean canon stacks (OpenAI Clean MT, Morsy Clean MT, trial-hetzner clean): stable-source fetch +
-   * locked-prefix live reconcile paint — same self-correction behavior for Arabic, Spanish, all pairs.
+   * Clean canon stacks (OpenAI Clean MT, Morsy Clean MT): stable-source fetch + locked-prefix live reconcile.
+   * trial-hetzner uses basic machine MT paint (same as basic-hetzner).
    */
   function canonCleanStackLiveReconcile(): boolean {
-    return usesCleanMtTranslationStack() || trialHetznerCleanTranslationActive();
+    return usesCleanMtTranslationStack();
   }
 
   function morsyUsesChunkTranslationV2Experiment(): boolean {

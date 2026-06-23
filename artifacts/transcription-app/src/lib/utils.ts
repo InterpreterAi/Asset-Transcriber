@@ -84,7 +84,8 @@ export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | un
 }
 
 /**
- * **trial-hetzner only** — isolated clean Hetzner path (mirrors trial-openai client dispatch; never OpenAI).
+ * **trial-hetzner only** — STT/originals canon path (immediate committed append, speaker experiments).
+ * Translation uses the same machine MT client dispatch as basic-hetzner (not clean-stack live reconcile).
  */
 export function planUsesTrialHetznerCleanTranslation(planType: string | null | undefined): boolean {
   return (planType ?? "").trim().toLowerCase() === "trial-hetzner";

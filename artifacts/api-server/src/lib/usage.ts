@@ -122,11 +122,11 @@ export function planUsesOpenAiMorsyInterpreterStack(planType: string | null | un
 }
 
 /**
- * **trial-hetzner only** — isolated clean Hetzner path (`runTrialHetznerCleanTranslation`).
- * Mirrors trial-openai preprocessing/postprocessing; never routes to OpenAI.
+ * Deprecated trial-hetzner clean stack — trial-hetzner now uses the same machine MT path as basic-hetzner
+ * (`translateBasicProfessional` via `planUsesMachineTranslationStack`).
  */
-export function planUsesTrialHetznerCleanStack(planType: string | null | undefined): boolean {
-  return (planType ?? "").trim().toLowerCase() === "trial-hetzner";
+export function planUsesTrialHetznerCleanStack(_planType: string | null | undefined): boolean {
+  return false;
 }
 
 /** Runtime translation engine selector for /translate. */
