@@ -48,7 +48,7 @@ export class SonioxRealtimeClient {
     ws.onopen = () => {
       ws.send(JSON.stringify({
         api_key:                        config.apiKey,
-        model:                          config.model ?? "stt-rt-v4",
+        model:                          config.model ?? "stt-rt-v5",
         audio_format:                   "pcm_s16le",
         sample_rate:                    config.sampleRate ?? 16_000,
         num_channels:                   1,

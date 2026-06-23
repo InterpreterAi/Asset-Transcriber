@@ -45,17 +45,17 @@ The user also dismissed the Replit Resend connector and prefers that the `RESEND
 - All frontend fetch calls include `credentials: "include"` for cookie-based authentication.
 
 **Key Features & Behaviors:**
-- **Transcription Flow (Soniox stt-rt-v4):**
+- **Transcription Flow (Soniox stt-rt-v5):**
     1. User selects an audio input device and starts recording.
     2. Frontend obtains an API token and starts a transcription session.
     3. A single WebSocket connection is established with `wss://stt-rt.soniox.com/transcribe-websocket`.
-    4. Configuration includes `model: "stt-rt-v4"`, `language_hints: ["en","ar"]`, `enable_language_identification: true`, `enable_speaker_diarization: true`.
+    4. Configuration includes `model: "stt-rt-v5"`, `language_hints: ["en","ar"]`, `enable_language_identification: true`, `enable_speaker_diarization: true`.
     5. PCM audio is streamed; Soniox handles language switching internally.
     6. **Token Model:** Responses contain `tokens[]` with `is_final` and `language` fields.
     7. **Transcript State:** `finalizedSegments` (append-only) and `activeSegment` (updates in place). UI renders based on these, minimizing re-renders.
     8. **Flush Triggers:** Speaker change, sentence boundary, utterance boundary (Soniox VAD), or word cap (100 words).
     9. Auto-reconnect on WebSocket closure with a delay.
-- **Soniox v4 API:** Uses `stt-rt-v4` model for 60+ languages, per-token language ID, speaker diarization, and sub-200ms latency. Audio is processed via AudioWorklet in 60ms chunks (48kHz → 16kHz downsampled).
+- **Soniox v5 Real-Time API:** Uses `stt-rt-v5` model for 60+ languages, per-token language ID, speaker diarization, and sub-200ms latency. Audio is processed via AudioWorklet in 60ms chunks (48kHz → 16kHz downsampled).
 - **Bidirectional Translation:** Supports two language selectors (default English ↔ Arabic). Each finalized phrase is auto-translated to the opposite language based on Soniox's detected language. Translations are displayed in a right panel with language badges.
 - **UI Layout:** Features a 64px sidebar, 52px header, split panels for original transcript and translations, and a bottom toolbar for device selection, language settings, and recording controls.
 - **Translation Implementation:** Each phrase finalizes, then `POST /api/translate` is called, and the result is shown inline. Uses MyMemory free API.
