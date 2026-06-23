@@ -170,6 +170,17 @@ import {
   stepVisibleCommittedBoundaryUtf16,
   writeMorsySemanticLayoutPreferredStacked,
 } from "@/hooks/morsy-isolated-semantic-visible";
+import {
+  registerTrialHetznerStreamTracePlanGate,
+  resetTrialHetznerStreamTraceSession,
+  traceTrialHetznerCommittedPaint,
+  traceTrialHetznerFinalToken,
+  traceTrialHetznerNfPaint,
+  traceTrialHetznerSpeakerConfirmed,
+  traceTrialHetznerSpeakerPending,
+  traceTrialHetznerSegmentClose,
+  traceTrialHetznerWsFrame,
+} from "@/hooks/trial-hetzner-stream-trace";
 
 /** Matches `ApiError` from api-client-react without importing (project ref .d.ts can lag). */
 function getTranscriptionTokenFailureCode(err: unknown): string | undefined {
@@ -2576,7 +2587,7 @@ type BubbleTransCanonPromotionPaintState = Pick<
 
 /**
  * Sole committed originals DOM writer on **`{@link morsyUrgentAppendOnlyTranscriptDomPath}`**:
- * - **Basic · `morsy-urgent`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
+ * - **Basic · `morsy-urgent` or `trial-hetzner`:** immediate monotone append (no `idle_quiet` / `lag_ceiling` gating).
  * - **Other isolated experiment plans:** promotion scratch + **`{@link projectCommittedOriginalsVisibleUtf16}`**.
  */
 function paintMorsyUrgentCanonAppendCommittedOriginalsVisibleDom(
@@ -2783,6 +2794,12 @@ function clearMorsyIsolatedSemanticUiTimers(st: BubbleTransState | null | undefi
 /** Basic · Morsy Urgent plan (UI: continuous flow, no Speaker N badges, optional stacked layout). */
 function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
+}
+
+/** Immediate committed-original DOM append — no `visibleCommittedBoundary` lag (morsy-urgent + trial-hetzner). */
+function canonImmediateCommittedAppend(planTypeLower: string): boolean {
+  const p = planTypeLower.trim();
+  return isBasicMorsyUrgentPlan(p) || planUsesTrialHetznerCleanTranslation(p);
 }
 
 /** Basic · Legacy 2 — transcription-only tier (canonAppendWs STT; no translation). */
@@ -4284,7 +4301,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           target,
           gateSt,
           nowFlushCanon,
-          isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
+          canonImmediateCommittedAppend(planTypeRef.current),
         );
         if (morsyIsolatedReconcileDiagEnabled()) {
           console.info("[morsy_isolated_reconcile]", {
@@ -4367,7 +4384,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             target,
             bubbleStCanonRescue,
             Date.now(),
-            isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
+            canonImmediateCommittedAppend(planTypeRef.current),
           );
         } else {
           const prevDom = target.textContent ?? "";
@@ -4784,6 +4801,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       return morsyIntercallIsolatedSandboxSegment(segmentBehaviorModeRef.current);
     });
     return () => registerCommittedOrigDomIntegrityTraceStrictScopeGate(() => false);
+  }, []);
+
+  useEffect(() => {
+    registerTrialHetznerStreamTracePlanGate(() =>
+      planUsesTrialHetznerCleanTranslation(planTypeRef.current),
+    );
+    return () => registerTrialHetznerStreamTracePlanGate(() => false);
   }, []);
 
   useEffect(() => {
@@ -7598,6 +7622,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Finalize and hard-close the active segment boundary so no later partial text
   // can continue writing into that finalized segment.
   const closeActiveSegmentBoundary = useCallback((closeKind: SegmentCloseKind = "session_end") => {
+    traceTrialHetznerSegmentClose({
+      segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+      reason: closeKind,
+    });
     flushFinalTextRenderQueue();
     if (!activeBubbleRef.current) return;
     if (committedOrigDomIntegrityTraceEnabled()) {
@@ -8100,7 +8128,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                 }
                 if (t.is_final && newFinalSet.has(t)) {
                   const ps = pendingSpeakerSwitchRef.current;
-                  if (ps && ps.sid === sid) ps.bufferedFinalText += t.text;
+                  if (ps && ps.sid === sid) {
+                    ps.bufferedFinalText += t.text;
+                    traceTrialHetznerSpeakerPending({
+                      segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                      pendingSpeakerId: sid,
+                      streak: ps.messageStreak,
+                      bufferedLen: ps.bufferedFinalText.length,
+                    });
+                  }
                 }
                 const confirm = pendingSpeakerSwitchRef.current;
                 const speakerConfirmed =
@@ -8117,6 +8153,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                     )
                   );
                 if (speakerConfirmed && tokenSuitable) {
+                  traceTrialHetznerSpeakerConfirmed({
+                    segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+                    speakerId: sid,
+                    flushedBufferedLen: confirm.bufferedFinalText.length,
+                  });
                   closeActiveSegmentBoundary("speaker_change");
                   currentSpeakerRef.current = sid;
                   lastSpeakerSpeechTokenAtMsRef.current = nowMs;
@@ -8164,7 +8205,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
         if (!activeBubbleRef.current) continue;
-        if (handledByPendingSwitchLogic) continue;
+        if (handledByPendingSwitchLogic) {
+          if (t.is_final && newFinalSet.has(t)) {
+            traceTrialHetznerFinalToken({
+              segmentId: activeBubbleStateRef.current?.segmentId ?? null,
+              text: t.text ?? "",
+              speakerId: sid !== undefined ? String(sid) : undefined,
+              blockedReason: "speaker_stabilization_pending",
+              lockedLenAfter: activeBubbleStateRef.current?.lockedCommittedFinalOriginal.length,
+            });
+          }
+          continue;
+        }
         if (isSonioxEndpointToken(t)) continue;
         if (t.is_final && newFinalSet.has(t)) {
           const sidTk = transcriptSegIsolationWs && activeBubbleStateRef.current?.segmentId;
@@ -8175,6 +8227,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
           if (canonAppendWs && activeBubbleStateRef.current && pushCanon.length > 0) {
             activeBubbleStateRef.current.lockedCommittedFinalOriginal += pushCanon;
+            traceTrialHetznerFinalToken({
+              segmentId: activeBubbleStateRef.current.segmentId,
+              text: pushCanon,
+              speakerId: sid !== undefined ? String(sid) : undefined,
+              lockedLenAfter: activeBubbleStateRef.current.lockedCommittedFinalOriginal.length,
+            });
           } else if (pushCanon.length > 0) {
             finalRenderQueueRef.current.push({
               target: activeBubbleRef.current,
@@ -8417,6 +8475,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           }
         }
 
+        traceTrialHetznerWsFrame({
+          segmentId: stCanon?.segmentId ?? null,
+          newFinalCount: newFinals.length,
+          nfRawLen: nfRaw.length,
+          tokenCount: tokens.length,
+        });
+        traceTrialHetznerNfPaint({
+          segmentId: stCanon?.segmentId ?? null,
+          nfRawLen: nfRaw.length,
+          domNfLen: nfElC?.textContent?.length ?? 0,
+          speakerTailChanged: nfFullReplaceThisMsg,
+        });
+
         const committedSpanCanon = activeBubbleRef.current;
         const stPromoCanon = activeBubbleStateRef.current;
         if (stPromoCanon && committedSpanCanon) {
@@ -8425,8 +8496,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             committedSpanCanon,
             stPromoCanon,
             nowMs,
-            isBasicMorsyUrgentPlan(planTypeRef.current.trim()),
+            canonImmediateCommittedAppend(planTypeRef.current),
           );
+          traceTrialHetznerCommittedPaint({
+            segmentId: stPromoCanon.segmentId,
+            lockedLen: lockedCanon.length,
+            visibleBoundary: paintMeta.boundaryAfterUtf16,
+            domCommittedLen: committedSpanCanon.textContent?.length ?? 0,
+            promoteReason: paintMeta.promoteReason,
+            idleNeedMs: paintMeta.idleNeedMsSuggested,
+            msQuietSinceGrowth: paintMeta.msQuietSinceCanonGrowth,
+            msBacklogLag: paintMeta.msBacklogLag,
+            newFinalUtf16ThisMsg: traceCanonNewFinalUtf16,
+          });
           if (
             morsyIsolatedSemanticPresentationEnabled({
               planTypeLower: planTypeRef.current.trim(),
@@ -8939,6 +9021,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       intercallFinalizedSegmentIdsRef.current = [];
 
       resetSttPipelineInstrumentationSession();
+      resetTrialHetznerStreamTraceSession();
       liveBlankTraceSessionReset();
       liveDirectionTraceSessionReset();
 
