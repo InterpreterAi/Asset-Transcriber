@@ -284,10 +284,10 @@ function buildSummary(): TrialHetznerStreamSummary {
   const maxGap = gaps.length ? Math.max(...gaps) : 0;
 
   const interpretation: string[] = [
-    "Original-column chunking on trial-hetzner is dominated by visibleCommittedBoundary promotion (165–300ms idle/lag gating), not Soniox token rate.",
+    "Within-bubble streaming uses immediate append (canonImmediateCommittedAppend); visibleCommittedBoundary lag is bypassed for trial-hetzner.",
     "Speaker transitions buffer finals until FAST_SWITCH confirms (2 WS messages or 300ms), producing burst writes on new rows.",
+    "Fast back-and-forth may abandon pending buffer onto the OLD row (pending_speaker_flush path).",
     "Translation debounce (52ms) affects Arabic column only; it does not gate English committed streaming.",
-    "NF smoothing may withhold trailing tokens 220–280ms but committed finals lag is the primary visible stall.",
   ];
 
   return {
