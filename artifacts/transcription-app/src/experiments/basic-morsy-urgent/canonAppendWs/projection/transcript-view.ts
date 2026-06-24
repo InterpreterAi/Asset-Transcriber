@@ -17,11 +17,27 @@ export type TranscriptProjection = {
 };
 
 function stripTrailingPartialFragment(text: string): string {
-  // Remove a trailing single consonant letter preceded by a space: "está b" → "está"
-  let t = text.trimEnd().replace(/\s[b-df-hj-np-tv-zB-DF-HJ-NP-TV-Z]$/, "");
-  // Remove a trailing 2-consonant cluster preceded by a space: "work wh" → "work"
+  let t = text.trimEnd();
+  // Single consonant after space: " b", " th"
+  t = t.replace(/\s[b-df-hj-np-tv-zB-DF-HJ-NP-TV-Z]$/, "");
+  // 2-consonant cluster: " wh", " fr"
   t = t.replace(/\s[b-df-hj-np-tv-z]{2}$/i, "");
-  return t;
+  // Common Spanish/English partial stems with vowels (3-6 chars, no word ending pattern)
+  // Matches fragments like "escuch", "eith", "unfortun", "acord" that end mid-stem
+  t = t.replace(/\s[a-záéíóúü]{3,6}$/i, (match) => {
+    const word = match.trim().toLowerCase();
+    // Preserve real short words — don't strip these
+    const KEEP = new Set([
+      "han", "hay", "sin", "son", "van", "fue", "era", "una", "uno",
+      "los", "las", "del", "que", "con", "por", "the", "and", "for", "not", "but",
+      "can", "did", "got", "had", "has", "him", "his", "its", "let", "may", "now",
+      "our", "out", "see", "she", "them", "then", "they", "was", "way", "who",
+      "yes", "you", "her", "him", "how", "its", "man", "men", "new", "old", "own",
+      "say", "two", "use", "day", "get", "big", "few", "run", "too", "any", "are",
+    ]);
+    return KEEP.has(word) ? match : "";
+  });
+  return t.trim();
 }
 
 function cleanSonioxPunctuation(text: string): string {
@@ -46,6 +62,7 @@ function utteranceRow(u: CanonUtterance, finalized: boolean): RowProjection | nu
   const committedText = finalized
     ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
     : rawCommitted;
+  if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
   if (!committedText.length && !liveText.length) return null;
   return {

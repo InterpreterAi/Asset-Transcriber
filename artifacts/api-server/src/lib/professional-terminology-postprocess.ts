@@ -81,5 +81,19 @@ export function applyProfessionalTerminologyFixes(
     out = fixArabicToEnglishErrors(out, opts?.sourceText ?? "");
   }
 
+  // Spanish → English corrections (Hetzner-specific failures)
+  if (src === "es" && tgt === "en") {
+    out = out.replace(/\boctopist\b/gi, "ophthalmologist");
+    out = out.replace(/\bocupist\b/gi, "ophthalmologist");
+    out = out.replace(/\bokulist\b/gi, "ophthalmologist");
+    out = out.replace(/\bany\.\./gi, "");
+    out = out.replace(/\bCualquier\b/g, "Any");
+  }
+
+  if (src === "en" && tgt === "es") {
+    out = out.replace(/\bophthalmologist\b/gi, "oftalmólogo");
+    out = out.replace(/\beye doctor\b/gi, "oftalmólogo");
+  }
+
   return out;
 }
