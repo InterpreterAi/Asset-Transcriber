@@ -6159,6 +6159,19 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     force = false,
   ) => {
     const rowId = payload.utterance.utterance_id;
+    const committed = payload.committedText.trim();
+    const wordCount = committed.split(/\s+/).filter(Boolean).length;
+    if (wordCount > 0 && wordCount <= 4) {
+      const q = morsyCanonFrozenQueueRef.current;
+      const existingIdx = q.findIndex(i => i.payload.utterance.utterance_id === rowId);
+      if (existingIdx >= 0) {
+        q.splice(existingIdx, 1);
+        morsyCanonFrozenQueuedIdsRef.current.delete(rowId);
+      }
+      void executeCanonFrozenRowTranslationImpl(payload, { force });
+      return;
+    }
+
     const q = morsyCanonFrozenQueueRef.current;
     const existingIdx = q.findIndex(i => i.payload.utterance.utterance_id === rowId);
     if (existingIdx >= 0) {
@@ -6171,7 +6184,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       morsyCanonFrozenQueuedIdsRef.current.add(rowId);
     }
     void drainMorsyCanonFrozenQueue();
-  }, [drainMorsyCanonFrozenQueue]);
+  }, [drainMorsyCanonFrozenQueue, executeCanonFrozenRowTranslationImpl]);
 
   useEffect(() => {
     enqueueMorsyCanonFrozenTranslationRef.current = enqueueMorsyCanonFrozenTranslation;
@@ -6187,7 +6200,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
   const scanMorsyCanonBlankFrozenTranslations = useCallback(() => {
     if (!translationEnabledRef.current || !isRecRef.current) return;
-    if (!planUsesHetznerCanonStreamingStt(planTypeRef.current) || !canonWsIsolationGateNow()) return;
+    if (!canonWsIsolationGateNow()) return;
     const now = Date.now();
     if (now - morsyCanonBackfillLastMsRef.current < 1200) return;
     morsyCanonBackfillLastMsRef.current = now;
