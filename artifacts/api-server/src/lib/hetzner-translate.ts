@@ -3,8 +3,12 @@ import * as dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { logger } from "./logger.js";
-import { getHetznerLaneBaseUrl, selectAnonymousHetznerCoreRoute, type CoreLane } from "./hetzner-core-router.js";
-import { trialHetznerNllbBaseUrl } from "./trial-nllb-translate.js";
+import { getHetznerLaneBaseUrl, isPaidMachinePlanType, selectAnonymousHetznerCoreRoute, type CoreLane } from "./hetzner-core-router.js";
+import {
+  machineTranslationPairInvolvesArabic,
+  nllbPaidBaseUrl,
+  trialHetznerNllbBaseUrl,
+} from "./trial-nllb-translate.js";
 
 /** Keep sockets warm — fewer TCP handshakes per segment. */
 const HETZNER_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48 });
@@ -104,6 +108,10 @@ export type HetznerMtOutboundWireContext = {
   translationPath?: string;
   /** trial-hetzner routed to TRIAL_HETZNER_NLLB_BASE instead of Libre lane URL. */
   nllbTrialWorker?: boolean;
+  /** Paid Arabic pairs routed to NLLB_PAID_BASE instead of Libre lane 1. */
+  nllbPaidWorker?: boolean;
+  /** NLLB workers require explicit ISO source codes (no Libre `auto`). */
+  nllbWorker?: boolean;
 };
 
 function railwayWireFingerprint(): { railwayReplicaId: string | null; hostname: string | null } {
@@ -344,9 +352,14 @@ async function postTranslateAtBase(
   const srcHintBase = normalizeTargetLang(sourceHint);
 
   const requestOnce = async (sourceCode: string, retryAttempt: number, fallbackReason: string): Promise<string> => {
+    let effectiveSource = sourceCode;
+    if (outboundCtx?.nllbWorker && effectiveSource === "auto") {
+      effectiveSource = srcHintBase && srcHintBase !== "auto" ? srcHintBase : "en";
+    }
+
     const body: Record<string, unknown> = {
       q: text,
-      source: sourceCode,
+      source: effectiveSource,
       target: tgt,
       format: "text",
     };
@@ -377,6 +390,7 @@ async function postTranslateAtBase(
         retryAttempt,
         fallbackReason,
         sourceCode,
+        effectiveSource,
         finalPostUrl,
         ...wire,
       };
@@ -456,7 +470,7 @@ async function postTranslateAtBase(
     const contentType = String(res.headers["content-type"] ?? "");
     const payload = parseTranslateBody(res.data);
     logger.info(
-      { normalizedBase, source: sourceCode, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
+      { normalizedBase, source: effectiveSource, target: tgt, status: res.status, contentType: contentType.slice(0, 80) },
       "Hetzner machine translate API response",
     );
 
@@ -540,6 +554,9 @@ function requireValidHetznerMtBaseForLane(lane: CoreLane): string {
  *
  * `trial-hetzner` only: when `TRIAL_HETZNER_NLLB_BASE` is set, all outbound MT for that plan uses the NLLB
  * FastAPI worker instead of Libre lane URLs (`basic-libre` on :5001 is unchanged).
+ *
+ * Paid machine plans: when `NLLB_PAID_BASE` is set, Arabic pairs (source or target `ar`) use the paid NLLB
+ * worker; all other language pairs stay on LibreTranslate lane URLs.
  */
 export async function callHetznerTranslate(
   text: string,
@@ -550,6 +567,11 @@ export async function callHetznerTranslate(
   const plan = (routingHint?.planType ?? "").trim().toLowerCase();
   const useTrialOutboundGate = plan === "trial-hetzner";
   const trialNllbBase = plan === "trial-hetzner" ? trialHetznerNllbBaseUrl() : null;
+  const paidNllbBase = nllbPaidBaseUrl();
+  const usePaidNllbArabic =
+    Boolean(paidNllbBase) &&
+    isPaidMachinePlanType(plan) &&
+    machineTranslationPairInvolvesArabic(source, target);
 
   const run = async () => {
     const sid = routingHint?.sessionId;
@@ -558,11 +580,26 @@ export async function callHetznerTranslate(
     let lane: CoreLane;
     let routerRaw: string;
     let effectiveBase: string;
+    let nllbTrialWorker = false;
+    let nllbPaidWorker = false;
 
     if (trialNllbBase) {
       lane = sessionBound ? (routingHint!.resolvedLane ?? 2) : 2;
       routerRaw = trialNllbBase;
       effectiveBase = trialNllbBase;
+      nllbTrialWorker = true;
+    } else if (usePaidNllbArabic) {
+      if (sessionBound) {
+        if (routingHint?.resolvedLane == null) {
+          throw new Error("HETZNER_MT_RESOLVED_LANE_REQUIRED_FOR_SESSION_BOUND_TRANSLATE");
+        }
+        lane = routingHint.resolvedLane;
+      } else {
+        lane = selectAnonymousHetznerCoreRoute(routingHint?.planType ?? "basic-libre").lane;
+      }
+      routerRaw = paidNllbBase!;
+      effectiveBase = paidNllbBase!;
+      nllbPaidWorker = true;
     } else {
       if (sessionBound) {
         if (routingHint?.resolvedLane == null) {
@@ -590,7 +627,9 @@ export async function callHetznerTranslate(
       routerBaseUrlRaw: routerRaw,
       effectiveBaseForHttp: effectiveBase,
       fallbackToConfiguredPrimary: false,
-      nllbTrialWorker: Boolean(trialNllbBase),
+      nllbTrialWorker,
+      nllbPaidWorker,
+      nllbWorker: nllbTrialWorker || nllbPaidWorker,
       manualOverrideLane: routingHint?.manualLane ?? null,
       wireRequestId: wd?.requestId,
       incomingSessionId: wd?.incomingSessionId ?? null,
@@ -648,12 +687,15 @@ export function logHetznerMachineTranslationStartupHint(): void {
     process.env.LIBRETRANSLATE_INTERNAL_URL?.trim() ||
     process.env.LIBRETRANSLATE_URL?.trim();
   const nllbBase = trialHetznerNllbBaseUrl();
+  const paidNllb = nllbPaidBaseUrl();
   logger.info(
     {
       primaryBaseUrl: CONFIGURED_BASE,
       trialHetznerMaxConcurrent: TRIAL_HETZNER_MAX_CONCURRENT,
       trialHetznerNllbBase: nllbBase,
       trialHetznerNllbEnabled: Boolean(nllbBase),
+      nllbPaidBase: paidNllb,
+      nllbPaidArabicRoutingEnabled: Boolean(paidNllb),
       fromEnvOverride: false,
       ignoredEnvOverride: Boolean(rawOverride),
       railwayPrivateDnsLookup: useRailwayPrivateDnsLookup(CONFIGURED_BASE),

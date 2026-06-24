@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { nllbPaidBaseUrl } from "./trial-nllb-translate.js";
 
 /** Libre worker lane → CORE1..CORE4 (typically :5001/:5002 per Hetzner host). */
 export type CoreLane = 1 | 2 | 3 | 4;
@@ -292,7 +293,9 @@ export function logHetznerCoreRouterStartupHint(): void {
         HETZNER_CORE2_TRANSLATE_BASE: c2Raw,
         HETZNER_CORE3_TRANSLATE_BASE: c3Raw,
         HETZNER_CORE4_TRANSLATE_BASE: c4Raw,
+        NLLB_PAID_BASE: process.env.NLLB_PAID_BASE ?? null,
       },
+      nllbPaidBaseResolved: nllbPaidBaseUrl(),
       /** When CORE1/CORE2 env unset, `envOrLane` uses these defaults for :5001 / :5002. */
       hetznerWorkerHostFallbackInputs: {
         HETZNER_WORKER_HOST: process.env.HETZNER_WORKER_HOST ?? null,

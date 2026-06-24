@@ -1,11 +1,11 @@
 """
-trial-hetzner NLLB translation server (CPU, ~4GB Hetzner box).
+NLLB translation server (CPU) — LibreTranslate-compatible POST /translate.
 
-LibreTranslate-compatible POST /translate for drop-in use from the API server.
-Loads facebook/nllb-200-distilled-600M with dynamic int8 Linear quantization on CPU.
+Loads facebook/nllb-200-distilled-1.3B with dynamic int8 Linear quantization on CPU.
 
-Set TRIAL_HETZNER_NLLB_BASE=http://<host>:5002 on Railway API (trial-hetzner only).
-basic-libre / paid lanes keep using LibreTranslate on :5001.
+API env:
+  TRIAL_HETZNER_NLLB_BASE — trial-hetzner (all segments)
+  NLLB_PAID_BASE — paid machine plans, Arabic pairs only (hetzner-translate.ts)
 """
 
 from __future__ import annotations
@@ -22,39 +22,34 @@ from pydantic import BaseModel, Field
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("nllb-trial")
+log = logging.getLogger("nllb-mt")
 
-MODEL_ID = os.environ.get("NLLB_MODEL_ID", "facebook/nllb-200-distilled-600M").strip()
+MODEL_ID = os.environ.get("NLLB_MODEL_ID", "facebook/nllb-200-distilled-1.3B").strip()
 MAX_INPUT_CHARS = int(os.environ.get("NLLB_MAX_INPUT_CHARS", "512"))
 MAX_NEW_TOKENS = int(os.environ.get("NLLB_MAX_NEW_TOKENS", "256"))
 NUM_BEAMS = int(os.environ.get("NLLB_NUM_BEAMS", "1"))
 
-# ISO 639-1 (Libre-style) → NLLB-200 script tag
+# ISO 639-1 (Libre LT_LOAD_ONLY + common workspace codes) → NLLB-200 FLORES tag
 LANG_TO_NLLB: dict[str, str] = {
     "en": "eng_Latn",
-    "ar": "arb_Arab",
     "es": "spa_Latn",
     "fr": "fra_Latn",
     "de": "deu_Latn",
     "it": "ita_Latn",
     "pt": "por_Latn",
     "ru": "rus_Cyrl",
+    "ar": "arb_Arab",
     "zh": "zho_Hans",
     "hi": "hin_Deva",
     "tr": "tur_Latn",
     "pl": "pol_Latn",
     "nl": "nld_Latn",
-    "he": "heb_Hebr",
-    "ja": "jpn_Jpan",
-    "ko": "kor_Hang",
-    "vi": "vie_Latn",
-    "uk": "ukr_Cyrl",
 }
 
 # Preserve server-side glossary/number placeholders through NLLB.
 PLACEHOLDER_RE = re.compile(r"\b(?:NUM|TERM|PROT)_\d+\b")
 
-app = FastAPI(title="trial-hetzner NLLB", version="1.0.0")
+app = FastAPI(title="InterpreterAI NLLB MT", version="1.1.0")
 
 _tokenizer: AutoTokenizer | None = None
 _model: Any = None
@@ -75,6 +70,11 @@ def normalize_lang(code: str) -> str:
 
 def to_nllb(code: str) -> str:
     base = normalize_lang(code)
+    if base == "auto":
+        raise HTTPException(
+            status_code=400,
+            detail="NLLB worker requires explicit source language (not 'auto')",
+        )
     tag = LANG_TO_NLLB.get(base)
     if not tag:
         raise HTTPException(status_code=400, detail=f"Unsupported language: {code}")
@@ -93,7 +93,6 @@ def load_model() -> None:
         low_cpu_mem_usage=True,
     )
     _model.eval()
-    # Dynamic int8 on Linear layers — cuts RAM vs full float32 on CPU.
     _model = torch.quantization.quantize_dynamic(
         _model,
         {torch.nn.Linear},

@@ -1,20 +1,21 @@
-# trial-hetzner NLLB worker — replaces libre-trial on :5002 for zero-cost medical MT upgrade.
-# Paid basic-libre keeps libre-paid on :5001 (do not change that service).
+# NLLB MT worker — LibreTranslate-compatible POST /translate on :5000 (host maps e.g. :5002 or :5010).
 #
-# RAM: ~2–2.5 GB for int8 NLLB-600M + ~1 GB OS headroom on 4 GB box.
-# Add 2 GB swap before first boot (see INSTALL.md).
+# Trial: replace libre-trial on :5002 — set TRIAL_HETZNER_NLLB_BASE on API.
+# Paid Arabic: run a second instance (e.g. host :5010) — set NLLB_PAID_BASE on API.
+#
+# RAM: ~3.5–4.5 GB for int8 NLLB-1.3B + OS headroom. Add swap on small hosts (see INSTALL.md).
 version: "3.8"
 
 services:
-  nllb-trial:
+  nllb-mt:
     build: .
-    container_name: nllb-trial
+    container_name: nllb-mt
     ports:
       - "5002:5000"
     restart: unless-stopped
-    mem_limit: 2800m
+    mem_limit: 4500m
     environment:
-      NLLB_MODEL_ID: "facebook/nllb-200-distilled-600M"
+      NLLB_MODEL_ID: "facebook/nllb-200-distilled-1.3B"
       NLLB_MAX_INPUT_CHARS: "512"
       NLLB_MAX_NEW_TOKENS: "256"
       NLLB_NUM_BEAMS: "1"

@@ -1,5 +1,6 @@
 import { callHetznerTranslate, type HetznerMtWireDebugMeta } from "./hetzner-translate.js";
 import type { CoreLane } from "./hetzner-core-router.js";
+import { applyProfessionalTerminologyFixes } from "./professional-terminology-postprocess.js";
 
 /**
  * **Final Boss 3 · machine stack** — translation for `*-libre` plans via **Hetzner** (LibreTranslate-compatible API).
@@ -37,7 +38,7 @@ export async function translatePlainMachine(
 ): Promise<string> {
   const t = plain.trim();
   if (!t) return "";
-  return callHetznerTranslate(t, sourceLang, targetLang, {
+  const raw = await callHetznerTranslate(t, sourceLang, targetLang, {
     sessionId: opts?.sessionId,
     planType: opts?.planType,
     userEmail: opts?.userEmail,
@@ -46,6 +47,7 @@ export async function translatePlainMachine(
     assignedLane: opts?.assignedLane,
     wireDebug: opts?.wireDebug,
   });
+  return applyProfessionalTerminologyFixes(raw, sourceLang, targetLang, { sourceText: plain });
 }
 
 /** Expand only NUM_n → exact transcript digits. TERM_/PROT_ stay masked for MT. */

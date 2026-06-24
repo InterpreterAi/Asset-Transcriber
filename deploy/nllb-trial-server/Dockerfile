@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 
-ENV NLLB_MODEL_ID=facebook/nllb-200-distilled-600M
+ENV NLLB_MODEL_ID=facebook/nllb-200-distilled-1.3B
 ENV NLLB_MAX_INPUT_CHARS=512
 ENV NLLB_MAX_NEW_TOKENS=256
 ENV NLLB_NUM_BEAMS=1
