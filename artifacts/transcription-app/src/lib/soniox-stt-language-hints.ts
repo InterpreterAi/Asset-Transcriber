@@ -114,32 +114,20 @@ export function buildSonioxLanguageHints(pair: { a: string; b: string }): string
 /** Extra realtime session fields when STT-proxy languages need different Soniox tuning. */
 export function sonioxRealtimeSessionTuning(
   pair: { a: string; b: string },
-  opts?: { morsyUrgent?: boolean },
+  _opts?: { morsyUrgent?: boolean },
 ): {
   enableLanguageIdentification: boolean;
   maxEndpointDelayMs: number;
 } {
-  if (opts?.morsyUrgent) {
-    if (pairUsesSonioxSttProxyLang(pair)) {
-      return {
-        enableLanguageIdentification: false,
-        maxEndpointDelayMs: 500,
-      };
-    }
-    return {
-      enableLanguageIdentification: true,
-      maxEndpointDelayMs: 300,
-    };
-  }
   if (pairUsesSonioxSttProxyLang(pair)) {
     return {
       // LID can over-lock Latin/Latin pairs onto English before any text lands.
       enableLanguageIdentification: false,
-      maxEndpointDelayMs: 1400,
+      maxEndpointDelayMs: 500,
     };
   }
   return {
     enableLanguageIdentification: true,
-    maxEndpointDelayMs: 800,
+    maxEndpointDelayMs: 300,
   };
 }

@@ -63,7 +63,7 @@ export class SonioxRealtimeClient {
         enable_language_identification: config.enableLanguageIdentification ?? true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
-        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? (config.morsyUrgentTuning ? 300 : 1400),
+        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 300,
       }));
       this.flushPcmQueue();
     };
