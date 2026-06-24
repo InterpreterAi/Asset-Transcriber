@@ -3451,6 +3451,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const morsyCanonFrozenRetryCountRef = useRef(new Map<string, number>());
   const morsyCanonBackfillLastMsRef = useRef(0);
   const MORSY_CANON_FROZEN_MAX_BACKFILL_RETRIES = 6;
+  const trialOpenAiConcurrentTranslationsRef = useRef(0);
+  const TRIAL_OPENAI_MAX_CONCURRENT = 2;
 
   const clearCanonRowTranslationTimers = useCallback(() => {
     for (const st of canonRowTransRef.current.values()) {
@@ -6195,7 +6197,18 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       enqueueMorsyCanonFrozenTranslation(payload);
       return;
     }
-    void executeCanonFrozenRowTranslationImpl(payload);
+    if (trialOpenAiConcurrentTranslationsRef.current < TRIAL_OPENAI_MAX_CONCURRENT) {
+      trialOpenAiConcurrentTranslationsRef.current++;
+      void executeCanonFrozenRowTranslationImpl(payload).finally(() => {
+        trialOpenAiConcurrentTranslationsRef.current = Math.max(
+          0,
+          trialOpenAiConcurrentTranslationsRef.current - 1,
+        );
+      });
+    } else {
+      // Queue it like Hetzner does — backfill scanner will pick it up
+      enqueueMorsyCanonFrozenTranslation(payload);
+    }
   }, [enqueueMorsyCanonFrozenTranslation, executeCanonFrozenRowTranslationImpl]);
 
   const scanMorsyCanonBlankFrozenTranslations = useCallback(() => {
