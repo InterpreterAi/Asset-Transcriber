@@ -75,6 +75,8 @@ export class SonioxRealtimeClient {
         } catch {
           return;
         }
+        const msg = payload as { tokens?: unknown[] };
+        console.log("[SONIOX_RAW]", JSON.stringify(msg.tokens?.slice(0, 30)));
         const errs = payload as Record<string, unknown>;
         const errText =
           [errs.error_message, errs.error, errs.message].find(
