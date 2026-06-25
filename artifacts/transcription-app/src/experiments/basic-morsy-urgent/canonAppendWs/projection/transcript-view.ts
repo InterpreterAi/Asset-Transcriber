@@ -18,6 +18,13 @@ export type TranscriptProjection = {
 
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
+  // Strip trailing sub-word token: a token that has no leading space and is ≤4 chars
+  // with no vowel — it's a sub-word continuation piece (e.g. "th", "nd", "ck", "ng")
+  // that got stranded when the row froze mid-word.
+  // We detect it by checking if the text ends with a short no-space fragment.
+  t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz']{1,3}$/, "");
+  // Also strip trailing apostrophe fragments: "You'" → "You"
+  t = t.replace(/'$/, "");
   // Single consonant after space: " b", " th"
   t = t.replace(/\s[b-df-hj-np-tv-zB-DF-HJ-NP-TV-Z]$/, "");
   // 2-consonant cluster: " wh", " fr"
@@ -46,6 +53,22 @@ function cleanSonioxPunctuation(text: string): string {
   t = t.replace(/([,.])\s*([a-z\u0600-\u06FF])/g, " $2");
   // Remove period immediately after a lowercase word where next word is also lowercase: "we. check" → "we check"
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
+  // Soniox bakes periods into word tokens mid-sentence, then capitalizes the next word.
+  // Pattern: "And. With the fever" — "With" is capitalized because Soniox thinks new sentence.
+  // Remove period when the word before it is a conjunction, preposition, or auxiliary verb.
+  const MID_SENTENCE_WORDS = [
+    "And","Or","But","With","Is","Are","Was","Were","Has","Have","Had",
+    "Do","Does","Did","At","In","On","Of","To","For","By","So","Yet",
+    "Not","Being","About","From","Into","Then","When","That","Which",
+    "What","Who","How","If","As","Just","Now","Any","The","A","An",
+    "His","Her","Him","Its","Our","Their","Your","My","He","She","It",
+    "We","They","You","Can","Could","Will","Would","Should","May","Might","Also",
+  ];
+  const midWordPattern = new RegExp(
+    `\\b(${MID_SENTENCE_WORDS.join("|")})\\.( )`,
+    "g"
+  );
+  t = t.replace(midWordPattern, "$1$2");
   // Collapse stacked punctuation: ",." ".," ",," ".." → single "."
   t = t.replace(/[,]{2,}/g, ",");
   t = t.replace(/[.]{2,}/g, ".");

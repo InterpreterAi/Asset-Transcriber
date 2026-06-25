@@ -13,6 +13,17 @@ function langBase(s: string | undefined): string | undefined {
   return n ? n.split("-")[0]!.toLowerCase() : undefined;
 }
 
+function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
+  if (tokens.length === 0) return tokens;
+  const last = tokens[tokens.length - 1]!;
+  const txt = last.text;
+  // Sub-word piece: no leading space, short, no vowel (consonant cluster like "th", "ng", "ck")
+  const hasVowel = /[aeiouAEIOU\u0600-\u06FF]/.test(txt);
+  const isSubword = !txt.startsWith(" ") && txt.length <= 3 && !hasVowel && !/[.!?,]$/.test(txt);
+  if (isSubword) return trimTrailingSubwordTokens(tokens.slice(0, -1));
+  return tokens;
+}
+
 /** New row when a final token's speaker or language differs from the active row. */
 export function rowBreaksOnFinalToken(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
@@ -81,6 +92,7 @@ export function freezeActiveUtterance(state: EngineState): EngineState {
   }
   const frozen: CanonUtterance = {
     ...au,
+    finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
     nonFinalTokens: [],
     is_final: true,
   };
