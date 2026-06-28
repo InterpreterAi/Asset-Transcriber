@@ -16,6 +16,10 @@ export type TranscriptProjection = {
   liveCombined: string;
 };
 
+export type TranscriptProjectionOptions = {
+  morsyCleanMtNumberPunctuation?: boolean;
+};
+
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
   // Strip trailing sub-word token: a token that has no leading space and is ≤4 chars
@@ -47,12 +51,21 @@ function stripTrailingPartialFragment(text: string): string {
   return t.trim();
 }
 
-function cleanSonioxPunctuation(text: string): string {
+function cleanSonioxPunctuation(
+  text: string,
+  opts: TranscriptProjectionOptions = {},
+): string {
   let t = text;
   // Remove period/comma immediately before a lowercase letter: "Any. ear" → "Any ear"
   t = t.replace(/([,.])\s*([a-z\u0600-\u06FF])/g, " $2");
   // Remove period immediately after a lowercase word where next word is also lowercase: "we. check" → "we check"
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
+  if (opts.morsyCleanMtNumberPunctuation) {
+    // Remove periods between number groups: "307. 328" → "307 328"
+    t = t.replace(/(\d)\.\s+(\d)/g, "$1 $2");
+    // Remove trailing period after a standalone number group at line end
+    t = t.replace(/\b(\d+)\.\s*$/g, "$1");
+  }
   // Soniox bakes periods into word tokens mid-sentence, then capitalizes the next word.
   // Pattern: "And. With the fever" — "With" is capitalized because Soniox thinks new sentence.
   // Remove period when the word before it is a conjunction, preposition, or auxiliary verb.
@@ -80,10 +93,14 @@ function cleanSonioxPunctuation(text: string): string {
   return t.trim();
 }
 
-function utteranceRow(u: CanonUtterance, finalized: boolean): RowProjection | null {
+function utteranceRow(
+  u: CanonUtterance,
+  finalized: boolean,
+  opts: TranscriptProjectionOptions,
+): RowProjection | null {
   const rawCommitted = utteranceCommittedText(u);
   const committedText = finalized
-    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
+    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted), opts)
     : rawCommitted;
   if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
@@ -99,16 +116,19 @@ function utteranceRow(u: CanonUtterance, finalized: boolean): RowProjection | nu
 }
 
 /** visible = join(finalTokens) + join(nonFinalTokens) per Soniox docs. */
-export function projectTranscriptView(state: EngineState): TranscriptProjection {
+export function projectTranscriptView(
+  state: EngineState,
+  opts: TranscriptProjectionOptions = {},
+): TranscriptProjection {
   const rows: RowProjection[] = [];
 
   for (const fu of state.finalizedUtterances) {
-    const pr = utteranceRow(fu, true);
+    const pr = utteranceRow(fu, true, opts);
     if (pr) rows.push(pr);
   }
 
   if (state.activeUtterance) {
-    const pr = utteranceRow(state.activeUtterance, false);
+    const pr = utteranceRow(state.activeUtterance, false, opts);
     if (pr) rows.push(pr);
   }
 

@@ -19,12 +19,14 @@ export const CANON_SILENCE_SEGMENT_MS = 2200;
  * Intentionally longer than brief between-sentence pauses so we do not split every clause.
  */
 export const SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 2000;
+export const MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 4500;
 
 export const MAX_UTTERANCE_WALL_MS = 120_000;
 
 export const LIVE_RENDER_BATCH_MS = 32;
 
-export function sameSpeakerLongPauseSplitMs(_morsyUrgent = false): number {
+export function sameSpeakerLongPauseSplitMs(_morsyUrgent = false, morsyCleanMt = false): number {
+  if (morsyCleanMt) return MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
   return SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
 }
 

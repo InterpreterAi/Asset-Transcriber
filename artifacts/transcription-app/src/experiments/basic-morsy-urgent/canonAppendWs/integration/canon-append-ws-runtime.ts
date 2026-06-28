@@ -109,6 +109,8 @@ export class CanonAppendWsIsolatedRuntime {
 
   /** Basic · Morsy Urgent — faster endpoint, pause split, and DOM batch tuning. */
   private morsyUrgentTuning = false;
+  /** Basic · Morsy Urgent clean MT experiment: scoped transcript cleanup + pause split. */
+  private morsyCleanMtTuning = false;
 
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
@@ -116,6 +118,11 @@ export class CanonAppendWsIsolatedRuntime {
 
   setMorsyUrgentTuning(enabled: boolean): void {
     this.morsyUrgentTuning = enabled;
+  }
+
+  setMorsyCleanMtTuning(enabled: boolean): void {
+    this.morsyCleanMtTuning = enabled;
+    this.projections.setOptions({ morsyCleanMtNumberPunctuation: enabled });
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -353,7 +360,10 @@ export class CanonAppendWsIsolatedRuntime {
     this.state = reduceCanonAppendWs(this.state, frame, {
       ledger: this.ledger,
       wallMs,
-      sameSpeakerLongPauseSplitMs: sameSpeakerLongPauseSplitMs(this.morsyUrgentTuning),
+      sameSpeakerLongPauseSplitMs: sameSpeakerLongPauseSplitMs(
+        this.morsyUrgentTuning,
+        this.morsyCleanMtTuning,
+      ),
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
@@ -442,7 +452,7 @@ export class CanonAppendWsIsolatedRuntime {
     transcriptLines: string[];
     translationLines: string[];
   } {
-    const proj = projectTranscriptView(this.projections.getState());
+    const proj = this.projections.getProjection();
     const transcriptLines = proj.rows
       .map(r => (r.committedText + r.liveText).trim())
       .filter(Boolean);
@@ -467,7 +477,7 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   peekHasRenderableText(): boolean {
-    const proj = projectTranscriptView(this.projections.getState());
+    const proj = this.projections.getProjection();
     return proj.rows.some(r => r.committedText.length > 0 || r.liveText.length > 0);
   }
 }
