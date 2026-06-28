@@ -5949,10 +5949,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const seq = (canonRowTranslateSeqRef.current.get(rowId) ?? 0) + 1;
     canonRowTranslateSeqRef.current.set(rowId, seq);
 
-    const morsyCleanExperimentOpts = usesCleanMtTranslationStack()
-      ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
-      : {};
-
     const morsyChunkV2ExperimentOpts = morsyUsesChunkTranslationV2Experiment()
       ? ({ experimentalMorsyUrgentChunkTranslationV2: true } as const)
       : {};
@@ -6061,7 +6057,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             ...(sessionIdRef.current != null && sessionIdRef.current > 0
               ? { sessionId: sessionIdRef.current }
               : {}),
-            ...morsyCleanExperimentOpts,
             ...morsyChunkV2ExperimentOpts,
             ...basicMorsyOpenAiExperimentOpts,
             ...trialCanonFetchOpts(),
@@ -6490,16 +6485,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         }
 
         const fetchStartedAt = Date.now();
-        const cleanMtFetchOpts = usesCleanMtTranslationStack()
-          ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
-          : {};
         const fetchOpts = {
           isFinal: true,
           ...(sessionIdRef.current != null && sessionIdRef.current > 0
             ? { sessionId: sessionIdRef.current }
             : {}),
           ...morsyUrgentCanonFetchOpts(),
-          ...cleanMtFetchOpts,
         };
         const tr = await fetchTranslation(
               finalSource,
@@ -6632,9 +6623,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               ? { sessionId: sessionIdRef.current }
               : {}),
             ...morsyUrgentCanonFetchOpts(),
-            ...(morsyClean
-              ? ({ experimentalMorsyBasicCleanTranslation: true } as const)
-              : {}),
           };
           const tr = morsyCanonIntercallLive
             ? await fetchMorsyCanonOppositeTranslation(
