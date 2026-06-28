@@ -22,11 +22,16 @@ export type TranscriptProjectionOptions = {
 
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
-  // ONLY strip pure consonant sub-word fragments (no vowels, no digits)
-  // These are dangling pieces from speaker-switch freeze mid-word: "th", "nd", "ck"
-  t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz]{1,3}$/i, "");
+  // Strip trailing consonant sub-word fragment glued to the previous character
+  // (no leading space, ≤3 chars, lowercase consonants only — e.g. "conditi" + "on" frozen)
+  t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz']{1,3}$/, "");
   // Strip trailing bare apostrophe
   t = t.replace(/'$/, "");
+  // Strip single isolated lowercase consonant after space: " b", " k" — sub-word onset
+  t = t.replace(/\s[b-df-hj-np-tv-z]$/, "");
+  // Strip 2-lowercase-consonant cluster after space: " wh", " fr"
+  t = t.replace(/\s[b-df-hj-np-tv-z]{2}$/, "");
+  // ⚠️ Do NOT strip 3-6 letter words — false positives on codes like NVM, RX, XR, etc.
   return t.trim();
 }
 
@@ -34,41 +39,63 @@ function cleanSonioxPunctuation(
   text: string,
 ): string {
   let t = text;
-  // 1. Decimals and numbers: "0. 7. 5" → "0.75", "14,782. 63" → "14,782.63"
-  //    Run twice so "0. 7. 5" → "0.7. 5" → "0.7.5" in two passes
-  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
-  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
-  //    Collapse double-decimal artifact "0.7.5" → "0.75"
-  t = t.replace(/(\d)\.(\d)\.(\d+)/g, "$1.$2$3");
-  // 2. Phone prefix: "+. 1" → "+1"
-  t = t.replace(/\+\.\s*/g, "+");
-  // 3. Possessives: "Today.'s" → "Today's" (straight and curly apostrophe)
-  t = t.replace(/\.(?=[\u2019\u0027]s\b)/g, "");
-  // 4. Uppercase code sequences: "N. VM" → "NVM", "NVM-4. 4307" → "NVM-44307"
+  // 1. POSSESSIVES
+  // "Today.'s" → "Today's" (straight and curly apostrophe)
+  t = t.replace(/\.(?=['']s\b)/g, "");
+  // 2. ID CODE JOINING — must run BEFORE decimal fix to avoid "4. 4307" → "4.4307"
+  // "N. VM" → "NVM" — uppercase letter · period · uppercase letter
   t = t.replace(/\b([A-Z])\.\s+([A-Z])/g, "$1$2");
+  t = t.replace(/\b([A-Z])\.\s+([A-Z])/g, "$1$2"); // second pass for "N. V. M" chains
+  // "NVM-4. 4307-A" → "NVM-44307-A" — digit in an alphanumeric-dash ID
   t = t.replace(/([A-Z]{2,}-\d+)\.\s*(\d)/g, "$1$2");
-  // 5. Period before lowercase → remove (Soniox false sentence boundary)
-  t = t.replace(/\.\s*([a-z\u0600-\u06FF])/g, " $1");
-  // 6. Lowercase-period-space-lowercase → remove period
+  // "A. 59372" → "A59372" — single uppercase letter · period · digit
+  t = t.replace(/\b([A-Z])\.\s+(\d)/g, "$1$2");
+  // 3. DECIMALS AND NUMBERS
+  // "0. 7. 5" → "0.75", "$14,782. 63" → "$14,782.63"
+  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
+  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2"); // second pass
+  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2"); // third pass for long chains
+  // Collapse double-decimal: "0.7.5" → "0.75"
+  t = t.replace(/(\d)\.(\d)\.(\d+)/g, "$1.$2$3");
+  // 4. PHONE PREFIX
+  // "+. 1" → "+1"
+  t = t.replace(/\+\.\s*/g, "+");
+  // 5. SPACE AFTER DASH IN IDs
+  // "A- 9372-B" → "A-9372-B"
+  t = t.replace(/([A-Z0-9])-\s+(\d)/g, "$1-$2");
+  t = t.replace(/([A-Z0-9])-\s+([A-Z])/g, "$1-$2");
+  // 6. EMAIL SPACE FIX
+  // "secure ops@northvalley..." → "secureops@northvalley..."
+  t = t.replace(/([a-zA-Z0-9])\s+([a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+)/g, "$1$2");
+  // 7. PERIOD BEFORE LOWERCASE → SPACE
+  // Soniox false sentence boundary: "Any. ear" → "Any ear"
+  t = t.replace(/\.\s*([a-z\u00e0-\u024f\u0600-\u06FF])/g, " $1");
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
-  // 7. Mid-sentence capitalized word after period → remove period
-  //    Soniox bakes period into token then capitalizes next word at pauses
+  // 8. MID-SENTENCE WORDS — remove false period after them
+  // These words CANNOT legitimately end a sentence, so any trailing period is a Soniox artifact
   const MID = [
+    // English
     "And","Or","But","With","Is","Are","Was","Were","Has","Have","Had",
     "Do","Does","Did","At","In","On","Of","To","For","By","So","Yet",
     "Not","Being","About","From","Into","Then","When","That","Which",
     "What","Who","How","If","As","Just","Now","Any","The","A","An",
     "His","Her","Him","Its","Our","Their","Your","My","He","She","It",
     "We","They","You","Can","Could","Will","Would","Should","May","Might","Also",
+    // Spanish
+    "Y","O","Pero","Con","Es","Son","Fue","Era","Han","Hay",
+    "Al","En","De","Del","Los","Las","Le","La","El","Un","Una",
+    "No","También","Según","Que","Como","Cuando","Si","Ya","Más",
   ];
-  const midPat = new RegExp(`\\b(${MID.join("|")})\\.\\s`, "g");
+  const midPat = new RegExp(`\\b(${MID.join("|")})\\.\\s+`, "g");
   t = t.replace(midPat, "$1 ");
-  // 8. Clean stacked punctuation
+  // 9. CLEAN STACKED PUNCTUATION
   t = t.replace(/[,]{2,}/g, ",");
   t = t.replace(/[.]{2,}/g, ".");
   t = t.replace(/[,.][,.]+/g, ".");
   t = t.replace(/,\s*\./g, ".");
   t = t.replace(/,\s*$/g, "");
+  // Normalize multiple spaces to one
+  t = t.replace(/\s{2,}/g, " ");
   return t.trim();
 }
 
