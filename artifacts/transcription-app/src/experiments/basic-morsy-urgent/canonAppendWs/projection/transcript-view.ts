@@ -61,10 +61,12 @@ function cleanSonioxPunctuation(
   // Remove period immediately after a lowercase word where next word is also lowercase: "we. check" → "we check"
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
   if (opts.morsyCleanMtNumberPunctuation) {
-    // Remove periods between number groups: "307. 328" → "307 328"
-    t = t.replace(/(\d)\.\s+(\d)/g, "$1 $2");
-    // Remove trailing period after a standalone number group at line end
-    t = t.replace(/\b(\d+)\.\s*$/g, "$1");
+    // Collapse digit-period-space-digit into digit.digit (decimal restore): "0. 75" → "0.75", "14,782. 63" → "14,782.63"
+    t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
+    // Phone numbers starting with +: "+. 1" → "+1"
+    t = t.replace(/([+])\.\s*/g, "$1");
+    // Period before possessive apostrophe-s: "Today.'s" → "Today's"
+    t = t.replace(/\.(?='s\b)/g, "");
   }
   // Soniox bakes periods into word tokens mid-sentence, then capitalizes the next word.
   // Pattern: "And. With the fever" — "With" is capitalized because Soniox thinks new sentence.

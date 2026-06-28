@@ -20,6 +20,7 @@ export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
   sameSpeakerLongPauseSplitMs?: number;
+  preserveLeadingDigitSubwords?: boolean;
 };
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
@@ -27,6 +28,7 @@ function tryLongPauseSameSpeakerRowSplit(
   state: EngineState,
   wallMs: number,
   pauseSplitMs: number,
+  preserveLeadingDigitSubwords: boolean,
 ): EngineState {
   const au = state.activeUtterance;
   if (!au || state.lastTokenActivityWallMs <= 0) return state;
@@ -36,7 +38,7 @@ function tryLongPauseSameSpeakerRowSplit(
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
   return {
-    ...freezeActiveUtterance(state),
+    ...freezeActiveUtterance(state, { preserveLeadingDigitSubwords }),
     endpointPending: false,
     endpointPendingAtMs: 0,
   };
@@ -53,8 +55,9 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
+  const preserveLeadingDigitSubwords = Boolean(ctx.preserveLeadingDigitSubwords);
   if (frame.tokens.length > 0) {
-    next = tryLongPauseSameSpeakerRowSplit(next, wallMs, pauseSplitMs);
+    next = tryLongPauseSameSpeakerRowSplit(next, wallMs, pauseSplitMs, preserveLeadingDigitSubwords);
   }
 
   const finProc =
@@ -86,7 +89,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     ctx.ledger.appendFinalCanon(ct);
 
     if (next.activeUtterance && rowBreaksOnFinalToken(next.activeUtterance, ct)) {
-      next = freezeActiveUtterance(next);
+      next = freezeActiveUtterance(next, { preserveLeadingDigitSubwords });
       next = {
         ...next,
         endpointPending: false,
@@ -115,7 +118,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     frameNonFinals.length > 0 &&
     utteranceCommittedText(next.activeUtterance!).trim().length > 0
   ) {
-    next = freezeActiveUtterance(next);
+    next = freezeActiveUtterance(next, { preserveLeadingDigitSubwords });
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 

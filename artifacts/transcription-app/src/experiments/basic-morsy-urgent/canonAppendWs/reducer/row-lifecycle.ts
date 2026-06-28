@@ -13,14 +13,22 @@ function langBase(s: string | undefined): string | undefined {
   return n ? n.split("-")[0]!.toLowerCase() : undefined;
 }
 
-function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
+function trimTrailingSubwordTokens(
+  tokens: CanonToken[],
+  preserveLeadingDigitSubwords: boolean,
+): CanonToken[] {
   if (tokens.length === 0) return tokens;
   const last = tokens[tokens.length - 1]!;
   const txt = last.text;
   // Sub-word piece: no leading space, short, no vowel (consonant cluster like "th", "ng", "ck")
   const hasVowel = /[aeiouAEIOU\u0600-\u06FF]/.test(txt);
-  const isSubword = !txt.startsWith(" ") && txt.length <= 3 && !hasVowel && !/[.!?,]$/.test(txt);
-  if (isSubword) return trimTrailingSubwordTokens(tokens.slice(0, -1));
+  const isSubword =
+    !txt.startsWith(" ") &&
+    txt.length <= 3 &&
+    !hasVowel &&
+    !/[.!?,]$/.test(txt) &&
+    !(preserveLeadingDigitSubwords && /^\d/.test(txt));
+  if (isSubword) return trimTrailingSubwordTokens(tokens.slice(0, -1), preserveLeadingDigitSubwords);
   return tokens;
 }
 
@@ -84,7 +92,10 @@ export function appendFinalToActive(state: EngineState, tok: CanonToken): Engine
 }
 
 /** Hard-close active row — Intercall-style immutable block. */
-export function freezeActiveUtterance(state: EngineState): EngineState {
+export function freezeActiveUtterance(
+  state: EngineState,
+  opts: { preserveLeadingDigitSubwords?: boolean } = {},
+): EngineState {
   const au = state.activeUtterance;
   if (!au) return state;
   if (!utteranceCommittedText(au).length && !utteranceLiveText(au).length) {
@@ -92,7 +103,10 @@ export function freezeActiveUtterance(state: EngineState): EngineState {
   }
   const frozen: CanonUtterance = {
     ...au,
-    finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
+    finalTokens: trimTrailingSubwordTokens(
+      [...au.finalTokens],
+      Boolean(opts.preserveLeadingDigitSubwords),
+    ),
     nonFinalTokens: [],
     is_final: true,
   };
@@ -104,8 +118,11 @@ export function freezeActiveUtterance(state: EngineState): EngineState {
   };
 }
 
-export function applyManualStructuralFreeze(state: EngineState): EngineState {
-  return freezeActiveUtterance(state);
+export function applyManualStructuralFreeze(
+  state: EngineState,
+  opts: { preserveLeadingDigitSubwords?: boolean } = {},
+): EngineState {
+  return freezeActiveUtterance(state, opts);
 }
 
 export const freezeUtteranceWithReconcile = applyManualStructuralFreeze;

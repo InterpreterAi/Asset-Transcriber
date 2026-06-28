@@ -364,6 +364,7 @@ export class CanonAppendWsIsolatedRuntime {
         this.morsyUrgentTuning,
         this.morsyCleanMtTuning,
       ),
+      preserveLeadingDigitSubwords: this.morsyCleanMtTuning,
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
@@ -433,7 +434,9 @@ export class CanonAppendWsIsolatedRuntime {
       this.hooks.onActiveRowTranslationFlush?.(snap);
     }
     this.client.flushEnd();
-    this.state = applyManualStructuralFreeze(this.state);
+    this.state = applyManualStructuralFreeze(this.state, {
+      preserveLeadingDigitSubwords: this.morsyCleanMtTuning,
+    });
     this.projections.sync(this.state);
     this.emitActiveRowTranslationTick();
     this.emitNewlyFrozenRows();
