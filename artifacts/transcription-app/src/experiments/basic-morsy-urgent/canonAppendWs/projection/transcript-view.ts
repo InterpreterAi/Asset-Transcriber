@@ -94,11 +94,19 @@ function utteranceRow(
   _opts: TranscriptProjectionOptions,
 ): RowProjection | null {
   const rawCommitted = utteranceCommittedText(u);
-  const committedText = finalized
-    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
-    : rawCommitted;
-  if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
+  let committedText: string;
+  if (finalized) {
+    committedText = cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted));
+  } else {
+    const cleaned = cleanSonioxPunctuation(rawCommitted);
+    if (cleaned.endsWith(".") && /^\s*[a-z0-9'\u2019\-]/.test(liveText)) {
+      committedText = cleaned.slice(0, -1);
+    } else {
+      committedText = cleaned;
+    }
+  }
+  if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   if (!committedText.length && !liveText.length) return null;
   return {
     row_id: u.utterance_id,
