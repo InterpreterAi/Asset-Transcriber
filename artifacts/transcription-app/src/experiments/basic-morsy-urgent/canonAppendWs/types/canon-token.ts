@@ -31,16 +31,5 @@ export type TranscriptRow = {
 };
 
 export function joinCanonText(tokens: readonly CanonToken[]): string {
-  let result = "";
-  for (const token of tokens) {
-    const text = token.text;
-    // Soniox adds a period when it finalizes a token at a pause boundary.
-    // If the next token continues mid-sentence (starts with lowercase, digit,
-    // apostrophe, or hyphen), that period is spurious — strip it before joining.
-    if (result.endsWith(".") && /^\s*[a-z0-9'\-]/.test(text)) {
-      result = result.slice(0, -1);
-    }
-    result += text;
-  }
-  return result;
+  return tokens.map(t => t.text).join("");
 }
