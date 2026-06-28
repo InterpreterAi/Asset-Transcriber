@@ -9629,6 +9629,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         queueMicrotask(() => scrollPanelFnRef.current?.(true));
         sonioxSessionApiKeyRef.current = tokenRes.apiKey;
         eng.setMorsyUrgentTuning(isBasicMorsyUrgentPlan(planTypeRef.current.trim()));
+        eng.setMorsyCleanMtTuning(morsyUsesCleanTranslationExperiment());
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
         canonWsIsolationRecordingRef.current = false;
