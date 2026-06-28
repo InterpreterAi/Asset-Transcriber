@@ -365,6 +365,7 @@ export class CanonAppendWsIsolatedRuntime {
         this.morsyCleanMtTuning,
       ),
       preserveLeadingDigitSubwords: this.morsyCleanMtTuning,
+      ignoreLanguageMismatchRowBreaks: this.morsyCleanMtTuning,
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {

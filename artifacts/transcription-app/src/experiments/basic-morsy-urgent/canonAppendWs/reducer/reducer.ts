@@ -21,6 +21,7 @@ export type ReduceContext = {
   wallMs: number;
   sameSpeakerLongPauseSplitMs?: number;
   preserveLeadingDigitSubwords?: boolean;
+  ignoreLanguageMismatchRowBreaks?: boolean;
 };
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
@@ -56,6 +57,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
   const preserveLeadingDigitSubwords = Boolean(ctx.preserveLeadingDigitSubwords);
+  const ignoreLanguageMismatchRowBreaks = Boolean(ctx.ignoreLanguageMismatchRowBreaks);
   if (frame.tokens.length > 0) {
     next = tryLongPauseSameSpeakerRowSplit(next, wallMs, pauseSplitMs, preserveLeadingDigitSubwords);
   }
@@ -88,7 +90,12 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
     ctx.ledger.appendFinalCanon(ct);
 
-    if (next.activeUtterance && rowBreaksOnFinalToken(next.activeUtterance, ct)) {
+    if (
+      next.activeUtterance &&
+      rowBreaksOnFinalToken(next.activeUtterance, ct, {
+        ignoreLanguageMismatch: ignoreLanguageMismatchRowBreaks,
+      })
+    ) {
       next = freezeActiveUtterance(next, { preserveLeadingDigitSubwords });
       next = {
         ...next,

@@ -33,13 +33,18 @@ function trimTrailingSubwordTokens(
 }
 
 /** New row when a final token's speaker or language differs from the active row. */
-export function rowBreaksOnFinalToken(row: CanonUtterance, tok: CanonToken): boolean {
+export function rowBreaksOnFinalToken(
+  row: CanonUtterance,
+  tok: CanonToken,
+  opts: { ignoreLanguageMismatch?: boolean } = {},
+): boolean {
   if (!row.finalTokens.length) return false;
   const rsp = norm(row.speaker);
   const rlg = langBase(row.language);
   const tsp = norm(tok.speaker);
   const tlg = langBase(tok.language);
   if (rsp && tsp && rsp !== tsp) return true;
+  if (opts.ignoreLanguageMismatch) return false;
   if (rlg && tlg && rlg !== tlg) return true;
   return false;
 }
