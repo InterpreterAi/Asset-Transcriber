@@ -32,6 +32,7 @@ function stripTrailingPartialFragment(text: string): string {
 function cleanSonioxPunctuation(
   text: string,
 ): string {
+  console.log("[CLEAN_PUNCT_IN]", JSON.stringify(text.slice(0, 80)));
   let t = text;
   // 1. Spoken word "dash" / "guión" between alphanumerics → hyphen character
   t = t.replace(/([A-Za-z0-9])\s+[Dd]ash\s+([A-Za-z0-9])/g, "$1-$2");
@@ -95,8 +96,8 @@ function utteranceRow(
 ): RowProjection | null {
   const rawCommitted = utteranceCommittedText(u);
   const committedText = finalized
-    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
-    : rawCommitted;
+    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted)).replace(/\.\s*$/, "")
+    : cleanSonioxPunctuation(rawCommitted);
   if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
   if (!committedText.length && !liveText.length) return null;
