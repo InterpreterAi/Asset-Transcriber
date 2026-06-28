@@ -96,7 +96,7 @@ function utteranceRow(
   const rawCommitted = utteranceCommittedText(u);
   const committedText = finalized
     ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
-    : cleanSonioxPunctuation(rawCommitted);
+    : rawCommitted;
   if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
   if (!committedText.length && !liveText.length) return null;
