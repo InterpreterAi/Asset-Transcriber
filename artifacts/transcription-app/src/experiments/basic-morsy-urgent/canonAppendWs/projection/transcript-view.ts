@@ -22,56 +22,38 @@ export type TranscriptProjectionOptions = {
 
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
-  // Strip trailing sub-word token: a token that has no leading space and is ≤4 chars
-  // with no vowel — it's a sub-word continuation piece (e.g. "th", "nd", "ck", "ng")
-  // that got stranded when the row froze mid-word.
-  // We detect it by checking if the text ends with a short no-space fragment.
-  t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz']{1,3}$/, "");
-  // Also strip trailing apostrophe fragments: "You'" → "You"
+  // ONLY strip pure consonant sub-word fragments (no vowels, no digits)
+  // These are dangling pieces from speaker-switch freeze mid-word: "th", "nd", "ck"
+  t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz]{1,3}$/i, "");
+  // Strip trailing bare apostrophe
   t = t.replace(/'$/, "");
-  // Single consonant after space: " b", " th"
-  t = t.replace(/\s[b-df-hj-np-tv-zB-DF-HJ-NP-TV-Z]$/, "");
-  // 2-consonant cluster: " wh", " fr"
-  t = t.replace(/\s[b-df-hj-np-tv-z]{2}$/i, "");
-  // Common Spanish/English partial stems with vowels (3-6 chars, no word ending pattern)
-  // Matches fragments like "escuch", "eith", "unfortun", "acord" that end mid-stem
-  t = t.replace(/\s[a-záéíóúü]{3,6}$/i, (match) => {
-    const word = match.trim().toLowerCase();
-    // Preserve real short words — don't strip these
-    const KEEP = new Set([
-      "han", "hay", "sin", "son", "van", "fue", "era", "una", "uno",
-      "los", "las", "del", "que", "con", "por", "the", "and", "for", "not", "but",
-      "can", "did", "got", "had", "has", "him", "his", "its", "let", "may", "now",
-      "our", "out", "see", "she", "them", "then", "they", "was", "way", "who",
-      "yes", "you", "her", "him", "how", "its", "man", "men", "new", "old", "own",
-      "say", "two", "use", "day", "get", "big", "few", "run", "too", "any", "are",
-    ]);
-    return KEEP.has(word) ? match : "";
-  });
   return t.trim();
 }
 
 function cleanSonioxPunctuation(
   text: string,
-  opts: TranscriptProjectionOptions = {},
 ): string {
   let t = text;
-  // Remove period/comma immediately before a lowercase letter: "Any. ear" → "Any ear"
-  t = t.replace(/([,.])\s*([a-z\u0600-\u06FF])/g, " $2");
-  // Remove period immediately after a lowercase word where next word is also lowercase: "we. check" → "we check"
+  // 1. Decimals and numbers: "0. 7. 5" → "0.75", "14,782. 63" → "14,782.63"
+  //    Run twice so "0. 7. 5" → "0.7. 5" → "0.7.5" in two passes
+  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
+  t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
+  //    Collapse double-decimal artifact "0.7.5" → "0.75"
+  t = t.replace(/(\d)\.(\d)\.(\d+)/g, "$1.$2$3");
+  // 2. Phone prefix: "+. 1" → "+1"
+  t = t.replace(/\+\.\s*/g, "+");
+  // 3. Possessives: "Today.'s" → "Today's" (straight and curly apostrophe)
+  t = t.replace(/\.(?=[\u2019\u0027]s\b)/g, "");
+  // 4. Uppercase code sequences: "N. VM" → "NVM", "NVM-4. 4307" → "NVM-44307"
+  t = t.replace(/\b([A-Z])\.\s+([A-Z])/g, "$1$2");
+  t = t.replace(/([A-Z]{2,}-\d+)\.\s*(\d)/g, "$1$2");
+  // 5. Period before lowercase → remove (Soniox false sentence boundary)
+  t = t.replace(/\.\s*([a-z\u0600-\u06FF])/g, " $1");
+  // 6. Lowercase-period-space-lowercase → remove period
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
-  if (opts.morsyCleanMtNumberPunctuation) {
-    // Collapse digit-period-space-digit into digit.digit (decimal restore): "0. 75" → "0.75", "14,782. 63" → "14,782.63"
-    t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
-    // Phone numbers starting with +: "+. 1" → "+1"
-    t = t.replace(/([+])\.\s*/g, "$1");
-    // Period before possessive apostrophe-s: "Today.'s" → "Today's"
-    t = t.replace(/\.(?='s\b)/g, "");
-  }
-  // Soniox bakes periods into word tokens mid-sentence, then capitalizes the next word.
-  // Pattern: "And. With the fever" — "With" is capitalized because Soniox thinks new sentence.
-  // Remove period when the word before it is a conjunction, preposition, or auxiliary verb.
-  const MID_SENTENCE_WORDS = [
+  // 7. Mid-sentence capitalized word after period → remove period
+  //    Soniox bakes period into token then capitalizes next word at pauses
+  const MID = [
     "And","Or","But","With","Is","Are","Was","Were","Has","Have","Had",
     "Do","Does","Did","At","In","On","Of","To","For","By","So","Yet",
     "Not","Being","About","From","Into","Then","When","That","Which",
@@ -79,19 +61,14 @@ function cleanSonioxPunctuation(
     "His","Her","Him","Its","Our","Their","Your","My","He","She","It",
     "We","They","You","Can","Could","Will","Would","Should","May","Might","Also",
   ];
-  const midWordPattern = new RegExp(
-    `\\b(${MID_SENTENCE_WORDS.join("|")})\\.( )`,
-    "g"
-  );
-  t = t.replace(midWordPattern, "$1$2");
-  // Collapse stacked punctuation: ",." ".," ",," ".." → single "."
+  const midPat = new RegExp(`\\b(${MID.join("|")})\\.\\s`, "g");
+  t = t.replace(midPat, "$1 ");
+  // 8. Clean stacked punctuation
   t = t.replace(/[,]{2,}/g, ",");
   t = t.replace(/[.]{2,}/g, ".");
   t = t.replace(/[,.][,.]+/g, ".");
-  // Remove trailing comma before a period: "today,." → "today."
   t = t.replace(/,\s*\./g, ".");
-  // Remove trailing standalone comma at end of utterance
-  t = t.replace(/,\s*$/, "");
+  t = t.replace(/,\s*$/g, "");
   return t.trim();
 }
 
@@ -102,7 +79,9 @@ function utteranceRow(
 ): RowProjection | null {
   const rawCommitted = utteranceCommittedText(u);
   const committedText = finalized
-    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted), opts)
+    ? opts.morsyCleanMtNumberPunctuation
+      ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
+      : rawCommitted
     : rawCommitted;
   if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
