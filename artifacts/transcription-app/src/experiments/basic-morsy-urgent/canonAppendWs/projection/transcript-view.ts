@@ -91,12 +91,17 @@ function cleanSonioxPunctuation(
 function utteranceRow(
   u: CanonUtterance,
   finalized: boolean,
-  _opts: TranscriptProjectionOptions,
+  opts: TranscriptProjectionOptions,
 ): RowProjection | null {
   const rawCommitted = utteranceCommittedText(u);
+  const cleanMt = Boolean(opts.morsyCleanMtNumberPunctuation);
   const committedText = finalized
-    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
-    : rawCommitted;
+    ? cleanMt
+      ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
+      : rawCommitted
+    : cleanMt
+      ? cleanSonioxPunctuation(rawCommitted)
+      : rawCommitted;
   if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
   const liveText = finalized ? "" : utteranceLiveText(u);
   if (!committedText.length && !liveText.length) return null;
