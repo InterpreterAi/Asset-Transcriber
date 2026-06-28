@@ -19,8 +19,15 @@ export type CanonUtterance = {
   is_final: boolean;
 };
 
+function cleanSonioxPeriods(text: string): string {
+  // Soniox inserts a period when it finalizes a token at a pause boundary.
+  // Strip it when the next token continues mid-sentence.
+  return text.replace(/\.\s*(?=[a-z0-9'\-])/g, "");
+}
+
 export function utteranceCommittedText(u: CanonUtterance): string {
-  return joinCanonText(u.finalTokens);
+  const raw = joinCanonText(u.finalTokens);
+  return cleanSonioxPeriods(raw);
 }
 
 export function utteranceLiveText(u: CanonUtterance): string {
