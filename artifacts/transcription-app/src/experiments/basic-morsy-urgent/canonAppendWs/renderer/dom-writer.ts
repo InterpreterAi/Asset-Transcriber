@@ -1,5 +1,4 @@
 import type { RowProjection } from "../projection/transcript-view";
-
 import {
   renderMorsyChunkV2BidiHtml,
   shouldMorsyChunkV2BidiPaint,
@@ -11,23 +10,19 @@ import {
   runWorkspaceDomMutation,
   WORKSPACE_SELECTABLE_TEXT_CLASS,
 } from "@/lib/workspace-text-selection";
-
 import type { CommittedDomMirror } from "./committed-renderer";
 import {
   createCommittedMirror,
   renderCommittedAppendOnly,
 } from "./committed-renderer";
 import { renderHypothesisLcp } from "./hypothesis-renderer";
-
 export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
-
 export type EngineDomRowHandles = {
   row: HTMLElement;
   stripe: HTMLElement;
   committedMirror: CommittedDomMirror;
   translationEl: HTMLElement;
 };
-
 /** Per-row stripe palette — speaker and/or language changes get the next slot (blue → yellow → …). */
 const ROW_STRIPE_COLOR_CLASSES = [
   "bg-blue-500",
@@ -36,41 +31,33 @@ const ROW_STRIPE_COLOR_CLASSES = [
   "bg-violet-500",
   "bg-rose-500",
 ] as const;
-
 function stripeColorFallback(language?: string): string {
   const b = (language ?? "").split("-")[0]!.toLowerCase();
   if (b === "en") return ROW_STRIPE_COLOR_CLASSES[0]!;
   if (b === "es") return ROW_STRIPE_COLOR_CLASSES[1]!;
   return "bg-muted-foreground/35";
 }
-
 function outerRowClass(layout: CanonAppendWsLayoutMode): string {
   if (layout === "stacked") {
     return "group relative mb-4";
   }
   return "group relative grid grid-cols-2 gap-3 sm:gap-6 items-start mb-4";
 }
-
 function origCardClass(): string {
   return "flex min-w-0 items-start overflow-visible";
 }
-
 function translationTextClass(layout: CanonAppendWsLayoutMode): string {
   if (layout === "stacked") {
     return "ts-text ts-translation leading-relaxed whitespace-pre-wrap pl-4 border-l border-border/30 ml-1 mt-1.5";
   }
   return "ts-text ts-translation leading-relaxed whitespace-pre-wrap";
 }
-
 /** Token-reconciled transcript DOM — Basic · Morsy Urgent canonAppendWs (Intercall bilingual rail). */
 export class CanonAppendWsDomWriter {
   private readonly byRowId = new Map<string, EngineDomRowHandles>();
-
   /** First-seen speaker+language keys map to stable stripe colors across the session. */
   private readonly rowStripeSlotByKey = new Map<string, number>();
-
   private layoutMode: CanonAppendWsLayoutMode = "side-by-side";
-
   private stripeColorForRow(speaker?: string, language?: string): string {
     const sp = (speaker ?? "").trim();
     const lang = (language ?? "").split("-")[0]!.toLowerCase();
@@ -82,24 +69,19 @@ export class CanonAppendWsDomWriter {
     const idx = this.rowStripeSlotByKey.get(key)! % ROW_STRIPE_COLOR_CLASSES.length;
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
-
   private readonly translationByRowId = new Map<string, string>();
-
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
   private readonly translationPrefixLiveByRowId = new Map<
     string,
     { locked: string; live: string; rtlBidiPaint?: boolean }
   >();
-
   setLayoutMode(mode: CanonAppendWsLayoutMode): void {
     if (this.layoutMode === mode) return;
     this.layoutMode = mode;
   }
-
   getLayoutMode(): CanonAppendWsLayoutMode {
     return this.layoutMode;
   }
-
   setRowTranslation(rowId: string, text: string): void {
     const hadPrefix = this.translationPrefixLiveByRowId.has(rowId);
     const prevRendered = this.translationByRowId.get(rowId) ?? "";
@@ -121,7 +103,6 @@ export class CanonAppendWsDomWriter {
       runWorkspaceDomMutation(() => this.paintTranslation(handles!));
     }
   }
-
   /** Locked stable prefix (DOM frozen) + live tail (updated each interim response). */
   setRowTranslationPrefixLive(
     rowId: string,
@@ -154,15 +135,12 @@ export class CanonAppendWsDomWriter {
       runWorkspaceDomMutation(() => this.paintTranslationPrefixLive(handles!, prev));
     }
   }
-
   getRowTranslation(rowId: string): string {
     return this.translationByRowId.get(rowId) ?? "";
   }
-
   getTranslationLines(rowIds: string[]): string[] {
     return rowIds.map(id => this.translationByRowId.get(id) ?? "");
   }
-
   private stackedTranslationTextEl(translationEl: HTMLElement): HTMLSpanElement {
     let arrow = translationEl.querySelector<HTMLSpanElement>(`[data-caw-translation-arrow]`);
     let textEl = translationEl.querySelector<HTMLSpanElement>(`[data-caw-translation-text]`);
@@ -181,7 +159,6 @@ export class CanonAppendWsDomWriter {
     }
     return textEl;
   }
-
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
@@ -209,7 +186,6 @@ export class CanonAppendWsDomWriter {
       });
     }
   }
-
   private translationPartEls(
     translationEl: HTMLElement,
   ): { lockedEl: HTMLSpanElement; liveEl: HTMLSpanElement } {
@@ -226,7 +202,6 @@ export class CanonAppendWsDomWriter {
     }
     return { lockedEl, liveEl };
   }
-
   private paintTranslationPrefixLive(
     handles: EngineDomRowHandles,
     prev: { locked: string; live: string; rtlBidiPaint?: boolean } | undefined,
@@ -276,7 +251,6 @@ export class CanonAppendWsDomWriter {
       caller: prev === undefined ? "syncRows_repaint" : "prefix_live_paint",
     });
   }
-
   private buildOrigCard(doc: Document, proj: RowProjection): {
     card: HTMLElement;
     stripe: HTMLElement;
@@ -286,40 +260,36 @@ export class CanonAppendWsDomWriter {
   } {
     const card = doc.createElement("div");
     card.className = origCardClass();
-
     const stripe = doc.createElement("div");
     stripe.className = `w-1 shrink-0 self-stretch rounded-full min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
-
     const body = doc.createElement("div");
     body.className = "min-w-0 flex-1 space-y-1 py-0.5 pl-3";
-
     const header = doc.createElement("div");
     header.className = "font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70";
-
     const origRow = doc.createElement("div");
     origRow.className = "flex items-start gap-1 min-w-0";
-
     const line = doc.createElement("p");
     line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0";
     line.dataset.cawRole = "live-line";
     markWorkspaceSelectableText(line);
+    // committed span: painted only when the row is frozen (speaker switched).
+    // While the row is active, this span stays empty — all live text goes into hypothesis.
+    // hypothesis span: receives ALL text (committed + live merged) while the row is active,
+    // then cleared when the row freezes and committed text moves to the committed span.
     line.innerHTML =
-      '<span data-caw-engine="committed" class="text-foreground workspace-selectable-text"></span><span data-caw-engine="hypothesis" class="text-muted-foreground/95 italic workspace-selectable-text"></span>';
-
+      '<span data-caw-engine="committed" class="text-foreground workspace-selectable-text"></span>' +
+      '<span data-caw-engine="hypothesis" class="text-muted-foreground/95 workspace-selectable-text"></span>';
     origRow.appendChild(line);
     origRow.appendChild(
       createWorkspaceCopyButton(() => line.textContent ?? ""),
     );
-
     body.appendChild(header);
     body.appendChild(origRow);
     card.appendChild(stripe);
     card.appendChild(body);
-
     const hypo = line.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`)!;
     return { card, stripe, line, hypo, header };
   }
-
   private createRow(container: HTMLElement, proj: RowProjection): EngineDomRowHandles {
     const doc = container.ownerDocument;
     const row = doc.createElement("div");
@@ -327,11 +297,8 @@ export class CanonAppendWsDomWriter {
     row.className = outerRowClass(this.layoutMode);
     if (proj.speaker) row.dataset.cawSpeaker = proj.speaker;
     if (proj.language) row.dataset.cawLanguage = proj.language;
-
     const { card, stripe } = this.buildOrigCard(doc, proj);
-
     let translationEl: HTMLElement;
-
     if (this.layoutMode === "stacked") {
       row.appendChild(card);
       const transRow = doc.createElement("div");
@@ -363,9 +330,7 @@ export class CanonAppendWsDomWriter {
       row.appendChild(card);
       row.appendChild(transWrap);
     }
-
     container.appendChild(row);
-
     const handles: EngineDomRowHandles = {
       row,
       stripe,
@@ -376,7 +341,6 @@ export class CanonAppendWsDomWriter {
     this.paintTranslation(handles);
     return handles;
   }
-
   /** Row-order sync — append-only committed per row; active tail via hypothesis span only. */
   syncRows(container: HTMLElement, projections: RowProjection[]): void {
     const seen = new Set<string>();
@@ -391,20 +355,26 @@ export class CanonAppendWsDomWriter {
         handles = this.createRow(container, proj);
       }
       container.appendChild(handles.row);
-
       const card = handles.row.firstElementChild;
       const body = card?.children[1] as HTMLElement | undefined;
       const line = body?.querySelector<HTMLElement>(`[data-caw-role="live-line"]`);
       const hypo = line?.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`);
-
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
-
       if (!line || !hypo) continue;
-
-      renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-      renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      if (proj.finalized) {
+        // Row is frozen (speaker switched) — paint final clean text in the committed span
+        // (text-foreground, non-italic) and clear the hypothesis span.
+        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+        renderHypothesisLcp(hypo, "");
+      } else {
+        // Row is active (speaker still talking) — merge committed + live into one grey string
+        // in the hypothesis span. The committed span stays empty so there is no dark/bold
+        // flash as Soniox finalizes tokens mid-utterance.
+        const combined = [proj.committedText, proj.liveText].filter(Boolean).join(" ");
+        renderHypothesisLcp(hypo, combined);
+      }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(
           handles,
@@ -414,7 +384,6 @@ export class CanonAppendWsDomWriter {
         this.paintTranslation(handles);
       }
     }
-
     for (const [id, handles] of [...this.byRowId]) {
       if (!seen.has(id)) {
         handles.row.remove();
@@ -424,13 +393,11 @@ export class CanonAppendWsDomWriter {
       }
     }
   }
-
   relayoutAll(container: HTMLElement, projections: RowProjection[]): void {
     container.replaceChildren();
     this.byRowId.clear();
     this.syncRows(container, projections);
   }
-
   detachAll(container: HTMLElement): void {
     container.replaceChildren();
     this.byRowId.clear();
@@ -439,4 +406,3 @@ export class CanonAppendWsDomWriter {
     this.rowStripeSlotByKey.clear();
   }
 }
-

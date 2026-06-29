@@ -1,7 +1,6 @@
 import type { CanonUtterance } from "../types/canon-utterance";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import type { EngineState } from "../types/transcript";
-
 export type RowProjection = {
   row_id: string;
   speaker?: string;
@@ -11,14 +10,11 @@ export type RowProjection = {
   finalized: boolean;
   translationText?: string;
 };
-
 export type TranscriptProjection = {
   rows: RowProjection[];
   liveCombined: string;
 };
-
 export type TranscriptProjectionOptions = {};
-
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
   t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz']{1,3}$/, "");
@@ -27,30 +23,32 @@ function stripTrailingPartialFragment(text: string): string {
   t = t.replace(/\s[b-df-hj-np-tv-z]{2}$/, "");
   return t.trim();
 }
-
-function cleanSonioxPunctuation(
-  text: string,
-): string {
+function cleanSonioxPunctuation(text: string): string {
   let t = text;
+  // 0. Period between two Title-Case words → space
+  //    "Rodriguez. After" → "Rodriguez After", "Heart. Disease" → "Heart Disease"
+  //    Does NOT touch single-letter abbreviations: "Dr. Smith" stays.
+  t = t.replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2");
+  // Run twice to catch chains: "Heart. Failure. And" → fully cleaned
+  t = t.replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2");
   // 1. Spoken word "dash" / "guión" between alphanumerics → hyphen character
   t = t.replace(/([A-Za-z0-9])\s+[Dd]ash\s+([A-Za-z0-9])/g, "$1-$2");
   t = t.replace(/([A-Za-z0-9])\s+[Gg]ui[oó]n\s+([A-Za-z0-9])/g, "$1-$2");
   // 2. Possessives: "Today.'s" → "Today's"
   t = t.replace(/\.(?=['']s\b)/g, "");
   // 3. Uppercase code joining — BEFORE decimal fix
-  // "N. V. M" → "NVM"
+  //    "N. V. M" → "NVM"
   t = t.replace(/\b([A-Z])\.\s+([A-Z])/g, "$1$2");
   t = t.replace(/\b([A-Z])\.\s+([A-Z])/g, "$1$2");
-  // "NVM-4. 4307-A" → "NVM-44307-A" (digit inside dashed ID)
+  //    "NVM-4. 4307-A" → "NVM-44307-A" (digit inside dashed ID)
   t = t.replace(/([A-Z]{2,}-\d+)\.\s*(\d)/g, "$1$2");
-  // "A. 59372" or "X. 719" → "A59372", "X719"
+  //    "A. 59372" or "X. 719" → "A59372", "X719"
   t = t.replace(/\b([A-Z])\.\s+(\d)/g, "$1$2");
   // 4. Decimals: "0. 7. 5" → "0.75", "$14,782. 63" → "$14,782.63"
-  // "0. 7. 5" → "0.75", "$14,782. 63" → "$14,782.63"
   t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
   t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
   t = t.replace(/(\d)\.\s+(\d)/g, "$1.$2");
-  // Collapse double-decimal: "0.7.5" → "0.75"
+  //    Collapse double-decimal: "0.7.5" → "0.75"
   t = t.replace(/(\d)\.(\d)\.(\d+)/g, "$1.$2$3");
   // 5. Phone prefix: "+. 1" → "+1"
   t = t.replace(/\+\.\s*/g, "+");
@@ -64,12 +62,22 @@ function cleanSonioxPunctuation(
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
   // 9. Mid-sentence words — remove false period (these cannot end a sentence)
   const MID = [
+    // English conjunctions, prepositions, auxiliaries
     "And","Or","But","With","Is","Are","Was","Were","Has","Have","Had",
     "Do","Does","Did","At","In","On","Of","To","For","By","So","Yet",
     "Not","Being","About","From","Into","Then","When","That","Which",
     "What","Who","How","If","As","Just","Now","Any","The","A","An",
     "His","Her","Him","Its","Our","Their","Your","My","He","She","It",
     "We","They","You","Can","Could","Will","Would","Should","May","Might","Also",
+    // Common mid-sentence continuations
+    "After","Before","During","While","Because","Although","However","Therefore",
+    "Including","Such","These","This","Each","All","Both","Over","Under",
+    "Through","Between","Within","Without","Among","Against","Along","Around",
+    "Across","Above","Below","Near","Since","Until","Unless","Whether",
+    "Though","Even","Still","Already","Always","Often","Never","Only",
+    "Rather","Further","More","Less","Much","Many","Some","Most","Other",
+    "Another","Same","Different","New","Old","First","Second","Last",
+    "Then","There","Here","Where","Very","Well","Now","Soon","Later",
     // Spanish
     "Y","O","Pero","Con","Es","Son","Fue","Era","Han","Hay",
     "Al","En","De","Del","Los","Las","Le","La","El","Un","Una",
@@ -86,22 +94,17 @@ function cleanSonioxPunctuation(
   t = t.replace(/\s{2,}/g, " ");
   return t.trim();
 }
-
 const PUNCTUATION_ONLY = /^[\s.,!?;:—–\-"'()[\]{}]+$/;
-
 function norm(s: string | undefined): string | undefined {
   const t = s?.trim();
   return t?.length ? t : undefined;
 }
-
 /** visible = join(finalTokens) + join(nonFinalTokens) per Soniox docs. */
 export function projectTranscriptView(state: EngineState): TranscriptProjection {
   const rows: RowProjection[] = [];
-
   let groupUtterances: CanonUtterance[] = [];
   let groupSpeaker: string | undefined = undefined;
   let groupLanguage: string | undefined = undefined;
-
   const flushGroup = () => {
     if (!groupUtterances.length) return;
     const rawJoined = groupUtterances.map(u => utteranceCommittedText(u)).join(" ");
@@ -126,7 +129,6 @@ export function projectTranscriptView(state: EngineState): TranscriptProjection 
     }
     groupUtterances = [];
   };
-
   for (const fu of state.finalizedUtterances) {
     const sp = norm(fu.speaker);
     const lg = fu.language?.split("-")[0]?.toLowerCase();
@@ -138,7 +140,6 @@ export function projectTranscriptView(state: EngineState): TranscriptProjection 
     groupUtterances.push(fu);
   }
   flushGroup();
-
   if (state.activeUtterance) {
     const rawCommitted = utteranceCommittedText(state.activeUtterance);
     const liveText = utteranceLiveText(state.activeUtterance);
@@ -155,7 +156,6 @@ export function projectTranscriptView(state: EngineState): TranscriptProjection 
       });
     }
   }
-
   const liveCombined = rows.map(rr => rr.committedText + rr.liveText).join("\n");
   return { rows, liveCombined };
 }
