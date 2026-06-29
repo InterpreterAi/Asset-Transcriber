@@ -94,38 +94,11 @@ function utteranceRow(
   _opts: TranscriptProjectionOptions,
 ): RowProjection | null {
   const rawCommitted = utteranceCommittedText(u);
-  // liveText computed first — needed for the boundary check below
-  const liveText = finalized ? "" : utteranceLiveText(u);
-  let committedText: string;
-  if (finalized) {
-    committedText = cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted));
-  } else {
-    // Apply cleaning to the active utterance's committed tokens.
-    // IMPORTANT: if the cleaned text still ends with a period AND live text
-    // continues mid-sentence, strip that trailing period BEFORE painting.
-    //
-    // Why this is safe for the append-only renderer:
-    //   Frame N:   finalTokens=["Today."]  → we paint "Today"   (no period)
-    //   Frame N+1: finalTokens=["Today.","'s"] → rawCommitted="Today.'s"
-    //              cleanSonioxPunctuation("Today.'s") = "Today's"
-    //              "Today's".startsWith("Today") → YES → delta "'s" appended ✓
-    //
-    // Same for decimals:
-    //   Frame N:   finalTokens=["$14,782."] → we paint "$14,782"
-    //   Frame N+1: finalTokens=["$14,782."," 63"] → rawCommitted="$14,782. 63"
-    //              cleanSonioxPunctuation → "$14,782.63"
-    //              "$14,782.63".startsWith("$14,782") → YES → delta ".63" ✓
-    const cleaned = cleanSonioxPunctuation(rawCommitted);
-    const liveIsMidSentence =
-      liveText.length > 0 &&
-      /^\s*[a-z0-9'\u2019\-]/.test(liveText);
-    if (cleaned.endsWith(".") && liveIsMidSentence) {
-      committedText = cleaned.slice(0, -1);
-    } else {
-      committedText = cleaned;
-    }
-  }
+  const committedText = finalized
+    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
+    : rawCommitted;
   if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
+  const liveText = finalized ? "" : utteranceLiveText(u);
   if (!committedText.length && !liveText.length) return null;
   return {
     row_id: u.utterance_id,
