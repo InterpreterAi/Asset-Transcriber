@@ -32,7 +32,7 @@ import {
 } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
-import { getInterpreterContext } from "../ws/interpreter-context";
+import { getInterpreterContext, type SonioxContextTerm } from "../ws/interpreter-context";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
 /** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
@@ -113,6 +113,8 @@ export class CanonAppendWsIsolatedRuntime {
   private morsyCleanMtTuning = false;
   /** Chunk V2 native Soniox translation experiment. */
   private chunkV2NativeTranslate = false;
+  /** User glossary rows injected into chunk-v2 Soniox context. */
+  private chunkV2GlossaryTerms: SonioxContextTerm[] = [];
 
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
@@ -137,6 +139,10 @@ export class CanonAppendWsIsolatedRuntime {
       this.writer.relayoutAll(this.containerEl, snap.rows);
       this.notifyAfterPaint();
     }
+  }
+
+  setChunkV2GlossaryTerms(terms: SonioxContextTerm[]): void {
+    this.chunkV2GlossaryTerms = terms;
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -418,7 +424,7 @@ export class CanonAppendWsIsolatedRuntime {
             language_a: pair.a,
             language_b: pair.b,
           },
-          interpreterContext: getInterpreterContext(pair.a, pair.b),
+          interpreterContext: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms),
         }
       : {};
     this.client.connect({

@@ -156,6 +156,20 @@ function cleanChunkV2Final(text: string): string {
   t = t.replace(/(\d+)\.\s*(\d+)/g, "$1.$2");
   // Step 3: Preserve NATO formatting.
   t = normalizeNatoRuns(t);
+  // Remove partial-word fragment when immediately followed by a longer word
+  // that starts with the same letters (Soniox finalizes partials before full word arrives).
+  // "elec. Electrocardiogram" → "Electrocardiogram"
+  // "cor Computed tomography" → "Computed tomography"
+  // "ambul Holter" — "ambul" does NOT start "Holter" so left unchanged (correct)
+  t = t.replace(
+    /\b([A-Za-z]{2,6})[.\s]+([A-Za-z]{4,}(?:\s+[A-Za-z]+)*)/g,
+    (match, partial, rest) => {
+      const firstFull = rest.split(/\s/)[0]!;
+      const p = partial.toLowerCase();
+      const f = firstFull.toLowerCase();
+      return f.startsWith(p) ? rest : match;
+    },
+  );
   // Step 4: Non-destructive cleanup.
   return t.replace(/\s{2,}/g, " ").trim();
 }
