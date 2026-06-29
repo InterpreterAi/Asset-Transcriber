@@ -106,6 +106,7 @@ import {
   type CanonFrozenRowPayload,
   type CanonRowDualBufferPayload,
 } from "@/experiments/basic-morsy-urgent/canonAppendWs/integration/canon-append-ws-runtime";
+import { utteranceCommittedText } from "@/experiments/basic-morsy-urgent/canonAppendWs/types/canon-utterance";
 import {
   canonVisibleTraceStagingTailPeek,
   emitMorsyUrgentCanonVisibleTrace,
@@ -3849,14 +3850,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
               }
             }
           }
-          // Clear the live bubble when the active row closes (before finalized paint arrives).
+          // Track the active row ID — do NOT clear translation on transition.
+          // The frozen-row paint (dispatchMorsyChunkV2EndpointFlush / onRowFrozen)
+          // writes the final translation; clearing here would race and wipe it.
           const currentActiveId = rows.find(r => !r.finalized)?.row_id ?? null;
-          if (
-            prevActiveRowIdRef.current &&
-            prevActiveRowIdRef.current !== currentActiveId
-          ) {
-            clearCanonRowTranslation(prevActiveRowIdRef.current);
-          }
           prevActiveRowIdRef.current = currentActiveId;
         }
         scanMorsyCanonBlankFrozenTranslationsRef.current?.();
@@ -7159,9 +7156,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Soniox native translation — paint from frozen utterance, skip external API.
       const nativeTx = (payload.utterance.translationText ?? "").trim();
       if (nativeTx.length > 0) {
+        // Normal path: Soniox translated this utterance.
         paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
       } else {
-        clearCanonRowTranslation(rowId);
+        // Third-language path: Soniox produced no translation (language not in the pair).
+        // Mirror the transcription text into the translation column so the bubble is never empty.
+        const fallback = utteranceCommittedText(payload.utterance).trim();
+        if (fallback.length > 0) {
+          paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
+        }
+        // Never call clearCanonRowTranslation — the frozen-row paint already owns the bubble.
       }
       return;
     }
