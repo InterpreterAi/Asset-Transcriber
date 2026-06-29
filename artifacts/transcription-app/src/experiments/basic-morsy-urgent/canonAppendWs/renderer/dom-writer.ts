@@ -58,6 +58,7 @@ export class CanonAppendWsDomWriter {
   /** First-seen speaker+language keys map to stable stripe colors across the session. */
   private readonly rowStripeSlotByKey = new Map<string, number>();
   private layoutMode: CanonAppendWsLayoutMode = "side-by-side";
+  private chunkV2NativeTranslate = false;
   private stripeColorForRow(speaker?: string, language?: string): string {
     const sp = (speaker ?? "").trim();
     const lang = (language ?? "").split("-")[0]!.toLowerCase();
@@ -81,6 +82,9 @@ export class CanonAppendWsDomWriter {
   }
   getLayoutMode(): CanonAppendWsLayoutMode {
     return this.layoutMode;
+  }
+  setChunkV2NativeTranslate(enabled: boolean): void {
+    this.chunkV2NativeTranslate = enabled;
   }
   setRowTranslation(rowId: string, text: string): void {
     const hadPrefix = this.translationPrefixLiveByRowId.has(rowId);
@@ -272,13 +276,16 @@ export class CanonAppendWsDomWriter {
     line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0";
     line.dataset.cawRole = "live-line";
     markWorkspaceSelectableText(line);
-    // committed span: painted only when the row is frozen (speaker switched).
-    // While the row is active, this span stays empty — all live text goes into hypothesis.
-    // hypothesis span: receives ALL text (committed + live merged) while the row is active,
-    // then cleared when the row freezes and committed text moves to the committed span.
-    line.innerHTML =
-      '<span data-caw-engine="committed" class="text-foreground workspace-selectable-text"></span>' +
-      '<span data-caw-engine="hypothesis" class="text-muted-foreground/95 workspace-selectable-text"></span>';
+    if (this.chunkV2NativeTranslate) {
+      // Chunk V2-only: active rows render in a single grey hypothesis span.
+      line.innerHTML =
+        '<span data-caw-engine="committed" class="text-foreground workspace-selectable-text"></span>' +
+        '<span data-caw-engine="hypothesis" class="text-muted-foreground/95 workspace-selectable-text"></span>';
+    } else {
+      // Default path: keep legacy hypothesis styling/behavior.
+      line.innerHTML =
+        '<span data-caw-engine="committed" class="text-foreground workspace-selectable-text"></span><span data-caw-engine="hypothesis" class="text-muted-foreground/95 italic workspace-selectable-text"></span>';
+    }
     origRow.appendChild(line);
     origRow.appendChild(
       createWorkspaceCopyButton(() => line.textContent ?? ""),
@@ -363,17 +370,17 @@ export class CanonAppendWsDomWriter {
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
       if (!line || !hypo) continue;
-      if (proj.finalized) {
-        // Row is frozen (speaker switched) — paint final clean text in the committed span
-        // (text-foreground, non-italic) and clear the hypothesis span.
-        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-        renderHypothesisLcp(hypo, "");
+      if (this.chunkV2NativeTranslate) {
+        if (proj.finalized) {
+          renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+          renderHypothesisLcp(hypo, "");
+        } else {
+          const combined = [proj.committedText, proj.liveText].filter(Boolean).join(" ");
+          renderHypothesisLcp(hypo, combined);
+        }
       } else {
-        // Row is active (speaker still talking) — merge committed + live into one grey string
-        // in the hypothesis span. The committed span stays empty so there is no dark/bold
-        // flash as Soniox finalizes tokens mid-utterance.
-        const combined = [proj.committedText, proj.liveText].filter(Boolean).join(" ");
-        renderHypothesisLcp(hypo, combined);
+        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+        renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
       }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(

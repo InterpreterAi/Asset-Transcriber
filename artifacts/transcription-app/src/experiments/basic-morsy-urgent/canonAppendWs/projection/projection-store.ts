@@ -7,11 +7,12 @@ import { projectTranscriptView } from "./transcript-view";
 /** Read-only façade over reducer state → UI projections (experiment). */
 export class ProjectionStore {
   private revision = 0;
+  private options: TranscriptProjectionOptions = {};
 
   constructor(private state: EngineState) {}
 
   setOptions(next: TranscriptProjectionOptions): void {
-    void next;
+    this.options = { ...this.options, ...next };
   }
 
   sync(next: EngineState): void {
@@ -24,7 +25,7 @@ export class ProjectionStore {
   }
 
   getProjection(): TranscriptProjection {
-    return projectTranscriptView(this.state);
+    return projectTranscriptView(this.state, this.options);
   }
 
   snapshotRevision(): number {

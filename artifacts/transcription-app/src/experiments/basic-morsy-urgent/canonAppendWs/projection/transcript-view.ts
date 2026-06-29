@@ -14,7 +14,9 @@ export type TranscriptProjection = {
   rows: RowProjection[];
   liveCombined: string;
 };
-export type TranscriptProjectionOptions = {};
+export type TranscriptProjectionOptions = {
+  chunkV2NativeTranslate?: boolean;
+};
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
   t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz']{1,3}$/, "");
@@ -23,14 +25,13 @@ function stripTrailingPartialFragment(text: string): string {
   t = t.replace(/\s[b-df-hj-np-tv-z]{2}$/, "");
   return t.trim();
 }
-function cleanSonioxPunctuation(text: string): string {
+function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions): string {
   let t = text;
-  // 0. Period between two Title-Case words → space
-  //    "Rodriguez. After" → "Rodriguez After", "Heart. Disease" → "Heart Disease"
-  //    Does NOT touch single-letter abbreviations: "Dr. Smith" stays.
-  t = t.replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2");
-  // Run twice to catch chains: "Heart. Failure. And" → fully cleaned
-  t = t.replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2");
+  if (opts.chunkV2NativeTranslate) {
+    // Chunk V2-only fix: period between two Title-Case words -> space.
+    t = t.replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2");
+    t = t.replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2");
+  }
   // 1. Spoken word "dash" / "guión" between alphanumerics → hyphen character
   t = t.replace(/([A-Za-z0-9])\s+[Dd]ash\s+([A-Za-z0-9])/g, "$1-$2");
   t = t.replace(/([A-Za-z0-9])\s+[Gg]ui[oó]n\s+([A-Za-z0-9])/g, "$1-$2");
@@ -62,27 +63,30 @@ function cleanSonioxPunctuation(text: string): string {
   t = t.replace(/([a-z])\.\s+([a-z])/g, "$1 $2");
   // 9. Mid-sentence words — remove false period (these cannot end a sentence)
   const MID = [
-    // English conjunctions, prepositions, auxiliaries
+    // Shared rules
     "And","Or","But","With","Is","Are","Was","Were","Has","Have","Had",
     "Do","Does","Did","At","In","On","Of","To","For","By","So","Yet",
     "Not","Being","About","From","Into","Then","When","That","Which",
     "What","Who","How","If","As","Just","Now","Any","The","A","An",
     "His","Her","Him","Its","Our","Their","Your","My","He","She","It",
     "We","They","You","Can","Could","Will","Would","Should","May","Might","Also",
-    // Common mid-sentence continuations
-    "After","Before","During","While","Because","Although","However","Therefore",
-    "Including","Such","These","This","Each","All","Both","Over","Under",
-    "Through","Between","Within","Without","Among","Against","Along","Around",
-    "Across","Above","Below","Near","Since","Until","Unless","Whether",
-    "Though","Even","Still","Already","Always","Often","Never","Only",
-    "Rather","Further","More","Less","Much","Many","Some","Most","Other",
-    "Another","Same","Different","New","Old","First","Second","Last",
-    "Then","There","Here","Where","Very","Well","Now","Soon","Later",
     // Spanish
     "Y","O","Pero","Con","Es","Son","Fue","Era","Han","Hay",
     "Al","En","De","Del","Los","Las","Le","La","El","Un","Una",
     "No","También","Según","Que","Como","Cuando","Si","Ya","Más",
   ];
+  if (opts.chunkV2NativeTranslate) {
+    MID.push(
+      "After","Before","During","While","Because","Although","However","Therefore",
+      "Including","Such","These","This","Each","All","Both","Over","Under",
+      "Through","Between","Within","Without","Among","Against","Along","Around",
+      "Across","Above","Below","Near","Since","Until","Unless","Whether",
+      "Though","Even","Still","Already","Always","Often","Never","Only",
+      "Rather","Further","More","Less","Much","Many","Some","Most","Other",
+      "Another","Same","Different","New","Old","First","Second","Last",
+      "There","Here","Where","Very","Well","Soon","Later",
+    );
+  }
   const midPat = new RegExp(`\\b(${MID.join("|")})\\.\\s+`, "g");
   t = t.replace(midPat, "$1 ");
   // 10. Clean stacked punctuation + normalize spaces
@@ -100,7 +104,10 @@ function norm(s: string | undefined): string | undefined {
   return t?.length ? t : undefined;
 }
 /** visible = join(finalTokens) + join(nonFinalTokens) per Soniox docs. */
-export function projectTranscriptView(state: EngineState): TranscriptProjection {
+export function projectTranscriptView(
+  state: EngineState,
+  opts: TranscriptProjectionOptions = {},
+): TranscriptProjection {
   const rows: RowProjection[] = [];
   let groupUtterances: CanonUtterance[] = [];
   let groupSpeaker: string | undefined = undefined;
@@ -110,6 +117,7 @@ export function projectTranscriptView(state: EngineState): TranscriptProjection 
     const rawJoined = groupUtterances.map(u => utteranceCommittedText(u)).join(" ");
     const committedText = cleanSonioxPunctuation(
       stripTrailingPartialFragment(rawJoined),
+      opts,
     ).replace(/[.,]\s*$/, "");
     if (committedText.length && !PUNCTUATION_ONLY.test(committedText)) {
       const translationJoined = groupUtterances
@@ -143,7 +151,7 @@ export function projectTranscriptView(state: EngineState): TranscriptProjection 
   if (state.activeUtterance) {
     const rawCommitted = utteranceCommittedText(state.activeUtterance);
     const liveText = utteranceLiveText(state.activeUtterance);
-    const committedText = cleanSonioxPunctuation(rawCommitted);
+    const committedText = cleanSonioxPunctuation(rawCommitted, opts);
     if (committedText.trim().length || liveText.trim().length) {
       rows.push({
         row_id: state.activeUtterance.utterance_id,

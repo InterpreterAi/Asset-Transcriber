@@ -127,7 +127,16 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   setChunkV2NativeTranslate(enabled: boolean): void {
+    if (this.chunkV2NativeTranslate === enabled) return;
     this.chunkV2NativeTranslate = enabled;
+    this.projections.setOptions({ chunkV2NativeTranslate: enabled });
+    this.writer.setChunkV2NativeTranslate(enabled);
+    if (this.containerEl) {
+      const snap = this.projections.getProjection();
+      this.hooks.onBeforeDomPaint?.();
+      this.writer.relayoutAll(this.containerEl, snap.rows);
+      this.notifyAfterPaint();
+    }
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
