@@ -51,6 +51,20 @@ export function translationTextFromFrame(tokens: readonly Token[]): string {
     .join("");
 }
 
+/** Non-final translation hypothesis from this frame, used for instant preview. */
+export function translationPreviewTextFromFrame(tokens: readonly Token[]): string {
+  return tokens
+    .filter(
+      t =>
+        t.translation_status === "translation" &&
+        t.isFinal !== true &&
+        typeof t.text === "string" &&
+        t.text.length > 0,
+    )
+    .map(t => t.text)
+    .join("");
+}
+
 /** Infer speaker/language from the tail of the token list */
 export function inferTailSpeakerLang(tokens: readonly CanonToken[]): {
   speaker?: string;

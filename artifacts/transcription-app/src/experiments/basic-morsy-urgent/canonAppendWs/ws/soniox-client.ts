@@ -40,9 +40,6 @@ export class SonioxRealtimeClient {
 
   private seq = 0;
 
-  /** Temporary diagnostics window for raw final token text logging. */
-  private rawFinalDebugUntilMs = 0;
-
   private allocateSeq(): number {
     this.seq += 1;
     return this.seq;
@@ -54,7 +51,6 @@ export class SonioxRealtimeClient {
     const ws = new WebSocket(SONIOX_WS_URL);
     this.ws = ws;
     ws.onopen = () => {
-      this.rawFinalDebugUntilMs = Date.now() + 10_000;
       ws.send(JSON.stringify({
         api_key:                        config.apiKey,
         model:                          config.model ?? "stt-rt-v5",
@@ -73,7 +69,7 @@ export class SonioxRealtimeClient {
         ...(config.interpreterContext
           ? { context: config.interpreterContext }
           : {}),
-        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 300,
+        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 180,
       }));
       this.flushPcmQueue();
     };
@@ -84,21 +80,6 @@ export class SonioxRealtimeClient {
           payload = JSON.parse(evt.data as string);
         } catch {
           return;
-        }
-        const msg = payload as { tokens?: unknown[] };
-        if (Date.now() <= this.rawFinalDebugUntilMs && Array.isArray(msg.tokens)) {
-          const finalTexts = msg.tokens
-            .map((tok) => {
-              if (!tok || typeof tok !== "object") return null;
-              const rec = tok as Record<string, unknown>;
-              const text = typeof rec.text === "string" ? rec.text : null;
-              const isFinal = rec.is_final === true;
-              return isFinal && text ? text : null;
-            })
-            .filter((t): t is string => Boolean(t));
-          if (finalTexts.length > 0) {
-            console.log("[SONIOX_RAW_FINAL_TEXT]", JSON.stringify(finalTexts));
-          }
         }
         const errs = payload as Record<string, unknown>;
         const errText =

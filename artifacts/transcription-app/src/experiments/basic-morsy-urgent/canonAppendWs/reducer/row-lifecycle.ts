@@ -13,18 +13,8 @@ function langBase(s: string | undefined): string | undefined {
   return n ? n.split("-")[0]!.toLowerCase() : undefined;
 }
 function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
-  if (tokens.length === 0) return tokens;
-  const last = tokens[tokens.length - 1]!;
-  const txt = last.text;
-  const hasVowel = /[aeiouAEIOU\u0600-\u06FF]/.test(txt);
-  const isDigit = /^\d/.test(txt);
-  const isSubword =
-    !txt.startsWith(" ") &&
-    txt.length <= 3 &&
-    !hasVowel &&
-    !isDigit &&
-    !/[.!?,]$/.test(txt);
-  if (isSubword) return trimTrailingSubwordTokens(tokens.slice(0, -1));
+  // Keep finalized token stream intact to avoid truncating valid tails
+  // (e.g. "sistem" vs "system" convergence during finalization).
   return tokens;
 }
 
@@ -112,6 +102,7 @@ export function freezeActiveUtterance(state: EngineState): EngineState {
     finalizedUtterances: [...state.finalizedUtterances, frozen],
     activeUtterance: null,
     activeTranslationText: "",
+    activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
     metrics: { ...state.metrics, rowsFrozen: state.metrics.rowsFrozen + 1 },
   };

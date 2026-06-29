@@ -370,18 +370,11 @@ export class CanonAppendWsDomWriter {
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
       if (!line || !hypo) continue;
-      if (this.chunkV2NativeTranslate) {
-        if (proj.finalized) {
-          renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-          renderHypothesisLcp(hypo, "");
-        } else {
-          const combined = [proj.committedText, proj.liveText].filter(Boolean).join(" ");
-          renderHypothesisLcp(hypo, combined);
-        }
-      } else {
-        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-        renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
-      }
+      // Real-time split model:
+      // - committed span keeps finalized/persistent words
+      // - hypothesis span shows only live non-final preview
+      renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+      renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(
           handles,

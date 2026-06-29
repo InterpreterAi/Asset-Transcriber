@@ -8,6 +8,7 @@ export type EngineState = {
   finalizedUtterances: CanonUtterance[];
   activeUtterance: CanonUtterance | null;
   activeTranslationText: string;
+  activeTranslationPreviewText: string;
   speakerChangeConsecutive: number;
   nextUtteranceSeq: number;
   /** Dedupe — Soniox sends each final token once. */
@@ -35,6 +36,7 @@ export function createInitialEngineState(): EngineState {
     finalizedUtterances: [],
     activeUtterance: null,
     activeTranslationText: "",
+    activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
     nextUtteranceSeq: 0,
     seenFinalTokenIds: [],

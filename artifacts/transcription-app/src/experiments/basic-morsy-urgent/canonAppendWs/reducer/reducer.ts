@@ -13,6 +13,7 @@ import {
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import {
   canonTokensFromFrame,
+  translationPreviewTextFromFrame,
   translationTextFromFrame,
   inferTailSpeakerLang,
   nonFinalsForRow,
@@ -81,12 +82,19 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   };
 
   const translationChunk = translationTextFromFrame(frame.tokens);
-  if (translationChunk) {
-    next = {
-      ...next,
-      activeTranslationText: (next.activeTranslationText ?? "") + translationChunk,
-    };
-  }
+  const translationPreview = translationPreviewTextFromFrame(frame.tokens);
+  const nextFinalTranslation =
+    translationChunk.length > 0
+      ? (next.activeTranslationText ?? "") + translationChunk
+      : next.activeTranslationText ?? "";
+  next = {
+    ...next,
+    activeTranslationText: nextFinalTranslation,
+    activeTranslationPreviewText:
+      translationPreview.length > 0
+        ? `${nextFinalTranslation}${translationPreview}`
+        : nextFinalTranslation,
+  };
 
   const canon = canonTokensFromFrame(frame.tokens);
   const frameFinals = canon.filter(t => t.is_final);

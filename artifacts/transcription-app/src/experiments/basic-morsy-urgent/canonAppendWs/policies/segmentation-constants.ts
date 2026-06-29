@@ -24,13 +24,15 @@ export const MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 4500;
 export const MAX_UTTERANCE_WALL_MS = 120_000;
 
 export const LIVE_RENDER_BATCH_MS = 32;
+export const CHUNK_V2_LIVE_RENDER_BATCH_MS = 8;
 
 export function sameSpeakerLongPauseSplitMs(_morsyUrgent = false, morsyCleanMt = false): number {
   if (morsyCleanMt) return MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
   return SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
 }
 
-export function liveRenderBatchMs(_morsyUrgent = false): number {
+export function liveRenderBatchMs(_morsyUrgent = false, chunkV2NativeTranslate = false): number {
+  if (chunkV2NativeTranslate) return CHUNK_V2_LIVE_RENDER_BATCH_MS;
   return LIVE_RENDER_BATCH_MS;
 }
 

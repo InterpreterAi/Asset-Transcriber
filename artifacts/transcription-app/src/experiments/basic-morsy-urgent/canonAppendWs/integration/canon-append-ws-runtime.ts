@@ -240,9 +240,9 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   private dualBufferFromUtterance(au: CanonUtterance): CanonRowDualBufferPayload {
-    const stableText = utteranceCommittedText(au).trim();
-    const volatileTail = utteranceLiveText(au).trim();
-    const visibleText = utteranceVisibleText(au).trim();
+    const stableText = utteranceCommittedText(au);
+    const volatileTail = utteranceLiveText(au);
+    const visibleText = utteranceVisibleText(au);
     return { utterance: au, stableText, volatileTail, visibleText };
   }
 
@@ -367,7 +367,7 @@ export class CanonAppendWsIsolatedRuntime {
       this.emitActiveRowTranslationTick();
       this.emitNewlyFrozenRows();
       this.flushDomImmediate();
-    }, liveRenderBatchMs(this.morsyUrgentTuning));
+    }, liveRenderBatchMs(this.morsyUrgentTuning, this.chunkV2NativeTranslate));
   }
 
   ingestFrame(frame: SonioxFrame, wallMs: number): void {

@@ -17,6 +17,7 @@ export type TranscriptProjection = {
 export type TranscriptProjectionOptions = {
   chunkV2NativeTranslate?: boolean;
 };
+
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
   t = t.replace(/(?<=[a-zA-Z\u0600-\u06FF])[bcdfghjklmnpqrstvwxyz']{1,3}$/, "");
@@ -25,7 +26,49 @@ function stripTrailingPartialFragment(text: string): string {
   t = t.replace(/\s[b-df-hj-np-tv-z]{2}$/, "");
   return t.trim();
 }
-function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions): string {
+
+const NATO_TOKENS = [
+  "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+  "india", "juliet", "juliett", "kilo", "lima", "mike", "november", "oscar",
+  "papa", "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
+  "xray", "x-ray", "yankee", "zulu",
+];
+const NATO_RUN_RE = new RegExp(
+  `\\b(?:${NATO_TOKENS.join("|")}|[a-z]|\\d+)(?:[\\s,]+(?:${NATO_TOKENS.join("|")}|[a-z]|\\d+)){2,}\\b`,
+  "gi",
+);
+const PROTECTED_RE = /(?:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[$€£]\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?|\b\d{1,3}(?:,\d{3})+\.\d+\b|\b\d+\.\d+\b)/g;
+
+function withProtectedSpans(text: string, fn: (input: string) => string): string {
+  const stash: string[] = [];
+  const masked = text.replace(PROTECTED_RE, (m) => {
+    const id = stash.length;
+    stash.push(m);
+    return `__P${id}__`;
+  });
+  const out = fn(masked);
+  return out.replace(/__P(\d+)__/g, (_m, g1: string) => stash[Number(g1)] ?? _m);
+}
+
+function normalizeNatoToken(raw: string): string {
+  const t = raw.toLowerCase();
+  if (/^\d+$/.test(t)) return t;
+  if (/^[a-z]$/.test(t)) return t.toUpperCase();
+  if (t === "xray" || t === "x-ray") return "X-ray";
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function normalizeNatoRuns(text: string): string {
+  return text.replace(NATO_RUN_RE, (run) =>
+    run
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(normalizeNatoToken)
+      .join("-"),
+  );
+}
+
+function legacyCleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions): string {
   let t = text;
   if (opts.chunkV2NativeTranslate) {
     // Chunk V2-only fix: period between two Title-Case words -> space.
@@ -98,6 +141,37 @@ function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions)
   t = t.replace(/\s{2,}/g, " ");
   return t.trim();
 }
+
+function cleanChunkV2Realtime(text: string): string {
+  return withProtectedSpans(text, (masked) =>
+    masked
+      .replace(/\.(?=['']s\b)/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim(),
+  );
+}
+
+function cleanChunkV2Final(text: string): string {
+  const normalized = withProtectedSpans(text, (masked) =>
+    masked
+      .replace(/\.(?=['']s\b)/g, "")
+      .replace(/([A-Za-z])\.\s+([a-z])/g, "$1 $2")
+      .replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2")
+      .replace(/[.]{2,}/g, ".")
+      .replace(/[,]{2,}/g, ",")
+      .replace(/\s{2,}/g, " ")
+      .trim(),
+  );
+  return normalizeNatoRuns(normalized);
+}
+
+function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions, finalized = false): string {
+  if (!opts.chunkV2NativeTranslate) {
+    return legacyCleanSonioxPunctuation(text, opts);
+  }
+  return finalized ? cleanChunkV2Final(text) : cleanChunkV2Realtime(text);
+}
+
 const PUNCTUATION_ONLY = /^[\s.,!?;:—–\-"'()[\]{}]+$/;
 function norm(s: string | undefined): string | undefined {
   const t = s?.trim();
@@ -115,10 +189,14 @@ export function projectTranscriptView(
   const flushGroup = () => {
     if (!groupUtterances.length) return;
     const rawJoined = groupUtterances.map(u => utteranceCommittedText(u)).join(" ");
+    const normalizedInput = opts.chunkV2NativeTranslate
+      ? rawJoined
+      : stripTrailingPartialFragment(rawJoined);
     const committedText = cleanSonioxPunctuation(
-      stripTrailingPartialFragment(rawJoined),
+      normalizedInput,
       opts,
-    ).replace(/[.,]\s*$/, "");
+      true,
+    );
     if (committedText.length && !PUNCTUATION_ONLY.test(committedText)) {
       const translationJoined = groupUtterances
         .map(u => u.translationText ?? "")
@@ -151,7 +229,10 @@ export function projectTranscriptView(
   if (state.activeUtterance) {
     const rawCommitted = utteranceCommittedText(state.activeUtterance);
     const liveText = utteranceLiveText(state.activeUtterance);
-    const committedText = cleanSonioxPunctuation(rawCommitted, opts);
+    const committedText = cleanSonioxPunctuation(rawCommitted, opts, false);
+    const translationPreview = opts.chunkV2NativeTranslate
+      ? (state.activeTranslationPreviewText ?? state.activeTranslationText ?? "").trim()
+      : (state.activeTranslationText ?? "").trim();
     if (committedText.trim().length || liveText.trim().length) {
       rows.push({
         row_id: state.activeUtterance.utterance_id,
@@ -160,7 +241,7 @@ export function projectTranscriptView(
         committedText,
         liveText,
         finalized: false,
-        translationText: (state.activeTranslationText ?? "").trim() || undefined,
+        translationText: translationPreview || undefined,
       });
     }
   }
