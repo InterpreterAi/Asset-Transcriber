@@ -9689,7 +9689,31 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         sonioxSessionApiKeyRef.current = tokenRes.apiKey;
         eng.setMorsyUrgentTuning(isBasicMorsyUrgentPlan(planTypeRef.current.trim()));
         eng.setMorsyCleanMtTuning(true);
-        eng.setChunkV2NativeTranslate(morsyUsesChunkTranslationV2Experiment());
+        const chunkV2Enabled = morsyUsesChunkTranslationV2Experiment();
+        eng.setChunkV2NativeTranslate(chunkV2Enabled);
+        if (chunkV2Enabled) {
+          try {
+            const res = await fetch("/api/glossary", { credentials: "include" });
+            const data = await res.json() as {
+              entries?: Array<{ term?: string; translation?: string }>;
+            };
+            const glossaryTerms = (data.entries ?? [])
+              .flatMap((entry) => {
+                const target = `${entry.translation ?? ""}`.trim();
+                if (!target) return [];
+                return `${entry.term ?? ""}`
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((source) => ({ source, target }));
+              });
+            eng.setChunkV2GlossaryTerms(glossaryTerms);
+          } catch {
+            eng.setChunkV2GlossaryTerms([]);
+          }
+        } else {
+          eng.setChunkV2GlossaryTerms([]);
+        }
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
         canonWsIsolationRecordingRef.current = false;
