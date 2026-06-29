@@ -143,26 +143,21 @@ function legacyCleanSonioxPunctuation(text: string, opts: TranscriptProjectionOp
 }
 
 function cleanChunkV2Realtime(text: string): string {
-  return withProtectedSpans(text, (masked) =>
-    masked
-      .replace(/\.(?=['']s\b)/g, "")
-      .replace(/\s{2,}/g, " ")
-      .trim(),
-  );
+  // Return the natively joined text directly without mid-word regex mutation.
+  return text.replace(/\s{2,}/g, " ").trim();
 }
 
 function cleanChunkV2Final(text: string): string {
-  const normalized = withProtectedSpans(text, (masked) =>
-    masked
-      .replace(/\.(?=['']s\b)/g, "")
-      .replace(/([A-Za-z])\.\s+([a-z])/g, "$1 $2")
-      .replace(/([A-Z][a-z]{2,})\.\s+([A-Z][a-z])/g, "$1 $2")
-      .replace(/[.]{2,}/g, ".")
-      .replace(/[,]{2,}/g, ",")
-      .replace(/\s{2,}/g, " ")
-      .trim(),
-  );
-  return normalizeNatoRuns(normalized);
+  let t = text;
+  // Step 1: Repair false sentence divisions inside IDs/codes.
+  t = t.replace(/\b([A-Z])\.\s*([A-Z])\b/gi, "$1$2");
+  t = t.replace(/\b([A-Z]+)\.\s*(\d+)\b/gi, "$1-$2");
+  // Step 2: Keep decimals joined safely.
+  t = t.replace(/(\d+)\.\s*(\d+)/g, "$1.$2");
+  // Step 3: Preserve NATO formatting.
+  t = normalizeNatoRuns(t);
+  // Step 4: Non-destructive cleanup.
+  return t.replace(/\s{2,}/g, " ").trim();
 }
 
 function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions, finalized = false): string {

@@ -31,5 +31,15 @@ export type TranscriptRow = {
 };
 
 export function joinCanonText(tokens: readonly CanonToken[]): string {
-  return tokens.map(t => t.text).join("");
+  let result = "";
+  for (let i = 0; i < tokens.length; i++) {
+    const txt = tokens[i]!.text;
+    // Prevent double spacing but preserve explicit token spacing.
+    if (txt.startsWith(" ") && result.endsWith(" ")) {
+      result += txt.slice(1);
+    } else {
+      result += txt;
+    }
+  }
+  return result;
 }
