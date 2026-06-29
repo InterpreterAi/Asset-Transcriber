@@ -73,7 +73,7 @@ export class SonioxRealtimeClient {
         ...(config.interpreterContext
           ? { context: config.interpreterContext }
           : {}),
-        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 180,
+        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 1000,
       }));
       this.flushPcmQueue();
     };

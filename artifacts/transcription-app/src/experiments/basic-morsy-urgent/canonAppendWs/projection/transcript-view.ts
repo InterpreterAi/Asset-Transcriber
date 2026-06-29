@@ -184,9 +184,7 @@ export function projectTranscriptView(
   const flushGroup = () => {
     if (!groupUtterances.length) return;
     const rawJoined = groupUtterances.map(u => utteranceCommittedText(u)).join(" ");
-    const normalizedInput = opts.chunkV2NativeTranslate
-      ? rawJoined
-      : stripTrailingPartialFragment(rawJoined);
+    const normalizedInput = rawJoined;
     const committedText = cleanSonioxPunctuation(
       normalizedInput,
       opts,
