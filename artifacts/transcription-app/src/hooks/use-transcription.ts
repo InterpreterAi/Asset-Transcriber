@@ -3370,6 +3370,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     committedTranslation: string;
     renderedTranslation: string;
   }>());
+  const prevActiveRowIdRef = useRef<string | null>(null);
   /** Chat-style latch: glued to tail *before* canon DOM growth (same as Trial/Hetzner `transcriptWsTailHintRef`). */
   const canonWsTailFollowLatchRef = useRef(true);
 
@@ -3836,6 +3837,28 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const eng = canonWsIsolationEngineRef.current;
         if (!alive || !eng) return;
         setHasTranscript(eng.peekHasRenderableText());
+        if (morsyUsesChunkTranslationV2Experiment()) {
+          const rows = eng.getTranscriptProjection().rows;
+          for (const row of rows) {
+            // Live translation: paint in-progress Soniox translation while speaker is talking.
+            // row.translationText on the active row = state.activeTranslationText from reducer.
+            if (!row.finalized) {
+              const liveTx = (row.translationText ?? "").trim();
+              if (liveTx.length > 0) {
+                paintCanonRowTranslationIfAllowed(row.row_id, liveTx, { force: false });
+              }
+            }
+          }
+          // Clear the live bubble when the active row closes (before finalized paint arrives).
+          const currentActiveId = rows.find(r => !r.finalized)?.row_id ?? null;
+          if (
+            prevActiveRowIdRef.current &&
+            prevActiveRowIdRef.current !== currentActiveId
+          ) {
+            clearCanonRowTranslation(prevActiveRowIdRef.current);
+          }
+          prevActiveRowIdRef.current = currentActiveId;
+        }
         scanMorsyCanonBlankFrozenTranslationsRef.current?.();
       },
       onActiveRowStableGrow: (payload) => {
@@ -5891,17 +5914,14 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const { utterance, committedText } = payload;
     const rowId = utterance.utterance_id;
     if (morsyUsesChunkTranslationV2Experiment()) {
-      const st = getCanonRowTransState(rowId);
-      const trialSt = getCanonTrialRowTransState(rowId);
-      const sourceNormChunkV2 = committedText.trim();
-      st.lastFinalSource = sourceNormChunkV2;
-      st.lastStableDispatched = sourceNormChunkV2;
-      st.lastVolatileDispatched = sourceNormChunkV2;
-      trialSt.lastFinalSource = sourceNormChunkV2;
-      trialSt.lastDispatchedSource = sourceNormChunkV2;
-      trialSt.committedTranslation = "";
-      trialSt.liveTranslation = "";
-      clearCanonRowTranslation(rowId);
+      // Soniox native translation — baked into the frozen utterance.
+      // No external API call needed.
+      const nativeTx = (utterance.translationText ?? "").trim();
+      if (nativeTx.length > 0) {
+        paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
+      } else {
+        clearCanonRowTranslation(rowId);
+      }
       return;
     }
     const sourceNorm = committedText.trim();
@@ -7075,7 +7095,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     const rowId = payload.utterance.utterance_id;
     if (morsyUsesChunkTranslationV2Experiment()) {
-      clearCanonRowTranslation(rowId);
       return;
     }
     const st = getCanonTrialRowTransState(rowId);
@@ -7137,7 +7156,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchMorsyChunkV2EndpointFlush = useCallback((payload: CanonRowDualBufferPayload) => {
     const rowId = payload.utterance.utterance_id;
     if (morsyUsesChunkTranslationV2Experiment()) {
-      clearCanonRowTranslation(rowId);
+      // Soniox native translation — paint from frozen utterance, skip external API.
+      const nativeTx = (payload.utterance.translationText ?? "").trim();
+      if (nativeTx.length > 0) {
+        paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
+      } else {
+        clearCanonRowTranslation(rowId);
+      }
       return;
     }
     setTimeout(() => {
@@ -7145,7 +7170,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const snap = eng?.getRowDualBuffer(rowId);
       void executeMorsyChunkV2TranslationRef.current(snap ?? payload, { mode: "endpoint" });
     }, INTERCALL_ENDPOINT_FINALIZE_GRACE_MS);
-  }, [clearCanonRowTranslation]);
+  }, [clearCanonRowTranslation, paintCanonRowTranslationIfAllowed]);
 
   const dispatchCanonTrialLiveGrow = useCallback((payload: CanonRowDualBufferPayload) => {
     if (!translationEnabledRef.current) return;
@@ -9660,6 +9685,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         sonioxSessionApiKeyRef.current = tokenRes.apiKey;
         eng.setMorsyUrgentTuning(isBasicMorsyUrgentPlan(planTypeRef.current.trim()));
         eng.setMorsyCleanMtTuning(true);
+        eng.setChunkV2NativeTranslate(morsyUsesChunkTranslationV2Experiment());
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
         canonWsIsolationRecordingRef.current = false;
