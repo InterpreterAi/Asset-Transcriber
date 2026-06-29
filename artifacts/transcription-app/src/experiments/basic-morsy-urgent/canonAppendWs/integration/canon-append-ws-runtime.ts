@@ -425,6 +425,7 @@ export class CanonAppendWsIsolatedRuntime {
       apiKey,
       sampleRate,
       languageHints: hints,
+      forceChunkV2LanguageHints: this.chunkV2NativeTranslate,
       enableLanguageIdentification: tuning.enableLanguageIdentification,
       maxEndpointDelayMs: tuning.maxEndpointDelayMs,
       morsyUrgentTuning: this.morsyUrgentTuning,

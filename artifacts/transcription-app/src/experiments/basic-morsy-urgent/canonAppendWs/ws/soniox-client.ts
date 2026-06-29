@@ -15,6 +15,7 @@ export type SonioxClientConfig = {
   model?: string;
   sampleRate?: number;
   languageHints?: string[];
+  forceChunkV2LanguageHints?: boolean;
   enableLanguageIdentification?: boolean;
   maxEndpointDelayMs?: number;
   /** Basic · Morsy Urgent — faster endpoint fallback when maxEndpointDelayMs omitted. */
@@ -51,15 +52,18 @@ export class SonioxRealtimeClient {
     const ws = new WebSocket(SONIOX_WS_URL);
     this.ws = ws;
     ws.onopen = () => {
+      const language_hints = config.forceChunkV2LanguageHints
+        ? ["en", "es"]
+        : (config.languageHints && config.languageHints.length > 0
+            ? config.languageHints
+            : undefined);
       ws.send(JSON.stringify({
         api_key:                        config.apiKey,
         model:                          config.model ?? "stt-rt-v5",
         audio_format:                   "pcm_s16le",
         sample_rate:                    config.sampleRate ?? 16_000,
         num_channels:                   1,
-        ...(config.languageHints && config.languageHints.length > 0
-          ? { language_hints: config.languageHints }
-          : {}),
+        ...(language_hints ? { language_hints } : {}),
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
         enable_language_identification: true,
