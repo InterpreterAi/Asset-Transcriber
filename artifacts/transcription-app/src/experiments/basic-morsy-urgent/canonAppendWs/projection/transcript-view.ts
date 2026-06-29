@@ -9,6 +9,7 @@ export type RowProjection = {
   committedText: string;
   liveText: string;
   finalized: boolean;
+  translationText?: string;
 };
 
 export type TranscriptProjection = {
@@ -16,9 +17,7 @@ export type TranscriptProjection = {
   liveCombined: string;
 };
 
-export type TranscriptProjectionOptions = {
-  morsyCleanMtNumberPunctuation?: boolean;
-};
+export type TranscriptProjectionOptions = {};
 
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
@@ -88,43 +87,73 @@ function cleanSonioxPunctuation(
   return t.trim();
 }
 
-function utteranceRow(
-  u: CanonUtterance,
-  finalized: boolean,
-  _opts: TranscriptProjectionOptions,
-): RowProjection | null {
-  const rawCommitted = utteranceCommittedText(u);
-  const committedText = finalized
-    ? cleanSonioxPunctuation(stripTrailingPartialFragment(rawCommitted))
-    : rawCommitted;
-  if (/^[\s.,!?;:—–\-"'()[\]{}]+$/.test(committedText)) return null;
-  const liveText = finalized ? "" : utteranceLiveText(u);
-  if (!committedText.length && !liveText.length) return null;
-  return {
-    row_id: u.utterance_id,
-    speaker: u.speaker,
-    language: u.language,
-    committedText,
-    liveText,
-    finalized,
-  };
+const PUNCTUATION_ONLY = /^[\s.,!?;:—–\-"'()[\]{}]+$/;
+
+function norm(s: string | undefined): string | undefined {
+  const t = s?.trim();
+  return t?.length ? t : undefined;
 }
 
 /** visible = join(finalTokens) + join(nonFinalTokens) per Soniox docs. */
-export function projectTranscriptView(
-  state: EngineState,
-  opts: TranscriptProjectionOptions = {},
-): TranscriptProjection {
+export function projectTranscriptView(state: EngineState): TranscriptProjection {
   const rows: RowProjection[] = [];
 
+  let groupUtterances: CanonUtterance[] = [];
+  let groupSpeaker: string | undefined = undefined;
+  let groupLanguage: string | undefined = undefined;
+
+  const flushGroup = () => {
+    if (!groupUtterances.length) return;
+    const rawJoined = groupUtterances.map(u => utteranceCommittedText(u)).join(" ");
+    const committedText = cleanSonioxPunctuation(
+      stripTrailingPartialFragment(rawJoined),
+    ).replace(/[.,]\s*$/, "");
+    if (committedText.length && !PUNCTUATION_ONLY.test(committedText)) {
+      const translationJoined = groupUtterances
+        .map(u => u.translationText ?? "")
+        .join(" ")
+        .trim();
+      const last = groupUtterances[groupUtterances.length - 1]!;
+      rows.push({
+        row_id: last.utterance_id,
+        speaker: groupSpeaker,
+        language: groupLanguage,
+        committedText,
+        liveText: "",
+        finalized: true,
+        translationText: translationJoined || undefined,
+      });
+    }
+    groupUtterances = [];
+  };
+
   for (const fu of state.finalizedUtterances) {
-    const pr = utteranceRow(fu, true, opts);
-    if (pr) rows.push(pr);
+    const sp = norm(fu.speaker);
+    const lg = fu.language?.split("-")[0]?.toLowerCase();
+    if (sp !== groupSpeaker || lg !== groupLanguage) {
+      flushGroup();
+      groupSpeaker = sp;
+      groupLanguage = lg;
+    }
+    groupUtterances.push(fu);
   }
+  flushGroup();
 
   if (state.activeUtterance) {
-    const pr = utteranceRow(state.activeUtterance, false, opts);
-    if (pr) rows.push(pr);
+    const rawCommitted = utteranceCommittedText(state.activeUtterance);
+    const liveText = utteranceLiveText(state.activeUtterance);
+    const committedText = cleanSonioxPunctuation(rawCommitted);
+    if (committedText.trim().length || liveText.trim().length) {
+      rows.push({
+        row_id: state.activeUtterance.utterance_id,
+        speaker: state.activeUtterance.speaker,
+        language: state.activeUtterance.language,
+        committedText,
+        liveText,
+        finalized: false,
+        translationText: (state.activeTranslationText ?? "").trim() || undefined,
+      });
+    }
   }
 
   const liveCombined = rows.map(rr => rr.committedText + rr.liveText).join("\n");

@@ -7,28 +7,30 @@ import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
-  rowBreaksOnFinalToken,
+  rowBreaksForLanguage,
+  rowBreaksForSpeaker,
 } from "./row-lifecycle";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import {
   canonTokensFromFrame,
+  translationTextFromFrame,
   inferTailSpeakerLang,
   nonFinalsForRow,
 } from "./soniox-frame-split";
+
+const SPEAKER_BREAK_CONFIRM_TOKENS = 2;
 
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
   sameSpeakerLongPauseSplitMs?: number;
-  preserveLeadingDigitSubwords?: boolean;
 };
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
-function tryLongPauseSameSpeakerRowSplit(
+function tryLongPauseSplit(
   state: EngineState,
   wallMs: number,
   pauseSplitMs: number,
-  preserveLeadingDigitSubwords: boolean,
 ): EngineState {
   const au = state.activeUtterance;
   if (!au || state.lastTokenActivityWallMs <= 0) return state;
@@ -38,7 +40,7 @@ function tryLongPauseSameSpeakerRowSplit(
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
   return {
-    ...freezeActiveUtterance(state, { preserveLeadingDigitSubwords }),
+    ...freezeActiveUtterance(state),
     endpointPending: false,
     endpointPendingAtMs: 0,
   };
@@ -55,9 +57,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
-  const preserveLeadingDigitSubwords = Boolean(ctx.preserveLeadingDigitSubwords);
   if (frame.tokens.length > 0) {
-    next = tryLongPauseSameSpeakerRowSplit(next, wallMs, pauseSplitMs, preserveLeadingDigitSubwords);
+    next = tryLongPauseSplit(next, wallMs, pauseSplitMs);
   }
 
   const finProc =
@@ -79,6 +80,14 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : next.lastHypothesisLagMs,
   };
 
+  const translationChunk = translationTextFromFrame(frame.tokens);
+  if (translationChunk) {
+    next = {
+      ...next,
+      activeTranslationText: (next.activeTranslationText ?? "") + translationChunk,
+    };
+  }
+
   const canon = canonTokensFromFrame(frame.tokens);
   const frameFinals = canon.filter(t => t.is_final);
   const frameNonFinals = canon.filter(t => !t.is_final);
@@ -88,14 +97,35 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
     ctx.ledger.appendFinalCanon(ct);
 
-    if (next.activeUtterance && rowBreaksOnFinalToken(next.activeUtterance, ct)) {
-      next = freezeActiveUtterance(next, { preserveLeadingDigitSubwords });
-      next = {
-        ...next,
-        endpointPending: false,
-        endpointPendingAtMs: 0,
-        metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
-      };
+    if (next.activeUtterance) {
+      const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
+      const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
+      if (langBreak) {
+        next = freezeActiveUtterance(next);
+        next = {
+          ...next,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+          speakerChangeConsecutive: 0,
+          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+        };
+      } else if (spkBreak) {
+        const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
+        if (consecutive >= SPEAKER_BREAK_CONFIRM_TOKENS) {
+          next = freezeActiveUtterance(next);
+          next = {
+            ...next,
+            endpointPending: false,
+            endpointPendingAtMs: 0,
+            speakerChangeConsecutive: 0,
+            metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+          };
+        } else {
+          next = { ...next, speakerChangeConsecutive: consecutive };
+        }
+      } else {
+        next = { ...next, speakerChangeConsecutive: 0 };
+      }
     }
 
     if (!next.activeUtterance) {
@@ -107,18 +137,16 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
 
-  // If non-final tokens signal a different speaker than the active row,
-  // pre-emptively freeze the active row so B's hypothesis appears immediately.
-  const tailSpeaker = tail.speaker;
-  const activeSpeaker = next.activeUtterance?.speaker;
+  const tailLang = tail.language?.split("-")[0]?.toLowerCase();
+  const activeLang = next.activeUtterance?.language;
   if (
-    activeSpeaker &&
-    tailSpeaker &&
-    tailSpeaker !== activeSpeaker &&
+    activeLang &&
+    tailLang &&
+    tailLang !== activeLang &&
     frameNonFinals.length > 0 &&
     utteranceCommittedText(next.activeUtterance!).trim().length > 0
   ) {
-    next = freezeActiveUtterance(next, { preserveLeadingDigitSubwords });
+    next = freezeActiveUtterance(next);
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 

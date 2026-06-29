@@ -7,6 +7,8 @@ import type { CanonUtterance } from "./canon-utterance";
 export type EngineState = {
   finalizedUtterances: CanonUtterance[];
   activeUtterance: CanonUtterance | null;
+  activeTranslationText: string;
+  speakerChangeConsecutive: number;
   nextUtteranceSeq: number;
   /** Dedupe — Soniox sends each final token once. */
   seenFinalTokenIds: string[];
@@ -32,6 +34,8 @@ export function createInitialEngineState(): EngineState {
   return {
     finalizedUtterances: [],
     activeUtterance: null,
+    activeTranslationText: "",
+    speakerChangeConsecutive: 0,
     nextUtteranceSeq: 0,
     seenFinalTokenIds: [],
 

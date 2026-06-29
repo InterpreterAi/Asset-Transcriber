@@ -13,4 +13,6 @@ export type Token = {
   speakerId?: string;
   /** Soniox language identification on token when enabled */
   language?: string;
+  translation_status?: "none" | "original" | "translation";
+  source_language?: string;
 };

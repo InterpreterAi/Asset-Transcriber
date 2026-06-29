@@ -31,15 +31,11 @@ export type TranscriptRow = {
 };
 
 export function joinCanonText(tokens: readonly CanonToken[]): string {
-  let result = "";
-  for (let i = 0; i < tokens.length; i++) {
-    result += tokens[i].text;
-    const next = tokens[i + 1]?.text;
-    // If this token ends with a period AND the next token continues mid-sentence,
-    // the period is a spurious Soniox boundary marker — remove it.
-    if (result.endsWith(".") && next !== undefined && /^\s*[a-z0-9''\u0027\-]/.test(next)) {
-      result = result.slice(0, -1);
-    }
-  }
+  let result = tokens.map(t => t.text).join("");
+  // Remove spurious period inserted at Soniox utterance boundaries
+  // when the next token starts with a lowercase letter or digit.
+  // e.g. "Today. 's meeting" → "Today's meeting"
+  // "The patient. was" → "The patient was"
+  result = result.replace(/\.\s+([a-z0-9'\u0027\u2019\-])/g, " $1");
   return result;
 }

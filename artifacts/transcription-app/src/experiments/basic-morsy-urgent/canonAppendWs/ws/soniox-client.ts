@@ -19,10 +19,13 @@ export type SonioxClientConfig = {
   maxEndpointDelayMs?: number;
   /** Basic · Morsy Urgent — faster endpoint fallback when maxEndpointDelayMs omitted. */
   morsyUrgentTuning?: boolean;
+  translationConfig?:
+    | { type: "one_way"; target_language: string }
+    | { type: "two_way"; language_a: string; language_b: string };
   interpreterContext?: {
     general: { key: string; value: string }[];
-    text: string;
-    terms: string[];
+    terms?: string[];
+    translation_terms?: { source: string; target: string }[];
   };
 };
 
@@ -61,14 +64,15 @@ export class SonioxRealtimeClient {
         ...(config.languageHints && config.languageHints.length > 0
           ? { language_hints: config.languageHints }
           : {}),
-        ...(config.interpreterContext
-          ? {
-              context: config.interpreterContext,
-            }
-          : {}),
-        enable_language_identification: config.enableLanguageIdentification ?? true,
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
+        enable_language_identification: true,
+        ...(config.translationConfig
+          ? { translation: config.translationConfig }
+          : {}),
+        ...(config.interpreterContext
+          ? { context: config.interpreterContext }
+          : {}),
         max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 300,
       }));
       this.flushPcmQueue();

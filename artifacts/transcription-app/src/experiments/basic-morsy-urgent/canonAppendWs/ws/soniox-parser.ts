@@ -15,6 +15,8 @@ interface RawSonioxToken {
   end_ms?: unknown;
   speaker?: unknown;
   language?: unknown;
+  source_language?: unknown;
+  translation_status?: unknown;
   lang?: unknown;
   token_index?: unknown;
   index?: unknown;
@@ -100,6 +102,16 @@ export function parseSonioxWebSocketPayload(
       endMs: typeof t.end_ms === "number" ? t.end_ms : undefined,
       speakerId,
       language,
+      source_language:
+        typeof t.source_language === "string" && t.source_language.trim()
+          ? t.source_language.trim().toLowerCase()
+          : undefined,
+      translation_status:
+        t.translation_status === "none" ||
+        t.translation_status === "original" ||
+        t.translation_status === "translation"
+          ? t.translation_status
+          : undefined,
     });
   }
 

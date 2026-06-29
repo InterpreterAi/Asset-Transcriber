@@ -4,7 +4,6 @@
  */
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
-import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import { buildSonioxLanguageHints, sonioxRealtimeSessionTuning } from "@/lib/soniox-stt-language-hints";
 
 import { shouldPauseWorkspaceDomPaint } from "@/lib/workspace-text-selection";
@@ -33,6 +32,7 @@ import {
 } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
+import { getInterpreterContext } from "../ws/interpreter-context";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
 /** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
@@ -111,6 +111,8 @@ export class CanonAppendWsIsolatedRuntime {
   private morsyUrgentTuning = false;
   /** Basic · Morsy Urgent clean MT experiment: scoped transcript cleanup + pause split. */
   private morsyCleanMtTuning = false;
+  /** Chunk V2 native Soniox translation experiment. */
+  private chunkV2NativeTranslate = false;
 
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
@@ -122,7 +124,10 @@ export class CanonAppendWsIsolatedRuntime {
 
   setMorsyCleanMtTuning(enabled: boolean): void {
     this.morsyCleanMtTuning = enabled;
-    this.projections.setOptions({ morsyCleanMtNumberPunctuation: enabled });
+  }
+
+  setChunkV2NativeTranslate(enabled: boolean): void {
+    this.chunkV2NativeTranslate = enabled;
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -364,7 +369,6 @@ export class CanonAppendWsIsolatedRuntime {
         this.morsyUrgentTuning,
         this.morsyCleanMtTuning,
       ),
-      preserveLeadingDigitSubwords: this.morsyCleanMtTuning,
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
@@ -395,18 +399,27 @@ export class CanonAppendWsIsolatedRuntime {
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
     const pair = langPair as { a: string; b: string };
     const hints = buildSonioxLanguageHints(pair);
-    const interpreterContext = buildSonioxInterpreterContext(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
+    const sonioxNativeTranslateConfig = this.chunkV2NativeTranslate
+      ? {
+          translationConfig: {
+            type: "two_way" as const,
+            language_a: pair.a,
+            language_b: pair.b,
+          },
+          interpreterContext: getInterpreterContext(pair.a, pair.b),
+        }
+      : {};
     this.client.connect({
       apiKey,
       sampleRate,
       languageHints: hints,
-      interpreterContext,
       enableLanguageIdentification: tuning.enableLanguageIdentification,
       maxEndpointDelayMs: tuning.maxEndpointDelayMs,
       morsyUrgentTuning: this.morsyUrgentTuning,
+      ...sonioxNativeTranslateConfig,
     });
   }
 
@@ -434,9 +447,7 @@ export class CanonAppendWsIsolatedRuntime {
       this.hooks.onActiveRowTranslationFlush?.(snap);
     }
     this.client.flushEnd();
-    this.state = applyManualStructuralFreeze(this.state, {
-      preserveLeadingDigitSubwords: this.morsyCleanMtTuning,
-    });
+    this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
     this.emitActiveRowTranslationTick();
     this.emitNewlyFrozenRows();

@@ -17,6 +17,7 @@ export type CanonUtterance = {
   start_ms?: number;
   end_ms?: number;
   is_final: boolean;
+  translationText?: string;
 };
 
 export function utteranceCommittedText(u: CanonUtterance): string {

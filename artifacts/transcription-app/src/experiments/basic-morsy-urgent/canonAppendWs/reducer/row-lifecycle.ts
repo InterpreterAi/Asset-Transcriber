@@ -12,36 +12,37 @@ function langBase(s: string | undefined): string | undefined {
   const n = norm(s);
   return n ? n.split("-")[0]!.toLowerCase() : undefined;
 }
-
-function trimTrailingSubwordTokens(
-  tokens: CanonToken[],
-  preserveLeadingDigitSubwords: boolean,
-): CanonToken[] {
+function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
   if (tokens.length === 0) return tokens;
   const last = tokens[tokens.length - 1]!;
   const txt = last.text;
-  // Sub-word piece: no leading space, short, no vowel (consonant cluster like "th", "ng", "ck")
   const hasVowel = /[aeiouAEIOU\u0600-\u06FF]/.test(txt);
+  const isDigit = /^\d/.test(txt);
   const isSubword =
     !txt.startsWith(" ") &&
     txt.length <= 3 &&
     !hasVowel &&
-    !/[.!?,]$/.test(txt) &&
-    !(preserveLeadingDigitSubwords && /^\d/.test(txt));
-  if (isSubword) return trimTrailingSubwordTokens(tokens.slice(0, -1), preserveLeadingDigitSubwords);
+    !isDigit &&
+    !/[.!?,]$/.test(txt);
+  if (isSubword) return trimTrailingSubwordTokens(tokens.slice(0, -1));
   return tokens;
 }
 
-/** New row when a final token's speaker or language differs from the active row. */
-export function rowBreaksOnFinalToken(row: CanonUtterance, tok: CanonToken): boolean {
+/** Language changed → always split immediately */
+export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
-  const rsp = norm(row.speaker);
   const rlg = langBase(row.language);
-  const tsp = norm(tok.speaker);
   const tlg = langBase(tok.language);
-  if (rsp && tsp && rsp !== tsp) return true;
-  if (rlg && tlg && rlg !== tlg) return true;
-  return false;
+  return !!(rlg && tlg && rlg !== tlg);
+}
+
+/** Speaker changed within same language → requires debounce confirmation */
+export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boolean {
+  if (!row.finalTokens.length) return false;
+  if (rowBreaksForLanguage(row, tok)) return false;
+  const rsp = norm(row.speaker);
+  const tsp = norm(tok.speaker);
+  return !!(rsp && tsp && rsp !== tsp);
 }
 
 export function openActiveUtterance(
@@ -61,6 +62,7 @@ export function openActiveUtterance(
     ...state,
     activeUtterance: u,
     nextUtteranceSeq: state.nextUtteranceSeq + 1,
+    speakerChangeConsecutive: 0,
   };
 }
 
@@ -92,10 +94,7 @@ export function appendFinalToActive(state: EngineState, tok: CanonToken): Engine
 }
 
 /** Hard-close active row — Intercall-style immutable block. */
-export function freezeActiveUtterance(
-  state: EngineState,
-  opts: { preserveLeadingDigitSubwords?: boolean } = {},
-): EngineState {
+export function freezeActiveUtterance(state: EngineState): EngineState {
   const au = state.activeUtterance;
   if (!au) return state;
   if (!utteranceCommittedText(au).length && !utteranceLiveText(au).length) {
@@ -103,27 +102,22 @@ export function freezeActiveUtterance(
   }
   const frozen: CanonUtterance = {
     ...au,
-    finalTokens: trimTrailingSubwordTokens(
-      [...au.finalTokens],
-      Boolean(opts.preserveLeadingDigitSubwords),
-    ),
+    finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
     nonFinalTokens: [],
     is_final: true,
+    translationText: state.activeTranslationText?.trim() || undefined,
   };
   return {
     ...state,
     finalizedUtterances: [...state.finalizedUtterances, frozen],
     activeUtterance: null,
+    activeTranslationText: "",
+    speakerChangeConsecutive: 0,
     metrics: { ...state.metrics, rowsFrozen: state.metrics.rowsFrozen + 1 },
   };
 }
 
-export function applyManualStructuralFreeze(
-  state: EngineState,
-  opts: { preserveLeadingDigitSubwords?: boolean } = {},
-): EngineState {
-  return freezeActiveUtterance(state, opts);
-}
+export const applyManualStructuralFreeze = freezeActiveUtterance;
 
-export const freezeUtteranceWithReconcile = applyManualStructuralFreeze;
-export const applyManualFinalizeTail = applyManualStructuralFreeze;
+export const freezeUtteranceWithReconcile = freezeActiveUtterance;
+export const applyManualFinalizeTail = freezeActiveUtterance;
