@@ -121,6 +121,12 @@ const TERMS_BY_LANG: TermMap = {
     { source: "asylum", target: "لجوء" },
     { source: "deportation", target: "ترحيل" },
     { source: "custody", target: "حضانة" },
+    { source: "الصين", target: "China" },
+    { source: "ضغط الدم", target: "blood pressure" },
+    { source: "السكري", target: "diabetes" },
+    { source: "الكلى", target: "kidneys" },
+    { source: "القلب", target: "heart" },
+    { source: "الكبد", target: "liver" },
   ],
 };
 
