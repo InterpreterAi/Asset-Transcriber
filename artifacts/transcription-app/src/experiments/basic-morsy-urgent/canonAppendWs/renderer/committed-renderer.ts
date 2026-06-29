@@ -27,9 +27,9 @@ export function renderCommittedAppendOnly(row: HTMLElement, fullCommittedUtf16: 
   if (fullCommittedUtf16.startsWith(tn.data) && fullCommittedUtf16.length >= tn.data.length) {
     const delta = fullCommittedUtf16.slice(tn.data.length);
     if (delta.length) tn.appendData(delta);
-  } else if (mirror.lastUtf16Committed === 0 || tn.data.length === 0) {
+  } else {
+    // Allow full replace so punctuation corrections can overwrite already-painted text
     tn.replaceData(0, tn.data.length, fullCommittedUtf16);
   }
-  /** Hot path forbids shortening — mismatches are instrumentation-only defects. */
   mirror.lastUtf16Committed = tn.data.length;
 }

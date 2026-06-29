@@ -31,5 +31,15 @@ export type TranscriptRow = {
 };
 
 export function joinCanonText(tokens: readonly CanonToken[]): string {
-  return tokens.map(t => t.text).join("");
+  let result = "";
+  for (let i = 0; i < tokens.length; i++) {
+    result += tokens[i].text;
+    const next = tokens[i + 1]?.text;
+    // If this token ends with a period AND the next token continues mid-sentence,
+    // the period is a spurious Soniox boundary marker — remove it.
+    if (result.endsWith(".") && next !== undefined && /^\s*[a-z0-9''\u0027\-]/.test(next)) {
+      result = result.slice(0, -1);
+    }
+  }
+  return result;
 }
