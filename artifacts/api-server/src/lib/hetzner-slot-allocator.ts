@@ -24,22 +24,37 @@ export class HetznerTrialRoutingBlockedError extends Error {
   }
 }
 
-/**
- * Paid exclusive fill order (slot index → lane = index + 1).
- * Four lanes: **1 → 3 → 4 → 2** so the second paid lands on HZ-2 :5001 before HZ-1 :5002
- * (CORE1/CORE3 on primary metal, CORE2/CORE4 on secondary — see deploy/hetzner-core-pinning).
- */
-function paidExclusiveSlotIndices(numSlots: 2 | 4): readonly number[] {
-  if (numSlots === 4) return [0, 2, 3, 1];
-  return [0, 1];
+function countLaneSessions(state: SlotAllocatorState, lane: CoreLane): number {
+  let n = 0;
+  for (const assigned of state.sessionToLane.values()) {
+    if (assigned === lane) n++;
+  }
+  return n;
 }
 
 /**
- * Trial prefers slots with no exclusive paid owner, scanned in lane order matching the original two-core
- * pattern (lane 2, then lane 1) extended with lanes 3 and 4 the same way: **2 → 1 → 3 → 4**.
+ * Four-lane preference uses opposite-group balancing:
+ * - Group A: CORE1/CORE2
+ * - Group B: CORE3/CORE4
+ *
+ * If A is busier, prefer B. If B is busier, prefer A.
  */
-function trialIdleSpreadSlotIndices(numSlots: 2 | 4): readonly number[] {
-  if (numSlots === 4) return [1, 0, 2, 3];
+function fourLaneOppositeGroupPreference(state: SlotAllocatorState): readonly number[] {
+  const g12 = countLaneSessions(state, 1) + countLaneSessions(state, 2);
+  const g34 = countLaneSessions(state, 3) + countLaneSessions(state, 4);
+
+  if (g12 > g34) return [2, 3, 0, 1]; // 3,4 then 1,2
+  if (g34 > g12) return [0, 1, 2, 3]; // 1,2 then 3,4
+  return [0, 1, 2, 3];
+}
+
+function paidExclusiveSlotIndices(state: SlotAllocatorState): readonly number[] {
+  if (state.numSlots === 4) return fourLaneOppositeGroupPreference(state);
+  return [0, 1];
+}
+
+function trialIdleSpreadSlotIndices(state: SlotAllocatorState): readonly number[] {
+  if (state.numSlots === 4) return fourLaneOppositeGroupPreference(state);
   return [1, 0];
 }
 
@@ -83,7 +98,7 @@ export function seedCommittedLane(
 
 /** First NUM_SLOTS paid sessions claim empty workers; further paid share CORE1 (overflow). */
 export function allocatePaid(state: SlotAllocatorState, sessionId: number): CoreLane {
-  for (const idx of paidExclusiveSlotIndices(state.numSlots)) {
+  for (const idx of paidExclusiveSlotIndices(state)) {
     if (idx >= state.numSlots) continue;
     if (state.slotPaidOwner[idx] === null) {
       state.slotPaidOwner[idx] = sessionId;
@@ -104,7 +119,7 @@ export function allocatePaid(state: SlotAllocatorState, sessionId: number): Core
  * Admin manual `hetzner_mt_manual_lane` is unchanged (comes from DB replay, not this allocator predicate).
  */
 export function allocateTrial(state: SlotAllocatorState, sessionId: number): CoreLane {
-  for (const i of trialIdleSpreadSlotIndices(state.numSlots)) {
+  for (const i of trialIdleSpreadSlotIndices(state)) {
     if (i >= state.numSlots) continue;
     if (state.slotPaidOwner[i] === null) {
       state.slotTrialSessions[i]!.add(sessionId);
@@ -113,7 +128,7 @@ export function allocateTrial(state: SlotAllocatorState, sessionId: number): Cor
       return lane;
     }
   }
-  for (const i of trialIdleSpreadSlotIndices(state.numSlots)) {
+  for (const i of trialIdleSpreadSlotIndices(state)) {
     if (i >= state.numSlots) continue;
     state.slotTrialSessions[i]!.add(sessionId);
     const lane = (i + 1) as CoreLane;
