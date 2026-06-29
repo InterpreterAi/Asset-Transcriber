@@ -61,10 +61,6 @@ export function gateCanonAppendWsIsolatedRebuild(args: {
   segmentBehaviorMode: string;
   transcriptSegmentIsolationEnabled: boolean;
 }): boolean {
-  if (readCanonAppendWsIsolatedOptOutLegacy()) return false;
-  return morsyUrgentAppendOnlyTranscriptDomPath({
-    planTypeLower: args.planTypeLower,
-    segmentBehaviorMode: args.segmentBehaviorMode,
-    transcriptSegIsolation: args.transcriptSegmentIsolationEnabled,
-  });
+  const planTypeLower = args.planTypeLower.trim().toLowerCase();
+  return planUsesCanonAppendWsStt(planTypeLower);
 }
