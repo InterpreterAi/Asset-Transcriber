@@ -370,11 +370,21 @@ export class CanonAppendWsDomWriter {
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
       if (!line || !hypo) continue;
-      // Real-time split model:
-      // - committed span keeps finalized/persistent words
-      // - hypothesis span shows only live non-final preview
-      renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
-      renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      if (this.chunkV2NativeTranslate) {
+        if (proj.finalized) {
+          // Chunk V2: freeze-time commit only.
+          renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+          renderHypothesisLcp(hypo, "");
+        } else {
+          // Chunk V2: keep active row fully grey until structural freeze.
+          const combined = [proj.committedText, proj.liveText].filter(Boolean).join(" ");
+          renderHypothesisLcp(hypo, combined);
+        }
+      } else {
+        // Non-chunk-v2 path remains committed + live split.
+        renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
+        renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(
           handles,
