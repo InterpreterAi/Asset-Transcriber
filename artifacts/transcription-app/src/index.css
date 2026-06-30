@@ -424,6 +424,39 @@
     @apply bg-card border border-border shadow-sm;
   }
 
+  .landing-v3-surface {
+    color-scheme: dark;
+    --background: 216 46% 2%;
+    --foreground: 213 30% 84%;
+    --border: 216 30% 12%;
+    --card: 216 40% 4%;
+    --card-foreground: 213 30% 84%;
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 216 30% 12%;
+    --secondary-foreground: 213 30% 84%;
+    --muted: 216 30% 12%;
+    --muted-foreground: 216 19% 47%;
+    --accent: 211 100% 50%;
+    --accent-foreground: 0 0% 100%;
+    --input: 216 30% 12%;
+    --ring: 211 100% 50%;
+  }
+
+  .text-gradient-blue {
+    background: linear-gradient(to right, #007bff, #66a3ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-grid-pattern {
+    background-image:
+      linear-gradient(to right, rgba(202, 213, 226, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(202, 213, 226, 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
   /* ── Transcript text-size scale ──────────────────────────────────────────── */
   /* CSS custom properties set by workspace on the scroll container.           */
   /* All transcript <p> elements use var(--ts-font-size) via inline style,     */
