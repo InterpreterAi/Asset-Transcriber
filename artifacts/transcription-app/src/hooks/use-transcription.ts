@@ -5924,14 +5924,17 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       // Soniox native translation — baked into the frozen utterance.
       // No external API call needed.
       const nativeTx = (utterance.translationText ?? "").trim();
+      const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
-        paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
+        // Do not replace an already longer translation with a shorter finalized
+        // payload; this avoids visible "appear then shrink/disappear" regressions.
+        const keepExisting = existing.length > nativeTx.length;
+        paintCanonRowTranslationIfAllowed(rowId, keepExisting ? existing : nativeTx, { force: true });
       } else {
         // Never clear in chunk-v2 finalization path.
         // If Soniox emits no finalized translation for this row, preserve existing
         // painted translation; otherwise mirror committed source so the bubble
         // never disappears.
-        const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
         const fallback = existing || committedText.trim() || utteranceCommittedText(utterance).trim();
         if (fallback.length > 0) {
           paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
@@ -7173,13 +7176,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (morsyUsesChunkTranslationV2Experiment()) {
       // Soniox native translation — paint from frozen utterance, skip external API.
       const nativeTx = (payload.utterance.translationText ?? "").trim();
+      const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
         // Normal path: Soniox translated this utterance.
-        paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
+        const keepExisting = existing.length > nativeTx.length;
+        paintCanonRowTranslationIfAllowed(rowId, keepExisting ? existing : nativeTx, { force: true });
       } else {
         // Third-language path: Soniox produced no translation (language not in the pair).
         // Mirror the transcription text into the translation column so the bubble is never empty.
-        const fallback = utteranceCommittedText(payload.utterance).trim();
+        const fallback = existing || utteranceCommittedText(payload.utterance).trim();
         if (fallback.length > 0) {
           paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
         }
