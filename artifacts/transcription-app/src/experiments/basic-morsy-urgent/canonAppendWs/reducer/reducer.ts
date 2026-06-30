@@ -217,6 +217,19 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       endpointPending: true,
       endpointPendingAtMs: wallMs,
     };
+    if (ctx.chunkV2NativeTranslate && next.activeUtterance) {
+      const hasContent =
+        utteranceCommittedText(next.activeUtterance).trim().length > 0
+        || utteranceLiveText(next.activeUtterance).trim().length > 0;
+      if (hasContent) {
+        next = freezeActiveUtterance(next);
+        next = {
+          ...next,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+        };
+      }
+    }
   }
 
   return next;
