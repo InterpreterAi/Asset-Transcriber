@@ -1,7 +1,4 @@
 import type { RowProjection } from "../projection/transcript-view";
-import {
-  shouldMorsyChunkV2BidiPaint,
-} from "@/hooks/morsy-chunk-v2-bidi-render";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
 import {
   createWorkspaceCopyButton,
@@ -30,18 +27,37 @@ const ROW_STRIPE_COLOR_CLASSES = [
   "bg-violet-500",
   "bg-rose-500",
 ] as const;
-const RTL_LANGUAGES = ["ar", "he", "fa", "ur", "yi", "dv", "ku", "ps"] as const;
-
-function isRtlLanguage(language?: string): boolean {
-  const base = (language ?? "").split("-")[0]!.toLowerCase();
-  return RTL_LANGUAGES.some(l => base === l);
+// Complete language direction map for all 60 supported languages
+const RTL_LANGS = new Set(["ar", "he", "fa", "ur", "yi", "dv", "ku", "ps", "ug", "sd"]);
+function getLangDirection(langCode: string): "rtl" | "ltr" {
+  const base = langCode.split("-")[0]?.toLowerCase() ?? "";
+  return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
-
-function isolateLtrInRtl(text: string): string {
+function isolateForeignInRtl(text: string): string {
+  // Inside RTL text: isolate Latin words, brand names, numbers, codes, emails, URLs
   return text.replace(
-    /([A-Za-z][A-Za-z0-9._@+\-/]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$))?)/g,
+    /([A-Za-z][A-Za-z0-9._@+\-/:%]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/:%]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$|lbs|oz|cm|mm|Hz|kHz|MHz))?)/g,
     "\u2066$1\u2069",
   );
+}
+function applyDirectionToElement(el: HTMLElement, langCode: string): void {
+  const dir = getLangDirection(langCode);
+  el.setAttribute("dir", dir);
+  el.style.textAlign = dir === "rtl" ? "right" : "left";
+  el.style.unicodeBidi = "plaintext";
+}
+function prepareTextForDisplay(text: string, langCode: string): string {
+  const dir = getLangDirection(langCode);
+  // For RTL languages: isolate any embedded LTR content so it reads correctly
+  if (dir === "rtl") return isolateForeignInRtl(text);
+  // For LTR languages: no special handling needed, browser handles it correctly
+  return text;
+}
+function rowSourceLanguage(row: HTMLElement): string {
+  return row.dataset.cawLanguage ?? "";
+}
+function rowTranslationLanguage(row: HTMLElement): string {
+  return row.dataset.cawTranslationLanguage ?? rowSourceLanguage(row);
 }
 function stripeColorFallback(language?: string): string {
   const b = (language ?? "").split("-")[0]!.toLowerCase();
@@ -178,19 +194,14 @@ export class CanonAppendWsDomWriter {
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
-    const rowLanguage = handles.row.dataset.cawLanguage;
-    const rtlTranslation = this.chunkV2NativeTranslate
-      && (isRtlLanguage(rowLanguage) || shouldMorsyChunkV2BidiPaint(text));
-    const displayText = rtlTranslation ? isolateLtrInRtl(text) : text;
+    const translationLanguage = rowTranslationLanguage(handles.row);
+    const displayText =
+      this.chunkV2NativeTranslate
+        ? prepareTextForDisplay(text, translationLanguage)
+        : text;
     const prevRendered = handles.translationEl.textContent ?? "";
-    if (rtlTranslation) {
-      handles.translationEl.setAttribute("dir", "rtl");
-      handles.translationEl.style.textAlign = "right";
-      handles.translationEl.style.unicodeBidi = "plaintext";
-    } else {
-      handles.translationEl.removeAttribute("dir");
-      handles.translationEl.style.textAlign = "";
-      handles.translationEl.style.unicodeBidi = "";
+    if (this.chunkV2NativeTranslate) {
+      applyDirectionToElement(handles.translationEl, translationLanguage);
     }
     if (this.layoutMode === "stacked") {
       const textEl = this.stackedTranslationTextEl(handles.translationEl);
@@ -248,31 +259,25 @@ export class CanonAppendWsDomWriter {
     const prevRendered = handles.translationEl.textContent ?? "";
     if (prevRendered.trim() === composedTarget.trim()) return;
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
-    const rowLanguage = handles.row.dataset.cawLanguage;
-    const useBidi = this.chunkV2NativeTranslate
-      && (
-        parts.rtlBidiPaint === true
-        || isRtlLanguage(rowLanguage)
-        || shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim())
-      );
+    const translationLanguage = rowTranslationLanguage(handles.row);
     markWorkspaceSelectableText(lockedEl);
     markWorkspaceSelectableText(liveEl);
-    if (useBidi) {
-      handles.translationEl.setAttribute("dir", "rtl");
-      handles.translationEl.style.textAlign = "right";
-      handles.translationEl.style.unicodeBidi = "plaintext";
+    if (this.chunkV2NativeTranslate) {
+      applyDirectionToElement(handles.translationEl, translationLanguage);
+      const lockedDisplay = parts.locked.length
+        ? prepareTextForDisplay(parts.locked, translationLanguage)
+        : "";
+      const liveDisplay = parts.live.length
+        ? prepareTextForDisplay(parts.live, translationLanguage)
+        : "";
       if (prev?.locked !== parts.locked) {
-        lockedEl.textContent = parts.locked.length ? isolateLtrInRtl(parts.locked) : "";
+        lockedEl.textContent = lockedDisplay;
       }
-      const liveDisplay = parts.live.length ? isolateLtrInRtl(parts.live) : "";
       if (liveEl.textContent !== liveDisplay) {
         liveEl.textContent = liveDisplay;
       }
       return;
     }
-    handles.translationEl.removeAttribute("dir");
-    handles.translationEl.style.textAlign = "";
-    handles.translationEl.style.unicodeBidi = "";
     if (prev?.locked !== parts.locked) {
       lockedEl.textContent = parts.locked;
     }
@@ -310,14 +315,8 @@ export class CanonAppendWsDomWriter {
     line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0";
     line.dataset.cawRole = "live-line";
     markWorkspaceSelectableText(line);
-    // Chunk V2 RTL languages: isolate bidi flow for mixed-script tokens.
     if (this.chunkV2NativeTranslate) {
-      const isRtl = isRtlLanguage(proj?.language);
-      if (isRtl) {
-        line.setAttribute("dir", "rtl");
-        line.style.textAlign = "right";
-        line.style.unicodeBidi = "plaintext";
-      }
+      applyDirectionToElement(line, proj?.language ?? "");
     }
     if (this.chunkV2NativeTranslate) {
       // Chunk V2-only: active rows render in a single grey hypothesis span.
@@ -357,6 +356,9 @@ export class CanonAppendWsDomWriter {
       translationEl.dataset.cawRole = "translation";
       translationEl.className = `${translationTextClass("stacked")} flex-1 min-w-0`;
       markWorkspaceSelectableText(translationEl);
+      if (this.chunkV2NativeTranslate) {
+        applyDirectionToElement(translationEl, proj.language ?? "");
+      }
       transRow.appendChild(translationEl);
       transRow.appendChild(
         createWorkspaceCopyButton(() => translationEl.textContent ?? ""),
@@ -372,6 +374,9 @@ export class CanonAppendWsDomWriter {
       translationEl.dataset.cawRole = "translation";
       translationEl.className = `${translationTextClass("side-by-side")} flex-1 min-w-0`;
       markWorkspaceSelectableText(translationEl);
+      if (this.chunkV2NativeTranslate) {
+        applyDirectionToElement(translationEl, proj.language ?? "");
+      }
       transRow.appendChild(translationEl);
       transRow.appendChild(
         createWorkspaceCopyButton(() => translationEl.textContent ?? ""),
@@ -414,6 +419,7 @@ export class CanonAppendWsDomWriter {
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
       if (!line || !hypo) continue;
       if (this.chunkV2NativeTranslate) {
+        applyDirectionToElement(line, proj.language ?? "");
         if (proj.finalized) {
           // Chunk V2: freeze-time commit only.
           renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
