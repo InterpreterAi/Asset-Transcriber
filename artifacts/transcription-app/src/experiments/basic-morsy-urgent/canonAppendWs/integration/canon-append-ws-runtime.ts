@@ -384,6 +384,7 @@ export class CanonAppendWsIsolatedRuntime {
         this.morsyUrgentTuning,
         this.morsyCleanMtTuning,
       ),
+      chunkV2NativeTranslate: this.chunkV2NativeTranslate,
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {

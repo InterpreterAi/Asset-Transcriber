@@ -25,6 +25,7 @@ export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
   sameSpeakerLongPauseSplitMs?: number;
+  chunkV2NativeTranslate?: boolean;
 };
 
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
@@ -55,6 +56,7 @@ function tryLongPauseSplit(
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
+  const speakerBreakConfirmTokens = ctx.chunkV2NativeTranslate ? 1 : SPEAKER_BREAK_CONFIRM_TOKENS;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
@@ -119,7 +121,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         };
       } else if (spkBreak) {
         const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
-        if (consecutive >= SPEAKER_BREAK_CONFIRM_TOKENS) {
+        if (consecutive >= speakerBreakConfirmTokens) {
           next = freezeActiveUtterance(next);
           next = {
             ...next,
