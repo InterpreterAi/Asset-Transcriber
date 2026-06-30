@@ -217,6 +217,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       endpointPending: true,
       endpointPendingAtMs: wallMs,
     };
+    // Chunk V2 contract: once Soniox marks an endpoint and the row has content,
+    // freeze immediately so already-opened bubbles never merge back upward.
     if (ctx.chunkV2NativeTranslate && next.activeUtterance) {
       const hasContent =
         utteranceCommittedText(next.activeUtterance).trim().length > 0
