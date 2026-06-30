@@ -1,10 +1,21 @@
 import { motion } from "framer-motion";
 
 const logos = [
-  "Propio Language Services",
-  "GLOBO Language Services",
-  "Teleperformance",
-  "LanguageLine Solutions",
+  {
+    src: "https://logo.clearbit.com/languageline.com",
+    alt: "LanguageLine Solutions",
+    className: "h-12 md:h-14 object-contain",
+  },
+  {
+    src: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Teleperformance_logo.svg/640px-Teleperformance_logo.svg.png",
+    alt: "Teleperformance",
+    className: "h-8 md:h-10 object-contain",
+  },
+  {
+    src: "https://logo.clearbit.com/propio.com",
+    alt: "Propio Language Services",
+    className: "h-10 md:h-12 object-contain",
+  },
 ];
 
 export default function TrustedBy() {
@@ -35,8 +46,14 @@ export default function TrustedBy() {
           }}
         >
           {doubled.map((logo, i) => (
-            <div key={`${logo}-${i}`} className="shrink-0 px-8 flex items-center justify-center">
-              <span className="text-white/70 font-display font-semibold text-lg">{logo}</span>
+            <div key={`${logo.alt}-${i}`} className="shrink-0 px-8 flex items-center justify-center">
+              <img
+                src={logo.src}
+                alt={logo.alt}
+                className={`${logo.className} opacity-70 hover:opacity-95 transition-opacity duration-300`}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
             </div>
           ))}
         </div>
