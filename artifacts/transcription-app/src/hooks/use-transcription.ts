@@ -5927,7 +5927,15 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (nativeTx.length > 0) {
         paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
       } else {
-        clearCanonRowTranslation(rowId);
+        // Never clear in chunk-v2 finalization path.
+        // If Soniox emits no finalized translation for this row, preserve existing
+        // painted translation; otherwise mirror committed source so the bubble
+        // never disappears.
+        const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
+        const fallback = existing || committedText.trim() || utteranceCommittedText(utterance).trim();
+        if (fallback.length > 0) {
+          paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
+        }
       }
       return;
     }

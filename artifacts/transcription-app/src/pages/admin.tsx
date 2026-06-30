@@ -74,7 +74,7 @@ interface AdminStats {
     openSessionsForUser?: number;
     openSessionOrdinal?: number;
     /** Live POST /translate stack (matches server `liveTranslateUsesMachineTranslation`). */
-    translationStack?: "libre" | "openai";
+    translationStack?: "libre" | "openai" | "soniox";
     /** Plain-language route + Hetzner core when applicable. */
     translationRouteDetail?: string;
     /** Effective router snapshot (Libre sessions only); from live API state — not admin heuristic. */
@@ -1637,14 +1637,20 @@ export default function Admin() {
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
                             (s.translationStack ?? "openai") === "openai"
                               ? "bg-violet-100 text-violet-800"
-                              : "bg-amber-100 text-amber-900"
+                              : (s.translationStack ?? "openai") === "soniox"
+                                ? "bg-emerald-100 text-emerald-900"
+                                : "bg-amber-100 text-amber-900"
                           }`}
                           title={s.translationRouteDetail ?? "Live translation path from API"}
                         >
-                          {(s.translationStack ?? "openai") === "openai" ? "OpenAI MT" : "Hetzner MT"}
+                          {(s.translationStack ?? "openai") === "openai"
+                            ? "OpenAI MT"
+                            : (s.translationStack ?? "openai") === "soniox"
+                              ? "Chunk v2 Soniox"
+                              : "Hetzner MT"}
                         </span>
                       </div>
-                      {(s.translationStack ?? "openai") === "openai" && s.translationRouteDetail && (
+                      {((s.translationStack ?? "openai") === "openai" || (s.translationStack ?? "openai") === "soniox") && s.translationRouteDetail && (
                         <p className="text-[10px] text-muted-foreground leading-snug mb-1.5 border-l-2 border-border pl-2">
                           {s.translationRouteDetail}
                         </p>

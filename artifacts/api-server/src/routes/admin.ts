@@ -161,6 +161,11 @@ type EnrichedCorePlacement = {
   coreNodeLabel: string;
 };
 
+function planUsesChunkV2SonioxNative(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  return p === "trial-openai" || p === "basic-hetzner";
+}
+
 function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCorePlacement> {
   const out = new Map<number, EnrichedCorePlacement>();
 
@@ -180,9 +185,12 @@ function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCor
 /** Human-readable live `/translate` path + Hetzner lane from DB (`sessions.hetzner_mt_*`). */
 function buildTranslationRouteDetail(
   r: ActiveSessionRow,
-  translationStack: "libre" | "openai",
+  translationStack: "libre" | "openai" | "soniox",
   coreLane: CoreLane | null,
 ): string {
+  if (translationStack === "soniox") {
+    return "Live translation: Soniox native (Chunk v2)";
+  }
   if (translationStack === "openai") {
     return "Live /translate: OpenAI";
   }
@@ -203,7 +211,7 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
   T & {
     openSessionsForUser: number;
     openSessionOrdinal: number;
-    translationStack: "libre" | "openai";
+    translationStack: "libre" | "openai" | "soniox";
     translationRouteDetail: string;
     coreLane: CoreLane | null;
     coreLaneColor: CoreLaneColor | null;
@@ -227,7 +235,9 @@ function enrichActiveSessionRows<T extends ActiveSessionRow>(
     });
   }
   return rows.map((r) => {
-    const translationStack = liveTranslateUsesMachineTranslation(r) ? "libre" : "openai";
+    const translationStack = planUsesChunkV2SonioxNative(r.planType)
+      ? "soniox"
+      : (liveTranslateUsesMachineTranslation(r) ? "libre" : "openai");
     const coreLane = corePlacementBySessionId.get(r.sessionId)?.coreLane ?? null;
     return {
       ...r,
@@ -295,7 +305,7 @@ function packAdminLiveSessionRow(s: {
   micLabel: string | null;
   openSessionsForUser: number;
   openSessionOrdinal: number;
-  translationStack: "libre" | "openai";
+  translationStack: "libre" | "openai" | "soniox";
   translationRouteDetail: string;
   hetznerMtManualLane: number | null;
   hetznerMtAssignedLane: number | null;
