@@ -21,15 +21,24 @@ export function createCommittedMirror(): CommittedDomMirror {
   return { lastUtf16Committed: 0 };
 }
 
+function wrapNumbersForRtl(text: string): string {
+  return text.replace(
+    /(\d[\d.,/:%-]*\s*(?:mg|mL|kg|mmHg|bpm|min|g|dL|mcg|mg\/dL|mL\/min|m2|%|A1c)?)/g,
+    "\u2066$1\u2069",
+  );
+}
+
 export function renderCommittedAppendOnly(row: HTMLElement, fullCommittedUtf16: string, mirror: CommittedDomMirror): void {
+  const shouldWrapRtl = row.getAttribute("dir") === "rtl" || row.closest('[dir="rtl"]') !== null;
+  const nextCommitted = shouldWrapRtl ? wrapNumbersForRtl(fullCommittedUtf16) : fullCommittedUtf16;
   const tn = ensureCommittedTextHost(row);
-  if (mirror.lastUtf16Committed === fullCommittedUtf16.length) return;
-  if (fullCommittedUtf16.startsWith(tn.data) && fullCommittedUtf16.length >= tn.data.length) {
-    const delta = fullCommittedUtf16.slice(tn.data.length);
+  if (mirror.lastUtf16Committed === nextCommitted.length) return;
+  if (nextCommitted.startsWith(tn.data) && nextCommitted.length >= tn.data.length) {
+    const delta = nextCommitted.slice(tn.data.length);
     if (delta.length) tn.appendData(delta);
   } else {
     // Allow full replace so punctuation corrections can overwrite already-painted text
-    tn.replaceData(0, tn.data.length, fullCommittedUtf16);
+    tn.replaceData(0, tn.data.length, nextCommitted);
   }
   mirror.lastUtf16Committed = tn.data.length;
 }

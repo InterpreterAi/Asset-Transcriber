@@ -31,6 +31,7 @@ const ROW_STRIPE_COLOR_CLASSES = [
   "bg-violet-500",
   "bg-rose-500",
 ] as const;
+const RTL_LANGUAGES = ["ar", "he", "fa", "ur", "yi", "dv"] as const;
 function stripeColorFallback(language?: string): string {
   const b = (language ?? "").split("-")[0]!.toLowerCase();
   if (b === "en") return ROW_STRIPE_COLOR_CLASSES[0]!;
@@ -276,6 +277,14 @@ export class CanonAppendWsDomWriter {
     line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0";
     line.dataset.cawRole = "live-line";
     markWorkspaceSelectableText(line);
+    // Chunk V2 RTL languages: isolate bidi flow for mixed-script tokens.
+    if (this.chunkV2NativeTranslate) {
+      const isRtl = RTL_LANGUAGES.some(l => (proj?.language ?? "").startsWith(l));
+      if (isRtl) {
+        line.setAttribute("dir", "rtl");
+        line.style.unicodeBidi = "isolate";
+      }
+    }
     if (this.chunkV2NativeTranslate) {
       // Chunk V2-only: active rows render in a single grey hypothesis span.
       line.innerHTML =

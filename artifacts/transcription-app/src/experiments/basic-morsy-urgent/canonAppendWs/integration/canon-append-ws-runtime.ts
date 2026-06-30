@@ -38,6 +38,7 @@ import { SonioxRealtimeClient } from "../ws/soniox-client";
 /** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
 const CANON_VOLATILE_TAIL_PULSE_MS = 800;
 const CANON_VOLATILE_TAIL_MIN_CHARS = 6;
+const CHUNK_V2_GREY_COMMIT_MAX_MS = 4000;
 /** Short back-and-forth utterances ("Yeah.", "6.") must still reach translation hooks. */
 const CANON_MIN_TRANSLATION_SOURCE_CHARS = 1;
 
@@ -98,6 +99,8 @@ export class CanonAppendWsIsolatedRuntime {
   private domBatchTimer: ReturnType<typeof setTimeout> | null = null;
 
   private volatilePulseTimer: ReturnType<typeof setTimeout> | null = null;
+  private chunkV2GreyCommitTimer: ReturnType<typeof setTimeout> | null = null;
+  private chunkV2GreyCommitRowId: string | null = null;
 
   private lastFrozenCount = 0;
 
@@ -214,6 +217,7 @@ export class CanonAppendWsIsolatedRuntime {
   attachDomRoot(container: HTMLElement): void {
     this.clearDomBatch();
     this.clearVolatilePulseTimer();
+    this.clearChunkV2GreyCommitTimer();
     this.containerEl = container;
     this.scroll.attachScrollParent(container);
     this.writer.detachAll(container);
@@ -243,6 +247,47 @@ export class CanonAppendWsIsolatedRuntime {
       clearTimeout(this.volatilePulseTimer);
       this.volatilePulseTimer = null;
     }
+  }
+
+  private clearChunkV2GreyCommitTimer(): void {
+    if (this.chunkV2GreyCommitTimer !== null) {
+      clearTimeout(this.chunkV2GreyCommitTimer);
+      this.chunkV2GreyCommitTimer = null;
+    }
+    this.chunkV2GreyCommitRowId = null;
+  }
+
+  private syncChunkV2GreyCommitTimer(): void {
+    if (!this.chunkV2NativeTranslate) {
+      this.clearChunkV2GreyCommitTimer();
+      return;
+    }
+    const active = this.state.activeUtterance;
+    if (!active || this.state.endpointPending) {
+      this.clearChunkV2GreyCommitTimer();
+      return;
+    }
+    const rowId = active.utterance_id;
+    if (this.chunkV2GreyCommitTimer !== null && this.chunkV2GreyCommitRowId === rowId) return;
+    this.clearChunkV2GreyCommitTimer();
+    this.chunkV2GreyCommitRowId = rowId;
+    this.chunkV2GreyCommitTimer = setTimeout(() => {
+      this.chunkV2GreyCommitTimer = null;
+      const nowActive = this.state.activeUtterance;
+      if (
+        !this.chunkV2NativeTranslate ||
+        !nowActive ||
+        nowActive.utterance_id !== rowId ||
+        this.state.endpointPending
+      ) {
+        return;
+      }
+      this.state = applyManualStructuralFreeze(this.state);
+      this.projections.sync(this.state);
+      this.emitActiveRowTranslationTick();
+      this.emitNewlyFrozenRows();
+      this.flushDomImmediate();
+    }, CHUNK_V2_GREY_COMMIT_MAX_MS);
   }
 
   private dualBufferFromUtterance(au: CanonUtterance): CanonRowDualBufferPayload {
@@ -362,6 +407,7 @@ export class CanonAppendWsIsolatedRuntime {
     if (immediate) {
       this.clearDomBatch();
       this.emitActiveRowTranslationTick();
+      this.syncChunkV2GreyCommitTimer();
       this.emitNewlyFrozenRows();
       this.flushDomImmediate();
       return;
@@ -371,6 +417,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.domBatchTimer = setTimeout(() => {
       this.domBatchTimer = null;
       this.emitActiveRowTranslationTick();
+      this.syncChunkV2GreyCommitTimer();
       this.emitNewlyFrozenRows();
       this.flushDomImmediate();
     }, liveRenderBatchMs(this.morsyUrgentTuning, this.chunkV2NativeTranslate));
@@ -458,6 +505,7 @@ export class CanonAppendWsIsolatedRuntime {
   stopSoniox(): void {
     this.clearDomBatch();
     this.clearVolatilePulseTimer();
+    this.clearChunkV2GreyCommitTimer();
     const snap = this.activeRowDualBuffer();
     if (snap) {
       this.hooks.onActiveRowTranslationFlush?.(snap);

@@ -185,6 +185,28 @@ TERMS_BY_LANG["ar"] = [
   { source: "مدعى عليه", target: "defendant" }, { source: "مدعي", target: "plaintiff" }, { source: "قاضي", target: "judge" }, { source: "هيئة محلفين", target: "jury" }, { source: "محامي", target: "attorney" }, { source: "شهادة", target: "testimony" }, { source: "حكم", target: "verdict" }, { source: "عقوبة", target: "sentence" }, { source: "استئناف", target: "appeal" }, { source: "كفالة", target: "bail" }, { source: "مذكرة توقيف", target: "warrant" }, { source: "استدعاء", target: "subpoena" }, { source: "دليل", target: "evidence" }, { source: "تسوية", target: "settlement" }, { source: "دعوى قضائية", target: "lawsuit" }, { source: "جلسة", target: "hearing" }, { source: "محاكمة", target: "trial" }, { source: "تبرئة", target: "acquittal" }, { source: "إدانة", target: "conviction" }, { source: "جريمة", target: "felony" }, { source: "مخالفة", target: "misdemeanor" }, { source: "اعتداء", target: "assault" }, { source: "سطو", target: "robbery" }, { source: "احتيال", target: "fraud" }, { source: "شهادة زور", target: "perjury" }, { source: "إفراج مشروط", target: "parole" }, { source: "لائحة اتهام", target: "indictment" }, { source: "مذنب", target: "guilty" }, { source: "غير مذنب", target: "not guilty" }, { source: "عقد", target: "contract" }, { source: "إخلال", target: "breach" }, { source: "تعويضات", target: "damages" }, { source: "مسؤولية", target: "liability" }, { source: "إهمال", target: "negligence" }, { source: "مقاضاة طبية", target: "malpractice" }, { source: "حضانة", target: "custody" }, { source: "طلاق", target: "divorce" }, { source: "نفقة", target: "alimony" }, { source: "نفقة الأطفال", target: "child support" }, { source: "أمر تقييدي", target: "restraining order" },
   // Insurance
   { source: "بوليصة تأمين", target: "insurance policy" }, { source: "قسط", target: "premium" }, { source: "خصم", target: "deductible" }, { source: "تغطية", target: "coverage" }, { source: "مطالبة", target: "claim" }, { source: "مستفيد", target: "beneficiary" }, { source: "إحالة", target: "referral" }, { source: "تفويض", target: "authorization" }, { source: "حالة موجودة مسبقا", target: "pre-existing condition" }, { source: "استثناء", target: "exclusion" }, { source: "استرداد", target: "reimbursement" }, { source: "إعاقة", target: "disability" }, { source: "تعويض العمال", target: "workers compensation" },
+  // Critical medical corrections
+  { source: "اعتلال عضلة القلب", target: "cardiomyopathy" },
+  { source: "اعتلال الكلى السكري", target: "diabetic nephropathy" },
+  { source: "اعتلال الشبكية السكري", target: "diabetic retinopathy" },
+  { source: "التهاب الكبد الدهني غير الكحولي", target: "non-alcoholic steatohepatitis" },
+  { source: "انقطاع التنفس الانسدادي أثناء النوم", target: "obstructive sleep apnea" },
+  { source: "اعتلال الأعصاب الطرفية", target: "peripheral neuropathy" },
+  { source: "الرجفان الأذيني", target: "atrial fibrillation" },
+  { source: "الفشل الكلوي الحاد", target: "acute kidney failure" },
+  { source: "التهاب البنكرياس", target: "pancreatitis" },
+  { source: "شلل المعدة", target: "gastroparesis" },
+  { source: "سرطان الغدة الدرقية النخاعي", target: "medullary thyroid carcinoma" },
+  { source: "الهيموغلوبين", target: "hemoglobin" },
+  { source: "معدل الترشيح الكبيبي", target: "glomerular filtration rate" },
+  { source: "الكرياتينين", target: "creatinine" },
+  { source: "الهيموغلوبين السكري", target: "hemoglobin A1c" },
+  { source: "الببتيد الناتريوريتيكي", target: "natriuretic peptide" },
+  { source: "البروتين التفاعلي", target: "C-reactive protein" },
+  { source: "السيماغلوتيد", target: "semaglutide" },
+  { source: "الميتفورمين", target: "metformin" },
+  { source: "الأتورفاستاتين", target: "atorvastatin" },
+  { source: "الليزينوبريل", target: "lisinopril" },
 ];
 
 TERMS_BY_LANG["es"] = [
