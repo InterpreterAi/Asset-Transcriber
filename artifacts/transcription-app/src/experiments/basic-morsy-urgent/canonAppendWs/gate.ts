@@ -12,7 +12,6 @@ export const CANON_APPEND_WS_STT_PLAN_TYPES = [
   "trial-openai",
   "trial-hetzner",
   "basic-hetzner",
-  "basic-paypal-default",
   "trial-libre",
   "basic-openai",
   "professional-openai",
