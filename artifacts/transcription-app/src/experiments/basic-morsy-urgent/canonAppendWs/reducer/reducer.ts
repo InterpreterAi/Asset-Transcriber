@@ -61,7 +61,7 @@ function tryLongPauseSplit(
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
-  const speakerBreakConfirmTokens = ctx.chunkV2NativeTranslate ? 1 : SPEAKER_BREAK_CONFIRM_TOKENS;
+  const speakerBreakConfirmTokens = SPEAKER_BREAK_CONFIRM_TOKENS;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
@@ -165,30 +165,6 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 
-  // Chunk V2-only: on first non-final speaker mismatch, split immediately so
-  // live partials render in the new speaker bubble (clean-mt-like handoff).
-  if (
-    ctx.chunkV2NativeTranslate &&
-    next.activeUtterance &&
-    frameNonFinals.length > 0
-  ) {
-    const activeSpeaker = normalizedSpeakerId(next.activeUtterance.speaker);
-    const tailSpeaker = normalizedSpeakerId(tail.speaker);
-    const activeHasRenderableText =
-      utteranceCommittedText(next.activeUtterance).trim().length > 0
-      || utteranceLiveText(next.activeUtterance).trim().length > 0;
-    if (activeSpeaker && tailSpeaker && activeSpeaker !== tailSpeaker && activeHasRenderableText) {
-      next = freezeActiveUtterance(next);
-      next = {
-        ...next,
-        endpointPending: false,
-        endpointPendingAtMs: 0,
-        speakerChangeConsecutive: 0,
-        metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
-      };
-    }
-  }
-
   if (!next.activeUtterance && frameNonFinals.length > 0) {
     next = openActiveUtterance(next, tail.speaker, tail.language);
   }
@@ -217,21 +193,6 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       endpointPending: true,
       endpointPendingAtMs: wallMs,
     };
-    // Chunk V2 contract: once Soniox marks an endpoint and the row has content,
-    // freeze immediately so already-opened bubbles never merge back upward.
-    if (ctx.chunkV2NativeTranslate && next.activeUtterance) {
-      const hasContent =
-        utteranceCommittedText(next.activeUtterance).trim().length > 0
-        || utteranceLiveText(next.activeUtterance).trim().length > 0;
-      if (hasContent) {
-        next = freezeActiveUtterance(next);
-        next = {
-          ...next,
-          endpointPending: false,
-          endpointPendingAtMs: 0,
-        };
-      }
-    }
   }
 
   return next;
