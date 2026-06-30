@@ -192,6 +192,44 @@ export function projectTranscriptView(
   opts: TranscriptProjectionOptions = {},
 ): TranscriptProjection {
   const rows: RowProjection[] = [];
+  if (opts.chunkV2NativeTranslate) {
+    // Chunk V2 contract: finalized utterances are immutable row boundaries.
+    // Never merge by speaker/language after freeze, otherwise bubbles can
+    // visually "move upward" and rewrite prior translation rows.
+    for (const fu of state.finalizedUtterances) {
+      const rawCommitted = utteranceCommittedText(fu);
+      const committedText = cleanSonioxPunctuation(rawCommitted, opts, true);
+      if (!committedText.length || PUNCTUATION_ONLY.test(committedText)) continue;
+      rows.push({
+        row_id: fu.utterance_id,
+        speaker: norm(fu.speaker),
+        language: fu.language?.split("-")[0]?.toLowerCase(),
+        committedText,
+        liveText: "",
+        finalized: true,
+        translationText: (fu.translationText ?? "").trim() || undefined,
+      });
+    }
+    if (state.activeUtterance) {
+      const rawCommitted = utteranceCommittedText(state.activeUtterance);
+      const liveText = utteranceLiveText(state.activeUtterance);
+      const committedText = cleanSonioxPunctuation(rawCommitted, opts, false);
+      const translationPreview = (state.activeTranslationPreviewText ?? state.activeTranslationText ?? "").trim();
+      if (committedText.trim().length || liveText.trim().length) {
+        rows.push({
+          row_id: state.activeUtterance.utterance_id,
+          speaker: state.activeUtterance.speaker,
+          language: state.activeUtterance.language,
+          committedText,
+          liveText,
+          finalized: false,
+          translationText: translationPreview || undefined,
+        });
+      }
+    }
+    const liveCombined = rows.map(rr => rr.committedText + rr.liveText).join("\n");
+    return { rows, liveCombined };
+  }
   let groupUtterances: CanonUtterance[] = [];
   let groupSpeaker: string | undefined = undefined;
   let groupLanguage: string | undefined = undefined;

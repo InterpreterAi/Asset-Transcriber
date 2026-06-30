@@ -484,10 +484,15 @@ export class CanonAppendWsIsolatedRuntime {
     translationLines: string[];
   } {
     const proj = this.projections.getProjection();
-    const transcriptLines = proj.rows
+    const snapshotRows = this.chunkV2NativeTranslate
+      ? proj.rows.filter(r => r.finalized)
+      : proj.rows;
+    const transcriptLines = snapshotRows
       .map(r => (r.committedText + r.liveText).trim())
       .filter(Boolean);
-    const rowIds = proj.rows.filter(r => (r.committedText + r.liveText).trim().length > 0).map(r => r.row_id);
+    const rowIds = snapshotRows
+      .filter(r => (r.committedText + r.liveText).trim().length > 0)
+      .map(r => r.row_id);
     const translationLines = this.writer.getTranslationLines(rowIds);
     while (translationLines.length < transcriptLines.length) translationLines.push("");
     return {
