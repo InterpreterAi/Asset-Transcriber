@@ -1,18 +1,20 @@
 import { motion } from "framer-motion";
 
+const BASE = import.meta.env.BASE_URL;
+
 const logos = [
   {
-    src: "https://logo.clearbit.com/languageline.com",
+    src: `${BASE}logos/languageline.svg`,
     alt: "LanguageLine Solutions",
     className: "h-12 md:h-14 object-contain",
   },
   {
-    src: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Teleperformance_logo.svg/640px-Teleperformance_logo.svg.png",
+    src: `${BASE}logos/teleperformance.svg`,
     alt: "Teleperformance",
     className: "h-8 md:h-10 object-contain",
   },
   {
-    src: "https://logo.clearbit.com/propio.com",
+    src: `${BASE}logos/propio.png`,
     alt: "Propio Language Services",
     className: "h-10 md:h-12 object-contain",
   },
@@ -52,7 +54,6 @@ export default function TrustedBy() {
                 alt={logo.alt}
                 className={`${logo.className} opacity-70 hover:opacity-95 transition-opacity duration-300`}
                 loading="lazy"
-                referrerPolicy="no-referrer"
               />
             </div>
           ))}
