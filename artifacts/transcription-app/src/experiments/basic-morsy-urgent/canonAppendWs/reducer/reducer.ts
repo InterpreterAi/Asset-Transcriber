@@ -19,7 +19,7 @@ import {
   nonFinalsForRow,
 } from "./soniox-frame-split";
 
-const SPEAKER_BREAK_CONFIRM_TOKENS = 2;
+const SPEAKER_BREAK_CONFIRM_TOKENS = 1;
 
 function normalizedSpeakerId(s?: string): string | undefined {
   const t = s?.trim();

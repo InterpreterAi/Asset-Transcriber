@@ -18,7 +18,7 @@ export const CANON_SILENCE_SEGMENT_MS = 2200;
  * Same speaker resumes after this gap → new row (canon + legacy WebSocket).
  * Intentionally longer than brief between-sentence pauses so we do not split every clause.
  */
-export const SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 2000;
+export const SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 5000;
 export const MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 4500;
 
 export const MAX_UTTERANCE_WALL_MS = 120_000;

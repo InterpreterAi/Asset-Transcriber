@@ -34,7 +34,7 @@ export type MorsyChunkTranslationRowState = {
   liveTranslation: string;
 };
 
-const CLAUSE_PUNCT_RE = /[.,;:?!\u061F\u060C\u061B]/;
+const CLAUSE_PUNCT_RE = /[;:?!\u061F\u060C\u061B]/;
 
 export function emptyMorsyChunkTranslationRowState(): MorsyChunkTranslationRowState {
   return {
