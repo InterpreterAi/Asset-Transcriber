@@ -1,6 +1,5 @@
 import type { RowProjection } from "../projection/transcript-view";
 import {
-  renderMorsyChunkV2BidiHtml,
   shouldMorsyChunkV2BidiPaint,
 } from "@/hooks/morsy-chunk-v2-bidi-render";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
@@ -31,7 +30,19 @@ const ROW_STRIPE_COLOR_CLASSES = [
   "bg-violet-500",
   "bg-rose-500",
 ] as const;
-const RTL_LANGUAGES = ["ar", "he", "fa", "ur", "yi", "dv"] as const;
+const RTL_LANGUAGES = ["ar", "he", "fa", "ur", "yi", "dv", "ku", "ps"] as const;
+
+function isRtlLanguage(language?: string): boolean {
+  const base = (language ?? "").split("-")[0]!.toLowerCase();
+  return RTL_LANGUAGES.some(l => base === l);
+}
+
+function isolateLtrInRtl(text: string): string {
+  return text.replace(
+    /([A-Za-z][A-Za-z0-9._@+\-/]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$))?)/g,
+    "\u2066$1\u2069",
+  );
+}
 function stripeColorFallback(language?: string): string {
   const b = (language ?? "").split("-")[0]!.toLowerCase();
   if (b === "en") return ROW_STRIPE_COLOR_CLASSES[0]!;
@@ -167,17 +178,30 @@ export class CanonAppendWsDomWriter {
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
     const text = this.translationByRowId.get(rowId) ?? "";
+    const rowLanguage = handles.row.dataset.cawLanguage;
+    const rtlTranslation = this.chunkV2NativeTranslate
+      && (isRtlLanguage(rowLanguage) || shouldMorsyChunkV2BidiPaint(text));
+    const displayText = rtlTranslation ? isolateLtrInRtl(text) : text;
     const prevRendered = handles.translationEl.textContent ?? "";
+    if (rtlTranslation) {
+      handles.translationEl.setAttribute("dir", "rtl");
+      handles.translationEl.style.textAlign = "right";
+      handles.translationEl.style.unicodeBidi = "plaintext";
+    } else {
+      handles.translationEl.removeAttribute("dir");
+      handles.translationEl.style.textAlign = "";
+      handles.translationEl.style.unicodeBidi = "";
+    }
     if (this.layoutMode === "stacked") {
       const textEl = this.stackedTranslationTextEl(handles.translationEl);
-      if (textEl.textContent === text) return;
-      textEl.textContent = text;
+      if (textEl.textContent === displayText) return;
+      textEl.textContent = displayText;
       const arrow = handles.translationEl.querySelector(`[data-caw-translation-arrow]`);
       if (arrow instanceof HTMLElement) {
-        arrow.style.display = text.length ? "" : "none";
+        arrow.style.display = displayText.length ? "" : "none";
       }
-    } else if (handles.translationEl.textContent !== text) {
-      handles.translationEl.textContent = text;
+    } else if (handles.translationEl.textContent !== displayText) {
+      handles.translationEl.textContent = displayText;
     }
     if (!this.translationPrefixLiveByRowId.has(rowId)) {
       logChunkV2DomPaint({
@@ -224,22 +248,31 @@ export class CanonAppendWsDomWriter {
     const prevRendered = handles.translationEl.textContent ?? "";
     if (prevRendered.trim() === composedTarget.trim()) return;
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
-    const useBidi =
-      parts.rtlBidiPaint === true &&
-      shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim());
+    const rowLanguage = handles.row.dataset.cawLanguage;
+    const useBidi = this.chunkV2NativeTranslate
+      && (
+        parts.rtlBidiPaint === true
+        || isRtlLanguage(rowLanguage)
+        || shouldMorsyChunkV2BidiPaint(`${parts.locked} ${parts.live}`.trim())
+      );
     markWorkspaceSelectableText(lockedEl);
     markWorkspaceSelectableText(liveEl);
     if (useBidi) {
       handles.translationEl.setAttribute("dir", "rtl");
+      handles.translationEl.style.textAlign = "right";
+      handles.translationEl.style.unicodeBidi = "plaintext";
       if (prev?.locked !== parts.locked) {
-        lockedEl.innerHTML = parts.locked.length ? renderMorsyChunkV2BidiHtml(parts.locked) : "";
+        lockedEl.textContent = parts.locked.length ? isolateLtrInRtl(parts.locked) : "";
       }
-      if (liveEl.textContent !== parts.live) {
-        liveEl.innerHTML = parts.live.length ? renderMorsyChunkV2BidiHtml(parts.live) : "";
+      const liveDisplay = parts.live.length ? isolateLtrInRtl(parts.live) : "";
+      if (liveEl.textContent !== liveDisplay) {
+        liveEl.textContent = liveDisplay;
       }
       return;
     }
     handles.translationEl.removeAttribute("dir");
+    handles.translationEl.style.textAlign = "";
+    handles.translationEl.style.unicodeBidi = "";
     if (prev?.locked !== parts.locked) {
       lockedEl.textContent = parts.locked;
     }
@@ -279,10 +312,11 @@ export class CanonAppendWsDomWriter {
     markWorkspaceSelectableText(line);
     // Chunk V2 RTL languages: isolate bidi flow for mixed-script tokens.
     if (this.chunkV2NativeTranslate) {
-      const isRtl = RTL_LANGUAGES.some(l => (proj?.language ?? "").startsWith(l));
+      const isRtl = isRtlLanguage(proj?.language);
       if (isRtl) {
         line.setAttribute("dir", "rtl");
-        line.style.unicodeBidi = "isolate";
+        line.style.textAlign = "right";
+        line.style.unicodeBidi = "plaintext";
       }
     }
     if (this.chunkV2NativeTranslate) {

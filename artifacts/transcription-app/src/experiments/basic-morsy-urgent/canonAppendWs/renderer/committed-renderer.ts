@@ -21,16 +21,16 @@ export function createCommittedMirror(): CommittedDomMirror {
   return { lastUtf16Committed: 0 };
 }
 
-function wrapNumbersForRtl(text: string): string {
+function isolateLtrInRtl(text: string): string {
   return text.replace(
-    /(\d[\d.,/:%-]*\s*(?:mg|mL|kg|mmHg|bpm|min|g|dL|mcg|mg\/dL|mL\/min|m2|%|A1c)?)/g,
+    /([A-Za-z][A-Za-z0-9._@+\-/]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$))?)/g,
     "\u2066$1\u2069",
   );
 }
 
 export function renderCommittedAppendOnly(row: HTMLElement, fullCommittedUtf16: string, mirror: CommittedDomMirror): void {
   const shouldWrapRtl = row.getAttribute("dir") === "rtl" || row.closest('[dir="rtl"]') !== null;
-  const nextCommitted = shouldWrapRtl ? wrapNumbersForRtl(fullCommittedUtf16) : fullCommittedUtf16;
+  const nextCommitted = shouldWrapRtl ? isolateLtrInRtl(fullCommittedUtf16) : fullCommittedUtf16;
   const tn = ensureCommittedTextHost(row);
   if (mirror.lastUtf16Committed === nextCommitted.length) return;
   if (nextCommitted.startsWith(tn.data) && nextCommitted.length >= tn.data.length) {
