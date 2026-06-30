@@ -9,14 +9,24 @@ const logos = [
     className: "h-12 md:h-14 object-contain",
   },
   {
-    src: `${BASE}logos/teleperformance.svg`,
+    src: `${BASE}logos/teleperformance-colored.png`,
     alt: "Teleperformance",
-    className: "h-8 md:h-10 object-contain",
+    className: "h-8 md:h-9 object-contain",
   },
   {
     src: `${BASE}logos/propio.png`,
     alt: "Propio Language Services",
     className: "h-10 md:h-12 object-contain",
+  },
+  {
+    src: `${BASE}logos/transperfect.png`,
+    alt: "TransPerfect",
+    className: "h-8 md:h-9 object-contain",
+  },
+  {
+    src: `${BASE}logos/globo.png`,
+    alt: "GLOBO",
+    className: "h-8 md:h-9 object-contain",
   },
 ];
 
