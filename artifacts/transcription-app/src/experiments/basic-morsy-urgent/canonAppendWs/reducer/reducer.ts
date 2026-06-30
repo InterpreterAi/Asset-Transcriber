@@ -21,6 +21,11 @@ import {
 
 const SPEAKER_BREAK_CONFIRM_TOKENS = 2;
 
+function normalizedSpeakerId(s?: string): string | undefined {
+  const t = s?.trim();
+  return t && t.length > 0 ? t : undefined;
+}
+
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
   wallMs: number;
@@ -158,6 +163,30 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   ) {
     next = freezeActiveUtterance(next);
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
+  }
+
+  // Chunk V2-only: on first non-final speaker mismatch, split immediately so
+  // live partials render in the new speaker bubble (clean-mt-like handoff).
+  if (
+    ctx.chunkV2NativeTranslate &&
+    next.activeUtterance &&
+    frameNonFinals.length > 0
+  ) {
+    const activeSpeaker = normalizedSpeakerId(next.activeUtterance.speaker);
+    const tailSpeaker = normalizedSpeakerId(tail.speaker);
+    const activeHasRenderableText =
+      utteranceCommittedText(next.activeUtterance).trim().length > 0
+      || utteranceLiveText(next.activeUtterance).trim().length > 0;
+    if (activeSpeaker && tailSpeaker && activeSpeaker !== tailSpeaker && activeHasRenderableText) {
+      next = freezeActiveUtterance(next);
+      next = {
+        ...next,
+        endpointPending: false,
+        endpointPendingAtMs: 0,
+        speakerChangeConsecutive: 0,
+        metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+      };
+    }
   }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {
