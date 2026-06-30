@@ -374,7 +374,7 @@ function lastSeen(date: string | null | undefined) {
 /** Canonical plan types including separate OpenAI / Hetzner / mixed trial modes. */
 const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
   { value: "trial-openai", label: "Trial · Default (Chunk v2 Soniox)" },
-  { value: "trial", label: "Trial · Default (legacy type, Chunk v2 Soniox)" },
+  { value: "trial", label: "Trial · OpenAI (legacy)" },
   { value: "basic-openai", label: "Basic · OpenAI" },
   { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy STT, OpenAI translation)" },
   { value: "legacy2", label: "Basic · Legacy 2 (Morsy STT, transcription only)" },
@@ -385,8 +385,8 @@ const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
 const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
   { value: "trial-hetzner", label: "Trial · Hetzner (7 days, full Hetzner)" },
   { value: "trial-libre", label: "Trial · Mixed (days 1–4 OpenAI, then Hetzner)" },
-  { value: "basic-hetzner", label: "Basic · PayPal Default (Chunk v2 Soniox, 5h/day)" },
-  { value: "basic-libre", label: "Basic · PayPal Default (legacy type, Chunk v2 Soniox)" },
+  { value: "basic-hetzner", label: "Basic · Default PayPal (Chunk v2 Soniox, 5h/day)" },
+  { value: "basic-libre", label: "Basic · Hetzner / machine (legacy)" },
   { value: "professional-libre", label: "Professional · Hetzner / machine" },
   { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
 ];

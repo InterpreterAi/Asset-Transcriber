@@ -31,7 +31,7 @@ export function workspacePlanDisplayName(planType: string | undefined | null): s
   const p = (planType ?? "").toLowerCase();
   if (p === "morsy-urgent") return "Trial";
   if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "Trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "basic-paypal-default" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "Basic";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-basic" || p === "morsy-urgent" || p === "legacy2") return "Basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "Unlimited";
   return "Unlimited";
 }
@@ -41,7 +41,7 @@ export function workspacePlanTierKey(planType: string | null | undefined): "tria
   const p = (planType ?? "").toLowerCase();
   if (p === "morsy-urgent") return "trial";
   if (p === "trial" || p === "trial-openai" || p === "trial-libre" || p === "trial-hetzner") return "trial";
-  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "basic-paypal-default" || p === "morsy-basic" || p === "legacy2") return "basic";
+  if (p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-basic" || p === "legacy2") return "basic";
   if (p === "professional" || p === "professional-openai" || p === "professional-libre") return "professional";
   return "platinum";
 }
@@ -89,7 +89,7 @@ export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | un
  */
 export function planUsesHetznerCanonStreamingStt(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial-hetzner" || p === "basic-hetzner" || p === "basic-paypal-default" || p === "basic-libre";
+  return p === "trial-hetzner" || p === "basic-hetzner" || p === "basic-libre";
 }
 
 /** @deprecated Prefer {@link planUsesHetznerCanonStreamingStt}. */

@@ -2842,10 +2842,7 @@ function planForcesChunkV2Soniox(planTypeLower: string): boolean {
   const p = planTypeLower.trim().toLowerCase();
   return (
     p === "basic-hetzner" ||
-    p === "basic-libre" ||
-    p === "basic-paypal-default" ||
-    p === "trial-openai" ||
-    p === "trial"
+    p === "trial-openai"
   );
 }
 
