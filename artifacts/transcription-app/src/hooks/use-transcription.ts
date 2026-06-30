@@ -2837,6 +2837,18 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
   return planTypeLower.trim().toLowerCase() === "morsy-urgent";
 }
 
+/** Plans hard-routed to chunk-v2 Soniox native translation (no external MT fetch path). */
+function planForcesChunkV2Soniox(planTypeLower: string): boolean {
+  const p = planTypeLower.trim().toLowerCase();
+  return (
+    p === "basic-hetzner" ||
+    p === "basic-libre" ||
+    p === "basic-paypal-default" ||
+    p === "trial-openai" ||
+    p === "trial"
+  );
+}
+
 /** Immediate committed-original DOM append — no `visibleCommittedBoundary` lag (morsy-urgent + Hetzner canon STT). */
 function canonImmediateCommittedAppend(planTypeLower: string): boolean {
   const p = planTypeLower.trim();
@@ -3304,6 +3316,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   }
 
   function morsyUsesChunkTranslationV2Experiment(): boolean {
+    if (planForcesChunkV2Soniox(planTypeRef.current)) return true;
     return (
       isBasicMorsyUrgentPlan(planTypeRef.current) &&
       experimentMorsyUrgentChunkTranslationV2Ref.current

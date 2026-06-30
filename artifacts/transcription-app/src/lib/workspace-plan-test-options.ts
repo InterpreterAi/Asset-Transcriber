@@ -11,10 +11,10 @@ export type WorkspacePlanTestOption = {
 };
 
 const TRIAL_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
-  { planType: "trial-openai", label: "Trial · OpenAI (7d)", group: "trial" },
+  { planType: "trial-openai", label: "Trial · Default (Chunk v2 Soniox)", group: "trial" },
   { planType: "trial-hetzner", label: "Trial · Hetzner (7d)", group: "trial" },
   { planType: "trial-libre", label: "Trial · Mixed (1-4 OpenAI, then Hetzner)", group: "trial" },
-  { planType: "trial", label: "Trial · OpenAI (legacy)", group: "trial" },
+  { planType: "trial", label: "Trial · Default (legacy type, Chunk v2 Soniox)", group: "trial" },
 ];
 
 const TRIAL_OPTIONS_SIMPLE: readonly WorkspacePlanTestOption[] = [
@@ -27,8 +27,8 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "legacy2", label: "Basic · Legacy 2 (Morsy STT, transcription only)", group: "paid" },
   { planType: "professional-openai", label: "Professional · OpenAI", group: "paid" },
   { planType: "platinum-openai", label: "Platinum · OpenAI", group: "paid" },
-  { planType: "basic-hetzner", label: "Basic · Hetzner (PayPal default)", group: "paid" },
-  { planType: "basic-libre", label: "Basic · Hetzner (legacy label)", group: "paid" },
+  { planType: "basic-hetzner", label: "Basic · PayPal Default (Chunk v2 Soniox)", group: "paid" },
+  { planType: "basic-libre", label: "Basic · PayPal Default (legacy type, Chunk v2 Soniox)", group: "paid" },
   { planType: "professional-libre", label: "Professional · Hetzner", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Hetzner", group: "paid" },
 ];
