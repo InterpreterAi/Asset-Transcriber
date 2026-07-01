@@ -911,6 +911,16 @@ export default function WorkspaceDefault() {
   const usageShowsUnlimitedCap =
     user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType);
   const isPaidUser = !isTrialLikePlanType(user.planType);
+  const currentTier = workspacePlanTierKey(user.planType);
+  const canUpgradePaidPlan = currentTier === "basic" || currentTier === "professional";
+  const upgradePlanOptions = PRICING_PLANS.filter((plan) => {
+    if (currentTier === "trial") return true;
+    if (currentTier === "basic") return plan.key === "professional" || plan.key === "platinum";
+    if (currentTier === "professional") return plan.key === "platinum";
+    return false;
+  });
+  const selectedPlanIsAvailable =
+    selectedPlan !== null && upgradePlanOptions.some((plan) => plan.key === selectedPlan);
 
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
