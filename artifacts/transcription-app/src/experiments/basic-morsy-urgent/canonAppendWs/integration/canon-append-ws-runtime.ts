@@ -4,7 +4,11 @@
  */
 
 import type { LangPair } from "@/lib/interpreter-stt-context";
-import { buildSonioxLanguageHints, sonioxRealtimeSessionTuning } from "@/lib/soniox-stt-language-hints";
+import {
+  buildSonioxLanguageHints,
+  sonioxRealtimeSessionTuning,
+  workspaceLangToSonioxRealtimeCode,
+} from "@/lib/soniox-stt-language-hints";
 
 import { shouldPauseWorkspaceDomPaint } from "@/lib/workspace-text-selection";
 import {
@@ -416,14 +420,16 @@ export class CanonAppendWsIsolatedRuntime {
     const pair = langPair as { a: string; b: string };
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
+    const sonioxLangA = workspaceLangToSonioxRealtimeCode(pair.a);
+    const sonioxLangB = workspaceLangToSonioxRealtimeCode(pair.b);
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
     const sonioxNativeTranslateConfig = this.chunkV2NativeTranslate
       ? {
           translationConfig: {
             type: "two_way" as const,
-            language_a: pair.a,
-            language_b: pair.b,
+            language_a: sonioxLangA,
+            language_b: sonioxLangB,
           },
           interpreterContext: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms),
         }
@@ -432,7 +438,6 @@ export class CanonAppendWsIsolatedRuntime {
       apiKey,
       sampleRate,
       languageHints: hints,
-      forceChunkV2LanguageHints: this.chunkV2NativeTranslate,
       enableLanguageIdentification: tuning.enableLanguageIdentification,
       maxEndpointDelayMs: tuning.maxEndpointDelayMs,
       morsyUrgentTuning: this.morsyUrgentTuning,

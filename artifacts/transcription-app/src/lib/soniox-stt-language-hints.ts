@@ -52,6 +52,17 @@ export function workspaceLangToSonioxHint(code: string): string | null {
   return SONIOX_STT_DOC_LANGUAGE_CODES.has(normalized) ? normalized : null;
 }
 
+/**
+ * Normalize workspace picker language codes to Soniox realtime-safe ISO tags.
+ * Returns a supported Soniox code whenever possible; falls back to `en`.
+ */
+export function workspaceLangToSonioxRealtimeCode(code: string): string {
+  const mapped = workspaceLangToSonioxHint(code);
+  if (mapped) return mapped;
+  const base = baseIso(code);
+  return base || "en";
+}
+
 /** True when a Soniox tag matches a workspace pair member (incl. STT proxies such as `sw` → `so`). */
 export function sonioxHintCorrespondsToWorkspaceLang(
   sonioxHint: string,
