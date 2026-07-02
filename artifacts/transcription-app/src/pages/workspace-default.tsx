@@ -977,7 +977,9 @@ export default function WorkspaceDefault() {
               <div>
                 <h2 className="text-lg font-bold text-foreground">Upgrade Your Plan</h2>
                 <p className="text-sm text-foreground/75 mt-0.5">
-                  Choose a plan that fits your workflow
+                  {currentTier === "trial"
+                    ? "Choose a plan that fits your workflow"
+                    : "Choose a bigger plan for your workflow"}
                 </p>
               </div>
               <button
@@ -1011,7 +1013,7 @@ export default function WorkspaceDefault() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
-                {PRICING_PLANS.map((plan) => (
+                {upgradePlanOptions.map((plan) => (
                   <button
                     key={plan.key}
                     type="button"
@@ -1050,7 +1052,7 @@ export default function WorkspaceDefault() {
                 ))}
               </div>
 
-              {selectedPlan && (
+              {selectedPlanIsAvailable && (
                 <div className="rounded-xl border border-border bg-muted/45 dark:bg-muted/25 p-4">
                   <p className="text-sm font-semibold text-foreground">Secure checkout</p>
                   <p className="text-xs text-foreground/80 mt-1 leading-relaxed">
@@ -1258,30 +1260,41 @@ export default function WorkspaceDefault() {
                 className="w-full mt-2 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
               >
                 <Zap className="w-3.5 h-3.5" />
-                Upgrade to Pro
+                Upgrade Plan
               </button>
             ) : (
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={() => void handleManageBilling()}
-                  disabled={upgradeLoading === "portal"}
-                  className="h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                >
-                  {upgradeLoading === "portal" ? (
-                    <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
-                  ) : (
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  )}
-                  Manage Billing
-                </button>
-                <button
-                  onClick={() => void handleManageBilling()}
-                  disabled={upgradeLoading === "portal"}
-                  className="h-8 rounded-lg border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                  title="Open billing page to cancel your subscription and stop auto-renew charges."
-                >
-                  Cancel Subscription
-                </button>
+              <div className="mt-2 space-y-1.5">
+                {canUpgradePaidPlan && (
+                  <button
+                    onClick={handleOpenUpgrade}
+                    className="w-full h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Upgrade Plan
+                  </button>
+                )}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => void handleManageBilling()}
+                    disabled={upgradeLoading === "portal"}
+                    className="h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  >
+                    {upgradeLoading === "portal" ? (
+                      <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+                    ) : (
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    )}
+                    Manage Billing
+                  </button>
+                  <button
+                    onClick={() => void handleManageBilling()}
+                    disabled={upgradeLoading === "portal"}
+                    className="h-8 rounded-lg border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                    title="Open billing page to cancel your subscription and stop auto-renew charges."
+                  >
+                    Cancel Subscription
+                  </button>
+                </div>
               </div>
             )}
           </div>

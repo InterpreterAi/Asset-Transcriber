@@ -2842,6 +2842,7 @@ function planForcesChunkV2Soniox(planTypeLower: string): boolean {
   const p = planTypeLower.trim().toLowerCase();
   return (
     p === "basic-hetzner" ||
+    p === "professional-libre" ||
     p === "trial-openai"
   );
 }

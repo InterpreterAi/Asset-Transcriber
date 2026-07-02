@@ -29,7 +29,7 @@ const PAID_OPTIONS_ADMIN: readonly WorkspacePlanTestOption[] = [
   { planType: "platinum-openai", label: "Platinum · OpenAI", group: "paid" },
   { planType: "basic-hetzner", label: "Basic · Default PayPal (Chunk v2 Soniox)", group: "paid" },
   { planType: "basic-libre", label: "Basic · Hetzner (legacy label)", group: "paid" },
-  { planType: "professional-libre", label: "Professional · Hetzner", group: "paid" },
+  { planType: "professional-libre", label: "Professional · Default PayPal (Chunk v2 Soniox)", group: "paid" },
   { planType: "platinum-libre", label: "Platinum · Hetzner", group: "paid" },
 ];
 

@@ -84,12 +84,13 @@ export function planUsesOpenAiMorsyCanonTranslation(planType: string | null | un
 }
 
 /**
- * **trial-hetzner + basic-hetzner (+ legacy basic-libre)** — shared canon-append STT + translation path:
+ * **trial-hetzner + basic/professional default PayPal (+ legacy basic-libre)** —
+ * shared canon-append STT + translation path:
  * immediate committed append, serial frozen-row queue, blank-bubble backfill, first-stable translate.
  */
 export function planUsesHetznerCanonStreamingStt(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial-hetzner" || p === "basic-hetzner" || p === "basic-libre";
+  return p === "trial-hetzner" || p === "basic-hetzner" || p === "professional-libre" || p === "basic-libre";
 }
 
 /** @deprecated Prefer {@link planUsesHetznerCanonStreamingStt}. */

@@ -163,7 +163,7 @@ type EnrichedCorePlacement = {
 
 function planUsesChunkV2SonioxNative(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
-  return p === "trial-openai" || p === "basic-hetzner";
+  return p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre";
 }
 
 function computeCorePlacement(rows: ActiveSessionRow[]): Map<number, EnrichedCorePlacement> {

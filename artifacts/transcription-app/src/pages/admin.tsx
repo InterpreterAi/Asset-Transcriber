@@ -387,7 +387,7 @@ const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
   { value: "trial-libre", label: "Trial · Mixed (days 1–4 OpenAI, then Hetzner)" },
   { value: "basic-hetzner", label: "Basic · Default PayPal (Chunk v2 Soniox, 5h/day)" },
   { value: "basic-libre", label: "Basic · Hetzner / machine (legacy)" },
-  { value: "professional-libre", label: "Professional · Hetzner / machine" },
+  { value: "professional-libre", label: "Professional · Default PayPal (Chunk v2 Soniox, 12h/day)" },
   { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
 ];
 

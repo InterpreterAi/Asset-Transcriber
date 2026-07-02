@@ -218,9 +218,9 @@ export function effectivePlanTypeForTranslation(user: User): string {
   ) {
     // PayPal Basic → Hetzner machine stack for every trial variant (OpenAI, Hetzner, or mixed).
     if (sp === "basic") return "basic-hetzner";
-    // Trial · Mixed (`trial-libre`): OpenAI interpreter for Professional/Platinum while plan_type lags.
+    // Trial-like + active PayPal: mirror billing mapping even while plan_type lags.
     if (p === "trial-libre") {
-      if (sp === "professional") return "professional-openai";
+      if (sp === "professional") return "professional-libre";
       if (sp === "platinum") return "platinum";
       if (sp === "unlimited") return "unlimited";
     }
