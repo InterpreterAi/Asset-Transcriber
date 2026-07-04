@@ -396,6 +396,19 @@ const ADMIN_PLAN_VALUE_SET = new Set([
   ...ADMIN_PLAN_OPTIONS_LIBRE.map(o => o.value),
 ]);
 
+function defaultDailyLimitForAdminPlan(planType: string): number {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (isTrialLikePlanType(p)) return 60;
+  if (
+    p === "basic" || p === "basic-openai" || p === "basic-libre" || p === "basic-hetzner" || p === "morsy-urgent" || p === "legacy2"
+  ) {
+    return 300;
+  }
+  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return 720;
+  if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return 720;
+  return 60;
+}
+
 /** Matches server `SUBSCRIPTION_PERIOD_MS` when PayPal omits next_billing_time. */
 const BILLING_FALLBACK_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -3547,7 +3560,16 @@ export default function Admin() {
                   <label className="text-xs font-medium text-muted-foreground">Plan</label>
                   <select
                     value={editForm.planType}
-                    onChange={e => setEditForm(f => ({ ...f, planType: e.target.value }))}
+                    onChange={e => {
+                      const nextPlan = e.target.value;
+                      setEditForm(f => {
+                        const currentDefault = defaultDailyLimitForAdminPlan(f.planType);
+                        const nextDefault = defaultDailyLimitForAdminPlan(nextPlan);
+                        // Auto-align plan cap when current value still matches the previous plan's default.
+                        const nextLimit = f.dailyLimitMinutes === currentDefault ? nextDefault : f.dailyLimitMinutes;
+                        return { ...f, planType: nextPlan, dailyLimitMinutes: nextLimit };
+                      });
+                    }}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
                     {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (

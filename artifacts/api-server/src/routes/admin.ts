@@ -25,6 +25,7 @@ import {
 import {
   billingPlanTierDisplayName,
   billingProductKeyFromPlanType,
+  paypalPlanConfig,
   subscriptionPeriodEndFallback,
 } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
@@ -112,6 +113,15 @@ const PLAN_PRICES: Record<string, number> = {
   "trial-openai":      0,
   "trial-libre":       0,
 };
+
+function defaultDailyLimitMinutesForPlanType(planType: string): number | null {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (!p) return null;
+  if (isTrialLikePlanType(p)) return TRIAL_DAILY_LIMIT_MINUTES;
+  const billingKey = billingProductKeyFromPlanType(p);
+  if (!billingKey) return null;
+  return paypalPlanConfig(billingKey).dailyLimitMinutes;
+}
 
 /** Analytics stack split mirrors strict live translation routing by effective plan family. */
 const MACHINE_STACK_ANALYTICS_WHERE = sql`(
@@ -1954,6 +1964,17 @@ router.patch("/users/:userId", requireAdmin, async (req, res) => {
 
   if (planType) {
     const pt = planType.toLowerCase();
+    const existingDailyLimit = Number(existing.dailyLimitMinutes);
+    // Admin edit drawer always sends `dailyLimitMinutes`; when unchanged, keep plan defaults in sync.
+    if (
+      dailyLimitMinutes === undefined ||
+      (Number.isFinite(existingDailyLimit) && Number(dailyLimitMinutes) === existingDailyLimit)
+    ) {
+      const normalizedDefaultLimit = defaultDailyLimitMinutesForPlanType(pt);
+      if (normalizedDefaultLimit != null) {
+        updates.dailyLimitMinutes = normalizedDefaultLimit;
+      }
+    }
     if (isTrialLikePlanType(pt)) {
       updates.subscriptionPlan = null;
       updates.subscriptionPeriodEndsAt = null;
