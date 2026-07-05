@@ -76,6 +76,8 @@ import {
   liveDirectionTraceTryLock,
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
+import { applyGlossaryPostProcess } from "../experiments/basic-morsy-urgent/canonAppendWs/utils/glossary-post-process";
+import type { SonioxContextTerm } from "../experiments/basic-morsy-urgent/canonAppendWs/ws/interpreter-context";
 import {
   committedOrigDomIntegrityTraceEnabled,
   emitCommittedOrigDomContainerWipe,
@@ -3374,6 +3376,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchMorsyChunkV2StableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
+  const chunkV2GlossaryTermsRef = useRef<SonioxContextTerm[]>([]);
   const executeMorsyChunkV2TranslationRef = useRef<(
     payload: CanonRowDualBufferPayload,
     opts: { mode: "stable" | "live" | "endpoint"; firstChunk?: boolean; debounceFlush?: boolean },
@@ -5924,7 +5927,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (morsyUsesChunkTranslationV2Experiment()) {
       // Soniox native translation — baked into the frozen utterance.
       // No external API call needed.
-      const nativeTx = (utterance.translationText ?? "").trim();
+      const nativeTx = applyGlossaryPostProcess(
+        (utterance.translationText ?? "").trim(),
+        chunkV2GlossaryTermsRef.current,
+      );
       const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
         // Do not replace an already longer translation with a shorter finalized
@@ -9732,11 +9738,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
                   .map((source) => ({ source, target }));
               });
             eng.setChunkV2GlossaryTerms(glossaryTerms);
+            chunkV2GlossaryTermsRef.current = glossaryTerms;
           } catch {
             eng.setChunkV2GlossaryTerms([]);
           }
         } else {
           eng.setChunkV2GlossaryTerms([]);
+          chunkV2GlossaryTermsRef.current = [];
         }
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
       } else {
