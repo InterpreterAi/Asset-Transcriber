@@ -22,8 +22,7 @@ export default function PricingPage() {
             Calm, transparent plans
           </motion.h1>
           <motion.p {...marketingFade(0.1)} className="mt-4 text-lg text-slate-300 max-w-2xl leading-relaxed">
-            Built for professional interpreters across OPI and VRI-style workflows. OpenAI tiers include Clean MT translation
-            assist with enterprise-minded security practices.
+            Built for professional interpreters across OPI and VRI-style workflows with enterprise-minded security practices.
           </motion.p>
         </div>
 
@@ -72,7 +71,7 @@ export default function PricingPage() {
 
           <motion.div {...marketingFade(0.12)} className="mt-14 cinematic-v2-glass rounded-2xl p-8 sm:p-10">
             <h2 className="text-lg font-semibold text-white">{PRICING_SHARED_FEATURES_SECTION_TITLE}</h2>
-            <p className="mt-1 text-sm text-slate-400">Included across InterpreterAI OpenAI plans where applicable.</p>
+            <p className="mt-1 text-sm text-slate-400">Included across InterpreterAI plans where applicable.</p>
             <ul className="mt-6 grid sm:grid-cols-2 gap-3">
               {PRICING_SHARED_FEATURES.map((f) => (
                 <li key={f} className="flex gap-2 text-sm text-slate-200">
@@ -88,9 +87,9 @@ export default function PricingPage() {
               <thead>
                 <tr className="border-b border-white/10">
                   <th className="py-4 pl-6 pr-4 font-semibold text-slate-300 w-[40%]">Capability</th>
-                  <th className="py-4 px-4 font-semibold text-slate-300">Trial OpenAI</th>
-                  <th className="py-4 px-4 font-semibold text-cyan-300">Professional OpenAI</th>
-                  <th className="py-4 pr-6 pl-4 font-semibold text-slate-300">Platinum OpenAI</th>
+                  <th className="py-4 px-4 font-semibold text-slate-300">Basic</th>
+                  <th className="py-4 px-4 font-semibold text-cyan-300">Professional</th>
+                  <th className="py-4 pr-6 pl-4 font-semibold text-slate-300">Platinum</th>
                 </tr>
               </thead>
               <tbody>

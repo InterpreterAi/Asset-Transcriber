@@ -1,6 +1,5 @@
 /**
  * Pricing copy shared by the public landing page and the in-app upgrade modal.
- * OpenAI tiers use Clean MT translation stack.
  */
 
 import { WORKSPACE_LANGUAGE_COUNT } from "./workspace-languages";
@@ -15,7 +14,6 @@ export const PRICING_SHARED_FEATURES: readonly string[] = [
   "Tab audio capture",
   "Personal glossary support",
   SUPPORTED_LANGUAGES_FEATURE,
-  "Clean MT translation assist (OpenAI tiers)",
 ];
 
 export type PricingPlanKey = "basic" | "professional" | "platinum";
@@ -35,24 +33,22 @@ export const PRICING_COMPARISON_ROWS: readonly { label: string; basic: string; p
   { label: "Daily platform time", basic: "Up to 5 hours", professional: "Generous daily allowance", platinum: "Generous daily allowance" },
   { label: "OPI & VRI-style workflows", basic: "Included", professional: "Included", platinum: "Included" },
   { label: "Real-time transcription", basic: "Yes", professional: "Yes", platinum: "Yes" },
-  { label: "Clean MT translation assist", basic: "Yes", professional: "Yes", platinum: "Yes" },
+  { label: "Professional InterpreterAI translation", basic: "—", professional: "—", platinum: "Yes" },
   { label: "Speaker separation", basic: "Yes", professional: "Yes", platinum: "Yes" },
   { label: "Tab audio capture", basic: "Yes", professional: "Yes", platinum: "Yes" },
   { label: "Personal glossary", basic: "Yes", professional: "Yes", platinum: "Yes" },
-  { label: "Premium OpenAI translation tier", basic: "—", professional: "—", platinum: "Yes" },
 ];
 
 export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
   {
     key: "basic",
-    name: "Trial OpenAI",
+    name: "Basic",
     priceLabel: "$59",
     priceAmount: 59,
     tagline: "For occasional interpreting sessions",
     highlight: false,
     features: [
       "All core features included",
-      "Clean MT translation assist",
       "Up to 5 hours of interpreting per day",
       "Real-time transcription",
       "Speaker identification",
@@ -63,14 +59,13 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
   },
   {
     key: "professional",
-    name: "Professional OpenAI",
+    name: "Professional",
     priceLabel: "$99",
     priceAmount: 99,
     tagline: "Best for interpreters working daily",
     highlight: true,
     features: [
       "All core features included",
-      "Clean MT translation assist",
       "Unlimited interpreting hours",
       "Real-time transcription",
       "Speaker identification",
@@ -81,17 +76,16 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
   },
   {
     key: "platinum",
-    name: "Platinum OpenAI",
+    name: "Platinum",
     priceLabel: "$179",
     priceAmount: 179,
     tagline: "For professional full-day interpreting",
     highlight: false,
     features: [
       "All core features included",
-      "Clean MT + premium OpenAI translation",
       "Unlimited interpreting hours",
       "Real-time transcription",
-      "InterpreterAI Translation",
+      "Professional InterpreterAI translation",
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",

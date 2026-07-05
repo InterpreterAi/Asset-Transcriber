@@ -34,7 +34,7 @@ export default function Pricing() {
             transition={{ delay: 0.1 }}
             className="text-muted-foreground text-lg max-w-2xl mx-auto"
           >
-            Built for professional interpreters across OPI and VRI-style workflows. OpenAI tiers include Clean MT translation assist with enterprise-minded security practices.
+            Built for professional interpreters across OPI and VRI-style workflows with enterprise-minded security practices.
           </motion.p>
         </div>
 

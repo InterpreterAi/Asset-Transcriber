@@ -111,8 +111,8 @@ export function FeedbackModal({ isOpen, onClose }: Props) {
                         <Star
                           className={`w-8 h-8 transition-colors ${
                             star <= (hoverRating || rating)
-                              ? "text-accent fill-accent"
-                              : "text-white/20"
+                              ? "text-yellow-400 fill-yellow-400"
+                              : "text-white/20 fill-white/20"
                           }`}
                         />
                       </button>
