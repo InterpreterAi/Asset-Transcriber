@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { ApiError, useLogin } from "@workspace/api-client-react";
-import { getGetMeQueryKey } from "@workspace/api-client-react";
+import { getGetMeQueryKey, useGetMe } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic2, Lock, Mail, ShieldCheck, ArrowLeft } from "lucide-react";
@@ -28,6 +28,11 @@ export default function Login() {
   const search = useSearch();
   const queryClient = useQueryClient();
   const loginMut = useLogin();
+  const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
+  useEffect(() => {
+    if (meLoading) return;
+    if (me) setLocation(postLoginDestination(search));
+  }, [me, meLoading, setLocation, search]);
 
   const oauthError = new URLSearchParams(search).get("error");
 
