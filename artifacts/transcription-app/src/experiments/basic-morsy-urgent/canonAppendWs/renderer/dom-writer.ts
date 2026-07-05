@@ -442,7 +442,9 @@ export class CanonAppendWsDomWriter {
         this.byRowId.delete(proj.row_id);
         handles = this.createRow(container, proj);
       }
-      container.appendChild(handles.row);
+      if (handles.row.parentElement !== container) {
+        container.appendChild(handles.row);
+      }
       const card = handles.row.firstElementChild;
       const body = card?.children[1] as HTMLElement | undefined;
       const line = body?.querySelector<HTMLElement>(`[data-caw-role="live-line"]`);
