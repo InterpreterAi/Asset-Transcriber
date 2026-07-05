@@ -273,7 +273,10 @@ export class CanonAppendWsDomWriter {
       if (prev?.locked !== parts.locked) {
         lockedEl.textContent = lockedDisplay;
       }
-      if (liveEl.textContent !== liveDisplay) {
+      const _selA = liveEl.ownerDocument.getSelection();
+      const _userSelectingA = _selA != null && _selA.rangeCount > 0 && !_selA.isCollapsed &&
+        handles.translationEl.contains(_selA.getRangeAt(0).commonAncestorContainer);
+      if (!_userSelectingA && liveEl.textContent !== liveDisplay) {
         liveEl.textContent = liveDisplay;
       }
       return;
@@ -281,7 +284,10 @@ export class CanonAppendWsDomWriter {
     if (prev?.locked !== parts.locked) {
       lockedEl.textContent = parts.locked;
     }
-    if (liveEl.textContent !== parts.live) {
+    const _selB = liveEl.ownerDocument.getSelection();
+    const _userSelectingB = _selB != null && _selB.rangeCount > 0 && !_selB.isCollapsed &&
+      handles.translationEl.contains(_selB.getRangeAt(0).commonAncestorContainer);
+    if (!_userSelectingB && liveEl.textContent !== parts.live) {
       liveEl.textContent = parts.live;
     }
     logChunkV2DomPaint({
@@ -315,6 +321,15 @@ export class CanonAppendWsDomWriter {
     line.className = "ts-text ts-original leading-relaxed whitespace-pre-wrap flex-1 min-w-0";
     line.dataset.cawRole = "live-line";
     markWorkspaceSelectableText(line);
+    line.addEventListener("dblclick", (e) => {
+      const sel = line.ownerDocument.getSelection();
+      if (!sel) return;
+      e.preventDefault();
+      sel.removeAllRanges();
+      const range = line.ownerDocument.createRange();
+      range.selectNodeContents(line);
+      sel.addRange(range);
+    });
     if (this.chunkV2NativeTranslate) {
       applyDirectionToElement(line, proj?.language ?? "");
     }
@@ -356,6 +371,15 @@ export class CanonAppendWsDomWriter {
       translationEl.dataset.cawRole = "translation";
       translationEl.className = `${translationTextClass("stacked")} flex-1 min-w-0`;
       markWorkspaceSelectableText(translationEl);
+      translationEl.addEventListener("dblclick", (e) => {
+        const sel = translationEl.ownerDocument.getSelection();
+        if (!sel) return;
+        e.preventDefault();
+        sel.removeAllRanges();
+        const range = translationEl.ownerDocument.createRange();
+        range.selectNodeContents(translationEl);
+        sel.addRange(range);
+      });
       if (this.chunkV2NativeTranslate) {
         applyDirectionToElement(translationEl, proj.language ?? "");
       }
@@ -374,6 +398,15 @@ export class CanonAppendWsDomWriter {
       translationEl.dataset.cawRole = "translation";
       translationEl.className = `${translationTextClass("side-by-side")} flex-1 min-w-0`;
       markWorkspaceSelectableText(translationEl);
+      translationEl.addEventListener("dblclick", (e) => {
+        const sel = translationEl.ownerDocument.getSelection();
+        if (!sel) return;
+        e.preventDefault();
+        sel.removeAllRanges();
+        const range = translationEl.ownerDocument.createRange();
+        range.selectNodeContents(translationEl);
+        sel.addRange(range);
+      });
       if (this.chunkV2NativeTranslate) {
         applyDirectionToElement(translationEl, proj.language ?? "");
       }
