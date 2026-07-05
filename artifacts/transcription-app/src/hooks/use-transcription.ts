@@ -9722,26 +9722,34 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         const chunkV2Enabled = morsyUsesChunkTranslationV2Experiment();
         eng.setChunkV2NativeTranslate(chunkV2Enabled);
         if (chunkV2Enabled) {
-          try {
-            const res = await fetch("/api/glossary", { credentials: "include" });
-            const data = await res.json() as {
-              entries?: Array<{ term?: string; translation?: string }>;
-            };
-            const glossaryTerms = (data.entries ?? [])
-              .flatMap((entry) => {
-                const target = `${entry.translation ?? ""}`.trim();
-                if (!target) return [];
-                return `${entry.term ?? ""}`
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                  .map((source) => ({ source, target }));
-              });
-            eng.setChunkV2GlossaryTerms(glossaryTerms);
-            chunkV2GlossaryTermsRef.current = glossaryTerms;
-          } catch {
-            eng.setChunkV2GlossaryTerms([]);
-          }
+          eng.setChunkV2GlossaryTerms([]);
+          chunkV2GlossaryTermsRef.current = [];
+          const glossarySessionApiKey = tokenRes.apiKey;
+          void (async () => {
+            try {
+              const res = await fetch("/api/glossary", { credentials: "include" });
+              const data = await res.json() as {
+                entries?: Array<{ term?: string; translation?: string }>;
+              };
+              const glossaryTerms = (data.entries ?? [])
+                .flatMap((entry) => {
+                  const target = `${entry.translation ?? ""}`.trim();
+                  if (!target) return [];
+                  return `${entry.term ?? ""}`
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                    .map((source) => ({ source, target }));
+                });
+              if (sonioxSessionApiKeyRef.current !== glossarySessionApiKey) return;
+              eng.setChunkV2GlossaryTerms(glossaryTerms);
+              chunkV2GlossaryTermsRef.current = glossaryTerms;
+            } catch {
+              if (sonioxSessionApiKeyRef.current !== glossarySessionApiKey) return;
+              eng.setChunkV2GlossaryTerms([]);
+              chunkV2GlossaryTermsRef.current = [];
+            }
+          })();
         } else {
           eng.setChunkV2GlossaryTerms([]);
           chunkV2GlossaryTermsRef.current = [];
