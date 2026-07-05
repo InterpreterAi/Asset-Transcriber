@@ -322,6 +322,27 @@ export function getInterpreterContext(
   addTerms(a, b);
   addTerms(b, a);
 
+  if ((a === "en" && b === "es") || (a === "es" && b === "en")) {
+    const enEsExtraTerms: SonioxContextTerm[] = [
+      { source: "safe for fluids", target: "apto para recibir líquidos" },
+      { source: "urine analysis", target: "análisis de orina" },
+      { source: "good faith exam", target: "examen de buena fe" },
+      { source: "kidney function", target: "función renal" },
+      { source: "nurse practitioner", target: "enfermera practicante" },
+      { source: "vitamin D supplement", target: "suplemento de vitamina D" },
+      { source: "urinary tract infection", target: "infección de las vías urinarias" },
+      { source: "date of birth", target: "fecha de nacimiento" },
+      { source: "consent for telehealth", target: "consentimiento para teleconsulta" },
+    ];
+    for (const t of enEsExtraTerms) {
+      const key = `${t.source}->${t.target}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        terms.push(t);
+      }
+    }
+  }
+
   const ctx: SonioxContext = {
     general: [
       { key: "domain", value: "Medical and legal interpretation" },
@@ -348,6 +369,9 @@ export function getInterpreterContext(
       { key: "ukrainian_register", value: "Ukrainian: always use standard literary Ukrainian. Never use slang or informal forms." },
       { key: "romanian_register", value: "Romanian: always use standard formal Romanian. Never use regional or colloquial forms." },
       { key: "all_languages", value: "This rule applies to ALL 60 supported languages: output must always be in the formal, professional, written standard of that language as used in official medical and legal documents. Interpreters depend on this output for accuracy in professional settings." },
+      { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
+      { key: "spanish_gender", value: "Spanish gender rules: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Always write 'un análisis', 'el sistema', 'un problema'. Never use feminine articles with these words." },
+      { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],
     terms: [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN],
   };
