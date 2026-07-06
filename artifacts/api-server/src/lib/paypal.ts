@@ -120,17 +120,41 @@ export function extractPayPalCustomId(resource: unknown): string {
 export function extractPayPalSubscriptionId(resource: unknown): string {
   if (!resource || typeof resource !== "object") return "";
   const o = resource as Record<string, unknown>;
-  const id = o.id;
-  return typeof id === "string" ? id.trim() : "";
+  const directId = o.id;
+  if (typeof directId === "string" && directId.trim()) return directId.trim();
+  const billingAgreementId = o.billing_agreement_id ?? o.billingAgreementId;
+  if (typeof billingAgreementId === "string" && billingAgreementId.trim()) return billingAgreementId.trim();
+  const supplementaryData = o.supplementary_data ?? o.supplementaryData;
+  if (supplementaryData && typeof supplementaryData === "object") {
+    const related = (supplementaryData as Record<string, unknown>).related_ids;
+    if (related && typeof related === "object") {
+      const subId =
+        (related as Record<string, unknown>).subscription_id ??
+        (related as Record<string, unknown>).subscriptionId;
+      if (typeof subId === "string" && subId.trim()) return subId.trim();
+      const billingId =
+        (related as Record<string, unknown>).billing_agreement_id ??
+        (related as Record<string, unknown>).billingAgreementId;
+      if (typeof billingId === "string" && billingId.trim()) return billingId.trim();
+    }
+  }
+  return "";
 }
 
 export function extractPayPalSubscriberEmail(resource: unknown): string | undefined {
   if (!resource || typeof resource !== "object") return undefined;
-  const sub = (resource as Record<string, unknown>).subscriber;
-  if (!sub || typeof sub !== "object") return undefined;
-  const email = (sub as Record<string, unknown>).email_address;
-  if (typeof email !== "string" || !email.includes("@")) return undefined;
-  return email.trim().toLowerCase();
+  const root = resource as Record<string, unknown>;
+  const candidates = [root.subscriber, root.payer];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const email =
+      (candidate as Record<string, unknown>).email_address ??
+      (candidate as Record<string, unknown>).email;
+    if (typeof email === "string" && email.includes("@")) {
+      return email.trim().toLowerCase();
+    }
+  }
+  return undefined;
 }
 
 export function extractPayPalSubscriptionStartTime(resource: unknown): Date | null {

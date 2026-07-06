@@ -23,8 +23,15 @@ import {
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
 import {
+  dbPlanTypeFromPayPalBilling,
   billingPlanTierDisplayName,
   billingProductKeyFromPlanType,
+  extractPayPalCustomId,
+  extractPayPalSubscriptionNextBillingTime,
+  extractPayPalSubscriptionPlanId,
+  extractPayPalSubscriptionStartTime,
+  fetchPayPalSubscription,
+  inferPlanTypeFromPayPalPlanId,
   paypalPlanConfig,
   subscriptionPeriodEndFallback,
 } from "../lib/paypal.js";
@@ -42,10 +49,27 @@ import {
 import { langConfig, updateLangConfig, ALL_LANGUAGES } from "../lib/lang-config.js";
 import { sendAdminReplyEmail, sendTicketResolvedEmail } from "../lib/email.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
-import { sendSubscriptionConfirmationEmail, sendTrialExtensionActivatedEmail } from "../lib/transactional-email.js";
+import {
+  sendSubscriptionConfirmationEmail,
+  sendSubscriptionRenewalEmail,
+  sendTrialExtensionActivatedEmail,
+} from "../lib/transactional-email.js";
+import { formatEmailDate } from "../lib/email-template.js";
 import { appCalendarDayIsoKeyForDaysAgo, startOfAppDay, startOfAppDayMinusDays, startOfAppMonth } from "@workspace/app-timezone";
 
 const router = Router();
+
+function billingPlanFromCustomIdSegment(raw: string): "basic" | "professional" | "platinum" | null {
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (s === "unlimited") return "platinum";
+  if (s === "basic" || s === "basic-libre" || s === "basic-hetzner" || s === "basic-openai" || s === "morsy-basic") {
+    return "basic";
+  }
+  if (s === "professional" || s === "professional-libre" || s === "professional-openai") return "professional";
+  if (s === "platinum" || s === "platinum-libre" || s === "platinum-openai") return "platinum";
+  return null;
+}
 
 /** Same 30-day fallback as PayPal when `subscription_period_ends_at` is missing (admin UI uses this for estimates). */
 const BILLING_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
@@ -2745,6 +2769,140 @@ router.post("/resend-subscription-confirmation", requireAdmin, async (req, res) 
     .where(eq(usersTable.id, u.id));
 
   res.json({ ok: true });
+});
+
+/**
+ * Admin emergency recovery for missed PayPal webhooks:
+ * force-sync user subscription state by email (+ optional subscriptionId) and send proper email.
+ */
+router.post("/sync-paypal-subscription-by-email", requireAdmin, async (req, res) => {
+  try {
+    const { email, subscriptionId: rawSubscriptionId, forceWelcomeEmail } = req.body as {
+      email?: string;
+      subscriptionId?: string;
+      forceWelcomeEmail?: boolean;
+    };
+    const em = email?.trim().toLowerCase();
+    if (!em || !em.includes("@")) {
+      res.status(400).json({ error: "email is required" });
+      return;
+    }
+
+    const [u] = await db
+      .select()
+      .from(usersTable)
+      .where(sql`lower(${usersTable.email}) = ${em}`)
+      .limit(1);
+    if (!u) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const subscriptionId = rawSubscriptionId?.trim() || u.paypalSubscriptionId?.trim() || "";
+    if (!subscriptionId) {
+      res.status(400).json({
+        error: "subscriptionId is required (user has no stored paypalSubscriptionId)",
+      });
+      return;
+    }
+
+    const subJson = await fetchPayPalSubscription(subscriptionId);
+    const customId = extractPayPalCustomId(subJson);
+    const customPlanSegment = customId.split(":")[1] ?? "";
+    const planId = extractPayPalSubscriptionPlanId(subJson);
+    const effectivePlan =
+      billingPlanFromCustomIdSegment(customPlanSegment) ?? inferPlanTypeFromPayPalPlanId(planId);
+
+    if (!effectivePlan) {
+      res.status(422).json({
+        error: "Could not determine plan from PayPal subscription (custom_id/plan_id unresolved)",
+      });
+      return;
+    }
+
+    const startAt = extractPayPalSubscriptionStartTime(subJson) ?? new Date();
+    const periodEnd = extractPayPalSubscriptionNextBillingTime(subJson) ?? subscriptionPeriodEndFallback(startAt);
+    const plan = paypalPlanConfig(effectivePlan);
+    const resolvedPlanType = dbPlanTypeFromPayPalBilling(effectivePlan);
+
+    await db
+      .update(usersTable)
+      .set({
+        paypalSubscriptionId: subscriptionId,
+        subscriptionStatus: "active",
+        subscriptionPlan: effectivePlan,
+        planType: resolvedPlanType,
+        dailyLimitMinutes: plan.dailyLimitMinutes,
+        subscriptionStartedAt: startAt,
+        subscriptionPeriodEndsAt: periodEnd,
+        subscriptionCanceledEmailSentAt: null,
+        // Reset if forced or never sent so the proper active email can be sent now.
+        subscriptionConfirmationSentAt: forceWelcomeEmail || !u.subscriptionConfirmationSentAt ? null : u.subscriptionConfirmationSentAt,
+      })
+      .where(eq(usersTable.id, u.id));
+
+    const [fresh] = await db.select().from(usersTable).where(eq(usersTable.id, u.id)).limit(1);
+    const userEmail = fresh?.email?.trim().toLowerCase();
+    if (!userEmail) {
+      res.status(409).json({ error: "User has no email on file after sync" });
+      return;
+    }
+
+    const nextBillingDate = formatEmailDate(periodEnd);
+    const sendWelcome = Boolean(forceWelcomeEmail) || !fresh.subscriptionConfirmationSentAt;
+    if (sendWelcome) {
+      const planBenefitsLine =
+        effectivePlan === "basic" ? "Your Basic plan includes 5 hours of interpretation per day for 30 days." : undefined;
+      const ok = await sendSubscriptionConfirmationEmail(
+        userEmail,
+        billingPlanTierDisplayName(effectivePlan),
+        nextBillingDate,
+        fresh.username,
+        fresh.id,
+        { planBenefitsLine },
+      );
+      if (!ok) {
+        res.status(503).json({ error: "Sync applied, but welcome email failed (check RESEND_API_KEY/logs)" });
+        return;
+      }
+      await db
+        .update(usersTable)
+        .set({ subscriptionConfirmationSentAt: new Date() })
+        .where(eq(usersTable.id, fresh.id));
+      res.json({
+        ok: true,
+        mode: "welcome",
+        userId: fresh.id,
+        email: userEmail,
+        planType: resolvedPlanType,
+        subscriptionPlan: effectivePlan,
+        subscriptionStartedAt: startAt.toISOString(),
+        subscriptionPeriodEndsAt: periodEnd.toISOString(),
+      });
+      return;
+    }
+
+    await sendSubscriptionRenewalEmail(
+      userEmail,
+      billingPlanTierDisplayName(effectivePlan),
+      nextBillingDate,
+      fresh.username,
+      fresh.id,
+    );
+    res.json({
+      ok: true,
+      mode: "renewal",
+      userId: fresh.id,
+      email: userEmail,
+      planType: resolvedPlanType,
+      subscriptionPlan: effectivePlan,
+      subscriptionStartedAt: startAt.toISOString(),
+      subscriptionPeriodEndsAt: periodEnd.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /api/admin/sync-paypal-subscription-by-email failed");
+    res.status(500).json({ error: "Failed to sync PayPal subscription by email" });
+  }
 });
 
 export default router;

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import {
   billingPlanTierDisplayName,
@@ -325,9 +325,11 @@ router.post("/sync-paypal-subscription", requireAuth, async (req: any, res) => {
 router.post("/paypal-webhook", async (req, res) => {
   try {
     const event = req.body as {
+      id?: string;
       event_type?: string;
       resource?: unknown;
     };
+    const eventId = typeof event.id === "string" ? event.id.trim() : "";
     const eventType = event.event_type ?? "";
     const resource = event.resource;
 
@@ -352,12 +354,28 @@ router.post("/paypal-webhook", async (req, res) => {
     }
 
     const paypalSubId = extractPayPalSubscriptionId(resource);
-    const customId = extractPayPalCustomId(resource);
-    const planIdStr = extractPayPalSubscriptionPlanId(resource);
-    const parsedUserId = Number(customId.split(":")[0] ?? "");
-    const parsedPlanTypeFromCustom = customId.split(":")[1] ?? "";
-    const parsedPlanType =
+    let customId = extractPayPalCustomId(resource);
+    let planIdStr = extractPayPalSubscriptionPlanId(resource);
+    let subscriberEmail = extractPayPalSubscriberEmail(resource);
+    let parsedUserId = Number(customId.split(":")[0] ?? "");
+    let parsedPlanTypeFromCustom = customId.split(":")[1] ?? "";
+    let parsedPlanType =
       billingPlanFromCustomIdSegment(parsedPlanTypeFromCustom) ?? inferPlanTypeFromPayPalPlanId(planIdStr);
+
+    if (paypalSubId && (!customId || !planIdStr || !subscriberEmail || !Number.isFinite(parsedUserId) || !parsedPlanType)) {
+      try {
+        const fetchedSub = await fetchPayPalSubscription(paypalSubId);
+        if (!customId) customId = extractPayPalCustomId(fetchedSub);
+        if (!planIdStr) planIdStr = extractPayPalSubscriptionPlanId(fetchedSub);
+        if (!subscriberEmail) subscriberEmail = extractPayPalSubscriberEmail(fetchedSub);
+        parsedUserId = Number(customId.split(":")[0] ?? "");
+        parsedPlanTypeFromCustom = customId.split(":")[1] ?? "";
+        parsedPlanType =
+          billingPlanFromCustomIdSegment(parsedPlanTypeFromCustom) ?? inferPlanTypeFromPayPalPlanId(planIdStr);
+      } catch (err) {
+        logger.warn({ err, paypalSubId, eventType }, "PayPal webhook: subscription fetch fallback failed");
+      }
+    }
 
     let userId = Number.isFinite(parsedUserId) ? parsedUserId : NaN;
     if (!Number.isFinite(userId) && paypalSubId) {
@@ -368,12 +386,11 @@ router.post("/paypal-webhook", async (req, res) => {
         .limit(1);
       userId = Number(userByPaypalSub?.id ?? NaN);
     }
-    const subscriberEmail = extractPayPalSubscriberEmail(resource);
     if (!Number.isFinite(userId) && subscriberEmail) {
       const [userByEmail] = await db
         .select({ id: usersTable.id })
         .from(usersTable)
-        .where(eq(usersTable.email, subscriberEmail))
+        .where(sql`lower(${usersTable.email}) = ${subscriberEmail}`)
         .limit(1);
       userId = Number(userByEmail?.id ?? NaN);
       if (Number.isFinite(userId)) {
@@ -412,6 +429,16 @@ router.post("/paypal-webhook", async (req, res) => {
       return;
     }
 
+    let cachedEffectivePlanType: BillingPlanType | null | undefined = undefined;
+    const getEffectivePlanType = async (): Promise<BillingPlanType | null> => {
+      if (cachedEffectivePlanType !== undefined) return cachedEffectivePlanType;
+      cachedEffectivePlanType = await resolvePayPalBillingTierWithApiFallback(
+        parsedPlanType && isBillingPlanType(parsedPlanType) ? parsedPlanType : null,
+        paypalSubId,
+      );
+      return cachedEffectivePlanType;
+    };
+
     if (eventType === "BILLING.SUBSCRIPTION.ACTIVATED") {
       const startAt = extractPayPalSubscriptionStartTime(resource) ?? new Date();
       const periodEnd =
@@ -425,10 +452,7 @@ router.post("/paypal-webhook", async (req, res) => {
         subscriptionCanceledEmailSentAt: null as null,
       };
 
-      const effectivePlanType = await resolvePayPalBillingTierWithApiFallback(
-        parsedPlanType && isBillingPlanType(parsedPlanType) ? parsedPlanType : null,
-        paypalSubId,
-      );
+      const effectivePlanType = await getEffectivePlanType();
 
       if (effectivePlanType && isBillingPlanType(effectivePlanType)) {
         const plan = paypalPlanConfig(effectivePlanType);
@@ -476,21 +500,29 @@ router.post("/paypal-webhook", async (req, res) => {
       }
     }
 
-    if (eventType === "BILLING.SUBSCRIPTION.RENEWED") {
+    if (eventType === "BILLING.SUBSCRIPTION.RENEWED" || eventType === "BILLING.SUBSCRIPTION.PAYMENT.COMPLETED") {
       const startAt = extractPayPalSubscriptionStartTime(resource) ?? new Date();
       const periodEnd =
         extractPayPalSubscriptionNextBillingTime(resource) ?? subscriptionPeriodEndFallback(startAt);
+      const effectivePlanType = await getEffectivePlanType();
+      const sharedPatch: Partial<typeof usersTable.$inferSelect> = {
+        subscriptionStatus: "active",
+        subscriptionStartedAt: startAt,
+        subscriptionPeriodEndsAt: periodEnd,
+        minutesUsedToday: 0,
+        lastUsageResetAt: new Date(),
+      };
+      if (effectivePlanType && isBillingPlanType(effectivePlanType)) {
+        const plan = paypalPlanConfig(effectivePlanType);
+        sharedPatch.planType = dbPlanTypeFromPayPalBilling(effectivePlanType);
+        sharedPatch.dailyLimitMinutes = plan.dailyLimitMinutes;
+        sharedPatch.subscriptionPlan = effectivePlanType;
+      }
       await db
         .update(usersTable)
-        .set({
-          subscriptionStatus: "active",
-          subscriptionStartedAt: startAt,
-          subscriptionPeriodEndsAt: periodEnd,
-          minutesUsedToday: 0,
-          lastUsageResetAt: new Date(),
-        })
+        .set(sharedPatch)
         .where(eq(usersTable.id, userId));
-      logger.info({ eventType, userId, periodEnd }, "PayPal subscription renewed; hours reset");
+      logger.info({ eventType, userId, periodEnd }, "PayPal subscription payment synced; hours reset");
       try {
         const [renewedUser] = await db
           .select()
@@ -499,6 +531,15 @@ router.post("/paypal-webhook", async (req, res) => {
           .limit(1);
         const em = renewedUser?.email?.trim().toLowerCase();
         if (em) {
+          const periodMarker = periodEnd && Number.isFinite(periodEnd.getTime()) ? periodEnd.toISOString() : "";
+          const marker = periodMarker
+            ? `paypal:${paypalSubId || "unknown"}:${periodMarker}`
+            : `paypal:${paypalSubId || "unknown"}:${eventId || extractPayPalSubscriptionId(resource) || "event"}`;
+          if (renewedUser.paymentReceiptLastInvoiceId === marker) {
+            logger.info({ userId, marker, eventType }, "PayPal renewal email deduplicated");
+            res.json({ received: true, deduped: true });
+            return;
+          }
           const subPlan = (renewedUser.subscriptionPlan ?? "") as string;
           const tier: BillingPlanType | null =
             subPlan === "basic" || subPlan === "professional" || subPlan === "platinum"
@@ -509,14 +550,43 @@ router.post("/paypal-webhook", async (req, res) => {
           if (periodEnd) {
             nextBillingDate = formatEmailDate(periodEnd);
           }
-          await sendSubscriptionRenewalEmail(
-            em,
-            planName,
-            nextBillingDate,
-            renewedUser.username,
-            renewedUser.id,
-          );
-          logger.info({ userId }, "PayPal subscription renewal email sent");
+          if (!renewedUser.subscriptionConfirmationSentAt) {
+            const planBenefitsLine =
+              tier === "basic" ? "Your Basic plan includes 5 hours of interpretation per day for 30 days." : undefined;
+            const ok = await sendSubscriptionConfirmationEmail(
+              em,
+              planName,
+              nextBillingDate,
+              renewedUser.username,
+              renewedUser.id,
+              { planBenefitsLine },
+            );
+            if (ok) {
+              await db
+                .update(usersTable)
+                .set({
+                  subscriptionConfirmationSentAt: new Date(),
+                  paymentReceiptLastInvoiceId: marker,
+                })
+                .where(eq(usersTable.id, userId));
+              logger.info({ userId }, "PayPal subscription confirmation email sent from payment event");
+            } else {
+              logger.warn({ userId }, "PayPal payment event: confirmation email not sent");
+            }
+          } else {
+            await sendSubscriptionRenewalEmail(
+              em,
+              planName,
+              nextBillingDate,
+              renewedUser.username,
+              renewedUser.id,
+            );
+            await db
+              .update(usersTable)
+              .set({ paymentReceiptLastInvoiceId: marker })
+              .where(eq(usersTable.id, userId));
+            logger.info({ userId }, "PayPal subscription renewal email sent");
+          }
         }
       } catch (mailErr) {
         logger.error({ err: mailErr, userId }, "PayPal: subscription renewal email failed");
