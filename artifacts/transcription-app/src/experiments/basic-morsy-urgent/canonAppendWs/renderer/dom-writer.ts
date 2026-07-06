@@ -83,19 +83,30 @@ function translationTextClass(layout: CanonAppendWsLayoutMode): string {
 /** Token-reconciled transcript DOM — Basic · Morsy Urgent canonAppendWs (Intercall bilingual rail). */
 export class CanonAppendWsDomWriter {
   private readonly byRowId = new Map<string, EngineDomRowHandles>();
-  /** First-seen speaker+language keys map to stable stripe colors across the session. */
-  private readonly rowStripeSlotByKey = new Map<string, number>();
+  /** First-seen recognized speakers map to stable stripe colors across the session. */
+  private readonly rowStripeSlotBySpeaker = new Map<string, number>();
+  /** Unknown/unrecognized speaker rows each get their own stable color slot. */
+  private readonly rowStripeSlotByUnknownRowId = new Map<string, number>();
   private layoutMode: CanonAppendWsLayoutMode = "side-by-side";
   private chunkV2NativeTranslate = false;
-  private stripeColorForRow(speaker?: string, language?: string): string {
+  private stripeColorForRow(speaker?: string, rowId?: string): string {
     const sp = (speaker ?? "").trim();
-    const lang = (language ?? "").split("-")[0]!.toLowerCase();
-    const key = `${sp}|${lang}`;
-    if (!sp && !lang) return stripeColorFallback(language);
-    if (!this.rowStripeSlotByKey.has(key)) {
-      this.rowStripeSlotByKey.set(key, this.rowStripeSlotByKey.size);
+    if (sp) {
+      if (!this.rowStripeSlotBySpeaker.has(sp)) {
+        this.rowStripeSlotBySpeaker.set(sp, this.rowStripeSlotBySpeaker.size);
+      }
+      const idx = this.rowStripeSlotBySpeaker.get(sp)! % ROW_STRIPE_COLOR_CLASSES.length;
+      return ROW_STRIPE_COLOR_CLASSES[idx]!;
     }
-    const idx = this.rowStripeSlotByKey.get(key)! % ROW_STRIPE_COLOR_CLASSES.length;
+    const unknownKey = (rowId ?? "").trim();
+    if (!unknownKey) return stripeColorFallback(undefined);
+    if (!this.rowStripeSlotByUnknownRowId.has(unknownKey)) {
+      this.rowStripeSlotByUnknownRowId.set(
+        unknownKey,
+        this.rowStripeSlotBySpeaker.size + this.rowStripeSlotByUnknownRowId.size,
+      );
+    }
+    const idx = this.rowStripeSlotByUnknownRowId.get(unknownKey)! % ROW_STRIPE_COLOR_CLASSES.length;
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
   private readonly translationByRowId = new Map<string, string>();
@@ -310,7 +321,7 @@ export class CanonAppendWsDomWriter {
     const card = doc.createElement("div");
     card.className = origCardClass();
     const stripe = doc.createElement("div");
-    stripe.className = `w-1 shrink-0 self-stretch rounded-full min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
+    stripe.className = `w-1 shrink-0 self-stretch rounded-full min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.row_id)}`;
     const body = doc.createElement("div");
     body.className = "min-w-0 flex-1 space-y-1 py-0.5 pl-3";
     const header = doc.createElement("div");
@@ -451,7 +462,7 @@ export class CanonAppendWsDomWriter {
       const hypo = line?.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`);
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
-      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.language)}`;
+      handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.row_id)}`;
       if (!line || !hypo) continue;
       if (this.chunkV2NativeTranslate) {
         applyDirectionToElement(line, proj.language ?? "");
@@ -497,6 +508,7 @@ export class CanonAppendWsDomWriter {
     this.byRowId.clear();
     this.translationByRowId.clear();
     this.translationPrefixLiveByRowId.clear();
-    this.rowStripeSlotByKey.clear();
+    this.rowStripeSlotBySpeaker.clear();
+    this.rowStripeSlotByUnknownRowId.clear();
   }
 }

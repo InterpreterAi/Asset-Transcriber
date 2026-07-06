@@ -1050,3 +1050,35 @@ export async function sendProductFixAnnouncementEmailWithResult(to: string): Pro
   const { subject, html, text } = buildProductFixAnnouncementMail();
   return sendEmailWithResult({ from: RESEND_FROM_NOREPLY, to, subject, html, text });
 }
+
+/** Sent immediately when a PayPal subscription renews for month 2+. */
+export async function sendSubscriptionRenewalEmail(
+  to: string,
+  planDisplayName: string,
+  nextBillingDate: string,
+  displayName: string | null | undefined,
+  recipientUserId: number,
+): Promise<boolean> {
+  if (!isResendConfigured()) return false;
+  const base = appBaseUrl();
+  const subject = `Your InterpreterAI ${planDisplayName} plan has been renewed`;
+  const html = renderInterpreterAiEmail({
+    appBaseUrl: base,
+    recipientUserId,
+    heading: `Your ${planDisplayName} plan is renewed`,
+    bodyHtml: [
+      emailStandardGreeting(to, displayName),
+      emailParagraph(
+        `Your InterpreterAI ${planDisplayName} subscription has been successfully renewed.`,
+      ),
+      emailParagraph(
+        `Your next billing date is <strong>${nextBillingDate}</strong>.`,
+      ),
+      emailParagraph(
+        "Your daily usage hours have been reset. Open your workspace to continue interpreting.",
+      ),
+    ].join(""),
+    primaryButton: { href: workspaceUrl(), label: "Open Workspace" },
+  });
+  return sendEmail({ from: RESEND_FROM_NOREPLY, to, subject, html });
+}
