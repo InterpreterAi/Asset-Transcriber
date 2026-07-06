@@ -24,7 +24,7 @@ import {
 } from "../lib/paypal.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import { formatEmailDate } from "../lib/email-template.js";
-import { sendSubscriptionConfirmationEmail } from "../lib/transactional-email.js";
+import { sendSubscriptionConfirmationEmail, sendSubscriptionRenewalEmail } from "../lib/transactional-email.js";
 import { isTrialLikePlanType } from "../lib/usage.js";
 import { stripeService } from "../lib/stripeService.js";
 
@@ -301,6 +301,7 @@ router.post("/sync-paypal-subscription", requireAuth, async (req: any, res) => {
         subscriptionStartedAt: startAt,
         subscriptionPeriodEndsAt: periodEnd,
         subscriptionCanceledEmailSentAt: null,
+        subscriptionConfirmationSentAt: null,
         planType: resolvedPlanType,
         dailyLimitMinutes: plan.dailyLimitMinutes,
         subscriptionPlan: effectivePlan,
@@ -439,6 +440,7 @@ router.post("/paypal-webhook", async (req, res) => {
             planType: resolvedPlanType,
             dailyLimitMinutes: plan.dailyLimitMinutes,
             subscriptionPlan: effectivePlanType,
+            subscriptionConfirmationSentAt: null,
           })
           .where(eq(usersTable.id, userId));
         logger.info(
@@ -471,6 +473,53 @@ router.post("/paypal-webhook", async (req, res) => {
         if (startAt) patch.subscriptionStartedAt = startAt;
         await db.update(usersTable).set(patch).where(eq(usersTable.id, userId));
         logger.info({ eventType, userId, next, startAt }, "PayPal subscription updated (billing dates)");
+      }
+    }
+
+    if (eventType === "BILLING.SUBSCRIPTION.RENEWED") {
+      const startAt = extractPayPalSubscriptionStartTime(resource) ?? new Date();
+      const periodEnd =
+        extractPayPalSubscriptionNextBillingTime(resource) ?? subscriptionPeriodEndFallback(startAt);
+      await db
+        .update(usersTable)
+        .set({
+          subscriptionStatus: "active",
+          subscriptionStartedAt: startAt,
+          subscriptionPeriodEndsAt: periodEnd,
+          minutesUsedToday: 0,
+          lastUsageResetAt: new Date(),
+        })
+        .where(eq(usersTable.id, userId));
+      logger.info({ eventType, userId, periodEnd }, "PayPal subscription renewed; hours reset");
+      try {
+        const [renewedUser] = await db
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.id, userId))
+          .limit(1);
+        const em = renewedUser?.email?.trim().toLowerCase();
+        if (em) {
+          const subPlan = (renewedUser.subscriptionPlan ?? "") as string;
+          const tier: BillingPlanType | null =
+            subPlan === "basic" || subPlan === "professional" || subPlan === "platinum"
+              ? (subPlan as BillingPlanType)
+              : null;
+          const planName = tier ? billingPlanTierDisplayName(tier) : "Subscription";
+          let nextBillingDate = "Your next billing date is available in your PayPal account";
+          if (periodEnd) {
+            nextBillingDate = formatEmailDate(periodEnd);
+          }
+          await sendSubscriptionRenewalEmail(
+            em,
+            planName,
+            nextBillingDate,
+            renewedUser.username,
+            renewedUser.id,
+          );
+          logger.info({ userId }, "PayPal subscription renewal email sent");
+        }
+      } catch (mailErr) {
+        logger.error({ err: mailErr, userId }, "PayPal: subscription renewal email failed");
       }
     }
 

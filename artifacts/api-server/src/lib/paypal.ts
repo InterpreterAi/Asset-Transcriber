@@ -183,7 +183,7 @@ export async function fetchPayPalSubscription(subscriptionId: string): Promise<u
 export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
   if (plan === "basic") return "basic-hetzner";
   if (plan === "professional") return "professional-libre";
-  return "platinum";
+  return "platinum-openai";
 }
 
 /** Maps app `plan_type` (incl. basic-openai) to PayPal billing product key. Trials → null. */
