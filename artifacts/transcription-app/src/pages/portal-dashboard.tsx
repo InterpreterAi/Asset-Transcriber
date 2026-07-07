@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { useGetMe } from "@workspace/api-client-react";
+import { ApiError, getGetMeQueryKey, useGetMe } from "@workspace/api-client-react";
 import { BarChart3, CalendarDays, CreditCard, LifeBuoy, Zap } from "lucide-react";
 import { cn, isTrialLikePlanType, workspacePlanDisplayName, workspaceUsageShowsSlashUnlimited } from "@/lib/utils";
+import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 
 type PortalTab = "usage" | "billing" | "account";
 type Period = "day" | "week" | "month" | "custom";
@@ -70,7 +71,9 @@ function toIsoDateForInput(d: Date): string {
 
 export default function PortalDashboard({ initialTab }: { initialTab: PortalTab }) {
   const [, setLocation] = useLocation();
-  const { data: me, isLoading: meLoading } = useGetMe();
+  const { data: me, isLoading: meLoading, isFetched: meFetched, error: meError } = useGetMe({
+    query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
+  });
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [period, setPeriod] = useState<Period>("day");
@@ -89,9 +92,13 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
   }, []);
 
   useEffect(() => {
-    if (meLoading) return;
+    if (!meFetched || meLoading) return;
     if (!me) {
-      setLocation("/login");
+      if (meError instanceof ApiError && meError.status === 401) {
+        setLocation(loginUrlForReturnTo());
+        return;
+      }
+      if (!meError) setLocation(loginUrlForReturnTo());
       return;
     }
     setOverviewLoading(true);
@@ -103,7 +110,7 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
       .then((d) => setOverview(d))
       .catch(() => setOverview(null))
       .finally(() => setOverviewLoading(false));
-  }, [me, meLoading, setLocation]);
+  }, [me, meLoading, meFetched, meError, setLocation]);
 
   useEffect(() => {
     if (!me) return;

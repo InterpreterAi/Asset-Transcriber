@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Copy, Check, Zap } from "lucide-react";
-import { useGetMe } from "@workspace/api-client-react";
+import { ApiError, getGetMeQueryKey, useGetMe } from "@workspace/api-client-react";
+import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 
 type ReferralsPayload = {
   referralLink: string;
@@ -30,15 +31,21 @@ function fmtUsd(v: number): string {
 
 export default function ReferralsPage() {
   const [, setLocation] = useLocation();
-  const { data: me, isLoading: meLoading } = useGetMe();
+  const { data: me, isLoading: meLoading, isFetched: meFetched, error: meError } = useGetMe({
+    query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
+  });
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ReferralsPayload | null>(null);
 
   useEffect(() => {
-    if (meLoading) return;
+    if (!meFetched || meLoading) return;
     if (!me) {
-      setLocation("/login");
+      if (meError instanceof ApiError && meError.status === 401) {
+        setLocation(loginUrlForReturnTo());
+        return;
+      }
+      if (!meError) setLocation(loginUrlForReturnTo());
       return;
     }
     setLoading(true);
@@ -50,7 +57,7 @@ export default function ReferralsPage() {
       .then((d) => setData(d))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [me, meLoading, setLocation]);
+  }, [me, meLoading, meFetched, meError, setLocation]);
 
   const activity = useMemo(() => data?.activity ?? [], [data]);
   const fallbackReferralLink = useMemo(() => {
