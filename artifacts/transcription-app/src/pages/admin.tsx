@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import {
+  ApiError,
   useGetMe,
   useAdminListUsers,
   useAdminCreateUser,
@@ -566,7 +567,9 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
 export default function Admin() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: me, isLoading: meLoading } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
+  const { data: me, isLoading: meLoading, isFetched: meFetched, error: meError } = useGetMe({
+    query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
+  });
 
   // ── Main tabs (persisted in ?tab= so refresh stays on the same section) ──
   const ADMIN_MAIN_TABS = [
@@ -1112,15 +1115,16 @@ export default function Admin() {
 
   // ── User handlers ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (meLoading) return;
+    if (!meFetched || meLoading) return;
     if (!me) {
+      if (meError && !(meError instanceof ApiError)) return;
       setLocation(loginUrlForReturnTo("/admin"));
       return;
     }
     if (!me.isAdmin) {
       setLocation("/workspace");
     }
-  }, [me, meLoading, setLocation]);
+  }, [me, meLoading, meFetched, meError, setLocation]);
 
   if (meLoading || usersLoading) {
     return (
