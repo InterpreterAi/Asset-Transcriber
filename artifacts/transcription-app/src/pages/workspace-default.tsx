@@ -171,7 +171,9 @@ function FontSizePxStepper({
 export default function WorkspaceDefault() {
   const [, setLocation]   = useLocation();
   const queryClient       = useQueryClient();
-  const { data: user, isLoading: userLoading, error: userError } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } });
+  const { data: user, isLoading: userLoading, error: userError, isFetched: userFetched } = useGetMe({
+    query: { queryKey: getGetMeQueryKey(), retry: false, staleTime: 15_000 },
+  });
   const logoutMut         = useLogout();
 
   const { devices }   = useAudioDevices();
@@ -740,9 +742,10 @@ export default function WorkspaceDefault() {
   }, [userError, setLocation]);
 
   useEffect(() => {
-    if (userLoading || user) return;
+    if (!userFetched || userLoading || user) return;
+    if (userError && !(userError instanceof ApiError)) return;
     setLocation(loginUrlForReturnTo());
-  }, [userLoading, user, setLocation]);
+  }, [userFetched, userLoading, user, userError, setLocation]);
 
   useEffect(() => {
     if (devices.length > 0 && !selectedDeviceId) setSelectedDeviceId(devices[0]!.deviceId);
@@ -817,9 +820,13 @@ export default function WorkspaceDefault() {
   }, [transcription.sessionId]);
 
   const handleLogout = async () => {
-    await logoutMut.mutateAsync();
-    queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
-    setLocation("/login");
+    try {
+      await logoutMut.mutateAsync();
+    } finally {
+      queryClient.setQueryData(getGetMeQueryKey(), null);
+      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey(), refetchType: "none" });
+      setLocation("/login");
+    }
   };
 
   const handleToggleRecording = () => {
