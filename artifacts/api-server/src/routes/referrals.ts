@@ -35,7 +35,7 @@ router.get("/my", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
 
   const [referrer] = await db
-    .select({ id: usersTable.id })
+    .select({ id: usersTable.id, username: usersTable.username })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
@@ -105,10 +105,14 @@ router.get("/my", requireAuth, async (req, res) => {
   );
 
   const activeCount = activity.filter((a) => a.signupCredited).length;
-  const base = process.env.APP_URL?.trim() || "";
-  const referralLink = base
-    ? `${base.replace(/\/+$/, "")}/invite?ref=${userId}`
-    : `/invite?ref=${userId}`;
+  const base =
+    process.env.APP_URL?.trim() ||
+    `${req.protocol}://${req.get("host") ?? ""}`.replace(/\/+$/, "");
+  const usernameParam = encodeURIComponent((referrer.username ?? referrer.id.toString()).trim());
+  const referralLink =
+    base && /^https?:\/\//i.test(base)
+      ? `${base.replace(/\/+$/, "")}/invite?ref=${userId}&u=${usernameParam}`
+      : `/invite?ref=${userId}&u=${usernameParam}`;
 
   res.json({
     referralLink,
@@ -150,13 +154,15 @@ router.get("/admin/analytics", requireAdmin, async (_req, res) => {
     .orderBy(desc(referralsTable.createdAt));
 
   const referredIds = rows.map((r) => r.referredUserId);
-  const referredMap = new Map<number, { username: string | null; email: string | null }>();
+  const referredMap = new Map<number, { username: string | null; email: string | null; planType: string | null }>();
   if (referredIds.length > 0) {
     const referredUsers = await db
-      .select({ id: usersTable.id, username: usersTable.username, email: usersTable.email })
+      .select({ id: usersTable.id, username: usersTable.username, email: usersTable.email, planType: usersTable.planType })
       .from(usersTable)
       .where(inArray(usersTable.id, referredIds));
-    for (const u of referredUsers) referredMap.set(u.id, { username: u.username, email: u.email });
+    for (const u of referredUsers) {
+      referredMap.set(u.id, { username: u.username, email: u.email, planType: u.planType ?? null });
+    }
   }
 
   const byReferrer = new Map<number, { referrerId: number; referrer: string; active: number }>();
@@ -170,14 +176,36 @@ router.get("/admin/analytics", requireAdmin, async (_req, res) => {
     byReferrer.set(row.referrerId, current);
   }
 
+  const nowMs = Date.now();
+  const enriched = rows.map((r) => {
+    const referred = referredMap.get(r.referredUserId);
+    const planType = referred?.planType ?? null;
+    const upgraded = planType ? !isTrialLikePlanType(planType.toLowerCase()) : r.status === "active";
+    const joinedAt = new Date(r.createdAt);
+    const holdReadyAt = new Date(joinedAt.getTime() + UPGRADE_HOLD_DAYS * 24 * 60 * 60 * 1000);
+    const holdCleared = upgraded && nowMs >= holdReadyAt.getTime();
+    return {
+      ...r,
+      referredUsername: referred?.username ?? null,
+      referredEmail: referred?.email ?? null,
+      upgraded,
+      holdCleared,
+      generatedUsd: SIGNUP_CREDIT_USD + (holdCleared ? UPGRADE_CREDIT_USD : 0),
+      pendingUsd: upgraded && !holdCleared ? UPGRADE_CREDIT_USD : 0,
+    };
+  });
+
   res.json({
     totals: {
       totalReferrals: rows.length,
       activeReferrals: rows.filter((r) => r.status === "active").length,
       pendingReferrals: rows.filter((r) => r.status === "pending").length,
+      signups: rows.length,
+      upgrades: enriched.filter((r) => r.upgraded).length,
+      creditedUsd: enriched.reduce((s, r) => s + r.generatedUsd, 0),
+      pendingUsd: enriched.reduce((s, r) => s + r.pendingUsd, 0),
     },
-    rows: rows.map((r) => {
-      const referred = referredMap.get(r.referredUserId);
+    rows: enriched.map((r) => {
       const activeForReferrer = byReferrer.get(r.referrerId)?.active ?? 0;
       return {
         id: r.id,
@@ -185,11 +213,15 @@ router.get("/admin/analytics", requireAdmin, async (_req, res) => {
         referrerName: r.referrerName,
         referrerEmail: r.referrerEmail,
         referredUserId: r.referredUserId,
-        referredUsername: referred?.username ?? null,
-        referredEmail: referred?.email ?? null,
+        referredUsername: r.referredUsername,
+        referredEmail: r.referredEmail,
         status: r.status,
         sessionsCount: r.sessionsCount,
         createdAt: r.createdAt,
+        upgraded: r.upgraded,
+        holdCleared: r.holdCleared,
+        generatedUsd: r.generatedUsd,
+        pendingUsd: r.pendingUsd,
         rewardPending: activeForReferrer >= REWARD_ACTIVE_TARGET,
       };
     }),

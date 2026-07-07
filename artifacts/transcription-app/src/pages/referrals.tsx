@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Zap } from "lucide-react";
 import { useGetMe } from "@workspace/api-client-react";
 
 type ReferralsPayload = {
@@ -53,11 +53,17 @@ export default function ReferralsPage() {
   }, [me, meLoading, setLocation]);
 
   const activity = useMemo(() => data?.activity ?? [], [data]);
+  const fallbackReferralLink = useMemo(() => {
+    if (!me) return "";
+    const u = encodeURIComponent((me.username ?? `${me.id}`).trim());
+    return `${window.location.origin}/invite?ref=${me.id}&u=${u}`;
+  }, [me]);
 
   const copyLink = async () => {
-    if (!data?.referralLink) return;
+    const link = data?.referralLink || fallbackReferralLink;
+    if (!link) return;
     try {
-      await navigator.clipboard.writeText(data.referralLink);
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -77,8 +83,11 @@ export default function ReferralsPage() {
     <div className="min-h-screen bg-background">
       <header className="w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between">
-          <button onClick={() => setLocation("/workspace")} className="font-semibold text-base text-foreground">
-            Intercall
+          <button onClick={() => setLocation("/workspace")} className="flex items-center gap-2 text-foreground">
+            <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+              <Zap className="w-3.5 h-3.5" strokeWidth={2.2} />
+            </span>
+            <span className="font-semibold text-base">Interpreter<span className="text-primary">AI</span></span>
           </button>
           <button onClick={() => setLocation("/account")} className="text-sm text-muted-foreground hover:text-foreground">
             Account
@@ -103,7 +112,7 @@ export default function ReferralsPage() {
                 <p className="text-sm text-muted-foreground">Send your personal invite to colleagues and interpreters.</p>
                 <div className="mt-2 flex items-center gap-2">
                   <div className="flex-1 h-10 rounded-lg border border-border bg-muted/40 px-3 text-sm flex items-center truncate">
-                    {data?.referralLink ?? "—"}
+                    {data?.referralLink || fallbackReferralLink || "—"}
                   </div>
                   <button
                     onClick={copyLink}

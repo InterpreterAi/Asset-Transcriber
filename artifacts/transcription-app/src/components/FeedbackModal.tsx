@@ -112,7 +112,7 @@ export function FeedbackModal({ isOpen, onClose }: Props) {
                           className={`w-8 h-8 transition-colors ${
                             star <= (hoverRating || rating)
                               ? "text-yellow-400 fill-yellow-400"
-                              : "text-white/20 fill-white/20"
+                              : "text-amber-300/70 fill-amber-950/35"
                           }`}
                         />
                       </button>

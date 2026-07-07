@@ -48,7 +48,7 @@ export function UserFeedbackModal({ isOpen, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-border">
+      <div className="bg-card text-card-foreground rounded-2xl shadow-2xl w-full max-w-sm border border-border">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
@@ -78,7 +78,10 @@ export function UserFeedbackModal({ isOpen, onClose }: Props) {
               </div>
               <div className="flex gap-0.5 mt-1">
                 {[1, 2, 3, 4, 5].map(s => (
-                  <Star key={s} className={`w-5 h-5 ${s <= rating ? "text-amber-400 fill-amber-400" : "text-gray-200 fill-gray-200"}`} />
+                  <Star
+                    key={s}
+                    className={`w-5 h-5 ${s <= rating ? "text-amber-400 fill-amber-400" : "text-amber-300/70 fill-amber-950/40"}`}
+                  />
                 ))}
               </div>
               <button
@@ -121,7 +124,7 @@ export function UserFeedbackModal({ isOpen, onClose }: Props) {
                   placeholder="Anything you'd like us to know or improve…"
                   rows={3}
                   maxLength={500}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-input bg-gray-50 outline-none focus:ring-1 focus:ring-ring resize-none leading-relaxed"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-input bg-background outline-none focus:ring-1 focus:ring-ring resize-none leading-relaxed"
                 />
                 <p className="text-[10px] text-muted-foreground text-right mt-0.5">{comment.length}/500</p>
               </div>

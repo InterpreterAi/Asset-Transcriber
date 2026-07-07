@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
-import { BarChart3, CalendarDays, CreditCard, LifeBuoy } from "lucide-react";
+import { BarChart3, CalendarDays, CreditCard, LifeBuoy, Zap } from "lucide-react";
 import { cn, isTrialLikePlanType, workspacePlanDisplayName, workspaceUsageShowsSlashUnlimited } from "@/lib/utils";
 
 type PortalTab = "usage" | "billing" | "account";
@@ -151,8 +151,11 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
     <div className="min-h-screen bg-background">
       <header className="w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
-          <button onClick={() => setLocation("/workspace")} className="font-semibold text-base text-foreground">
-            Intercall
+          <button onClick={() => setLocation("/workspace")} className="flex items-center gap-2 text-foreground">
+            <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+              <Zap className="w-3.5 h-3.5" strokeWidth={2.2} />
+            </span>
+            <span className="font-semibold text-base">Interpreter<span className="text-primary">AI</span></span>
           </button>
           <div className="text-xs text-muted-foreground">{me.email ?? me.username}</div>
         </div>
