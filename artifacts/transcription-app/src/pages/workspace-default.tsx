@@ -1187,7 +1187,7 @@ export default function WorkspaceDefault() {
             <span className="text-sm font-medium md:hidden">Send Feedback</span>
           </button>
           <button
-            onClick={() => { setActiveTab("referrals"); setSettingsOpen(false); }}
+            onClick={() => { setSettingsOpen(false); setLocation("/referrals"); }}
             className={cn(
               "flex items-center gap-3 md:gap-0 md:justify-center w-full md:w-11 h-11 rounded-xl px-3 md:px-0 transition-all",
               activeTab === "referrals"

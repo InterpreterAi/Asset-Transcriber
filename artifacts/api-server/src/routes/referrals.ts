@@ -2,10 +2,14 @@ import { Router } from "express";
 import { db, referralsTable, usersTable } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth.js";
+import { isTrialLikePlanType } from "../lib/usage.js";
 
 const router = Router();
 
 const REWARD_ACTIVE_TARGET = 3;
+const SIGNUP_CREDIT_USD = 1.5;
+const UPGRADE_CREDIT_USD = 10;
+const UPGRADE_HOLD_DAYS = 30;
 
 // ── Validate referral link (public, called by /invite page) ─────────────────
 router.post("/click", async (req, res) => {
@@ -49,13 +53,58 @@ router.get("/my", requireAuth, async (req, res) => {
       createdAt:     referralsTable.createdAt,
       username:      usersTable.username,
       email:         usersTable.email,
+      planType:      usersTable.planType,
+      subscriptionStatus: usersTable.subscriptionStatus,
+      subscriptionStartedAt: usersTable.subscriptionStartedAt,
+      userCreatedAt: usersTable.createdAt,
     })
     .from(referralsTable)
     .innerJoin(usersTable, eq(referralsTable.referredUserId, usersTable.id))
     .where(eq(referralsTable.referrerUserId, userId))
     .orderBy(desc(referralsTable.createdAt));
 
-  const activeCount = rows.filter((r) => r.status === "active").length;
+  const nowMs = Date.now();
+  const activity = rows.map((r) => {
+    const joinedAt = new Date(r.userCreatedAt ?? r.createdAt);
+    const upgraded = !isTrialLikePlanType((r.planType ?? "").toLowerCase());
+    const upgradedAt = r.subscriptionStartedAt ? new Date(r.subscriptionStartedAt) : null;
+    const holdReadyAt = new Date(joinedAt.getTime() + UPGRADE_HOLD_DAYS * 24 * 60 * 60 * 1000);
+    const holdCleared = upgraded && nowMs >= holdReadyAt.getTime();
+    const signupCredited = true; // referral row exists only after successful signup attribution
+    const creditedUsd =
+      (signupCredited ? SIGNUP_CREDIT_USD : 0) +
+      (holdCleared ? UPGRADE_CREDIT_USD : 0);
+    const pendingUsd =
+      upgraded && !holdCleared ? UPGRADE_CREDIT_USD : 0;
+    return {
+      id: r.id,
+      username: r.username,
+      email: r.email,
+      joinedAt: joinedAt.toISOString(),
+      upgraded,
+      upgradedAt: upgradedAt ? upgradedAt.toISOString() : null,
+      holdReadyAt: upgraded ? holdReadyAt.toISOString() : null,
+      holdCleared,
+      sessionsCount: r.sessionsCount,
+      signupCredited,
+      creditedUsd,
+      pendingUsd,
+      status: holdCleared ? "upgraded_credited" : upgraded ? "upgraded_pending_hold" : "joined",
+    };
+  });
+
+  const totals = activity.reduce(
+    (acc, a) => {
+      acc.signups += 1;
+      if (a.upgraded) acc.upgrades += 1;
+      acc.creditedUsd += a.creditedUsd;
+      acc.pendingUsd += a.pendingUsd;
+      return acc;
+    },
+    { signups: 0, upgrades: 0, creditedUsd: 0, pendingUsd: 0 },
+  );
+
+  const activeCount = activity.filter((a) => a.signupCredited).length;
   const base = process.env.APP_URL?.trim() || "";
   const referralLink = base
     ? `${base.replace(/\/+$/, "")}/invite?ref=${userId}`
@@ -65,7 +114,21 @@ router.get("/my", requireAuth, async (req, res) => {
     referralLink,
     successfulReferrals: activeCount,
     rewardPending: activeCount >= REWARD_ACTIVE_TARGET,
-    referrals: rows,
+    referrals: rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      sessionsCount: r.sessionsCount,
+      createdAt: r.createdAt,
+      username: r.username,
+      email: r.email,
+    })),
+    constants: {
+      signupCreditUsd: SIGNUP_CREDIT_USD,
+      upgradeCreditUsd: UPGRADE_CREDIT_USD,
+      upgradeHoldDays: UPGRADE_HOLD_DAYS,
+    },
+    totals,
+    activity,
   });
 });
 

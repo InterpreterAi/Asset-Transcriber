@@ -104,7 +104,7 @@ export function InviteModal({ userId, onClose }: InviteModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-border">
+      <div className="w-full max-w-sm bg-card text-card-foreground rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-border">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border">
@@ -129,8 +129,8 @@ export function InviteModal({ userId, onClose }: InviteModalProps) {
               onClick={copyLink}
               className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                 copied
-                  ? "bg-green-100 text-green-700 border border-green-200"
-                  : "bg-white text-foreground border border-border hover:bg-muted"
+                  ? "bg-green-100 text-green-700 border border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/50"
+                  : "bg-background text-foreground border border-border hover:bg-muted"
               }`}
             >
               {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -146,7 +146,7 @@ export function InviteModal({ userId, onClose }: InviteModalProps) {
           {hasNativeShare && (
             <button
               onClick={shareNative}
-              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-primary hover:bg-primary/90 text-white text-sm font-semibold transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold transition-colors"
             >
               <Share2 className="w-4 h-4 shrink-0" />
               Share (device options)

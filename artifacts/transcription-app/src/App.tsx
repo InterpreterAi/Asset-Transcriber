@@ -18,6 +18,7 @@ import GlossaryEditor from "./glossary/GlossaryEditor";
 import UsagePage from "./pages/usage";
 import BillingPage from "./pages/billing";
 import AccountPage from "./pages/account";
+import ReferralsPage from "./pages/referrals";
 
 // ─── System banner toggle ─────────────────────────────────────────────────────
 // Set to true  → banner is shown across every page.
@@ -96,6 +97,7 @@ function Router() {
       <Route path="/usage" component={UsagePage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/account" component={AccountPage} />
+      <Route path="/referrals" component={ReferralsPage} />
       <Route component={NotFound} />
     </Switch>
   );

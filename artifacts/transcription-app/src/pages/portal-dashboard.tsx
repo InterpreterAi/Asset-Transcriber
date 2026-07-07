@@ -372,7 +372,7 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   <div className="flex items-center gap-2"><BarChart3 className="w-4 h-4" /><span className="font-medium">Usage</span></div>
                   <p className="text-xs text-muted-foreground mt-1">Cycle usage and session history.</p>
                 </button>
-                <button onClick={() => setLocation("/workspace?panel=referrals")} className="text-left rounded-xl border border-border p-4 hover:bg-muted/30 transition-colors">
+                <button onClick={() => setLocation("/referrals")} className="text-left rounded-xl border border-border p-4 hover:bg-muted/30 transition-colors">
                   <div className="flex items-center gap-2"><CalendarDays className="w-4 h-4" /><span className="font-medium">Referrals</span></div>
                   <p className="text-xs text-muted-foreground mt-1">Earn account credit by inviting colleagues.</p>
                 </button>
