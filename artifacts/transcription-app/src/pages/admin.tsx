@@ -337,6 +337,10 @@ interface AdminReferralRow {
   status: "pending" | "active";
   sessionsCount: number;
   createdAt: string;
+  upgraded: boolean;
+  holdCleared: boolean;
+  generatedUsd: number;
+  pendingUsd: number;
   rewardPending: boolean;
 }
 
@@ -805,7 +809,15 @@ export default function Admin() {
       const res = await fetch("/api/referrals/admin/analytics", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch referrals");
       return res.json() as Promise<{
-        totals: { totalReferrals: number; activeReferrals: number; pendingReferrals: number };
+        totals: {
+          totalReferrals: number;
+          activeReferrals: number;
+          pendingReferrals: number;
+          signups: number;
+          upgrades: number;
+          creditedUsd: number;
+          pendingUsd: number;
+        };
         rows: AdminReferralRow[];
       }>;
     },
@@ -2643,7 +2655,7 @@ export default function Admin() {
         {/* ── REFERRALS TAB ────────────────────────────────────────────────── */}
         {mainTab === "referrals" && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Total referrals</p>
                 <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalReferrals ?? 0}</p>
@@ -2655,6 +2667,22 @@ export default function Admin() {
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pending referrals</p>
                 <p className="text-2xl font-bold mt-1 text-amber-700">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Upgrades</p>
+                <p className="text-2xl font-bold mt-1 text-sky-700">{referralsAdminData?.totals.upgrades ?? 0}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">$ Credited</p>
+                <p className="text-2xl font-bold mt-1 text-emerald-700">{fmtMoney(referralsAdminData?.totals.creditedUsd ?? 0)}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">$ Pending hold</p>
+                <p className="text-2xl font-bold mt-1 text-orange-700">{fmtMoney(referralsAdminData?.totals.pendingUsd ?? 0)}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Signups</p>
+                <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.signups ?? 0}</p>
               </Card>
             </div>
             <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
@@ -2674,14 +2702,17 @@ export default function Admin() {
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[920px] text-sm">
+                <table className="w-full min-w-[1180px] text-sm">
                   <thead className="bg-muted/30 text-muted-foreground text-xs uppercase tracking-wider">
                     <tr>
                       <th className="text-left px-4 py-2.5">Referrer</th>
                       <th className="text-left px-4 py-2.5">Referred user</th>
                       <th className="text-left px-4 py-2.5">Status</th>
+                      <th className="text-left px-4 py-2.5">Upgrade</th>
                       <th className="text-left px-4 py-2.5">Sessions</th>
                       <th className="text-left px-4 py-2.5">Joined</th>
+                      <th className="text-left px-4 py-2.5">$ Generated</th>
+                      <th className="text-left px-4 py-2.5">$ Pending</th>
                       <th className="text-left px-4 py-2.5">Reward</th>
                     </tr>
                   </thead>
@@ -2703,8 +2734,21 @@ export default function Admin() {
                             {row.status}
                           </span>
                         </td>
+                        <td className="px-4 py-2.5">
+                          {row.upgraded ? (
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                              row.holdCleared ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"
+                            }`}>
+                              {row.holdCleared ? "upgraded (credited)" : "upgraded (hold)"}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">not upgraded</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5">{row.sessionsCount}</td>
                         <td className="px-4 py-2.5">{format(new Date(row.createdAt), "MMM d, yyyy")}</td>
+                        <td className="px-4 py-2.5 font-medium">{fmtMoney(row.generatedUsd ?? 0)}</td>
+                        <td className="px-4 py-2.5">{fmtMoney(row.pendingUsd ?? 0)}</td>
                         <td className="px-4 py-2.5">
                           {row.rewardPending ? (
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">
@@ -2718,7 +2762,7 @@ export default function Admin() {
                     ))}
                     {(referralsAdminData?.rows?.length ?? 0) === 0 && (
                       <tr>
-                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={9}>
                           No referrals yet.
                         </td>
                       </tr>

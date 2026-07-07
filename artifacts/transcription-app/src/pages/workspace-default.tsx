@@ -966,7 +966,7 @@ export default function WorkspaceDefault() {
         <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
       )}
       {showInviteModal && (
-        <InviteModal userId={user.id} onClose={() => setShowInviteModal(false)} />
+        <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />
       )}
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
