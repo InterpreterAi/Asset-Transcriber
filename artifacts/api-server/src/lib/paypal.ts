@@ -203,6 +203,38 @@ export async function fetchPayPalSubscription(subscriptionId: string): Promise<u
   return json;
 }
 
+export async function fetchPayPalSubscriptionTransactions(input: {
+  subscriptionId: string;
+  startTime: Date;
+  endTime: Date;
+}): Promise<unknown> {
+  const token = await getPayPalAccessToken();
+  const id = input.subscriptionId.trim();
+  if (!id) {
+    throw new PayPalApiError("Missing PayPal subscription id", 400);
+  }
+  const startIso = input.startTime.toISOString();
+  const endIso = input.endTime.toISOString();
+  const url =
+    `${paypalBaseUrl()}/v1/billing/subscriptions/${encodeURIComponent(id)}/transactions` +
+    `?start_time=${encodeURIComponent(startIso)}&end_time=${encodeURIComponent(endIso)}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+  const json = (await res.json()) as { message?: string; name?: string };
+  if (!res.ok) {
+    throw new PayPalApiError(
+      json.message ?? json.name ?? "Failed to fetch PayPal subscription transactions",
+      res.status || 500,
+      json,
+    );
+  }
+  return json;
+}
+
 /** PayPal billing tier → DB `plan_type` (Basic = Hetzner machine stack; Prof = Libre; Platinum = OpenAI). */
 export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
   if (plan === "basic") return "basic-hetzner";

@@ -1465,23 +1465,39 @@ router.get("/sessions", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
   const limit  = Math.min(Number(req.query.limit) || 50, 200);
 
-  // ── period filter: today | week | month | all (default)
+  // ── period filter: today | week | month | custom | all (default)
   const period = String(req.query.period ?? "all");
   const now    = new Date();
+  const rawFrom = String(req.query.from ?? "").trim();
+  const rawTo = String(req.query.to ?? "").trim();
 
   function periodStart(p: string): Date | null {
     if (p === "today") return startOfAppDay(now);
     if (p === "week") return startOfAppDayMinusDays(now, 6);
     if (p === "month") return startOfAppMonth(now);
+    if (p === "custom" && rawFrom) {
+      const parsed = new Date(rawFrom);
+      if (Number.isFinite(parsed.getTime())) return parsed;
+    }
     return null; // "all"
   }
 
   const fromDate = periodStart(period);
+  const toDate =
+    period === "custom" && rawTo
+      ? (() => {
+          const parsed = new Date(rawTo);
+          return Number.isFinite(parsed.getTime()) ? parsed : null;
+        })()
+      : null;
 
   // Sessions list filtered by period
-  const baseWhere = fromDate
-    ? and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate))
-    : eq(sessionsTable.userId, userId);
+  const baseWhere =
+    fromDate && toDate
+      ? and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate), lt(sessionsTable.startedAt, toDate))
+      : fromDate
+        ? and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate))
+        : eq(sessionsTable.userId, userId);
 
   const sessions = await db
     .select({
@@ -1506,9 +1522,14 @@ router.get("/sessions", requireAuth, async (req, res) => {
   };
 
   const [[periodAgg], [lifetime], [today], [week]] = await Promise.all([
-    fromDate
-      ? db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate)))
-      : db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
+    fromDate && toDate
+      ? db
+          .select(aggCols)
+          .from(sessionsTable)
+          .where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate), lt(sessionsTable.startedAt, toDate)))
+      : fromDate
+        ? db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, fromDate)))
+        : db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
     db.select(aggCols).from(sessionsTable).where(eq(sessionsTable.userId, userId)),
     db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayStartNy))),
     db.select(aggCols).from(sessionsTable).where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, weekAgoNy))),
@@ -1522,6 +1543,8 @@ router.get("/sessions", requireAuth, async (req, res) => {
   res.json({
     sessions,
     period,
+    from: fromDate ? fromDate.toISOString() : null,
+    to: toDate ? toDate.toISOString() : null,
     // Period-filtered stats (used by the filter tabs)
     periodSessions:      periodCount,
     periodMinutes:       Math.round(periodSeconds / 60),

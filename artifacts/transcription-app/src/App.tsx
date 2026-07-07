@@ -15,6 +15,9 @@ import Security from "./pages/security";
 import PricingPage from "./pages/pricing";
 import InvitePage from "./pages/invite";
 import GlossaryEditor from "./glossary/GlossaryEditor";
+import UsagePage from "./pages/usage";
+import BillingPage from "./pages/billing";
+import AccountPage from "./pages/account";
 
 // ─── System banner toggle ─────────────────────────────────────────────────────
 // Set to true  → banner is shown across every page.
@@ -90,6 +93,9 @@ function Router() {
       <Route path="/pricing" component={PricingPage} />
       <Route path="/invite" component={InvitePage} />
       <Route path="/glossary" component={GlossaryEditor} />
+      <Route path="/usage" component={UsagePage} />
+      <Route path="/billing" component={BillingPage} />
+      <Route path="/account" component={AccountPage} />
       <Route component={NotFound} />
     </Switch>
   );

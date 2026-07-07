@@ -9,7 +9,7 @@ import {
   Languages, Trash2, Copy, Check, Monitor, PanelRightClose, PanelRightOpen,
   Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
-  Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3,
+  Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3, BarChart3,
 } from "lucide-react";
 import { Select } from "@/components/ui-components";
 import { useAudioDevices } from "@/hooks/use-audio-devices";
@@ -1122,7 +1122,7 @@ export default function WorkspaceDefault() {
           {([
             { id: "profile" as const,  icon: <User className="w-5 h-5" />,      title: "Profile" },
             { id: "mic" as const,      icon: <Mic2 className="w-5 h-5" />,      title: "Audio" },
-            { id: "lang" as const,     icon: <Languages className="w-5 h-5" />, title: "Languages" },
+            { id: "lang" as const,     icon: <BarChart3 className="w-5 h-5" />, title: "Usage" },
             { id: "glossary" as const, icon: <BookOpen className="w-5 h-5" />,  title: "Glossary" },
             { id: "support" as const,  icon: <LifeBuoy className="w-5 h-5" />,  title: "Support" },
           ] as const).map(({ id, icon, title }) => (
@@ -1136,7 +1136,15 @@ export default function WorkspaceDefault() {
                     : "bg-white text-primary shadow-sm"
                   : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
               )}
-              onClick={() => { setActiveTab(id as WorkspacePanel); setSettingsOpen(false); }}
+              onClick={() => {
+                if (id === "lang") {
+                  setSettingsOpen(false);
+                  setLocation("/usage");
+                  return;
+                }
+                setActiveTab(id as WorkspacePanel);
+                setSettingsOpen(false);
+              }}
               title={title}
             >
               <span className="shrink-0">{icon}</span>

@@ -14,6 +14,7 @@ import {
   extractPayPalSubscriptionPlanId,
   extractPayPalSubscriptionStartTime,
   fetchPayPalSubscription,
+  fetchPayPalSubscriptionTransactions,
   inferPlanTypeFromPayPalPlanId,
   paypalPlanEnvDiagnostics,
   paypalPlanConfig,
@@ -29,6 +30,14 @@ import { isTrialLikePlanType } from "../lib/usage.js";
 import { stripeService } from "../lib/stripeService.js";
 
 const router: IRouter = Router();
+
+type BillingOverviewInvoice = {
+  id: string;
+  createdAt: string;
+  currency: string;
+  amount: string;
+  status: string;
+};
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.session?.userId) {
@@ -792,6 +801,99 @@ router.post("/manage-billing", requireAuth, async (req: any, res) => {
   } catch (err) {
     logger.error({ err }, "POST /api/payments/manage-billing failed");
     res.status(500).json({ error: "Failed to open billing management" });
+  }
+});
+
+router.get("/billing-overview", requireAuth, async (req: any, res) => {
+  try {
+    const userId = Number(req.session.userId);
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const planType = (user.planType ?? "trial-libre").trim().toLowerCase();
+    const trialLike = isTrialLikePlanType(planType);
+    const now = new Date();
+    const subStart = user.subscriptionStartedAt ? new Date(user.subscriptionStartedAt) : null;
+    const subEnd = user.subscriptionPeriodEndsAt ? new Date(user.subscriptionPeriodEndsAt) : null;
+
+    let invoices: BillingOverviewInvoice[] = [];
+    if (user.paypalSubscriptionId) {
+      const to = now;
+      const from = new Date(to);
+      from.setFullYear(from.getFullYear() - 1);
+      try {
+        const txJson = await fetchPayPalSubscriptionTransactions({
+          subscriptionId: user.paypalSubscriptionId,
+          startTime: from,
+          endTime: to,
+        });
+        const txs = Array.isArray((txJson as { transactions?: unknown[] }).transactions)
+          ? ((txJson as { transactions?: unknown[] }).transactions as unknown[])
+          : [];
+        invoices = txs
+          .map((raw) => {
+            const t = (raw ?? {}) as Record<string, unknown>;
+            const amountObj = (t.amount_with_breakdown ?? {}) as Record<string, unknown>;
+            const gross = (amountObj.gross_amount ?? {}) as Record<string, unknown>;
+            const amountValue = typeof gross.value === "string" ? gross.value : "";
+            const currencyCode = typeof gross.currency_code === "string" ? gross.currency_code : "";
+            const createdAt =
+              typeof t.time === "string" && Number.isFinite(new Date(t.time).getTime())
+                ? new Date(t.time).toISOString()
+                : null;
+            const id = typeof t.id === "string" ? t.id : "";
+            const status = typeof t.status === "string" ? t.status : "UNKNOWN";
+            if (!id || !createdAt) return null;
+            return {
+              id,
+              createdAt,
+              currency: currencyCode || "USD",
+              amount: amountValue || "0.00",
+              status,
+            } satisfies BillingOverviewInvoice;
+          })
+          .filter((x): x is BillingOverviewInvoice => Boolean(x))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      } catch (err) {
+        logger.warn({ err, userId }, "GET /api/payments/billing-overview: PayPal transactions unavailable");
+      }
+    }
+
+    const memberSince = user.createdAt ? new Date(user.createdAt) : now;
+    const trialStart = user.trialStartedAt ? new Date(user.trialStartedAt) : memberSince;
+    const trialEndBoundary = subStart ?? (user.trialEndsAt ? new Date(user.trialEndsAt) : now);
+    const trialDurationDays = Math.max(
+      0,
+      Math.ceil((trialEndBoundary.getTime() - trialStart.getTime()) / (24 * 60 * 60 * 1000)),
+    );
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email ?? null,
+        username: user.username,
+        planType: user.planType,
+        subscriptionPlan: user.subscriptionPlan ?? null,
+        subscriptionStatus: user.subscriptionStatus ?? null,
+        subscriptionStartedAt: subStart ? subStart.toISOString() : null,
+        subscriptionPeriodEndsAt: subEnd ? subEnd.toISOString() : null,
+        paypalSubscriptionId: user.paypalSubscriptionId ?? null,
+        memberSince: memberSince.toISOString(),
+        trialStartedAt: trialStart.toISOString(),
+        trialEndsAt: user.trialEndsAt ? new Date(user.trialEndsAt).toISOString() : null,
+        trialDurationDays,
+        trialLike,
+        dailyLimitMinutes: user.dailyLimitMinutes,
+        minutesUsedToday: user.minutesUsedToday,
+      },
+      invoices,
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /api/payments/billing-overview failed");
+    res.status(500).json({ error: "Failed to load billing overview" });
   }
 });
 
