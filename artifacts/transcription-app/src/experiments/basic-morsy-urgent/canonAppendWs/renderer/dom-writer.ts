@@ -11,7 +11,7 @@ import {
   createCommittedMirror,
   renderCommittedAppendOnly,
 } from "./committed-renderer";
-import { renderHypothesisLcp } from "./hypothesis-renderer";
+import { isolateLtrInRtl, renderHypothesisLcp } from "./hypothesis-renderer";
 export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
 export type EngineDomRowHandles = {
   row: HTMLElement;
@@ -110,6 +110,7 @@ export class CanonAppendWsDomWriter {
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
   private readonly translationByRowId = new Map<string, string>();
+  private readonly committedRtlCache = new Map<string, { raw: string; processed: string }>();
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
   private readonly translationPrefixLiveByRowId = new Map<
     string,
@@ -472,7 +473,19 @@ export class CanonAppendWsDomWriter {
           renderHypothesisLcp(hypo, "");
         } else {
           // Chunk V2: keep active row fully grey until structural freeze.
-          const combined = [proj.committedText, proj.liveText].filter(Boolean).join(" ");
+          // Cache processed committedText so isolateLtrInRtl only re-runs when committed changes.
+          const dir = getLangDirection(proj.language ?? "");
+          let processedCommitted = proj.committedText;
+          if (dir === "rtl" && proj.committedText) {
+            const cached = this.committedRtlCache.get(proj.row_id);
+            if (cached && cached.raw === proj.committedText) {
+              processedCommitted = cached.processed;
+            } else {
+              processedCommitted = isolateLtrInRtl(proj.committedText);
+              this.committedRtlCache.set(proj.row_id, { raw: proj.committedText, processed: processedCommitted });
+            }
+          }
+          const combined = [processedCommitted, proj.liveText].filter(Boolean).join(" ");
           renderHypothesisLcp(hypo, combined);
         }
       } else {
@@ -493,6 +506,7 @@ export class CanonAppendWsDomWriter {
       if (!seen.has(id)) {
         handles.row.remove();
         this.byRowId.delete(id);
+        this.committedRtlCache.delete(id);
         this.translationByRowId.delete(id);
         this.translationPrefixLiveByRowId.delete(id);
       }
@@ -506,6 +520,7 @@ export class CanonAppendWsDomWriter {
   detachAll(container: HTMLElement): void {
     container.replaceChildren();
     this.byRowId.clear();
+    this.committedRtlCache.clear();
     this.translationByRowId.clear();
     this.translationPrefixLiveByRowId.clear();
     this.rowStripeSlotBySpeaker.clear();
