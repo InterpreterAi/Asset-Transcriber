@@ -26,7 +26,7 @@ import {
   Languages, MessageSquare, StopCircle, Check, History,
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle, Mail,
-  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb, Sun, Moon,
+  Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb, Sun, Moon, ReceiptText,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
@@ -380,6 +380,19 @@ interface AdminReferrerTimeline {
   }>;
 }
 
+interface AdminInvoiceRow {
+  invoiceId: string;
+  createdAt: string;
+  currency: string;
+  amount: string;
+  status: string;
+  subscriptionId: string;
+  userId: number;
+  username: string | null;
+  email: string | null;
+  planType: string | null;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(n: number) {
   if (!Number.isFinite(n)) return "$0.00";
@@ -612,7 +625,7 @@ export default function Admin() {
 
   // ── Main tabs (persisted in ?tab= so refresh stays on the same section) ──
   const ADMIN_MAIN_TABS = [
-    "overview", "analytics", "users", "ipWatch", "languages", "feedback", "support", "errors", "monitor", "referrals",
+    "overview", "analytics", "users", "ipWatch", "languages", "feedback", "support", "errors", "monitor", "referrals", "invoices",
   ] as const;
   type AdminMainTab = (typeof ADMIN_MAIN_TABS)[number];
   const [mainTab, setMainTab] = useUrlEnumState<AdminMainTab>("tab", ADMIN_MAIN_TABS, "overview");
@@ -888,6 +901,21 @@ export default function Admin() {
       setReferralTimelineLoadingUserId(null);
     }
   }, []);
+  const { data: invoicesAdminData, isFetching: invoicesLoading } = useQuery({
+    queryKey: ["admin-invoices"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/invoices", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch invoices");
+      return res.json() as Promise<{
+        generatedAt: string;
+        totals: { paidUsersScanned: number; invoiceCount: number; subscriptionCount: number; failures: number };
+        rows: AdminInvoiceRow[];
+        failures: Array<{ userId: number; username: string | null; email: string | null; reason: string }>;
+      }>;
+    },
+    enabled: !!me?.isAdmin && mainTab === "invoices",
+    refetchInterval: mainTab === "invoices" ? 60_000 : false,
+  });
 
   // ── Support tab state ─────────────────────────────────────────────────────
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
@@ -1446,6 +1474,7 @@ export default function Admin() {
     { id: "languages",  label: "Languages",  icon: <Languages className="w-4 h-4" />,       badge: null },
     { id: "feedback",   label: "Feedback",   icon: <MessageSquare className="w-4 h-4" />,   badge: feedback.length > 0 ? feedback.length : null },
     { id: "referrals",  label: "Referrals",  icon: <Gift className="w-4 h-4" />,            badge: referralsAdminData?.totals.pendingReferrals ?? null },
+    { id: "invoices",   label: "Invoices",   icon: <ReceiptText className="w-4 h-4" />,      badge: invoicesAdminData?.totals.invoiceCount ?? null },
     { id: "support",    label: "Support",    icon: <LifeBuoy className="w-4 h-4" />,        badge: supportTickets.filter(t => t.status === "open").length > 0 ? supportTickets.filter(t => t.status === "open").length : null },
     { id: "errors",     label: "Errors",     icon: <AlertTriangle className="w-4 h-4" />,   badge: null },
   ];
@@ -3005,6 +3034,103 @@ export default function Admin() {
                 </div>
               )}
             </Card>
+          </div>
+        )}
+
+        {/* ── INVOICES TAB ─────────────────────────────────────────────────── */}
+        {mainTab === "invoices" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Paid users scanned</p>
+                <p className="text-2xl font-bold mt-1">{invoicesAdminData?.totals.paidUsersScanned ?? 0}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Invoices found</p>
+                <p className="text-2xl font-bold mt-1">{invoicesAdminData?.totals.invoiceCount ?? 0}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Subscriptions</p>
+                <p className="text-2xl font-bold mt-1">{invoicesAdminData?.totals.subscriptionCount ?? 0}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Fetch failures</p>
+                <p className="text-2xl font-bold mt-1 text-amber-700">{invoicesAdminData?.totals.failures ?? 0}</p>
+              </Card>
+            </div>
+
+            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-base">Paid user invoice history (mirrored)</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Real PayPal transaction invoices mirrored for admin visibility.
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {invoicesLoading ? "Refreshing..." : invoicesAdminData?.generatedAt ? `Updated ${formatDistanceToNow(new Date(invoicesAdminData.generatedAt), { addSuffix: true })}` : "—"}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1200px] text-sm">
+                  <thead className="bg-muted/30 text-muted-foreground text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left px-4 py-2.5">User</th>
+                      <th className="text-left px-4 py-2.5">Plan</th>
+                      <th className="text-left px-4 py-2.5">Invoice ID</th>
+                      <th className="text-left px-4 py-2.5">Subscription</th>
+                      <th className="text-left px-4 py-2.5">Date</th>
+                      <th className="text-left px-4 py-2.5">Amount</th>
+                      <th className="text-left px-4 py-2.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(invoicesAdminData?.rows ?? []).map((row) => (
+                      <tr key={`${row.userId}-${row.invoiceId}`} className="border-t border-border/60">
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{row.username ?? `User #${row.userId}`}</p>
+                          <p className="text-xs text-muted-foreground">{row.email ?? "No email"}</p>
+                        </td>
+                        <td className="px-4 py-2.5">{workspacePlanDisplayName(row.planType)}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs">{row.invoiceId}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs">{row.subscriptionId}</td>
+                        <td className="px-4 py-2.5">{format(new Date(row.createdAt), "MMM d, yyyy p")}</td>
+                        <td className="px-4 py-2.5">{row.currency} {Number(row.amount).toFixed(2)}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {(invoicesAdminData?.rows?.length ?? 0) === 0 && (
+                      <tr>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                          No invoices found yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {(invoicesAdminData?.failures?.length ?? 0) > 0 && (
+              <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border">
+                  <h3 className="font-semibold text-base">Invoice fetch warnings</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">These users had PayPal invoice fetch failures.</p>
+                </div>
+                <div className="divide-y divide-border">
+                  {(invoicesAdminData?.failures ?? []).map((f) => (
+                    <div key={`${f.userId}-${f.reason}`} className="px-4 py-3 text-sm">
+                      <p className="font-medium">{f.username ?? `User #${f.userId}`} <span className="text-muted-foreground">({f.email ?? "No email"})</span></p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{f.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
           </div>
         )}
 

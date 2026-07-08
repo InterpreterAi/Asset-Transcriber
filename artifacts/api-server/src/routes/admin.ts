@@ -31,6 +31,7 @@ import {
   extractPayPalSubscriptionPlanId,
   extractPayPalSubscriptionStartTime,
   fetchPayPalSubscription,
+  fetchPayPalSubscriptionTransactions,
   inferPlanTypeFromPayPalPlanId,
   paypalPlanConfig,
   subscriptionPeriodEndFallback,
@@ -2693,6 +2694,109 @@ router.get("/system-events", requireAdmin, async (req, res) => {
 
   events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   res.json({ events: events.slice(0, limit) });
+});
+
+router.get("/invoices", requireAdmin, async (_req, res) => {
+  try {
+    const users = await db
+      .select({
+        id: usersTable.id,
+        username: usersTable.username,
+        email: usersTable.email,
+        planType: usersTable.planType,
+        paypalSubscriptionId: usersTable.paypalSubscriptionId,
+      })
+      .from(usersTable)
+      .where(and(eq(usersTable.isAdmin, false), isNotNull(usersTable.paypalSubscriptionId)));
+
+    const paidUsers = users.filter((u) => !isTrialLikePlanType((u.planType ?? "").toLowerCase()));
+    const to = new Date();
+    const from = new Date(to);
+    from.setFullYear(from.getFullYear() - 1);
+
+    type AdminInvoiceRow = {
+      invoiceId: string;
+      createdAt: string;
+      currency: string;
+      amount: string;
+      status: string;
+      subscriptionId: string;
+      userId: number;
+      username: string | null;
+      email: string | null;
+      planType: string | null;
+    };
+
+    const rows: AdminInvoiceRow[] = [];
+    const failures: Array<{ userId: number; username: string | null; email: string | null; reason: string }> = [];
+
+    await Promise.all(
+      paidUsers.map(async (u) => {
+        const subscriptionId = u.paypalSubscriptionId?.trim();
+        if (!subscriptionId) return;
+        try {
+          const txJson = await fetchPayPalSubscriptionTransactions({
+            subscriptionId,
+            startTime: from,
+            endTime: to,
+          });
+          const txs = Array.isArray((txJson as { transactions?: unknown[] }).transactions)
+            ? ((txJson as { transactions?: unknown[] }).transactions as unknown[])
+            : [];
+          for (const raw of txs) {
+            const t = (raw ?? {}) as Record<string, unknown>;
+            const amountObj = (t.amount_with_breakdown ?? {}) as Record<string, unknown>;
+            const gross = (amountObj.gross_amount ?? {}) as Record<string, unknown>;
+            const amountValue = typeof gross.value === "string" ? gross.value : "";
+            const currencyCode = typeof gross.currency_code === "string" ? gross.currency_code : "";
+            const createdAt =
+              typeof t.time === "string" && Number.isFinite(new Date(t.time).getTime())
+                ? new Date(t.time).toISOString()
+                : null;
+            const invoiceId = typeof t.id === "string" ? t.id.trim() : "";
+            const status = typeof t.status === "string" ? t.status : "UNKNOWN";
+            if (!invoiceId || !createdAt) continue;
+            rows.push({
+              invoiceId,
+              createdAt,
+              currency: currencyCode || "USD",
+              amount: amountValue || "0.00",
+              status,
+              subscriptionId,
+              userId: u.id,
+              username: u.username ?? null,
+              email: u.email ?? null,
+              planType: u.planType ?? null,
+            });
+          }
+        } catch (err) {
+          failures.push({
+            userId: u.id,
+            username: u.username ?? null,
+            email: u.email ?? null,
+            reason: err instanceof Error ? err.message : "unknown_error",
+          });
+        }
+      }),
+    );
+
+    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      totals: {
+        paidUsersScanned: paidUsers.length,
+        invoiceCount: rows.length,
+        subscriptionCount: new Set(rows.map((r) => r.subscriptionId)).size,
+        failures: failures.length,
+      },
+      rows,
+      failures,
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /api/admin/invoices failed");
+    res.status(500).json({ error: "Failed to load invoices" });
+  }
 });
 
 router.get("/login-events/summary", requireAdmin, async (req, res) => {
