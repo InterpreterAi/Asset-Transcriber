@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, referralsTable, usersTable } from "@workspace/db";
-import { desc, eq, inArray } from "drizzle-orm";
+import { db, referralsTable, shareEventsTable, usersTable } from "@workspace/db";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../middlewares/requireAuth.js";
 import { isTrialLikePlanType } from "../lib/usage.js";
 
@@ -153,6 +153,40 @@ router.get("/admin/analytics", requireAdmin, async (_req, res) => {
     .innerJoin(usersTable, eq(referralsTable.referrerUserId, usersTable.id))
     .orderBy(desc(referralsTable.createdAt));
 
+  const shareAggRows = await db
+    .select({
+      userId: shareEventsTable.userId,
+      totalShares: sql<number>`COUNT(*)::int`,
+      copyShares: sql<number>`SUM(CASE WHEN ${shareEventsTable.platform} = 'copy' THEN 1 ELSE 0 END)::int`,
+      nativeShares: sql<number>`SUM(CASE WHEN ${shareEventsTable.platform} = 'native' THEN 1 ELSE 0 END)::int`,
+      lastSharedAt: sql<string | null>`MAX(${shareEventsTable.createdAt})`,
+    })
+    .from(shareEventsTable)
+    .groupBy(shareEventsTable.userId);
+
+  const shareAggMap = new Map(
+    shareAggRows.map((r) => [
+      r.userId,
+      {
+        totalShares: Number(r.totalShares ?? 0),
+        copyShares: Number(r.copyShares ?? 0),
+        nativeShares: Number(r.nativeShares ?? 0),
+        lastSharedAt: r.lastSharedAt,
+      },
+    ]),
+  );
+  const sharerIds = shareAggRows.map((r) => r.userId);
+  const sharerUserMap = new Map<number, { username: string | null; email: string | null }>();
+  if (sharerIds.length > 0) {
+    const sharerUsers = await db
+      .select({ id: usersTable.id, username: usersTable.username, email: usersTable.email })
+      .from(usersTable)
+      .where(inArray(usersTable.id, sharerIds));
+    for (const u of sharerUsers) {
+      sharerUserMap.set(u.id, { username: u.username, email: u.email });
+    }
+  }
+
   const referredIds = rows.map((r) => r.referredUserId);
   const referredMap = new Map<number, { username: string | null; email: string | null; planType: string | null }>();
   if (referredIds.length > 0) {
@@ -204,9 +238,12 @@ router.get("/admin/analytics", requireAdmin, async (_req, res) => {
       upgrades: enriched.filter((r) => r.upgraded).length,
       creditedUsd: enriched.reduce((s, r) => s + r.generatedUsd, 0),
       pendingUsd: enriched.reduce((s, r) => s + r.pendingUsd, 0),
+      totalShareEvents: shareAggRows.reduce((s, r) => s + Number(r.totalShares ?? 0), 0),
+      totalShareUsers: shareAggRows.length,
     },
     rows: enriched.map((r) => {
       const activeForReferrer = byReferrer.get(r.referrerId)?.active ?? 0;
+      const share = shareAggMap.get(r.referrerId);
       return {
         id: r.id,
         referrerId: r.referrerId,
@@ -222,9 +259,29 @@ router.get("/admin/analytics", requireAdmin, async (_req, res) => {
         holdCleared: r.holdCleared,
         generatedUsd: r.generatedUsd,
         pendingUsd: r.pendingUsd,
+        referrerShareCount: share?.totalShares ?? 0,
+        referrerCopyCount: share?.copyShares ?? 0,
+        referrerNativeCount: share?.nativeShares ?? 0,
+        referrerLastSharedAt: share?.lastSharedAt ?? null,
         rewardPending: activeForReferrer >= REWARD_ACTIVE_TARGET,
       };
     }),
+    topSharers: shareAggRows
+      .map((row) => {
+        const u = sharerUserMap.get(row.userId);
+        return {
+          userId: row.userId,
+          username: u?.username ?? null,
+          email: u?.email ?? null,
+          totalShares: Number(row.totalShares ?? 0),
+          copyShares: Number(row.copyShares ?? 0),
+          nativeShares: Number(row.nativeShares ?? 0),
+          lastSharedAt: row.lastSharedAt ?? null,
+          joinedReferrals: rows.filter((r) => r.referrerId === row.userId).length,
+        };
+      })
+      .sort((a, b) => b.totalShares - a.totalShares)
+      .slice(0, 100),
     rewardPendingReferrers: Array.from(byReferrer.values())
       .filter((r) => r.active >= REWARD_ACTIVE_TARGET)
       .map((r) => ({
@@ -241,6 +298,17 @@ router.get("/admin/user/:userId", requireAdmin, async (req, res) => {
   const referrerId = parseInt(String(req.params.userId));
   if (isNaN(referrerId)) { res.status(400).json({ error: "Invalid userId" }); return; }
 
+  const [referrer] = await db
+    .select({ id: usersTable.id, username: usersTable.username, email: usersTable.email })
+    .from(usersTable)
+    .where(eq(usersTable.id, referrerId))
+    .limit(1);
+
+  if (!referrer) {
+    res.status(404).json({ error: "Referrer not found" });
+    return;
+  }
+
   const rows = await db
     .select({
       id:            referralsTable.id,
@@ -249,13 +317,62 @@ router.get("/admin/user/:userId", requireAdmin, async (req, res) => {
       createdAt:     referralsTable.createdAt,
       username:      usersTable.username,
       email:         usersTable.email,
+      planType:      usersTable.planType,
+      subscriptionStartedAt: usersTable.subscriptionStartedAt,
+      userCreatedAt: usersTable.createdAt,
     })
     .from(referralsTable)
     .innerJoin(usersTable, eq(referralsTable.referredUserId, usersTable.id))
     .where(eq(referralsTable.referrerUserId, referrerId))
     .orderBy(desc(referralsTable.createdAt));
 
-  res.json({ referrals: rows });
+  const shareEvents = await db
+    .select({
+      id: shareEventsTable.id,
+      platform: shareEventsTable.platform,
+      createdAt: shareEventsTable.createdAt,
+    })
+    .from(shareEventsTable)
+    .where(eq(shareEventsTable.userId, referrerId))
+    .orderBy(desc(shareEventsTable.createdAt))
+    .limit(300);
+
+  const nowMs = Date.now();
+  const referrals = rows.map((r) => {
+    const joinedAt = new Date(r.userCreatedAt ?? r.createdAt);
+    const upgraded = !isTrialLikePlanType((r.planType ?? "").toLowerCase());
+    const upgradedAt = r.subscriptionStartedAt ? new Date(r.subscriptionStartedAt) : null;
+    const holdReadyAt = new Date(joinedAt.getTime() + UPGRADE_HOLD_DAYS * 24 * 60 * 60 * 1000);
+    const holdCleared = upgraded && nowMs >= holdReadyAt.getTime();
+    const creditedUsd = SIGNUP_CREDIT_USD + (holdCleared ? UPGRADE_CREDIT_USD : 0);
+    const pendingUsd = upgraded && !holdCleared ? UPGRADE_CREDIT_USD : 0;
+    return {
+      id: r.id,
+      status: r.status,
+      sessionsCount: r.sessionsCount,
+      username: r.username,
+      email: r.email,
+      joinedAt: joinedAt.toISOString(),
+      upgraded,
+      upgradedAt: upgradedAt ? upgradedAt.toISOString() : null,
+      holdReadyAt: upgraded ? holdReadyAt.toISOString() : null,
+      holdCleared,
+      creditedUsd,
+      pendingUsd,
+    };
+  });
+
+  res.json({
+    referrer,
+    totals: {
+      shareEvents: shareEvents.length,
+      referrals: referrals.length,
+      activeReferrals: referrals.filter((r) => r.status === "active").length,
+      upgradedReferrals: referrals.filter((r) => r.upgraded).length,
+    },
+    shareEvents,
+    referrals,
+  });
 });
 
 export default router;

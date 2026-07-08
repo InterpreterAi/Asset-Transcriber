@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  X, Copy, Check, Share2,
+  X, Copy, Check, Share2, ExternalLink,
 } from "lucide-react";
 
 interface InviteModalProps {
@@ -35,10 +35,30 @@ async function trackShare(platform: string) {
 export function InviteModal({ userId, username, onClose }: InviteModalProps) {
   const [copied, setCopied]         = useState(false);
   const [hasNativeShare, setNative] = useState(false);
-  const link = buildLink(userId, username);
+  const [serverLink, setServerLink] = useState("");
+  const link = serverLink || buildLink(userId, username);
 
   useEffect(() => {
     setNative(typeof navigator !== "undefined" && "share" in navigator);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/referrals/my", { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = (await res.json()) as { referralLink?: string };
+        return data.referralLink ?? null;
+      })
+      .then((referralLink) => {
+        if (!cancelled && referralLink) setServerLink(referralLink);
+      })
+      .catch(() => {
+        // fallback stays local link builder
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const copyLink = async () => {
@@ -83,7 +103,13 @@ export function InviteModal({ userId, username, onClose }: InviteModalProps) {
         <div className="px-5 py-4 border-b border-border">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Your invitation link</p>
           <div className="flex items-center gap-2 bg-muted/50 border border-border rounded-xl px-3 py-2.5">
-            <span className="flex-1 text-xs font-mono text-foreground truncate">{link}</span>
+            <input
+              value={link}
+              readOnly
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 min-w-0 bg-transparent text-xs font-mono text-foreground outline-none"
+              aria-label="Referral invitation link"
+            />
             <button
               onClick={copyLink}
               className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
@@ -95,6 +121,15 @@ export function InviteModal({ userId, username, onClose }: InviteModalProps) {
               {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
               {copied ? "Copied!" : "Copy"}
             </button>
+            <a
+              href={link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold border border-border bg-background text-foreground hover:bg-muted"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open
+            </a>
           </div>
         </div>
 
