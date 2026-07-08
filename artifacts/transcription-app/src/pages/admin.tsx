@@ -342,12 +342,51 @@ interface AdminReferralRow {
   holdCleared: boolean;
   generatedUsd: number;
   pendingUsd: number;
+  referrerShareCount: number;
+  referrerCopyCount: number;
+  referrerNativeCount: number;
+  referrerLastSharedAt: string | null;
   rewardPending: boolean;
+}
+
+interface AdminTopSharerRow {
+  userId: number;
+  username: string | null;
+  email: string | null;
+  totalShares: number;
+  copyShares: number;
+  nativeShares: number;
+  lastSharedAt: string | null;
+  joinedReferrals: number;
+}
+
+interface AdminReferrerTimeline {
+  referrer: { id: number; username: string | null; email: string | null };
+  totals: { shareEvents: number; referrals: number; activeReferrals: number; upgradedReferrals: number };
+  shareEvents: Array<{ id: number; platform: string; createdAt: string }>;
+  referrals: Array<{
+    id: number;
+    status: "pending" | "active";
+    sessionsCount: number;
+    username: string | null;
+    email: string | null;
+    joinedAt: string;
+    upgraded: boolean;
+    upgradedAt: string | null;
+    holdReadyAt: string | null;
+    holdCleared: boolean;
+    creditedUsd: number;
+    pendingUsd: number;
+  }>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtMoney(n: number) {
-  return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
+  if (!Number.isFinite(n)) return "$0.00";
+  if (n === 0) return "$0.00";
+  if (n > 0 && n < 0.01) return "<$0.01";
+  if (n < 0 && n > -0.01) return ">-$0.01";
+  return `$${n.toFixed(2)}`;
 }
 
 function fmtDuration(secs: number | null | undefined) {
@@ -820,13 +859,35 @@ export default function Admin() {
           upgrades: number;
           creditedUsd: number;
           pendingUsd: number;
+          totalShareEvents: number;
+          totalShareUsers: number;
         };
         rows: AdminReferralRow[];
+        topSharers: AdminTopSharerRow[];
       }>;
     },
     enabled: !!me?.isAdmin && mainTab === "referrals",
     refetchInterval: mainTab === "referrals" ? 30_000 : false,
   });
+  const [referralTimelineLoadingUserId, setReferralTimelineLoadingUserId] = useState<number | null>(null);
+  const [referralTimelineData, setReferralTimelineData] = useState<AdminReferrerTimeline | null>(null);
+  const [referralTimelineError, setReferralTimelineError] = useState<string | null>(null);
+
+  const openReferralTimeline = useCallback(async (referrerId: number) => {
+    setReferralTimelineLoadingUserId(referrerId);
+    setReferralTimelineError(null);
+    try {
+      const res = await fetch(`/api/referrals/admin/user/${referrerId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch referral timeline");
+      const data = (await res.json()) as AdminReferrerTimeline;
+      setReferralTimelineData(data);
+    } catch (err: unknown) {
+      setReferralTimelineError(err instanceof Error ? err.message : "Failed to fetch referral timeline");
+      setReferralTimelineData(null);
+    } finally {
+      setReferralTimelineLoadingUserId(null);
+    }
+  }, []);
 
   // ── Support tab state ─────────────────────────────────────────────────────
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
@@ -2688,7 +2749,67 @@ export default function Admin() {
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Signups</p>
                 <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.signups ?? 0}</p>
               </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Share taps total</p>
+                <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalShareEvents ?? 0}</p>
+              </Card>
+              <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Users who shared</p>
+                <p className="text-2xl font-bold mt-1">{referralsAdminData?.totals.totalShareUsers ?? 0}</p>
+              </Card>
             </div>
+            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border">
+                <h3 className="font-semibold text-base">Share activity (copied / shared links)</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  This block shows who tapped copy/share, even if nobody signed up yet.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[880px] text-sm">
+                  <thead className="bg-muted/30 text-muted-foreground text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left px-4 py-2.5">User</th>
+                      <th className="text-left px-4 py-2.5">Total shares</th>
+                      <th className="text-left px-4 py-2.5">Copy</th>
+                      <th className="text-left px-4 py-2.5">Native share</th>
+                      <th className="text-left px-4 py-2.5">Joined users</th>
+                      <th className="text-left px-4 py-2.5">Last share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(referralsAdminData?.topSharers ?? []).map((s) => (
+                      <tr key={s.userId} className="border-t border-border/60">
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{s.username ?? `User #${s.userId}`}</p>
+                          <p className="text-xs text-muted-foreground">{s.email ?? "No email"}</p>
+                          <button
+                            type="button"
+                            onClick={() => void openReferralTimeline(s.userId)}
+                            disabled={referralTimelineLoadingUserId === s.userId}
+                            className="mt-1 text-[11px] text-primary hover:underline disabled:opacity-50"
+                          >
+                            {referralTimelineLoadingUserId === s.userId ? "Loading timeline..." : "View full timeline"}
+                          </button>
+                        </td>
+                        <td className="px-4 py-2.5 font-medium">{s.totalShares}</td>
+                        <td className="px-4 py-2.5">{s.copyShares}</td>
+                        <td className="px-4 py-2.5">{s.nativeShares}</td>
+                        <td className="px-4 py-2.5">{s.joinedReferrals}</td>
+                        <td className="px-4 py-2.5">{s.lastSharedAt ? format(new Date(s.lastSharedAt), "MMM d, yyyy p") : "—"}</td>
+                      </tr>
+                    ))}
+                    {(referralsAdminData?.topSharers?.length ?? 0) === 0 && (
+                      <tr>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                          No share activity yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
             <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
                 <h3 className="font-semibold text-base">Referral tracking</h3>
@@ -2701,15 +2822,18 @@ export default function Admin() {
                 <p className="text-xs text-muted-foreground mt-1">
                   <strong className="text-foreground">Pending</strong> = attributed account created, interpreting session not
                   started yet. <strong className="text-foreground">Active</strong> = they started at least one workspace session.
-                  User rewards tab uses successful (active) count. Manual rewards only — badge highlights referrers with 3+
-                  active referrals.
+                  User rewards tab uses successful (active) count. Manual rewards only — badge highlights referrers with 3+ active referrals.
+                  <span className="block mt-1">
+                    <strong className="text-foreground">$ Credited / $ Pending hold are referral bonus dollars</strong>, not sold hours.
+                  </span>
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1180px] text-sm">
+                <table className="w-full min-w-[1320px] text-sm">
                   <thead className="bg-muted/30 text-muted-foreground text-xs uppercase tracking-wider">
                     <tr>
                       <th className="text-left px-4 py-2.5">Referrer</th>
+                      <th className="text-left px-4 py-2.5">Share taps</th>
                       <th className="text-left px-4 py-2.5">Referred user</th>
                       <th className="text-left px-4 py-2.5">Status</th>
                       <th className="text-left px-4 py-2.5">Upgrade</th>
@@ -2718,6 +2842,7 @@ export default function Admin() {
                       <th className="text-left px-4 py-2.5">$ Generated</th>
                       <th className="text-left px-4 py-2.5">$ Pending</th>
                       <th className="text-left px-4 py-2.5">Reward</th>
+                      <th className="text-left px-4 py-2.5">Timeline</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2726,6 +2851,15 @@ export default function Admin() {
                         <td className="px-4 py-2.5">
                           <p className="font-medium">{row.referrerName ?? `User #${row.referrerId}`}</p>
                           <p className="text-xs text-muted-foreground">{row.referrerEmail ?? "No email"}</p>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <p className="font-medium">{row.referrerShareCount ?? 0}</p>
+                          <p className="text-xs text-muted-foreground">
+                            copy {row.referrerCopyCount ?? 0} · native {row.referrerNativeCount ?? 0}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {row.referrerLastSharedAt ? `last: ${format(new Date(row.referrerLastSharedAt), "MMM d, yyyy p")}` : "last: —"}
+                          </p>
                         </td>
                         <td className="px-4 py-2.5">
                           <p className="font-medium">{row.referredUsername ?? `User #${row.referredUserId}`}</p>
@@ -2762,11 +2896,21 @@ export default function Admin() {
                             <span className="text-xs text-muted-foreground">Not yet</span>
                           )}
                         </td>
+                        <td className="px-4 py-2.5">
+                          <button
+                            type="button"
+                            onClick={() => void openReferralTimeline(row.referrerId)}
+                            disabled={referralTimelineLoadingUserId === row.referrerId}
+                            className="text-xs text-primary hover:underline disabled:opacity-50 whitespace-nowrap"
+                          >
+                            {referralTimelineLoadingUserId === row.referrerId ? "Loading..." : "View full timeline"}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {(referralsAdminData?.rows?.length ?? 0) === 0 && (
                       <tr>
-                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={9}>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={11}>
                           No referrals yet.
                         </td>
                       </tr>
@@ -2774,6 +2918,92 @@ export default function Admin() {
                   </tbody>
                 </table>
               </div>
+            </Card>
+            <Card className="border border-border dark:border-white/[0.08] shadow-sm bg-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-base">Referrer timeline details</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Includes share events and joined/upgraded users for one referrer.
+                  </p>
+                </div>
+                {referralTimelineData && (
+                  <button
+                    type="button"
+                    onClick={() => { setReferralTimelineData(null); setReferralTimelineError(null); }}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {referralTimelineError ? (
+                <div className="px-4 py-6 text-sm text-destructive">{referralTimelineError}</div>
+              ) : !referralTimelineData ? (
+                <div className="px-4 py-6 text-sm text-muted-foreground">Pick a referrer and click <strong className="text-foreground">View full timeline</strong>.</div>
+              ) : (
+                <div className="space-y-4 p-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Referrer</p>
+                      <p className="font-medium mt-1">{referralTimelineData.referrer.username ?? `User #${referralTimelineData.referrer.id}`}</p>
+                      <p className="text-xs text-muted-foreground">{referralTimelineData.referrer.email ?? "No email"}</p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Share events</p>
+                      <p className="text-2xl font-semibold mt-1">{referralTimelineData.totals.shareEvents}</p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Joined users</p>
+                      <p className="text-2xl font-semibold mt-1">{referralTimelineData.totals.referrals}</p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Upgraded users</p>
+                      <p className="text-2xl font-semibold mt-1">{referralTimelineData.totals.upgradedReferrals}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-4">
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <div className="px-3 py-2 bg-muted/30 border-b border-border text-sm font-medium">Share events</div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {referralTimelineData.shareEvents.length === 0 ? (
+                          <div className="px-3 py-4 text-sm text-muted-foreground">No share events yet.</div>
+                        ) : (
+                          referralTimelineData.shareEvents.map((e) => (
+                            <div key={e.id} className="px-3 py-2 border-b border-border/50 text-sm flex items-center justify-between gap-3">
+                              <span className="font-medium">{e.platform}</span>
+                              <span className="text-xs text-muted-foreground">{format(new Date(e.createdAt), "MMM d, yyyy p")}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <div className="px-3 py-2 bg-muted/30 border-b border-border text-sm font-medium">Joined users timeline</div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {referralTimelineData.referrals.length === 0 ? (
+                          <div className="px-3 py-4 text-sm text-muted-foreground">No joined users yet.</div>
+                        ) : (
+                          referralTimelineData.referrals.map((r) => (
+                            <div key={r.id} className="px-3 py-2 border-b border-border/50 text-sm">
+                              <p className="font-medium">{r.username ?? r.email ?? `User #${r.id}`}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                joined {format(new Date(r.joinedAt), "MMM d, yyyy p")} · sessions {r.sessionsCount}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {r.upgraded
+                                  ? `upgraded${r.upgradedAt ? ` on ${format(new Date(r.upgradedAt), "MMM d, yyyy")}` : ""} · ${r.holdCleared ? "credit released" : "hold pending"}`
+                                  : "not upgraded"}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </Card>
           </div>
         )}
