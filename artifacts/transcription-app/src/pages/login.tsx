@@ -4,10 +4,11 @@ import { ApiError, useLogin } from "@workspace/api-client-react";
 import { getGetMeQueryKey, useGetMe } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic2, Lock, Mail, ShieldCheck, ArrowLeft } from "lucide-react";
+import { Mic2, Lock, Mail, ShieldCheck, ArrowLeft, Zap } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
 import { MarketingAuthLayout } from "@/components/marketing/MarketingAuthLayout";
 import { postLoginDestination } from "@/lib/auth-redirect";
+import { isInAppBrowser } from "@/lib/browser-detect";
 
 const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_cancelled: "Google sign-in was cancelled.",
@@ -43,8 +44,33 @@ export default function Login() {
   const [verifying, setVerifying] = useState(false);
   const [error, setError]         = useState(oauthError ? (GOOGLE_ERROR_MESSAGES[oauthError] ?? "Sign-in failed.") : "");
   const [verifyBanner, setVerifyBanner] = useState<string | null>(null);
+  const webViewBlocked = typeof window !== "undefined" && isInAppBrowser();
 
   const otpRef = useRef<HTMLInputElement>(null);
+
+  if (webViewBlocked) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-lg rounded-2xl border border-border bg-card text-card-foreground p-8 text-center shadow-xl">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-4">
+            <Zap className="w-7 h-7" strokeWidth={2.2} />
+          </div>
+          <p className="text-lg font-semibold">InterpreterAI</p>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight">Open in your browser to sign in</h1>
+          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Google sign-in doesn&apos;t work inside LinkedIn or social apps. Tap the button below or copy the link and open it in Safari or Chrome.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.open(window.location.href, "_blank")}
+            className="mt-6 h-11 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+          >
+            Open in Safari / Chrome
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     const p = new URLSearchParams(search);

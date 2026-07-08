@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetMeQueryKey } from "@workspace/api-client-react";
-import { Mic2, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Mic2, Mail, Lock, Eye, EyeOff, Zap } from "lucide-react";
 import { Button, Input, Card } from "@/components/ui-components";
 import { postLoginDestination } from "@/lib/auth-redirect";
 import { MarketingAuthLayout } from "@/components/marketing/MarketingAuthLayout";
+import { isInAppBrowser } from "@/lib/browser-detect";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -18,6 +19,7 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [referrerUserId, setReferrerUserId] = useState<number | null>(null);
+  const webViewBlocked = typeof window !== "undefined" && isInAppBrowser();
 
   useEffect(() => {
     const rid = sessionStorage.getItem("referralCode");
@@ -74,6 +76,30 @@ export default function Signup() {
       setLoading(false);
     }
   };
+
+  if (webViewBlocked) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-lg rounded-2xl border border-border bg-card text-card-foreground p-8 text-center shadow-xl">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-4">
+            <Zap className="w-7 h-7" strokeWidth={2.2} />
+          </div>
+          <p className="text-lg font-semibold">InterpreterAI</p>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight">Open in your browser to sign in</h1>
+          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Google sign-in doesn&apos;t work inside LinkedIn or social apps. Tap the button below or copy the link and open it in Safari or Chrome.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.open(window.location.href, "_blank")}
+            className="mt-6 h-11 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+          >
+            Open in Safari / Chrome
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <MarketingAuthLayout
