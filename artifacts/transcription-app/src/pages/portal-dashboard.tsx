@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { ApiError, getGetMeQueryKey, useGetMe } from "@workspace/api-client-react";
-import { BarChart3, CalendarDays, CreditCard, LifeBuoy, Zap } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, CreditCard, Gift, LifeBuoy, Mic2, Zap } from "lucide-react";
 import { cn, isTrialLikePlanType, workspacePlanDisplayName, workspaceUsageShowsSlashUnlimited } from "@/lib/utils";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 
@@ -169,6 +169,32 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-7">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {([
+            { key: "workspace", label: "Workspace", path: "/workspace", icon: <Zap className="w-3.5 h-3.5" /> },
+            { key: "mic", label: "Mic", path: "/workspace?panel=mic", icon: <Mic2 className="w-3.5 h-3.5" /> },
+            { key: "glossary", label: "Glossary", path: "/workspace?panel=glossary", icon: <BookOpen className="w-3.5 h-3.5" /> },
+            { key: "usage", label: "Usage", path: "/usage", icon: <BarChart3 className="w-3.5 h-3.5" /> },
+            { key: "billing", label: "Billing", path: "/billing", icon: <CreditCard className="w-3.5 h-3.5" /> },
+            { key: "account", label: "Account", path: "/account", icon: <CalendarDays className="w-3.5 h-3.5" /> },
+            { key: "referrals", label: "Referrals", path: "/referrals", icon: <Gift className="w-3.5 h-3.5" /> },
+          ] as const).map((item) => {
+            const active = item.path === tabPath(initialTab);
+            return (
+              <button
+                key={item.key}
+                onClick={() => setLocation(item.path)}
+                className={cn(
+                  "h-8 px-3 rounded-lg border text-xs flex items-center gap-1.5",
+                  active ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                )}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex items-center gap-2 border-b border-border mb-6">
           {([
             { key: "usage", label: "Usage" },

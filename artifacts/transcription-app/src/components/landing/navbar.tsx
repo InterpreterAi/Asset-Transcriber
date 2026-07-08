@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Zap, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { BrandWordmark } from "@/components/marketing/MarketingNav";
 
 export default function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -32,12 +33,7 @@ export default function Navbar() {
     >
       <div className="container mx-auto px-4 md:px-6">
         <div className="flex items-center justify-between h-20">
-          <Link href="/" className="flex items-center gap-2">
-            <Zap className="h-8 w-8 text-primary fill-primary/20" />
-            <span className="font-display font-bold text-xl tracking-tight text-white">
-              InterpreterAI
-            </span>
-          </Link>
+          <BrandWordmark premium />
 
           <nav className="hidden lg:flex items-center gap-8">
             <ul className="flex items-center gap-6">
