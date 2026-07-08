@@ -942,8 +942,7 @@ export default function WorkspaceDefault() {
     <div
       className={cn(
         "h-full w-full max-w-[100vw] flex overflow-hidden text-foreground",
-        wsDark &&
-          "dark workspace-hero-accent bg-[linear-gradient(165deg,#0b0e14_0%,#121a26_42%,#081420_100%)]",
+        wsDark && "dark bg-background",
         !wsDark && "bg-background",
       )}
     >
@@ -1727,13 +1726,12 @@ export default function WorkspaceDefault() {
               <StickyNote className="w-4 h-4" />
             </button>
             <div className="flex items-center gap-2 min-w-0">
-              <Sparkles className="w-4 h-4 text-sky-400 shrink-0 hidden sm:block" aria-hidden />
-              <div className="flex flex-col min-w-0 leading-none">
-                <span className="font-mono font-semibold text-[13px] sm:text-[14px] tracking-[0.18em] uppercase text-foreground/95 whitespace-nowrap">
-                  Interpreter<span className="text-sky-400 tracking-[0.12em]">AI</span>
-                </span>
-                <span className="mt-1 h-0.5 w-9 rounded-full bg-gradient-to-r from-sky-400 to-violet-500 opacity-90" aria-hidden />
+              <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Zap className="w-3.5 h-3.5" strokeWidth={2.2} />
               </div>
+              <span className="font-semibold text-sm text-foreground whitespace-nowrap">
+                Interpreter<span className="text-primary">AI</span>
+              </span>
             </div>
             <span
               className={cn(
