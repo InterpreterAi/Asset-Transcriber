@@ -27,6 +27,16 @@ router.post("/click", async (req, res) => {
 
   if (!referrer) { res.status(404).json({ error: "Referrer not found" }); return; }
 
+  const forwardedProto = String(req.headers["x-forwarded-proto"] ?? "");
+  const secure = req.secure || forwardedProto.includes("https");
+  res.cookie("ia_ref", String(referrer.id), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+
   res.json({ ok: true, referrerUserId: referrer.id });
 });
 
