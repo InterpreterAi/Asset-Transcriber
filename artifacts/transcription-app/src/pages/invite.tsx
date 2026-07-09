@@ -9,9 +9,11 @@ export default function InvitePage() {
   useEffect(() => {
     const params = new URLSearchParams(search);
     const ref = params.get("ref");
+    const u = params.get("u");
 
     if (ref && /^\d+$/.test(ref)) {
       sessionStorage.setItem("referralCode", ref);
+      if (u) sessionStorage.setItem("referralUserSlug", u);
 
       fetch("/api/referrals/click", {
         method:  "POST",
@@ -25,7 +27,11 @@ export default function InvitePage() {
         .catch(() => {});
     }
 
-    const timer = setTimeout(() => setLocation("/signup"), 800);
+    const redirectParams = new URLSearchParams();
+    if (ref && /^\d+$/.test(ref)) redirectParams.set("ref", ref);
+    if (u) redirectParams.set("u", u);
+    const next = redirectParams.toString() ? `/signup?${redirectParams.toString()}` : "/signup";
+    const timer = setTimeout(() => setLocation(next), 800);
     return () => clearTimeout(timer);
   }, [search, setLocation]);
 

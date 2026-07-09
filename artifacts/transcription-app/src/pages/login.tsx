@@ -45,33 +45,19 @@ export default function Login() {
   const [error, setError]         = useState(oauthError ? (GOOGLE_ERROR_MESSAGES[oauthError] ?? "Sign-in failed.") : "");
   const [verifyBanner, setVerifyBanner] = useState<string | null>(null);
   const webViewBlocked = typeof window !== "undefined" && isInAppBrowser();
+  const searchParams = new URLSearchParams(search);
+  const refFromUrl = searchParams.get("ref");
+  const slugFromUrl = searchParams.get("u");
+  const refFromStorage = typeof window !== "undefined" ? sessionStorage.getItem("referralCode") : null;
+  const slugFromStorage = typeof window !== "undefined" ? sessionStorage.getItem("referralUserSlug") : null;
+  const referralRef = refFromUrl && /^\d+$/.test(refFromUrl) ? refFromUrl : refFromStorage;
+  const referralSlug = (slugFromUrl || slugFromStorage || "").trim();
+  const referralQuery =
+    referralRef && /^\d+$/.test(referralRef)
+      ? `?ref=${encodeURIComponent(referralRef)}${referralSlug ? `&u=${encodeURIComponent(referralSlug)}` : ""}`
+      : "";
 
   const otpRef = useRef<HTMLInputElement>(null);
-
-  if (webViewBlocked) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-lg rounded-2xl border border-border bg-card text-card-foreground p-8 text-center shadow-xl">
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-4">
-            <Zap className="w-7 h-7" strokeWidth={2.2} />
-          </div>
-          <p className="text-lg font-semibold">InterpreterAI</p>
-          <h1 className="mt-4 text-2xl font-bold tracking-tight">Open in your browser to sign in</h1>
-          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
-            Google sign-in doesn&apos;t work inside LinkedIn or social apps. Tap the button below or copy the link and open it in Safari or Chrome.
-          </p>
-          <button
-            type="button"
-            onClick={() => window.open(window.location.href, "_blank")}
-            className="mt-6 h-11 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-          >
-            Open in Safari / Chrome
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   useEffect(() => {
     const p = new URLSearchParams(search);
     const v = p.get("verify");
@@ -90,6 +76,34 @@ export default function Login() {
       );
     }
   }, [search]);
+
+  if (webViewBlocked) {
+    const openTarget =
+      referralRef && /^\d+$/.test(referralRef)
+        ? `/invite?ref=${encodeURIComponent(referralRef)}${referralSlug ? `&u=${encodeURIComponent(referralSlug)}` : ""}`
+        : window.location.href;
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-lg rounded-2xl border border-border bg-card text-card-foreground p-8 text-center shadow-xl">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-4">
+            <Zap className="w-7 h-7" strokeWidth={2.2} />
+          </div>
+          <p className="text-lg font-semibold">InterpreterAI</p>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight">Open in your browser to sign in</h1>
+          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Google sign-in doesn&apos;t work inside LinkedIn or social apps. Tap the button below or copy the link and open it in Safari or Chrome.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.open(openTarget, "_blank")}
+            className="mt-6 h-11 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+          >
+            Open in Safari / Chrome
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Step 1: email + password ────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -214,7 +228,7 @@ export default function Login() {
             <motion.div key="credentials" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.25 }}>
               <Card className="p-8 bg-white/95 backdrop-blur border border-white/20 shadow-2xl rounded-2xl">
                 <a
-                  href="/api/auth/google"
+                  href={referralRef && /^\d+$/.test(referralRef) ? `/api/auth/google?ref=${encodeURIComponent(referralRef)}` : "/api/auth/google"}
                   className="flex items-center justify-center gap-2.5 w-full h-12 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-5"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -290,7 +304,7 @@ export default function Login() {
 
               <p className="text-center text-sm text-slate-600 mt-5">
                 Don't have an account?{" "}
-                <button onClick={() => setLocation("/signup")} className="font-semibold text-primary hover:underline">
+                <button onClick={() => setLocation(`/signup${referralQuery}`)} className="font-semibold text-primary hover:underline">
                   Start free trial
                 </button>
               </p>

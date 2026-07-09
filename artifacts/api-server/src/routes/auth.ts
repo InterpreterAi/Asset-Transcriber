@@ -98,6 +98,13 @@ function getClientIp(req: import("express").Request): string {
   );
 }
 
+function parseReferralCookie(req: Request): number | null {
+  const raw = (req.cookies?.ia_ref ?? "").toString().trim();
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * New signups only: `TRIAL_DAYS_NEW_USERS` window and daily cap from constants.
  * Never applied to existing users; their stored trial dates stay as in the database.
@@ -619,6 +626,11 @@ router.post("/signup", async (req, res) => {
   }
 
   const normalized = email.trim().toLowerCase();
+  const cookieReferrerUserId = parseReferralCookie(req);
+  const resolvedReferrerUserId =
+    Number.isFinite(referrerUserId) && typeof referrerUserId === "number"
+      ? referrerUserId
+      : cookieReferrerUserId;
 
   if (isDisposableEmailDomain(normalized)) {
     res.status(400).json({ error: SIGNUP_DISPOSABLE_EMAIL });
@@ -708,11 +720,11 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
-  if (referrerUserId && Number.isFinite(referrerUserId) && referrerUserId !== newUser.id) {
+  if (resolvedReferrerUserId && Number.isFinite(resolvedReferrerUserId) && resolvedReferrerUserId !== newUser.id) {
     const [referrer] = await db
       .select({ id: usersTable.id })
       .from(usersTable)
-      .where(eq(usersTable.id, referrerUserId))
+      .where(eq(usersTable.id, resolvedReferrerUserId))
       .limit(1);
     if (referrer) {
       try {
@@ -829,6 +841,7 @@ router.post("/signup", async (req, res) => {
   }
 
   try {
+    res.clearCookie("ia_ref", { path: "/" });
     res.status(201).json({ user: userPayload });
   } catch (encodeErr) {
     logAuthToStderr("Signup res.json", encodeErr);
@@ -1123,7 +1136,8 @@ router.get("/google", async (req, res) => {
     const state = crypto.randomBytes(16).toString("hex");
     req.session.oauthState = state;
     const refRaw = typeof req.query.ref === "string" ? req.query.ref : undefined;
-    const ref = refRaw && /^\d+$/.test(refRaw) ? Number(refRaw) : undefined;
+    const cookieRef = parseReferralCookie(req);
+    const ref = refRaw && /^\d+$/.test(refRaw) ? Number(refRaw) : cookieRef ?? undefined;
     if (ref && Number.isFinite(ref)) {
       req.session.oauthReferralUserId = ref;
     } else {
@@ -1177,6 +1191,8 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
     typeof req.session.oauthReferralUserId === "number" && Number.isFinite(req.session.oauthReferralUserId)
       ? req.session.oauthReferralUserId
       : undefined;
+  const cookieReferralUserId = parseReferralCookie(req);
+  const resolvedOauthReferralUserId = oauthReferralUserId ?? cookieReferralUserId ?? undefined;
   delete req.session.oauthReferralUserId;
 
   try {
@@ -1328,11 +1344,11 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
         : `🔑 InterpreterAI Google Login\nEmail: ${googleEmail}\nMethod: Google Login`,
     );
     if (isNewUser) {
-      if (oauthReferralUserId && oauthReferralUserId !== user!.id) {
+      if (resolvedOauthReferralUserId && resolvedOauthReferralUserId !== user!.id) {
         const [referrer] = await db
           .select({ id: usersTable.id })
           .from(usersTable)
-          .where(eq(usersTable.id, oauthReferralUserId))
+          .where(eq(usersTable.id, resolvedOauthReferralUserId))
           .limit(1);
         if (referrer) {
           try {
@@ -1379,6 +1395,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       res.redirect("/login?error=session_failed");
       return;
     }
+    res.clearCookie("ia_ref", { path: "/" });
 
     res.redirect("/workspace");
   } catch (err) {

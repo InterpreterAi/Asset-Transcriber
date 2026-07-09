@@ -19,12 +19,31 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [referrerUserId, setReferrerUserId] = useState<number | null>(null);
+  const [referralSlug, setReferralSlug] = useState<string>("");
   const webViewBlocked = typeof window !== "undefined" && isInAppBrowser();
+  const loginReferralQuery =
+    referrerUserId
+      ? `?ref=${encodeURIComponent(String(referrerUserId))}${referralSlug ? `&u=${encodeURIComponent(referralSlug)}` : ""}`
+      : "";
 
   useEffect(() => {
-    const rid = sessionStorage.getItem("referralCode");
-    if (rid && /^\d+$/.test(rid)) setReferrerUserId(parseInt(rid));
-  }, []);
+    const params = new URLSearchParams(search);
+    const refFromUrl = params.get("ref");
+    const slugFromUrl = params.get("u");
+    const refFromStorage = sessionStorage.getItem("referralCode");
+    const slugFromStorage = sessionStorage.getItem("referralUserSlug");
+
+    const resolvedRef = refFromUrl && /^\d+$/.test(refFromUrl) ? refFromUrl : refFromStorage;
+    if (resolvedRef && /^\d+$/.test(resolvedRef)) {
+      setReferrerUserId(parseInt(resolvedRef, 10));
+      sessionStorage.setItem("referralCode", resolvedRef);
+    }
+    const resolvedSlug = (slugFromUrl || slugFromStorage || "").trim();
+    if (resolvedSlug) {
+      setReferralSlug(resolvedSlug);
+      sessionStorage.setItem("referralUserSlug", resolvedSlug);
+    }
+  }, [search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,6 +82,7 @@ export default function Signup() {
       }
 
       sessionStorage.removeItem("referralCode");
+      sessionStorage.removeItem("referralUserSlug");
 
       if (data.accountAutoDisabled) {
         throw new Error(data.message || "This account could not be activated automatically. Contact support if you need help.");
@@ -78,6 +98,10 @@ export default function Signup() {
   };
 
   if (webViewBlocked) {
+    const openTarget =
+      referrerUserId
+        ? `/invite?ref=${encodeURIComponent(String(referrerUserId))}${referralSlug ? `&u=${encodeURIComponent(referralSlug)}` : ""}`
+        : window.location.href;
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-lg rounded-2xl border border-border bg-card text-card-foreground p-8 text-center shadow-xl">
@@ -91,7 +115,7 @@ export default function Signup() {
           </p>
           <button
             type="button"
-            onClick={() => window.open(window.location.href, "_blank")}
+            onClick={() => window.open(openTarget, "_blank")}
             className="mt-6 h-11 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
           >
             Open in Safari / Chrome
@@ -218,7 +242,7 @@ export default function Signup() {
 
         <p className="text-center text-sm text-slate-600 mt-5">
           Already have an account?{" "}
-          <button type="button" onClick={() => setLocation("/login")} className="font-semibold text-primary hover:underline">
+          <button type="button" onClick={() => setLocation(`/login${loginReferralQuery}`)} className="font-semibold text-primary hover:underline">
             Log in
           </button>
         </p>
