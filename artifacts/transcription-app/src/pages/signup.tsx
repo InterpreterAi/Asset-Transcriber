@@ -11,6 +11,14 @@ import { isInAppBrowser } from "@/lib/browser-detect";
 export default function Signup() {
   const [, setLocation] = useLocation();
   const search = useSearch();
+  const searchParams = new URLSearchParams(search);
+  const refFromUrl = searchParams.get("ref");
+  const slugFromUrl = searchParams.get("u");
+  const refFromStorage = typeof window !== "undefined" ? sessionStorage.getItem("referralCode") : null;
+  const slugFromStorage = typeof window !== "undefined" ? sessionStorage.getItem("referralUserSlug") : null;
+  const resolvedRef = refFromUrl && /^\d+$/.test(refFromUrl) ? refFromUrl : refFromStorage;
+  const resolvedReferrerUserId = resolvedRef && /^\d+$/.test(resolvedRef) ? parseInt(resolvedRef, 10) : null;
+  const resolvedSlug = (slugFromUrl || slugFromStorage || "").trim();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,32 +26,25 @@ export default function Signup() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [referrerUserId, setReferrerUserId] = useState<number | null>(null);
-  const [referralSlug, setReferralSlug] = useState<string>("");
   const webViewBlocked = typeof window !== "undefined" && isInAppBrowser();
   const loginReferralQuery =
-    referrerUserId
-      ? `?ref=${encodeURIComponent(String(referrerUserId))}${referralSlug ? `&u=${encodeURIComponent(referralSlug)}` : ""}`
+    resolvedReferrerUserId
+      ? `?ref=${encodeURIComponent(String(resolvedReferrerUserId))}${resolvedSlug ? `&u=${encodeURIComponent(resolvedSlug)}` : ""}`
       : "";
 
   useEffect(() => {
-    const params = new URLSearchParams(search);
-    const refFromUrl = params.get("ref");
-    const slugFromUrl = params.get("u");
-    const refFromStorage = sessionStorage.getItem("referralCode");
-    const slugFromStorage = sessionStorage.getItem("referralUserSlug");
-
-    const resolvedRef = refFromUrl && /^\d+$/.test(refFromUrl) ? refFromUrl : refFromStorage;
     if (resolvedRef && /^\d+$/.test(resolvedRef)) {
-      setReferrerUserId(parseInt(resolvedRef, 10));
       sessionStorage.setItem("referralCode", resolvedRef);
+      // Re-validate referrer on signup page so cookie attribution is set even if invite prefetch was interrupted.
+      void fetch("/api/referrals/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ refCode: resolvedRef }),
+      }).catch(() => {});
     }
-    const resolvedSlug = (slugFromUrl || slugFromStorage || "").trim();
-    if (resolvedSlug) {
-      setReferralSlug(resolvedSlug);
-      sessionStorage.setItem("referralUserSlug", resolvedSlug);
-    }
-  }, [search]);
+    if (resolvedSlug) sessionStorage.setItem("referralUserSlug", resolvedSlug);
+  }, [resolvedRef, resolvedSlug]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +62,7 @@ export default function Signup() {
     setLoading(true);
     try {
       const body: Record<string, unknown> = { email, password };
-      if (referrerUserId) body.referrerUserId = referrerUserId;
+      if (resolvedReferrerUserId) body.referrerUserId = resolvedReferrerUserId;
 
       const res = await fetch("/api/auth/signup", {
         method: "POST",
@@ -99,8 +100,8 @@ export default function Signup() {
 
   if (webViewBlocked) {
     const openTarget =
-      referrerUserId
-        ? `/invite?ref=${encodeURIComponent(String(referrerUserId))}${referralSlug ? `&u=${encodeURIComponent(referralSlug)}` : ""}`
+      resolvedReferrerUserId
+        ? `/invite?ref=${encodeURIComponent(String(resolvedReferrerUserId))}${resolvedSlug ? `&u=${encodeURIComponent(resolvedSlug)}` : ""}`
         : window.location.href;
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -134,7 +135,7 @@ export default function Signup() {
         <div className="w-14 h-14 bg-sky-500/15 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-sky-500/20">
           <Mic2 className="w-7 h-7 text-sky-300" />
         </div>
-        {referrerUserId && (
+        {resolvedReferrerUserId && (
           <p className="text-xs font-medium text-sky-300 mt-2 bg-sky-500/10 px-3 py-1 rounded-full inline-block border border-sky-500/20">
             You were invited by a colleague
           </p>
@@ -143,7 +144,7 @@ export default function Signup() {
 
         <Card className="p-7 bg-white/95 backdrop-blur border border-white/20 shadow-2xl rounded-2xl">
               <a
-                href={referrerUserId ? `/api/auth/google?ref=${referrerUserId}` : "/api/auth/google"}
+                href={resolvedReferrerUserId ? `/api/auth/google?ref=${resolvedReferrerUserId}` : "/api/auth/google"}
                 className="flex items-center justify-center gap-2.5 w-full h-11 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 shadow-sm mb-4"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

@@ -607,7 +607,7 @@ router.post("/signup", async (req, res) => {
   const { email, password, referrerUserId } = req.body as {
     email?: string;
     password?: string;
-    referrerUserId?: number;
+    referrerUserId?: number | string;
   };
 
   if (isTrialLoginBlocked()) {
@@ -627,9 +627,15 @@ router.post("/signup", async (req, res) => {
 
   const normalized = email.trim().toLowerCase();
   const cookieReferrerUserId = parseReferralCookie(req);
-  const resolvedReferrerUserId =
-    Number.isFinite(referrerUserId) && typeof referrerUserId === "number"
+  const bodyReferrerUserId =
+    typeof referrerUserId === "number"
       ? referrerUserId
+      : typeof referrerUserId === "string" && /^\d+$/.test(referrerUserId)
+        ? Number(referrerUserId)
+        : null;
+  const resolvedReferrerUserId =
+    bodyReferrerUserId && Number.isFinite(bodyReferrerUserId)
+      ? bodyReferrerUserId
       : cookieReferrerUserId;
 
   if (isDisposableEmailDomain(normalized)) {

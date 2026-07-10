@@ -59,6 +59,20 @@ export default function Login() {
 
   const otpRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
+    if (referralRef && /^\d+$/.test(referralRef)) {
+      sessionStorage.setItem("referralCode", referralRef);
+      // Keep cookie fallback fresh in case user starts from /login with referral params.
+      void fetch("/api/referrals/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ refCode: referralRef }),
+      }).catch(() => {});
+    }
+    if (referralSlug) sessionStorage.setItem("referralUserSlug", referralSlug);
+  }, [referralRef, referralSlug]);
+
+  useEffect(() => {
     const p = new URLSearchParams(search);
     const v = p.get("verify");
     if (v === "ok") {
