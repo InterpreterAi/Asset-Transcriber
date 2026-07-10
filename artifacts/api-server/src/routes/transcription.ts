@@ -52,6 +52,10 @@ import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
 import { clientFacingError, clientFacingErrorCode } from "../lib/clientFacingError.js";
+import {
+  recordSessionTokenIssued,
+  sessionTokenBudgetExceeded,
+} from "../lib/session-token-budget.js";
 import type { HetznerMtWireDebugMeta } from "../lib/hetzner-translate.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
@@ -486,8 +490,8 @@ function sonioxTemporaryKeyTtlSeconds(): number {
   return 120;
 }
 
-/** Prefer short-lived keys for the browser WebSocket (Soniox-recommended); fall back to master key if the REST call fails. */
-async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: string; expiresIn: number }> {
+/** Prefer short-lived keys for the browser WebSocket; never expose the master key to clients. */
+async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: string; expiresIn: number } | null> {
   const requestedTtl = sonioxTemporaryKeyTtlSeconds();
   try {
     const res = await fetch(SONIOX_TEMP_KEY_URL, {
@@ -503,16 +507,16 @@ async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: strin
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      logger.warn(
+      logger.error(
         { status: res.status, snippet: body.slice(0, 240) },
-        "Soniox temporary-api-key failed; using master SONIOX_API_KEY for WebSocket",
+        "Soniox temporary-api-key failed — refusing to expose master key to browser",
       );
-      return { apiKey: masterKey, expiresIn: requestedTtl };
+      return null;
     }
     const data = (await res.json()) as { api_key?: string; expires_at?: string };
-    if (!data.api_key) {
-      logger.warn("Soniox temporary-api-key: missing api_key in body; using master key");
-      return { apiKey: masterKey, expiresIn: requestedTtl };
+    if (!data.api_key || data.api_key === masterKey) {
+      logger.error("Soniox temporary-api-key: missing or invalid temp key — refusing master key fallback");
+      return null;
     }
     let expiresIn = requestedTtl;
     if (data.expires_at) {
@@ -523,8 +527,8 @@ async function getSonioxKeyForClient(masterKey: string): Promise<{ apiKey: strin
     }
     return { apiKey: data.api_key, expiresIn };
   } catch (err) {
-    logger.warn({ err }, "Soniox temporary-api-key request error; using master key");
-    return { apiKey: masterKey, expiresIn: requestedTtl };
+    logger.error({ err }, "Soniox temporary-api-key request error — refusing master key fallback");
+    return null;
   }
 }
 
@@ -557,6 +561,47 @@ router.post("/token", requireAuth, async (req, res) => {
       return;
     }
 
+    const body = (req.body ?? {}) as { sessionId?: unknown };
+    const sessionIdRaw = body.sessionId;
+    const sessionId =
+      typeof sessionIdRaw === "number"
+        ? sessionIdRaw
+        : typeof sessionIdRaw === "string" && /^\d+$/.test(sessionIdRaw.trim())
+          ? Number.parseInt(sessionIdRaw.trim(), 10)
+          : NaN;
+    if (!Number.isFinite(sessionId) || sessionId <= 0) {
+      res.status(400).json({
+        error: "A valid open session is required before starting live transcription.",
+        code: "SESSION_ID_REQUIRED",
+      });
+      return;
+    }
+
+    const openSessionRows = await db
+      .select({ id: sessionsTable.id })
+      .from(sessionsTable)
+      .where(and(
+        eq(sessionsTable.id, sessionId),
+        eq(sessionsTable.userId, user.id),
+        isNull(sessionsTable.endedAt),
+      ))
+      .limit(1);
+    if (openSessionRows.length === 0) {
+      res.status(403).json({
+        error: "Invalid or closed session. Start a new recording session and try again.",
+        code: "INVALID_SESSION",
+      });
+      return;
+    }
+
+    if (sessionTokenBudgetExceeded(sessionId)) {
+      res.status(429).json({
+        error: "Too many transcription reconnect attempts for this session. Stop and start a new session.",
+        code: "SESSION_TOKEN_BUDGET",
+      });
+      return;
+    }
+
     // Global safety cap
     if (await isGlobalCapReached()) {
       res.status(503).json({ error: "System temporarily unavailable. Please try again later." });
@@ -575,8 +620,20 @@ router.post("/token", requireAuth, async (req, res) => {
       return;
     }
 
-    const { apiKey, expiresIn } = await getSonioxKeyForClient(masterKey);
-    res.json({ apiKey, expiresIn, rtUrl: sonioxRtWsUrlForClient() });
+    const keyResult = await getSonioxKeyForClient(masterKey);
+    if (!keyResult) {
+      res.status(503).json({
+        error: clientFacingError(
+          "Could not mint a short-lived transcription token from Soniox.",
+          "Live transcription is temporarily unavailable. Please try again later or contact support.",
+        ),
+        code: clientFacingErrorCode("TRANSCRIPTION_TOKEN_ERROR"),
+      });
+      return;
+    }
+
+    recordSessionTokenIssued(sessionId);
+    res.json({ apiKey: keyResult.apiKey, expiresIn: keyResult.expiresIn, rtUrl: sonioxRtWsUrlForClient() });
   } catch (err) {
     logger.error({ err }, "POST /api/transcription/token failed");
     res.status(503).json({

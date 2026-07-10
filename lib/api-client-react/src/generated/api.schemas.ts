@@ -217,7 +217,9 @@ export interface AdminFeedbackListResponse {
   feedback: AdminFeedbackItem[];
 }
 
-export type GetTranscriptionTokenBody = { [key: string]: unknown };
+export type GetTranscriptionTokenBody = {
+  sessionId: number;
+};
 
 export type StartSessionBody = {
   srcLang?: string;

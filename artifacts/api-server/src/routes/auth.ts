@@ -43,6 +43,7 @@ import {
   getGoogleOAuthRedirectUri,
 } from "../lib/authEnv.js";
 import { commitSession } from "../lib/commitSession.js";
+import { shouldAutoDisableSignupForSharedIp } from "../lib/signup-fraud.js";
 import { isTrialLoginBlocked, TRIAL_LOGIN_BLOCKED_JSON } from "../lib/trial-login-block.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import crypto from "node:crypto";
@@ -665,33 +666,7 @@ router.post("/signup", async (req, res) => {
   const trial            = defaultTrialFieldsForNewAccount(accountCreatedAt);
   const signupIp         = getClientIp(req).trim();
 
-  let autoDisabledForSharedIp = false;
-  if (signupIp && signupIp !== "unknown") {
-    const sharedIpRows = await db
-      .selectDistinct({ userId: loginEventsTable.userId })
-      .from(loginEventsTable)
-      .where(and(
-        eq(loginEventsTable.success, true),
-        eq(loginEventsTable.ipAddress, signupIp),
-        sql`${loginEventsTable.userId} IS NOT NULL`,
-      ));
-
-    const sharedUserIds = sharedIpRows
-      .map((r) => r.userId)
-      .filter((v): v is number => typeof v === "number");
-
-    if (sharedUserIds.length >= 2) {
-      const existingOnIp = await db
-        .select({ planType: usersTable.planType, isAdmin: usersTable.isAdmin })
-        .from(usersTable)
-        .where(inArray(usersTable.id, sharedUserIds));
-      const hasPaidAccountOnIp = existingOnIp.some(
-        (u) => !u.isAdmin && !isTrialLikePlanType(u.planType),
-      );
-      // Auto-disable only suspicious multi-trial clusters from one IP.
-      autoDisabledForSharedIp = !hasPaidAccountOnIp;
-    }
-  }
+  const autoDisabledForSharedIp = await shouldAutoDisableSignupForSharedIp(signupIp);
 
   let newUser: User;
   try {
@@ -1305,6 +1280,8 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       }
       const googleAccountAt = new Date();
       const googleTrial     = defaultTrialFieldsForNewAccount(googleAccountAt);
+      const googleSignupIp  = getClientIp(req).trim();
+      const googleAutoDisabled = await shouldAutoDisableSignupForSharedIp(googleSignupIp);
 
       const localPart    = googleEmail.split("@")[0] ?? "user";
       const baseUsername = localPart.replace(/[^a-z0-9._-]/gi, "_").slice(0, 48) || "user";
@@ -1322,7 +1299,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
                 passwordHash:     `$google$${googleId}`,
                 googleAccountId:  googleId,
                 isAdmin:          false,
-                isActive:         true,
+                isActive:         !googleAutoDisabled,
                 emailVerified:    true,
                 requiresEmailVerification: false,
                 planType:         "trial-openai",

@@ -9632,24 +9632,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         transcriptScrollDiagInstallGlobalDumpHook();
       }
 
-      // Run in parallel for lower latency; if one fails, still await the session
-      // promise in `catch` so we can close a DB row that may have been created first.
+      // Session must exist before minting an STT token (prevents token harvest without billing session).
       sessionStartPromise = startSessionMut.mutateAsync({
         data: {
           srcLang: langPairRef.current.a,
           tgtLang: langPairRef.current.b,
         },
       });
-      const [tokenRes, sessionRes] = await Promise.all([
-        getTokenMut.mutateAsync(undefined as any),
-        sessionStartPromise,
-      ]);
+      const sessionRes = await sessionStartPromise;
+      sessionIdRef.current = sessionRes.sessionId;
+      setSessionId(sessionRes.sessionId);
+      const tokenRes = await getTokenMut.mutateAsync({
+        data: { sessionId: sessionRes.sessionId },
+      });
       sonioxRtUrlRef.current = tokenRes.rtUrl?.trim() || null;
       if (!sonioxRtUrlRef.current) {
         throw new Error("Live session endpoint is not available. Please try again.");
       }
-      sessionIdRef.current = sessionRes.sessionId;
-      setSessionId(sessionRes.sessionId);
       transcriptBufRef.current  = [];
       translationBufRef.current = [];
       adminSegmentRowIndexRef.current.clear();

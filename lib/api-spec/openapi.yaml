@@ -97,13 +97,18 @@ paths:
       tags: [transcription]
       summary: Get a short-lived Soniox API token for transcription
       requestBody:
-        required: false
-        description: Empty JSON object; required by API JSON-body validation on the transcription router.
+        required: true
         content:
           application/json:
             schema:
               type: object
               additionalProperties: false
+              properties:
+                sessionId:
+                  type: integer
+                  description: Open recording session id from POST /transcription/session/start
+              required:
+                - sessionId
       responses:
         "200":
           description: Token issued
