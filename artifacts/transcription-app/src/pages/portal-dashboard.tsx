@@ -397,6 +397,18 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
               </div>
             </div>
 
+            {!me.isAdmin && (
+              <DeleteAccountSection
+                email={me.email ?? me.username}
+                hasPayPalSubscription={Boolean(
+                  overview?.user.paypalSubscriptionId &&
+                    (overview?.user.subscriptionStatus ?? "").toLowerCase() === "active",
+                )}
+                isGoogleAccount={Boolean(me.isGoogleAccount)}
+                twoFactorEnabled={Boolean(me.twoFactorEnabled)}
+              />
+            )}
+
             <div>
               <h2 className="text-lg font-medium">Manage</h2>
               <p className="text-sm text-muted-foreground mb-3">Plans, payment methods, and account tools.</p>
@@ -419,16 +431,6 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                 </button>
               </div>
             </div>
-
-            <DeleteAccountSection
-              email={me.email ?? me.username}
-              hasPayPalSubscription={Boolean(
-                overview?.user.paypalSubscriptionId &&
-                  (overview?.user.subscriptionStatus ?? "").toLowerCase() === "active",
-              )}
-              isGoogleAccount={Boolean(me.isGoogleAccount)}
-              twoFactorEnabled={Boolean(me.twoFactorEnabled)}
-            />
           </section>
         )}
       </main>

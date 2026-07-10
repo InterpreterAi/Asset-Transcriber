@@ -17,12 +17,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   email: string;
   hasPayPalSubscription: boolean;
   isGoogleAccount: boolean;
   twoFactorEnabled: boolean;
+  variant?: "default" | "compact";
 };
 
 export function DeleteAccountSection({
@@ -30,7 +32,9 @@ export function DeleteAccountSection({
   hasPayPalSubscription,
   isGoogleAccount,
   twoFactorEnabled,
+  variant = "default",
 }: Props) {
+  const compact = variant === "compact";
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -104,28 +108,32 @@ export function DeleteAccountSection({
         : password.length >= 1);
 
   return (
-    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+    <div
+      className={cn(
+        "border border-destructive/30 bg-destructive/5",
+        compact ? "rounded-xl p-3" : "rounded-2xl p-5",
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle className={cn("text-destructive shrink-0 mt-0.5", compact ? "w-4 h-4" : "w-5 h-5")} />
         <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-medium text-destructive">Delete account</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Close your account permanently. You will not be able to sign in again, and this email cannot be used for a new free trial.
-            Your record may be kept internally for fraud prevention (same as a ban).
+          <h2 className={cn("font-medium text-destructive", compact ? "text-sm font-semibold" : "text-lg")}>
+            {compact ? "Close account" : "Delete account"}
+          </h2>
+          <p className={cn("text-muted-foreground mt-1", compact ? "text-[11px] leading-relaxed" : "text-sm")}>
+            Permanently close your account. You cannot sign in again, and this email cannot start a new free trial.
+            {!compact && " Your record may be kept internally for fraud prevention (same as a ban)."}
           </p>
           {hasPayPalSubscription && (
-            <p className="text-sm text-muted-foreground mt-2">
-              An active PayPal subscription will be cancelled automatically when you delete your account.
+            <p className={cn("text-muted-foreground mt-2", compact ? "text-[11px]" : "text-sm")}>
+              An active PayPal subscription will be cancelled automatically.
             </p>
           )}
-          <p className="text-xs text-muted-foreground mt-2">
-            Data protection (LGPD / GDPR):{" "}
-            <a href="/account" className="underline underline-offset-2">
-              Account settings
-            </a>
-            {" · "}
-            You may also email support from the workspace if you need help.
-          </p>
+          {!compact && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Data protection (LGPD / GDPR): use workspace Support if you need help with your data.
+            </p>
+          )}
 
           <AlertDialog
             open={open}
@@ -135,8 +143,12 @@ export function DeleteAccountSection({
             }}
           >
             <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="mt-4" type="button">
-                Delete my account
+              <Button
+                variant="destructive"
+                className={cn(compact ? "mt-3 h-8 w-full text-xs" : "mt-4")}
+                type="button"
+              >
+                {compact ? "Close my account" : "Delete my account"}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
