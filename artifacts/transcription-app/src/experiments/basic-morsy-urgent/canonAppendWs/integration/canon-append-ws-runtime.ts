@@ -120,6 +120,9 @@ export class CanonAppendWsIsolatedRuntime {
   /** User glossary rows injected into chunk-v2 Soniox context. */
   private chunkV2GlossaryTerms: SonioxContextTerm[] = [];
 
+  /** Server-provided realtime WebSocket URL (from transcription token). */
+  private sonioxRtUrl: string | null = null;
+
   constructor(hooks: CanonAppendWsRuntimeHooks = {}) {
     this.hooks = hooks;
   }
@@ -416,7 +419,8 @@ export class CanonAppendWsIsolatedRuntime {
     this.scheduleDomBatch(Boolean(frame.endpoint));
   }
 
-  startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
+  startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000, rtUrl?: string): void {
+    if (rtUrl?.trim()) this.sonioxRtUrl = rtUrl.trim();
     const pair = langPair as { a: string; b: string };
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
@@ -436,6 +440,7 @@ export class CanonAppendWsIsolatedRuntime {
       : {};
     this.client.connect({
       apiKey,
+      rtUrl: this.sonioxRtUrl ?? "",
       sampleRate,
       languageHints: hints,
       enableLanguageIdentification: tuning.enableLanguageIdentification,
@@ -446,8 +451,8 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   /** Reconnect Soniox with updated language hints (mid-session language switch). */
-  restartSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000): void {
-    this.startSoniox(apiKey, langPair, sampleRate);
+  restartSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000, rtUrl?: string): void {
+    this.startSoniox(apiKey, langPair, sampleRate, rtUrl);
   }
 
   sendPcm(chunk: ArrayBuffer): void {

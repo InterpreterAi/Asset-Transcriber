@@ -48,6 +48,7 @@ const activityDebounce = new Map<number, number>();
 const ACTIVITY_DEBOUNCE_MS = 60_000;
 
 const app: Express = express();
+app.disable("x-powered-by");
 
 // Trust reverse proxy (Railway often chains >1 hop). Without this, req.secure stays false and
 // Secure session cookies never stick — breaks password login + Google OAuth state.

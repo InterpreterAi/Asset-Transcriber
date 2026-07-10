@@ -82,6 +82,7 @@ export const GetTranscriptionTokenBody = zod.object({});
 export const GetTranscriptionTokenResponse = zod.object({
   apiKey: zod.string(),
   expiresIn: zod.number(),
+  rtUrl: zod.string(),
 });
 
 /**

@@ -8,10 +8,10 @@
 import type { SonioxFrame } from "./frame-types";
 import { parseSonioxWebSocketPayload } from "./soniox-parser";
 
-const SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
-
 export type SonioxClientConfig = {
   apiKey: string;
+  /** Realtime WebSocket URL from POST /api/transcription/token (`rtUrl`). */
+  rtUrl: string;
   model?: string;
   sampleRate?: number;
   languageHints?: string[];
@@ -48,7 +48,11 @@ export class SonioxRealtimeClient {
   connect(config: SonioxClientConfig): void {
     this.disconnect(false);
     this.closed = false;
-    const ws = new WebSocket(SONIOX_WS_URL);
+    const rtUrl = config.rtUrl?.trim();
+    if (!rtUrl) {
+      throw new Error("Live session endpoint is not available.");
+    }
+    const ws = new WebSocket(rtUrl);
     this.ws = ws;
     ws.onopen = () => {
       const language_hints =
@@ -89,7 +93,9 @@ export class SonioxRealtimeClient {
             x => typeof x === "string" && (x as string).trim(),
           ) as string | undefined;
         if (errText) {
-          console.error("[canonAppendWs/engine] Soniox error:", errText);
+          if (!import.meta.env.PROD) {
+            console.error("[canonAppendWs/engine] realtime STT error:", errText);
+          }
           return;
         }
         const seq = this.allocateSeq();

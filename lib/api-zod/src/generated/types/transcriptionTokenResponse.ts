@@ -9,4 +9,5 @@
 export interface TranscriptionTokenResponse {
   apiKey: string;
   expiresIn: number;
+  rtUrl: string;
 }

@@ -1,7 +1,39 @@
 /**
- * Production-only hardening: dull React DevTools hooks and avoid noisy client leakage.
- * Does not block keyboard shortcuts or DevTools (would harm power users / a11y tooling).
+ * Production-only hardening: reduce casual DevTools leakage (debug globals, React hook noise).
+ * Cannot fully block DevTools — determined users can always inspect network traffic.
  */
+const DEBUG_GLOBAL_KEYS = [
+  "__trialHetznerDomAudit",
+  "__trialHetznerSpeakerTrace",
+  "__trialHetznerStreamTrace",
+  "__trialHetznerProvisionalRow",
+  "__trialHetznerMergedOriginal",
+  "__interpretSttPipeline",
+  "__interpretLiveBlankTrace",
+  "__interpretLiveDirectionTrace",
+  "__interpreterAiCanonAppendWsDbg",
+  "__interpreterAiTranscriptJumpTail",
+  "__interpreterAiTranscriptSnapViewport",
+  "__interpreterAiTranscriptFollowPinnedSnapshot",
+  "__interpreterAiMorsyUrgentNfEntityTrace",
+  "__interpreterAiMorsyUrgentNfEntityTraceProbe",
+  "__interpreterAiCommittedOrigDomTrace",
+  "__interpreterAiCommittedOrigDomTraceProbe",
+  "__interpreterAiMorsyUrgentVisualStabilityTrace",
+  "__interpreterAiMorsyUrgentVisualStabilityTraceProbe",
+] as const;
+
+function scrubDebugGlobals(): void {
+  const w = window as unknown as Record<string, unknown>;
+  for (const key of DEBUG_GLOBAL_KEYS) {
+    try {
+      if (key in w) delete w[key];
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export function installProductionClientGuards(): void {
   if (!import.meta.env.PROD) return;
 
@@ -22,4 +54,19 @@ export function installProductionClientGuards(): void {
   } catch {
     /* ignore */
   }
+
+  scrubDebugGlobals();
+  // Hooks may attach debug surfaces after session start — re-scrub periodically.
+  window.setInterval(scrubDebugGlobals, 2500);
+
+  // Mild deterrent for casual right-click → Inspect on production UI (bypassable).
+  document.addEventListener(
+    "contextmenu",
+    (e) => {
+      const t = e.target;
+      if (t instanceof HTMLElement && t.closest("[data-allow-context-menu]")) return;
+      e.preventDefault();
+    },
+    { capture: true },
+  );
 }
