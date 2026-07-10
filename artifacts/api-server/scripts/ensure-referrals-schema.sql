@@ -10,9 +10,6 @@ CREATE TABLE IF NOT EXISTS referrals (
   created_at       TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
-  ON referrals (referred_user_id);
-
 DO $$
 BEGIN
   IF EXISTS (
@@ -42,7 +39,8 @@ BEGIN
     WHERE registered_user_id IS NOT NULL
       AND referrer_id IS NOT NULL
       AND referrer_id <> registered_user_id;
-    CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
-      ON referrals (referred_user_id);
   END IF;
 END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
+  ON referrals (referred_user_id);

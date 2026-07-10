@@ -289,10 +289,6 @@ async function migrateSchema() {
         created_at       TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-      await client.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
-        ON referrals (referred_user_id)
-    `);
       // Legacy DBs created click-tracking referrals (referrer_id / registered_user_id). Migrate once.
       await client.query(`
       DO $$
@@ -324,10 +320,12 @@ async function migrateSchema() {
           WHERE registered_user_id IS NOT NULL
             AND referrer_id IS NOT NULL
             AND referrer_id <> registered_user_id;
-          CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
-            ON referrals (referred_user_id);
         END IF;
       END $$
+    `);
+      await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
+        ON referrals (referred_user_id)
     `);
 
       // Session store table — connect-pg-simple; middleware also uses createTableIfMissing as fallback.
