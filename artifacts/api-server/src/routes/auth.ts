@@ -741,9 +741,9 @@ router.post("/signup", async (req, res) => {
           sessionsCount: 0,
         });
       } catch (referralErr) {
-        logger.warn(
+        logger.error(
           { ...errMeta(referralErr), referrerUserId: referrer.id, referredUserId: newUser.id },
-          "signup: referral row insert failed (table mismatch or FK); attribution not recorded",
+          "signup: referral row insert failed; attribution not recorded",
         );
       }
     }
@@ -1139,8 +1139,8 @@ router.get("/google", async (req, res) => {
       });
       return;
     }
-    const state = crypto.randomBytes(16).toString("hex");
-    req.session.oauthState = state;
+    const stateNonce = crypto.randomBytes(16).toString("hex");
+    req.session.oauthState = stateNonce;
     const refRaw = typeof req.query.ref === "string" ? req.query.ref : undefined;
     const cookieRef = parseReferralCookie(req);
     const ref = refRaw && /^\d+$/.test(refRaw) ? Number(refRaw) : cookieRef ?? undefined;
@@ -1149,6 +1149,8 @@ router.get("/google", async (req, res) => {
     } else {
       delete req.session.oauthReferralUserId;
     }
+    const refSuffix = ref && Number.isFinite(ref) && ref > 0 ? String(ref) : "0";
+    const oauthState = `${stateNonce}.${refSuffix}`;
 
     const redirectUri = getGoogleOAuthRedirectUri(req);
 
@@ -1157,7 +1159,7 @@ router.get("/google", async (req, res) => {
       redirect_uri:  redirectUri,
       response_type: "code",
       scope:         "openid email profile",
-      state,
+      state:         oauthState,
       access_type:   "online",
       prompt:        "select_account",
     });
@@ -1188,7 +1190,13 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
     res.redirect("/login?error=session_failed");
     return;
   }
-  if (!state || state !== req.session.oauthState) {
+  const stateRaw = state ?? "";
+  const dot = stateRaw.indexOf(".");
+  const stateNonce = dot >= 0 ? stateRaw.slice(0, dot) : stateRaw;
+  const refFromStateRaw = dot >= 0 ? stateRaw.slice(dot + 1) : "0";
+  const refFromState =
+    /^\d+$/.test(refFromStateRaw) && refFromStateRaw !== "0" ? Number(refFromStateRaw) : undefined;
+  if (!stateNonce || stateNonce !== req.session.oauthState) {
     res.redirect("/login?error=invalid_state");
     return;
   }
@@ -1198,7 +1206,7 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       ? req.session.oauthReferralUserId
       : undefined;
   const cookieReferralUserId = parseReferralCookie(req);
-  const resolvedOauthReferralUserId = oauthReferralUserId ?? cookieReferralUserId ?? undefined;
+  const resolvedOauthReferralUserId = oauthReferralUserId ?? cookieReferralUserId ?? refFromState;
   delete req.session.oauthReferralUserId;
 
   try {
@@ -1365,11 +1373,21 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
               sessionsCount: 0,
             });
           } catch (referralErr) {
-            logger.warn(
-              { ...errMeta(referralErr), referrerUserId: referrer.id, referredUserId: user!.id },
+            logger.error(
+              {
+                ...errMeta(referralErr),
+                referrerUserId: referrer.id,
+                referredUserId: user!.id,
+                resolvedOauthReferralUserId,
+              },
               "Google signup: referral row insert failed; attribution not recorded",
             );
           }
+        } else {
+          logger.warn(
+            { resolvedOauthReferralUserId, referredUserId: user!.id },
+            "Google signup: referral id present but referrer user not found",
+          );
         }
       }
       void sendPostVerificationWelcomeEmail(googleEmail, user!.trialEndsAt, profile.name ?? null, user!.id).catch(
