@@ -18,6 +18,9 @@ type ReferralsPayload = {
     holdReadyAt: string | null;
     holdCleared: boolean;
     sessionsCount: number;
+    planType: string;
+    planLabel: string;
+    accountType: "trial" | "paid";
     signupCredited: boolean;
     creditedUsd: number;
     pendingUsd: number;
@@ -189,19 +192,20 @@ export default function ReferralsPage() {
           </div>
 
           <div className="mt-4 rounded-xl border border-border overflow-hidden">
-            <div className="grid grid-cols-5 px-4 py-2 text-xs font-semibold bg-muted/40">
-              <span>User</span><span>Joined</span><span>Subscribed</span><span>Generated</span><span className="text-right">Status</span>
+            <div className="grid grid-cols-6 px-4 py-2 text-xs font-semibold bg-muted/40">
+              <span>User</span><span>Account</span><span>Joined</span><span>Sessions</span><span>Generated</span><span className="text-right">Status</span>
             </div>
             {activity.length === 0 ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">No referrals yet — share your link above.</div>
             ) : (
               activity.map((a) => (
-                <div key={a.id} className="grid grid-cols-5 px-4 py-3 text-sm border-t border-border/60">
+                <div key={a.id} className="grid grid-cols-6 px-4 py-3 text-sm border-t border-border/60">
                   <span className="truncate">{a.username ?? a.email ?? `User #${a.id}`}</span>
+                  <span>{a.planLabel}</span>
                   <span>{new Date(a.joinedAt).toLocaleDateString()}</span>
-                  <span>{a.upgradedAt ? new Date(a.upgradedAt).toLocaleDateString() : "-"}</span>
+                  <span>{a.sessionsCount}</span>
                   <span>{fmtUsd(a.creditedUsd + a.pendingUsd)}</span>
-                  <span className="text-right">{a.holdCleared ? "credited" : a.upgraded ? "pending hold" : "joined"}</span>
+                  <span className="text-right">{a.holdCleared ? "credited" : a.upgraded ? "pending hold" : a.sessionsCount > 0 ? "active" : "joined"}</span>
                 </div>
               ))
             )}
