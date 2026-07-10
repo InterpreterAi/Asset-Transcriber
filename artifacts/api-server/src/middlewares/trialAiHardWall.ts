@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { apiRequestPath } from "./apiRateLimits.js";
+import { apiRequestPath, isAiCostPath } from "./apiRateLimits.js";
 import { appliesStrictTrialAiThrottle } from "../lib/usage.js";
 import { logger } from "../lib/logger.js";
 
@@ -13,7 +13,8 @@ function envInt(name: string, fallback: number): number {
 }
 
 const TRIAL_TRANSLATE_MAX = envInt("TRIAL_TRANSLATE_MAX_PER_MINUTE", 22);
-const TRIAL_TOKEN_MAX = envInt("TRIAL_TOKEN_MAX_PER_MINUTE", 12);
+const TRIAL_TOKEN_MAX = envInt("TRIAL_TOKEN_MAX_PER_MINUTE", 8);
+const TRIAL_AI_BURST_MAX = envInt("TRIAL_AI_BURST_MAX_PER_MINUTE", 45);
 const WINDOW_MS = 60_000;
 const USER_CACHE_MS = 45_000;
 
@@ -23,6 +24,7 @@ const userThrottleCache = new Map<number, Cached>();
 /** Sliding-window hit log per user and path kind. */
 const translateHits = new Map<number, number[]>();
 const tokenHits = new Map<number, number[]>();
+const aiBurstHits = new Map<number, number[]>();
 
 function prune(ts: number[], now: number): void {
   const cutoff = now - WINDOW_MS;
@@ -31,10 +33,7 @@ function prune(ts: number[], now: number): void {
 
 function isTrialHardWallPath(req: Request): boolean {
   if (req.method !== "POST") return false;
-  const p = apiRequestPath(req);
-  if (p.includes("/transcription/translate")) return true;
-  if (p.includes("/transcription/token")) return true;
-  return false;
+  return isAiCostPath(req);
 }
 
 async function loadStrictTrialCached(userId: number): Promise<boolean> {
@@ -85,27 +84,26 @@ export function trialAiHardWallMiddleware(req: Request, res: Response, next: Nex
       }
 
       const now = Date.now();
-      const isTranslate = apiRequestPath(req).includes("/transcription/translate");
-      const bucket = isTranslate ? translateHits : tokenHits;
-      const max = isTranslate ? TRIAL_TRANSLATE_MAX : TRIAL_TOKEN_MAX;
-      let arr = bucket.get(userId);
-      if (!arr) {
-        arr = [];
-        bucket.set(userId, arr);
-      }
-      prune(arr, now);
+      const path = apiRequestPath(req);
+      const isTranslate = path.includes("/transcription/translate");
+      const isToken = path.includes("/transcription/token");
 
-      if (arr.length >= max) {
+      let burstArr = aiBurstHits.get(userId);
+      if (!burstArr) {
+        burstArr = [];
+        aiBurstHits.set(userId, burstArr);
+      }
+      prune(burstArr, now);
+      if (burstArr.length >= TRIAL_AI_BURST_MAX) {
         logger.warn(
           {
             userId,
-            path: apiRequestPath(req),
-            kind: isTranslate ? "translate" : "token",
+            path,
             windowMs: WINDOW_MS,
-            max,
-            inWindow: arr.length,
+            max: TRIAL_AI_BURST_MAX,
+            inWindow: burstArr.length,
           },
-          "trial AI hard wall: rate limit exceeded",
+          "trial AI hard wall: combined burst limit exceeded",
         );
         res.setHeader("Retry-After", "5");
         res.status(429).json({
@@ -113,12 +111,47 @@ export function trialAiHardWallMiddleware(req: Request, res: Response, next: Nex
             "Trial rate limit: too many transcription or translation requests. Please slow down; paid plans have higher limits.",
           code: "trial_ai_rate_limited",
           limiter: "trial_ai_hard_wall",
-          kind: isTranslate ? "translate" : "token",
+          kind: "burst",
         });
         return;
       }
 
-      arr.push(now);
+      if (isTranslate || isToken) {
+        const bucket = isTranslate ? translateHits : tokenHits;
+        const max = isTranslate ? TRIAL_TRANSLATE_MAX : TRIAL_TOKEN_MAX;
+        let arr = bucket.get(userId);
+        if (!arr) {
+          arr = [];
+          bucket.set(userId, arr);
+        }
+        prune(arr, now);
+
+        if (arr.length >= max) {
+          logger.warn(
+            {
+              userId,
+              path,
+              kind: isTranslate ? "translate" : "token",
+              windowMs: WINDOW_MS,
+              max,
+              inWindow: arr.length,
+            },
+            "trial AI hard wall: rate limit exceeded",
+          );
+          res.setHeader("Retry-After", "5");
+          res.status(429).json({
+            error:
+              "Trial rate limit: too many transcription or translation requests. Please slow down; paid plans have higher limits.",
+            code: "trial_ai_rate_limited",
+            limiter: "trial_ai_hard_wall",
+            kind: isTranslate ? "translate" : "token",
+          });
+          return;
+        }
+        arr.push(now);
+      }
+
+      burstArr.push(now);
       next();
     } catch (err) {
       next(err as Error);

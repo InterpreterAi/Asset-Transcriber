@@ -77,7 +77,9 @@ export const GetMeResponse = zod.object({
 /**
  * @summary Get a short-lived Soniox API token for transcription
  */
-export const GetTranscriptionTokenBody = zod.object({});
+export const GetTranscriptionTokenBody = zod.object({
+  sessionId: zod.number(),
+});
 
 export const GetTranscriptionTokenResponse = zod.object({
   apiKey: zod.string(),

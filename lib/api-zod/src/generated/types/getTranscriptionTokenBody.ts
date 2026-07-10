@@ -6,4 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GetTranscriptionTokenBody = { [key: string]: unknown };
+export type GetTranscriptionTokenBody = {
+  sessionId: number;
+};

@@ -159,7 +159,7 @@ export const authLimiter = rateLimit({
  */
 export const transcriptionTokenLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 48,
+  max: 24,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: rateLimitUserOrIpKey,
