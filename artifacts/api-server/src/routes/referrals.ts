@@ -146,6 +146,66 @@ router.get("/my", requireAuth, async (req, res) => {
   });
 });
 
+// ── Admin: manually attribute a referred signup (recovery) ───────────────────
+router.post("/admin/attribute", requireAdmin, async (req, res) => {
+  const { referrerUserId, referredUserId } = req.body as {
+    referrerUserId?: number | string;
+    referredUserId?: number | string;
+  };
+  const referrerId =
+    typeof referrerUserId === "number"
+      ? referrerUserId
+      : typeof referrerUserId === "string" && /^\d+$/.test(referrerUserId)
+        ? Number(referrerUserId)
+        : null;
+  const referredId =
+    typeof referredUserId === "number"
+      ? referredUserId
+      : typeof referredUserId === "string" && /^\d+$/.test(referredUserId)
+        ? Number(referredUserId)
+        : null;
+  if (!referrerId || !referredId || referrerId === referredId) {
+    res.status(400).json({ error: "referrerUserId and referredUserId are required and must differ" });
+    return;
+  }
+
+  const [referrer] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.id, referrerId))
+    .limit(1);
+  const [referred] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.id, referredId))
+    .limit(1);
+  if (!referrer || !referred) {
+    res.status(404).json({ error: "Referrer or referred user not found" });
+    return;
+  }
+
+  const existing = await db
+    .select({ id: referralsTable.id })
+    .from(referralsTable)
+    .where(eq(referralsTable.referredUserId, referredId))
+    .limit(1);
+  if (existing[0]) {
+    res.json({ ok: true, referralId: existing[0].id, alreadyExists: true });
+    return;
+  }
+
+  const [row] = await db
+    .insert(referralsTable)
+    .values({
+      referrerUserId: referrer.id,
+      referredUserId: referred.id,
+      status: "pending",
+      sessionsCount: 0,
+    })
+    .returning({ id: referralsTable.id });
+  res.json({ ok: true, referralId: row?.id ?? null, alreadyExists: false });
+});
+
 // ── Admin: full referral analytics ───────────────────────────────────────────
 router.get("/admin/analytics", requireAdmin, async (_req, res) => {
   const rows = await db
