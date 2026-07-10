@@ -28,6 +28,7 @@ import { AudioMeter } from "@/components/AudioMeter";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { SupportPanel } from "@/components/SupportPanel";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
+import { DeleteAccountSection } from "@/components/DeleteAccountSection";
 import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
 import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
@@ -608,12 +609,28 @@ export default function WorkspaceDefault() {
   const [twoFaLoading,  setTwoFaLoading]  = useState(false);
   const [twoFaMsg,      setTwoFaMsg]      = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  type ProfileBillingOverview = {
+    user: {
+      paypalSubscriptionId: string | null;
+      subscriptionStatus: string | null;
+    };
+  };
+  const [profileBilling, setProfileBilling] = useState<ProfileBillingOverview | null>(null);
+
   useEffect(() => {
     fetch("/api/auth/2fa/status", { credentials: "include" })
       .then(r => r.json())
       .then((d: { enabled: boolean }) => setTwoFaEnabled(d.enabled))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "profile") return;
+    void fetch("/api/payments/billing-overview", { credentials: "include" })
+      .then(async (r) => (r.ok ? ((await r.json()) as ProfileBillingOverview) : null))
+      .then((d) => setProfileBilling(d))
+      .catch(() => setProfileBilling(null));
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== "referrals") return;
@@ -1225,8 +1242,11 @@ export default function WorkspaceDefault() {
       {activeTab === "profile" && (
         <div className="w-full md:w-72 bg-card border-r border-border dark:border-white/[0.08] flex flex-col overflow-y-auto shrink-0 z-10 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]">
           {/* Panel header */}
-          <div className="h-[52px] border-b border-border flex items-center justify-between px-4 shrink-0">
-            <span className="font-semibold text-sm">Account</span>
+          <div className="min-h-[52px] border-b border-border flex items-center justify-between px-4 py-2 shrink-0">
+            <div className="min-w-0">
+              <span className="font-semibold text-sm block">Account</span>
+              <span className="text-[10px] text-muted-foreground">Security & close account</span>
+            </div>
             <button
               onClick={() => setActiveTab("mic")}
               className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -1398,8 +1418,10 @@ export default function WorkspaceDefault() {
             </div>
           )}
 
-          {/* Change password */}
+          {/* Change password (email/password accounts only) */}
           <div className="p-4 flex-1">
+            {!user.isGoogleAccount ? (
+              <>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Change Password</p>
 
             {pwStatus && (
@@ -1491,9 +1513,15 @@ export default function WorkspaceDefault() {
                 {pwLoading ? "Updating…" : "Update Password"}
               </button>
             </form>
+              </>
+            ) : (
+              <p className="text-[11px] text-muted-foreground leading-relaxed mb-1">
+                You sign in with Google. Password changes are managed in your Google account.
+              </p>
+            )}
 
             {/* ── 2FA Section ─────────────────────────────────────── */}
-            <div className="mt-5 pt-4 border-t border-border/60">
+            <div className={cn(!user.isGoogleAccount ? "mt-5 pt-4 border-t border-border/60" : "")}>
               <div className="flex items-center justify-between mb-2.5">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Two-Factor Auth</p>
                 {twoFaEnabled !== null && (
@@ -1622,6 +1650,21 @@ export default function WorkspaceDefault() {
                 </div>
               )}
             </div>
+
+            {!user.isAdmin && (
+              <div className="mt-5 pt-4 border-t border-border/60">
+                <DeleteAccountSection
+                  variant="compact"
+                  email={user.email ?? user.username}
+                  hasPayPalSubscription={Boolean(
+                    profileBilling?.user.paypalSubscriptionId &&
+                      (profileBilling.user.subscriptionStatus ?? "").toLowerCase() === "active",
+                  )}
+                  isGoogleAccount={Boolean(user.isGoogleAccount)}
+                  twoFactorEnabled={Boolean(user.twoFactorEnabled ?? twoFaEnabled)}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
