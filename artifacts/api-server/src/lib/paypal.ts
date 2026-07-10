@@ -29,6 +29,8 @@ function paypalBaseUrl(): string {
   return mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 }
 
+export { paypalBaseUrl };
+
 export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
   const basicPlanId = envTrim("PAYPAL_PLAN_ID_BASIC");
   const professionalPlanId = envTrim("PAYPAL_PLAN_ID_PROFESSIONAL");

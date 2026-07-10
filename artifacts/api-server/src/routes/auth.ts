@@ -44,6 +44,8 @@ import {
 } from "../lib/authEnv.js";
 import { commitSession } from "../lib/commitSession.js";
 import { shouldAutoDisableSignupForSharedIp } from "../lib/signup-fraud.js";
+import { deactivateUserAccount, emailBlockedFromNewSignup } from "../lib/erase-user-account.js";
+import { isGoogleOnlyAccount } from "../lib/account-auth.js";
 import { isTrialLoginBlocked, TRIAL_LOGIN_BLOCKED_JSON } from "../lib/trial-login-block.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import crypto from "node:crypto";
@@ -266,8 +268,13 @@ router.post("/login", async (req, res) => {
     }
 
     if (!user.isActive) {
-      void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: "account_disabled" });
-      res.status(401).json({ error: "Account is disabled" });
+      const reason = user.accountDeletedAt ? "account_deleted" : "account_disabled";
+      void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: reason });
+      res.status(401).json({
+        error: user.accountDeletedAt
+          ? "This account was closed. You cannot sign in again with this email."
+          : "Account is disabled",
+      });
       return;
     }
 
@@ -375,6 +382,8 @@ router.post("/login", async (req, res) => {
           minutesRemainingToday: 0,
           totalMinutesUsed: Number(user.totalMinutesUsed) || 0,
           totalSessions: Number(user.totalSessions) || 0,
+          isGoogleAccount: isGoogleOnlyAccount(user),
+          twoFactorEnabled: Boolean(user.twoFactorEnabled),
           sessionsToday: 0,
         };
       }
@@ -657,7 +666,16 @@ router.post("/signup", async (req, res) => {
     .limit(1);
 
   if (existing.length > 0) {
-    res.status(400).json({ error: "An account with this email already exists" });
+    res.status(400).json({
+      error: "An account with this email already exists. Closed accounts cannot be reopened — contact support if you need help.",
+    });
+    return;
+  }
+
+  if (await emailBlockedFromNewSignup(normalized)) {
+    res.status(400).json({
+      error: "This email has already used a free trial or closed an account. A new trial is not available for this address.",
+    });
     return;
   }
 
@@ -816,6 +834,8 @@ router.post("/signup", async (req, res) => {
         minutesRemainingToday: 0,
         totalMinutesUsed: Number(newUser.totalMinutesUsed) || 0,
         totalSessions: Number(newUser.totalSessions) || 0,
+        isGoogleAccount: isGoogleOnlyAccount(newUser),
+        twoFactorEnabled: Boolean(newUser.twoFactorEnabled),
         sessionsToday: 0,
       };
     }
@@ -933,6 +953,84 @@ router.post("/resend-verification", async (req, res) => {
   }
 
   res.json({ ok: true, message: "If an account exists and needs verification, we sent an email." });
+});
+
+// ── Delete account (LGPD / GDPR self-service) ───────────────────────────────
+router.post("/delete-account", requireAuth, async (req, res) => {
+  const userId = req.session.userId!;
+  const body = (req.body ?? {}) as {
+    password?: string;
+    totpToken?: string;
+    confirmEmail?: string;
+  };
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.isAdmin) {
+    res.status(403).json({
+      error: "Admin accounts cannot be self-deleted. Contact another administrator.",
+      code: "ADMIN_SELF_DELETE_BLOCKED",
+    });
+    return;
+  }
+
+  if (user.accountDeletedAt || !user.isActive) {
+    res.status(400).json({ error: "This account is already closed.", code: "ACCOUNT_ALREADY_CLOSED" });
+    return;
+  }
+
+  const password = typeof body.password === "string" ? body.password : "";
+  const totpToken = typeof body.totpToken === "string" ? body.totpToken.trim() : "";
+  const confirmEmail =
+    typeof body.confirmEmail === "string" ? body.confirmEmail.trim().toLowerCase() : "";
+
+  let authorized = false;
+  if (user.twoFactorEnabled) {
+    if (totpToken && user.twoFactorSecret) {
+      authorized = verifyTotp(user.twoFactorSecret, totpToken);
+    } else if (password && !isGoogleOnlyAccount(user)) {
+      authorized = await verifyPassword(password, user.passwordHash);
+    }
+  } else if (isGoogleOnlyAccount(user)) {
+    const expected = (user.email ?? user.username).trim().toLowerCase();
+    authorized = Boolean(expected) && confirmEmail === expected;
+  } else if (password) {
+    authorized = await verifyPassword(password, user.passwordHash);
+  }
+
+  if (!authorized) {
+    res.status(401).json({
+      error: user.twoFactorEnabled
+        ? "Enter your password or authenticator code to confirm deletion."
+        : isGoogleOnlyAccount(user)
+          ? "Type your account email exactly to confirm deletion."
+          : "Enter your password to confirm deletion.",
+      code: "DELETE_CONFIRMATION_FAILED",
+    });
+    return;
+  }
+
+  try {
+    const result = await deactivateUserAccount(userId, { hardDelete: false });
+    req.session.destroy(() => {
+      res.json({
+        message: "Your account has been closed. You can no longer sign in with this email, and a new free trial is not available for this address.",
+        paypalSubscriptionCancelled: result.paypalCancelled,
+        stripeSubscriptionCancelled: result.stripeCancelled,
+      });
+    });
+  } catch (err) {
+    safeAuthLoggerError("POST /delete-account failed", err);
+    res.status(503).json({
+      error:
+        "We could not complete account deletion (billing or database error). Please try again or contact support.",
+      code: "DELETE_ACCOUNT_FAILED",
+    });
+  }
 });
 
 // ── Logout ─────────────────────────────────────────────────────────────────
@@ -1251,6 +1349,10 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
 
     let isNewUser = false;
     if (user) {
+      if (!user.isActive || user.accountDeletedAt) {
+        res.redirect("/login?error=account_closed");
+        return;
+      }
       if (!user.googleAccountId) {
         try {
           await db
@@ -1276,6 +1378,10 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
       isNewUser = true;
       if (isDisposableEmailDomain(googleEmail)) {
         res.redirect("/login?error=disposable_email");
+        return;
+      }
+      if (await emailBlockedFromNewSignup(googleEmail)) {
+        res.redirect("/login?error=trial_email_used");
         return;
       }
       const googleAccountAt = new Date();

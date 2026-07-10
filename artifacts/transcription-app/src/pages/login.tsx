@@ -18,6 +18,8 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   auth_failed:      "Google sign-in failed. Please try again.",
   not_configured:   "Google login is not yet enabled.",
   disposable_email: "Temporary email addresses are not allowed.",
+  account_closed: "This account was closed and cannot be used to sign in again.",
+  trial_email_used: "This email has already used a free trial or closed an account.",
   session_failed:
     "Could not save your session (database). Check Postgres and the user_sessions table, then try again.",
 };
@@ -36,6 +38,7 @@ export default function Login() {
   }, [me, meLoading, setLocation, search]);
 
   const oauthError = new URLSearchParams(search).get("error");
+  const accountDeleted = new URLSearchParams(search).get("deleted") === "1";
 
   const [step, setStep]           = useState<Step>("credentials");
   const [username, setUsername]   = useState("");
@@ -260,6 +263,11 @@ export default function Login() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
+                  {accountDeleted && (
+                    <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                      Your account has been closed. You cannot sign in again with that email, and a new free trial is not available for that address.
+                    </div>
+                  )}
                   {verifyBanner && (
                     <div className="bg-emerald-50 text-emerald-900 text-sm p-3 rounded-xl border border-emerald-200 text-center font-medium">
                       {verifyBanner}

@@ -2309,10 +2309,17 @@ export default function Admin() {
 
                         {/* Account Status */}
                         <td className="px-4 py-3">
+                          {(u as { accountDeletedAt?: string | null }).accountDeletedAt ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-600" />
+                              Closed
+                            </span>
+                          ) : (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${u.isActive ? "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300" : "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300"}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-green-500" : "bg-red-500"}`} />
                             {u.isActive ? "Active" : "Disabled"}
                           </span>
+                          )}
                         </td>
 
                         {/* Plan */}

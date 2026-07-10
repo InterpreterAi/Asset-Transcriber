@@ -3,6 +3,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import type { User } from "@workspace/db";
 import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
+import { isGoogleOnlyAccount } from "./account-auth.js";
 import { subscriptionPeriodEndFallback } from "./paypal.js";
 
 export type TranslationRoutingUser = {
@@ -331,5 +332,7 @@ export function buildUserInfo(user: User) {
     minutesRemainingToday,
     totalMinutesUsed: Number(user.totalMinutesUsed) || 0,
     totalSessions: Number(user.totalSessions) || 0,
+    isGoogleAccount: isGoogleOnlyAccount(user),
+    twoFactorEnabled: Boolean(user.twoFactorEnabled),
   };
 }

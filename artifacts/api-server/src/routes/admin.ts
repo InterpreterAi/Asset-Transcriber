@@ -38,6 +38,7 @@ import {
 } from "../lib/paypal.js";
 import { sessionStore } from "../lib/session-store.js";
 import { logger } from "../lib/logger.js";
+import { deactivateUserAccount } from "../lib/erase-user-account.js";
 import { effectiveMtLane } from "../lib/hetzner-mt-db-routing.js";
 import {
   getHetznerLaneBaseUrl,
@@ -627,6 +628,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
       email:              u.email ?? null,
       isAdmin:            u.isAdmin,
       isActive:           u.isActive,
+      accountDeletedAt:   u.accountDeletedAt ?? null,
       planType:           u.planType,
       trialStartedAt:     u.trialStartedAt,
       trialEndsAt:        u.trialEndsAt,
@@ -2178,8 +2180,14 @@ router.delete("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
+  const adminId = req.session.userId!;
+  if (userId === adminId) {
+    res.status(400).json({ error: "You cannot delete your own admin account from this panel." });
+    return;
+  }
+
   const [row] = await db
-    .select({ email: usersTable.email })
+    .select({ id: usersTable.id, isAdmin: usersTable.isAdmin })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
@@ -2188,14 +2196,13 @@ router.delete("/users/:userId", requireAdmin, async (req, res) => {
     return;
   }
 
-  await db.delete(usersTable).where(eq(usersTable.id, userId));
-
-  const em = row.email?.trim().toLowerCase();
-  if (em) {
-    await db.delete(trialConsumedEmailsTable).where(eq(trialConsumedEmailsTable.email, em));
+  try {
+    await deactivateUserAccount(userId, { hardDelete: false });
+    res.json({ message: "User deactivated (record kept for admin audit)" });
+  } catch (err) {
+    logger.error({ err, userId, adminId }, "Admin delete user failed");
+    res.status(503).json({ error: "Could not delete user (billing cancel or database error)." });
   }
-
-  res.json({ message: "User deleted" });
 });
 
 // ── Reset daily usage ────────────────────────────────────────────────────────

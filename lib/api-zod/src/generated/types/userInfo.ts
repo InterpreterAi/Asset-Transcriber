@@ -25,4 +25,6 @@ export interface UserInfo {
   minutesRemainingToday: number;
   totalMinutesUsed: number;
   totalSessions: number;
+  isGoogleAccount?: boolean;
+  twoFactorEnabled?: boolean;
 }

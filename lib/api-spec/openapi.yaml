@@ -72,6 +72,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /auth/delete-account:
+    post:
+      operationId: deleteAccount
+      tags: [auth]
+      summary: Permanently delete the authenticated user's account (LGPD/GDPR)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountRequest"
+      responses:
+        "200":
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAccountResponse"
+        "401":
+          description: Confirmation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Blocked (e.g. admin self-delete)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /auth/me:
     get:
       operationId: getMe
@@ -414,6 +445,30 @@ components:
       required:
         - message
 
+    DeleteAccountRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+        totpToken:
+          type: string
+        confirmEmail:
+          type: string
+          description: Required for Google-only accounts without 2FA — must match account email.
+
+    DeleteAccountResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        paypalSubscriptionCancelled:
+          type: boolean
+        stripeSubscriptionCancelled:
+          type: boolean
+      required:
+        - message
+
     LoginRequest:
       type: object
       properties:
@@ -473,6 +528,10 @@ components:
           type: number
         totalSessions:
           type: integer
+        isGoogleAccount:
+          type: boolean
+        twoFactorEnabled:
+          type: boolean
       required:
         - id
         - username
