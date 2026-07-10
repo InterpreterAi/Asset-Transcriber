@@ -58,6 +58,8 @@ export const usersTable = pgTable("users", {
   lastActivity: timestamp("last_activity"),
   twoFactorSecret: text("two_factor_secret"),
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  /** Set when the user self-deletes or admin deactivates — row kept for audit/bans; login blocked. */
+  accountDeletedAt: timestamp("account_deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

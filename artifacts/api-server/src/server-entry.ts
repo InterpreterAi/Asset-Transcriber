@@ -188,6 +188,9 @@ async function migrateSchema() {
       await client.query(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
       );
+      await client.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS account_deleted_at TIMESTAMP`,
+      );
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS admin_activity_events (

@@ -4,6 +4,7 @@ import { ApiError, getGetMeQueryKey, useGetMe } from "@workspace/api-client-reac
 import { BarChart3, BookOpen, CalendarDays, CreditCard, Gift, LifeBuoy, Mic2, Zap } from "lucide-react";
 import { cn, isTrialLikePlanType, workspacePlanDisplayName, workspaceUsageShowsSlashUnlimited } from "@/lib/utils";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
+import { DeleteAccountSection } from "@/components/DeleteAccountSection";
 
 type PortalTab = "usage" | "billing" | "account";
 type Period = "day" | "week" | "month" | "custom";
@@ -418,6 +419,16 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                 </button>
               </div>
             </div>
+
+            <DeleteAccountSection
+              email={me.email ?? me.username}
+              hasPayPalSubscription={Boolean(
+                overview?.user.paypalSubscriptionId &&
+                  (overview?.user.subscriptionStatus ?? "").toLowerCase() === "active",
+              )}
+              isGoogleAccount={Boolean(me.isGoogleAccount)}
+              twoFactorEnabled={Boolean(me.twoFactorEnabled)}
+            />
           </section>
         )}
       </main>
