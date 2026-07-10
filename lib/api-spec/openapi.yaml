@@ -489,9 +489,13 @@ components:
           type: string
         expiresIn:
           type: integer
+        rtUrl:
+          type: string
+          description: Realtime speech WebSocket URL (server-provided; do not hardcode in clients).
       required:
         - apiKey
         - expiresIn
+        - rtUrl
 
     SessionResponse:
       type: object

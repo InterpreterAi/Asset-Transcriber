@@ -50,6 +50,7 @@ export interface LoginResponse {
 export interface TranscriptionTokenResponse {
   apiKey: string;
   expiresIn: number;
+  rtUrl: string;
 }
 
 export interface SessionResponse {

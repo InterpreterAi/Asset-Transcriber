@@ -366,7 +366,6 @@ function logSttDiagWsRaw(evtData: unknown, tokens: SonioxToken[]): void {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TARGET_RATE         = 16000;
-const SONIOX_WS_URL       = "wss://stt-rt.soniox.com/transcribe-websocket";
 const FINAL_TEXT_RENDER_BUFFER_MS = 80;
 /** Morsy Urgent dual-buffer: debounce stable (committed) translate triggers. */
 const CANON_STABLE_TRANSLATION_DEBOUNCE_MS = 180;
@@ -854,8 +853,9 @@ interface SonioxMessage {
   message?:       string;
 }
 
-/** Map Soniox WS errors to operator-facing text (avoid raw “upstream …” infra jargon in the UI). */
+/** Map realtime STT WS errors to user-facing text (no vendor/env names in production). */
 function sonioxWebSocketErrorForUser(msg: SonioxMessage): string {
+  const prod = import.meta.env.PROD;
   const type = (msg.error_type ?? "").trim().toLowerCase();
   const code = msg.error_code ?? msg.code;
   const raw =
@@ -864,28 +864,40 @@ function sonioxWebSocketErrorForUser(msg: SonioxMessage): string {
     (typeof msg.message === "string" && msg.message.trim()) ||
     "";
   const req = typeof msg.request_id === "string" && msg.request_id.trim() ? msg.request_id.trim() : null;
+  const refSuffix = req ? ` Ref: ${req}` : "";
 
   if (type === "service_unavailable" || code === 503) {
+    if (prod) {
+      return `Speech recognition paused — the service is temporarily busy or the session hit a limit. Stop and start a new session to continue.${refSuffix}`;
+    }
     const m = raw.match(/\(code\s+(\d+)\)/i);
-    const codeHint = m?.[1] ? ` (Soniox code ${m[1]})` : "";
-    return `Speech recognition paused — Soniox is temporarily overloaded or the session hit a limit${codeHint}. Stop and start a new session to continue.${req ? ` Ref: ${req}` : ""}`;
+    const codeHint = m?.[1] ? ` (code ${m[1]})` : "";
+    return `Speech recognition paused — service overloaded or session limit${codeHint}. Stop and start a new session to continue.${refSuffix}`;
   }
   if (type === "invalid_request" || code === 400) {
-    return `Speech recognition could not start (${raw || "invalid request"}).${req ? ` Ref: ${req}` : ""}`;
+    const detail = prod ? "invalid request" : raw || "invalid request";
+    return `Speech recognition could not start (${detail}).${refSuffix}`;
   }
   if (type === "unauthenticated" || code === 401) {
-    return "Speech recognition auth failed — check SONIOX_API_KEY on the API server.";
+    return prod
+      ? "Speech recognition could not authenticate. Stop and start a new session, or contact support."
+      : "Speech recognition auth failed — check STT API key on the API server.";
   }
   if (type === "permission_denied" || code === 403) {
-    return "Speech recognition access denied — check Soniox account limits or API key.";
+    return prod
+      ? "Speech recognition access denied — check your plan limits or start a new session."
+      : "Speech recognition access denied — check account limits or API key.";
   }
   if (type === "rate_limited" || code === 429) {
     return "Speech recognition rate limited — wait a moment and start a new session.";
   }
   if (/upstream/i.test(raw)) {
-    return `Speech recognition service unavailable — try stopping and starting again.${req ? ` Ref: ${req}` : ""}`;
+    return `Speech recognition service unavailable — try stopping and starting again.${refSuffix}`;
   }
   if (raw) {
+    if (prod) {
+      return "Speech recognition error. Stop and start a new session.";
+    }
     return code != null && Number.isFinite(Number(code)) ? `${raw} (${code})` : raw;
   }
   return code != null && Number.isFinite(Number(code))
@@ -1654,8 +1666,14 @@ async function translateViaPrimaryApi(
   const REQUEST_TIMEOUT_MS = 30_000;
   const fatal503Codes = new Set([
     "TRANSLATION_NOT_CONFIGURED",
+    "TRANSLATION_UNAVAILABLE",
+    "TRANSLATION_SERVICE_AUTH",
+    "TRANSLATION_RATE_LIMITED",
+    "TRANSLATION_BILLING",
+    "TRANSLATION_LANGUAGE",
     "LIBRETRANSLATE_FAILED",
     "HETZNER_MT_LANE_UNASSIGNED",
+    "SESSION_CAPACITY_LIMIT",
     "OPENAI_AUTH_FAILED",
     "OPENAI_RATE_LIMITED",
     "OPENAI_BILLING",
@@ -3363,6 +3381,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const canonWsIsolationRecordingRef = useRef(false);
   /** Soniox API key for the active session — used to restart STT on mid-session language change. */
   const sonioxSessionApiKeyRef = useRef<string | null>(null);
+  const sonioxRtUrlRef = useRef<string | null>(null);
   /** True once a deterministic canon session mounted — snapshots read engine lines until cleared. */
   const canonWsSnapshotFromEngineRef = useRef(false);
   const canonRowTranslateSeqRef = useRef(new Map<string, number>());
@@ -8120,6 +8139,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     canonWsIsolationRecordingRef.current = false;
     sonioxSessionApiKeyRef.current = null;
+    sonioxRtUrlRef.current = null;
 
     canonWsIsolationEngineRef.current?.stopSoniox();
     canonWsIsolationEngineRef.current?.setHooks({ onSpeechToken: undefined });
@@ -8286,7 +8306,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // Soniox streaming: speaker boundaries use effectiveSpeakersForTokenBoundaries() to ignore
   // diarization flicker during fast bilingual turns (short A→B→A runs stay one segment).
   const buildWs = useCallback((apiKey: string): WebSocket => {
-    const ws = new WebSocket(SONIOX_WS_URL);
+    const rtUrl = sonioxRtUrlRef.current;
+    if (!rtUrl) {
+      throw new Error("Live session endpoint is not available. Please stop and start again.");
+    }
+    const ws = new WebSocket(rtUrl);
 
     ws.onopen = () => {
       const pair = langPairRef.current;
@@ -9620,6 +9644,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         getTokenMut.mutateAsync(undefined as any),
         sessionStartPromise,
       ]);
+      sonioxRtUrlRef.current = tokenRes.rtUrl?.trim() || null;
+      if (!sonioxRtUrlRef.current) {
+        throw new Error("Live session endpoint is not available. Please try again.");
+      }
       sessionIdRef.current = sessionRes.sessionId;
       setSessionId(sessionRes.sessionId);
       transcriptBufRef.current  = [];
@@ -9754,7 +9782,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           eng.setChunkV2GlossaryTerms([]);
           chunkV2GlossaryTermsRef.current = [];
         }
-        eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE);
+        eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE, tokenRes.rtUrl);
       } else {
         canonWsIsolationRecordingRef.current = false;
         sonioxSessionApiKeyRef.current = tokenRes.apiKey;
@@ -9866,9 +9894,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       let msg =
         getApiErrorMessage(err) ??
         (err instanceof Error ? err.message : "Failed to start transcription");
-      if (errCode === "TRANSCRIPTION_NOT_CONFIGURED") {
+      if (errCode === "TRANSCRIPTION_NOT_CONFIGURED" || errCode === "TRANSCRIPTION_UNAVAILABLE") {
         msg =
-          "Live transcription is off: the server is missing SONIOX_API_KEY. Add it in Railway (or .env for local API), then redeploy.";
+          getApiErrorMessage(err) ??
+          "Live transcription is temporarily unavailable. Please try again later or contact support.";
       } else if (errCode === "FEEDBACK_REQUIRED") {
         msg = "Daily feedback is required before you can start another session.";
       } else if (errCode === "DAILY_LIMIT_REACHED") {
@@ -9920,7 +9949,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const eng = canonWsIsolationEngineRef.current;
     const apiKey = sonioxSessionApiKeyRef.current;
     if (!eng || !apiKey) return;
-    eng.restartSoniox(apiKey, { a, b }, TARGET_RATE);
+    eng.restartSoniox(apiKey, { a, b }, TARGET_RATE, sonioxRtUrlRef.current ?? undefined);
   }, []);
 
   // ── getSnapshot ────────────────────────────────────────────────────────────

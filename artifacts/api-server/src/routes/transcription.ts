@@ -51,6 +51,7 @@ import { sessionStore } from "../lib/session-store.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
+import { clientFacingError, clientFacingErrorCode } from "../lib/clientFacingError.js";
 import type { HetznerMtWireDebugMeta } from "../lib/hetzner-translate.js";
 import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
@@ -472,6 +473,12 @@ function nextDiagSegmentId(sessionId: number): string {
 
 const SONIOX_TEMP_KEY_URL = "https://api.soniox.com/v1/auth/temporary-api-key";
 
+function sonioxRtWsUrlForClient(): string {
+  const fromEnv = process.env.SONIOX_RT_WS_URL?.trim();
+  if (fromEnv && /^wss:\/\//i.test(fromEnv)) return fromEnv;
+  return "wss://stt-rt.soniox.com/transcribe-websocket";
+}
+
 /** Browser-facing Soniox temp keys: short TTL reduces replay window (override with SONIOX_TEMP_KEY_TTL_SECONDS, clamped 60–600). */
 function sonioxTemporaryKeyTtlSeconds(): number {
   const raw = Number.parseInt(process.env.SONIOX_TEMP_KEY_TTL_SECONDS?.trim() ?? "", 10);
@@ -559,20 +566,25 @@ router.post("/token", requireAuth, async (req, res) => {
     const masterKey = getSonioxMasterApiKey();
     if (!masterKey) {
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Transcription is unavailable: set SONIOX_API_KEY (or SONIOX_STT_API_KEY) on this API service in Railway, then redeploy.",
-        code: "TRANSCRIPTION_NOT_CONFIGURED",
+          "Live transcription is temporarily unavailable. Please try again later or contact support.",
+        ),
+        code: clientFacingErrorCode("TRANSCRIPTION_NOT_CONFIGURED"),
       });
       return;
     }
 
     const { apiKey, expiresIn } = await getSonioxKeyForClient(masterKey);
-    res.json({ apiKey, expiresIn });
+    res.json({ apiKey, expiresIn, rtUrl: sonioxRtWsUrlForClient() });
   } catch (err) {
     logger.error({ err }, "POST /api/transcription/token failed");
     res.status(503).json({
-      error: "Could not issue a transcription token. Try again or contact support.",
-      code: "TRANSCRIPTION_TOKEN_ERROR",
+      error: clientFacingError(
+        "Could not issue a transcription token.",
+        "Could not start a live session right now. Please try again or contact support.",
+      ),
+      code: clientFacingErrorCode("TRANSCRIPTION_TOKEN_ERROR"),
     });
   }
 });
@@ -1189,9 +1201,11 @@ router.post("/session/start", requireAuth, async (req, res) => {
   } catch (e) {
     if (e instanceof HetznerTrialRoutingBlockedError) {
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Could not start this session on the machine translation tier right now (all Hetzner worker slots are reserved for paid sessions). Try again shortly or contact support.",
-        code: "HETZNER_TRIAL_ROUTING_BLOCKED",
+          "Could not start a session right now — capacity is limited. Please try again shortly or contact support.",
+        ),
+        code: clientFacingErrorCode("HETZNER_TRIAL_ROUTING_BLOCKED"),
       });
       return;
     }
@@ -1800,9 +1814,11 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   if (!useMachineTranslation && !isOpenAiConfigured()) {
     res.status(503).json({
-      error:
+      error: clientFacingError(
         "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
-      code: "TRANSLATION_NOT_CONFIGURED",
+        "Translation is temporarily unavailable. Please try again later or contact support.",
+      ),
+      code: clientFacingErrorCode("TRANSLATION_NOT_CONFIGURED"),
     });
     return;
   }
@@ -1855,9 +1871,11 @@ router.post("/translate", requireAuth, async (req, res) => {
   if (morsyChunkV2Applies) {
     if (!isOpenAiConfigured()) {
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
-        code: "TRANSLATION_NOT_CONFIGURED",
+          "Translation is temporarily unavailable. Please try again later or contact support.",
+        ),
+        code: clientFacingErrorCode("TRANSLATION_NOT_CONFIGURED"),
       });
       return;
     }
@@ -1914,9 +1932,11 @@ router.post("/translate", requireAuth, async (req, res) => {
   if (openAiLegacy2CleanApplies) {
     if (!isOpenAiConfigured()) {
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Translation is unavailable: set OPENAI_API_KEY, or AI_INTEGRATIONS_OPENAI_BASE_URL + AI_INTEGRATIONS_OPENAI_API_KEY on the API server.",
-        code: "TRANSLATION_NOT_CONFIGURED",
+          "Translation is temporarily unavailable. Please try again later or contact support.",
+        ),
+        code: clientFacingErrorCode("TRANSLATION_NOT_CONFIGURED"),
       });
       return;
     }
@@ -1983,9 +2003,11 @@ router.post("/translate", requireAuth, async (req, res) => {
     );
     if (effectiveHetznerLane == null) {
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Machine translation routing is not initialized for this session. Start a new recording session and try again.",
-        code: "HETZNER_MT_LANE_UNASSIGNED",
+          "Translation routing is not ready for this session. Stop and start a new recording, then try again.",
+        ),
+        code: clientFacingErrorCode("HETZNER_MT_LANE_UNASSIGNED"),
       });
       return;
     }
@@ -2014,9 +2036,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       });
       if (!clean.text.trim() && text.trim().length >= 1) {
         res.status(503).json({
-          error:
+          error: clientFacingError(
             "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
-          code: "LIBRETRANSLATE_FAILED",
+            "Translation is temporarily unavailable. Please try again shortly or contact support.",
+          ),
+          code: clientFacingErrorCode("LIBRETRANSLATE_FAILED"),
         });
         return;
       }
@@ -2047,9 +2071,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         "trial-hetzner clean translation failed",
       );
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server.",
-        code: "LIBRETRANSLATE_FAILED",
+          "Translation is temporarily unavailable. Please try again shortly or contact support.",
+        ),
+        code: clientFacingErrorCode("LIBRETRANSLATE_FAILED"),
       });
     }
     return;
@@ -2148,9 +2174,11 @@ router.post("/translate", requireAuth, async (req, res) => {
       );
       if (effectiveHetznerLane == null) {
         res.status(503).json({
-          error:
+          error: clientFacingError(
             "Machine translation routing is not initialized for this session. Start a new recording session and try again.",
-          code: "HETZNER_MT_LANE_UNASSIGNED",
+            "Translation routing is not ready for this session. Stop and start a new recording, then try again.",
+          ),
+          code: clientFacingErrorCode("HETZNER_MT_LANE_UNASSIGNED"),
         });
         return;
       }
@@ -2254,9 +2282,11 @@ router.post("/translate", requireAuth, async (req, res) => {
           "Machine translation returned empty after retry",
         );
         res.status(503).json({
-          error:
+          error: clientFacingError(
             "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server (LIBRETRANSLATE_URL or configured Hetzner host).",
-          code: "LIBRETRANSLATE_FAILED",
+            "Translation is temporarily unavailable. Please try again shortly or contact support.",
+          ),
+          code: clientFacingErrorCode("LIBRETRANSLATE_FAILED"),
         });
         return;
       }
@@ -2289,9 +2319,11 @@ router.post("/translate", requireAuth, async (req, res) => {
         "Hetzner machine translation failed",
       );
       res.status(503).json({
-        error:
+        error: clientFacingError(
           "Translation is temporarily unavailable (Hetzner machine translation). Ensure the Hetzner/LibreTranslate endpoint is reachable from the API server (LIBRETRANSLATE_URL or configured Hetzner host).",
-        code: "LIBRETRANSLATE_FAILED",
+          "Translation is temporarily unavailable. Please try again shortly or contact support.",
+        ),
+        code: clientFacingErrorCode("LIBRETRANSLATE_FAILED"),
       });
     }
     return;
@@ -2861,21 +2893,29 @@ router.post("/translate", requireAuth, async (req, res) => {
     } else if (upstreamStatus === 401 || upstreamStatus === 403) {
       statusCode = 503;
       body = {
-        code: "OPENAI_AUTH_FAILED",
-        error:
+        code: clientFacingErrorCode("OPENAI_AUTH_FAILED"),
+        error: clientFacingError(
           "Translation is unavailable: OpenAI rejected the API key (401/403). Check OPENAI_API_KEY or integration keys on this Railway service and redeploy.",
+          "Translation is temporarily unavailable. Please try again later or contact support.",
+        ),
       };
     } else if (upstreamStatus === 429) {
       statusCode = 503;
       body = {
-        code: "OPENAI_RATE_LIMITED",
-        error: "Translation is temporarily unavailable (OpenAI rate limit). Try again in a minute.",
+        code: clientFacingErrorCode("OPENAI_RATE_LIMITED"),
+        error: clientFacingError(
+          "Translation is temporarily unavailable (OpenAI rate limit). Try again in a minute.",
+          "Translation is temporarily busy. Please try again in a minute.",
+        ),
       };
     } else if (upstreamStatus === 402) {
       statusCode = 503;
       body = {
-        code: "OPENAI_BILLING",
-        error: "Translation is unavailable: OpenAI returned a billing/payment error. Check your OpenAI account billing.",
+        code: clientFacingErrorCode("OPENAI_BILLING"),
+        error: clientFacingError(
+          "Translation is unavailable: OpenAI returned a billing/payment error. Check your OpenAI account billing.",
+          "Translation is temporarily unavailable. Please contact support if this continues.",
+        ),
       };
     }
 
