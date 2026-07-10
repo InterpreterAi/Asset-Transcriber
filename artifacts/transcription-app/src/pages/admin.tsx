@@ -335,6 +335,10 @@ interface AdminReferralRow {
   referredUserId: number;
   referredUsername: string | null;
   referredEmail: string | null;
+  planType: string;
+  planLabel: string;
+  accountType: "trial" | "paid";
+  subscriptionStatus: string | null;
   status: "pending" | "active";
   sessionsCount: number;
   createdAt: string;
@@ -370,6 +374,10 @@ interface AdminReferrerTimeline {
     sessionsCount: number;
     username: string | null;
     email: string | null;
+    planType: string;
+    planLabel: string;
+    accountType: "trial" | "paid";
+    subscriptionStatus: string | null;
     joinedAt: string;
     upgraded: boolean;
     upgradedAt: string | null;
@@ -2858,12 +2866,13 @@ export default function Admin() {
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1320px] text-sm">
+                <table className="w-full min-w-[1480px] text-sm">
                   <thead className="bg-muted/30 text-muted-foreground text-xs uppercase tracking-wider">
                     <tr>
                       <th className="text-left px-4 py-2.5">Referrer</th>
                       <th className="text-left px-4 py-2.5">Share taps</th>
                       <th className="text-left px-4 py-2.5">Referred user</th>
+                      <th className="text-left px-4 py-2.5">Account</th>
                       <th className="text-left px-4 py-2.5">Status</th>
                       <th className="text-left px-4 py-2.5">Upgrade</th>
                       <th className="text-left px-4 py-2.5">Sessions</th>
@@ -2893,6 +2902,19 @@ export default function Admin() {
                         <td className="px-4 py-2.5">
                           <p className="font-medium">{row.referredUsername ?? `User #${row.referredUserId}`}</p>
                           <p className="text-xs text-muted-foreground">{row.referredEmail ?? "No email"}</p>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            row.accountType === "paid"
+                              ? "bg-violet-50 text-violet-700"
+                              : "bg-slate-100 text-slate-700"
+                          }`}>
+                            {row.planLabel}
+                          </span>
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            {row.accountType === "paid" ? "Paid account" : "Trial account"}
+                            {row.subscriptionStatus ? ` · ${row.subscriptionStatus}` : ""}
+                          </p>
                         </td>
                         <td className="px-4 py-2.5">
                           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
@@ -3018,7 +3040,7 @@ export default function Admin() {
                             <div key={r.id} className="px-3 py-2 border-b border-border/50 text-sm">
                               <p className="font-medium">{r.username ?? r.email ?? `User #${r.id}`}</p>
                               <p className="text-xs text-muted-foreground mt-0.5">
-                                joined {format(new Date(r.joinedAt), "MMM d, yyyy p")} · sessions {r.sessionsCount}
+                                joined {format(new Date(r.joinedAt), "MMM d, yyyy p")} · sessions {r.sessionsCount} · {r.planLabel} ({r.accountType === "paid" ? "paid" : "trial"})
                               </p>
                               <p className="text-xs text-muted-foreground mt-0.5">
                                 {r.upgraded

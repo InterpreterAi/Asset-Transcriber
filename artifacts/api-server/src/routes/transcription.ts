@@ -1200,17 +1200,25 @@ router.post("/session/start", requireAuth, async (req, res) => {
 
   void touchActivity(userForCap.id);
 
-  void db
-    .update(referralsTable)
-    .set({
-      status: "active",
-      sessionsCount: sql`COALESCE(${referralsTable.sessionsCount}, 0) + 1`,
-    })
-    .where(
-      and(
-        eq(referralsTable.referredUserId, userForCap.id),
-      )
+  try {
+    const liveCountRows = await db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(sessionsTable)
+      .where(eq(sessionsTable.userId, userForCap.id));
+    const liveCount = Number(liveCountRows[0]?.count ?? 0);
+    await db
+      .update(referralsTable)
+      .set({
+        status: "active",
+        sessionsCount: liveCount,
+      })
+      .where(eq(referralsTable.referredUserId, userForCap.id));
+  } catch (referralErr) {
+    logger.warn(
+      { err: referralErr, userId: userForCap.id },
+      "session/start: referral sessions sync failed",
     );
+  }
 
   res.json({ sessionId: result.id, message: "Session started" });
 });
