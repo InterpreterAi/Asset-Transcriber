@@ -1261,6 +1261,20 @@ export default function Admin() {
     }
   };
 
+  const deleteFeedback = async (id: number) => {
+    if (!confirm("Remove this feedback entry? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/admin/feedback/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("delete_failed");
+      await queryClient.invalidateQueries({ queryKey: getAdminListFeedbackQueryKey() });
+    } catch {
+      alert("Could not remove feedback. Please try again.");
+    }
+  };
+
   async function bumpAllUsersDailyFloor(floorMinutes: number) {
     const hrs = floorMinutes / 60;
     if (
@@ -2713,8 +2727,16 @@ export default function Admin() {
         {mainTab === "feedback" && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {feedback.map(item => (
-              <Card key={item.id} className="p-5 border border-border dark:border-white/[0.08] shadow-sm bg-card">
-                <div className="flex justify-between items-start mb-3">
+              <Card key={item.id} className="group relative p-5 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                <button
+                  onClick={() => void deleteFeedback(item.id)}
+                  title="Remove this feedback"
+                  aria-label="Remove this feedback"
+                  className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <div className="flex justify-between items-start mb-3 pr-8">
                   <div>
                     <h3 className="font-semibold text-sm">{item.username}</h3>
                     {item.email && (

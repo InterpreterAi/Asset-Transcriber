@@ -2254,6 +2254,24 @@ router.get("/feedback", requireAdmin, async (_req, res) => {
   });
 });
 
+// Delete a feedback entry (admin only)
+router.delete("/feedback/:id", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid feedback id" });
+    return;
+  }
+  const deleted = await db
+    .delete(feedbackTable)
+    .where(eq(feedbackTable.id, id))
+    .returning({ id: feedbackTable.id });
+  if (deleted.length === 0) {
+    res.status(404).json({ error: "Feedback not found" });
+    return;
+  }
+  res.json({ ok: true, id });
+});
+
 // ── Support ticket management ─────────────────────────────────────────────────
 
 // List all tickets
