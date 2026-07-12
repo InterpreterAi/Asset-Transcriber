@@ -121,7 +121,7 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
     params.set("period", mapPeriod);
     if (period === "custom") {
       params.set("from", new Date(`${customFrom}T00:00:00`).toISOString());
-      params.set("to", new Date(`${customTo}T23:59:59`).toISOString());
+      params.set("to", new Date(`${customTo}T23:59:59.999`).toISOString());
     }
     setSessionsLoading(true);
     void fetch(`/api/transcription/sessions?${params.toString()}`, { credentials: "include" })
@@ -151,7 +151,9 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
   const renewalRaw = overview?.user.subscriptionPeriodEndsAt ?? null;
 
   const filteredSessions = (sessions ?? []).filter((s) => {
-    if (!trialLike) return true;
+    // A custom range is an explicit request for a specific window (incl. old
+    // sessions), so never clip it by the trial "history starts now" baseline.
+    if (!trialLike || period === "custom") return true;
     return new Date(s.startedAt).getTime() >= trialHistoryBaseline.getTime();
   });
 
@@ -279,9 +281,34 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-9 px-3 rounded-lg border border-border text-sm bg-background" />
                 </div>
               )}
+              {!sessionsLoading && filteredSessions.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-border p-3">
+                    <p className="text-xs text-muted-foreground">Sessions</p>
+                    <p className="text-lg font-semibold">{filteredSessions.length}</p>
+                  </div>
+                  <div className="rounded-xl border border-border p-3">
+                    <p className="text-xs text-muted-foreground">Total time</p>
+                    <p className="text-lg font-semibold">
+                      {formatDurationSeconds(filteredSessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0))}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-border p-3">
+                    <p className="text-xs text-muted-foreground">Avg / session</p>
+                    <p className="text-lg font-semibold">
+                      {formatDurationSeconds(
+                        Math.round(
+                          filteredSessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0) /
+                            filteredSessions.length,
+                        ),
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 border border-border rounded-xl overflow-hidden">
                 <div className="grid grid-cols-4 text-xs font-medium bg-muted/40 px-4 py-2">
-                  <span>Provider</span>
+                  <span>Languages</span>
                   <span>Date</span>
                   <span>Time</span>
                   <span className="text-right">Duration</span>
@@ -290,14 +317,19 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   <div className="px-4 py-6 text-sm text-muted-foreground">Loading history...</div>
                 ) : filteredSessions.length === 0 ? (
                   <div className="px-4 py-6 text-sm text-muted-foreground">
-                    {trialLike ? "New trial history starts now." : "No session history for this range."}
+                    {trialLike && period !== "custom"
+                      ? "New trial history starts now."
+                      : "No session history for this range."}
                   </div>
                 ) : (
                   filteredSessions.map((s) => {
                     const d = new Date(s.startedAt);
+                    const parts = s.langPair ? s.langPair.split("→") : [];
+                    const langLabel =
+                      parts.length === 2 ? `${parts[0]!.trim()} → ${parts[1]!.trim()}` : s.langPair ?? "—";
                     return (
                       <div key={s.id} className="grid grid-cols-4 text-sm px-4 py-2.5 border-t border-border/60">
-                        <span className="text-xs rounded-md px-2 py-0.5 border border-border w-fit">Main v2</span>
+                        <span className="truncate pr-2 text-primary/90" title={langLabel}>{langLabel}</span>
                         <span>{d.toLocaleDateString()}</span>
                         <span>{d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                         <span className="text-right">{formatDurationSeconds(s.durationSeconds)}</span>
