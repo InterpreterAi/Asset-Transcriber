@@ -9,6 +9,7 @@ import {
   dbPlanTypeFromPayPalBilling,
   extractPayPalSubscriptionId,
   extractPayPalCustomId,
+  extractPayPalResourceId,
   extractPayPalSubscriberEmail,
   extractPayPalSubscriptionNextBillingTime,
   extractPayPalSubscriptionPlanId,
@@ -19,6 +20,7 @@ import {
   paypalPlanEnvDiagnostics,
   paypalPlanConfig,
   PayPalApiError,
+  resolvePayPalSubscriptionDatesWithApiFallback,
   subscriptionPeriodEndFallback,
   type BillingPlanType,
   verifyPayPalWebhookSignature,
@@ -509,10 +511,16 @@ router.post("/paypal-webhook", async (req, res) => {
       }
     }
 
-    if (eventType === "BILLING.SUBSCRIPTION.RENEWED" || eventType === "BILLING.SUBSCRIPTION.PAYMENT.COMPLETED") {
-      const startAt = extractPayPalSubscriptionStartTime(resource) ?? new Date();
-      const periodEnd =
-        extractPayPalSubscriptionNextBillingTime(resource) ?? subscriptionPeriodEndFallback(startAt);
+    // "BILLING.SUBSCRIPTION.RENEWED" / "BILLING.SUBSCRIPTION.PAYMENT.COMPLETED" are not real PayPal event
+    // names for the Subscriptions API — kept here defensively, but the actual renewal-charge event PayPal
+    // sends is "PAYMENT.SALE.COMPLETED" (Sale resource) or "PAYMENT.CAPTURE.COMPLETED" (Capture resource).
+    if (
+      eventType === "BILLING.SUBSCRIPTION.RENEWED" ||
+      eventType === "BILLING.SUBSCRIPTION.PAYMENT.COMPLETED" ||
+      eventType === "PAYMENT.SALE.COMPLETED" ||
+      eventType === "PAYMENT.CAPTURE.COMPLETED"
+    ) {
+      const { startAt, periodEnd } = await resolvePayPalSubscriptionDatesWithApiFallback(resource, paypalSubId);
       const effectivePlanType = await getEffectivePlanType();
       const sharedPatch: Partial<typeof usersTable.$inferSelect> = {
         subscriptionStatus: "active",
@@ -540,10 +548,16 @@ router.post("/paypal-webhook", async (req, res) => {
           .limit(1);
         const em = renewedUser?.email?.trim().toLowerCase();
         if (em) {
+          // Prefer the payment's own id (unique per renewal charge) over the period-end timestamp so
+          // two renewals that happen to resolve to the same period end are never conflated, and so
+          // PayPal's at-least-once webhook redelivery of the same charge is reliably deduplicated.
+          const paymentResourceId = extractPayPalResourceId(resource);
           const periodMarker = periodEnd && Number.isFinite(periodEnd.getTime()) ? periodEnd.toISOString() : "";
-          const marker = periodMarker
-            ? `paypal:${paypalSubId || "unknown"}:${periodMarker}`
-            : `paypal:${paypalSubId || "unknown"}:${eventId || extractPayPalSubscriptionId(resource) || "event"}`;
+          const marker = paymentResourceId
+            ? `paypal:${paypalSubId || "unknown"}:${paymentResourceId}`
+            : periodMarker
+              ? `paypal:${paypalSubId || "unknown"}:${periodMarker}`
+              : `paypal:${paypalSubId || "unknown"}:${eventId || extractPayPalSubscriptionId(resource) || "event"}`;
           if (renewedUser.paymentReceiptLastInvoiceId === marker) {
             logger.info({ userId, marker, eventType }, "PayPal renewal email deduplicated");
             res.json({ received: true, deduped: true });

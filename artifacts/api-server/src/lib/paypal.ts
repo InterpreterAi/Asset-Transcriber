@@ -112,18 +112,25 @@ export function extractPayPalSubscriptionPlanId(resource: unknown): string {
   return "";
 }
 
+/** Subscriptions API echoes the `custom_id` set at creation back as `custom` on PAYMENT.SALE.COMPLETED / PAYMENT.CAPTURE.COMPLETED resources. */
 export function extractPayPalCustomId(resource: unknown): string {
   if (!resource || typeof resource !== "object") return "";
   const o = resource as Record<string, unknown>;
-  const c = o.custom_id ?? o.customId;
+  const c = o.custom_id ?? o.customId ?? o.custom;
   return typeof c === "string" ? c.trim() : "";
 }
 
+/**
+ * Resolves the *subscription* id (format `I-XXXXXXXXXXXX`) from any webhook resource shape.
+ * For `BILLING.SUBSCRIPTION.*` events, `resource.id` IS the subscription id.
+ * For `PAYMENT.SALE.COMPLETED` / `PAYMENT.CAPTURE.COMPLETED` (renewal payments), `resource.id` is the
+ * *payment's own* id — the subscription id lives in `billing_agreement_id` or `supplementary_data.related_ids`.
+ * Billing-agreement / supplementary data is checked first so a Sale/Capture payment id never gets
+ * mistaken for the subscription id; the direct `id` fallback is restricted to the `I-` subscription format.
+ */
 export function extractPayPalSubscriptionId(resource: unknown): string {
   if (!resource || typeof resource !== "object") return "";
   const o = resource as Record<string, unknown>;
-  const directId = o.id;
-  if (typeof directId === "string" && directId.trim()) return directId.trim();
   const billingAgreementId = o.billing_agreement_id ?? o.billingAgreementId;
   if (typeof billingAgreementId === "string" && billingAgreementId.trim()) return billingAgreementId.trim();
   const supplementaryData = o.supplementary_data ?? o.supplementaryData;
@@ -140,7 +147,17 @@ export function extractPayPalSubscriptionId(resource: unknown): string {
       if (typeof billingId === "string" && billingId.trim()) return billingId.trim();
     }
   }
+  const directId = o.id;
+  if (typeof directId === "string" && directId.trim().startsWith("I-")) return directId.trim();
   return "";
+}
+
+/** Raw `resource.id` — the payment/sale/capture's own id (unique per renewal charge, used for webhook idempotency). */
+export function extractPayPalResourceId(resource: unknown): string {
+  if (!resource || typeof resource !== "object") return "";
+  const o = resource as Record<string, unknown>;
+  const id = o.id;
+  return typeof id === "string" ? id.trim() : "";
 }
 
 export function extractPayPalSubscriberEmail(resource: unknown): string | undefined {
@@ -269,6 +286,33 @@ export const SUBSCRIPTION_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function subscriptionPeriodEndFallback(start: Date): Date {
   return new Date(start.getTime() + SUBSCRIPTION_PERIOD_MS);
+}
+
+/**
+ * Renewal payment resources (`PAYMENT.SALE.COMPLETED` / `PAYMENT.CAPTURE.COMPLETED`) don't carry
+ * `start_time` / `billing_info.next_billing_time` the way a subscription resource does, so the
+ * webhook's own dates are usually missing here. Falls back to fetching the subscription from the
+ * PayPal API (the same lookup the admin "sync by email" recovery tool uses) so the extended period
+ * reflects PayPal's real billing cycle rather than a blind +30-day guess.
+ */
+export async function resolvePayPalSubscriptionDatesWithApiFallback(
+  resource: unknown,
+  paypalSubId: string,
+): Promise<{ startAt: Date; periodEnd: Date }> {
+  let startAt = extractPayPalSubscriptionStartTime(resource);
+  let periodEnd = extractPayPalSubscriptionNextBillingTime(resource);
+  if ((!startAt || !periodEnd) && paypalSubId) {
+    try {
+      const subJson = await fetchPayPalSubscription(paypalSubId);
+      startAt = startAt ?? extractPayPalSubscriptionStartTime(subJson);
+      periodEnd = periodEnd ?? extractPayPalSubscriptionNextBillingTime(subJson);
+    } catch (err) {
+      logger.warn({ err, paypalSubId }, "PayPal: could not fetch subscription to resolve billing dates");
+    }
+  }
+  const resolvedStart = startAt ?? new Date();
+  const resolvedEnd = periodEnd ?? subscriptionPeriodEndFallback(resolvedStart);
+  return { startAt: resolvedStart, periodEnd: resolvedEnd };
 }
 
 export async function getPayPalAccessToken(): Promise<string> {
