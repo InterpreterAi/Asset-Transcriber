@@ -58,7 +58,8 @@ export function getMandatoryFeedbackThresholdMinutes(dailyLimitMinutes: number):
 }
 
 /**
- * Half-daily mandatory feedback mid-session: **active trial** accounts only (paid users defer until session end).
+ * Half-daily mandatory feedback mid-session: **active trial accounts only.** Paid plans have no
+ * mandatory (or dismissible) feedback prompt at all — see {@link isPaidPostSessionFeedbackEligible}.
  */
 export function isMandatoryFeedbackEligible(user: User): boolean {
   if (!isTrialLikePlanType(user.planType) || isTrialExpired(user)) return false;
@@ -68,13 +69,16 @@ export function isMandatoryFeedbackEligible(user: User): boolean {
   return true;
 }
 
-/** Paid (non–trial-like plan_type): same meter rules; blocks next session only after stop (see transcription routes). */
-export function isPaidPostSessionFeedbackEligible(user: User): boolean {
-  if (isTrialLikePlanType(user.planType)) return false;
-  const dailyLimit = Number(user.dailyLimitMinutes);
-  if (!Number.isFinite(dailyLimit) || dailyLimit <= 0) return false;
-  if (dailyLimit >= UNLIMITED_DAILY_CAP_MINUTES) return false;
-  return true;
+/**
+ * Paid (non–trial-like plan_type) mandatory post-session feedback: **disabled by product decision.**
+ * Only active trial accounts get mandatory feedback now (see {@link isMandatoryFeedbackEligible}, at
+ * half of the trial daily cap). Kept as a hard `false` — rather than deleting the surrounding
+ * dedupe/email plumbing below — so paid gating can be re-enabled later without re-deriving the rules.
+ * This single switch disables the server session-start gate (`mandatoryFeedbackGateSatisfied` in
+ * transcription.ts), the `/api/feedback/status` `paidPostSession` flags, and the client prompt.
+ */
+export function isPaidPostSessionFeedbackEligible(_user: User): boolean {
+  return false;
 }
 
 export function isMandatoryFeedbackRequiredByUsage(user: User): boolean {

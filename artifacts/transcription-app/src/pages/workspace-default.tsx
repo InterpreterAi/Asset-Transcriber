@@ -31,9 +31,7 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { DeleteAccountSection } from "@/components/DeleteAccountSection";
 import { ReportIssueModal } from "@/components/ReportIssueModal";
 import { UserFeedbackModal } from "@/components/UserFeedbackModal";
-import { DailyFeedbackPrompt } from "@/components/DailyFeedbackPrompt";
 import { EarlyTrialFeedbackPrompt } from "@/components/EarlyTrialFeedbackPrompt";
-import { PaidPostSessionFeedbackPrompt } from "@/components/PaidPostSessionFeedbackPrompt";
 import { SessionHistoryPanel } from "@/components/SessionHistoryPanel";
 import {
   cn,
@@ -973,21 +971,14 @@ export default function WorkspaceDefault() {
         isOpen={showUserFeedback}
         onClose={() => setShowUserFeedback(false)}
       />
+      {/* Mandatory feedback is trial-only now (half of the trial daily cap, i.e. 1 hour of a 2-hour trial).
+          Paid plans no longer get any feedback prompt — mandatory or dismissible. */}
       <EarlyTrialFeedbackPrompt
         planType={user.planType}
         trialExpired={user.trialExpired}
         effectiveMinutesUsedToday={effectiveMinutesUsedToday}
         dailyLimitMinutes={user.dailyLimitMinutes}
       />
-      <PaidPostSessionFeedbackPrompt
-        planType={user.planType}
-        dailyLimitMinutes={user.dailyLimitMinutes}
-        minutesUsedToday={user.minutesUsedToday}
-        isRecording={transcription.isRecording}
-      />
-      {!(isTrialLikePlanType(user.planType) && !user.trialExpired) && (
-        <DailyFeedbackPrompt minutesUsedToday={user.minutesUsedToday} />
-      )}
       {showInviteModal && (
         <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />
       )}
