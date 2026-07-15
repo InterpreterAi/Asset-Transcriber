@@ -9942,7 +9942,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const setLangPair = useCallback((a: string, b: string) => {
     const prev = langPairRef.current;
     langPairRef.current = { a, b };
-    if (!isBasicMorsyUrgentPlan(planTypeRef.current)) return;
+    // Reconnect live for morsy-urgent AND any plan hard-routed to Soniox native
+    // two-way translation — otherwise a mid-session pair change would leave the
+    // already-open Soniox `translation.language_a/b` config stuck on the old pair.
+    if (
+      !isBasicMorsyUrgentPlan(planTypeRef.current) &&
+      !planForcesChunkV2Soniox(planTypeRef.current)
+    ) return;
     if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
     if (prev.a === a && prev.b === b) return;
     const eng = canonWsIsolationEngineRef.current;

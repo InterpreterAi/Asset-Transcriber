@@ -283,6 +283,48 @@ TERMS_BY_LANG["zh"] = [
 
 // Fallbacks for other language pairs: keep only EN anchors when pair-specific map missing.
 
+/**
+ * Per-language "formal register" reminders, keyed by ISO code.
+ * Only the two languages actually in the session's pair are injected into
+ * Soniox's `context.general` — mentioning every supported language on every
+ * session (regardless of pair) added irrelevant noise that could bias
+ * real-time translation/LID toward an unrelated language (e.g. a Spanish
+ * register reminder showing up on an English↔Portuguese session).
+ */
+const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
+  ar: { key: "arabic_register", value: "Arabic: always use Modern Standard Arabic (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan, or any Arabic dialect." },
+  es: { key: "spanish_register", value: "Spanish: always use standard formal Castilian Spanish. Never use regional slang, Chicano, Caribbean, or Latin American colloquial forms." },
+  pt: { key: "portuguese_register", value: "Portuguese: always use standard formal European or Brazilian Portuguese grammar. Never use slang or street-level colloquial forms." },
+  zh: { key: "chinese_register", value: "Chinese: always use Standard Mandarin (普通话 Putonghua) in simplified characters. Never use Cantonese, Hokkien, or regional dialect forms." },
+  fr: { key: "french_register", value: "French: always use standard formal French. Never use Québécois informal speech, Verlan, or African French slang." },
+  de: { key: "german_register", value: "German: always use standard formal German (Hochdeutsch). Never use Austrian, Swiss, or regional dialect forms." },
+  ru: { key: "russian_register", value: "Russian: always use standard literary Russian. Never use slang or informal colloquial forms." },
+  pl: { key: "polish_register", value: "Polish: always use standard formal Polish. Never use regional or colloquial forms." },
+  it: { key: "italian_register", value: "Italian: always use standard formal Italian (italiano standard). Never use regional dialects like Sicilian, Neapolitan, or Venetian." },
+  ko: { key: "korean_register", value: "Korean: always use formal polite Korean (존댓말 / 합쇼체). Never use casual speech (반말)." },
+  ja: { key: "japanese_register", value: "Japanese: always use formal polite Japanese (丁寧語 / です・ます form). Never use casual or informal forms." },
+  hi: { key: "hindi_register", value: "Hindi: always use standard formal Hindi. Avoid heavy Urdu mixing or regional colloquial forms." },
+  vi: { key: "vietnamese_register", value: "Vietnamese: always use standard formal Vietnamese. Never use regional slang." },
+  tr: { key: "turkish_register", value: "Turkish: always use standard formal Turkish. Never use slang or informal colloquial forms." },
+  so: { key: "somali_register", value: "Somali: always use standard formal Somali. Never use regional dialect forms." },
+  tl: { key: "tagalog_register", value: "Tagalog/Filipino: always use standard formal Filipino. Avoid heavy Taglish mixing or colloquial forms." },
+  uk: { key: "ukrainian_register", value: "Ukrainian: always use standard literary Ukrainian. Never use slang or informal forms." },
+  ro: { key: "romanian_register", value: "Romanian: always use standard formal Romanian. Never use regional or colloquial forms." },
+};
+
+/** Build only the register reminders relevant to this session's actual pair (plus Spanish gender note when `es` is involved). */
+function registerRulesForPair(a: string, b: string): { key: string; value: string }[] {
+  const rules: { key: string; value: string }[] = [];
+  for (const lang of [a, b]) {
+    const rule = REGISTER_RULE_BY_LANG[lang];
+    if (rule && !rules.some(r => r.key === rule.key)) rules.push(rule);
+  }
+  if (a === "es" || b === "es") {
+    rules.push({ key: "spanish_gender", value: "Spanish gender rules: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Always write 'un análisis', 'el sistema', 'un problema'. Never use feminine articles with these words." });
+  }
+  return rules;
+}
+
 export function getInterpreterContext(
   langA: string,
   langB: string,
@@ -350,27 +392,8 @@ export function getInterpreterContext(
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
-      { key: "arabic_register", value: "Arabic: always use Modern Standard Arabic (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan, or any Arabic dialect." },
-      { key: "spanish_register", value: "Spanish: always use standard formal Castilian Spanish. Never use regional slang, Chicano, Caribbean, or Latin American colloquial forms." },
-      { key: "portuguese_register", value: "Portuguese: always use standard formal European or Brazilian Portuguese grammar. Never use slang or street-level colloquial forms." },
-      { key: "chinese_register", value: "Chinese: always use Standard Mandarin (普通话 Putonghua) in simplified characters. Never use Cantonese, Hokkien, or regional dialect forms." },
-      { key: "french_register", value: "French: always use standard formal French. Never use Québécois informal speech, Verlan, or African French slang." },
-      { key: "german_register", value: "German: always use standard formal German (Hochdeutsch). Never use Austrian, Swiss, or regional dialect forms." },
-      { key: "russian_register", value: "Russian: always use standard literary Russian. Never use slang or informal colloquial forms." },
-      { key: "polish_register", value: "Polish: always use standard formal Polish. Never use regional or colloquial forms." },
-      { key: "italian_register", value: "Italian: always use standard formal Italian (italiano standard). Never use regional dialects like Sicilian, Neapolitan, or Venetian." },
-      { key: "korean_register", value: "Korean: always use formal polite Korean (존댓말 / 합쇼체). Never use casual speech (반말)." },
-      { key: "japanese_register", value: "Japanese: always use formal polite Japanese (丁寧語 / です・ます form). Never use casual or informal forms." },
-      { key: "hindi_register", value: "Hindi: always use standard formal Hindi. Avoid heavy Urdu mixing or regional colloquial forms." },
-      { key: "vietnamese_register", value: "Vietnamese: always use standard formal Vietnamese. Never use regional slang." },
-      { key: "turkish_register", value: "Turkish: always use standard formal Turkish. Never use slang or informal colloquial forms." },
-      { key: "somali_register", value: "Somali: always use standard formal Somali. Never use regional dialect forms." },
-      { key: "tagalog_register", value: "Tagalog/Filipino: always use standard formal Filipino. Avoid heavy Taglish mixing or colloquial forms." },
-      { key: "ukrainian_register", value: "Ukrainian: always use standard literary Ukrainian. Never use slang or informal forms." },
-      { key: "romanian_register", value: "Romanian: always use standard formal Romanian. Never use regional or colloquial forms." },
-      { key: "all_languages", value: "This rule applies to ALL 60 supported languages: output must always be in the formal, professional, written standard of that language as used in official medical and legal documents. Interpreters depend on this output for accuracy in professional settings." },
+      ...registerRulesForPair(a, b),
       { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
-      { key: "spanish_gender", value: "Spanish gender rules: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Always write 'un análisis', 'el sistema', 'un problema'. Never use feminine articles with these words." },
       { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],
     terms: [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN],
