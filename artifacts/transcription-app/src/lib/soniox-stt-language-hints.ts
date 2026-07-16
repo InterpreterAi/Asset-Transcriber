@@ -134,11 +134,11 @@ export function sonioxRealtimeSessionTuning(
     return {
       // LID can over-lock Latin/Latin pairs onto English before any text lands.
       enableLanguageIdentification: false,
-      maxEndpointDelayMs: 1000,
+      maxEndpointDelayMs: 2500,
     };
   }
   return {
     enableLanguageIdentification: true,
-    maxEndpointDelayMs: 1000,
+    maxEndpointDelayMs: 2500,
   };
 }

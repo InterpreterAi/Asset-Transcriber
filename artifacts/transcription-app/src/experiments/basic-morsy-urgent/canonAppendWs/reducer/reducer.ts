@@ -114,8 +114,12 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
-      const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
-      if (langBreak) {
+      // spkBreak is now evaluated independently of langBreak.
+      // A language switch alone (same speaker, interpreter code-switching en↔ar) is NOT
+      // a bubble boundary — only split when BOTH language AND speaker change together.
+      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
+      if (langBreak && spkBreak) {
+        // Genuine handoff: different language AND different speaker — hard break.
         next = freezeActiveUtterance(next);
         next = {
           ...next,
@@ -125,6 +129,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
           metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
         };
       } else if (spkBreak) {
+        // Speaker changed, language stayed the same — use the confirmation debounce.
         const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
         if (consecutive >= speakerBreakConfirmTokens) {
           next = freezeActiveUtterance(next);
@@ -138,6 +143,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         } else {
           next = { ...next, speakerChangeConsecutive: consecutive };
         }
+        // langBreak && !spkBreak: same speaker, language switched (interpreter code-switch).
+        // Fall through — no freeze, token appended to the active row below.
       } else {
         next = { ...next, speakerChangeConsecutive: 0 };
       }

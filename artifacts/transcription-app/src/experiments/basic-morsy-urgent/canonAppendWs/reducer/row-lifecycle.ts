@@ -26,10 +26,13 @@ export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): bool
   return !!(rlg && tlg && rlg !== tlg);
 }
 
-/** Speaker changed within same language → requires debounce confirmation */
+/**
+ * Speaker changed — evaluated independently of language now (reducer combines
+ * this with `rowBreaksForLanguage` itself to distinguish a genuine handoff
+ * from a same-speaker language code-switch).
+ */
 export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
-  if (rowBreaksForLanguage(row, tok)) return false;
   const rsp = norm(row.speaker);
   const tsp = norm(tok.speaker);
   return !!(rsp && tsp && rsp !== tsp);
