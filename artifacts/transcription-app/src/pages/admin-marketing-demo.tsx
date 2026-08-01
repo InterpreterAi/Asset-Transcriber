@@ -80,6 +80,13 @@ export default function AdminMarketingDemo() {
     }
   }, [me, meLoading, meFetched, meError, setLocation]);
 
+  const authUnavailable =
+    meFetched &&
+    !meLoading &&
+    !me &&
+    Boolean(meError) &&
+    (!(meError instanceof ApiError) || meError.status !== 401);
+
   useEffect(() => {
     if (devices.length === 0) return;
     setSelectedDeviceId((prev) => {
@@ -234,6 +241,21 @@ export default function AdminMarketingDemo() {
     return (
       <div className="min-h-screen bg-[#03060d] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400" />
+      </div>
+    );
+  }
+  if (authUnavailable) {
+    return (
+      <div className="marketing-demo-mode min-h-screen w-full bg-[#02050b] text-white flex items-center justify-center p-6">
+        <div className="w-full max-w-lg rounded-2xl border border-amber-400/30 bg-[#0b111d]/95 px-5 py-6 shadow-[0_20px_70px_-30px_rgba(0,0,0,0.9)]">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-200">Demo mode unavailable</p>
+          <p className="mt-3 text-base text-slate-200 leading-relaxed">
+            InterpreterAI could not verify your admin session because the API is not fully available in this environment.
+          </p>
+          <p className="mt-2 text-sm text-slate-400 leading-relaxed">
+            Configure the backend database and sign in as an admin to use `/admin/demo-marketing`.
+          </p>
+        </div>
       </div>
     );
   }
