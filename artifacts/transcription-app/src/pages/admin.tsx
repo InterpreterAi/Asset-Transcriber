@@ -27,6 +27,7 @@ import {
   Timer, Banknote, LifeBuoy, Send, CheckCircle, ChevronDown, Lock,
   Monitor, LogIn, LogOut, Play, ShieldAlert, Server, Zap, XCircle, Mail,
   Pencil, Gift, Share2, UserPlus, AlertCircle, Bluetooth, Usb, Sun, Moon, ReceiptText,
+  Clapperboard,
 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui-components";
 import AdminAnalytics from "@/components/AdminAnalytics";
@@ -1585,6 +1586,16 @@ export default function Admin() {
               )}
             </button>
           ))}
+
+          <div className="my-2 border-t border-border dark:border-white/[0.08]" />
+          <button
+            type="button"
+            onClick={() => { setSidebarOpen(false); setLocation("/admin/demo-marketing"); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          >
+            <Clapperboard className="w-4 h-4 shrink-0" />
+            <span className="flex-1 truncate">Marketing Demo</span>
+          </button>
         </nav>
       </aside>
 
