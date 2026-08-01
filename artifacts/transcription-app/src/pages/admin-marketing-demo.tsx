@@ -140,6 +140,24 @@ export default function AdminMarketingDemo() {
   }, [langA, langB, transcription]);
 
   useEffect(() => {
+    if (transcription.isRecording) return;
+    const a = langA.trim().toUpperCase() || "—";
+    const b = langB.trim().toUpperCase() || "—";
+    const nextPair = `${a} → ${b}`;
+    activePairRef.current = nextPair;
+    setActivePairLabel(nextPair);
+  }, [langA, langB, transcription.isRecording]);
+
+  const handleLangAChange = (next: string) => {
+    if (next === langB) return;
+    setLangA(next);
+  };
+  const handleLangBChange = (next: string) => {
+    if (next === langA) return;
+    setLangB(next);
+  };
+
+  useEffect(() => {
     const container = transcription.containerRef.current;
     const scroller = container?.parentElement;
     if (!container || !scroller) return;
@@ -379,17 +397,42 @@ export default function AdminMarketingDemo() {
               <span>{localError ?? transcription.translationServiceError ?? transcription.error}</span>
             </div>
           )}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-400/90 truncate">
-              {LANG_OPTIONS.find((l) => l.value === langA)?.label ?? langA} ↔{" "}
-              {LANG_OPTIONS.find((l) => l.value === langB)?.label ?? langB}
-            </span>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <select
+                value={langA}
+                onChange={(e) => handleLangAChange(e.target.value)}
+                disabled={transcription.isRecording || transcription.isStarting}
+                aria-label="Source language"
+                className="h-10 flex-1 min-w-0 rounded-xl border border-white/10 bg-[#121a2a] px-2.5 text-sm text-slate-100 disabled:opacity-50"
+              >
+                {LANG_OPTIONS.map((l) => (
+                  <option key={l.value} value={l.value} disabled={l.value === langB}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs font-semibold text-slate-400 shrink-0">↔</span>
+              <select
+                value={langB}
+                onChange={(e) => handleLangBChange(e.target.value)}
+                disabled={transcription.isRecording || transcription.isStarting}
+                aria-label="Target language"
+                className="h-10 flex-1 min-w-0 rounded-xl border border-white/10 bg-[#121a2a] px-2.5 text-sm text-slate-100 disabled:opacity-50"
+              >
+                {LANG_OPTIONS.map((l) => (
+                  <option key={l.value} value={l.value} disabled={l.value === langA}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={() => void handleToggleRecording()}
               disabled={transcription.isStarting}
               className={cn(
-                "h-12 min-w-[152px] rounded-full px-6 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all",
+                "h-12 w-full rounded-full px-6 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all",
                 transcription.isRecording
                   ? "bg-red-500 text-white hover:bg-red-500/90 shadow-[0_0_30px_rgba(239,68,68,0.45)]"
                   : "bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-[0_0_32px_rgba(34,211,238,0.42)]",
