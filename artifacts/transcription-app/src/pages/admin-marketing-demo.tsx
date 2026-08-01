@@ -8,13 +8,12 @@ import {
 } from "@workspace/api-client-react";
 import {
   Languages,
-  Mic2,
+  Monitor,
   Radio,
   Square,
   TriangleAlert,
   Zap,
 } from "lucide-react";
-import { useAudioDevices } from "@/hooks/use-audio-devices";
 import { useTranscription } from "@/hooks/use-transcription";
 import { planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
 import { readMorsyTranslationStackInitial } from "@/experiments/basic-morsy-urgent/translationStackMode";
@@ -46,14 +45,13 @@ function trySpeakerFromAnyRow(row: HTMLElement): string {
 export default function AdminMarketingDemo() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { devices } = useAudioDevices();
   const { data: me, isLoading: meLoading, isFetched: meFetched, error: meError } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false },
   });
 
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
-  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [tabStream, setTabStream] = useState<MediaStream | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [activeSpeakerLabel, setActiveSpeakerLabel] = useState("Speaker");
   const [activePairLabel, setActivePairLabel] = useState("EN → AR");
@@ -86,14 +84,6 @@ export default function AdminMarketingDemo() {
     !me &&
     Boolean(meError) &&
     (!(meError instanceof ApiError) || meError.status !== 401);
-
-  useEffect(() => {
-    if (devices.length === 0) return;
-    setSelectedDeviceId((prev) => {
-      if (prev && devices.some((d) => d.deviceId === prev)) return prev;
-      return devices[0]?.deviceId ?? "";
-    });
-  }, [devices]);
 
   useEffect(() => {
     if (!me) return;
@@ -220,20 +210,70 @@ export default function AdminMarketingDemo() {
     };
   }, [transcription.containerRef, transcription.isRecording]);
 
+  const stopTabStream = () => {
+    if (!tabStream) return;
+    tabStream.getTracks().forEach((t) => t.stop());
+    setTabStream(null);
+  };
+
+  /** Same Tab Audio path as workspace: open the browser share picker, capture tab audio only. */
+  const handleStartTabAudio = async () => {
+    const displayStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        // @ts-expect-error — displaySurface is supported in Chromium share picker
+        displaySurface: "browser",
+      },
+      audio: {
+        // @ts-expect-error — Chrome constraint; keep tab audio audible while capturing
+        suppressLocalAudioPlayback: false,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+
+    displayStream.getVideoTracks().forEach((t) => t.stop());
+
+    const audioTracks = displayStream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      displayStream.getTracks().forEach((t) => t.stop());
+      setLocalError(
+        'No tab audio captured. In the share picker, choose a Chrome tab and enable "Share tab audio".',
+      );
+      return;
+    }
+
+    const audioStream = new MediaStream(audioTracks);
+    setTabStream(audioStream);
+
+    audioTracks[0]!.addEventListener("ended", () => {
+      void transcription.stop().catch(() => {});
+      setTabStream(null);
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    });
+
+    // Empty deviceId + providedStream skips getUserMedia (mic never opened).
+    await transcription.start("", audioStream);
+  };
+
   const handleToggleRecording = async () => {
     setLocalError(null);
     if (transcription.isRecording) {
-      await transcription.stop();
-      return;
-    }
-    if (!selectedDeviceId) {
-      setLocalError("No microphone device found. Connect a mic and retry.");
+      await transcription.stop().catch(() => {});
+      stopTabStream();
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       return;
     }
     try {
-      await transcription.start(selectedDeviceId);
-    } catch {
-      // Hook already reports user-facing errors.
+      await handleStartTabAudio();
+    } catch (err) {
+      // User cancelled the share picker, or browser blocked getDisplayMedia.
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        return;
+      }
+      setLocalError(
+        "Could not open Tab Audio picker. Use Chrome/Edge and allow screen/tab sharing, then try again.",
+      );
     }
   };
 
@@ -317,15 +357,15 @@ export default function AdminMarketingDemo() {
             {!transcription.hasTranscript && (
               <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center text-slate-400 gap-3 pointer-events-none">
                 <div className="w-14 h-14 rounded-full bg-cyan-500/12 border border-cyan-400/25 flex items-center justify-center">
-                  <Mic2 className="w-6 h-6 text-cyan-300" />
+                  <Monitor className="w-6 h-6 text-cyan-300" />
                 </div>
                 <p className="text-lg font-medium text-slate-200">
                   {transcription.isRecording
-                    ? "Listening for live speech…"
-                    : "Press Start to begin demo capture"}
+                    ? "Listening to Tab Audio…"
+                    : "Press Start to share a browser tab"}
                 </p>
                 <p className="text-sm text-slate-400/90">
-                  Vertical 9:16 recording-ready transcript and translation stream.
+                  Opens Tab Audio picker — choose the call tab and enable “Share tab audio”.
                 </p>
               </div>
             )}
