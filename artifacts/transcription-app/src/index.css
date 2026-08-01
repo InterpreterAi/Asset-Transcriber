@@ -350,6 +350,105 @@
   }
 }
 
+/* ── Admin-only marketing recording mode (isolated styling) ───────────────── */
+.marketing-demo-mode {
+  color-scheme: dark;
+}
+
+.marketing-demo-mode .workspace-selectable-root > * {
+  position: relative;
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease,
+    filter 260ms ease,
+    background-color 260ms ease,
+    border-color 260ms ease;
+  will-change: opacity, transform;
+}
+
+.marketing-demo-mode .workspace-selectable-root > *[data-demo-depth="0"] {
+  opacity: 1;
+}
+
+.marketing-demo-mode .workspace-selectable-root > *[data-demo-depth="1"] {
+  opacity: 0.9;
+}
+
+.marketing-demo-mode .workspace-selectable-root > *[data-demo-depth="2"] {
+  opacity: 0.78;
+}
+
+.marketing-demo-mode .workspace-selectable-root > *[data-demo-depth="3"] {
+  opacity: 0.62;
+}
+
+.marketing-demo-mode .workspace-selectable-root > *[data-demo-depth="4"] {
+  opacity: 0.52;
+}
+
+.marketing-demo-mode .workspace-selectable-root > *.demo-row-active {
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.13), rgba(34, 211, 238, 0.03));
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: 14px;
+  padding: 10px 10px 10px 12px;
+  margin-left: -6px;
+  margin-right: -6px;
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.08),
+    0 16px 40px -26px rgba(34, 211, 238, 0.5);
+  transform: translateY(-1px);
+}
+
+.marketing-demo-mode .workspace-selectable-root > *[data-caw-speaker]::before {
+  content: "Speaker " attr(data-caw-speaker);
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: rgb(186 230 253);
+  background: rgba(14, 116, 144, 0.28);
+  border: 1px solid rgba(34, 211, 238, 0.34);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.marketing-demo-mode .ts-text {
+  font-size: var(--ts-font-size, 24px);
+  line-height: var(--ts-line-height, 1.65);
+}
+
+.marketing-demo-mode .ts-original {
+  color: rgb(226 232 240);
+  font-weight: 500;
+}
+
+.marketing-demo-mode .ts-translation {
+  color: rgb(224 242 254);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.marketing-demo-mode .demo-row-streaming [data-caw-role="live-line"]::after,
+.marketing-demo-mode .demo-row-streaming [data-caw-role="translation"]::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1.02em;
+  margin-left: 6px;
+  border-radius: 1px;
+  vertical-align: text-bottom;
+  background: rgba(34, 211, 238, 0.95);
+  animation: marketing-demo-caret 0.9s steps(1, end) infinite;
+}
+
+@keyframes marketing-demo-caret {
+  0%, 45% { opacity: 1; }
+  46%, 100% { opacity: 0; }
+}
+
 .dark {
   color-scheme: dark;
   --background: 220 13% 8%;

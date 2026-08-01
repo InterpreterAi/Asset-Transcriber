@@ -9,6 +9,7 @@ import ForgotPassword from "./pages/forgot-password";
 import ResetPassword from "./pages/reset-password";
 import Workspace from "./pages/workspace";
 import Admin from "./pages/admin";
+import AdminMarketingDemo from "./pages/admin-marketing-demo";
 import Terms from "./pages/terms";
 import Privacy from "./pages/privacy";
 import Security from "./pages/security";
@@ -88,6 +89,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/workspace" component={Workspace} />
       <Route path="/admin" component={Admin} />
+      <Route path="/admin/demo-marketing" component={AdminMarketingDemo} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/security" component={Security} />
