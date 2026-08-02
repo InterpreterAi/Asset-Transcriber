@@ -2,8 +2,8 @@ export { brandAssets, brandColors, brandFonts, brandRadii, brandSpacing } from "
 export type { BrandTheme } from "@/brand/tokens";
 
 export { BrandLogo } from "@/brand/components/BrandLogo";
-export { BrandIntro } from "@/brand/components/BrandIntro";
-export { BrandOutro } from "@/brand/components/BrandOutro";
+export { BrandIntro, BRAND_INTRO_COPY } from "@/brand/components/BrandIntro";
+export { BrandOutro, BRAND_OUTRO_COPY } from "@/brand/components/BrandOutro";
 export { LowerThird } from "@/brand/components/LowerThird";
 export { LiveBadge } from "@/brand/components/LiveBadge";
 export {

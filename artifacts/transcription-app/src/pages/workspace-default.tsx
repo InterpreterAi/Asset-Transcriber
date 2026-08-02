@@ -1763,7 +1763,7 @@ export default function WorkspaceDefault() {
               <img
                 src={wsDark ? "/brand/interpreterai-mark-dark.svg" : "/brand/interpreterai-mark-light.svg"}
                 alt=""
-                className="w-7 h-7 rounded-full object-cover shrink-0"
+                className="w-7 h-7 object-contain shrink-0"
                 draggable={false}
               />
               <span className="font-semibold text-sm text-foreground whitespace-nowrap">

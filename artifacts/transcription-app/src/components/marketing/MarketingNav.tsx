@@ -8,7 +8,7 @@ function BrandWordmark({ compact = false, premium = false }: { compact?: boolean
       <img
         src={premium ? "/brand/interpreterai-mark-dark.svg" : "/brand/interpreterai-mark-light.svg"}
         alt=""
-        className={`rounded-full object-cover shrink-0 ${compact ? "w-8 h-8" : "w-9 h-9"}`}
+        className={`object-contain shrink-0 ${compact ? "w-8 h-8" : "w-9 h-9"}`}
         draggable={false}
       />
       <span

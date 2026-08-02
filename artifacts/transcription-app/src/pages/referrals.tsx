@@ -97,7 +97,7 @@ export default function ReferralsPage() {
             <img
               src="/brand/interpreterai-mark-light.svg"
               alt=""
-              className="w-7 h-7 rounded-full object-cover shrink-0"
+              className="w-7 h-7 object-contain shrink-0"
               draggable={false}
             />
             <span className="font-semibold text-base">Interpreter<span className="text-primary">AI</span></span>
