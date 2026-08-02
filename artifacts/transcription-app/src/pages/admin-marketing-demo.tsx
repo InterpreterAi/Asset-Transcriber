@@ -7,7 +7,6 @@ import {
   useGetMe,
 } from "@workspace/api-client-react";
 import {
-  Languages,
   Monitor,
   Radio,
   Square,
@@ -22,17 +21,22 @@ import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { cn } from "@/lib/utils";
 
 const LANG_OPTIONS = workspaceLanguageOptions();
-const DEMO_FONT_PX = 24;
 
+/** ~12% wider than a pure 9:16 phone while still fitting a vertical recording frame. */
 const FRAME_STYLE: CSSProperties = {
-  width: "min(100vw, calc(100dvh * 9 / 16))",
-  height: "min(100dvh, calc(100vw * 16 / 9))",
+  width: "min(100vw, calc(100dvh * 9 / 16 * 1.12))",
+  height: "min(100dvh, calc(100vw * 16 / 9 / 1.12))",
 };
 
-const TRANSCRIPT_TEXT_STYLE: CSSProperties = {
-  "--ts-font-size": `${DEMO_FONT_PX}px`,
-  "--ts-line-height": "1.65",
-} as CSSProperties;
+const TAIL_STICK_EPS_PX = 72;
+
+function demoFontPxForSentence(text: string): number {
+  const n = text.replace(/\s+/g, " ").trim().length;
+  if (n <= 42) return 28;
+  if (n <= 90) return 24;
+  if (n <= 160) return 20;
+  return 18;
+}
 
 function trySpeakerFromAnyRow(row: HTMLElement): string {
   const raw = row.dataset.cawSpeaker?.trim();
@@ -40,6 +44,18 @@ function trySpeakerFromAnyRow(row: HTMLElement): string {
   const badge = row.querySelector(".font-mono");
   const label = badge?.textContent?.trim() ?? "";
   return label || "Speaker";
+}
+
+function rowSentenceText(row: HTMLElement): string {
+  const orig =
+    row.querySelector<HTMLElement>(".ts-original")?.textContent?.trim() ??
+    row.querySelector<HTMLElement>("[data-caw-role='live-line']")?.textContent?.trim() ??
+    "";
+  const trans =
+    row.querySelector<HTMLElement>(".ts-translation")?.textContent?.trim() ??
+    row.querySelector<HTMLElement>("[data-caw-role='translation']")?.textContent?.trim() ??
+    "";
+  return orig.length >= trans.length ? orig : trans;
 }
 
 export default function AdminMarketingDemo() {
@@ -55,7 +71,10 @@ export default function AdminMarketingDemo() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [activeSpeakerLabel, setActiveSpeakerLabel] = useState("Speaker");
   const [activePairLabel, setActivePairLabel] = useState("EN → AR");
+  const [demoFontPx, setDemoFontPx] = useState(28);
 
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
   const activeSpeakerRef = useRef(activeSpeakerLabel);
   const activePairRef = useRef(activePairLabel);
 
@@ -157,9 +176,23 @@ export default function AdminMarketingDemo() {
     setLangB(next);
   };
 
+  // Workspace-style sticky tail: auto-follow only while near the bottom.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const onScroll = () => {
+      const distance =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      stickToBottomRef.current = distance <= TAIL_STICK_EPS_PX;
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, []);
+
   useEffect(() => {
     const container = transcription.containerRef.current;
-    const scroller = container?.parentElement;
+    const scroller = scrollerRef.current;
     if (!container || !scroller) return;
 
     let rafId = 0;
@@ -167,10 +200,8 @@ export default function AdminMarketingDemo() {
       const rows = Array.from(container.children).filter(
         (el): el is HTMLElement => el instanceof HTMLElement,
       );
-      rows.forEach((row, index) => {
+      rows.forEach((row) => {
         row.classList.remove("demo-row-active", "demo-row-streaming");
-        const depth = rows.length - 1 - index;
-        row.dataset.demoDepth = String(Math.max(0, Math.min(depth, 4)));
       });
       const activeRow = rows[rows.length - 1];
       if (!activeRow) return;
@@ -189,6 +220,10 @@ export default function AdminMarketingDemo() {
         setActivePairLabel(nextPair);
       }
 
+      const sentence = rowSentenceText(activeRow);
+      const nextFont = demoFontPxForSentence(sentence);
+      setDemoFontPx((prev) => (prev === nextFont ? prev : nextFont));
+
       const hypothesisText =
         activeRow
           .querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`)
@@ -197,15 +232,16 @@ export default function AdminMarketingDemo() {
         activeRow
           .querySelector<HTMLElement>(`[data-caw-part="live"]`)
           ?.textContent?.trim() ?? "";
-      const streamingTail = Boolean(hypothesisText || liveTranslationTail);
-      if (transcription.isRecording && streamingTail) {
-        activeRow.classList.add("demo-row-streaming");
+      const streamingTail = Boolean(hypothesisText || liveTranslationTail || transcription.isRecording);
+      if (transcription.isRecording && (streamingTail || sentence.length > 0)) {
+        if (hypothesisText || liveTranslationTail) {
+          activeRow.classList.add("demo-row-streaming");
+        }
       }
 
-      scroller.scrollTo({
-        top: scroller.scrollHeight,
-        behavior: "smooth",
-      });
+      if (stickToBottomRef.current) {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
     };
 
     const scheduleApply = () => {
@@ -263,6 +299,7 @@ export default function AdminMarketingDemo() {
 
     const audioStream = new MediaStream(audioTracks);
     setTabStream(audioStream);
+    stickToBottomRef.current = true;
 
     audioTracks[0]!.addEventListener("ended", () => {
       void transcription.stop().catch(() => {});
@@ -295,6 +332,11 @@ export default function AdminMarketingDemo() {
     }
   };
 
+  const transcriptTextStyle = {
+    "--ts-font-size": `${demoFontPx}px`,
+    "--ts-line-height": demoFontPx >= 24 ? "1.4" : "1.45",
+  } as CSSProperties;
+
   if (meLoading) {
     return (
       <div className="min-h-screen bg-[#03060d] flex items-center justify-center">
@@ -319,6 +361,9 @@ export default function AdminMarketingDemo() {
   }
   if (!me?.isAdmin) return null;
 
+  const langAShort = (LANG_OPTIONS.find((l) => l.value === langA)?.label ?? langA).split(" (")[0];
+  const langBShort = (LANG_OPTIONS.find((l) => l.value === langB)?.label ?? langB).split(" (")[0];
+
   return (
     <div className="marketing-demo-mode min-h-screen w-full bg-[#02050b] text-white flex items-center justify-center overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(34,211,238,0.16),transparent_45%),radial-gradient(circle_at_85%_75%,rgba(59,130,246,0.14),transparent_45%),linear-gradient(180deg,#02050b_0%,#050a14_60%,#02050b_100%)]" />
@@ -326,85 +371,89 @@ export default function AdminMarketingDemo() {
         className="relative z-10 rounded-[26px] border border-white/10 bg-[#080d17]/95 shadow-[0_44px_120px_-36px_rgba(0,0,0,0.95),0_0_0_1px_rgba(34,211,238,0.15)] backdrop-blur-xl overflow-hidden flex flex-col"
         style={FRAME_STYLE}
       >
-        <header className="h-16 shrink-0 border-b border-white/[0.08] bg-[#0b1220]/92 px-5 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-300 flex items-center justify-center ring-1 ring-cyan-400/25">
-              <Zap className="w-4.5 h-4.5" />
+        <header className="h-14 shrink-0 border-b border-white/[0.08] bg-[#0b1220]/92 px-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-300 flex items-center justify-center ring-1 ring-cyan-400/25">
+              <Zap className="w-4 h-4" />
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-[15px] leading-none font-semibold text-white">
+              <span className="text-[14px] leading-none font-semibold text-white">
                 Interpreter<span className="text-cyan-300">AI</span>
               </span>
-              <span className="text-[10px] tracking-wide text-slate-400 uppercase">
-                Marketing Demo Mode
+              <span className="text-[9px] tracking-[0.14em] text-slate-500 uppercase mt-0.5">
+                Demo
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2.5 px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-200 border border-cyan-400/30">
+          <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-200 border border-cyan-400/30">
             <span
               className={cn(
-                "w-2 h-2 rounded-full",
+                "w-1.5 h-1.5 rounded-full",
                 transcription.isRecording ? "bg-cyan-300 animate-pulse" : "bg-slate-500",
               )}
             />
-            <span className="text-[11px] font-semibold tracking-widest">LIVE</span>
+            <span className="text-[10px] font-semibold tracking-widest">LIVE</span>
           </div>
         </header>
 
-        <div className="h-12 shrink-0 border-b border-white/[0.07] bg-white/[0.02] px-5 flex items-center justify-between">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+        <div className="h-8 shrink-0 border-b border-white/[0.06] bg-white/[0.015] px-4 flex items-center justify-between">
+          <span className="text-[10px] font-medium tracking-wide text-slate-500">
             {activeSpeakerLabel}
           </span>
-          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-cyan-200 flex items-center gap-1.5">
-            <Languages className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-medium tracking-wide text-slate-500">
             {activePairLabel}
           </span>
         </div>
 
-        <div className="h-12 shrink-0 border-b border-white/[0.06] bg-white/[0.01] px-5 grid grid-cols-2 items-center gap-6">
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Transcript</span>
-          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Translation</span>
+        <div className="h-8 shrink-0 border-b border-white/[0.05] px-4 grid grid-cols-2 gap-2.5 items-center">
+          <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500 truncate">
+            {langAShort}
+          </span>
+          <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500 truncate">
+            {langBShort}
+          </span>
         </div>
 
-        <main className="flex-1 min-h-0 p-5">
+        <main className="flex-1 min-h-0 px-3 py-3">
           <div
-            className="h-full rounded-2xl border border-white/[0.08] bg-[#0b111d]/92 overflow-y-auto scroll-smooth px-4 py-4 md:px-5 md:py-5 workspace-selectable-root"
-            style={TRANSCRIPT_TEXT_STYLE}
+            ref={scrollerRef}
+            className="marketing-demo-transcript-root h-full rounded-2xl border border-white/[0.08] bg-[#0b111d]/92 overflow-y-auto overflow-x-hidden px-2.5 py-3 workspace-selectable-root"
+            style={transcriptTextStyle}
           >
             <div ref={transcription.containerRef} className="workspace-selectable-root" />
             {!transcription.hasTranscript && (
-              <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center text-slate-400 gap-3 pointer-events-none">
-                <div className="w-14 h-14 rounded-full bg-cyan-500/12 border border-cyan-400/25 flex items-center justify-center">
-                  <Monitor className="w-6 h-6 text-cyan-300" />
+              <div className="h-full min-h-[200px] flex flex-col items-center justify-center text-center text-slate-400 gap-3 pointer-events-none">
+                <div className="w-12 h-12 rounded-full bg-cyan-500/12 border border-cyan-400/25 flex items-center justify-center">
+                  <Monitor className="w-5 h-5 text-cyan-300" />
                 </div>
-                <p className="text-lg font-medium text-slate-200">
+                <p className="text-base font-medium text-slate-200">
                   {transcription.isRecording
                     ? "Listening to Tab Audio…"
                     : "Press Start to share a browser tab"}
                 </p>
-                <p className="text-sm text-slate-400/90">
-                  Opens Tab Audio picker — choose the call tab and enable “Share tab audio”.
+                <p className="text-xs text-slate-500 max-w-[16rem]">
+                  Choose the call tab and enable “Share tab audio”.
                 </p>
               </div>
             )}
           </div>
         </main>
 
-        <footer className="shrink-0 border-t border-white/[0.08] bg-[#0b1220]/94 px-5 py-4 space-y-3">
+        <footer className="shrink-0 border-t border-white/[0.08] bg-[#0b1220]/94 px-4 py-3 space-y-2.5">
           {(transcription.error || transcription.translationServiceError || localError) && (
-            <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-100 px-3 py-2.5 text-xs flex items-start gap-2">
+            <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-100 px-3 py-2 text-xs flex items-start gap-2">
               <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{localError ?? transcription.translationServiceError ?? transcription.error}</span>
             </div>
           )}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center gap-1.5">
               <select
                 value={langA}
                 onChange={(e) => handleLangAChange(e.target.value)}
                 disabled={transcription.isRecording || transcription.isStarting}
                 aria-label="Source language"
-                className="h-10 flex-1 min-w-0 rounded-xl border border-white/10 bg-[#121a2a] px-2.5 text-sm text-slate-100 disabled:opacity-50"
+                className="h-9 flex-1 min-w-0 rounded-lg border border-white/10 bg-[#121a2a] px-2 text-xs text-slate-100 disabled:opacity-50"
               >
                 {LANG_OPTIONS.map((l) => (
                   <option key={l.value} value={l.value} disabled={l.value === langB}>
@@ -412,13 +461,13 @@ export default function AdminMarketingDemo() {
                   </option>
                 ))}
               </select>
-              <span className="text-xs font-semibold text-slate-400 shrink-0">↔</span>
+              <span className="text-[10px] font-semibold text-slate-500 shrink-0">↔</span>
               <select
                 value={langB}
                 onChange={(e) => handleLangBChange(e.target.value)}
                 disabled={transcription.isRecording || transcription.isStarting}
                 aria-label="Target language"
-                className="h-10 flex-1 min-w-0 rounded-xl border border-white/10 bg-[#121a2a] px-2.5 text-sm text-slate-100 disabled:opacity-50"
+                className="h-9 flex-1 min-w-0 rounded-lg border border-white/10 bg-[#121a2a] px-2 text-xs text-slate-100 disabled:opacity-50"
               >
                 {LANG_OPTIONS.map((l) => (
                   <option key={l.value} value={l.value} disabled={l.value === langA}>
@@ -432,7 +481,7 @@ export default function AdminMarketingDemo() {
               onClick={() => void handleToggleRecording()}
               disabled={transcription.isStarting}
               className={cn(
-                "h-12 w-full rounded-full px-6 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all",
+                "h-11 w-full rounded-full px-6 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all",
                 transcription.isRecording
                   ? "bg-red-500 text-white hover:bg-red-500/90 shadow-[0_0_30px_rgba(239,68,68,0.45)]"
                   : "bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-[0_0_32px_rgba(34,211,238,0.42)]",
