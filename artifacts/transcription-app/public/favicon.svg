@@ -1,8 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
-  <!-- Matches stable app chrome: rounded tile + Zap bolt (not marketing mark assets) -->
+  <!-- Stable workspace chrome: rounded tile + Lucide Zap (same path as in-app icon) -->
   <rect width="128" height="128" rx="28" fill="#0B1220"/>
-  <path
-    d="M70 24L42 72h22l-8 32 36-56H70l8-24z"
-    fill="#38BDF8"
-  />
+  <rect width="128" height="128" rx="28" fill="#0EA5E9" fill-opacity="0.15"/>
+  <g transform="translate(28,28) scale(3)">
+    <path
+      d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"
+      fill="#0EA5E9"
+    />
+  </g>
 </svg>
