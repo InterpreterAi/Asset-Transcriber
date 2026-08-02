@@ -351,8 +351,12 @@
 }
 
 /* ── Admin-only marketing recording mode (isolated styling) ───────────────── */
-.marketing-demo-mode {
+.marketing-demo-mode.marketing-demo-dark {
   color-scheme: dark;
+}
+
+.marketing-demo-mode.marketing-demo-light {
+  color-scheme: light;
 }
 
 /* Lock every transcript row to a strict 50/50 two-column grid (never collapse). */
@@ -376,10 +380,9 @@
   padding-left: 0.4rem !important;
   padding-right: 0.4rem !important;
   overflow: hidden;
-  transition:
-    opacity 220ms ease,
-    background-color 220ms ease,
-    border-color 220ms ease;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
 }
 
 .marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > * > * {
@@ -389,64 +392,64 @@
   word-break: break-word;
 }
 
-/* Hide workspace chrome that steals column width in the phone frame. */
+/* Hide speaker pills / copy chrome; keep speaker color stripes visible. */
 .marketing-demo-mode .marketing-demo-transcript-root button,
 .marketing-demo-mode .marketing-demo-transcript-root [class*="inline-flex items-center px-2"] {
   display: none !important;
 }
 
-/* Previous lines ~50% opacity; active line stays bright. */
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > * {
-  opacity: 0.5;
+/* Soft transparent highlight on the active growing segment only — no opacity flicker. */
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active {
+  background: rgba(34, 211, 238, 0.08);
+  border-color: rgba(34, 211, 238, 0.18);
 }
 
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active {
-  opacity: 1;
-  background: linear-gradient(90deg, rgba(34, 211, 238, 0.12), rgba(34, 211, 238, 0.04));
-  border: 1px solid rgba(34, 211, 238, 0.28);
-  border-radius: 12px;
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.06);
-}
-
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active .ts-original,
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active .ts-translation,
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active .ts-text {
-  color: #ffffff;
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active {
+  background: rgba(14, 165, 233, 0.08);
+  border-color: rgba(14, 165, 233, 0.18);
 }
 
 .marketing-demo-mode .ts-text {
-  font-size: var(--ts-font-size, 15px);
+  font-size: var(--ts-font-size, 16px);
   line-height: var(--ts-line-height, 1.45);
 }
 
-.marketing-demo-mode .ts-original {
+.marketing-demo-mode.marketing-demo-dark .ts-original {
   color: rgb(241 245 249);
   font-weight: 500;
 }
 
-.marketing-demo-mode .ts-translation {
+.marketing-demo-mode.marketing-demo-dark .ts-translation {
   color: rgb(241 245 249);
   font-style: normal;
   font-weight: 600;
 }
 
-/* One blinking caret per column on the live streaming row. */
-.marketing-demo-mode .demo-row-streaming > *:first-child .ts-text::after,
-.marketing-demo-mode .demo-row-streaming > *:last-child .ts-text::after {
-  content: "";
-  display: inline-block;
-  width: 2px;
-  height: 0.95em;
-  margin-left: 3px;
-  border-radius: 1px;
-  vertical-align: text-bottom;
-  background: rgba(255, 255, 255, 0.95);
-  animation: marketing-demo-caret 0.85s steps(1, end) infinite;
+.marketing-demo-mode.marketing-demo-light .ts-original {
+  color: rgb(15 23 42);
+  font-weight: 500;
 }
 
-@keyframes marketing-demo-caret {
-  0%, 45% { opacity: 1; }
-  46%, 100% { opacity: 0; }
+.marketing-demo-mode.marketing-demo-light .ts-translation {
+  color: rgb(15 23 42);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* LIVE badge soft pulse while recording. */
+.marketing-demo-mode .demo-live-badge-active {
+  animation: marketing-demo-live-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes marketing-demo-live-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.14);
+    transform: scale(1.03);
+  }
 }
 
 .dark {
