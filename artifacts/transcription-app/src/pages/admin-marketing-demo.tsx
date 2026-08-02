@@ -8,10 +8,12 @@ import {
 } from "@workspace/api-client-react";
 import {
   BookOpen,
+  Columns2,
   Monitor,
   Moon,
   NotebookPen,
   Radio,
+  Rows3,
   Square,
   Sun,
   TriangleAlert,
@@ -49,6 +51,12 @@ const FRAME_STYLE: CSSProperties = {
 const TAIL_STICK_EPS_PX = 72;
 
 type DemoSheet = "none" | "notes" | "glossary";
+
+function formatLiveElapsed(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 function readDemoFontPx(): DemoFontPx {
   try {
@@ -146,9 +154,11 @@ export default function AdminMarketingDemo() {
   const [sheet, setSheet] = useState<DemoSheet>("none");
   const [notes, setNotes] = useState("");
   const [usageTick, setUsageTick] = useState(0);
+  const [liveElapsedSec, setLiveElapsedSec] = useState(0);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const liveStartedAtRef = useRef<number | null>(null);
 
   const dark = theme === "dark";
 
@@ -234,6 +244,24 @@ export default function AdminMarketingDemo() {
   useEffect(() => {
     if (!transcription.isRecording) return;
     const id = window.setInterval(() => setUsageTick((n) => n + 1), 5000);
+    return () => window.clearInterval(id);
+  }, [transcription.isRecording]);
+
+  useEffect(() => {
+    if (!transcription.isRecording) {
+      liveStartedAtRef.current = null;
+      setLiveElapsedSec(0);
+      return;
+    }
+    if (liveStartedAtRef.current == null) {
+      liveStartedAtRef.current = Date.now();
+    }
+    const tick = () => {
+      const start = liveStartedAtRef.current ?? Date.now();
+      setLiveElapsedSec(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [transcription.isRecording]);
 
@@ -386,11 +414,7 @@ export default function AdminMarketingDemo() {
   void usageTick;
   const usedMinutes = me.minutesUsedToday + sessionMinutes;
   const usageLabel = `${formatMinutes(usedMinutes)} / 2h`;
-  const daysLeft =
-    typeof me.trialDaysRemaining === "number" && me.trialDaysRemaining >= 0
-      ? me.trialDaysRemaining
-      : 7;
-  const daysLeftLabel = `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+  const daysLeftLabel = "7 days left";
   const usagePct = Math.min(100, (usedMinutes / DEMO_TRIAL_DAILY_MINUTES) * 100);
 
   const transcriptTextStyle = {
@@ -398,9 +422,11 @@ export default function AdminMarketingDemo() {
     "--ts-line-height": "1.45",
   } as CSSProperties;
 
+  const stacked = transcription.canonIntercallLayoutStacked;
+
   const toolBtn = (active: boolean) =>
     cn(
-      "h-6 px-2 rounded-md border inline-flex items-center gap-1 text-[10px] font-semibold shrink-0 transition-colors",
+      "h-6 px-1.5 rounded-md border inline-flex items-center gap-1 text-[10px] font-semibold min-w-0 transition-colors",
       active
         ? dark
           ? "bg-cyan-500/20 border-cyan-400/40 text-cyan-100"
@@ -467,24 +493,27 @@ export default function AdminMarketingDemo() {
             </span>
           </div>
           {transcription.isRecording && (
-            <div className="demo-live-badge demo-live-badge-active flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-600 text-white border border-red-500 shadow-[0_0_0_1px_rgba(220,38,38,0.35)] shrink-0">
+            <div className="demo-live-badge demo-live-badge-active flex items-center gap-2 px-2 py-0.5 rounded-full bg-red-600 text-white border border-red-500 shadow-[0_0_0_1px_rgba(220,38,38,0.35)] shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               <span className="text-[10px] font-bold tracking-widest">LIVE</span>
+              <span className="text-[10px] font-semibold tabular-nums tracking-normal opacity-95">
+                {formatLiveElapsed(liveElapsedSec)}
+              </span>
             </div>
           )}
         </header>
 
-        {/* Single compact toolbar — font, trial usage, notes, glossary, theme */}
+        {/* Compact toolbar — wraps instead of horizontal scroll */}
         <div
           className={cn(
-            "shrink-0 border-b px-2.5 py-1.5 flex items-center gap-1.5 overflow-x-auto",
+            "shrink-0 border-b px-2 py-1.5 flex flex-wrap items-center gap-1.5 overflow-x-hidden",
             dark ? "border-white/[0.06] bg-white/[0.015]" : "border-slate-200/70 bg-slate-50/80",
           )}
         >
           <DemoFontSizeStepper value={fontPx} onChange={setFontPx} dark={dark} />
           <div
             className={cn(
-              "h-6 px-2 rounded-md text-[10px] font-medium flex items-center gap-1.5 border shrink-0",
+              "h-6 px-1.5 rounded-md text-[10px] font-medium flex items-center gap-1 border min-w-0",
               dark
                 ? "bg-white/[0.04] border-white/[0.08] text-slate-300"
                 : "bg-white border-slate-200 text-slate-600",
@@ -499,23 +528,25 @@ export default function AdminMarketingDemo() {
             type="button"
             onClick={() => setSheet((s) => (s === "notes" ? "none" : "notes"))}
             className={toolBtn(sheet === "notes")}
+            title="Notes"
           >
-            <NotebookPen className="w-3 h-3" />
-            Notes
+            <NotebookPen className="w-3 h-3 shrink-0" />
+            <span>Notes</span>
           </button>
           <button
             type="button"
             onClick={() => setSheet((s) => (s === "glossary" ? "none" : "glossary"))}
             className={toolBtn(sheet === "glossary")}
+            title="Glossary"
           >
-            <BookOpen className="w-3 h-3" />
-            Glossary
+            <BookOpen className="w-3 h-3 shrink-0" />
+            <span>Glossary</span>
           </button>
           <button
             type="button"
             onClick={() => setTheme(dark ? "light" : "dark")}
             className={cn(
-              "ml-auto flex items-center justify-center w-6 h-6 rounded-md border shrink-0",
+              "flex items-center justify-center w-6 h-6 rounded-md border shrink-0 ml-auto",
               dark
                 ? "border-white/10 text-amber-200/90 hover:bg-white/10"
                 : "border-slate-200 text-slate-500 hover:bg-slate-100",
@@ -529,7 +560,8 @@ export default function AdminMarketingDemo() {
 
         <div
           className={cn(
-            "h-7 shrink-0 border-b px-3 grid grid-cols-2 gap-2 items-center",
+            "h-7 shrink-0 border-b px-3 grid gap-2 items-center",
+            stacked ? "grid-cols-1" : "grid-cols-2",
             dark ? "border-white/[0.05]" : "border-slate-200/70",
           )}
         >
@@ -539,16 +571,18 @@ export default function AdminMarketingDemo() {
               dark ? "text-slate-500" : "text-slate-500",
             )}
           >
-            Original
+            {stacked ? "Transcript" : "Original"}
           </span>
-          <span
-            className={cn(
-              "text-[10px] font-semibold uppercase tracking-wider truncate",
-              dark ? "text-slate-500" : "text-slate-500",
-            )}
-          >
-            Translation
-          </span>
+          {!stacked && (
+            <span
+              className={cn(
+                "text-[10px] font-semibold uppercase tracking-wider truncate",
+                dark ? "text-slate-500" : "text-slate-500",
+              )}
+            >
+              Translation
+            </span>
+          )}
         </div>
 
         <main className="relative flex-1 min-h-0 px-2.5 py-2">
@@ -720,6 +754,30 @@ export default function AdminMarketingDemo() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !stacked;
+                transcription.setCanonIntercallLayoutStacked(next);
+                const root = transcription.containerRef.current;
+                if (!root) return;
+                for (const el of Array.from(root.children)) {
+                  if (!(el instanceof HTMLElement)) continue;
+                  el.classList.toggle("grid-cols-1", next);
+                  el.classList.toggle("grid-cols-2", !next);
+                }
+              }}
+              className={cn(
+                "h-8 px-2 rounded-lg border inline-flex items-center justify-center gap-1 text-[10px] font-semibold shrink-0",
+                dark
+                  ? "border-white/10 bg-[#121a2a] text-slate-300 hover:bg-white/10"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+              )}
+              title={stacked ? "Switch to side by side" : "Switch to stacked"}
+              aria-label={stacked ? "Switch to side by side" : "Switch to stacked"}
+            >
+              {stacked ? <Columns2 className="w-3.5 h-3.5" /> : <Rows3 className="w-3.5 h-3.5" />}
+            </button>
           </div>
           <button
             type="button"
@@ -737,7 +795,7 @@ export default function AdminMarketingDemo() {
           >
             {transcription.isRecording ? (
               <>
-                <Square className="w-4 h-4" />
+                <Square className="w-3.5 h-3.5 fill-current stroke-none" />
                 Stop
               </>
             ) : (

@@ -370,7 +370,7 @@
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
   column-gap: 0.65rem !important;
-  row-gap: 0 !important;
+  row-gap: 0.35rem !important;
   align-items: start;
   width: 100%;
   max-width: 100%;
@@ -389,6 +389,11 @@
   transform: none !important;
   filter: none !important;
   box-shadow: none !important;
+}
+
+/* Honor workspace stacked layout toggle (grid-cols-1 on the row). */
+.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *.grid-cols-1 {
+  grid-template-columns: minmax(0, 1fr) !important;
 }
 
 .marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *:hover {
