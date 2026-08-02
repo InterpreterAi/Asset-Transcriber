@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,13 +14,20 @@ import {
   Zap,
 } from "lucide-react";
 import { useTranscription } from "@/hooks/use-transcription";
-import { planUsesCanonAppendWsStt } from "@/experiments/basic-morsy-urgent/canonAppendWs/gate";
-import { readMorsyTranslationStackInitial } from "@/experiments/basic-morsy-urgent/translationStackMode";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { cn } from "@/lib/utils";
 
 const LANG_OPTIONS = workspaceLanguageOptions();
+
+/**
+ * Demo-only engine routing (does not change the admin account plan in DB).
+ * `basic-hetzner` hard-routes to Soniox STT + Soniox chunk-v2 native translation.
+ */
+const DEMO_CHUNK_V2_PLAN = "basic-hetzner";
+
+/** Fixed marketing size — clean and consistent for video (no auto-shrink). */
+const DEMO_FONT_PX = 15;
 
 /** ~12% wider than a pure 9:16 phone while still fitting a vertical recording frame. */
 const FRAME_STYLE: CSSProperties = {
@@ -28,15 +35,12 @@ const FRAME_STYLE: CSSProperties = {
   height: "min(100dvh, calc(100vw * 16 / 9 / 1.12))",
 };
 
-const TAIL_STICK_EPS_PX = 72;
+const TRANSCRIPT_TEXT_STYLE: CSSProperties = {
+  "--ts-font-size": `${DEMO_FONT_PX}px`,
+  "--ts-line-height": "1.45",
+} as CSSProperties;
 
-function demoFontPxForSentence(text: string): number {
-  const n = text.replace(/\s+/g, " ").trim().length;
-  if (n <= 42) return 28;
-  if (n <= 90) return 24;
-  if (n <= 160) return 20;
-  return 18;
-}
+const TAIL_STICK_EPS_PX = 72;
 
 function trySpeakerFromAnyRow(row: HTMLElement): string {
   const raw = row.dataset.cawSpeaker?.trim();
@@ -44,18 +48,6 @@ function trySpeakerFromAnyRow(row: HTMLElement): string {
   const badge = row.querySelector(".font-mono");
   const label = badge?.textContent?.trim() ?? "";
   return label || "Speaker";
-}
-
-function rowSentenceText(row: HTMLElement): string {
-  const orig =
-    row.querySelector<HTMLElement>(".ts-original")?.textContent?.trim() ??
-    row.querySelector<HTMLElement>("[data-caw-role='live-line']")?.textContent?.trim() ??
-    "";
-  const trans =
-    row.querySelector<HTMLElement>(".ts-translation")?.textContent?.trim() ??
-    row.querySelector<HTMLElement>("[data-caw-role='translation']")?.textContent?.trim() ??
-    "";
-  return orig.length >= trans.length ? orig : trans;
 }
 
 export default function AdminMarketingDemo() {
@@ -71,7 +63,6 @@ export default function AdminMarketingDemo() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [activeSpeakerLabel, setActiveSpeakerLabel] = useState("Speaker");
   const [activePairLabel, setActivePairLabel] = useState("EN → AR");
-  const [demoFontPx, setDemoFontPx] = useState(28);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -126,29 +117,19 @@ export default function AdminMarketingDemo() {
     };
   }, [me]);
 
-  const pt = (me?.planType ?? "").toLowerCase();
-  const usesCanonAppendWsStt = planUsesCanonAppendWsStt(pt);
-  const morsyStackFlags = useMemo(() => readMorsyTranslationStackInitial(), []);
-  const morsyWorkspaceSegmentBehavior = usesCanonAppendWsStt
-    ? "morsy-intercall-isolated-experiment"
-    : "morsy-urgent-cbf";
-
+  // Always Soniox STT + Soniox chunk-v2 translation for marketing videos (isolated from admin DB plan).
   const transcription = useTranscription(me?.isAdmin ?? false, {
-    translationEnabled: (me?.translationEnabled ?? true) || pt === "morsy-urgent",
-    translationUiMode: pt === "morsy-urgent" ? "hidden" : "upsell",
-    planType: me?.planType ?? "",
-    segmentBehaviorMode: morsyWorkspaceSegmentBehavior,
+    translationEnabled: true,
+    translationUiMode: "upsell",
+    planType: DEMO_CHUNK_V2_PLAN,
+    segmentBehaviorMode: "morsy-intercall-isolated-experiment",
     segmentBoundaryGuards: Boolean(me),
-    morsyUrgentTranscriptSegmentGuards: Boolean(me) && usesCanonAppendWsStt,
+    morsyUrgentTranscriptSegmentGuards: Boolean(me),
     experimentMorsyUrgentIntercallOrchestration: false,
-    morsyUrgentTranslateAttachOpenAiExperiment: Boolean(me) && pt === "morsy-urgent",
+    morsyUrgentTranslateAttachOpenAiExperiment: false,
     experimentMorsyIntercallEmbeddedEnglishPrompt: false,
-    experimentMorsyBasicCleanTranslation:
-      pt === "morsy-urgent" &&
-      morsyStackFlags.clean &&
-      !morsyStackFlags.chunkV2,
-    experimentMorsyUrgentChunkTranslationV2:
-      pt === "morsy-urgent" && morsyStackFlags.chunkV2,
+    experimentMorsyBasicCleanTranslation: false,
+    experimentMorsyUrgentChunkTranslationV2: true,
     onRecordingStopped: () => {
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     },
@@ -220,10 +201,6 @@ export default function AdminMarketingDemo() {
         setActivePairLabel(nextPair);
       }
 
-      const sentence = rowSentenceText(activeRow);
-      const nextFont = demoFontPxForSentence(sentence);
-      setDemoFontPx((prev) => (prev === nextFont ? prev : nextFont));
-
       const hypothesisText =
         activeRow
           .querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`)
@@ -232,11 +209,8 @@ export default function AdminMarketingDemo() {
         activeRow
           .querySelector<HTMLElement>(`[data-caw-part="live"]`)
           ?.textContent?.trim() ?? "";
-      const streamingTail = Boolean(hypothesisText || liveTranslationTail || transcription.isRecording);
-      if (transcription.isRecording && (streamingTail || sentence.length > 0)) {
-        if (hypothesisText || liveTranslationTail) {
-          activeRow.classList.add("demo-row-streaming");
-        }
+      if (transcription.isRecording && (hypothesisText || liveTranslationTail)) {
+        activeRow.classList.add("demo-row-streaming");
       }
 
       if (stickToBottomRef.current) {
@@ -274,16 +248,15 @@ export default function AdminMarketingDemo() {
   const handleStartTabAudio = async () => {
     const displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: {
-        // @ts-expect-error — displaySurface is supported in Chromium share picker
         displaySurface: "browser",
-      },
+      } as MediaTrackConstraints,
       audio: {
-        // @ts-expect-error — Chrome constraint; keep tab audio audible while capturing
+        // Keep tab audio audible while capturing (Chrome supports suppressLocalAudioPlayback).
         suppressLocalAudioPlayback: false,
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
-      },
+      } as MediaTrackConstraints,
     });
 
     displayStream.getVideoTracks().forEach((t) => t.stop());
@@ -331,11 +304,6 @@ export default function AdminMarketingDemo() {
       );
     }
   };
-
-  const transcriptTextStyle = {
-    "--ts-font-size": `${demoFontPx}px`,
-    "--ts-line-height": demoFontPx >= 24 ? "1.4" : "1.45",
-  } as CSSProperties;
 
   if (meLoading) {
     return (
@@ -418,7 +386,7 @@ export default function AdminMarketingDemo() {
           <div
             ref={scrollerRef}
             className="marketing-demo-transcript-root h-full rounded-2xl border border-white/[0.08] bg-[#0b111d]/92 overflow-y-auto overflow-x-hidden px-2.5 py-3 workspace-selectable-root"
-            style={transcriptTextStyle}
+            style={TRANSCRIPT_TEXT_STYLE}
           >
             <div ref={transcription.containerRef} className="workspace-selectable-root" />
             {!transcription.hasTranscript && (

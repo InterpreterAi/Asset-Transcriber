@@ -415,7 +415,7 @@
 }
 
 .marketing-demo-mode .ts-text {
-  font-size: var(--ts-font-size, 24px);
+  font-size: var(--ts-font-size, 15px);
   line-height: var(--ts-line-height, 1.45);
 }
 
