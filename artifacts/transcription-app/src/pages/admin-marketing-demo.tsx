@@ -290,6 +290,11 @@ export default function AdminMarketingDemo() {
     transcription.setLangPair(langA, langB);
   }, [langA, langB, transcription]);
 
+  // Demo filming default: workspace-style side-by-side (not stacked nested card).
+  useEffect(() => {
+    transcription.setCanonIntercallLayoutStacked(false);
+  }, [transcription.setCanonIntercallLayoutStacked]);
+
   useEffect(() => {
     if (!transcription.isRecording) return;
     const id = window.setInterval(() => setUsageTick((n) => n + 1), 5000);
@@ -665,9 +670,9 @@ export default function AdminMarketingDemo() {
 
         <div
           className={cn(
-            "h-7 shrink-0 border-b px-3 grid gap-2 items-center",
+            "h-7 shrink-0 border-b px-3 grid gap-3 items-center",
             stacked ? "grid-cols-1" : "grid-cols-2",
-            dark ? "border-white/[0.05]" : "border-slate-200/70",
+            dark ? "border-white/[0.05] bg-white/[0.02]" : "border-slate-200/70 bg-slate-50/50",
           )}
         >
           <span
@@ -862,15 +867,8 @@ export default function AdminMarketingDemo() {
             <button
               type="button"
               onClick={() => {
-                const next = !stacked;
-                transcription.setCanonIntercallLayoutStacked(next);
-                const root = transcription.containerRef.current;
-                if (!root) return;
-                for (const el of Array.from(root.children)) {
-                  if (!(el instanceof HTMLElement)) continue;
-                  el.classList.toggle("grid-cols-1", next);
-                  el.classList.toggle("grid-cols-2", !next);
-                }
+                // Let the canon engine rebuild rows for the new layout — do not rewrite classes by hand.
+                transcription.setCanonIntercallLayoutStacked(!stacked);
               }}
               className={cn(
                 "h-8 px-2 rounded-lg border inline-flex items-center justify-center gap-1 text-[10px] font-semibold shrink-0",

@@ -359,31 +359,26 @@
   color-scheme: light;
 }
 
-/* Lock every transcript row to a strict 50/50 two-column grid (never collapse). */
+/* Match workspace canon layout — do NOT force grid on stacked rows (1-child card DOM). */
 .marketing-demo-mode .marketing-demo-transcript-root,
 .marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root {
   overflow-x: hidden;
 }
 
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > * {
-  position: relative;
+/* Side-by-side only (canon rows with grid-cols-2 = original | translation). */
+.marketing-demo-mode .marketing-demo-transcript-root [data-caw-segment].grid-cols-2 {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
-  column-gap: 0.65rem !important;
-  row-gap: 0.35rem !important;
+  column-gap: 0.75rem !important;
   align-items: start;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   margin-left: 0 !important;
   margin-right: 0 !important;
-  padding-left: 0.4rem !important;
-  padding-right: 0.4rem !important;
-  overflow: hidden;
   border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
-  /* Kill workspace hover/transition so growing text never flashes. */
   transition: none !important;
   opacity: 1 !important;
   transform: none !important;
@@ -391,25 +386,31 @@
   box-shadow: none !important;
 }
 
-/* Honor workspace stacked layout toggle (grid-cols-1 on the row). */
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *.grid-cols-1 {
-  grid-template-columns: minmax(0, 1fr) !important;
-}
-
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > *:hover {
-  background: transparent !important;
-}
-
-.marketing-demo-mode .marketing-demo-transcript-root .workspace-selectable-root > * > * {
+.marketing-demo-mode .marketing-demo-transcript-root [data-caw-segment].grid-cols-2 > * {
   min-width: 0 !important;
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-/* Hide speaker pills / copy chrome; keep speaker color stripes visible. */
-.marketing-demo-mode .marketing-demo-transcript-root button,
-.marketing-demo-mode .marketing-demo-transcript-root [class*="inline-flex items-center px-2"] {
+/* Stacked rows keep engine DOM (card nests translation) — no 2-col override. */
+.marketing-demo-mode .marketing-demo-transcript-root [data-caw-segment]:not(.grid-cols-2) {
+  display: block !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: none !important;
+}
+
+.marketing-demo-mode .marketing-demo-transcript-root [data-caw-segment]:hover {
+  /* keep stripe/highlight only — no workspace hover wash */
+  filter: none;
+}
+
+/* Hide copy chrome; keep speaker color stripes visible. */
+.marketing-demo-mode .marketing-demo-transcript-root button {
   display: none !important;
 }
 
@@ -417,14 +418,14 @@
  * Steady soft highlight on the newest segment only (:last-child).
  * No JS class toggling — growing text cannot flicker the highlight off/on.
  */
-.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *:last-child,
-.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *:last-child:hover {
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root [data-caw-segment]:last-child,
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root [data-caw-segment]:last-child:hover {
   background: rgba(34, 211, 238, 0.09) !important;
   border-color: rgba(34, 211, 238, 0.16) !important;
 }
 
-.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *:last-child,
-.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *:last-child:hover {
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root [data-caw-segment]:last-child,
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root [data-caw-segment]:last-child:hover {
   background: rgba(14, 165, 233, 0.10) !important;
   border-color: rgba(14, 165, 233, 0.18) !important;
 }
