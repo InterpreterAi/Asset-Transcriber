@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="128" viewBox="0 0 520 128" fill="none" role="img" aria-label="InterpreterAI">
+  <rect width="128" height="128" rx="28" fill="#0B1220"/>
+  <rect x="2" y="2" width="124" height="124" rx="26" stroke="#22D3EE" stroke-opacity="0.35" stroke-width="2"/>
+  <path d="M64 28L54 72H70L58 100L84 52H66L74 28H64Z" fill="#22D3EE"/>
+  <text x="152" y="82" fill="#F8FAFC" font-family="Inter, SF Pro Display, Segoe UI, system-ui, sans-serif" font-size="54" font-weight="650" letter-spacing="-0.02em">Interpreter</text>
+  <text x="430" y="82" fill="#22D3EE" font-family="Inter, SF Pro Display, Segoe UI, system-ui, sans-serif" font-size="54" font-weight="650" letter-spacing="-0.02em">AI</text>
+</svg>

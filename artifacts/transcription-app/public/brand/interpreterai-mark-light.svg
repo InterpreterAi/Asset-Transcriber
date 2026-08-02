@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" role="img" aria-label="InterpreterAI">
+  <rect width="128" height="128" rx="28" fill="#EFF6FF"/>
+  <rect x="2" y="2" width="124" height="124" rx="26" stroke="#2563EB" stroke-opacity="0.35" stroke-width="2"/>
+  <path d="M64 28L54 72H70L58 100L84 52H66L74 28H64Z" fill="#2563EB"/>
+</svg>

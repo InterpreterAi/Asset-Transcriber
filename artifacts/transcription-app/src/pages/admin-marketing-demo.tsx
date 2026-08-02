@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence } from "framer-motion";
 import {
   ApiError,
   getGetMeQueryKey,
@@ -8,7 +9,9 @@ import {
 } from "@workspace/api-client-react";
 import {
   BookOpen,
+  Clapperboard,
   Columns2,
+  Film,
   Monitor,
   Moon,
   NotebookPen,
@@ -22,6 +25,8 @@ import {
 } from "lucide-react";
 import { useTranscription } from "@/hooks/use-transcription";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
+import { BrandIntro, BrandOutro } from "@/brand";
+import "@/brand/styles/brand-motion.css";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { cn, formatMinutes } from "@/lib/utils";
@@ -41,6 +46,12 @@ const DEMO_FONT_PX_OPTIONS = [12, 14, 16, 18, 20, 22, 24] as const;
 type DemoFontPx = (typeof DEMO_FONT_PX_OPTIONS)[number];
 const DEMO_FONT_LS = "interpreterai_demo_marketing_font_px";
 const DEMO_THEME_LS = "interpreterai_demo_marketing_theme";
+const DEMO_RECORD_MODE_LS = "interpreterai_demo_marketing_record_mode";
+
+type DemoPhase = "intro" | "workspace" | "outro";
+
+const DEMO_INTRO_MS = 1800;
+const DEMO_OUTRO_MS = 3200;
 
 /** ~12% wider than a pure 9:16 phone while still fitting a vertical recording frame. */
 const FRAME_STYLE: CSSProperties = {
@@ -77,6 +88,14 @@ function readDemoTheme(): "dark" | "light" {
     /* storage */
   }
   return "dark";
+}
+
+function readDemoRecordMode(): boolean {
+  try {
+    return localStorage.getItem(DEMO_RECORD_MODE_LS) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function DemoFontSizeStepper({
@@ -151,6 +170,10 @@ export default function AdminMarketingDemo() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [fontPx, setFontPx] = useState<DemoFontPx>(() => readDemoFontPx());
   const [theme, setTheme] = useState<"dark" | "light">(() => readDemoTheme());
+  const [recordMode, setRecordMode] = useState(() => readDemoRecordMode());
+  const [phase, setPhase] = useState<DemoPhase>(() =>
+    readDemoRecordMode() ? "intro" : "workspace",
+  );
   const [sheet, setSheet] = useState<DemoSheet>("none");
   const [notes, setNotes] = useState("");
   const [usageTick, setUsageTick] = useState(0);
@@ -161,6 +184,8 @@ export default function AdminMarketingDemo() {
   const liveStartedAtRef = useRef<number | null>(null);
 
   const dark = theme === "dark";
+  const brandTheme = dark ? "dark" : "light";
+  const showBrandOverlay = recordMode && (phase === "intro" || phase === "outro");
 
   useEffect(() => {
     try {
@@ -177,6 +202,30 @@ export default function AdminMarketingDemo() {
       /* storage */
     }
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DEMO_RECORD_MODE_LS, recordMode ? "1" : "0");
+    } catch {
+      /* storage */
+    }
+  }, [recordMode]);
+
+  const finishIntro = useCallback(() => {
+    setPhase("workspace");
+  }, []);
+
+  const finishOutro = useCallback(() => {
+    setPhase("workspace");
+  }, []);
+
+  const handleRecordModeToggle = () => {
+    setRecordMode((prev) => {
+      const next = !prev;
+      setPhase(next ? "intro" : "workspace");
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!meFetched || meLoading) return;
@@ -460,6 +509,42 @@ export default function AdminMarketingDemo() {
         )}
         style={FRAME_STYLE}
       >
+        {/* Record Mode brand overlays — admin demo only */}
+        <AnimatePresence mode="wait">
+          {recordMode && phase === "intro" && (
+            <BrandIntro
+              key="demo-intro"
+              theme={brandTheme}
+              durationMs={DEMO_INTRO_MS}
+              showLiveBadge
+              sloganLines={[
+                "Stay focused on the conversation.",
+                "We'll handle the words.",
+              ]}
+              onComplete={finishIntro}
+            />
+          )}
+          {recordMode && phase === "outro" && (
+            <BrandOutro
+              key="demo-outro"
+              theme={brandTheme}
+              headline="InterpreterAI"
+              lines={["62 Languages", "Built for Professional Interpreters"]}
+              cta="Start Free"
+              url="app.interpreterai.org"
+              durationMs={DEMO_OUTRO_MS}
+              onComplete={finishOutro}
+            />
+          )}
+        </AnimatePresence>
+
+        <div
+          className={cn(
+            "flex flex-col flex-1 min-h-0",
+            showBrandOverlay && "pointer-events-none select-none",
+          )}
+          aria-hidden={showBrandOverlay || undefined}
+        >
         {/* Compact top bar: brand + pair + LIVE (only while recording) */}
         <header
           className={cn(
@@ -542,6 +627,26 @@ export default function AdminMarketingDemo() {
             <BookOpen className="w-3 h-3 shrink-0" />
             <span>Glossary</span>
           </button>
+          <button
+            type="button"
+            onClick={handleRecordModeToggle}
+            className={toolBtn(recordMode)}
+            title={recordMode ? "Record Mode on — intro/outro enabled" : "Record Mode off"}
+          >
+            <Clapperboard className="w-3 h-3 shrink-0" />
+            <span>Record</span>
+          </button>
+          {recordMode && phase === "workspace" && (
+            <button
+              type="button"
+              onClick={() => setPhase("outro")}
+              className={toolBtn(false)}
+              title="Play branded outro"
+            >
+              <Film className="w-3 h-3 shrink-0" />
+              <span>Outro</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setTheme(dark ? "light" : "dark")}
@@ -806,6 +911,7 @@ export default function AdminMarketingDemo() {
             )}
           </button>
         </footer>
+        </div>
       </div>
     </div>
   );

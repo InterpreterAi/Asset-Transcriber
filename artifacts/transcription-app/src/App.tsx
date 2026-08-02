@@ -1,6 +1,6 @@
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import Landing from "./pages/landing";
 import Login from "./pages/login";
@@ -9,7 +9,6 @@ import ForgotPassword from "./pages/forgot-password";
 import ResetPassword from "./pages/reset-password";
 import Workspace from "./pages/workspace";
 import Admin from "./pages/admin";
-import AdminMarketingDemo from "./pages/admin-marketing-demo";
 import Terms from "./pages/terms";
 import Privacy from "./pages/privacy";
 import Security from "./pages/security";
@@ -20,6 +19,23 @@ import UsagePage from "./pages/usage";
 import BillingPage from "./pages/billing";
 import AccountPage from "./pages/account";
 import ReferralsPage from "./pages/referrals";
+
+/** Admin marketing demo + brand kit — separate chunk; production workspace users never download it. */
+const AdminMarketingDemo = lazy(() => import("./pages/admin-marketing-demo"));
+
+function AdminMarketingDemoRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#03060d] flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400" />
+        </div>
+      }
+    >
+      <AdminMarketingDemo />
+    </Suspense>
+  );
+}
 
 // ─── System banner toggle ─────────────────────────────────────────────────────
 // Set to true  → banner is shown across every page.
@@ -89,7 +105,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/workspace" component={Workspace} />
       <Route path="/admin" component={Admin} />
-      <Route path="/admin/demo-marketing" component={AdminMarketingDemo} />
+      <Route path="/admin/demo-marketing" component={AdminMarketingDemoRoute} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/security" component={Security} />
