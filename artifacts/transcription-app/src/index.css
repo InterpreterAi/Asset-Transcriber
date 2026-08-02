@@ -409,19 +409,19 @@
 }
 
 /*
- * Steady soft highlight on the current segment only.
- * No opacity fades, no caret blink, no transition — moves once to the next row when it appears.
+ * Steady soft highlight on the newest segment only (:last-child).
+ * No JS class toggling — growing text cannot flicker the highlight off/on.
  */
-.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active,
-.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active:hover {
-  background: rgba(34, 211, 238, 0.07) !important;
-  border-color: rgba(34, 211, 238, 0.14) !important;
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *:last-child,
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .workspace-selectable-root > *:last-child:hover {
+  background: rgba(34, 211, 238, 0.09) !important;
+  border-color: rgba(34, 211, 238, 0.16) !important;
 }
 
-.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active,
-.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *.demo-row-active:hover {
-  background: rgba(14, 165, 233, 0.07) !important;
-  border-color: rgba(14, 165, 233, 0.14) !important;
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *:last-child,
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .workspace-selectable-root > *:last-child:hover {
+  background: rgba(14, 165, 233, 0.10) !important;
+  border-color: rgba(14, 165, 233, 0.18) !important;
 }
 
 .marketing-demo-mode .ts-text {
@@ -429,41 +429,57 @@
   line-height: var(--ts-line-height, 1.45);
 }
 
+.marketing-demo-mode.marketing-demo-dark .ts-original,
+.marketing-demo-mode.marketing-demo-dark .ts-translation,
+.marketing-demo-mode.marketing-demo-dark .ts-text,
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root .text-muted-foreground,
+.marketing-demo-mode.marketing-demo-dark .marketing-demo-transcript-root [class*="text-muted"] {
+  color: rgb(241 245 249) !important;
+  font-style: normal;
+}
+
 .marketing-demo-mode.marketing-demo-dark .ts-original {
-  color: rgb(241 245 249);
   font-weight: 500;
 }
 
 .marketing-demo-mode.marketing-demo-dark .ts-translation {
-  color: rgb(241 245 249);
-  font-style: normal;
   font-weight: 600;
 }
 
+/* Light mode: force dark ink so workspace muted/live classes cannot wash out. */
+.marketing-demo-mode.marketing-demo-light .ts-original,
+.marketing-demo-mode.marketing-demo-light .ts-translation,
+.marketing-demo-mode.marketing-demo-light .ts-text,
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root .text-muted-foreground,
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root [class*="text-muted"],
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root [data-caw-role],
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root [data-caw-engine],
+.marketing-demo-mode.marketing-demo-light .marketing-demo-transcript-root [data-caw-part] {
+  color: rgb(15 23 42) !important;
+  -webkit-text-fill-color: rgb(15 23 42) !important;
+  font-style: normal;
+  opacity: 1 !important;
+}
+
 .marketing-demo-mode.marketing-demo-light .ts-original {
-  color: rgb(15 23 42);
   font-weight: 500;
 }
 
 .marketing-demo-mode.marketing-demo-light .ts-translation {
-  color: rgb(15 23 42);
-  font-style: normal;
   font-weight: 600;
 }
 
-/* LIVE badge soft pulse while recording. */
+/* Professional red LIVE pulse (only rendered while recording). */
 .marketing-demo-mode .demo-live-badge-active {
-  animation: marketing-demo-live-pulse 1.8s ease-in-out infinite;
+  animation: marketing-demo-live-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes marketing-demo-live-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
-    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.14);
-    transform: scale(1.03);
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.28);
   }
 }
 

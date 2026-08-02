@@ -7,19 +7,22 @@ import {
   useGetMe,
 } from "@workspace/api-client-react";
 import {
-  Clock,
+  BookOpen,
   Monitor,
   Moon,
+  NotebookPen,
   Radio,
   Square,
   Sun,
   TriangleAlert,
+  X,
   Zap,
 } from "lucide-react";
 import { useTranscription } from "@/hooks/use-transcription";
+import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
-import { cn, formatMinutes, isTrialLikePlanType } from "@/lib/utils";
+import { cn, formatMinutes } from "@/lib/utils";
 
 const LANG_OPTIONS = workspaceLanguageOptions();
 
@@ -28,6 +31,9 @@ const LANG_OPTIONS = workspaceLanguageOptions();
  * `basic-hetzner` hard-routes to Soniox STT + Soniox chunk-v2 native translation.
  */
 const DEMO_CHUNK_V2_PLAN = "basic-hetzner";
+
+/** Marketing videos always present the real trial daily cap (2 hours). */
+const DEMO_TRIAL_DAILY_MINUTES = 120;
 
 const DEMO_FONT_PX_OPTIONS = [12, 14, 16, 18, 20, 22, 24] as const;
 type DemoFontPx = (typeof DEMO_FONT_PX_OPTIONS)[number];
@@ -41,6 +47,8 @@ const FRAME_STYLE: CSSProperties = {
 };
 
 const TAIL_STICK_EPS_PX = 72;
+
+type DemoSheet = "none" | "notes" | "glossary";
 
 function readDemoFontPx(): DemoFontPx {
   try {
@@ -82,8 +90,8 @@ function DemoFontSizeStepper({
   return (
     <div
       className={cn(
-        "flex items-center rounded-full border shrink-0 overflow-hidden h-7",
-        dark ? "border-white/10 bg-white/[0.04]" : "border-slate-200 bg-slate-100/80",
+        "flex items-center rounded-md border shrink-0 overflow-hidden h-6",
+        dark ? "border-white/10 bg-white/[0.04]" : "border-slate-200 bg-white",
       )}
     >
       <button
@@ -91,8 +99,8 @@ function DemoFontSizeStepper({
         onClick={() => step(-1)}
         disabled={idx <= 0}
         className={cn(
-          "px-2 h-full text-sm font-semibold transition-colors disabled:opacity-30",
-          dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-200/80",
+          "px-1.5 h-full text-xs font-semibold disabled:opacity-30",
+          dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100",
         )}
         aria-label="Decrease text size"
       >
@@ -100,7 +108,7 @@ function DemoFontSizeStepper({
       </button>
       <span
         className={cn(
-          "px-2 text-xs font-semibold tabular-nums min-w-[1.75rem] text-center",
+          "px-1 text-[10px] font-semibold tabular-nums min-w-[1.4rem] text-center",
           dark ? "text-slate-200" : "text-slate-700",
         )}
       >
@@ -111,8 +119,8 @@ function DemoFontSizeStepper({
         onClick={() => step(+1)}
         disabled={idx >= DEMO_FONT_PX_OPTIONS.length - 1}
         className={cn(
-          "px-2 h-full text-sm font-semibold transition-colors disabled:opacity-30",
-          dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-200/80",
+          "px-1.5 h-full text-xs font-semibold disabled:opacity-30",
+          dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100",
         )}
         aria-label="Increase text size"
       >
@@ -135,10 +143,12 @@ export default function AdminMarketingDemo() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [fontPx, setFontPx] = useState<DemoFontPx>(() => readDemoFontPx());
   const [theme, setTheme] = useState<"dark" | "light">(() => readDemoTheme());
+  const [sheet, setSheet] = useState<DemoSheet>("none");
+  const [notes, setNotes] = useState("");
+  const [usageTick, setUsageTick] = useState(0);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
-  const activeRowRef = useRef<HTMLElement | null>(null);
 
   const dark = theme === "dark";
 
@@ -221,6 +231,12 @@ export default function AdminMarketingDemo() {
     transcription.setLangPair(langA, langB);
   }, [langA, langB, transcription]);
 
+  useEffect(() => {
+    if (!transcription.isRecording) return;
+    const id = window.setInterval(() => setUsageTick((n) => n + 1), 5000);
+    return () => window.clearInterval(id);
+  }, [transcription.isRecording]);
+
   const handleLangAChange = (next: string) => {
     if (next === langB) return;
     setLangA(next);
@@ -244,46 +260,22 @@ export default function AdminMarketingDemo() {
     return () => scroller.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Highlight moves only when a new row is appended — never while the active segment's text grows.
+  // Tail-follow only — last-row highlight is pure CSS (:last-child) so growing text never flickers.
   useEffect(() => {
     const container = transcription.containerRef.current;
     const scroller = scrollerRef.current;
     if (!container || !scroller) return;
 
-    let highlightRaf = 0;
     let scrollRaf = 0;
-
-    const syncActiveRow = () => {
-      const rows = Array.from(container.children).filter(
-        (el): el is HTMLElement => el instanceof HTMLElement,
-      );
-      const nextActive = rows[rows.length - 1] ?? null;
-      if (nextActive === activeRowRef.current) return;
-      activeRowRef.current?.classList.remove("demo-row-active");
-      nextActive?.classList.add("demo-row-active");
-      activeRowRef.current = nextActive;
-    };
-
     const followTailIfPinned = () => {
       if (!stickToBottomRef.current) return;
       scroller.scrollTop = scroller.scrollHeight;
     };
-
-    const scheduleHighlight = () => {
-      if (highlightRaf) cancelAnimationFrame(highlightRaf);
-      highlightRaf = requestAnimationFrame(syncActiveRow);
-    };
-
     const scheduleScroll = () => {
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
       scrollRaf = requestAnimationFrame(followTailIfPinned);
     };
 
-    // New bubbles only — avoids re-touching classes on every streaming character.
-    const rowObserver = new MutationObserver(scheduleHighlight);
-    rowObserver.observe(container, { childList: true });
-
-    // Text growth may need tail-follow, but must not toggle highlight classes.
     const textObserver = new MutationObserver(scheduleScroll);
     textObserver.observe(container, {
       childList: true,
@@ -291,15 +283,10 @@ export default function AdminMarketingDemo() {
       characterData: true,
     });
 
-    syncActiveRow();
     followTailIfPinned();
     return () => {
-      if (highlightRaf) cancelAnimationFrame(highlightRaf);
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
-      rowObserver.disconnect();
       textObserver.disconnect();
-      activeRowRef.current?.classList.remove("demo-row-active");
-      activeRowRef.current = null;
     };
   }, [transcription.containerRef]);
 
@@ -316,7 +303,6 @@ export default function AdminMarketingDemo() {
         displaySurface: "browser",
       } as MediaTrackConstraints,
       audio: {
-        // Keep tab audio audible while capturing (Chrome supports suppressLocalAudioPlayback).
         suppressLocalAudioPlayback: false,
         echoCancellation: false,
         noiseSuppression: false,
@@ -342,10 +328,10 @@ export default function AdminMarketingDemo() {
     audioTracks[0]!.addEventListener("ended", () => {
       void transcription.stop().catch(() => {});
       setTabStream(null);
+      setNotes("");
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     });
 
-    // Empty deviceId + providedStream skips getUserMedia (mic never opened).
     await transcription.start("", audioStream);
   };
 
@@ -354,13 +340,13 @@ export default function AdminMarketingDemo() {
     if (transcription.isRecording) {
       await transcription.stop().catch(() => {});
       stopTabStream();
+      setNotes("");
       void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
       return;
     }
     try {
       await handleStartTabAudio();
     } catch (err) {
-      // User cancelled the share picker, or browser blocked getDisplayMedia.
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         return;
       }
@@ -395,22 +381,34 @@ export default function AdminMarketingDemo() {
   if (!me?.isAdmin) return null;
 
   const pairLabel = `${langA.trim().toUpperCase() || "EN"} → ${langB.trim().toUpperCase() || "AR"}`;
-  const isTrial = isTrialLikePlanType(me.planType);
-  const daysLeft = isTrial
-    ? me.trialDaysRemaining
-    : typeof me.paidCycleDaysRemaining === "number"
-      ? me.paidCycleDaysRemaining
-      : null;
-  const daysLeftLabel =
-    typeof daysLeft === "number"
-      ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
-      : null;
-  const usageLabel = `${formatMinutes(me.minutesUsedToday)} / ${formatMinutes(me.dailyLimitMinutes)} today`;
+  const sessionMinutes =
+    transcription.isRecording ? transcription.getApproxBillableMinutesThisSession() : 0;
+  void usageTick;
+  const usedMinutes = me.minutesUsedToday + sessionMinutes;
+  const usageLabel = `${formatMinutes(usedMinutes)} / 2h`;
+  const daysLeft =
+    typeof me.trialDaysRemaining === "number" && me.trialDaysRemaining >= 0
+      ? me.trialDaysRemaining
+      : 7;
+  const daysLeftLabel = `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+  const usagePct = Math.min(100, (usedMinutes / DEMO_TRIAL_DAILY_MINUTES) * 100);
 
   const transcriptTextStyle = {
     "--ts-font-size": `${fontPx}px`,
     "--ts-line-height": "1.45",
   } as CSSProperties;
+
+  const toolBtn = (active: boolean) =>
+    cn(
+      "h-6 px-2 rounded-md border inline-flex items-center gap-1 text-[10px] font-semibold shrink-0 transition-colors",
+      active
+        ? dark
+          ? "bg-cyan-500/20 border-cyan-400/40 text-cyan-100"
+          : "bg-sky-100 border-sky-300 text-sky-800"
+        : dark
+          ? "border-white/10 text-slate-300 hover:bg-white/10"
+          : "border-slate-200 text-slate-600 hover:bg-slate-100",
+    );
 
   return (
     <div
@@ -436,87 +434,88 @@ export default function AdminMarketingDemo() {
         )}
         style={FRAME_STYLE}
       >
+        {/* Compact top bar: brand + pair + LIVE (only while recording) */}
         <header
           className={cn(
-            "h-14 shrink-0 border-b px-4 flex items-center justify-between gap-2",
+            "h-11 shrink-0 border-b px-3 flex items-center justify-between gap-2",
             dark ? "border-white/[0.08] bg-[#0b1220]/92" : "border-slate-200/80 bg-white/90",
           )}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <div
               className={cn(
-                "w-8 h-8 rounded-xl flex items-center justify-center ring-1",
+                "w-7 h-7 rounded-lg flex items-center justify-center ring-1 shrink-0",
                 dark
                   ? "bg-cyan-500/15 text-cyan-300 ring-cyan-400/25"
                   : "bg-sky-500/10 text-sky-600 ring-sky-400/30",
               )}
             >
-              <Zap className="w-4 h-4" />
+              <Zap className="w-3.5 h-3.5" />
             </div>
-            <span className={cn("text-[14px] leading-none font-semibold", dark ? "text-white" : "text-slate-900")}>
+            <span className={cn("text-[13px] font-semibold truncate", dark ? "text-white" : "text-slate-900")}>
               Interpreter<span className={dark ? "text-cyan-300" : "text-sky-600"}>AI</span>
             </span>
-          </div>
-          <div
-            className={cn(
-              "demo-live-badge flex items-center gap-2 px-2.5 py-1 rounded-full border shrink-0",
-              transcription.isRecording && "demo-live-badge-active",
-              dark
-                ? "bg-cyan-500/10 text-cyan-200 border-cyan-400/30"
-                : "bg-emerald-50 text-emerald-700 border-emerald-300/70",
-            )}
-          >
             <span
               className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                transcription.isRecording
-                  ? dark
-                    ? "bg-cyan-300"
-                    : "bg-emerald-500"
-                  : dark
-                    ? "bg-slate-500"
-                    : "bg-slate-300",
+                "text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md border shrink-0",
+                dark
+                  ? "border-white/10 text-slate-400 bg-white/[0.03]"
+                  : "border-slate-200 text-slate-500 bg-slate-50",
               )}
-            />
-            <span className="text-[10px] font-semibold tracking-widest">LIVE</span>
+            >
+              {pairLabel}
+            </span>
           </div>
+          {transcription.isRecording && (
+            <div className="demo-live-badge demo-live-badge-active flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-600 text-white border border-red-500 shadow-[0_0_0_1px_rgba(220,38,38,0.35)] shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              <span className="text-[10px] font-bold tracking-widest">LIVE</span>
+            </div>
+          )}
         </header>
 
+        {/* Single compact toolbar — font, trial usage, notes, glossary, theme */}
         <div
           className={cn(
-            "shrink-0 border-b px-3 py-2 flex flex-wrap items-center justify-center gap-2",
+            "shrink-0 border-b px-2.5 py-1.5 flex items-center gap-1.5 overflow-x-auto",
             dark ? "border-white/[0.06] bg-white/[0.015]" : "border-slate-200/70 bg-slate-50/80",
           )}
         >
           <DemoFontSizeStepper value={fontPx} onChange={setFontPx} dark={dark} />
           <div
             className={cn(
-              "px-2.5 py-1 rounded-full text-[10px] font-medium flex items-center gap-1.5 border",
+              "h-6 px-2 rounded-md text-[10px] font-medium flex items-center gap-1.5 border shrink-0",
               dark
-                ? "bg-muted/20 border-white/[0.08] text-slate-300"
+                ? "bg-white/[0.04] border-white/[0.08] text-slate-300"
                 : "bg-white border-slate-200 text-slate-600",
             )}
+            title="Trial daily usage (2 hours)"
           >
-            <Clock className="w-3 h-3 shrink-0 opacity-70" />
             <span className="tabular-nums whitespace-nowrap">{usageLabel}</span>
+            <span className={cn("opacity-40", dark ? "text-slate-500" : "text-slate-400")}>·</span>
+            <span className="whitespace-nowrap">{daysLeftLabel}</span>
           </div>
-          {daysLeftLabel && (
-            <div
-              className={cn(
-                "px-2.5 py-1 rounded-full text-[10px] font-medium border whitespace-nowrap",
-                dark
-                  ? "bg-emerald-500/10 border-emerald-400/25 text-emerald-200"
-                  : "bg-emerald-50 border-emerald-200 text-emerald-700",
-              )}
-            >
-              {daysLeftLabel}
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setSheet((s) => (s === "notes" ? "none" : "notes"))}
+            className={toolBtn(sheet === "notes")}
+          >
+            <NotebookPen className="w-3 h-3" />
+            Notes
+          </button>
+          <button
+            type="button"
+            onClick={() => setSheet((s) => (s === "glossary" ? "none" : "glossary"))}
+            className={toolBtn(sheet === "glossary")}
+          >
+            <BookOpen className="w-3 h-3" />
+            Glossary
+          </button>
           <button
             type="button"
             onClick={() => setTheme(dark ? "light" : "dark")}
             className={cn(
-              "flex items-center justify-center w-7 h-7 rounded-lg border transition-colors shrink-0",
+              "ml-auto flex items-center justify-center w-6 h-6 rounded-md border shrink-0",
               dark
                 ? "border-white/10 text-amber-200/90 hover:bg-white/10"
                 : "border-slate-200 text-slate-500 hover:bg-slate-100",
@@ -530,30 +529,14 @@ export default function AdminMarketingDemo() {
 
         <div
           className={cn(
-            "h-8 shrink-0 border-b px-4 flex items-center justify-center",
-            dark ? "border-white/[0.05]" : "border-slate-200/70",
-          )}
-        >
-          <span
-            className={cn(
-              "text-[10px] font-semibold tracking-wide tabular-nums",
-              dark ? "text-slate-400" : "text-slate-500",
-            )}
-          >
-            {pairLabel}
-          </span>
-        </div>
-
-        <div
-          className={cn(
-            "h-8 shrink-0 border-b px-4 grid grid-cols-2 gap-2.5 items-center",
+            "h-7 shrink-0 border-b px-3 grid grid-cols-2 gap-2 items-center",
             dark ? "border-white/[0.05]" : "border-slate-200/70",
           )}
         >
           <span
             className={cn(
               "text-[10px] font-semibold uppercase tracking-wider truncate",
-              dark ? "text-slate-500" : "text-slate-400",
+              dark ? "text-slate-500" : "text-slate-500",
             )}
           >
             Original
@@ -561,21 +544,21 @@ export default function AdminMarketingDemo() {
           <span
             className={cn(
               "text-[10px] font-semibold uppercase tracking-wider truncate",
-              dark ? "text-slate-500" : "text-slate-400",
+              dark ? "text-slate-500" : "text-slate-500",
             )}
           >
             Translation
           </span>
         </div>
 
-        <main className="flex-1 min-h-0 px-3 py-3">
+        <main className="relative flex-1 min-h-0 px-2.5 py-2">
           <div
             ref={scrollerRef}
             className={cn(
-              "marketing-demo-transcript-root h-full rounded-2xl border overflow-y-auto overflow-x-hidden px-2.5 py-3 workspace-selectable-root",
+              "marketing-demo-transcript-root h-full rounded-xl border overflow-y-auto overflow-x-hidden px-2 py-2.5 workspace-selectable-root",
               dark
                 ? "border-white/[0.08] bg-[#0b111d]/92"
-                : "border-slate-200 bg-slate-50/90",
+                : "border-slate-200 bg-white",
             )}
             style={transcriptTextStyle}
           >
@@ -583,13 +566,13 @@ export default function AdminMarketingDemo() {
             {!transcription.hasTranscript && (
               <div
                 className={cn(
-                  "h-full min-h-[200px] flex flex-col items-center justify-center text-center gap-3 pointer-events-none",
+                  "h-full min-h-[180px] flex flex-col items-center justify-center text-center gap-2.5 pointer-events-none",
                   dark ? "text-slate-400" : "text-slate-500",
                 )}
               >
                 <div
                   className={cn(
-                    "w-12 h-12 rounded-full flex items-center justify-center border",
+                    "w-11 h-11 rounded-full flex items-center justify-center border",
                     dark
                       ? "bg-cyan-500/12 border-cyan-400/25"
                       : "bg-sky-500/10 border-sky-300/40",
@@ -597,112 +580,173 @@ export default function AdminMarketingDemo() {
                 >
                   <Monitor className={cn("w-5 h-5", dark ? "text-cyan-300" : "text-sky-600")} />
                 </div>
-                <p className={cn("text-base font-medium", dark ? "text-slate-200" : "text-slate-800")}>
+                <p className={cn("text-sm font-medium", dark ? "text-slate-200" : "text-slate-800")}>
                   {transcription.isRecording
                     ? "Listening to Tab Audio…"
                     : "Press Start to share a browser tab"}
                 </p>
-                <p className={cn("text-xs max-w-[16rem]", dark ? "text-slate-500" : "text-slate-400")}>
+                <p className={cn("text-xs max-w-[15rem]", dark ? "text-slate-500" : "text-slate-500")}>
                   Choose the call tab and enable “Share tab audio”.
                 </p>
               </div>
             )}
           </div>
+
+          {/* Half-screen Notes sheet */}
+          {sheet === "notes" && (
+            <div
+              className={cn(
+                "absolute inset-x-2.5 bottom-2 z-20 h-[48%] rounded-xl border flex flex-col overflow-hidden shadow-2xl",
+                dark
+                  ? "border-white/10 bg-[#0d1524]"
+                  : "border-slate-200 bg-white",
+              )}
+            >
+              <div
+                className={cn(
+                  "h-9 px-3 border-b flex items-center justify-between shrink-0",
+                  dark ? "border-white/[0.08]" : "border-slate-200",
+                )}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <NotebookPen className={cn("w-3.5 h-3.5", dark ? "text-cyan-300" : "text-sky-600")} />
+                  <span className="text-xs font-semibold">Notes</span>
+                  <span className={cn("text-[10px] tabular-nums truncate", dark ? "text-slate-400" : "text-slate-500")}>
+                    {usageLabel} · {daysLeftLabel}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSheet("none")}
+                  className={cn(
+                    "w-7 h-7 rounded-md flex items-center justify-center",
+                    dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100",
+                  )}
+                  aria-label="Close notes"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className={cn("h-1 w-full shrink-0", dark ? "bg-white/5" : "bg-slate-100")}>
+                <div
+                  className={cn("h-full transition-[width]", usagePct >= 100 ? "bg-red-500" : "bg-cyan-500")}
+                  style={{ width: `${usagePct}%` }}
+                />
+              </div>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Session notes (cleared when you stop)…"
+                className={cn(
+                  "flex-1 min-h-0 w-full resize-none px-3 py-2 text-sm outline-none",
+                  dark
+                    ? "bg-transparent text-slate-100 placeholder:text-slate-500"
+                    : "bg-transparent text-slate-900 placeholder:text-slate-400",
+                )}
+              />
+            </div>
+          )}
+
+          {/* Half-screen Glossary sheet */}
+          {sheet === "glossary" && (
+            <div
+              className={cn(
+                "absolute inset-x-2.5 bottom-2 z-20 h-[48%] rounded-xl border overflow-hidden shadow-2xl",
+                "[&>div]:w-full [&>div]:h-full [&>div]:border-0 [&>div]:rounded-xl",
+                dark ? "border-white/10" : "border-slate-200",
+              )}
+            >
+              <GlossaryPanel onClose={() => setSheet("none")} langA={langA} langB={langB} />
+            </div>
+          )}
         </main>
 
         <footer
           className={cn(
-            "shrink-0 border-t px-4 py-3 space-y-2.5",
+            "shrink-0 border-t px-3 py-2.5 space-y-2",
             dark ? "border-white/[0.08] bg-[#0b1220]/94" : "border-slate-200/80 bg-white/95",
           )}
         >
           {(transcription.error || transcription.translationServiceError || localError) && (
             <div
               className={cn(
-                "rounded-xl border px-3 py-2 text-xs flex items-start gap-2",
+                "rounded-lg border px-2.5 py-1.5 text-[11px] flex items-start gap-2",
                 dark
                   ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
                   : "border-amber-300 bg-amber-50 text-amber-900",
               )}
             >
-              <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+              <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
               <span>{localError ?? transcription.translationServiceError ?? transcription.error}</span>
             </div>
           )}
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center gap-1.5 justify-center">
-              <select
-                value={langA}
-                onChange={(e) => handleLangAChange(e.target.value)}
-                disabled={transcription.isRecording || transcription.isStarting}
-                aria-label="Source language"
-                className={cn(
-                  "h-9 flex-1 min-w-0 rounded-lg border px-2 text-xs disabled:opacity-50",
-                  dark
-                    ? "border-white/10 bg-[#121a2a] text-slate-100"
-                    : "border-slate-200 bg-white text-slate-800",
-                )}
-              >
-                {LANG_OPTIONS.map((l) => (
-                  <option key={l.value} value={l.value} disabled={l.value === langB}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-              <span
-                className={cn(
-                  "text-[10px] font-semibold shrink-0",
-                  dark ? "text-slate-500" : "text-slate-400",
-                )}
-              >
-                ↔
-              </span>
-              <select
-                value={langB}
-                onChange={(e) => handleLangBChange(e.target.value)}
-                disabled={transcription.isRecording || transcription.isStarting}
-                aria-label="Target language"
-                className={cn(
-                  "h-9 flex-1 min-w-0 rounded-lg border px-2 text-xs disabled:opacity-50",
-                  dark
-                    ? "border-white/10 bg-[#121a2a] text-slate-100"
-                    : "border-slate-200 bg-white text-slate-800",
-                )}
-              >
-                {LANG_OPTIONS.map((l) => (
-                  <option key={l.value} value={l.value} disabled={l.value === langA}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleToggleRecording()}
-              disabled={transcription.isStarting}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={langA}
+              onChange={(e) => handleLangAChange(e.target.value)}
+              disabled={transcription.isRecording || transcription.isStarting}
+              aria-label="Source language"
               className={cn(
-                "h-11 w-full rounded-full px-6 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all",
-                transcription.isRecording
-                  ? "bg-red-500 text-white hover:bg-red-500/90 shadow-[0_0_30px_rgba(239,68,68,0.45)]"
-                  : dark
-                    ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-[0_0_32px_rgba(34,211,238,0.42)]"
-                    : "bg-sky-500 text-white hover:bg-sky-400 shadow-[0_0_28px_rgba(14,165,233,0.35)]",
-                transcription.isStarting && "opacity-70 pointer-events-none",
+                "h-8 flex-1 min-w-0 rounded-lg border px-2 text-xs disabled:opacity-50",
+                dark
+                  ? "border-white/10 bg-[#121a2a] text-slate-100"
+                  : "border-slate-200 bg-white text-slate-800",
               )}
             >
-              {transcription.isRecording ? (
-                <>
-                  <Square className="w-4 h-4" />
-                  Stop
-                </>
-              ) : (
-                <>
-                  <Radio className="w-4 h-4" />
-                  Start
-                </>
+              {LANG_OPTIONS.map((l) => (
+                <option key={l.value} value={l.value} disabled={l.value === langB}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <span className={cn("text-[10px] font-semibold shrink-0", dark ? "text-slate-500" : "text-slate-400")}>
+              ↔
+            </span>
+            <select
+              value={langB}
+              onChange={(e) => handleLangBChange(e.target.value)}
+              disabled={transcription.isRecording || transcription.isStarting}
+              aria-label="Target language"
+              className={cn(
+                "h-8 flex-1 min-w-0 rounded-lg border px-2 text-xs disabled:opacity-50",
+                dark
+                  ? "border-white/10 bg-[#121a2a] text-slate-100"
+                  : "border-slate-200 bg-white text-slate-800",
               )}
-            </button>
+            >
+              {LANG_OPTIONS.map((l) => (
+                <option key={l.value} value={l.value} disabled={l.value === langA}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
           </div>
+          <button
+            type="button"
+            onClick={() => void handleToggleRecording()}
+            disabled={transcription.isStarting}
+            className={cn(
+              "h-10 w-full rounded-full px-5 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all",
+              transcription.isRecording
+                ? "bg-red-500 text-white hover:bg-red-500/90 shadow-[0_0_30px_rgba(239,68,68,0.45)]"
+                : dark
+                  ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-[0_0_32px_rgba(34,211,238,0.42)]"
+                  : "bg-sky-500 text-white hover:bg-sky-400 shadow-[0_0_28px_rgba(14,165,233,0.35)]",
+              transcription.isStarting && "opacity-70 pointer-events-none",
+            )}
+          >
+            {transcription.isRecording ? (
+              <>
+                <Square className="w-4 h-4" />
+                Stop
+              </>
+            ) : (
+              <>
+                <Radio className="w-4 h-4" />
+                Start
+              </>
+            )}
+          </button>
         </footer>
       </div>
     </div>
