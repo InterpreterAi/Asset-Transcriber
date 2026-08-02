@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Zap } from "lucide-react";
 
 function BrandWordmark({ compact = false, premium = false }: { compact?: boolean; premium?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2 min-w-0 shrink-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
-      <img
-        src={premium ? "/brand/interpreterai-mark-dark.svg" : "/brand/interpreterai-mark-light.svg"}
-        alt=""
-        className={`object-contain shrink-0 ${compact ? "w-8 h-8" : "w-9 h-9"}`}
-        draggable={false}
-      />
+      <div
+        className={`rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 ${compact ? "w-8 h-8" : "w-9 h-9"}`}
+      >
+        <Zap className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} strokeWidth={2.2} />
+      </div>
       <span
         className={`font-semibold tracking-tight ${premium ? "text-white" : "text-foreground"} ${compact ? "text-[15px]" : "text-[17px]"}`}
       >

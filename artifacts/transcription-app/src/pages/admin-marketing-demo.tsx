@@ -18,6 +18,7 @@ import {
   Sun,
   TriangleAlert,
   X,
+  Zap,
 } from "lucide-react";
 import { useTranscription } from "@/hooks/use-transcription";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
@@ -473,12 +474,16 @@ export default function AdminMarketingDemo() {
           )}
         >
           <div className="flex items-center gap-2 min-w-0">
-            <img
-              src={dark ? "/brand/interpreterai-mark-dark.svg" : "/brand/interpreterai-mark-light.svg"}
-              alt=""
-              className="h-7 w-7 object-contain shrink-0"
-              draggable={false}
-            />
+            <div
+              className={cn(
+                "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                dark
+                  ? "bg-cyan-500/15 text-cyan-300"
+                  : "bg-sky-500/10 text-sky-600",
+              )}
+            >
+              <Zap className="w-3.5 h-3.5" strokeWidth={2.2} />
+            </div>
             <span className={cn("text-[13px] font-semibold truncate", dark ? "text-white" : "text-slate-900")}>
               Interpreter<span className={dark ? "text-cyan-300" : "text-sky-600"}>AI</span>
             </span>

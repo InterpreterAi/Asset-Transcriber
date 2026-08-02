@@ -1760,12 +1760,9 @@ export default function WorkspaceDefault() {
               <StickyNote className="w-4 h-4" />
             </button>
             <div className="flex items-center gap-2 min-w-0">
-              <img
-                src={wsDark ? "/brand/interpreterai-mark-dark.svg" : "/brand/interpreterai-mark-light.svg"}
-                alt=""
-                className="w-7 h-7 object-contain shrink-0"
-                draggable={false}
-              />
+              <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Zap className="w-3.5 h-3.5" strokeWidth={2.2} />
+              </div>
               <span className="font-semibold text-sm text-foreground whitespace-nowrap">
                 Interpreter<span className="text-primary">AI</span>
               </span>
