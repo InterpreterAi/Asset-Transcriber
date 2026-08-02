@@ -1,0 +1,197 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, system-ui, sans-serif;
+  background: #05080f;
+  color: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.reel-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+}
+
+@media (max-width: 960px) {
+  .reel-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0a101c;
+  padding: 20px;
+  overflow: auto;
+}
+
+.stage-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  gap: 14px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(34, 211, 238, 0.1), transparent 40%),
+    #05080f;
+}
+
+.stage-frame {
+  position: relative;
+  width: min(100%, calc((100vh - 120px) * 9 / 16));
+  aspect-ratio: 9 / 16;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #02050b;
+  box-shadow:
+    0 40px 100px -30px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(56, 189, 248, 0.16);
+}
+
+.stage-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  background: #02050b;
+}
+
+.stage-meta {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  z-index: 5;
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.75);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.field label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.field input[type="file"] {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8fafc;
+  padding: 10px;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f8fafc;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #22d3ee;
+  color: #02050b;
+  border-color: #22d3ee;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #67e8f9;
+}
+
+.muted {
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.timeline-bar {
+  width: min(100%, calc((100vh - 120px) * 9 / 16));
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.timeline-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22d3ee, #2563eb);
+}
+
+.export-progress {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 8px;
+}
+
+.export-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+}
+
+.export-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.export-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #22d3ee, #2563eb);
+  transition: width 0.12s ease;
+}

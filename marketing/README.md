@@ -6,7 +6,12 @@ Official demo scenarios and brand kit for reels.
 (No Record Mode, intro/outro overlays, or brand components in the application.)
 
 - Scenarios: `01_medical/` … `10_travel/`
-- Brand assets + reference components: `brand/`
+- **Brand Pack** (one import): `brand/` → `import { BrandPack } from "./brand"`
+- **Reel Creator**: `reel-creator/` → assembler only.  
+  Preferred: `/admin/demo-marketing` → **Record** → **Stop** (auto-saves 1080×1920 MP4 + opens Reel Creator).  
+  Export: Intro + recording + Outro.
+
+See `brand/README.md` and `reel-creator/README.md`.
 
 ## Scenarios
 
