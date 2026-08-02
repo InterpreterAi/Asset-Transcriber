@@ -162,9 +162,12 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
       <header className="w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
           <button onClick={() => setLocation("/workspace")} className="flex items-center gap-2 text-foreground">
-            <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5" strokeWidth={2.2} />
-            </span>
+            <img
+              src="/brand/interpreterai-mark-light.svg"
+              alt=""
+              className="w-7 h-7 rounded-full object-cover shrink-0"
+              draggable={false}
+            />
             <span className="font-semibold text-base">Interpreter<span className="text-primary">AI</span></span>
           </button>
           <div className="text-xs text-muted-foreground">{me.email ?? me.username}</div>
