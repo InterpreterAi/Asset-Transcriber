@@ -11,8 +11,7 @@
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {
-      "@/*": ["./src/*"],
-      "@reel-creator/*": ["../../marketing/reel-creator/src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "references": [

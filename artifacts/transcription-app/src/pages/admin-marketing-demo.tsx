@@ -418,7 +418,7 @@ export default function AdminMarketingDemo() {
         const filename = `interpreterai-demo-${new Date().toISOString().replace(/[:.]/g, "-")}.mp4`;
         setReelStatus("Saved MP4 — opening Reel Creator…");
         const { handoffRecordingToReelCreator } = await import(
-          "@reel-creator/lib/recordingHandoff"
+          "@/lib/reel-creator/recordingHandoff"
         );
         await handoffRecordingToReelCreator({
           blob,
@@ -446,7 +446,7 @@ export default function AdminMarketingDemo() {
     }
     try {
       setReelStatus(`Recording phone frame ${RECORD_W}×${RECORD_H} @ ${RECORD_FPS}fps…`);
-      const { startPhoneFrameRecording } = await import("@reel-creator/lib/recordPhoneFrame");
+      const { startPhoneFrameRecording } = await import("@/lib/reel-creator/recordPhoneFrame");
       const session = await startPhoneFrameRecording(el);
       reelSessionRef.current = session;
       setReelRecording(true);

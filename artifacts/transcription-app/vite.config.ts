@@ -60,8 +60,6 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
-      /** Marketing Reel Creator libs (phone recorder + handoff) — not production workspace. */
-      "@reel-creator": path.resolve(import.meta.dirname, "..", "..", "marketing", "reel-creator", "src"),
     },
     dedupe: ["react", "react-dom"],
   },
