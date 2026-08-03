@@ -175,7 +175,7 @@ export default function WorkspaceDefault() {
   });
   const logoutMut         = useLogout();
 
-  const { devices }   = useAudioDevices();
+  const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useAudioDevices();
 
   const [langA, setLangA] = useState("en");
   const [langB, setLangB] = useState("ar");
@@ -957,7 +957,7 @@ export default function WorkspaceDefault() {
     <div
       className={cn(
         "h-full w-full max-w-[100vw] flex overflow-hidden text-foreground",
-        wsDark && "dark bg-background",
+        wsDark && "dark workspace-demo-night bg-background",
         !wsDark && "bg-background",
       )}
     >
@@ -2196,7 +2196,7 @@ export default function WorkspaceDefault() {
               className={cn(
                 "flex-1 min-h-0 rounded-xl flex flex-col overflow-hidden mx-3 md:mx-0 pb-2 md:pb-0 backdrop-blur-md border shadow-sm",
                 wsDark
-                  ? "bg-[#141c28]/95 border-white/[0.07] shadow-[0_10px_40px_rgba(0,0,0,0.4),0_0_0_1px_rgba(255,255,255,0.03)]"
+                  ? "bg-card/95 border-white/[0.07] shadow-[0_10px_40px_rgba(0,0,0,0.4),0_0_0_1px_rgba(255,255,255,0.03)]"
                   : "bg-muted/40 border-border",
               )}
             >
@@ -2308,36 +2308,63 @@ export default function WorkspaceDefault() {
               </button>
             </div>
 
-            {/* Restored original sound-level meter */}
-            <div className="w-16 sm:w-24 shrink-0 ml-auto order-2 sm:order-3">
+            {/* Sound-level meter — keep at end; do not steal width from the mic list */}
+            <div className="w-16 sm:w-24 shrink-0 order-2 sm:order-3 sm:ml-auto">
               <AudioMeter level={transcription.micLevel} label="" />
             </div>
 
-            {/* Mic: device selector (idle) → active source badge (recording)
-                order-3 on mobile (wraps to full-width line 2), order-2 on desktop */}
+            {/* Mic device list — must stay visible (never collapse via min-w-0) */}
             {inputMode === "mic" && (
-              <div className="w-full sm:flex-1 sm:min-w-0 sm:max-w-xs order-3 sm:order-2 sm:ml-auto">
+              <div className="w-full min-w-[220px] sm:flex-1 sm:min-w-[240px] sm:max-w-sm order-3 sm:order-2">
                 {transcription.isRecording ? (
                   <span className="text-xs text-green-600 font-medium flex items-center gap-1.5">
                     <Mic2 className="w-3.5 h-3.5 shrink-0" />
                     Listening to Microphone (Interpreter)
                   </span>
                 ) : (
-                  <Select
-                    value={selectedDeviceId}
-                    onChange={(e) => setSelectedDeviceId(e.target.value)}
-                    disabled={transcription.isRecording}
-                    className={cn(
-                      "h-8 text-xs w-full",
-                      wsDark ? "bg-card/80 border border-white/10" : "bg-white border border-border",
-                    )}
-                  >
-                    {devices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.label || `Device ${d.deviceId.slice(0, 8)}`}
-                      </option>
-                    ))}
-                  </Select>
+                  <div className="flex items-center gap-1.5 w-full min-w-[220px]">
+                    <Select
+                      value={selectedDeviceId}
+                      onChange={(e) => setSelectedDeviceId(e.target.value)}
+                      disabled={transcription.isRecording || devicesLoading}
+                      aria-label="Microphone"
+                      className={cn(
+                        "h-8 text-xs w-full min-w-[200px] text-foreground",
+                        wsDark
+                          ? "bg-card border border-white/20"
+                          : "bg-white border border-border",
+                      )}
+                    >
+                      {devicesLoading ? (
+                        <option value="">Loading microphones…</option>
+                      ) : devices.length === 0 ? (
+                        <option value="">
+                          {devicesError || "No microphones found — click refresh"}
+                        </option>
+                      ) : (
+                        devices.map((d) => (
+                          <option key={d.deviceId} value={d.deviceId}>
+                            {d.label || `Microphone ${d.deviceId.slice(0, 8)}`}
+                          </option>
+                        ))
+                      )}
+                    </Select>
+                    {devices.length === 0 && !devicesLoading ? (
+                      <button
+                        type="button"
+                        onClick={() => void refreshDevices()}
+                        className={cn(
+                          "h-8 px-2 shrink-0 rounded-lg border text-[10px] font-semibold",
+                          wsDark
+                            ? "border-white/20 text-sky-300 hover:bg-white/5"
+                            : "border-border text-primary hover:bg-muted",
+                        )}
+                        title="Refresh microphone list"
+                      >
+                        Refresh
+                      </button>
+                    ) : null}
+                  </div>
                 )}
               </div>
             )}

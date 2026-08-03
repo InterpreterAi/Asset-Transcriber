@@ -1,35 +1,31 @@
-# InterpreterAI Marketing Style Guide
+# InterpreterAI Brand Pack — Style Guide
 
-**Location:** `/marketing/brand/` only.  
-Do not import these components into the production transcription app.
+All reusable reel branding lives in `/marketing/brand`.  
+Do **not** wire into production workspace or add Record Mode.
 
-Assets live in `assets/`. Reference React components live in `components/`.
+## Logo
 
-## Logo (exact files — do not redraw)
+Use existing files in `assets/` only. Never redraw or regenerate.
 
-| File | Use |
-|---|---|
-| `assets/interpreterai-mark-*.svg/png` | App icon, favicon source, intro sting |
-| `assets/interpreterai-logo-*.svg/png` | Wordmark for intros/outros/end cards |
+## Motion
 
-- Prefer the provided files as-is
-- Do not recolor the bolt, replace the type, or recreate the mark in code
-- Dark assets → dark UI / video grades  
-- Light assets → light UI  
+Fade + soft scale only (`SoftReveal`). No bounce, spin, or flash.
 
-## Official Brand Intro / Outro
+## Components
 
-Reference components: `components/BrandIntro.tsx`, `components/BrandOutro.tsx`.  
-These are for reel tooling — not wired into `/admin/demo-marketing` or production.
+See `README.md` for `BrandIntro` (1.0s), `BrandOutro` (3.0s), lower thirds, language badges, and `CtaCard`.
 
 ## Colors
 
-| Token | Hex | Role |
-|---|---|---|
-| Primary | `#2563EB` | CTAs, light-theme accent |
-| Accent | `#22D3EE` | Dark-theme accent |
-| LIVE | `#DC2626` | Recording badge only |
-| Night | `#02050B` | Dark canvas |
-| Night panel | `#0B1220` | Dark cards |
+| Token | Hex |
+|-------|-----|
+| Primary | `#2563EB` |
+| Accent | `#22D3EE` |
+| LIVE | `#DC2626` |
+| Night | `#02050B` |
 
-See `tokens.ts`.
+## Referral
+
+Default outro / CTA link:
+
+`https://app.interpreterai.org/invite?ref=1&u=admin`

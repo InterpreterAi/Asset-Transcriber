@@ -1,6 +1,6 @@
 /**
- * InterpreterAI marketing brand tokens — single source for reels / overlays.
- * Keep in sync with `STYLE_GUIDE.md`.
+ * InterpreterAI marketing brand tokens.
+ * Logo paths point at existing files in `./assets/` — do not regenerate.
  */
 
 export const brandColors = {
@@ -16,6 +16,7 @@ export const brandColors = {
   nightPanel: "#0B1220",
   nightElevated: "#080D17",
   white: "#FFFFFF",
+  cta: "#22D3EE",
 } as const;
 
 export const brandFonts = {
@@ -40,16 +41,36 @@ export const brandRadii = {
   frame: 26,
 } as const;
 
-/** Public asset paths (served from `/brand/...`). */
+/**
+ * Existing logo assets (exact files in `assets/`).
+ * When serving from the app’s `/brand/` public copy, paths match 1:1.
+ * Override via `BrandLogo` `src` / `assetBase` if needed.
+ */
 export const brandAssets = {
-  logoLightSvg: "/brand/interpreterai-logo-light.svg",
-  logoDarkSvg: "/brand/interpreterai-logo-dark.svg",
-  logoLightPng: "/brand/interpreterai-logo-light.png",
-  logoDarkPng: "/brand/interpreterai-logo-dark.png",
-  markLightSvg: "/brand/interpreterai-mark-light.svg",
-  markDarkSvg: "/brand/interpreterai-mark-dark.svg",
-  markLightPng: "/brand/interpreterai-mark-light.png",
-  markDarkPng: "/brand/interpreterai-mark-dark.png",
+  logoLightSvg: "interpreterai-logo-light.svg",
+  logoDarkSvg: "interpreterai-logo-dark.svg",
+  logoLightPng: "interpreterai-logo-light.png",
+  logoDarkPng: "interpreterai-logo-dark.png",
+  markLightSvg: "interpreterai-mark-light.svg",
+  markDarkSvg: "interpreterai-mark-dark.svg",
+  markLightPng: "interpreterai-mark-light.png",
+  markDarkPng: "interpreterai-mark-dark.png",
+} as const;
+
+/** Default public URL prefix when assets are copied to `public/brand/`. */
+export const DEFAULT_ASSET_BASE = "/brand";
+
+/** Official referral / invite URL for outros & CTA cards. */
+export const BRAND_REFERRAL_URL =
+  "https://app.interpreterai.org/invite?ref=1&u=admin";
+
+export const BRAND_SITE_URL = "https://app.interpreterai.org";
+
+/** Vertical safe padding for TikTok / Reels / Shorts (9:16). */
+export const REEL_SAFE_AREA = {
+  topPx: 96,
+  bottomPx: 140,
+  sidePx: 24,
 } as const;
 
 export type BrandTheme = "dark" | "light";

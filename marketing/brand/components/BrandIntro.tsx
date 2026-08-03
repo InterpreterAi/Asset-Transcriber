@@ -1,62 +1,45 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 import { motion } from "framer-motion";
-import { BrandLogo } from "@/brand/components/BrandLogo";
-import { LiveBadge } from "@/brand/components/LiveBadge";
-import { brandColors, brandFonts } from "@/brand/tokens";
-import { cn } from "@/lib/utils";
+import { BrandLogo } from "./BrandLogo";
+import { SoftReveal, BRAND_EASE } from "./SoftReveal";
+import { brandColors, brandFonts, type BrandTheme } from "../tokens";
+import { cn } from "../cn";
 
-/** Official reel intro copy — keep in sync with STYLE_GUIDE. */
 export const BRAND_INTRO_COPY = {
+  title: "InterpreterAI",
   slogan: [
     "Stay focused on the conversation.",
     "We'll handle the words.",
   ],
 } as const;
 
-const EASE = [0.22, 1, 0.36, 1] as const;
-
-/** Fade + soft scale only — no slide, bounce, spin, or blur. */
-function SoftReveal({
-  delay,
-  duration = 0.3,
-  children,
-  className,
-}: {
-  delay: number;
-  duration?: number;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay, duration, ease: EASE }}
-    >
-      {children}
-    </motion.div>
-  );
-}
+export const BRAND_INTRO_DURATION_MS = 1000;
 
 /**
- * Official InterpreterAI Brand Intro — 1.2s dark sting for every reel.
- *
- * Timeline:
- *   0.0–0.3  Logo fades in
- *   0.3–0.6  LIVE badge softly appears
- *   0.6–1.2  Slogan lines
- * Then fade into workspace via `onComplete`.
+ * Official Brand Intro — 1.0s.
+ * Motion: fade + soft scale only. Uses existing logo assets.
  */
 export function BrandIntro({
-  durationMs = 1200,
+  durationMs = BRAND_INTRO_DURATION_MS,
+  theme = "dark",
+  /** When true, no fill — overlays footage. */
+  transparent = false,
+  /** Extra wordmark title under logo (off for reel intro — logo only + slogans). */
+  showTitle = false,
+  assetBase,
   onComplete,
   className,
 }: {
   durationMs?: number;
+  theme?: BrandTheme;
+  transparent?: boolean;
+  showTitle?: boolean;
+  assetBase?: string;
   onComplete?: () => void;
   className?: string;
 }) {
+  const dark = theme === "dark";
+
   useEffect(() => {
     if (!onComplete) return;
     const id = window.setTimeout(onComplete, durationMs);
@@ -70,39 +53,51 @@ export function BrandIntro({
         className,
       )}
       style={{
-        backgroundColor: brandColors.night,
+        backgroundColor: transparent ? "transparent" : brandColors.night,
         fontFamily: brandFonts.sans,
       }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.28, ease: EASE }}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.99 }}
+      transition={{ duration: 0.35, ease: BRAND_EASE }}
     >
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `linear-gradient(180deg, ${brandColors.nightPanel} 0%, ${brandColors.night} 100%)`,
-        }}
-      />
+      {!transparent ? (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `linear-gradient(180deg, ${brandColors.nightPanel} 0%, ${brandColors.night} 100%)`,
+          }}
+        />
+      ) : null}
 
       <div className="relative flex flex-col items-center max-w-sm w-full text-center">
-        {/* 0.0–0.3 — logo */}
-        <SoftReveal delay={0} duration={0.3}>
-          <BrandLogo theme="dark" variant="wordmark" format="svg" className="h-10 sm:h-12" />
+        <SoftReveal delay={0} duration={0.32}>
+          <BrandLogo
+            theme={theme}
+            variant="wordmark"
+            format="svg"
+            assetBase={assetBase}
+            className="h-12 sm:h-14"
+          />
         </SoftReveal>
 
-        {/* 0.3–0.6 — LIVE */}
-        <SoftReveal delay={0.3} duration={0.3} className="mt-5">
-          <LiveBadge active />
-        </SoftReveal>
+        {showTitle ? (
+          <SoftReveal delay={0.2} duration={0.28} className="mt-4">
+            <p
+              className="text-lg sm:text-xl font-semibold tracking-tight"
+              style={{ color: dark ? brandColors.paper : brandColors.ink }}
+            >
+              {BRAND_INTRO_COPY.title}
+            </p>
+          </SoftReveal>
+        ) : null}
 
-        {/* 0.6–1.2 — slogans */}
-        <div className="mt-6 space-y-1.5 min-h-[3rem]">
+        <div className="mt-5 space-y-2">
           {BRAND_INTRO_COPY.slogan.map((line, i) => (
-            <SoftReveal key={line} delay={0.6 + i * 0.12} duration={0.35}>
+            <SoftReveal key={line} delay={0.28 + i * 0.14} duration={0.32}>
               <p
-                className="text-sm sm:text-base font-medium leading-snug"
-                style={{ color: brandColors.paper }}
+                className="text-base sm:text-lg font-medium leading-snug"
+                style={{ color: dark ? "#F1F5F9" : brandColors.inkMuted }}
               >
                 {line}
               </p>

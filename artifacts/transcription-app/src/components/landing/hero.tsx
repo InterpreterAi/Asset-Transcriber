@@ -23,9 +23,11 @@ export default function Hero() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
-          className="max-w-4xl mx-auto text-5xl md:text-7xl font-display font-bold tracking-tight text-white mb-6 leading-[1.1]"
+          className="max-w-4xl mx-auto text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold tracking-tight text-white mb-6 leading-[1.12]"
         >
-          Professional Transcription &amp; Translation
+          Stay focused on the conversation.
+          <br />
+          <span className="text-primary">We&apos;ll handle the words.</span>
         </motion.h1>
 
         <motion.p
@@ -34,7 +36,7 @@ export default function Hero() {
           transition={{ duration: 0.5, ease: "easeOut", delay: 0.2 }}
           className="max-w-2xl mx-auto text-lg md:text-xl text-muted-foreground mb-10 leading-relaxed"
         >
-          Sign in to your interpreter workspace — real-time captions and multilingual assistance for OPI and VRI sessions.
+          Real-time captions and multilingual assistance for professional OPI and VRI sessions.
         </motion.p>
 
         <motion.div

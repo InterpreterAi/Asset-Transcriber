@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 export interface AudioDevice {
   deviceId: string;
@@ -10,34 +10,51 @@ export function useAudioDevices() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchDevices = async () => {
+  const fetchDevices = useCallback(async () => {
     try {
       setLoading(true);
-      // Request permissions first
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Permission unlocks device labels; still enumerate if this fails.
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* permission may already be granted, or denied — still try enumerate */
+      }
+
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const audioInputs = allDevices
         .filter((d) => d.kind === "audioinput")
-        .map((d) => ({
+        .map((d, i) => ({
           deviceId: d.deviceId,
-          label: d.label || `Microphone ${d.deviceId.slice(0, 5)}...`,
-        }));
+          label: d.label || `Microphone ${i + 1}`,
+        }))
+        // Drop empty-id placeholders browsers sometimes return before permission
+        .filter((d) => d.deviceId);
+
       setDevices(audioInputs);
-      setError(null);
+      setError(
+        audioInputs.length === 0
+          ? "No microphones found. Allow mic access and refresh."
+          : null,
+      );
     } catch (err) {
+      setDevices([]);
       setError("Microphone permission denied or not available.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchDevices();
-    navigator.mediaDevices.addEventListener("devicechange", fetchDevices);
-    return () => {
-      navigator.mediaDevices.removeEventListener("devicechange", fetchDevices);
+    void fetchDevices();
+    const onChange = () => {
+      void fetchDevices();
     };
-  }, []);
+    navigator.mediaDevices?.addEventListener("devicechange", onChange);
+    return () => {
+      navigator.mediaDevices?.removeEventListener("devicechange", onChange);
+    };
+  }, [fetchDevices]);
 
   return { devices, loading, error, refresh: fetchDevices };
 }

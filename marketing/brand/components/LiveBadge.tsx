@@ -1,14 +1,12 @@
-import { brandColors } from "@/brand/tokens";
-import { cn } from "@/lib/utils";
+import { brandColors } from "../tokens";
+import { cn } from "../cn";
 
 export function LiveBadge({
   active = true,
   timer,
   className,
 }: {
-  /** When false, renders nothing (marketing chrome hides idle LIVE). */
   active?: boolean;
-  /** Optional elapsed label, e.g. `1:24`. */
   timer?: string;
   className?: string;
 }) {

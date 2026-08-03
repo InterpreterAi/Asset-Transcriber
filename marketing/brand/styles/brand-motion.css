@@ -1,44 +1,19 @@
-/* InterpreterAI marketing transition utilities (CSS timeline / CapCut-friendly names). */
+/* InterpreterAI brand pack — fade + soft scale only. */
 
 @keyframes brand-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-@keyframes brand-slide-up {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes brand-slide-down {
-  from { opacity: 0; transform: translateY(-24px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes brand-slide-left {
-  from { opacity: 0; transform: translateX(32px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
 @keyframes brand-scale-in {
-  from { opacity: 0; transform: scale(0.92); }
+  from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
 }
 
-@keyframes brand-wipe-up {
-  from { clip-path: inset(100% 0 0 0); }
-  to { clip-path: inset(0 0 0 0); }
+.brand-fade-in {
+  animation: brand-fade-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@keyframes brand-soft-pop {
-  from { opacity: 0; transform: scale(0.85); filter: blur(6px); }
-  to { opacity: 1; transform: scale(1); filter: blur(0); }
+.brand-scale-in {
+  animation: brand-scale-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-
-.brand-fade-in { animation: brand-fade-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-slide-up { animation: brand-slide-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-slide-down { animation: brand-slide-down 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-slide-left { animation: brand-slide-left 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-scale-in { animation: brand-scale-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-wipe-up { animation: brand-wipe-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.brand-soft-pop { animation: brand-soft-pop 0.48s cubic-bezier(0.22, 1, 0.36, 1) both; }

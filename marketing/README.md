@@ -1,5 +1,7 @@
 # InterpreterAI Marketing Content Library
 
+**Distributor / sales / creators source pack:** [`MARKETING_SOURCE_PACK.md`](./MARKETING_SOURCE_PACK.md) — slogan, CTA, monthly pricing, reel structure, brand rules, study links.
+
 Official demo scenarios and brand kit for reels.
 
 **Content / brand kit only — never wire into the production app UI.**  
@@ -7,9 +9,8 @@ Official demo scenarios and brand kit for reels.
 
 - Scenarios: `01_medical/` … `10_travel/`
 - **Brand Pack** (one import): `brand/` → `import { BrandPack } from "./brand"`
-- **Reel Creator**: `reel-creator/` → assembler only.  
-  Preferred: `/admin/demo-marketing` → **Record** → **Stop** (auto-saves 1080×1920 MP4 + opens Reel Creator).  
-  Export: Intro + recording + Outro.
+- **Reel Builder**: `reel-creator/` → full reel builder at http://localhost:5179  
+  Uses real InterpreterAI logos from `brand/assets` (copied to `reel-creator/public/brand`).
 
 See `brand/README.md` and `reel-creator/README.md`.
 
