@@ -1506,8 +1506,7 @@ export default function Admin() {
     <div
       className={cn(
         "h-full text-foreground flex overflow-hidden",
-        adminDark &&
-          "dark workspace-hero-accent bg-[linear-gradient(165deg,#0b0e14_0%,#121a26_42%,#081420_100%)]",
+        adminDark && "dark workspace-demo-night workspace-hero-accent bg-background",
         !adminDark && "bg-[#f5f5f7]",
       )}
     >

@@ -536,8 +536,8 @@
 }
 
 /**
- * Workspace dark night — matches /admin/demo-marketing dark wash.
- * Scoped so global .dark (admin/other) and light workspace stay unchanged.
+ * Shared dark night (workspace + admin) — matches /admin/demo-marketing wash.
+ * Scoped via .workspace-demo-night so light mode and other .dark shells stay unchanged.
  * Page #02050B · elevated/header #0B1220 · frame-adjacent muted #080D17-ish
  */
 .workspace-demo-night.dark,
