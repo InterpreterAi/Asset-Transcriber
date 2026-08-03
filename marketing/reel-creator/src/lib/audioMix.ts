@@ -1,22 +1,34 @@
 /**
- * Preview audio mix: background bed (~15%) with ducking under voiceover,
- * plus optional InterpreterAI brand sting on intro / outro.
+ * Preview audio mix: per-bus gains + ducking + master compressor/limiter.
+ * Buffers peak-normalized to −3 dB on load.
  */
+
+import { createMasterChain, normalizeAudioBuffer } from "@/lib/audioNormalize";
 
 export type MixSegment = {
   id: string;
   start: number;
   end: number;
-  blob?: Blob | null;
 };
 
-const BED_GAIN = 0.15;
-const BED_DUCKED = 0.05;
-const VO_GAIN = 1.0;
-const STING_GAIN = 0.55;
+export type StingCue = { at: number; tag: string };
+
+export type MixVolumes = {
+  /** 0–1.5, default 1.0 */
+  vo: number;
+  /** 0–1, default 0.25 */
+  bgm: number;
+  /** 0–1, default 0.80 */
+  brand: number;
+};
+
+const DEFAULT_VOLUMES: MixVolumes = { vo: 1, bgm: 0.25, brand: 0.8 };
+/** Duck BGM to ~49% of slider level while VO speaks */
+const BGM_DUCK_RATIO = 0.49;
 
 export class ReelAudioMixer {
   private ctx: AudioContext | null = null;
+  private masterInput: GainNode | null = null;
   private bedGain: GainNode | null = null;
   private voGain: GainNode | null = null;
   private stingGain: GainNode | null = null;
@@ -29,11 +41,34 @@ export class ReelAudioMixer {
   private playing = false;
   private ducking = false;
   private brandStingEnabled = true;
+  private stingCues: StingCue[] = [];
   private segments: MixSegment[] = [];
   private tickId: number | null = null;
   private getTime: (() => number) | null = null;
   private lastVoSeg: string | null = null;
   private stingPlayedFor: Set<string> = new Set();
+  private volumes: MixVolumes = { ...DEFAULT_VOLUMES };
+
+  setVolumes(v: Partial<MixVolumes>) {
+    if (typeof v.vo === "number") this.volumes.vo = clamp(v.vo, 0, 1.5);
+    if (typeof v.bgm === "number") this.volumes.bgm = clamp(v.bgm, 0, 1);
+    if (typeof v.brand === "number") this.volumes.brand = clamp(v.brand, 0, 1);
+    this.applyVolumeNodes();
+  }
+
+  private applyVolumeNodes() {
+    if (this.voGain) this.voGain.gain.value = this.volumes.vo;
+    if (this.stingGain) this.stingGain.gain.value = this.volumes.brand;
+    if (this.bedGain && !this.ducking) {
+      this.bedGain.gain.value = this.volumes.bgm;
+    } else if (this.bedGain && this.ducking) {
+      this.bedGain.gain.value = this.volumes.bgm * BGM_DUCK_RATIO;
+    }
+  }
+
+  private bedTarget(ducked: boolean): number {
+    return ducked ? this.volumes.bgm * BGM_DUCK_RATIO : this.volumes.bgm;
+  }
 
   async loadMusic(url: string): Promise<boolean> {
     if (!url) {
@@ -47,7 +82,8 @@ export class ReelAudioMixer {
       if (!res.ok) return false;
       const ab = await res.arrayBuffer();
       const ctx = this.ensureCtx();
-      this.bedBuffer = await ctx.decodeAudioData(ab.slice(0));
+      const decoded = await ctx.decodeAudioData(ab.slice(0));
+      this.bedBuffer = normalizeAudioBuffer(decoded);
       return true;
     } catch {
       this.bedBuffer = null;
@@ -61,7 +97,8 @@ export class ReelAudioMixer {
       if (!res.ok) return false;
       const ab = await res.arrayBuffer();
       const ctx = this.ensureCtx();
-      this.stingBuffer = await ctx.decodeAudioData(ab.slice(0));
+      const decoded = await ctx.decodeAudioData(ab.slice(0));
+      this.stingBuffer = normalizeAudioBuffer(decoded);
       return true;
     } catch {
       this.stingBuffer = null;
@@ -73,6 +110,10 @@ export class ReelAudioMixer {
     this.brandStingEnabled = on;
   }
 
+  setBrandStingSchedule(cues: StingCue[]) {
+    this.stingCues = cues;
+  }
+
   async loadVoiceovers(map: Record<string, Blob | undefined | null>) {
     const ctx = this.ensureCtx();
     this.voBuffers.clear();
@@ -80,9 +121,10 @@ export class ReelAudioMixer {
       if (!blob || blob.size === 0) continue;
       try {
         const ab = await blob.arrayBuffer();
-        this.voBuffers.set(id, await ctx.decodeAudioData(ab.slice(0)));
+        const decoded = await ctx.decodeAudioData(ab.slice(0));
+        this.voBuffers.set(id, normalizeAudioBuffer(decoded));
       } catch {
-        /* skip bad segment */
+        /* skip */
       }
     }
   }
@@ -98,20 +140,24 @@ export class ReelAudioMixer {
 
   private ensureGraph() {
     const ctx = this.ensureCtx();
+    if (!this.masterInput) {
+      const chain = createMasterChain(ctx);
+      this.masterInput = chain.input;
+    }
     if (!this.bedGain) {
       this.bedGain = ctx.createGain();
-      this.bedGain.gain.value = BED_GAIN;
-      this.bedGain.connect(ctx.destination);
+      this.bedGain.gain.value = this.volumes.bgm;
+      this.bedGain.connect(this.masterInput);
     }
     if (!this.voGain) {
       this.voGain = ctx.createGain();
-      this.voGain.gain.value = VO_GAIN;
-      this.voGain.connect(ctx.destination);
+      this.voGain.gain.value = this.volumes.vo;
+      this.voGain.connect(this.masterInput);
     }
     if (!this.stingGain) {
       this.stingGain = ctx.createGain();
-      this.stingGain.gain.value = STING_GAIN;
-      this.stingGain.connect(ctx.destination);
+      this.stingGain.gain.value = this.volumes.brand;
+      this.stingGain.connect(this.masterInput);
     }
   }
 
@@ -119,7 +165,6 @@ export class ReelAudioMixer {
     const ctx = this.ensureCtx();
     this.ensureGraph();
     this.stopBed();
-
     if (!this.musicEnabled) return;
 
     if (this.bedBuffer && this.bedGain) {
@@ -129,20 +174,7 @@ export class ReelAudioMixer {
       src.connect(this.bedGain);
       src.start(0);
       this.bedSource = src;
-      return;
     }
-
-    // Soft fallback pad only if a bed was requested but failed to decode
-    const osc = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = 420;
-    osc.type = "sine";
-    osc.frequency.value = 110;
-    osc.connect(filter);
-    filter.connect(this.bedGain!);
-    osc.start();
-    this.bedSource = osc;
   }
 
   private stopBed() {
@@ -168,8 +200,10 @@ export class ReelAudioMixer {
     this.ducking = active;
     const ctx = this.ensureCtx();
     const now = ctx.currentTime;
+    const target = this.bedTarget(active);
     this.bedGain.gain.cancelScheduledValues(now);
-    this.bedGain.gain.setTargetAtTime(active ? BED_DUCKED : BED_GAIN, now, 0.08);
+    this.bedGain.gain.setValueAtTime(this.bedGain.gain.value, now);
+    this.bedGain.gain.linearRampToValueAtTime(target, now + 0.04);
   }
 
   private playVoForSegment(id: string) {
@@ -199,9 +233,10 @@ export class ReelAudioMixer {
     const src = ctx.createBufferSource();
     src.buffer = this.stingBuffer;
     src.connect(this.stingGain);
-    // brief duck under sting
     this.setDuck(true);
-    src.onended = () => this.setDuck(false);
+    src.onended = () => {
+      if (!this.voSource) this.setDuck(false);
+    };
     src.start(0);
   }
 
@@ -212,7 +247,7 @@ export class ReelAudioMixer {
     this.stingPlayedFor.clear();
     this.lastVoSeg = null;
     this.startBed();
-    this.tickId = window.setInterval(() => this.syncToTimeline(), 80);
+    this.tickId = window.setInterval(() => this.syncToTimeline(), 60);
     this.syncToTimeline();
   }
 
@@ -220,23 +255,22 @@ export class ReelAudioMixer {
     if (!this.playing || !this.getTime) return;
     const t = this.getTime();
 
-    // Brand sting when InterpreterAI logo beats hit (intro start + outro start)
-    if (t < 2) this.playStingOnce("intro");
-    if (t >= 28 && t < 35) this.playStingOnce("outro");
+    for (const cue of this.stingCues) {
+      if (t >= cue.at) this.playStingOnce(cue.tag);
+    }
 
     const seg = this.segments.find((s) => t >= s.start && t < s.end);
     if (!seg) {
       this.stopVo();
-      this.setDuck(false);
+      if (!this.voSource) this.setDuck(false);
       this.lastVoSeg = null;
       return;
     }
     if (seg.id !== this.lastVoSeg && this.voBuffers.has(seg.id)) {
       this.lastVoSeg = seg.id;
       this.playVoForSegment(seg.id);
-    } else if (!this.voBuffers.has(seg.id)) {
-      // keep duck if sting just fired; otherwise unduck when no VO
-      if (!this.voSource) this.setDuck(false);
+    } else if (!this.voBuffers.has(seg.id) && !this.voSource) {
+      this.setDuck(false);
     }
   }
 
@@ -257,8 +291,13 @@ export class ReelAudioMixer {
     this.stop();
     void this.ctx?.close();
     this.ctx = null;
+    this.masterInput = null;
     this.bedGain = null;
     this.voGain = null;
     this.stingGain = null;
   }
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
 }

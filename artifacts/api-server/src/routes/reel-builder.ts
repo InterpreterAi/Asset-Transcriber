@@ -10,7 +10,7 @@ import OpenAI from "openai";
 
 const router: IRouter = Router();
 
-const VOICES = new Set(["onyx", "nova", "alloy", "echo"]);
+const VOICES = new Set(["onyx", "nova", "alloy", "echo", "fable", "shimmer"]);
 
 function reelBuilderAuthorized(req: { headers: Record<string, unknown> }): boolean {
   const required = process.env.REEL_BUILDER_API_KEY?.trim();
@@ -159,14 +159,23 @@ router.post("/tts", async (req, res) => {
     return;
   }
 
-  const voiceRaw = typeof body.voice === "string" ? body.voice.trim().toLowerCase() : "onyx";
-  const voice = VOICES.has(voiceRaw) ? voiceRaw : "onyx";
+  const voiceRaw = typeof body.voice === "string" ? body.voice.trim().toLowerCase() : "nova";
+  const voice = VOICES.has(voiceRaw) ? voiceRaw : "nova";
+
+  let speed = 1;
+  if (typeof body.speed === "number" && Number.isFinite(body.speed)) {
+    speed = Math.min(1.25, Math.max(0.75, body.speed));
+  } else if (typeof body.speed === "string") {
+    const n = Number(body.speed);
+    if (Number.isFinite(n)) speed = Math.min(1.25, Math.max(0.75, n));
+  }
 
   const payload = {
     model: "tts-1" as const,
-    voice: voice as "onyx" | "nova" | "alloy" | "echo",
+    voice: voice as "onyx" | "nova" | "alloy" | "echo" | "fable" | "shimmer",
     input: input.slice(0, 4096),
     response_format: "mp3" as const,
+    speed,
   };
 
   try {

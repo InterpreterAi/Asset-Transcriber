@@ -38,11 +38,15 @@ export async function translateReelScript(body: {
   return res.json() as Promise<TranslateResult>;
 }
 
-export async function synthesizeVoiceover(text: string, voice: string): Promise<Blob> {
+export async function synthesizeVoiceover(
+  text: string,
+  voice: string,
+  speed = 1,
+): Promise<Blob> {
   const res = await fetch("/api/reel-builder/tts", {
     method: "POST",
     headers: apiHeaders(),
-    body: JSON.stringify({ text, voice }),
+    body: JSON.stringify({ text, voice, speed }),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -62,12 +66,13 @@ export type VoiceoverPack = {
 export async function generateSegmentVoiceovers(
   texts: { hook: string; problem: string; solution: string; result: string; outro?: string },
   voice: string,
+  speed = 1,
   onProgress?: (label: string) => void,
 ): Promise<VoiceoverPack> {
   const run = async (label: string, text: string) => {
     onProgress?.(label);
     if (!text.trim()) return new Blob([], { type: "audio/mpeg" });
-    return synthesizeVoiceover(text, voice);
+    return synthesizeVoiceover(text, voice, speed);
   };
   const hook = await run("hook", texts.hook);
   const problem = await run("problem", texts.problem);
@@ -75,4 +80,18 @@ export async function generateSegmentVoiceovers(
   const result = await run("result", texts.result);
   const outro = texts.outro ? await run("outro", texts.outro) : undefined;
   return { hook, problem, solution, result, outro };
+}
+
+/** Decode blob duration in seconds (0 if empty/undecodable). */
+export async function measureBlobDuration(blob: Blob | undefined | null): Promise<number> {
+  if (!blob || blob.size === 0) return 0;
+  try {
+    const ctx = new AudioContext();
+    const buf = await ctx.decodeAudioData((await blob.arrayBuffer()).slice(0));
+    const d = buf.duration;
+    void ctx.close();
+    return d;
+  } catch {
+    return 0;
+  }
 }

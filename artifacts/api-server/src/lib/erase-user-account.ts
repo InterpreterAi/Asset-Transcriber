@@ -12,6 +12,7 @@ import {
 import { logger } from "./logger.js";
 import { cancelPayPalSubscription } from "./paypal-cancel.js";
 import { getUncachableStripeClient } from "./stripeClient.js";
+import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "./trial-constants.js";
 
 export type DeactivateUserAccountResult = {
   paypalCancelled: boolean;
@@ -120,10 +121,97 @@ async function softDeactivateUser(user: User): Promise<void> {
   await db.delete(emailVerificationTokensTable).where(eq(emailVerificationTokensTable.userId, user.id));
 }
 
-/** Block new trial signups for emails that already consumed a trial or closed an account. */
+/** Soft-deleted (closed) account that may reopen via signup / Google — not admin-disabled-only. */
+export async function findClosedAccountByEmail(email: string): Promise<User | null> {
+  const em = email.trim().toLowerCase();
+  if (!em) return null;
+  const [row] = await db
+    .select()
+    .from(usersTable)
+    .where(or(eq(usersTable.email, em), eq(usersTable.username, em)))
+    .limit(1);
+  if (!row) return null;
+  if (row.accountDeletedAt) return row;
+  if (!row.isActive && row.passwordHash.startsWith("$deleted$")) return row;
+  return null;
+}
+
+export type ReactivateClosedAccountOpts = {
+  passwordHash: string;
+  googleAccountId?: string | null;
+  /** When false, leave isActive false (fraud IP). Default true. */
+  isActive?: boolean;
+};
+
+/**
+ * Reopen a soft-deleted account as a fresh trial so the same email/Google identity can sign up again.
+ * Clears trial-consumed block, billing IDs, and usage counters.
+ */
+export async function reactivateClosedAccountForSignup(
+  userId: number,
+  opts: ReactivateClosedAccountOpts,
+): Promise<User> {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) throw new Error("USER_NOT_FOUND");
+
+  const now = new Date();
+  const em = (user.email ?? user.username).trim().toLowerCase();
+  if (em) {
+    await db.delete(trialConsumedEmailsTable).where(eq(trialConsumedEmailsTable.email, em));
+  }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({
+      isActive: opts.isActive !== false,
+      accountDeletedAt: null,
+      passwordHash: opts.passwordHash,
+      googleAccountId: opts.googleAccountId ?? null,
+      emailVerified: true,
+      requiresEmailVerification: false,
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+      planType: "trial-openai",
+      trialStartedAt: now,
+      trialEndsAt: computeTrialEndsAt(now),
+      dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+      minutesUsedToday: 0,
+      totalMinutesUsed: 0,
+      totalSessions: 0,
+      lastUsageResetAt: now,
+      subscriptionStatus: "inactive",
+      subscriptionPlan: null,
+      paypalSubscriptionId: null,
+      stripeSubscriptionId: null,
+      subscriptionStartedAt: null,
+      subscriptionPeriodEndsAt: null,
+      trialReminderSentAt: null,
+      trialReminder12hSentAt: null,
+      trialActiveReminderSentAt: null,
+      trialExpiredEmailSentAt: null,
+      gettingStartedEmailSentAt: null,
+      subscriptionConfirmationSentAt: null,
+      subscriptionCanceledEmailSentAt: null,
+    })
+    .where(eq(usersTable.id, userId))
+    .returning();
+
+  if (!updated) throw new Error("USER_REACTIVATE_FAILED");
+
+  logger.info({ userId, email: em }, "Closed account reactivated for new signup");
+  return updated;
+}
+
+/**
+ * Block new trial signups for emails that already consumed a trial — unless the only
+ * matching user is soft-deleted (those may reopen via reactivateClosedAccountForSignup).
+ */
 export async function emailBlockedFromNewSignup(email: string): Promise<boolean> {
   const em = email.trim().toLowerCase();
   if (!em) return false;
+
+  const closed = await findClosedAccountByEmail(em);
+  if (closed) return false;
 
   const [consumed] = await db
     .select({ email: trialConsumedEmailsTable.email })

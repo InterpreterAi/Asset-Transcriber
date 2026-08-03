@@ -44,7 +44,12 @@ import {
 } from "../lib/authEnv.js";
 import { commitSession } from "../lib/commitSession.js";
 import { shouldAutoDisableSignupForSharedIp } from "../lib/signup-fraud.js";
-import { deactivateUserAccount, emailBlockedFromNewSignup } from "../lib/erase-user-account.js";
+import {
+  deactivateUserAccount,
+  emailBlockedFromNewSignup,
+  findClosedAccountByEmail,
+  reactivateClosedAccountForSignup,
+} from "../lib/erase-user-account.js";
 import { isGoogleOnlyAccount } from "../lib/account-auth.js";
 import { isTrialLoginBlocked, TRIAL_LOGIN_BLOCKED_JSON } from "../lib/trial-login-block.js";
 import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
@@ -267,13 +272,14 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    if (!user.isActive) {
+    if (!user.isActive || user.accountDeletedAt) {
       const reason = user.accountDeletedAt ? "account_deleted" : "account_disabled";
       void logLoginEvent({ userId: user.id, email: user.email, ipAddress: ip, userAgent, success: false, failureReason: reason });
       res.status(401).json({
         error: user.accountDeletedAt
-          ? "This account was closed. You cannot sign in again with this email."
+          ? "This account was closed. Sign up again with Google or email to start a new account."
           : "Account is disabled",
+        code: user.accountDeletedAt ? "account_closed_reregister" : "account_disabled",
       });
       return;
     }
@@ -659,64 +665,85 @@ router.post("/signup", async (req, res) => {
     return;
   }
 
-  const existing = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(or(eq(usersTable.username, normalized), eq(usersTable.email, normalized)))
-    .limit(1);
-
-  if (existing.length > 0) {
-    res.status(400).json({
-      error: "An account with this email already exists. Closed accounts cannot be reopened — contact support if you need help.",
-    });
-    return;
-  }
-
-  if (await emailBlockedFromNewSignup(normalized)) {
-    res.status(400).json({
-      error: "This email has already used a free trial or closed an account. A new trial is not available for this address.",
-    });
-    return;
-  }
-
+  const closedExisting = await findClosedAccountByEmail(normalized);
   const passwordHash = await hashPassword(password);
   const accountCreatedAt = new Date();
   const trial            = defaultTrialFieldsForNewAccount(accountCreatedAt);
   const signupIp         = getClientIp(req).trim();
-
   const autoDisabledForSharedIp = await shouldAutoDisableSignupForSharedIp(signupIp);
 
   let newUser: User;
-  try {
-    newUser = await db.transaction(async (tx) => {
-      const [u] = await tx
-        .insert(usersTable)
-        .values({
-          username: normalized,
-          email: normalized,
-          passwordHash,
-          isAdmin: false,
-          isActive: !autoDisabledForSharedIp,
-          emailVerified: true,
-          requiresEmailVerification: false,
-          planType: "trial-openai",
-          trialStartedAt: trial.trialStartedAt,
-          trialEndsAt: trial.trialEndsAt,
-          dailyLimitMinutes: trial.dailyLimitMinutes,
-          minutesUsedToday: 0,
-          totalMinutesUsed: 0,
-          totalSessions: 0,
-          lastUsageResetAt: accountCreatedAt,
-          createdAt: accountCreatedAt,
-        })
-        .returning();
-      if (!u) throw new Error("User insert failed");
-      return u;
-    });
-  } catch (err) {
-    safeAuthLoggerError("POST /api/auth/signup transaction failed", err);
-    res.status(500).json({ error: "Could not create account. Please try again." });
-    return;
+  let reopenedClosedAccount = false;
+
+  if (closedExisting) {
+    if (closedExisting.isAdmin) {
+      res.status(400).json({ error: "This account cannot be reopened." });
+      return;
+    }
+    try {
+      newUser = await reactivateClosedAccountForSignup(closedExisting.id, {
+        passwordHash,
+        googleAccountId: null,
+        isActive: !autoDisabledForSharedIp,
+      });
+      reopenedClosedAccount = true;
+    } catch (err) {
+      safeAuthLoggerError("POST /api/auth/signup reactivate closed account failed", err);
+      res.status(500).json({ error: "Could not reopen account. Please try again." });
+      return;
+    }
+  } else {
+    const existing = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(or(eq(usersTable.username, normalized), eq(usersTable.email, normalized)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      res.status(400).json({
+        error: "An account with this email already exists. Sign in instead.",
+      });
+      return;
+    }
+
+    if (await emailBlockedFromNewSignup(normalized)) {
+      res.status(400).json({
+        error: "This email has already used a free trial. A new trial is not available for this address.",
+      });
+      return;
+    }
+
+    try {
+      newUser = await db.transaction(async (tx) => {
+        const [u] = await tx
+          .insert(usersTable)
+          .values({
+            username: normalized,
+            email: normalized,
+            passwordHash,
+            isAdmin: false,
+            isActive: !autoDisabledForSharedIp,
+            emailVerified: true,
+            requiresEmailVerification: false,
+            planType: "trial-openai",
+            trialStartedAt: trial.trialStartedAt,
+            trialEndsAt: trial.trialEndsAt,
+            dailyLimitMinutes: trial.dailyLimitMinutes,
+            minutesUsedToday: 0,
+            totalMinutesUsed: 0,
+            totalSessions: 0,
+            lastUsageResetAt: accountCreatedAt,
+            createdAt: accountCreatedAt,
+          })
+          .returning();
+        if (!u) throw new Error("User insert failed");
+        return u;
+      });
+    } catch (err) {
+      safeAuthLoggerError("POST /api/auth/signup transaction failed", err);
+      res.status(500).json({ error: "Could not create account. Please try again." });
+      return;
+    }
   }
 
   if (resolvedReferrerUserId && Number.isFinite(resolvedReferrerUserId) && resolvedReferrerUserId !== newUser.id) {
@@ -743,7 +770,9 @@ router.post("/signup", async (req, res) => {
   }
 
   void sendTelegramNotification(
-    `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Trial · Libre / Final Boss 3 (7 days)`,
+    reopenedClosedAccount
+      ? `🆕 InterpreterAI account reopened\nEmail: ${normalized}\nMethod: Email Registration (after close)\nPlan: Free Trial (7 days)`
+      : `🆕 New InterpreterAI user\nEmail: ${normalized}\nMethod: Email Registration\nPlan: Trial · Libre / Final Boss 3 (7 days)`,
   );
 
   const ip        = getClientIp(req);
@@ -1349,11 +1378,38 @@ const handleGoogleOAuthCallback = async (req: Request, res: Response) => {
 
     let isNewUser = false;
     if (user) {
-      if (!user.isActive || user.accountDeletedAt) {
+      const isClosed =
+        Boolean(user.accountDeletedAt) ||
+        (!user.isActive && user.passwordHash.startsWith("$deleted$"));
+
+      if (isClosed) {
+        if (user.isAdmin) {
+          res.redirect("/login?error=account_closed");
+          return;
+        }
+        if (isTrialLoginBlocked()) {
+          const base = getStaticPublicBaseUrl();
+          res.redirect(`${base}/login?oauthError=${encodeURIComponent(TRIAL_LOGIN_BLOCKED_JSON.error)}`);
+          return;
+        }
+        const googleSignupIp = getClientIp(req).trim();
+        const googleAutoDisabled = await shouldAutoDisableSignupForSharedIp(googleSignupIp);
+        try {
+          user = await reactivateClosedAccountForSignup(user.id, {
+            passwordHash: `$google$${googleId}`,
+            googleAccountId: googleId,
+            isActive: !googleAutoDisabled,
+          });
+          isNewUser = true;
+        } catch (reactErr) {
+          safeAuthLoggerError("Google callback: reactivate closed account failed", reactErr);
+          res.redirect("/login?error=auth_failed");
+          return;
+        }
+      } else if (!user.isActive) {
         res.redirect("/login?error=account_closed");
         return;
-      }
-      if (!user.googleAccountId) {
+      } else if (!user.googleAccountId) {
         try {
           await db
             .update(usersTable)

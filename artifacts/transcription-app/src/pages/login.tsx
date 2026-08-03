@@ -18,8 +18,8 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   auth_failed:      "Google sign-in failed. Please try again.",
   not_configured:   "Google login is not yet enabled.",
   disposable_email: "Temporary email addresses are not allowed.",
-  account_closed: "This account was closed and cannot be used to sign in again.",
-  trial_email_used: "This email has already used a free trial or closed an account.",
+  account_closed: "This account is disabled. If you closed it, sign up again with Google to start a new account.",
+  trial_email_used: "This email has already used a free trial.",
   session_failed:
     "Could not save your session (database). Check Postgres and the user_sessions table, then try again.",
 };

@@ -3,26 +3,33 @@ import { useRoute, useLocation } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { useReels, SERIES_MAP, SeriesType } from '@/hooks/use-reels';
+import { useReels, SERIES_MAP, SeriesType, seriesFilenameSlug } from '@/hooks/use-reels';
 import { ReelPlayer } from '@/components/preview/ReelPlayer';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, Save, Check, Lock, Languages, Mic2, Loader2, Volume2, Square } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
-  BRAND_STING_URL,
+  ALL_BRAND_TONE_IDS,
+  ALL_MUSIC_BED_IDS,
+  BRAND_TONES,
   DEFAULT_OUTRO_SLOGAN,
-  MUSIC_BEDS,
   REEL_LANGUAGES,
   VOICE_ACTORS,
+  VOICE_SPEEDS,
+  musicBedsByCategory,
+  reelLanguageLabel,
+  type BrandToneId,
   type MusicBedId,
   type ProblemVisual,
   type SolutionVisual,
   type VoiceActorId,
+  type VoiceSpeedId,
 } from '@/lib/constants/languages';
-import { generateSegmentVoiceovers, translateReelScript } from '@/lib/reelBuilderApi';
-import { previewAudioUrl, stopAudioPreview } from '@/lib/previewAudio';
+import { generateSegmentVoiceovers, measureBlobDuration, translateReelScript } from '@/lib/reelBuilderApi';
+import { previewAudioUrl, setPreviewGain, stopAudioPreview } from '@/lib/previewAudio';
+import { estimateSpeechSeconds, formatEstBadge, buildExportFilename, SCENE_PADDING_SEC } from '@/lib/timeline';
 import {
   REEL_HANDOFF_PAYLOAD,
   REEL_HANDOFF_READY,
@@ -33,16 +40,14 @@ const formSchema = z.object({
   series: z.string().min(1, 'Select a series'),
   reelType: z.string().min(1, 'Add a sub-topic'),
   targetLanguage: z.string().min(1),
-  voiceActor: z.enum(['onyx', 'nova', 'alloy', 'echo']),
-  musicBed: z.enum([
-    'subtle_ambient',
-    'medical_urgency',
-    'legal_calm',
-    'conference_pulse',
-    'hopeful_growth',
-    'none',
-  ]),
+  voiceActor: z.enum(['onyx', 'nova', 'alloy', 'echo', 'fable', 'shimmer']),
+  voiceSpeed: z.enum(['1', '1.15', '1.25']),
+  musicBed: z.string().refine((v) => ALL_MUSIC_BED_IDS.includes(v as MusicBedId), 'Invalid music bed'),
+  brandTone: z.string().refine((v) => ALL_BRAND_TONE_IDS.includes(v as BrandToneId), 'Invalid brand tone'),
   brandStingEnabled: z.boolean(),
+  voVolume: z.number().min(0).max(1.5),
+  bgmVolume: z.number().min(0).max(1),
+  brandVolume: z.number().min(0).max(1),
   problemVisual: z.enum(['stock_broll', 'none']),
   solutionVisual: z.enum(['workspace_demo', 'none']),
   hook: z.string().min(1, 'Hook is required'),
@@ -54,13 +59,55 @@ const formSchema = z.object({
   outroLine2: z.string().optional(),
 });
 
+const MUSIC_GROUPS = musicBedsByCategory();
+
+function VolumeSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  format,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (n: number) => void;
+  format: (n: number) => string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(248,250,252,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+          {label}
+        </label>
+        <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: '#67E8F9' }}>
+          {format(value)}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: '100%', accentColor: '#22D3EE', cursor: 'pointer' }}
+      />
+    </div>
+  );
+}
+
 type FormValues = z.infer<typeof formSchema>;
 
 const SEGMENTS = [
-  { name: 'hook',     label: 'Hook',     timing: '0–3s',   hint: 'One bold line that stops the scroll.',         rows: 2 },
-  { name: 'problem',  label: 'Problem',  timing: '3–12s',  hint: 'The pain your audience feels every day.',      rows: 3 },
-  { name: 'solution', label: 'Solution', timing: '12–23s', hint: 'How InterpreterAI removes that friction.',     rows: 4 },
-  { name: 'result',   label: 'Result',   timing: '23–28s', hint: 'The transformation. Make them feel it.',       rows: 2 },
+  { name: 'hook',     label: 'Hook',     timing: 'paced to VO', hint: 'One bold line that stops the scroll.',         rows: 2 },
+  { name: 'problem',  label: 'Problem',  timing: 'paced to VO', hint: 'The pain your audience feels every day.',      rows: 3 },
+  { name: 'solution', label: 'Solution', timing: 'paced to VO', hint: 'How InterpreterAI removes that friction.',     rows: 4 },
+  { name: 'result',   label: 'Result',   timing: 'paced to VO', hint: 'The transformation. Make them feel it.',       rows: 2 },
 ] as const;
 
 const SERIES_COLORS: Record<string, string> = {
@@ -104,6 +151,7 @@ export default function Builder() {
     result?: Blob;
     outro?: Blob;
   }>({});
+  const [measuredVo, setMeasuredVo] = useState<Partial<Record<'hook' | 'problem' | 'solution' | 'result', number>>>({});
   const [demoVideoUrl, setDemoVideoUrl] = useState<string | null>(null);
 
   const isNew = !params?.id;
@@ -115,9 +163,14 @@ export default function Builder() {
       series: '1',
       reelType: '',
       targetLanguage: 'en',
-      voiceActor: 'onyx',
-      musicBed: 'subtle_ambient',
-      brandStingEnabled: true,
+      voiceActor: 'nova',
+      voiceSpeed: '1.15',
+      musicBed: 'saas_tech_driving',
+      brandTone: 'none',
+      brandStingEnabled: false,
+      voVolume: 1,
+      bgmVolume: 0.25,
+      brandVolume: 0.8,
       problemVisual: 'stock_broll',
       solutionVisual: 'workspace_demo',
       hook: '',
@@ -141,8 +194,13 @@ export default function Builder() {
         reelType: existingReel.reelType,
         targetLanguage: existingReel.targetLanguage,
         voiceActor: existingReel.voiceActor,
+        voiceSpeed: existingReel.voiceSpeed,
         musicBed: existingReel.musicBed,
+        brandTone: existingReel.brandTone,
         brandStingEnabled: existingReel.brandStingEnabled,
+        voVolume: existingReel.voVolume,
+        bgmVolume: existingReel.bgmVolume,
+        brandVolume: existingReel.brandVolume,
         problemVisual: existingReel.problemVisual,
         solutionVisual: existingReel.solutionVisual,
         hook: existingReel.hook,
@@ -184,9 +242,42 @@ export default function Builder() {
   }, [form, toast]);
 
   const musicUrl = useMemo(
-    () => MUSIC_BEDS.find((m) => m.id === watchedValues.musicBed)?.file ?? null,
+    () => MUSIC_GROUPS.flatMap((g) => g.beds).find((m) => m.id === watchedValues.musicBed)?.file ?? null,
     [watchedValues.musicBed],
   );
+
+  const brandStingUrl = useMemo(() => {
+    const tone = BRAND_TONES.find((t) => t.id === watchedValues.brandTone);
+    return tone?.file ?? null;
+  }, [watchedValues.brandTone]);
+
+  const brandStingOn = Boolean(brandStingUrl);
+
+  const voiceSpeedValue = useMemo(() => {
+    const row = VOICE_SPEEDS.find((s) => s.id === watchedValues.voiceSpeed);
+    return row?.value ?? 1.15;
+  }, [watchedValues.voiceSpeed]);
+
+  const exportFilename = useMemo(() => {
+    const scenario = watchedValues.reelType?.trim()
+      ? watchedValues.reelType
+      : seriesFilenameSlug(watchedValues.series || '1');
+    return buildExportFilename(scenario, reelLanguageLabel(watchedValues.targetLanguage || 'en'));
+  }, [watchedValues.reelType, watchedValues.series, watchedValues.targetLanguage]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const keys = ['hook', 'problem', 'solution', 'result'] as const;
+      const next: Partial<Record<(typeof keys)[number], number>> = {};
+      for (const k of keys) {
+        const d = await measureBlobDuration(voiceovers[k]);
+        if (d > 0.2) next[k] = d;
+      }
+      if (!cancelled) setMeasuredVo(next);
+    })();
+    return () => { cancelled = true; };
+  }, [voiceovers]);
 
   useEffect(() => () => stopAudioPreview(), []);
 
@@ -203,7 +294,7 @@ export default function Builder() {
     try {
       stopAudioPreview();
       setPreviewing('music');
-      await previewAudioUrl(musicUrl, { gain: 0.45, loop: true });
+      await previewAudioUrl(musicUrl, { gain: watchedValues.bgmVolume ?? 0.25, loop: true });
       toast({ title: 'Playing bed (loop) — click again to stop', duration: 2500 });
     } catch (e) {
       setPreviewing(null);
@@ -221,10 +312,14 @@ export default function Builder() {
       setPreviewing(null);
       return;
     }
+    if (!brandStingUrl) {
+      toast({ title: 'No brand tone selected', duration: 2000 });
+      return;
+    }
     try {
       stopAudioPreview();
       setPreviewing('sting');
-      await previewAudioUrl(BRAND_STING_URL, { gain: 0.7, loop: false });
+      await previewAudioUrl(brandStingUrl, { gain: watchedValues.brandVolume ?? 0.8, loop: false });
       toast({ title: 'InterpreterAI brand tone', duration: 2000 });
       window.setTimeout(() => setPreviewing((p) => (p === 'sting' ? null : p)), 1600);
     } catch (e) {
@@ -257,6 +352,7 @@ export default function Builder() {
       form.setValue('outroLine1', result.outroLine1);
       form.setValue('outroLine2', result.outroLine2);
       setVoiceovers({});
+      setMeasuredVo({});
       toast({ title: `Script translated → ${v.targetLanguage}`, duration: 2500 });
     } catch (e) {
       toast({
@@ -276,6 +372,7 @@ export default function Builder() {
     try {
       const v = form.getValues();
       const outro = `${v.outroLine1 || DEFAULT_OUTRO_SLOGAN.line1} ${v.outroLine2 || DEFAULT_OUTRO_SLOGAN.line2}`;
+      const speed = VOICE_SPEEDS.find((s) => s.id === v.voiceSpeed)?.value ?? 1.15;
       const pack = await generateSegmentVoiceovers(
         {
           hook: v.hook,
@@ -285,6 +382,7 @@ export default function Builder() {
           outro,
         },
         v.voiceActor,
+        speed,
         (label) => setVoStatus(`TTS: ${label}…`),
       );
       setVoiceovers(pack);
@@ -311,8 +409,13 @@ export default function Builder() {
       reelType: values.reelType,
       targetLanguage: values.targetLanguage,
       voiceActor: values.voiceActor as VoiceActorId,
+      voiceSpeed: values.voiceSpeed as VoiceSpeedId,
       musicBed: values.musicBed as MusicBedId,
-      brandStingEnabled: values.brandStingEnabled,
+      brandTone: values.brandTone as BrandToneId,
+      brandStingEnabled: values.brandTone !== 'none',
+      voVolume: values.voVolume,
+      bgmVolume: values.bgmVolume,
+      brandVolume: values.brandVolume,
       problemVisual: values.problemVisual as ProblemVisual,
       solutionVisual: values.solutionVisual as SolutionVisual,
       hook: values.hook,
@@ -476,6 +579,26 @@ export default function Builder() {
 
                   <FormField
                     control={form.control}
+                    name="voiceSpeed"
+                    render={({ field }) => (
+                      <FormItem style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(248,250,252,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Voice tempo</label>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger style={fieldSelectStyle}><SelectValue /></SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {VOICE_SPEEDS.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name="musicBed"
                     render={({ field }) => (
                       <FormItem style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -491,9 +614,14 @@ export default function Builder() {
                           <FormControl>
                             <SelectTrigger style={fieldSelectStyle}><SelectValue /></SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            {MUSIC_BEDS.map((m) => (
-                              <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                          <SelectContent className="max-h-80 w-[var(--radix-select-trigger-width)]" position="popper" sideOffset={6}>
+                            {MUSIC_GROUPS.map(({ category, beds }) => (
+                              <SelectGroup key={category.id}>
+                                <SelectLabel>{category.label}</SelectLabel>
+                                {beds.map((m) => (
+                                  <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                                ))}
+                              </SelectGroup>
                             ))}
                           </SelectContent>
                         </Select>
@@ -519,33 +647,44 @@ export default function Builder() {
 
                   <FormField
                     control={form.control}
-                    name="brandStingEnabled"
+                    name="brandTone"
                     render={({ field }) => (
-                      <FormItem style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <FormItem style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(248,250,252,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                          InterpreterAI brand tone
+                          Sonic logo / brand tone
                         </label>
-                        <label style={{
-                          display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
-                          color: 'rgba(248,250,252,0.7)', cursor: 'pointer',
-                        }}>
-                          <input
-                            type="checkbox"
-                            checked={field.value}
-                            onChange={(e) => field.onChange(e.target.checked)}
-                            style={{ width: 14, height: 14, accentColor: '#22D3EE' }}
-                          />
-                          Play sonic logo on intro &amp; outro (when brand appears)
-                        </label>
+                        <Select
+                          onValueChange={(v) => {
+                            stopAudioPreview();
+                            setPreviewing(null);
+                            field.onChange(v);
+                            form.setValue('brandStingEnabled', v !== 'none');
+                          }}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger style={fieldSelectStyle}><SelectValue placeholder="Select brand tone" /></SelectTrigger>
+                          </FormControl>
+                          <SelectContent className="max-h-80 w-[var(--radix-select-trigger-width)]" position="popper" sideOffset={6}>
+                            {BRAND_TONES.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p style={{ margin: 0, fontSize: 10, color: 'rgba(248,250,252,0.35)', lineHeight: 1.4 }}>
+                          Plays on intro + after outro slogan VO (never over CTA voice)
+                        </p>
                         <button
                           type="button"
                           onClick={() => void onPreviewBrandSting()}
+                          disabled={!brandStingUrl}
                           style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                             background: previewing === 'sting' ? 'rgba(34,211,238,0.18)' : 'rgba(34,211,238,0.08)',
                             border: '1px solid rgba(34,211,238,0.35)',
                             color: '#67E8F9', borderRadius: 8, padding: '8px 10px', fontSize: 11, fontWeight: 700,
-                            cursor: 'pointer',
+                            cursor: brandStingUrl ? 'pointer' : 'default',
+                            opacity: brandStingUrl ? 1 : 0.45,
                           }}
                         >
                           <Volume2 size={12} />
@@ -554,6 +693,78 @@ export default function Builder() {
                       </FormItem>
                     )}
                   />
+
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', gap: 14,
+                    padding: '12px 12px 10px',
+                    background: 'rgba(34,211,238,0.04)',
+                    border: '1px solid rgba(34,211,238,0.15)',
+                    borderRadius: 10,
+                  }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(248,250,252,0.55)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Mix levels
+                    </span>
+                    <FormField
+                      control={form.control}
+                      name="voVolume"
+                      render={({ field }) => (
+                        <FormItem>
+                          <VolumeSlider
+                            label="Voiceover volume"
+                            value={field.value}
+                            min={0}
+                            max={1.5}
+                            step={0.01}
+                            format={(n) => `${Math.round(n * 100)}%`}
+                            onChange={(n) => {
+                              field.onChange(n);
+                              if (previewing === null) {/* live via ReelPlayer */}
+                            }}
+                          />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="bgmVolume"
+                      render={({ field }) => (
+                        <FormItem>
+                          <VolumeSlider
+                            label="Background music"
+                            value={field.value}
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            format={(n) => `${Math.round(n * 100)}%`}
+                            onChange={(n) => {
+                              field.onChange(n);
+                              if (previewing === 'music') setPreviewGain(n);
+                            }}
+                          />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="brandVolume"
+                      render={({ field }) => (
+                        <FormItem>
+                          <VolumeSlider
+                            label="Sonic logo / brand tone"
+                            value={field.value}
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            format={(n) => `${Math.round(n * 100)}%`}
+                            onChange={(n) => {
+                              field.onChange(n);
+                              if (previewing === 'sting') setPreviewGain(n);
+                            }}
+                          />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <FormField
@@ -666,6 +877,20 @@ export default function Builder() {
                                 <span style={{ fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>{seg.label}</span>
                                 <span style={{ fontSize: '10px', color: 'rgba(248,250,252,0.3)', marginLeft: '8px' }}>{seg.timing}</span>
                               </div>
+                              <span style={{
+                                fontSize: '10px', fontWeight: 700, fontFamily: 'monospace',
+                                color: '#67E8F9',
+                                background: 'rgba(34,211,238,0.12)',
+                                border: '1px solid rgba(34,211,238,0.25)',
+                                borderRadius: 999, padding: '3px 8px',
+                              }}>
+                                {formatEstBadge(
+                                  (measuredVo[seg.name] && measuredVo[seg.name]! > 0.2
+                                    ? measuredVo[seg.name]!
+                                    : estimateSpeechSeconds(String(watchedValues[seg.name] || ''), voiceSpeedValue))
+                                  + SCENE_PADDING_SEC,
+                                )}
+                              </span>
                             </div>
                             <FormControl>
                               <textarea
@@ -758,11 +983,18 @@ export default function Builder() {
             solutionVisual={(watchedValues.solutionVisual || 'workspace_demo') as SolutionVisual}
             series={watchedValues.series || '1'}
             musicUrl={musicUrl}
-            brandStingEnabled={watchedValues.brandStingEnabled !== false}
+            brandStingEnabled={brandStingOn}
+            brandStingUrl={brandStingUrl}
+            voiceSpeed={voiceSpeedValue}
+            volumes={{
+              vo: watchedValues.voVolume ?? 1,
+              bgm: watchedValues.bgmVolume ?? 0.25,
+              brand: watchedValues.brandVolume ?? 0.8,
+            }}
             voiceovers={voiceovers}
             demoVideoUrl={demoVideoUrl}
             accentColor={accentColor}
-            filename={`interpreterai-${watchedValues.series || 'reel'}-${(watchedValues.reelType || 'draft').replace(/\s+/g, '-').toLowerCase()}`}
+            filename={exportFilename}
           />
         </div>
       </div>

@@ -1,11 +1,18 @@
-import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, RotateCcw, FastForward, Download } from 'lucide-react';
 import { InterpreterAILogo } from '@/components/brand/InterpreterAILogo';
 import { exportReelMp4, type ExportProgress } from '@/lib/exportReelMp4';
 import { ReelAudioMixer } from '@/lib/audioMix';
-import { BRAND_STING_URL, isRtlLanguage, type ProblemVisual, type SolutionVisual } from '@/lib/constants/languages';
+import { isRtlLanguage, type ProblemVisual, type SolutionVisual } from '@/lib/constants/languages';
+import {
+  brandStingTimes,
+  buildDynamicTimeline,
+  type ContentKey,
+  type DurationMap,
+} from '@/lib/timeline';
+import { measureBlobDuration } from '@/lib/reelBuilderApi';
 
 export interface ReelData {
   hook: string;
@@ -25,6 +32,9 @@ interface ReelPlayerProps {
   series?: string;
   musicUrl?: string | null;
   brandStingEnabled?: boolean;
+  brandStingUrl?: string | null;
+  voiceSpeed?: number;
+  volumes?: { vo?: number; bgm?: number; brand?: number };
   voiceovers?: {
     hook?: Blob;
     problem?: Blob;
@@ -37,23 +47,11 @@ interface ReelPlayerProps {
   filename?: string;
 }
 
-export const TOTAL_DURATION = 35;
-
-const SEGMENTS = [
-  { id: 'intro',    start: 0,  end: 2  },
-  { id: 'hook',     start: 2,  end: 5  },
-  { id: 'problem',  start: 5,  end: 14 },
-  { id: 'solution', start: 14, end: 25 },
-  { id: 'result',   start: 25, end: 28 },
-  { id: 'outro',    start: 28, end: 35 },
-] as const;
-
 const LABELS: Record<string, string> = {
   hook: 'Hook', problem: 'Problem', solution: 'Solution', result: 'Result',
 };
 
 function stockBrollStyle(series: string): CSSProperties {
-  // Contextual beds — not InterpreterAI workspace UI
   if (series === '1' || series === '3') {
     return {
       background:
@@ -74,14 +72,10 @@ function stockBrollStyle(series: string): CSSProperties {
 
 function BrandIntro() {
   return (
-    <div
-      style={{
-        position: 'absolute', inset: 0,
-        background: '#02050B',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        zIndex: 50,
-      }}
-    >
+    <div style={{
+      position: 'absolute', inset: 0, background: '#02050B',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+    }}>
       <div style={{
         position: 'absolute', width: '720px', height: '720px', borderRadius: '50%',
         background: 'radial-gradient(circle, rgba(37,99,235,0.12) 0%, transparent 70%)',
@@ -92,15 +86,8 @@ function BrandIntro() {
   );
 }
 
-function BrandOutro({
-  line1,
-  line2,
-  rtl,
-}: {
-  line1: string;
-  line2: string;
-  rtl: boolean;
-}) {
+/** Layout: Slogan → Built for… · 62 languages → CTA → URL */
+function BrandOutro({ line1, line2, rtl }: { line1: string; line2: string; rtl: boolean }) {
   return (
     <div
       dir={rtl ? 'rtl' : 'ltr'}
@@ -108,7 +95,7 @@ function BrandOutro({
         position: 'absolute', inset: 0,
         background: 'radial-gradient(ellipse at center, #0B1220 0%, #02050B 100%)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '120px 64px', zIndex: 50, textAlign: 'center',
+        padding: '100px 64px', zIndex: 50, textAlign: 'center',
       }}
     >
       <div style={{
@@ -117,53 +104,54 @@ function BrandOutro({
         pointerEvents: 'none',
       }} />
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', width: '100%', maxWidth: 940 }}>
-        <InterpreterAILogo variant="wordmark" height={176} />
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        position: 'relative', width: '100%', maxWidth: 940, gap: 0,
+      }}>
+        <InterpreterAILogo variant="wordmark" height={140} />
 
-        <div style={{ width: '112px', height: '3px', background: 'rgba(34,211,238,0.45)', margin: '52px auto' }} />
+        <div style={{ width: '96px', height: '3px', background: 'rgba(34,211,238,0.45)', margin: '40px auto 36px' }} />
 
+        {/* 1. Slogan */}
         <p style={{
-          fontSize: '56px', fontWeight: 700, color: '#FFFFFF',
-          letterSpacing: rtl ? '0' : '-0.02em', lineHeight: 1.25, marginBottom: '14px',
+          fontSize: '52px', fontWeight: 700, color: '#FFFFFF',
+          letterSpacing: rtl ? '0' : '-0.02em', lineHeight: 1.25, margin: '0 0 10px',
           maxWidth: '960px',
         }}>
           {line1}
         </p>
         <p style={{
-          fontSize: '56px', fontWeight: 700, color: '#67E8F9',
-          letterSpacing: rtl ? '0' : '-0.02em', lineHeight: 1.25, marginBottom: '40px',
+          fontSize: '52px', fontWeight: 700, color: '#67E8F9',
+          letterSpacing: rtl ? '0' : '-0.02em', lineHeight: 1.25, margin: '0 0 44px',
           maxWidth: '960px',
         }}>
           {line2}
         </p>
-        <div style={{ marginBottom: '52px', textAlign: 'center' }}>
-          <p style={{
-            margin: 0, fontSize: '36px', fontWeight: 600, color: 'rgba(248,250,252,0.65)',
-            letterSpacing: '0.04em', textTransform: 'uppercase',
-          }}>
-            Built for professional interpreters
-          </p>
-          <p style={{
-            margin: '10px 0 0', fontSize: '36px', fontWeight: 600, color: 'rgba(248,250,252,0.65)',
-            letterSpacing: '0.04em', textTransform: 'uppercase',
-          }}>
-            62 languages
-          </p>
-        </div>
 
-        <div
-          style={{
-            background: '#22D3EE', color: '#02050B',
-            borderRadius: '20px', padding: '34px 56px',
-            fontSize: '42px', fontWeight: 800, letterSpacing: '-0.01em',
-            marginBottom: '40px', whiteSpace: 'nowrap',
-            width: '100%', maxWidth: 900,
-          }}
-        >
+        {/* 2. Built for… · 62 languages */}
+        <p style={{
+          margin: '0 0 48px', fontSize: '30px', fontWeight: 650,
+          color: 'rgba(248,250,252,0.62)',
+          letterSpacing: '0.06em', textTransform: 'uppercase',
+          lineHeight: 1.45,
+        }}>
+          Built for professional interpreters · 62 languages
+        </p>
+
+        {/* 3. CTA */}
+        <div style={{
+          background: '#22D3EE', color: '#02050B',
+          borderRadius: '20px', padding: '30px 52px',
+          fontSize: '38px', fontWeight: 800, letterSpacing: '-0.01em',
+          marginBottom: '36px', whiteSpace: 'nowrap',
+          width: '100%', maxWidth: 900,
+          boxShadow: '0 20px 60px rgba(34,211,238,0.25)',
+        }}>
           Start Free — 7 Days · 2 Hours/Day
         </div>
 
-        <p style={{ fontSize: '38px', fontWeight: 700, color: '#67E8F9', letterSpacing: '0.02em' }}>
+        {/* 4. URL */}
+        <p style={{ fontSize: '34px', fontWeight: 700, color: '#67E8F9', letterSpacing: '0.02em', margin: 0 }}>
           app.interpreterai.org
         </p>
       </div>
@@ -185,28 +173,10 @@ function BrandWatermark() {
 
 function ProblemBroll({ series }: { series: string }) {
   return (
-    <div
-      style={{
-        position: 'absolute', inset: 0, zIndex: 1, ...stockBrollStyle(series),
-      }}
-    >
+    <div style={{ position: 'absolute', inset: 0, zIndex: 1, ...stockBrollStyle(series) }}>
       <div style={{
         position: 'absolute', inset: 0,
         background: 'linear-gradient(to bottom, rgba(2,5,11,0.35), rgba(2,5,11,0.75))',
-      }} />
-      <div style={{
-        position: 'absolute', top: '18%', left: '10%', right: '10%',
-        height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 99,
-      }} />
-      <div style={{
-        position: 'absolute', top: '22%', left: '10%', width: '55%',
-        height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 99,
-      }} />
-      <div style={{
-        position: 'absolute', bottom: '22%', left: '12%', right: '12%',
-        borderRadius: 28, border: '1px solid rgba(255,255,255,0.08)',
-        height: 220, background: 'rgba(11,18,32,0.45)',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
       }} />
     </div>
   );
@@ -225,14 +195,7 @@ function SolutionDemoOverlay({ videoUrl }: { videoUrl?: string | null }) {
         boxShadow: '0 40px 120px rgba(0,0,0,0.55)',
       }}>
         {videoUrl ? (
-          <video
-            src={videoUrl}
-            muted
-            playsInline
-            autoPlay
-            loop
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          <video src={videoUrl} muted playsInline autoPlay loop style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
           <div style={{
             position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -242,9 +205,6 @@ function SolutionDemoOverlay({ videoUrl }: { videoUrl?: string | null }) {
             <InterpreterAILogo variant="wordmark" height={96} />
             <p style={{ marginTop: 36, fontSize: 36, fontWeight: 700, color: 'rgba(248,250,252,0.85)' }}>
               Workspace demo
-            </p>
-            <p style={{ marginTop: 16, fontSize: 28, color: 'rgba(248,250,252,0.4)', lineHeight: 1.4, maxWidth: 720 }}>
-              Record from /admin/demo-marketing — drops into Solution
             </p>
           </div>
         )}
@@ -261,23 +221,32 @@ export function ReelPlayer({
   series = '1',
   musicUrl,
   brandStingEnabled = true,
+  brandStingUrl,
+  voiceSpeed = 1.15,
+  volumes,
   voiceovers,
   demoVideoUrl,
   accentColor = '#22D3EE',
   filename,
 }: ReelPlayerProps) {
+  const mixVolumes = {
+    vo: volumes?.vo ?? 1,
+    bgm: volumes?.bgm ?? 0.25,
+    brand: volumes?.brand ?? 0.8,
+  };
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>('9:16');
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [measured, setMeasured] = useState<DurationMap>({});
   const rafRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const seekRef = useRef((t: number) => setCurrentTime(t));
   const timeRef = useRef(0);
   const mixerRef = useRef<ReelAudioMixer | null>(null);
+  const seekRef = useRef((t: number) => setCurrentTime(t));
   seekRef.current = (t: number) => {
     timeRef.current = t;
     setCurrentTime(t);
@@ -286,39 +255,97 @@ export function ReelPlayer({
   const rtl = isRtlLanguage(targetLanguage);
   const outro1 = data.outroLine1 || 'Stay focused on the conversation.';
   const outro2 = data.outroLine2 || "We'll handle the words.";
+  const outroText = `${outro1} ${outro2}`;
+
+  // Measure VO blob durations → tight scene pacing
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!voiceovers) {
+        setMeasured({});
+        return;
+      }
+      const keys: ContentKey[] = ['hook', 'problem', 'solution', 'result'];
+      const next: DurationMap = {};
+      for (const k of keys) {
+        next[k] = await measureBlobDuration(voiceovers[k]);
+      }
+      next.outro = await measureBlobDuration(voiceovers.outro);
+      if (!cancelled) setMeasured(next);
+    })();
+    return () => { cancelled = true; };
+  }, [voiceovers]);
+
+  const timeline = useMemo(
+    () =>
+      buildDynamicTimeline({
+        texts: {
+          hook: data.hook || '',
+          problem: data.problem || '',
+          solution: data.solution || '',
+          result: data.result || '',
+        },
+        outroText,
+        speed: voiceSpeed,
+        measured,
+        brandStingEnabled,
+        brandStingDuration: 1.0,
+      }),
+    [data.hook, data.problem, data.solution, data.result, outroText, voiceSpeed, measured, brandStingEnabled],
+  );
+
+  const segments = timeline.segments;
+  const totalDuration = timeline.total;
+  const outroVoSec = measured.outro && measured.outro > 0.2
+    ? measured.outro
+    : Math.max(2, (outroText.trim().split(/\s+/).length || 8) / 2.5 / voiceSpeed);
+
+  const stingSchedule = useMemo(
+    () =>
+      brandStingTimes(segments, outroVoSec, brandStingEnabled).map((at, i) => ({
+        at,
+        tag: i === 0 ? 'intro' : 'outro',
+      })),
+    [segments, outroVoSec, brandStingEnabled],
+  );
 
   useEffect(() => {
     timeRef.current = currentTime;
   }, [currentTime]);
 
+  // Clamp playhead if timeline shrinks
+  useEffect(() => {
+    if (currentTime > totalDuration) {
+      seekRef.current(0);
+      setIsPlaying(false);
+    }
+  }, [totalDuration, currentTime]);
+
   useEffect(() => {
     const mixer = new ReelAudioMixer();
     mixerRef.current = mixer;
-    mixer.setSegments(
-      SEGMENTS.filter((s) => s.id !== 'intro').map((s) => ({
-        id: s.id,
-        start: s.start,
-        end: s.end,
-      })),
-    );
     return () => mixer.dispose();
   }, []);
 
   useEffect(() => {
     const mixer = mixerRef.current;
     if (!mixer) return;
+    mixer.setSegments(segments);
     mixer.setBrandStingEnabled(brandStingEnabled);
-    void mixer.loadBrandSting(BRAND_STING_URL);
-  }, [brandStingEnabled]);
+    mixer.setBrandStingSchedule(stingSchedule);
+    if (brandStingUrl) void mixer.loadBrandSting(brandStingUrl);
+  }, [segments, brandStingEnabled, brandStingUrl, stingSchedule]);
 
   useEffect(() => {
     const mixer = mixerRef.current;
     if (!mixer) return;
-    if (!musicUrl) {
-      void mixer.loadMusic('').catch(() => undefined);
-      return;
-    }
-    void mixer.loadMusic(musicUrl);
+    mixer.setVolumes(mixVolumes);
+  }, [mixVolumes.vo, mixVolumes.bgm, mixVolumes.brand]);
+
+  useEffect(() => {
+    const mixer = mixerRef.current;
+    if (!mixer) return;
+    void mixer.loadMusic(musicUrl || '');
   }, [musicUrl]);
 
   useEffect(() => {
@@ -342,10 +369,10 @@ export function ReelPlayer({
         lastTimeRef.current = now;
         setCurrentTime((prev) => {
           const next = prev + delta;
-          if (next >= TOTAL_DURATION) {
+          if (next >= totalDuration) {
             setIsPlaying(false);
             mixerRef.current?.stop();
-            return TOTAL_DURATION;
+            return totalDuration;
           }
           timeRef.current = next;
           return next;
@@ -358,11 +385,11 @@ export function ReelPlayer({
       if (!isPlaying) mixerRef.current?.stop();
     }
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [isPlaying, exporting]);
+  }, [isPlaying, exporting, totalDuration]);
 
-  const currentSegment = SEGMENTS.find((s) => currentTime >= s.start && currentTime < s.end) || SEGMENTS[SEGMENTS.length - 1];
+  const currentSegment = segments.find((s) => currentTime >= s.start && currentTime < s.end) || segments[segments.length - 1]!;
   const isIntro = currentSegment.id === 'intro';
-  const isOutro = currentSegment.id === 'outro' || currentTime >= TOTAL_DURATION;
+  const isOutro = currentSegment.id === 'outro' || currentTime >= totalDuration;
   const isContent = !isIntro && !isOutro;
   const isProblem = currentSegment.id === 'problem';
   const isSolution = currentSegment.id === 'solution';
@@ -387,7 +414,7 @@ export function ReelPlayer({
           initial={exporting ? false : { opacity: 0, y: 18, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={exporting ? undefined : { opacity: 0, y: -14, scale: 1.02 }}
-          transition={{ duration: exporting ? 0 : 0.5, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: exporting ? 0 : 0.35, ease: [0.22, 1, 0.36, 1] }}
           style={{
             position: 'absolute', inset: 0,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -399,7 +426,6 @@ export function ReelPlayer({
           {isSolution && solutionVisual === 'workspace_demo' ? (
             <SolutionDemoOverlay videoUrl={demoVideoUrl} />
           ) : null}
-          {/* Hard cut back to brand night at solution if no overlay */}
           {isSolution && solutionVisual === 'none' ? (
             <div style={{ position: 'absolute', inset: 0, background: '#02050B', zIndex: 0 }} />
           ) : null}
@@ -421,12 +447,9 @@ export function ReelPlayer({
             </div>
 
             <h2 style={{
-              fontSize,
-              fontWeight: 800,
-              lineHeight: 1.18,
+              fontSize, fontWeight: 800, lineHeight: 1.18,
               letterSpacing: rtl ? '0' : '-0.03em',
-              color: '#FFFFFF',
-              maxWidth: '940px',
+              color: '#FFFFFF', maxWidth: '940px',
               textShadow: '0 8px 40px rgba(0,0,0,0.65)',
               marginTop: 80,
             }}>
@@ -434,19 +457,10 @@ export function ReelPlayer({
             </h2>
 
             {data.captions ? (
-              <p style={{
-                marginTop: 48, fontSize: 36, fontWeight: 600,
-                color: 'rgba(248,250,252,0.72)', maxWidth: 880,
-              }}>
+              <p style={{ marginTop: 48, fontSize: 36, fontWeight: 600, color: 'rgba(248,250,252,0.72)', maxWidth: 880 }}>
                 {data.captions}
               </p>
             ) : null}
-
-            <div style={{
-              position: 'absolute', bottom: '-80px', left: '0', right: '0',
-              height: '2px',
-              background: `linear-gradient(to right, transparent, ${accentColor}30, transparent)`,
-            }} />
           </div>
           <BrandWatermark />
         </motion.div>
@@ -468,21 +482,20 @@ export function ReelPlayer({
     try {
       await exportReelMp4({
         stage,
-        durationSec: TOTAL_DURATION,
+        durationSec: totalDuration,
         width: exportW,
         height: exportH,
-        segments: SEGMENTS.map((s) => ({ id: s.id, start: s.start, end: s.end })),
+        segments,
         fps: 15,
-        filename: `${filename || 'interpreterai-reel'}-${aspectRatio.replace(':', 'x')}.mp4`,
-        seekTo: (t) => {
-          flushSync(() => seekRef.current(t));
-        },
+        filename: filename || 'InterpreterAI_Reel.mp4',
+        seekTo: (t) => { flushSync(() => seekRef.current(t)); },
         waitForPaint,
         onProgress: setExportProgress,
         audio: {
           musicUrl: musicUrl || null,
-          brandStingUrl: brandStingEnabled ? BRAND_STING_URL : null,
-          brandStingAt: brandStingEnabled ? [0.05, 28.05] : [],
+          brandStingUrl: brandStingEnabled ? (brandStingUrl || null) : null,
+          brandStingAt: stingSchedule.map((c) => c.at),
+          volumes: mixVolumes,
           voiceovers: voiceovers
             ? {
                 hook: voiceovers.hook,
@@ -492,10 +505,10 @@ export function ReelPlayer({
                 outro: voiceovers.outro,
               }
             : undefined,
-          segments: SEGMENTS.map((s) => ({ id: s.id, start: s.start, end: s.end })),
+          segments,
         },
       });
-      setExportMsg('MP4 downloaded — save to Files / iCloud and share anywhere.');
+      setExportMsg('MP4 downloaded.');
     } catch (e) {
       setExportMsg(e instanceof Error ? e.message : 'Export failed');
       setExportProgress(null);
@@ -504,6 +517,8 @@ export function ReelPlayer({
       seekRef.current(0);
     }
   };
+
+  const outroStart = segments.find((s) => s.id === 'outro')?.start ?? totalDuration - 5;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
@@ -528,40 +543,26 @@ export function ReelPlayer({
           ))}
         </div>
         <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'rgba(255,255,255,0.25)' }}>
-          {Math.floor(currentTime)}s / {TOTAL_DURATION}s · {rtl ? 'RTL' : 'LTR'}
+          {currentTime.toFixed(1)}s / {totalDuration.toFixed(1)}s
         </span>
       </div>
 
       <div style={{
-        position: 'relative',
-        width: `${previewW}px`,
-        height: `${previewH}px`,
-        borderRadius: '12px',
-        overflow: 'hidden',
+        position: 'relative', width: `${previewW}px`, height: `${previewH}px`,
+        borderRadius: '12px', overflow: 'hidden',
         border: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: `0 0 0 1px rgba(255,255,255,0.03), 0 24px 60px rgba(0,0,0,0.7), 0 0 40px rgba(37,99,235,0.06)`,
+        boxShadow: '0 0 0 1px rgba(255,255,255,0.03), 0 24px 60px rgba(0,0,0,0.7)',
       }}>
         <div
           ref={stageRef}
           data-reel-export-stage="true"
           style={{
-            width: exportW,
-            height: exportH,
-            transform: `scale(${scale})`,
-            transformOrigin: 'top left',
-            background: '#02050B',
-            position: 'relative',
-            overflow: 'hidden',
+            width: exportW, height: exportH,
+            transform: `scale(${scale})`, transformOrigin: 'top left',
+            background: '#02050B', position: 'relative', overflow: 'hidden',
           }}
         >
-          <div style={{
-            position: 'absolute', inset: 0,
-            background: 'radial-gradient(ellipse at 50% 30%, rgba(37,99,235,0.06) 0%, transparent 60%)',
-            pointerEvents: 'none', zIndex: 0,
-          }} />
-
           {renderContent()}
-
           {!exporting ? (
             <div style={{
               position: 'absolute', bottom: 0, left: 0, right: 0, height: '6px',
@@ -570,7 +571,7 @@ export function ReelPlayer({
               <div style={{
                 height: '100%',
                 background: isContent ? accentColor : '#22D3EE',
-                width: `${(currentTime / TOTAL_DURATION) * 100}%`,
+                width: `${(currentTime / totalDuration) * 100}%`,
               }} />
             </div>
           ) : null}
@@ -581,7 +582,7 @@ export function ReelPlayer({
         <button
           type="button"
           disabled={exporting}
-          onClick={() => { setCurrentTime(0); timeRef.current = 0; setIsPlaying(true); }}
+          onClick={() => { seekRef.current(0); setIsPlaying(true); }}
           style={{
             width: '40px', height: '40px', borderRadius: '50%',
             background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
@@ -597,10 +598,7 @@ export function ReelPlayer({
           type="button"
           disabled={exporting}
           onClick={() => {
-            if (currentTime >= TOTAL_DURATION) {
-              setCurrentTime(0);
-              timeRef.current = 0;
-            }
+            if (currentTime >= totalDuration) seekRef.current(0);
             setIsPlaying(!isPlaying);
           }}
           style={{
@@ -618,7 +616,7 @@ export function ReelPlayer({
         <button
           type="button"
           disabled={exporting}
-          onClick={() => { setCurrentTime(28.1); timeRef.current = 28.1; setIsPlaying(true); }}
+          onClick={() => { seekRef.current(outroStart + 0.05); setIsPlaying(true); }}
           title="Jump to outro"
           style={{
             width: '40px', height: '40px', borderRadius: '50%',
@@ -649,38 +647,22 @@ export function ReelPlayer({
         <Download size={16} />
         {exporting
           ? (exportProgress ? `${exportProgress.detail} ${exportProgress.pct}%` : 'Exporting…')
-          : `Download MP4 (${aspectRatio})`}
+          : `Download MP4`}
       </button>
-
-      {exporting && exportProgress ? (
-        <div style={{ width: `${previewW}px` }}>
-          <div style={{ height: '4px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-            <div style={{
-              height: '100%', width: `${exportProgress.pct}%`,
-              background: 'linear-gradient(90deg, #22D3EE, #2563EB)',
-              transition: 'width 0.15s',
-            }} />
-          </div>
-        </div>
-      ) : null}
 
       {exportMsg ? (
         <p style={{
           width: `${previewW}px`, margin: 0, fontSize: 11,
-          color: exportMsg.includes('failed') || exportMsg.includes('required') ? '#F87171' : 'rgba(103,232,249,0.85)',
-          textAlign: 'center', lineHeight: 1.4,
+          color: exportMsg.includes('fail') ? '#F87171' : 'rgba(103,232,249,0.85)',
+          textAlign: 'center',
         }}>
           {exportMsg}
         </p>
       ) : null}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.4 }}>
-        <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#22D3EE' }} />
-        <span style={{ fontSize: '10px', color: '#F8FAFC', letterSpacing: '0.06em' }}>
-          Intro/outro locked · music ducks under VO
-        </span>
-        <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#22D3EE' }} />
-      </div>
+      <span style={{ fontSize: '10px', color: 'rgba(248,250,252,0.35)', letterSpacing: '0.04em' }}>
+        Paced to VO · −3 dB normalize + limiter · live mix sliders · brand after outro VO
+      </span>
     </div>
   );
 }

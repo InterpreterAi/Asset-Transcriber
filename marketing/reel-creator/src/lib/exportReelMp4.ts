@@ -1,5 +1,6 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import { toCanvas } from "html-to-image";
+import { createMasterChain, normalizeAudioBuffer } from "@/lib/audioNormalize";
 
 export type ExportProgress = { pct: number; detail: string };
 
@@ -9,6 +10,12 @@ export type ExportSegment = {
   end: number;
 };
 
+export type ExportVolumes = {
+  vo?: number;
+  bgm?: number;
+  brand?: number;
+};
+
 export type ExportAudioOpts = {
   musicUrl?: string | null;
   brandStingUrl?: string | null;
@@ -16,6 +23,7 @@ export type ExportAudioOpts = {
   brandStingAt?: number[];
   voiceovers?: Record<string, Blob | undefined | null>;
   segments: ExportSegment[];
+  volumes?: ExportVolumes;
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -47,17 +55,19 @@ async function captureStage(
   });
 }
 
-async function decodeBlob(ctx: AudioContext, blob: Blob): Promise<AudioBuffer | null> {
+async function decodeBlob(ctx: BaseAudioContext, blob: Blob): Promise<AudioBuffer | null> {
   try {
     const ab = await blob.arrayBuffer();
-    return await ctx.decodeAudioData(ab.slice(0));
+    const decoded = await ctx.decodeAudioData(ab.slice(0));
+    return normalizeAudioBuffer(decoded);
   } catch {
     return null;
   }
 }
 
 /**
- * Mix bed (~15%, ducked to ~5% under VO) + segment voiceovers into a mono PCM buffer.
+ * Mix bed + VO + brand sting through per-bus gains + master compressor/limiter.
+ * Samples are peak-normalized to −3 dB on decode.
  */
 async function mixExportAudio(
   durationSec: number,
@@ -65,31 +75,36 @@ async function mixExportAudio(
   audio: ExportAudioOpts,
 ): Promise<Float32Array | null> {
   const ctx = new OfflineAudioContext(1, Math.ceil(durationSec * sampleRate), sampleRate);
+  const { input: master } = createMasterChain(ctx);
   let hasAny = false;
+
+  const voGain = clamp(audio.volumes?.vo ?? 1, 0, 1.5);
+  const bgmGain = clamp(audio.volumes?.bgm ?? 0.25, 0, 1);
+  const brandGain = clamp(audio.volumes?.brand ?? 0.8, 0, 1);
+  const ducked = bgmGain * 0.49;
 
   if (audio.musicUrl) {
     try {
       const res = await fetch(audio.musicUrl);
       if (res.ok) {
-        const bed = await decodeBlob(ctx as unknown as AudioContext, await res.blob());
+        const bed = await decodeBlob(ctx, await res.blob());
         if (bed) {
           hasAny = true;
           const src = ctx.createBufferSource();
           src.buffer = bed;
           src.loop = true;
           const g = ctx.createGain();
-          g.gain.value = 0.15;
-          // Duck during content segments that have VO
+          g.gain.value = bgmGain;
           for (const seg of audio.segments) {
             const vo = audio.voiceovers?.[seg.id];
             if (!vo || vo.size === 0) continue;
-            g.gain.setValueAtTime(0.15, seg.start);
-            g.gain.linearRampToValueAtTime(0.05, seg.start + 0.08);
-            g.gain.setValueAtTime(0.05, Math.max(seg.start, seg.end - 0.12));
-            g.gain.linearRampToValueAtTime(0.15, seg.end);
+            g.gain.setValueAtTime(bgmGain, seg.start);
+            g.gain.linearRampToValueAtTime(ducked, seg.start + 0.04);
+            g.gain.setValueAtTime(ducked, Math.max(seg.start, seg.end - 0.08));
+            g.gain.linearRampToValueAtTime(bgmGain, seg.end);
           }
           src.connect(g);
-          g.connect(ctx.destination);
+          g.connect(master);
           src.start(0);
         }
       }
@@ -102,15 +117,15 @@ async function mixExportAudio(
     for (const seg of audio.segments) {
       const blob = audio.voiceovers[seg.id];
       if (!blob || blob.size === 0) continue;
-      const buf = await decodeBlob(ctx as unknown as AudioContext, blob);
+      const buf = await decodeBlob(ctx, blob);
       if (!buf) continue;
       hasAny = true;
       const src = ctx.createBufferSource();
       src.buffer = buf;
       const g = ctx.createGain();
-      g.gain.value = 1;
+      g.gain.value = voGain;
       src.connect(g);
-      g.connect(ctx.destination);
+      g.connect(master);
       src.start(seg.start);
     }
   }
@@ -119,16 +134,16 @@ async function mixExportAudio(
     try {
       const res = await fetch(audio.brandStingUrl);
       if (res.ok) {
-        const sting = await decodeBlob(ctx as unknown as AudioContext, await res.blob());
+        const sting = await decodeBlob(ctx, await res.blob());
         if (sting) {
           hasAny = true;
           for (const t of audio.brandStingAt) {
             const src = ctx.createBufferSource();
             src.buffer = sting;
             const g = ctx.createGain();
-            g.gain.value = 0.55;
+            g.gain.value = brandGain;
             src.connect(g);
-            g.connect(ctx.destination);
+            g.connect(master);
             src.start(Math.max(0, t));
           }
         }
@@ -144,6 +159,10 @@ async function mixExportAudio(
 
   const rendered = await ctx.startRendering();
   return rendered.getChannelData(0);
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
 }
 
 async function tryEncodeAac(
