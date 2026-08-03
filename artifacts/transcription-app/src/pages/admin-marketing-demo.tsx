@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,7 +8,6 @@ import {
 } from "@workspace/api-client-react";
 import {
   BookOpen,
-  Circle,
   Columns2,
   Monitor,
   Moon,
@@ -27,9 +25,6 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { loginUrlForReturnTo } from "@/lib/auth-redirect";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 import { cn, formatMinutes } from "@/lib/utils";
-const RECORD_W = 1080;
-const RECORD_H = 1920;
-const RECORD_FPS = 60;
 
 const LANG_OPTIONS = workspaceLanguageOptions();
 
@@ -160,16 +155,10 @@ export default function AdminMarketingDemo() {
   const [notes, setNotes] = useState("");
   const [usageTick, setUsageTick] = useState(0);
   const [liveElapsedSec, setLiveElapsedSec] = useState(0);
-  const [reelRecording, setReelRecording] = useState(false);
-  const [reelRecElapsedSec, setReelRecElapsedSec] = useState(0);
-  const [reelStatus, setReelStatus] = useState<string | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const phoneFrameRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const liveStartedAtRef = useRef<number | null>(null);
-  const reelSessionRef = useRef<{ stop: () => Promise<Blob> } | null>(null);
-  const reelTimerRef = useRef<number | null>(null);
 
   const dark = theme === "dark";
 
@@ -400,74 +389,6 @@ export default function AdminMarketingDemo() {
     }
   };
 
-  /** Capture the REAL phone frame → 1080×1920 H.264 → Reel Creator assembler. */
-  const handleToggleReelCapture = async () => {
-    setLocalError(null);
-    setReelStatus(null);
-
-    if (reelRecording && reelSessionRef.current) {
-      setReelStatus("Finalizing MP4…");
-      if (reelTimerRef.current != null) {
-        window.clearInterval(reelTimerRef.current);
-        reelTimerRef.current = null;
-      }
-      try {
-        const blob = await reelSessionRef.current.stop();
-        reelSessionRef.current = null;
-        setReelRecording(false);
-        const filename = `interpreterai-demo-${new Date().toISOString().replace(/[:.]/g, "-")}.mp4`;
-        setReelStatus("Saved MP4 — opening Reel Creator…");
-        const { handoffRecordingToReelCreator } = await import(
-          "@/lib/reel-creator/recordingHandoff"
-        );
-        await handoffRecordingToReelCreator({
-          blob,
-          filename,
-          width: RECORD_W,
-          height: RECORD_H,
-          fps: RECORD_FPS,
-        });
-        setReelStatus(
-          "Reel Creator loaded. Timeline: Intro → this recording → Outro. Click Export MP4 there.",
-        );
-      } catch (e) {
-        reelSessionRef.current = null;
-        setReelRecording(false);
-        setLocalError(e instanceof Error ? e.message : "Failed to finish reel recording");
-        setReelStatus(null);
-      }
-      return;
-    }
-
-    const el = phoneFrameRef.current;
-    if (!el) {
-      setLocalError("Phone frame not ready.");
-      return;
-    }
-    try {
-      setReelStatus(`Recording phone frame ${RECORD_W}×${RECORD_H} @ ${RECORD_FPS}fps…`);
-      const { startPhoneFrameRecording } = await import("@/lib/reel-creator/recordPhoneFrame");
-      const session = await startPhoneFrameRecording(el);
-      reelSessionRef.current = session;
-      setReelRecording(true);
-      setReelRecElapsedSec(0);
-      const started = performance.now();
-      reelTimerRef.current = window.setInterval(() => {
-        setReelRecElapsedSec(Math.floor((performance.now() - started) / 1000));
-      }, 250);
-    } catch (e) {
-      setLocalError(e instanceof Error ? e.message : "Could not start reel recording");
-      setReelStatus(null);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (reelTimerRef.current != null) window.clearInterval(reelTimerRef.current);
-      reelSessionRef.current = null;
-    };
-  }, []);
-
   if (meLoading) {
     return (
       <div className="min-h-screen bg-[#03060d] flex items-center justify-center">
@@ -536,7 +457,6 @@ export default function AdminMarketingDemo() {
         )}
       />
       <div
-        ref={phoneFrameRef}
         data-demo-phone-frame="true"
         className={cn(
           "relative z-10 rounded-[26px] border overflow-hidden flex flex-col backdrop-blur-xl",
@@ -888,50 +808,6 @@ export default function AdminMarketingDemo() {
         </footer>
         </div>
       </div>
-
-      {/* Portal to body — cannot be clipped by demo overflow/transform */}
-      {typeof document !== "undefined" &&
-        createPortal(
-          <div
-            data-reel-capture-ui="true"
-            className="fixed inset-x-0 bottom-0 z-[99999] flex justify-center pb-6 pointer-events-none"
-          >
-            <div className="pointer-events-auto flex flex-col items-center gap-2">
-              {reelStatus ? (
-                <div className="max-w-md rounded-xl border border-cyan-400/40 bg-[#0b1220] px-4 py-2 text-center text-xs font-medium text-cyan-100 shadow-2xl">
-                  {reelStatus}
-                </div>
-              ) : null}
-              <button
-                type="button"
-                data-reel-capture-ui="true"
-                onClick={() => void handleToggleReelCapture()}
-                className={cn(
-                  "inline-flex items-center gap-2.5 rounded-full px-8 py-4 text-base font-bold shadow-[0_12px_40px_rgba(0,0,0,0.55)] border-2 transition-all",
-                  reelRecording
-                    ? "bg-red-600 text-white border-red-300 hover:bg-red-500"
-                    : "bg-red-500 text-white border-white/80 hover:bg-red-400",
-                )}
-              >
-                {reelRecording ? (
-                  <>
-                    <Square className="w-5 h-5 fill-current" />
-                    Stop reel · {formatLiveElapsed(reelRecElapsedSec)}
-                  </>
-                ) : (
-                  <>
-                    <Circle className="w-5 h-5 fill-white text-white" />
-                    Record reel (1080×1920)
-                  </>
-                )}
-              </button>
-              <p className="text-[11px] font-medium text-white/70 drop-shadow">
-                Outside the phone — never appears in the video
-              </p>
-            </div>
-          </div>,
-          document.body,
-        )}
     </div>
   );
 }

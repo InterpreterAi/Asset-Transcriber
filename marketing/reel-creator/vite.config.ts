@@ -15,6 +15,13 @@ export default defineConfig({
     port: 5179,
     strictPort: true,
     host: true,
+    proxy: {
+      // Isolated Reel Creator OpenAI routes on api-server (never Soniox / workspace translate).
+      "/api/reel-builder": {
+        target: process.env.VITE_API_ORIGIN ?? "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 5179,

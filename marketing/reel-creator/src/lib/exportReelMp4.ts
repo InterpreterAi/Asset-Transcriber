@@ -9,6 +9,15 @@ export type ExportSegment = {
   end: number;
 };
 
+export type ExportAudioOpts = {
+  musicUrl?: string | null;
+  brandStingUrl?: string | null;
+  /** Timeline seconds to fire brand sting (e.g. intro 0.05, outro 28.05) */
+  brandStingAt?: number[];
+  voiceovers?: Record<string, Blob | undefined | null>;
+  segments: ExportSegment[];
+};
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -23,7 +32,6 @@ async function captureStage(
   width: number,
   height: number,
 ): Promise<HTMLCanvasElement> {
-  // Clone is captured without CSS scale — sharp 1:1 pixels, live preview stays scaled.
   return toCanvas(stage, {
     width,
     height,
@@ -39,10 +47,164 @@ async function captureStage(
   });
 }
 
+async function decodeBlob(ctx: AudioContext, blob: Blob): Promise<AudioBuffer | null> {
+  try {
+    const ab = await blob.arrayBuffer();
+    return await ctx.decodeAudioData(ab.slice(0));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mix bed (~15%, ducked to ~5% under VO) + segment voiceovers into a mono PCM buffer.
+ */
+async function mixExportAudio(
+  durationSec: number,
+  sampleRate: number,
+  audio: ExportAudioOpts,
+): Promise<Float32Array | null> {
+  const ctx = new OfflineAudioContext(1, Math.ceil(durationSec * sampleRate), sampleRate);
+  let hasAny = false;
+
+  if (audio.musicUrl) {
+    try {
+      const res = await fetch(audio.musicUrl);
+      if (res.ok) {
+        const bed = await decodeBlob(ctx as unknown as AudioContext, await res.blob());
+        if (bed) {
+          hasAny = true;
+          const src = ctx.createBufferSource();
+          src.buffer = bed;
+          src.loop = true;
+          const g = ctx.createGain();
+          g.gain.value = 0.15;
+          // Duck during content segments that have VO
+          for (const seg of audio.segments) {
+            const vo = audio.voiceovers?.[seg.id];
+            if (!vo || vo.size === 0) continue;
+            g.gain.setValueAtTime(0.15, seg.start);
+            g.gain.linearRampToValueAtTime(0.05, seg.start + 0.08);
+            g.gain.setValueAtTime(0.05, Math.max(seg.start, seg.end - 0.12));
+            g.gain.linearRampToValueAtTime(0.15, seg.end);
+          }
+          src.connect(g);
+          g.connect(ctx.destination);
+          src.start(0);
+        }
+      }
+    } catch {
+      /* no bed */
+    }
+  }
+
+  if (audio.voiceovers) {
+    for (const seg of audio.segments) {
+      const blob = audio.voiceovers[seg.id];
+      if (!blob || blob.size === 0) continue;
+      const buf = await decodeBlob(ctx as unknown as AudioContext, blob);
+      if (!buf) continue;
+      hasAny = true;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = 1;
+      src.connect(g);
+      g.connect(ctx.destination);
+      src.start(seg.start);
+    }
+  }
+
+  if (audio.brandStingUrl && audio.brandStingAt?.length) {
+    try {
+      const res = await fetch(audio.brandStingUrl);
+      if (res.ok) {
+        const sting = await decodeBlob(ctx as unknown as AudioContext, await res.blob());
+        if (sting) {
+          hasAny = true;
+          for (const t of audio.brandStingAt) {
+            const src = ctx.createBufferSource();
+            src.buffer = sting;
+            const g = ctx.createGain();
+            g.gain.value = 0.55;
+            src.connect(g);
+            g.connect(ctx.destination);
+            src.start(Math.max(0, t));
+          }
+        }
+      }
+    } catch {
+      /* no sting */
+    }
+  }
+
+  if (!hasAny) {
+    return null;
+  }
+
+  const rendered = await ctx.startRendering();
+  return rendered.getChannelData(0);
+}
+
+async function tryEncodeAac(
+  pcm: Float32Array,
+  sampleRate: number,
+  onChunk: (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => void,
+): Promise<boolean> {
+  if (typeof AudioEncoder === "undefined") return false;
+
+  const numberOfChannels = 1;
+  const configs: AudioEncoderConfig[] = [
+    { codec: "mp4a.40.2", numberOfChannels, sampleRate, bitrate: 128_000 },
+    { codec: "mp4a.40.2", numberOfChannels, sampleRate: 48000, bitrate: 128_000 },
+  ];
+
+  let encoder: AudioEncoder | null = null;
+  for (const config of configs) {
+    try {
+      const support = await AudioEncoder.isConfigSupported(config);
+      if (!support.supported) continue;
+      encoder = new AudioEncoder({
+        output: (chunk, meta) => onChunk(chunk, meta),
+        error: () => {
+          /* handled by flush failure */
+        },
+      });
+      encoder.configure(config);
+      break;
+    } catch {
+      encoder = null;
+    }
+  }
+  if (!encoder) return false;
+
+  const frameSamples = 1024;
+  let timestamp = 0;
+  for (let i = 0; i < pcm.length; i += frameSamples) {
+    const slice = pcm.subarray(i, Math.min(i + frameSamples, pcm.length));
+    const data = new Float32Array(slice.length);
+    data.set(slice);
+    const audioData = new AudioData({
+      format: "f32",
+      sampleRate,
+      numberOfFrames: data.length,
+      numberOfChannels: 1,
+      timestamp,
+      data,
+    });
+    encoder.encode(audioData);
+    audioData.close();
+    timestamp += Math.round((data.length / sampleRate) * 1_000_000);
+  }
+
+  await encoder.flush();
+  encoder.close();
+  return true;
+}
+
 /**
  * Fast MP4 export for kinetic text reels.
- * ONE DOM snapshot per segment (static slides), then reuse for encode.
- * ~6 captures instead of hundreds.
+ * ONE DOM snapshot per segment, then encode. Optional AAC mix when AudioEncoder exists.
  */
 export async function exportReelMp4(opts: {
   stage: HTMLElement;
@@ -55,6 +217,7 @@ export async function exportReelMp4(opts: {
   seekTo: (tSec: number) => void;
   waitForPaint: () => Promise<void>;
   onProgress?: (p: ExportProgress) => void;
+  audio?: ExportAudioOpts;
 }): Promise<void> {
   const fps = opts.fps ?? 15;
   const { stage, durationSec, width, height, segments } = opts;
@@ -73,13 +236,39 @@ export async function exportReelMp4(opts: {
   const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
   if (!ctx) throw new Error("Canvas unsupported");
 
+  const sampleRate = 48000;
+  const audioChunks: { chunk: EncodedAudioChunk; meta?: EncodedAudioChunkMetadata }[] = [];
+
+  if (opts.audio) {
+    opts.onProgress?.({ pct: 5, detail: "Mixing audio…" });
+    const mixed = await mixExportAudio(durationSec, sampleRate, opts.audio);
+    if (mixed) {
+      opts.onProgress?.({ pct: 12, detail: "Encoding audio…" });
+      const ok = await tryEncodeAac(mixed, sampleRate, (chunk, meta) => {
+        audioChunks.push({ chunk, meta });
+      });
+      if (!ok) {
+        audioChunks.length = 0;
+        opts.onProgress?.({ pct: 15, detail: "AudioEncoder unavailable — video only…" });
+      }
+    }
+  }
+
+  const withAudio = audioChunks.length > 0;
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
     video: { codec: "avc", width, height },
+    audio: withAudio
+      ? { codec: "aac", numberOfChannels: 1, sampleRate }
+      : undefined,
     fastStart: "in-memory",
     firstTimestampBehavior: "offset",
   });
+
+  for (const { chunk, meta } of audioChunks) {
+    muxer.addAudioChunk(chunk, meta);
+  }
 
   let encoderError: Error | null = null;
   const encoder = new VideoEncoder({
@@ -117,14 +306,13 @@ export async function exportReelMp4(opts: {
     ? segments
     : [{ id: "full", start: 0, end: durationSec }];
 
-  // ── 1) One DOM capture per segment ────────────────────────────────────────
   const snaps: { start: number; end: number; bitmap: ImageBitmap }[] = [];
 
   for (let s = 0; s < active.length; s++) {
     const seg = active[s]!;
     const mid = (seg.start + seg.end) / 2;
     opts.onProgress?.({
-      pct: Math.round(((s + 0.5) / active.length) * 40),
+      pct: 20 + Math.round(((s + 0.5) / active.length) * 35),
       detail: `Capturing ${seg.id}…`,
     });
     opts.seekTo(mid);
@@ -139,8 +327,7 @@ export async function exportReelMp4(opts: {
     });
   }
 
-  // ── 2) Stamp each bitmap for its duration ─────────────────────────────────
-  opts.onProgress?.({ pct: 45, detail: "Encoding…" });
+  opts.onProgress?.({ pct: 55, detail: "Encoding video…" });
 
   let snapIdx = 0;
   for (let i = 0; i < frameCount; i++) {
@@ -163,7 +350,7 @@ export async function exportReelMp4(opts: {
 
     if (i % 45 === 0 || i === frameCount - 1) {
       opts.onProgress?.({
-        pct: 45 + Math.round(((i + 1) / frameCount) * 55),
+        pct: 55 + Math.round(((i + 1) / frameCount) * 40),
         detail: `Encoding ${i + 1}/${frameCount}`,
       });
       await new Promise((r) => setTimeout(r, 0));
@@ -178,5 +365,8 @@ export async function exportReelMp4(opts: {
 
   const blob = new Blob([target.buffer], { type: "video/mp4" });
   downloadBlob(blob, opts.filename ?? "interpreterai-reel.mp4");
-  opts.onProgress?.({ pct: 100, detail: "Downloaded" });
+  opts.onProgress?.({
+    pct: 100,
+    detail: withAudio ? "Downloaded (video + audio)" : "Downloaded",
+  });
 }

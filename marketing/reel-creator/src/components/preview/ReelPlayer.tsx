@@ -1,21 +1,39 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, RotateCcw, FastForward, Download } from 'lucide-react';
 import { InterpreterAILogo } from '@/components/brand/InterpreterAILogo';
 import { exportReelMp4, type ExportProgress } from '@/lib/exportReelMp4';
+import { ReelAudioMixer } from '@/lib/audioMix';
+import { BRAND_STING_URL, isRtlLanguage, type ProblemVisual, type SolutionVisual } from '@/lib/constants/languages';
 
 export interface ReelData {
   hook: string;
   problem: string;
   solution: string;
   result: string;
+  captions?: string;
+  outroLine1?: string;
+  outroLine2?: string;
 }
 
 interface ReelPlayerProps {
   data: ReelData;
+  targetLanguage?: string;
+  problemVisual?: ProblemVisual;
+  solutionVisual?: SolutionVisual;
+  series?: string;
+  musicUrl?: string | null;
+  brandStingEnabled?: boolean;
+  voiceovers?: {
+    hook?: Blob;
+    problem?: Blob;
+    solution?: Blob;
+    result?: Blob;
+    outro?: Blob;
+  };
+  demoVideoUrl?: string | null;
   accentColor?: string;
-  /** Optional filename stem for MP4 download */
   filename?: string;
 }
 
@@ -34,7 +52,26 @@ const LABELS: Record<string, string> = {
   hook: 'Hook', problem: 'Problem', solution: 'Solution', result: 'Result',
 };
 
-// ── Brand Intro (0–2s) ────────────────────────────────────────────────────────
+function stockBrollStyle(series: string): CSSProperties {
+  // Contextual beds — not InterpreterAI workspace UI
+  if (series === '1' || series === '3') {
+    return {
+      background:
+        'linear-gradient(160deg, #0a1628 0%, #1a3a4a 40%, #0b1a22 100%), radial-gradient(ellipse at 30% 70%, rgba(34,211,238,0.12), transparent 55%)',
+    };
+  }
+  if (series === '2') {
+    return {
+      background:
+        'linear-gradient(165deg, #120c1a 0%, #2a1f3d 45%, #0b0814 100%), radial-gradient(ellipse at 70% 30%, rgba(167,139,250,0.18), transparent 50%)',
+    };
+  }
+  return {
+    background:
+      'linear-gradient(155deg, #0c1018 0%, #1c2433 50%, #080c14 100%), radial-gradient(ellipse at 50% 80%, rgba(248,113,113,0.12), transparent 55%)',
+  };
+}
+
 function BrandIntro() {
   return (
     <div
@@ -55,10 +92,18 @@ function BrandIntro() {
   );
 }
 
-// ── Brand Outro (28–35s) — LOCKED ─────────────────────────────────────────────
-function BrandOutro() {
+function BrandOutro({
+  line1,
+  line2,
+  rtl,
+}: {
+  line1: string;
+  line2: string;
+  rtl: boolean;
+}) {
   return (
     <div
+      dir={rtl ? 'rtl' : 'ltr'}
       style={{
         position: 'absolute', inset: 0,
         background: 'radial-gradient(ellipse at center, #0B1220 0%, #02050B 100%)',
@@ -79,17 +124,17 @@ function BrandOutro() {
 
         <p style={{
           fontSize: '56px', fontWeight: 700, color: '#FFFFFF',
-          letterSpacing: '-0.02em', lineHeight: 1.25, marginBottom: '14px',
+          letterSpacing: rtl ? '0' : '-0.02em', lineHeight: 1.25, marginBottom: '14px',
           maxWidth: '960px',
         }}>
-          Stay focused on the conversation.
+          {line1}
         </p>
         <p style={{
           fontSize: '56px', fontWeight: 700, color: '#67E8F9',
-          letterSpacing: '-0.02em', lineHeight: 1.25, marginBottom: '40px',
+          letterSpacing: rtl ? '0' : '-0.02em', lineHeight: 1.25, marginBottom: '40px',
           maxWidth: '960px',
         }}>
-          We'll handle the words.
+          {line2}
         </p>
         <div style={{ marginBottom: '52px', textAlign: 'center' }}>
           <p style={{
@@ -138,29 +183,171 @@ function BrandWatermark() {
   );
 }
 
-// ── Main player ───────────────────────────────────────────────────────────────
-export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlayerProps) {
+function ProblemBroll({ series }: { series: string }) {
+  return (
+    <div
+      style={{
+        position: 'absolute', inset: 0, zIndex: 1, ...stockBrollStyle(series),
+      }}
+    >
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(to bottom, rgba(2,5,11,0.35), rgba(2,5,11,0.75))',
+      }} />
+      <div style={{
+        position: 'absolute', top: '18%', left: '10%', right: '10%',
+        height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 99,
+      }} />
+      <div style={{
+        position: 'absolute', top: '22%', left: '10%', width: '55%',
+        height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 99,
+      }} />
+      <div style={{
+        position: 'absolute', bottom: '22%', left: '12%', right: '12%',
+        borderRadius: 28, border: '1px solid rgba(255,255,255,0.08)',
+        height: 220, background: 'rgba(11,18,32,0.45)',
+        boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
+      }} />
+    </div>
+  );
+}
+
+function SolutionDemoOverlay({ videoUrl }: { videoUrl?: string | null }) {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 1, background: '#02050B',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        width: '78%', aspectRatio: '9/16', maxHeight: '78%',
+        borderRadius: 48, border: '3px solid rgba(255,255,255,0.12)',
+        background: '#0B1220', overflow: 'hidden', position: 'relative',
+        boxShadow: '0 40px 120px rgba(0,0,0,0.55)',
+      }}>
+        {videoUrl ? (
+          <video
+            src={videoUrl}
+            muted
+            playsInline
+            autoPlay
+            loop
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', padding: 48, textAlign: 'center',
+            background: 'linear-gradient(180deg, #0B1220 0%, #02050B 100%)',
+          }}>
+            <InterpreterAILogo variant="wordmark" height={96} />
+            <p style={{ marginTop: 36, fontSize: 36, fontWeight: 700, color: 'rgba(248,250,252,0.85)' }}>
+              Workspace demo
+            </p>
+            <p style={{ marginTop: 16, fontSize: 28, color: 'rgba(248,250,252,0.4)', lineHeight: 1.4, maxWidth: 720 }}>
+              Record from /admin/demo-marketing — drops into Solution
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function ReelPlayer({
+  data,
+  targetLanguage = 'en',
+  problemVisual = 'stock_broll',
+  solutionVisual = 'workspace_demo',
+  series = '1',
+  musicUrl,
+  brandStingEnabled = true,
+  voiceovers,
+  demoVideoUrl,
+  accentColor = '#22D3EE',
+  filename,
+}: ReelPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>('9:16');
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
-  const rafRef = useRef<number>();
-  const lastTimeRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
+  const lastTimeRef = useRef<number | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const seekRef = useRef((t: number) => setCurrentTime(t));
-  seekRef.current = (t: number) => setCurrentTime(t);
+  const timeRef = useRef(0);
+  const mixerRef = useRef<ReelAudioMixer | null>(null);
+  seekRef.current = (t: number) => {
+    timeRef.current = t;
+    setCurrentTime(t);
+  };
+
+  const rtl = isRtlLanguage(targetLanguage);
+  const outro1 = data.outroLine1 || 'Stay focused on the conversation.';
+  const outro2 = data.outroLine2 || "We'll handle the words.";
+
+  useEffect(() => {
+    timeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    const mixer = new ReelAudioMixer();
+    mixerRef.current = mixer;
+    mixer.setSegments(
+      SEGMENTS.filter((s) => s.id !== 'intro').map((s) => ({
+        id: s.id,
+        start: s.start,
+        end: s.end,
+      })),
+    );
+    return () => mixer.dispose();
+  }, []);
+
+  useEffect(() => {
+    const mixer = mixerRef.current;
+    if (!mixer) return;
+    mixer.setBrandStingEnabled(brandStingEnabled);
+    void mixer.loadBrandSting(BRAND_STING_URL);
+  }, [brandStingEnabled]);
+
+  useEffect(() => {
+    const mixer = mixerRef.current;
+    if (!mixer) return;
+    if (!musicUrl) {
+      void mixer.loadMusic('').catch(() => undefined);
+      return;
+    }
+    void mixer.loadMusic(musicUrl);
+  }, [musicUrl]);
+
+  useEffect(() => {
+    const mixer = mixerRef.current;
+    if (!mixer || !voiceovers) return;
+    void mixer.loadVoiceovers({
+      hook: voiceovers.hook,
+      problem: voiceovers.problem,
+      solution: voiceovers.solution,
+      result: voiceovers.result,
+      outro: voiceovers.outro,
+    });
+  }, [voiceovers]);
 
   useEffect(() => {
     if (isPlaying && !exporting) {
+      mixerRef.current?.start(() => timeRef.current);
       lastTimeRef.current = performance.now();
       const tick = (now: number) => {
         const delta = (now - lastTimeRef.current!) / 1000;
         lastTimeRef.current = now;
         setCurrentTime((prev) => {
           const next = prev + delta;
-          if (next >= TOTAL_DURATION) { setIsPlaying(false); return TOTAL_DURATION; }
+          if (next >= TOTAL_DURATION) {
+            setIsPlaying(false);
+            mixerRef.current?.stop();
+            return TOTAL_DURATION;
+          }
+          timeRef.current = next;
           return next;
         });
         rafRef.current = requestAnimationFrame(tick);
@@ -168,6 +355,7 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
       rafRef.current = requestAnimationFrame(tick);
     } else {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (!isPlaying) mixerRef.current?.stop();
     }
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [isPlaying, exporting]);
@@ -176,6 +364,8 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
   const isIntro = currentSegment.id === 'intro';
   const isOutro = currentSegment.id === 'outro' || currentTime >= TOTAL_DURATION;
   const isContent = !isIntro && !isOutro;
+  const isProblem = currentSegment.id === 'problem';
+  const isSolution = currentSegment.id === 'solution';
 
   const exportW = aspectRatio === '9:16' ? 1080 : 1920;
   const exportH = aspectRatio === '9:16' ? 1920 : 1080;
@@ -185,10 +375,9 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
 
   const renderContent = () => {
     if (isIntro) return <BrandIntro />;
-    if (isOutro) return <BrandOutro />;
+    if (isOutro) return <BrandOutro line1={outro1} line2={outro2} rtl={rtl} />;
 
     const text = data[currentSegment.id as keyof ReelData] || `[${currentSegment.id.toUpperCase()}]`;
-    // Phone-readable reel type — short lines get larger display sizes
     const fontSize = text.length > 80 ? 72 : text.length > 50 ? 88 : text.length > 28 ? 104 : 124;
 
     return (
@@ -202,40 +391,63 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
           style={{
             position: 'absolute', inset: 0,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            padding: '120px 64px', textAlign: 'center',
+            padding: '120px 64px', textAlign: rtl ? 'right' : 'center',
+            background: isSolution || isProblem ? 'transparent' : '#02050B',
           }}
         >
-          <div style={{ position: 'absolute', top: '72px', left: '52px' }}>
-            <span style={{
-              display: 'inline-block',
-              background: `${accentColor}18`,
-              border: `1px solid ${accentColor}40`,
-              borderRadius: '100px',
-              padding: '16px 36px',
-              fontSize: '34px', fontWeight: 700,
-              letterSpacing: '0.1em', textTransform: 'uppercase',
-              color: accentColor,
+          {isProblem && problemVisual === 'stock_broll' ? <ProblemBroll series={series} /> : null}
+          {isSolution && solutionVisual === 'workspace_demo' ? (
+            <SolutionDemoOverlay videoUrl={demoVideoUrl} />
+          ) : null}
+          {/* Hard cut back to brand night at solution if no overlay */}
+          {isSolution && solutionVisual === 'none' ? (
+            <div style={{ position: 'absolute', inset: 0, background: '#02050B', zIndex: 0 }} />
+          ) : null}
+
+          <div style={{ position: 'relative', zIndex: 10, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }} dir={rtl ? 'rtl' : 'ltr'}>
+            <div style={{ position: 'absolute', top: '-48px', left: rtl ? undefined : '0', right: rtl ? '0' : undefined }}>
+              <span style={{
+                display: 'inline-block',
+                background: `${accentColor}18`,
+                border: `1px solid ${accentColor}40`,
+                borderRadius: '100px',
+                padding: '16px 36px',
+                fontSize: '34px', fontWeight: 700,
+                letterSpacing: '0.1em', textTransform: 'uppercase',
+                color: accentColor,
+              }}>
+                {LABELS[currentSegment.id] ?? currentSegment.id}
+              </span>
+            </div>
+
+            <h2 style={{
+              fontSize,
+              fontWeight: 800,
+              lineHeight: 1.18,
+              letterSpacing: rtl ? '0' : '-0.03em',
+              color: '#FFFFFF',
+              maxWidth: '940px',
+              textShadow: '0 8px 40px rgba(0,0,0,0.65)',
+              marginTop: 80,
             }}>
-              {LABELS[currentSegment.id] ?? currentSegment.id}
-            </span>
+              {text}
+            </h2>
+
+            {data.captions ? (
+              <p style={{
+                marginTop: 48, fontSize: 36, fontWeight: 600,
+                color: 'rgba(248,250,252,0.72)', maxWidth: 880,
+              }}>
+                {data.captions}
+              </p>
+            ) : null}
+
+            <div style={{
+              position: 'absolute', bottom: '-80px', left: '0', right: '0',
+              height: '2px',
+              background: `linear-gradient(to right, transparent, ${accentColor}30, transparent)`,
+            }} />
           </div>
-
-          <h2 style={{
-            fontSize,
-            fontWeight: 800,
-            lineHeight: 1.18,
-            letterSpacing: '-0.03em',
-            color: '#FFFFFF',
-            maxWidth: '940px',
-          }}>
-            {text}
-          </h2>
-
-          <div style={{
-            position: 'absolute', bottom: '160px', left: '64px', right: '64px',
-            height: '2px',
-            background: `linear-gradient(to right, transparent, ${accentColor}30, transparent)`,
-          }} />
           <BrandWatermark />
         </motion.div>
       </AnimatePresence>
@@ -249,6 +461,7 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
     const stage = stageRef.current;
     if (!stage || exporting) return;
     setIsPlaying(false);
+    mixerRef.current?.stop();
     setExporting(true);
     setExportMsg(null);
     setExportProgress({ pct: 0, detail: 'Preparing…' });
@@ -266,6 +479,21 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
         },
         waitForPaint,
         onProgress: setExportProgress,
+        audio: {
+          musicUrl: musicUrl || null,
+          brandStingUrl: brandStingEnabled ? BRAND_STING_URL : null,
+          brandStingAt: brandStingEnabled ? [0.05, 28.05] : [],
+          voiceovers: voiceovers
+            ? {
+                hook: voiceovers.hook,
+                problem: voiceovers.problem,
+                solution: voiceovers.solution,
+                result: voiceovers.result,
+                outro: voiceovers.outro,
+              }
+            : undefined,
+          segments: SEGMENTS.map((s) => ({ id: s.id, start: s.start, end: s.end })),
+        },
       });
       setExportMsg('MP4 downloaded — save to Files / iCloud and share anywhere.');
     } catch (e) {
@@ -273,14 +501,12 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
       setExportProgress(null);
     } finally {
       setExporting(false);
-      // restore preview time
       seekRef.current(0);
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
-      {/* Aspect ratio + timer */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: `${previewW}px` }}>
         <div style={{ display: 'flex', gap: '6px' }}>
           {(['9:16', '16:9'] as const).map((ar) => (
@@ -292,15 +518,9 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
               style={{
                 background: aspectRatio === ar ? accentColor : 'rgba(255,255,255,0.06)',
                 color: aspectRatio === ar ? '#02050B' : 'rgba(255,255,255,0.4)',
-                border: 'none',
-                borderRadius: '5px',
-                padding: '4px 10px',
-                fontSize: '10px',
-                fontWeight: 700,
-                fontFamily: 'monospace',
-                cursor: exporting ? 'default' : 'pointer',
-                transition: 'all 0.15s',
-                opacity: exporting ? 0.5 : 1,
+                border: 'none', borderRadius: '5px', padding: '4px 10px',
+                fontSize: '10px', fontWeight: 700, fontFamily: 'monospace',
+                cursor: exporting ? 'default' : 'pointer', opacity: exporting ? 0.5 : 1,
               }}
             >
               {ar}
@@ -308,11 +528,10 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
           ))}
         </div>
         <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'rgba(255,255,255,0.25)' }}>
-          {Math.floor(currentTime)}s / {TOTAL_DURATION}s · {exportW}×{exportH}
+          {Math.floor(currentTime)}s / {TOTAL_DURATION}s · {rtl ? 'RTL' : 'LTR'}
         </span>
       </div>
 
-      {/* Preview frame (scaled export stage) */}
       <div style={{
         position: 'relative',
         width: `${previewW}px`,
@@ -338,7 +557,7 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
           <div style={{
             position: 'absolute', inset: 0,
             background: 'radial-gradient(ellipse at 50% 30%, rgba(37,99,235,0.06) 0%, transparent 60%)',
-            pointerEvents: 'none',
+            pointerEvents: 'none', zIndex: 0,
           }} />
 
           {renderContent()}
@@ -358,12 +577,11 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
         </div>
       </div>
 
-      {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <button
           type="button"
           disabled={exporting}
-          onClick={() => { setCurrentTime(0); setIsPlaying(true); }}
+          onClick={() => { setCurrentTime(0); timeRef.current = 0; setIsPlaying(true); }}
           style={{
             width: '40px', height: '40px', borderRadius: '50%',
             background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
@@ -378,12 +596,16 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
         <button
           type="button"
           disabled={exporting}
-          onClick={() => { if (currentTime >= TOTAL_DURATION) setCurrentTime(0); setIsPlaying(!isPlaying); }}
+          onClick={() => {
+            if (currentTime >= TOTAL_DURATION) {
+              setCurrentTime(0);
+              timeRef.current = 0;
+            }
+            setIsPlaying(!isPlaying);
+          }}
           style={{
             width: '52px', height: '52px', borderRadius: '50%',
-            background: accentColor,
-            border: 'none',
-            color: '#02050B',
+            background: accentColor, border: 'none', color: '#02050B',
             cursor: exporting ? 'default' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: `0 0 20px ${accentColor}40`,
@@ -396,7 +618,7 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
         <button
           type="button"
           disabled={exporting}
-          onClick={() => { setCurrentTime(28.1); setIsPlaying(true); }}
+          onClick={() => { setCurrentTime(28.1); timeRef.current = 28.1; setIsPlaying(true); }}
           title="Jump to outro"
           style={{
             width: '40px', height: '40px', borderRadius: '50%',
@@ -410,26 +632,18 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
         </button>
       </div>
 
-      {/* Download MP4 */}
       <button
         type="button"
         disabled={exporting}
         onClick={() => void downloadMp4()}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '10px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
           width: `${previewW}px`,
           background: exporting ? 'rgba(34,211,238,0.12)' : '#22D3EE',
           color: exporting ? '#67E8F9' : '#02050B',
           border: exporting ? '1px solid rgba(34,211,238,0.35)' : 'none',
-          borderRadius: '10px',
-          padding: '12px 18px',
-          fontSize: '13px',
-          fontWeight: 700,
+          borderRadius: '10px', padding: '12px 18px', fontSize: '13px', fontWeight: 700,
           cursor: exporting ? 'default' : 'pointer',
-          letterSpacing: '0.01em',
         }}
       >
         <Download size={16} />
@@ -442,26 +656,19 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
         <div style={{ width: `${previewW}px` }}>
           <div style={{ height: '4px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
             <div style={{
-              height: '100%',
-              width: `${exportProgress.pct}%`,
+              height: '100%', width: `${exportProgress.pct}%`,
               background: 'linear-gradient(90deg, #22D3EE, #2563EB)',
               transition: 'width 0.15s',
             }} />
           </div>
-          <p style={{ marginTop: 8, fontSize: 11, color: 'rgba(248,250,252,0.4)', textAlign: 'center' }}>
-            Fast export: 1 snapshot per segment, then encode (~5–15s).
-          </p>
         </div>
       ) : null}
 
       {exportMsg ? (
         <p style={{
-          width: `${previewW}px`,
-          margin: 0,
-          fontSize: 11,
+          width: `${previewW}px`, margin: 0, fontSize: 11,
           color: exportMsg.includes('failed') || exportMsg.includes('required') ? '#F87171' : 'rgba(103,232,249,0.85)',
-          textAlign: 'center',
-          lineHeight: 1.4,
+          textAlign: 'center', lineHeight: 1.4,
         }}>
           {exportMsg}
         </p>
@@ -469,7 +676,9 @@ export function ReelPlayer({ data, accentColor = '#22D3EE', filename }: ReelPlay
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.4 }}>
         <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#22D3EE' }} />
-        <span style={{ fontSize: '10px', color: '#F8FAFC', letterSpacing: '0.06em' }}>Brand intro &amp; outro are locked</span>
+        <span style={{ fontSize: '10px', color: '#F8FAFC', letterSpacing: '0.06em' }}>
+          Intro/outro locked · music ducks under VO
+        </span>
         <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#22D3EE' }} />
       </div>
     </div>

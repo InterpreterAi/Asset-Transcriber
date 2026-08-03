@@ -14,11 +14,14 @@ import terminologyRouter from "./terminology.js";
 import referralsRouter from "./referrals.js";
 import shareRouter from "./share.js";
 import emailPreferencesRouter from "./email-preferences.js";
+/** Marketing Reel Creator only — isolated from workspace Soniox / translate. */
+import reelBuilderRouter from "./reel-builder.js";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use("/auth", authRouter);
+router.use("/reel-builder", reelBuilderRouter);
 router.use("/transcription", transcriptionRouter);
 router.use("/usage", usageRouter);
 router.use("/feedback", feedbackRouter);

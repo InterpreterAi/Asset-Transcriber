@@ -653,10 +653,14 @@ async function main() {
     }
     logHetznerMachineTranslationStartupHint();
     logHetznerCoreRouterStartupHint();
+    // Scheduled Resend jobs — skip when key missing/placeholder so local boot stays quiet.
     if (!isResendConfigured()) {
-      logger.warn(
-        "RESEND_API_KEY is not set — verification, password reset, support, and scheduled onboarding/trial emails will not send until it is configured.",
-      );
+      if (process.env.NODE_ENV === "production") {
+        logger.warn(
+          "RESEND_API_KEY is not set — verification, password reset, support, and scheduled onboarding/trial emails will not send until it is configured.",
+        );
+      }
+      return;
     }
     scheduleTrialReminderJob();
     scheduleOnboardingEmailJob();
