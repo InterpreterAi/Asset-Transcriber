@@ -43,16 +43,62 @@ if (Number.isNaN(port) || port <= 0) {
 // Idempotent: adds any columns/tables that exist in the Drizzle schema but may
 // be missing from an older production database.  Safe to run on every restart.
 // On failure we throw (no silent "continuing anyway") so Railway logs show the real SQL error.
+//
+// The DB is shared with live traffic, so the single migration transaction can
+// deadlock (pg 40P01): it holds the `users` lock from early ALTERs while
+// waiting on `sessions`, and a concurrent request transaction holds the
+// reverse. The migration is idempotent and rolls back cleanly, so deadlocks
+// are simply retried with backoff.
 async function migrateSchema() {
+  const RETRYABLE_PG_CODES = new Set(["40P01" /* deadlock */, "55P03" /* lock timeout */]);
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await migrateSchemaOnce();
+      return;
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (attempt >= MAX_ATTEMPTS || !code || !RETRYABLE_PG_CODES.has(code)) throw err;
+      const delayMs = 2000 * attempt;
+      logger.warn(
+        { pgCode: code, attempt, maxAttempts: MAX_ATTEMPTS, delayMs },
+        "Startup schema migration hit a lock conflict — retrying",
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+async function migrateSchemaOnce() {
   const client = await pool.connect();
+
+  // `ALTER TABLE … ADD COLUMN IF NOT EXISTS` takes an AccessExclusiveLock even
+  // when the column already exists. This DB is shared with live traffic, so a
+  // boot-time transaction full of those no-op ALTERs queues behind (and
+  // deadlocks with) request transactions. Guard each ALTER with a catalog
+  // check (AccessShareLock only) so an up-to-date schema runs zero DDL.
+  const ADD_COLUMN_RE = /ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+(\w+)/i;
+  const run = async (sqlText: string): Promise<void> => {
+    const m = ADD_COLUMN_RE.exec(sqlText);
+    if (m) {
+      const existing = await client.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+        [m[1]!.toLowerCase(), m[2]!.toLowerCase()],
+      );
+      if ((existing.rowCount ?? 0) > 0) return;
+    }
+    await client.query(sqlText);
+  };
+
   try {
     logger.info("Running startup schema migration…");
-    await client.query("BEGIN");
+    await run("BEGIN");
 
     try {
       // ── Core tables (Drizzle schema) — required on a fresh Railway Postgres. ──
       // This app does not use Prisma; schema is applied here on every boot (idempotent).
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS users (
           id                     SERIAL PRIMARY KEY,
           username               TEXT NOT NULL UNIQUE,
@@ -79,7 +125,7 @@ async function migrateSchema() {
           created_at             TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS password_reset_tokens (
           id         SERIAL PRIMARY KEY,
           user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -89,7 +135,7 @@ async function migrateSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS email_verification_tokens (
           id         SERIAL PRIMARY KEY,
           user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -98,10 +144,10 @@ async function migrateSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(
+      await run(
         `CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id)`,
       );
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS sessions (
           id                       SERIAL PRIMARY KEY,
           user_id                  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -119,7 +165,7 @@ async function migrateSchema() {
           hetzner_mt_assigned_lane SMALLINT
         )
       `);
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS feedback (
           id         SERIAL PRIMARY KEY,
           user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -130,69 +176,69 @@ async function migrateSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
-      await client.query(`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS email TEXT`);
+      await run(`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS email TEXT`);
 
       // users table – columns added after initial release
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_sent_at TIMESTAMP`);
-      await client.query(
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_sent_at TIMESTAMP`);
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS requires_email_verification BOOLEAN NOT NULL DEFAULT FALSE`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS getting_started_email_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_expired_email_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_confirmation_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_reminder_12h_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_active_reminder_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS translation_architecture_update_email_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS stability_baseline_update_email_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS glossary_feature_announcement_email_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_offer_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_canceled_email_sent_at TIMESTAMP`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_receipt_last_invoice_id TEXT`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_limit_reached_email_app_date TEXT`,
       );
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP`);
-      await client.query(
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP`);
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_ends_at TIMESTAMP`,
       );
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_a TEXT NOT NULL DEFAULT 'en'`);
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_b TEXT NOT NULL DEFAULT 'ar'`);
-      await client.query(
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_a TEXT NOT NULL DEFAULT 'en'`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_lang_b TEXT NOT NULL DEFAULT 'ar'`);
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
       );
-      await client.query(
+      await run(
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS account_deleted_at TIMESTAMP`,
       );
 
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS admin_activity_events (
           id          SERIAL PRIMARY KEY,
           event_type  TEXT NOT NULL,
@@ -202,7 +248,7 @@ async function migrateSchema() {
         )
       `);
 
-      await client.query(`
+      await run(`
         CREATE TABLE IF NOT EXISTS trial_consumed_emails (
           email      TEXT PRIMARY KEY,
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -211,12 +257,12 @@ async function migrateSchema() {
       // Table retained for legacy DBs; trial gating no longer uses it (every signup gets a full trial).
 
       // sessions table – columns added after initial release
-      await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
-      await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hetzner_mt_manual_lane SMALLINT`);
-      await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hetzner_mt_assigned_lane SMALLINT`);
+      await run(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lang_pair TEXT`);
+      await run(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hetzner_mt_manual_lane SMALLINT`);
+      await run(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hetzner_mt_assigned_lane SMALLINT`);
 
       // Tables that may not exist in older databases
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS glossary_entries (
         id          SERIAL PRIMARY KEY,
         user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -225,13 +271,13 @@ async function migrateSchema() {
         created_at  TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-      await client.query(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS enforce_mode TEXT NOT NULL DEFAULT 'strict'`);
-      await client.query(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`);
-      await client.query(`
+      await run(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS enforce_mode TEXT NOT NULL DEFAULT 'strict'`);
+      await run(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`);
+      await run(`
       CREATE UNIQUE INDEX IF NOT EXISTS glossary_entries_user_id_term_uidx
         ON glossary_entries (user_id, term)
     `);
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS support_tickets (
         id         SERIAL PRIMARY KEY,
         user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -243,7 +289,7 @@ async function migrateSchema() {
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS support_replies (
         id         SERIAL PRIMARY KEY,
         ticket_id  INTEGER NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
@@ -253,7 +299,7 @@ async function migrateSchema() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS error_logs (
         id            SERIAL PRIMARY KEY,
         user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -268,7 +314,7 @@ async function migrateSchema() {
         created_at    TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS login_events (
         id             SERIAL PRIMARY KEY,
         user_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -282,7 +328,7 @@ async function migrateSchema() {
       )
     `);
 
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS referrals (
         id               SERIAL PRIMARY KEY,
         referrer_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -293,7 +339,7 @@ async function migrateSchema() {
       )
     `);
       // Legacy DBs created click-tracking referrals (referrer_id / registered_user_id). Migrate once.
-      await client.query(`
+      await run(`
       DO $$
       BEGIN
         IF EXISTS (
@@ -326,13 +372,13 @@ async function migrateSchema() {
         END IF;
       END $$
     `);
-      await client.query(`
+      await run(`
       CREATE UNIQUE INDEX IF NOT EXISTS referrals_referred_user_id_uidx
         ON referrals (referred_user_id)
     `);
 
       // Session store table — connect-pg-simple; middleware also uses createTableIfMissing as fallback.
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS user_sessions (
         sid    VARCHAR NOT NULL COLLATE "default",
         sess   JSON    NOT NULL,
@@ -340,11 +386,11 @@ async function migrateSchema() {
         CONSTRAINT session_pkey PRIMARY KEY (sid) NOT DEFERRABLE INITIALLY IMMEDIATE
       )
     `);
-      await client.query(`
+      await run(`
       CREATE INDEX IF NOT EXISTS idx_session_expire ON user_sessions (expire)
     `);
 
-      await client.query(`
+      await run(`
       CREATE TABLE IF NOT EXISTS share_events (
         id         SERIAL PRIMARY KEY,
         user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -352,23 +398,30 @@ async function migrateSchema() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-      await client.query(`
+      await run(`
       CREATE INDEX IF NOT EXISTS idx_share_events_user ON share_events (user_id)
     `);
 
-      await client.query(
-        `ALTER TABLE users ALTER COLUMN daily_limit_minutes SET DEFAULT ${TRIAL_DAILY_LIMIT_MINUTES}`,
+      // SET DEFAULT also takes AccessExclusiveLock — skip when already correct.
+      const dailyDefault = await client.query<{ column_default: string | null }>(
+        `SELECT column_default FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'daily_limit_minutes'`,
       );
+      if (dailyDefault.rows[0]?.column_default !== String(TRIAL_DAILY_LIMIT_MINUTES)) {
+        await run(
+          `ALTER TABLE users ALTER COLUMN daily_limit_minutes SET DEFAULT ${TRIAL_DAILY_LIMIT_MINUTES}`,
+        );
+      }
 
-      await client.query(
+      await run(
         `UPDATE users SET plan_type = 'platinum' WHERE plan_type = 'unlimited'`,
       );
-      await client.query(
+      await run(
         `UPDATE users SET subscription_plan = 'platinum' WHERE subscription_plan = 'unlimited'`,
       );
 
       // Paid tiers: repair missing billing calendar fields (webhooks often omit timestamps).
-      await client.query(`
+      await run(`
         UPDATE users
         SET subscription_started_at = created_at
         WHERE subscription_started_at IS NULL
@@ -380,7 +433,7 @@ async function migrateSchema() {
             OR (stripe_subscription_id IS NOT NULL AND TRIM(stripe_subscription_id) <> '')
           )
       `);
-      await client.query(`
+      await run(`
         UPDATE users
         SET subscription_period_ends_at = subscription_started_at + INTERVAL '30 days'
         WHERE subscription_period_ends_at IS NULL
@@ -389,7 +442,7 @@ async function migrateSchema() {
       `);
 
       // Professional / Platinum paid tiers: 12h/day billable cap (720 min). Preserves admin-style caps (≥9000).
-      await client.query(`
+      await run(`
         UPDATE users
         SET daily_limit_minutes = 720
         WHERE LOWER(TRIM(plan_type)) IN (
@@ -400,11 +453,11 @@ async function migrateSchema() {
           AND daily_limit_minutes < 9000
       `);
 
-      await client.query("COMMIT");
+      await run("COMMIT");
       logger.info("Startup schema migration complete");
     } catch (err) {
       try {
-        await client.query("ROLLBACK");
+        await run("ROLLBACK");
       } catch {
         /* ignore */
       }
