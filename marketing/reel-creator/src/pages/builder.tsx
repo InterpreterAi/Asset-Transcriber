@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,7 +8,7 @@ import { ReelPlayer } from '@/components/preview/ReelPlayer';
 import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Save, Check, Lock, Languages, Mic2, Loader2, Volume2, Square } from 'lucide-react';
+import { ArrowLeft, Save, Check, Lock, Languages, Mic2, Loader2, Volume2, Square, Layers, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   ALL_BRAND_TONE_IDS,
@@ -26,8 +26,9 @@ import {
   type SolutionVisual,
   type VoiceActorId,
   type VoiceSpeedId,
+  defaultOutroVoiceText,
 } from '@/lib/constants/languages';
-import { generateSegmentVoiceovers, measureBlobDuration, translateReelScript } from '@/lib/reelBuilderApi';
+import { generateSegmentVoiceovers, generateScriptVariations, generateSaaSScript, measureBlobDuration, translateReelScript, type VoiceoverPack, type ScriptFrameworkId } from '@/lib/reelBuilderApi';
 import { previewAudioUrl, setPreviewGain, stopAudioPreview } from '@/lib/previewAudio';
 import { estimateSpeechSeconds, formatEstBadge, buildExportFilename, SCENE_PADDING_SEC } from '@/lib/timeline';
 import {
@@ -36,11 +37,12 @@ import {
   isReelHandoffPayload,
 } from '@/lib/recordingHandoff';
 
+
 const formSchema = z.object({
   series: z.string().min(1, 'Select a series'),
-  reelType: z.string().min(1, 'Add a sub-topic'),
+  reelType: z.string().optional().default(''),
   targetLanguage: z.string().min(1),
-  voiceActor: z.enum(['onyx', 'nova', 'alloy', 'echo', 'fable', 'shimmer']),
+  voiceActor: z.enum(['adam', 'rachel', 'antoni', 'josh', 'bella']),
   voiceSpeed: z.enum(['1', '1.15', '1.25']),
   musicBed: z.string().refine((v) => ALL_MUSIC_BED_IDS.includes(v as MusicBedId), 'Invalid music bed'),
   brandTone: z.string().refine((v) => ALL_BRAND_TONE_IDS.includes(v as BrandToneId), 'Invalid brand tone'),
@@ -50,10 +52,10 @@ const formSchema = z.object({
   brandVolume: z.number().min(0).max(1),
   problemVisual: z.enum(['stock_broll', 'none']),
   solutionVisual: z.enum(['workspace_demo', 'none']),
-  hook: z.string().min(1, 'Hook is required'),
-  problem: z.string().min(1, 'Problem is required'),
-  solution: z.string().min(1, 'Solution is required'),
-  result: z.string().min(1, 'Result is required'),
+  hook: z.string().default(''),
+  problem: z.string().default(''),
+  solution: z.string().default(''),
+  result: z.string().default(''),
   captions: z.string().optional(),
   outroLine1: z.string().optional(),
   outroLine2: z.string().optional(),
@@ -136,26 +138,37 @@ const fieldSelectStyle = {
 
 export default function Builder() {
   const [, params] = useRoute('/builder/:id');
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { getReel, saveReel, isLoaded } = useReels();
   const { toast } = useToast();
+  const studioQuery = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('from') === 'studio';
   const [isSaving, setIsSaving] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [voBusy, setVoBusy] = useState(false);
   const [voStatus, setVoStatus] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState<'music' | 'sting' | null>(null);
-  const [voiceovers, setVoiceovers] = useState<{
-    hook?: Blob;
-    problem?: Blob;
-    solution?: Blob;
-    result?: Blob;
-    outro?: Blob;
-  }>({});
+  const [voiceovers, setVoiceovers] = useState<Partial<VoiceoverPack>>({});
   const [measuredVo, setMeasuredVo] = useState<Partial<Record<'hook' | 'problem' | 'solution' | 'result', number>>>({});
   const [demoVideoUrl, setDemoVideoUrl] = useState<string | null>(null);
+  const [batchCount, setBatchCount] = useState<3 | 5>(3);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [scheduleTag, setScheduleTag] = useState('');
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  const [scriptFramework, setScriptFramework] = useState<ScriptFrameworkId>('auto');
+  const [scriptBusy, setScriptBusy] = useState(false);
+  /** Source of truth for Hook/Problem/Solution/Result — not RHF (was dropping values). */
+  const [scriptLines, setScriptLines] = useState({
+    hook: '',
+    problem: '',
+    solution: '',
+    result: '',
+    captions: '',
+  });
 
   const isNew = !params?.id;
   const existingReel = params?.id ? getReel(params.id) : null;
+  const studioMode = studioQuery || Boolean(existingReel?.fromStudio);
+  void location;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -163,8 +176,8 @@ export default function Builder() {
       series: '1',
       reelType: '',
       targetLanguage: 'en',
-      voiceActor: 'nova',
-      voiceSpeed: '1.15',
+      voiceActor: 'rachel',
+      voiceSpeed: '1',
       musicBed: 'saas_tech_driving',
       brandTone: 'none',
       brandStingEnabled: false,
@@ -187,8 +200,13 @@ export default function Builder() {
   const selectedSeries = watchedValues.series;
   const accentColor = SERIES_COLORS[selectedSeries] || '#22D3EE';
 
+  const loadedReelIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (isLoaded && !isNew && existingReel) {
+    if (!isLoaded) return;
+    if (!isNew && existingReel) {
+      if (loadedReelIdRef.current === existingReel.id) return;
+      loadedReelIdRef.current = existingReel.id;
       form.reset({
         series: existingReel.series,
         reelType: existingReel.reelType,
@@ -211,10 +229,68 @@ export default function Builder() {
         outroLine1: existingReel.outroLine1,
         outroLine2: existingReel.outroLine2,
       });
-    } else if (isLoaded && !isNew && !existingReel) {
+      setScriptLines({
+        hook: existingReel.hook || '',
+        problem: existingReel.problem || '',
+        solution: existingReel.solution || '',
+        result: existingReel.result || '',
+        captions: existingReel.captions || '',
+      });
+      setActiveBatchId(existingReel.batchId ?? null);
+      setScheduleTag(existingReel.scheduleTag ?? '');
+    } else if (!isNew && !existingReel) {
       setLocation('/builder');
+    } else if (isNew) {
+      loadedReelIdRef.current = null;
     }
   }, [isLoaded, isNew, existingReel, form, setLocation]);
+
+  function applyScriptFields(script: {
+    hook?: string;
+    problem?: string;
+    solution?: string;
+    result?: string;
+    captions?: string;
+    outroLine1?: string;
+    outroLine2?: string;
+  }) {
+    const next = {
+      hook: (script.hook ?? scriptLines.hook ?? '').trim(),
+      problem: (script.problem ?? scriptLines.problem ?? '').trim(),
+      solution: (script.solution ?? scriptLines.solution ?? '').trim(),
+      result: (script.result ?? scriptLines.result ?? '').trim(),
+      captions:
+        script.captions !== undefined
+          ? String(script.captions)
+          : scriptLines.captions,
+    };
+    setScriptLines(next);
+    // Keep RHF in sync for Save Reel
+    form.setValue('hook', next.hook, { shouldDirty: true, shouldValidate: false });
+    form.setValue('problem', next.problem, { shouldDirty: true, shouldValidate: false });
+    form.setValue('solution', next.solution, { shouldDirty: true, shouldValidate: false });
+    form.setValue('result', next.result, { shouldDirty: true, shouldValidate: false });
+    form.setValue('captions', next.captions, { shouldDirty: true, shouldValidate: false });
+    if (script.outroLine1 != null) {
+      form.setValue('outroLine1', script.outroLine1, { shouldDirty: true });
+    }
+    if (script.outroLine2 != null) {
+      form.setValue('outroLine2', script.outroLine2, { shouldDirty: true });
+    }
+    setVoiceovers({});
+    setMeasuredVo({});
+  }
+
+  function updateScriptLine(key: keyof typeof scriptLines, value: string) {
+    setScriptLines((prev) => {
+      const next = { ...prev, [key]: value };
+      form.setValue(key, value, { shouldDirty: true, shouldValidate: false });
+      return next;
+    });
+    if (key !== 'captions') {
+      setVoiceovers({});
+    }
+  }
 
   // Admin marketing demo → workspace_demo video handoff
   useEffect(() => {
@@ -255,7 +331,7 @@ export default function Builder() {
 
   const voiceSpeedValue = useMemo(() => {
     const row = VOICE_SPEEDS.find((s) => s.id === watchedValues.voiceSpeed);
-    return row?.value ?? 1.15;
+    return row?.value ?? 1;
   }, [watchedValues.voiceSpeed]);
 
   const exportFilename = useMemo(() => {
@@ -271,7 +347,7 @@ export default function Builder() {
       const keys = ['hook', 'problem', 'solution', 'result'] as const;
       const next: Partial<Record<(typeof keys)[number], number>> = {};
       for (const k of keys) {
-        const d = await measureBlobDuration(voiceovers[k]);
+        const d = await measureBlobDuration(voiceovers[k]?.blob);
         if (d > 0.2) next[k] = d;
       }
       if (!cancelled) setMeasuredVo(next);
@@ -332,27 +408,69 @@ export default function Builder() {
     }
   }
 
+  async function onGenerateSaaSScript() {
+    setScriptBusy(true);
+    try {
+      const v = form.getValues();
+      const result = await generateSaaSScript({
+        framework: scriptFramework,
+        topic: v.reelType || SERIES_MAP[v.series as SeriesType] || '',
+        series: v.series,
+        targetLanguage: v.targetLanguage,
+        hook: scriptLines.hook,
+        problem: scriptLines.problem,
+        solution: scriptLines.solution,
+        result: scriptLines.result,
+      });
+      if (!result.hook?.trim() && !result.problem?.trim()) {
+        throw new Error('Script API returned empty hook/problem — try again');
+      }
+      applyScriptFields({
+        hook: result.hook,
+        problem: result.problem,
+        solution: result.solution,
+        result: result.result,
+        captions: result.captions || '',
+      });
+      document.getElementById('reel-script-fields')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      toast({
+        title: `Script · ${result.frameworkLabel || 'Generated'}`,
+        description: 'Hook / Problem / Solution / Result are filled — click Generate VO.',
+        duration: 3500,
+      });
+    } catch (e) {
+      toast({
+        title: 'Script generate failed',
+        description: e instanceof Error ? e.message : 'Check API / OPENAI_API_KEY',
+        variant: 'destructive',
+        duration: 4000,
+      });
+    } finally {
+      setScriptBusy(false);
+    }
+  }
+
   async function onTranslate() {
     setTranslating(true);
     try {
       const v = form.getValues();
       const result = await translateReelScript({
         targetLanguage: v.targetLanguage,
-        hook: v.hook,
-        problem: v.problem,
-        solution: v.solution,
-        result: v.result,
-        captions: v.captions || '',
+        hook: scriptLines.hook,
+        problem: scriptLines.problem,
+        solution: scriptLines.solution,
+        result: scriptLines.result,
+        captions: scriptLines.captions || '',
       });
-      form.setValue('hook', result.hook);
-      form.setValue('problem', result.problem);
-      form.setValue('solution', result.solution);
-      form.setValue('result', result.result);
-      form.setValue('captions', result.captions);
-      form.setValue('outroLine1', result.outroLine1);
-      form.setValue('outroLine2', result.outroLine2);
-      setVoiceovers({});
-      setMeasuredVo({});
+      applyScriptFields({
+        hook: result.hook,
+        problem: result.problem,
+        solution: result.solution,
+        result: result.result,
+        captions: result.captions,
+        outroLine1: result.outroLine1,
+        outroLine2: result.outroLine2,
+      });
       toast({ title: `Script translated → ${v.targetLanguage}`, duration: 2500 });
     } catch (e) {
       toast({
@@ -370,15 +488,47 @@ export default function Builder() {
     setVoBusy(true);
     setVoStatus('Starting…');
     try {
+      let lines = { ...scriptLines };
+      if (![lines.hook, lines.problem, lines.solution, lines.result].some((t) => t?.trim())) {
+        if (studioMode) {
+          throw new Error('Storyboard narration missing — regenerate in Creative Studio');
+        }
+        setVoStatus('Writing script…');
+        const v0 = form.getValues();
+        const generated = await generateSaaSScript({
+          framework: scriptFramework,
+          topic: v0.reelType || SERIES_MAP[v0.series as SeriesType] || '',
+          series: v0.series,
+          targetLanguage: v0.targetLanguage,
+        });
+        if (!generated.hook?.trim() && !generated.problem?.trim()) {
+          throw new Error('Could not generate script text — check OPENAI_API_KEY / API');
+        }
+        applyScriptFields({
+          hook: generated.hook,
+          problem: generated.problem,
+          solution: generated.solution,
+          result: generated.result,
+          captions: generated.captions || '',
+        });
+        lines = {
+          hook: generated.hook || '',
+          problem: generated.problem || '',
+          solution: generated.solution || '',
+          result: generated.result || '',
+          captions: generated.captions || '',
+        };
+      }
+
       const v = form.getValues();
-      const outro = `${v.outroLine1 || DEFAULT_OUTRO_SLOGAN.line1} ${v.outroLine2 || DEFAULT_OUTRO_SLOGAN.line2}`;
-      const speed = VOICE_SPEEDS.find((s) => s.id === v.voiceSpeed)?.value ?? 1.15;
+      const outro = defaultOutroVoiceText(v.outroLine1, v.outroLine2);
+      const speed = VOICE_SPEEDS.find((s) => s.id === v.voiceSpeed)?.value ?? 1;
       const pack = await generateSegmentVoiceovers(
         {
-          hook: v.hook,
-          problem: v.problem,
-          solution: v.solution,
-          result: v.result,
+          hook: lines.hook,
+          problem: lines.problem,
+          solution: lines.solution,
+          result: lines.result,
           outro,
         },
         v.voiceActor,
@@ -401,10 +551,19 @@ export default function Builder() {
     }
   }
 
-  function onSubmit(values: FormValues) {
-    setIsSaving(true);
-    saveReel({
-      id: isNew ? undefined : params!.id,
+  function reelPayloadFromValues(values: FormValues, extra?: {
+    hook?: string;
+    problem?: string;
+    solution?: string;
+    result?: string;
+    captions?: string;
+    batchId?: string | null;
+    variationIndex?: number;
+    scheduleTag?: string;
+    id?: string;
+  }) {
+    return {
+      id: extra?.id,
       series: values.series as SeriesType,
       reelType: values.reelType,
       targetLanguage: values.targetLanguage,
@@ -418,14 +577,100 @@ export default function Builder() {
       brandVolume: values.brandVolume,
       problemVisual: values.problemVisual as ProblemVisual,
       solutionVisual: values.solutionVisual as SolutionVisual,
-      hook: values.hook,
-      problem: values.problem,
-      solution: values.solution,
-      result: values.result,
-      captions: values.captions || '',
+      hook: extra?.hook ?? scriptLines.hook ?? values.hook,
+      problem: extra?.problem ?? scriptLines.problem ?? values.problem,
+      solution: extra?.solution ?? scriptLines.solution ?? values.solution,
+      result: extra?.result ?? scriptLines.result ?? values.result,
+      captions: (extra?.captions ?? scriptLines.captions ?? values.captions) || '',
       outroLine1: values.outroLine1 || DEFAULT_OUTRO_SLOGAN.line1,
       outroLine2: values.outroLine2 || DEFAULT_OUTRO_SLOGAN.line2,
-    });
+      batchId: extra?.batchId !== undefined ? extra.batchId : activeBatchId,
+      variationIndex: extra?.variationIndex ?? existingReel?.variationIndex ?? 0,
+      scheduleTag: (extra?.scheduleTag ?? scheduleTag).trim(),
+      fromStudio: studioMode || Boolean(existingReel?.fromStudio),
+      studioBrief: existingReel?.studioBrief || '',
+      storyboardTitle: existingReel?.storyboardTitle || '',
+    };
+  }
+
+  async function onBatchVariations() {
+    setBatchBusy(true);
+    try {
+      if (!scriptLines.hook.trim() || !scriptLines.problem.trim() || !scriptLines.solution.trim() || !scriptLines.result.trim()) {
+        toast({
+          title: studioMode
+            ? 'Storyboard narration missing — regenerate in Creative Studio'
+            : 'Fill Hook / Problem / Solution / Result first',
+          variant: 'destructive',
+          duration: 3000,
+        });
+        return;
+      }
+      const v = form.getValues();
+      const variations = await generateScriptVariations({
+        hook: scriptLines.hook,
+        problem: scriptLines.problem,
+        solution: scriptLines.solution,
+        result: scriptLines.result,
+        captions: scriptLines.captions || '',
+        count: batchCount,
+      });
+      if (variations.length === 0) {
+        throw new Error('No variations returned');
+      }
+      const batchId = crypto.randomUUID();
+      const tag = scheduleTag.trim() || `Batch ${new Date().toLocaleDateString()}`;
+      setActiveBatchId(batchId);
+      setScheduleTag(tag);
+
+      const first = variations[0]!;
+      applyScriptFields({
+        hook: first.hook,
+        problem: first.problem,
+        solution: first.solution,
+        result: first.result,
+        captions: first.captions || '',
+      });
+      document.getElementById('reel-script-fields')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      variations.forEach((vr, i) => {
+        saveReel(reelPayloadFromValues(v, {
+          hook: vr.hook,
+          problem: vr.problem,
+          solution: vr.solution,
+          result: vr.result,
+          captions: vr.captions || '',
+          batchId,
+          variationIndex: i + 1,
+          scheduleTag: tag,
+        }));
+      });
+
+      toast({
+        title: `Saved ${variations.length} variations`,
+        description: `Batch tagged “${tag}” — open Library to schedule.`,
+        duration: 4000,
+      });
+    } catch (e) {
+      toast({
+        title: 'Batch generate failed',
+        description: e instanceof Error ? e.message : 'Check API / OPENAI_API_KEY',
+        variant: 'destructive',
+        duration: 4000,
+      });
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  function onSubmit(values: FormValues) {
+    setIsSaving(true);
+    saveReel(reelPayloadFromValues(values, {
+      id: isNew ? undefined : params!.id,
+      batchId: activeBatchId,
+      variationIndex: existingReel?.variationIndex ?? 0,
+      scheduleTag,
+    }));
     toast({ title: 'Reel saved', duration: 2000 });
     setTimeout(() => {
       setIsSaving(false);
@@ -806,6 +1051,109 @@ export default function Builder() {
                   </div>
                 </div>
 
+              <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+
+              <div id="reel-script-fields">
+                <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(248,250,252,0.25)', marginBottom: '16px' }}>
+                  {studioMode ? 'Storyboard narration (AI · locked)' : 'Script'}
+                </div>
+                {studioMode && existingReel?.studioBrief ? (
+                  <div style={{
+                    marginBottom: 12, padding: '12px 14px', borderRadius: 10,
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                    fontSize: 12, color: 'rgba(248,250,252,0.55)', lineHeight: 1.45,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(248,250,252,0.35)', marginBottom: 6 }}>
+                      Commercial brief
+                    </div>
+                    {existingReel.studioBrief}
+                  </div>
+                ) : null}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {SEGMENTS.map((seg, i) => (
+                    <div key={seg.name} style={{
+                      background: '#0B1220',
+                      border: '1px solid rgba(255,255,255,0.07)',
+                      borderRadius: '10px',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        padding: '10px 14px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      }}>
+                        <div style={{
+                          width: '20px', height: '20px', borderRadius: '50%',
+                          background: accentColor, color: '#02050B',
+                          fontSize: '10px', fontWeight: 800,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}>
+                          {i + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>
+                            {studioMode ? `Scene 0${i + 1}` : seg.label}
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'rgba(248,250,252,0.3)', marginLeft: '8px' }}>{seg.timing}</span>
+                        </div>
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, fontFamily: 'monospace',
+                          color: '#67E8F9',
+                          background: 'rgba(34,211,238,0.12)',
+                          border: '1px solid rgba(34,211,238,0.25)',
+                          borderRadius: 999, padding: '3px 8px',
+                        }}>
+                          {formatEstBadge(
+                            (measuredVo[seg.name] && measuredVo[seg.name]! > 0.2
+                              ? measuredVo[seg.name]!
+                              : estimateSpeechSeconds(String(scriptLines[seg.name] || ''), voiceSpeedValue))
+                            + SCENE_PADDING_SEC,
+                          )}
+                        </span>
+                      </div>
+                      {studioMode ? (
+                        <div style={{
+                          padding: '12px 14px', color: '#F8FAFC', fontSize: 14, fontWeight: 500,
+                          lineHeight: 1.55, whiteSpace: 'pre-wrap',
+                        }}>
+                          {scriptLines[seg.name] || '—'}
+                        </div>
+                      ) : (
+                        <textarea
+                          value={scriptLines[seg.name]}
+                          onChange={(e) => updateScriptLine(seg.name, e.target.value)}
+                          rows={seg.rows}
+                          placeholder={seg.hint}
+                          style={{
+                            width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                            resize: 'vertical', color: '#F8FAFC', fontSize: '14px', fontWeight: 500,
+                            lineHeight: 1.55, padding: '12px 14px', minHeight: 64,
+                            fontFamily: 'Inter, SF Pro Display, -apple-system, system-ui, sans-serif',
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(248,250,252,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      On-screen captions (optional)
+                    </label>
+                    <textarea
+                      value={scriptLines.captions}
+                      onChange={(e) => updateScriptLine('captions', e.target.value)}
+                      rows={2}
+                      placeholder="Short caption overlays"
+                      style={{
+                        width: '100%', marginTop: 6, background: '#0B1220',
+                        border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8,
+                        color: '#F8FAFC', fontSize: 13, padding: 12, resize: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+
                 <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                   <button
                     type="button"
@@ -839,102 +1187,109 @@ export default function Builder() {
                 {voStatus ? (
                   <p style={{ margin: '8px 0 0', fontSize: 11, color: 'rgba(248,250,252,0.4)' }}>{voStatus}</p>
                 ) : null}
-              </div>
 
-              <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
-
-              <div>
-                <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(248,250,252,0.25)', marginBottom: '16px' }}>
-                  Script
+                {!studioMode ? (
+                <div style={{
+                  marginTop: 14, padding: 12, borderRadius: 10,
+                  border: '1px solid rgba(0,112,243,0.28)', background: 'rgba(0,112,243,0.06)',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#93C5FD' }}>
+                    SaaS ad script engine
+                  </div>
+                  <select
+                    value={scriptFramework}
+                    onChange={(e) => setScriptFramework(e.target.value as ScriptFrameworkId)}
+                    style={{
+                      background: '#02050B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7,
+                      color: '#F8FAFC', fontSize: 12, padding: '8px 10px',
+                    }}
+                  >
+                    <option value="auto">Auto · rotate frameworks</option>
+                    <option value="pov_pain">POV Pain Point</option>
+                    <option value="us_vs_them">Us vs Them</option>
+                    <option value="shocking_stat">Shocking Industry Stat</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void onGenerateSaaSScript()}
+                    disabled={scriptBusy || translating}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      background: 'rgba(0,112,243,0.2)', border: '1px solid rgba(0,112,243,0.45)',
+                      color: '#BFDBFE', borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 700,
+                      cursor: scriptBusy ? 'default' : 'pointer', opacity: scriptBusy ? 0.7 : 1,
+                    }}
+                  >
+                    {scriptBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    Generate converting script
+                  </button>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {SEGMENTS.map((seg, i) => (
-                    <FormField
-                      key={seg.name}
-                      control={form.control}
-                      name={seg.name}
-                      render={({ field }) => (
-                        <FormItem>
-                          <div style={{
-                            background: '#0B1220',
-                            border: '1px solid rgba(255,255,255,0.07)',
-                            borderRadius: '10px',
-                            overflow: 'hidden',
-                          }}>
-                            <div style={{
-                              display: 'flex', alignItems: 'center', gap: '10px',
-                              padding: '10px 14px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)',
-                            }}>
-                              <div style={{
-                                width: '20px', height: '20px', borderRadius: '50%',
-                                background: accentColor, color: '#02050B',
-                                fontSize: '10px', fontWeight: 800,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                              }}>
-                                {i + 1}
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <span style={{ fontSize: '12px', fontWeight: 700, color: '#F8FAFC' }}>{seg.label}</span>
-                                <span style={{ fontSize: '10px', color: 'rgba(248,250,252,0.3)', marginLeft: '8px' }}>{seg.timing}</span>
-                              </div>
-                              <span style={{
-                                fontSize: '10px', fontWeight: 700, fontFamily: 'monospace',
-                                color: '#67E8F9',
-                                background: 'rgba(34,211,238,0.12)',
-                                border: '1px solid rgba(34,211,238,0.25)',
-                                borderRadius: 999, padding: '3px 8px',
-                              }}>
-                                {formatEstBadge(
-                                  (measuredVo[seg.name] && measuredVo[seg.name]! > 0.2
-                                    ? measuredVo[seg.name]!
-                                    : estimateSpeechSeconds(String(watchedValues[seg.name] || ''), voiceSpeedValue))
-                                  + SCENE_PADDING_SEC,
-                                )}
-                              </span>
-                            </div>
-                            <FormControl>
-                              <textarea
-                                {...field}
-                                rows={seg.rows}
-                                placeholder={seg.hint}
-                                style={{
-                                  width: '100%', background: 'transparent', border: 'none', outline: 'none',
-                                  resize: 'none', color: '#F8FAFC', fontSize: '14px', fontWeight: 500,
-                                  lineHeight: 1.55, padding: '12px 14px',
-                                  fontFamily: 'Inter, SF Pro Display, -apple-system, system-ui, sans-serif',
-                                }}
-                              />
-                            </FormControl>
-                          </div>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  ))}
+                ) : (
+                <div style={{
+                  marginTop: 14, padding: 12, borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)',
+                  fontSize: 12, color: 'rgba(248,250,252,0.55)', lineHeight: 1.45,
+                }}>
+                  Script came from Creative Studio. Use language, translate, ElevenLabs VO, soundtrack, batch, and export below.
+                  <button
+                    type="button"
+                    onClick={() => setLocation('/')}
+                    style={{
+                      display: 'block', marginTop: 10, background: 'none', border: 'none',
+                      color: '#93C5FD', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: 0,
+                    }}
+                  >
+                    ← Back to Creative Studio
+                  </button>
+                </div>
+                )}
 
-                  <FormField
-                    control={form.control}
-                    name="captions"
-                    render={({ field }) => (
-                      <FormItem>
-                        <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(248,250,252,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                          On-screen captions (optional)
-                        </label>
-                        <FormControl>
-                          <textarea
-                            {...field}
-                            rows={2}
-                            placeholder="Short caption overlays"
-                            style={{
-                              width: '100%', marginTop: 6, background: '#0B1220',
-                              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8,
-                              color: '#F8FAFC', fontSize: 13, padding: 12, resize: 'none',
-                            }}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
+                <div style={{
+                  marginTop: 14, padding: 12, borderRadius: 10,
+                  border: '1px solid rgba(255,215,0,0.2)', background: 'rgba(255,215,0,0.04)',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,215,0,0.75)' }}>
+                    Batch · social scheduling
+                  </div>
+                  <input
+                    type="text"
+                    value={scheduleTag}
+                    onChange={(e) => setScheduleTag(e.target.value)}
+                    placeholder="Schedule tag (e.g. Week of Aug 4)"
+                    style={{
+                      background: '#02050B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7,
+                      color: '#F8FAFC', fontSize: 12, padding: '8px 10px', outline: 'none',
+                    }}
                   />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select
+                      value={batchCount}
+                      onChange={(e) => setBatchCount(Number(e.target.value) as 3 | 5)}
+                      style={{
+                        background: '#02050B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7,
+                        color: '#F8FAFC', fontSize: 12, padding: '8px 10px', height: 36,
+                      }}
+                    >
+                      <option value={3}>3 variations</option>
+                      <option value={5}>5 variations</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void onBatchVariations()}
+                      disabled={batchBusy || voBusy}
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        background: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.35)',
+                        color: '#FFD700', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 700,
+                        cursor: batchBusy ? 'default' : 'pointer', opacity: batchBusy ? 0.7 : 1, height: 36,
+                      }}
+                    >
+                      {batchBusy ? <Loader2 size={14} className="animate-spin" /> : <Layers size={14} />}
+                      Generate & save batch
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -946,7 +1301,7 @@ export default function Builder() {
                 <Lock size={14} style={{ color: '#22D3EE', flexShrink: 0 }} />
                 <div>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#22D3EE', marginBottom: '2px' }}>
-                    Brand Outro — Locked (translates with script)
+                    Universal Brand Outro — Locked 4.0s (language only)
                   </div>
                   <div style={{ fontSize: '11px', color: 'rgba(248,250,252,0.35)', lineHeight: 1.5 }}>
                     {(watchedValues.outroLine1 || DEFAULT_OUTRO_SLOGAN.line1)}{' '}
@@ -970,11 +1325,11 @@ export default function Builder() {
           }} />
           <ReelPlayer
             data={{
-              hook: watchedValues.hook,
-              problem: watchedValues.problem,
-              solution: watchedValues.solution,
-              result: watchedValues.result,
-              captions: watchedValues.captions || '',
+              hook: scriptLines.hook,
+              problem: scriptLines.problem,
+              solution: scriptLines.solution,
+              result: scriptLines.result,
+              captions: scriptLines.captions || '',
               outroLine1: watchedValues.outroLine1 || DEFAULT_OUTRO_SLOGAN.line1,
               outroLine2: watchedValues.outroLine2 || DEFAULT_OUTRO_SLOGAN.line2,
             }}
@@ -991,7 +1346,7 @@ export default function Builder() {
               bgm: watchedValues.bgmVolume ?? 0.25,
               brand: watchedValues.brandVolume ?? 0.8,
             }}
-            voiceovers={voiceovers}
+            voiceoverPack={voiceovers}
             demoVideoUrl={demoVideoUrl}
             accentColor={accentColor}
             filename={exportFilename}

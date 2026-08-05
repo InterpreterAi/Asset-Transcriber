@@ -5,10 +5,13 @@ export type ReelLanguage = {
   readonly label: string;
 };
 
-export const DEFAULT_OUTRO_SLOGAN = {
-  line1: "Stay focused on the conversation.",
-  line2: "We'll handle the words.",
-} as const;
+export {
+  DEFAULT_OUTRO_SLOGAN,
+  defaultOutroVoiceText,
+  lockedOutroVoiceText,
+  UNIVERSAL_OUTRO_EN,
+  BRAND_LOCKED,
+} from "@/lib/universalBrandOutro";
 
 export const REEL_LANGUAGES: readonly ReelLanguage[] = [
   { code: "en", label: "English" },
@@ -87,16 +90,57 @@ export function reelLanguageLabel(code: string): string {
   return REEL_LANGUAGES.find((l) => l.code === code)?.label ?? code;
 }
 
-export type VoiceActorId = "onyx" | "nova" | "alloy" | "echo" | "fable" | "shimmer";
+/** Premier ElevenLabs commercial voices (mapped server-side to voice_id). */
+export type VoiceActorId = "adam" | "rachel" | "antoni" | "josh" | "bella";
 
-export const VOICE_ACTORS: readonly { id: VoiceActorId; label: string }[] = [
-  { id: "nova", label: "Nova — Warm / Energetic (Female)" },
-  { id: "shimmer", label: "Shimmer — Bright / Clear (Female)" },
-  { id: "alloy", label: "Alloy — Balanced / Neutral" },
-  { id: "echo", label: "Echo — Smooth / Clear" },
-  { id: "fable", label: "Fable — Narrative / Expressive" },
-  { id: "onyx", label: "Onyx — Deep / Professional (Male)" },
+export const VOICE_ACTORS: readonly {
+  id: VoiceActorId;
+  label: string;
+  elevenLabsId: string;
+}[] = [
+  {
+    id: "adam",
+    label: "Adam — Deep, Professional Commercial (Male)",
+    elevenLabsId: "pNInz6obpgDQGcFmaJgB",
+  },
+  {
+    id: "rachel",
+    label: "Rachel — Energetic Tech & Brand (Female)",
+    elevenLabsId: "21m00Tcm4TlvDq8ikWAM",
+  },
+  {
+    id: "antoni",
+    label: "Antoni — Natural Tech Presenter (Male)",
+    elevenLabsId: "ErXwobaYiN019PkySvjV",
+  },
+  {
+    id: "josh",
+    label: "Josh — Deep Hype Commercial (Male)",
+    elevenLabsId: "TxGEqnHWrfWFTfGW9XjX",
+  },
+  {
+    id: "bella",
+    label: "Bella — Smooth Conversational (Female)",
+    elevenLabsId: "EXAVITQu4vr4xnSDxMaL",
+  },
 ] as const;
+
+const LEGACY_VOICE_MAP: Record<string, VoiceActorId> = {
+  onyx: "adam",
+  nova: "rachel",
+  alloy: "antoni",
+  echo: "antoni",
+  fable: "josh",
+  shimmer: "bella",
+};
+
+export function normalizeVoiceActorId(raw: unknown): VoiceActorId {
+  if (typeof raw === "string") {
+    if (VOICE_ACTORS.some((v) => v.id === raw)) return raw as VoiceActorId;
+    if (raw in LEGACY_VOICE_MAP) return LEGACY_VOICE_MAP[raw]!;
+  }
+  return "rachel";
+}
 
 export type VoiceSpeedId = "1" | "1.15" | "1.25";
 

@@ -7,7 +7,7 @@ export function Navbar() {
 
   const navLink = (href: string, label: string) => {
     const isActive = href === '/'
-      ? location === '/'
+      ? location === '/' || location.startsWith('/studio')
       : location === href || location.startsWith(href + '/');
 
     return (
@@ -32,23 +32,22 @@ export function Navbar() {
         zIndex: 50,
         width: '100%',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
-        background: 'rgba(2,5,11,0.85)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
+        background: 'rgba(5,7,12,0.88)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
       }}
     >
       <div
         style={{
-          maxWidth: '1400px',
+          maxWidth: '1280px',
           margin: '0 auto',
           display: 'flex',
           height: '56px',
           alignItems: 'center',
-          padding: '0 24px',
+          padding: '0 40px',
           gap: '32px',
         }}
       >
-        {/* Logo */}
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none', flexShrink: 0, color: '#FFFFFF' }}>
           <InterpreterAILogo variant="wordmark" height={28} />
           <span style={{
@@ -60,37 +59,34 @@ export function Navbar() {
             paddingLeft: '10px',
             borderLeft: '1px solid rgba(255,255,255,0.1)',
           }}>
-            Reel Studio
+            Creative Studio
           </span>
         </Link>
 
-        {/* Nav links */}
         <nav style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1 }}>
-          {navLink('/', 'Dashboard')}
+          {navLink('/', 'Studio')}
           {navLink('/library', 'Library')}
-          {navLink('/builder', 'Builder')}
+          {navLink('/outro', 'Brand Outro')}
         </nav>
 
-        {/* CTA */}
         <Link
-          href="/builder"
+          href="/"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            background: '#22D3EE',
-            color: '#02050B',
-            borderRadius: '7px',
-            padding: '7px 14px',
-            fontSize: '12px',
+            background: '#FFFFFF',
+            color: '#05070C',
+            borderRadius: '999px',
+            padding: '0 16px',
+            height: '34px',
+            fontSize: '13px',
             fontWeight: 700,
             textDecoration: 'none',
-            flexShrink: 0,
-            letterSpacing: '0.01em',
           }}
         >
-          <Plus size={13} strokeWidth={2.5} />
-          New Reel
+          <Plus size={14} strokeWidth={2.5} />
+          New commercial
         </Link>
       </div>
     </header>

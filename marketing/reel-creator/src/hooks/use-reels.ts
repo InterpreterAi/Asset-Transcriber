@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   ALL_BRAND_TONE_IDS,
   ALL_MUSIC_BED_IDS,
+  normalizeVoiceActorId,
   type BrandToneId,
   type MusicBedId,
   type ProblemVisual,
@@ -9,8 +10,16 @@ import {
   type VoiceActorId,
   type VoiceSpeedId,
 } from '@/lib/constants/languages';
+import { FINISHED_EXPORTS, finishedExportToReel } from '@/lib/finishedExports';
+import type { GeneratedReelResult } from '@/lib/generatedReel';
+import type { OutroConfig } from '@/lib/outroConfig';
 
-export type SeriesType = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10';
+export type SeriesType =
+  | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10'
+  | 'medical' | 'legal' | 'conference' | 'immigration' | 'education';
+
+/** Full generated 35s reel payload + the outro config it was built with. */
+export type GeneratedReelSave = GeneratedReelResult & { outroConfig: OutroConfig };
 
 export interface Reel {
   id: string;
@@ -35,6 +44,20 @@ export interface Reel {
   captions: string;
   outroLine1: string;
   outroLine2: string;
+  /** Groups batch-generated script variations for social scheduling. */
+  batchId?: string | null;
+  variationIndex?: number;
+  scheduleTag?: string;
+  /** Creative Studio handoff — script came from AI storyboard, not manual forms. */
+  fromStudio?: boolean;
+  studioBrief?: string;
+  storyboardTitle?: string;
+  /** Ready MP4 in public/ — Library shows a Download button. */
+  downloadUrl?: string;
+  downloadFilename?: string;
+  /** Focused Studio one-prompt reel — storyboard, footage URLs, timed words,
+   * hook/outro audio (base64) and outro config, so it replays after reload. */
+  generated?: GeneratedReelSave;
   createdAt: number;
   updatedAt: number;
 }
@@ -50,6 +73,11 @@ export const SERIES_MAP: Record<SeriesType, string> = {
   '8': 'Impossible Calls',
   '9': 'Feature Focus',
   '10': 'Customer Stories',
+  medical: 'Medical',
+  legal: 'Legal',
+  conference: 'Conference',
+  immigration: 'Immigration',
+  education: 'Education',
 };
 
 /** Filename-friendly scenario slug */
@@ -59,6 +87,29 @@ export function seriesFilenameSlug(series: string): string {
 }
 
 const STORAGE_KEY = 'interpreterai_reels';
+
+/**
+ * Persist reels; on quota overflow drop heavy audio payloads from older
+ * generated reels (newest keeps audio) instead of losing the whole save.
+ */
+function persistReels(reels: Reel[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(reels));
+    return;
+  } catch {
+    /* quota — retry slimmed */
+  }
+  try {
+    const slimmed = reels.map((r, i) =>
+      i > 0 && r.generated
+        ? { ...r, generated: { ...r.generated, audioBase64: null, outroAudioBase64: null } }
+        : r,
+    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slimmed));
+  } catch (e) {
+    console.error('Failed to persist reels (storage quota)', e);
+  }
+}
 
 const LEGACY_MUSIC: Record<string, MusicBedId> = {
   medical_urgency: 'urgent_er_alarm',
@@ -94,8 +145,8 @@ function normalizeReel(raw: Partial<Reel> & { id: string }): Reel {
     series: (raw.series as SeriesType) ?? '1',
     reelType: raw.reelType ?? '',
     targetLanguage: raw.targetLanguage ?? 'en',
-    voiceActor: raw.voiceActor ?? 'nova',
-    voiceSpeed: raw.voiceSpeed ?? '1.15',
+    voiceActor: normalizeVoiceActorId(raw.voiceActor),
+    voiceSpeed: raw.voiceSpeed ?? '1',
     musicBed: normalizeMusicBed(raw.musicBed),
     brandTone,
     brandStingEnabled: brandTone !== 'none',
@@ -111,6 +162,19 @@ function normalizeReel(raw: Partial<Reel> & { id: string }): Reel {
     captions: raw.captions ?? '',
     outroLine1: raw.outroLine1 ?? 'Stay focused on the conversation.',
     outroLine2: raw.outroLine2 ?? "We'll handle the words.",
+    batchId: raw.batchId ?? null,
+    variationIndex: typeof raw.variationIndex === 'number' ? raw.variationIndex : 0,
+    scheduleTag: raw.scheduleTag ?? '',
+    fromStudio: Boolean(raw.fromStudio),
+    studioBrief: typeof raw.studioBrief === "string" ? raw.studioBrief : "",
+    storyboardTitle: typeof raw.storyboardTitle === "string" ? raw.storyboardTitle : "",
+    downloadUrl: typeof raw.downloadUrl === "string" && raw.downloadUrl.trim() ? raw.downloadUrl.trim() : undefined,
+    downloadFilename:
+      typeof raw.downloadFilename === "string" && raw.downloadFilename.trim()
+        ? raw.downloadFilename.trim()
+        : undefined,
+    generated:
+      raw.generated && typeof raw.generated === "object" ? raw.generated : undefined,
     createdAt: raw.createdAt ?? Date.now(),
     updatedAt: raw.updatedAt ?? Date.now(),
   };
@@ -126,14 +190,44 @@ export function useReels() {
 
   useEffect(() => {
     const data = localStorage.getItem(STORAGE_KEY);
+    let parsed: Reel[] = [];
     if (data) {
       try {
-        const parsed = JSON.parse(data) as Partial<Reel>[];
-        setReels(parsed.filter((r) => r?.id).map((r) => normalizeReel(r as Partial<Reel> & { id: string })));
+        const raw = JSON.parse(data) as Partial<Reel>[];
+        parsed = raw.filter((r) => r?.id).map((r) => normalizeReel(r as Partial<Reel> & { id: string }));
       } catch (e) {
         console.error('Failed to parse reels', e);
       }
     }
+
+    // Seed finished MP4 exports (public/library) — keep user edits, refresh download URLs.
+    const byId = new Map(parsed.map((r) => [r.id, r]));
+    let changed = false;
+    for (const exp of FINISHED_EXPORTS) {
+      const seeded = finishedExportToReel(exp);
+      const existing = byId.get(exp.id);
+      if (!existing) {
+        byId.set(exp.id, seeded);
+        changed = true;
+      } else if (existing.downloadUrl !== seeded.downloadUrl || existing.downloadFilename !== seeded.downloadFilename) {
+        byId.set(exp.id, {
+          ...existing,
+          downloadUrl: seeded.downloadUrl,
+          downloadFilename: seeded.downloadFilename,
+          title: existing.title || seeded.title,
+          hook: existing.hook || seeded.hook,
+          scheduleTag: existing.scheduleTag || seeded.scheduleTag,
+          updatedAt: Date.now(),
+        });
+        changed = true;
+      }
+    }
+
+    const merged = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    if (changed) {
+      persistReels(merged);
+    }
+    setReels(merged);
     setIsLoaded(true);
   }, []);
 
@@ -142,11 +236,14 @@ export function useReels() {
     [reels],
   );
 
-  const saveReel = useCallback((reelData: ReelSaveInput) => {
+  const saveReel = useCallback((reelData: ReelSaveInput): string => {
     const now = Date.now();
-    const generatedTitle = reelData.hook
-      ? reelData.hook.substring(0, 40) + (reelData.hook.length > 40 ? '...' : '')
-      : 'Untitled Reel';
+    const generatedTitle =
+      (reelData.storyboardTitle && reelData.storyboardTitle.trim()) ||
+      (reelData.hook
+        ? reelData.hook.substring(0, 40) + (reelData.hook.length > 40 ? '...' : '')
+        : 'Untitled Reel');
+    const id = reelData.id ?? crypto.randomUUID();
 
     setReels((currentReels) => {
       let newReels: Reel[];
@@ -159,22 +256,23 @@ export function useReels() {
       } else {
         const newReel = normalizeReel({
           ...reelData,
-          id: crypto.randomUUID(),
+          id,
           title: generatedTitle,
           createdAt: now,
           updatedAt: now,
         });
         newReels = [newReel, ...currentReels];
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newReels));
+      persistReels(newReels);
       return newReels;
     });
+    return id;
   }, []);
 
   const deleteReel = useCallback((id: string) => {
     setReels((currentReels) => {
       const newReels = currentReels.filter((r) => r.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newReels));
+      persistReels(newReels);
       return newReels;
     });
   }, []);

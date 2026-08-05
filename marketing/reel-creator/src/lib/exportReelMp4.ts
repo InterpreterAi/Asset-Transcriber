@@ -1,6 +1,13 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import { toCanvas } from "html-to-image";
 import { createMasterChain, normalizeAudioBuffer } from "@/lib/audioNormalize";
+import { BGM_DUCK_WHILE_VO, BGM_OUTRO_PAD_RATIO } from "@/lib/bgmDuck";
+import {
+  loadLockedOutroPaintAssets,
+  paintLockedOutroFrame,
+} from "@/lib/renderLockedOutroFrame";
+import { VO_TRAILING_SILENCE_SEC } from "@/lib/timeline";
+import type { UniversalOutroCopy } from "@/lib/universalBrandOutro";
 
 export type ExportProgress = { pct: number; detail: string };
 
@@ -44,13 +51,21 @@ async function captureStage(
     width,
     height,
     pixelRatio: 1,
+    quality: 1,
     cacheBust: false,
-    backgroundColor: "#02050B",
+    backgroundColor: "#0A0A0A",
     style: {
       transform: "none",
       transformOrigin: "top left",
       width: `${width}px`,
       height: `${height}px`,
+      margin: "0",
+      left: "0",
+      top: "0",
+      right: "auto",
+      bottom: "auto",
+      opacity: "1",
+      position: "relative",
     },
   });
 }
@@ -81,7 +96,8 @@ async function mixExportAudio(
   const voGain = clamp(audio.volumes?.vo ?? 1, 0, 1.5);
   const bgmGain = clamp(audio.volumes?.bgm ?? 0.25, 0, 1);
   const brandGain = clamp(audio.volumes?.brand ?? 0.8, 0, 1);
-  const ducked = bgmGain * 0.49;
+  const ducked = bgmGain * BGM_DUCK_WHILE_VO;
+  const outroPad = bgmGain * BGM_OUTRO_PAD_RATIO;
 
   if (audio.musicUrl) {
     try {
@@ -98,10 +114,21 @@ async function mixExportAudio(
           for (const seg of audio.segments) {
             const vo = audio.voiceovers?.[seg.id];
             if (!vo || vo.size === 0) continue;
-            g.gain.setValueAtTime(bgmGain, seg.start);
-            g.gain.linearRampToValueAtTime(ducked, seg.start + 0.04);
-            g.gain.setValueAtTime(ducked, Math.max(seg.start, seg.end - 0.08));
-            g.gain.linearRampToValueAtTime(bgmGain, seg.end);
+            // Duck while VO (speech); raise slightly on outro pad after trailing silence
+            const speechEnd = Math.max(
+              seg.start + 0.2,
+              seg.end - (seg.id === "outro" ? VO_TRAILING_SILENCE_SEC + 0.15 : 0.12),
+            );
+            g.gain.setValueAtTime(bgmGain, Math.max(0, seg.start - 0.001));
+            g.gain.linearRampToValueAtTime(ducked, seg.start + 0.05);
+            g.gain.setValueAtTime(ducked, speechEnd);
+            if (seg.id === "outro") {
+              g.gain.linearRampToValueAtTime(outroPad, Math.min(seg.end, speechEnd + 0.2));
+              g.gain.setValueAtTime(outroPad, Math.max(speechEnd, seg.end - 0.05));
+              g.gain.linearRampToValueAtTime(bgmGain, seg.end);
+            } else {
+              g.gain.linearRampToValueAtTime(bgmGain, Math.min(seg.end, speechEnd + 0.12));
+            }
           }
           src.connect(g);
           g.connect(master);
@@ -221,9 +248,15 @@ async function tryEncodeAac(
   return true;
 }
 
+/** Timed outro motion (shine + staggered CTAs) must re-capture every frame. */
+function needsFrameAccurateCapture(segId: string): boolean {
+  return segId === "outro" || segId === "full";
+}
+
 /**
- * Fast MP4 export for kinetic text reels.
- * ONE DOM snapshot per segment, then encode. Optional AAC mix when AudioEncoder exists.
+ * Encode MP4 from the live stage.
+ * Content beats: one mid-segment snapshot.
+ * Outro: capture the real preview DOM every frame (pixel-match) unless canvas fallback.
  */
 export async function exportReelMp4(opts: {
   stage: HTMLElement;
@@ -237,23 +270,50 @@ export async function exportReelMp4(opts: {
   waitForPaint: () => Promise<void>;
   onProgress?: (p: ExportProgress) => void;
   audio?: ExportAudioOpts;
+  /** Used only when outroCapture is "canvas". */
+  outroCopy?: UniversalOutroCopy;
+  /**
+   * "dom" = capture the live preview (best quality / exact match).
+   * "canvas" = fast approximate painter.
+   */
+  outroCapture?: "dom" | "canvas";
+  /** Video bitrate in bps. Default 6Mbps; use ~18–20Mbps for master outro. */
+  videoBitrate?: number;
+  /**
+   * Capture EVERY segment from the live DOM per frame (generated 35s reels:
+   * hook footage, typing workspace and word subtitles all animate).
+   */
+  frameAccurate?: boolean;
 }): Promise<void> {
   const fps = opts.fps ?? 15;
   const { stage, durationSec, width, height, segments } = opts;
   const frameCount = Math.max(1, Math.ceil(durationSec * fps));
   const frameDurationUs = Math.round(1_000_000 / fps);
+  const outroCapture = opts.outroCapture ?? "dom";
+  const videoBitrate = opts.videoBitrate ?? 6_000_000;
+  const frameAccurateFor = (segId: string): boolean =>
+    opts.frameAccurate === true || needsFrameAccurateCapture(segId);
 
   if (typeof VideoEncoder === "undefined") {
     throw new Error("WebCodecs required — use Chrome or Edge to download MP4.");
   }
 
   opts.onProgress?.({ pct: 0, detail: "Starting…" });
+  if (typeof document !== "undefined" && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      /* continue */
+    }
+  }
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
   if (!ctx) throw new Error("Canvas unsupported");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
 
   const sampleRate = 48000;
   const audioChunks: { chunk: EncodedAudioChunk; meta?: EncodedAudioChunkMetadata }[] = [];
@@ -297,13 +357,14 @@ export async function exportReelMp4(opts: {
     },
   });
 
+  // Prefer High profile for master quality.
   let configured = false;
-  for (const codec of ["avc1.4d0028", "avc1.640028", "avc1.42001f"]) {
+  for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42001f"]) {
     const config: VideoEncoderConfig = {
       codec,
       width,
       height,
-      bitrate: 6_000_000,
+      bitrate: videoBitrate,
       framerate: fps,
       avc: { format: "avc" },
       hardwareAcceleration: "prefer-hardware",
@@ -325,58 +386,110 @@ export async function exportReelMp4(opts: {
     ? segments
     : [{ id: "full", start: 0, end: durationSec }];
 
-  const snaps: { start: number; end: number; bitmap: ImageBitmap }[] = [];
-
-  for (let s = 0; s < active.length; s++) {
-    const seg = active[s]!;
+  // Static mid snaps for non-animated beats (hook/problem/solution/result).
+  const staticSnaps: { start: number; end: number; bitmap: ImageBitmap }[] = [];
+  const staticSegs = active.filter((s) => !frameAccurateFor(s.id));
+  for (let s = 0; s < staticSegs.length; s++) {
+    const seg = staticSegs[s]!;
     const mid = (seg.start + seg.end) / 2;
     opts.onProgress?.({
-      pct: 20 + Math.round(((s + 0.5) / active.length) * 35),
+      pct: 18 + Math.round(((s + 0.5) / Math.max(1, staticSegs.length)) * 12),
       detail: `Capturing ${seg.id}…`,
     });
     opts.seekTo(mid);
     await opts.waitForPaint();
     await new Promise((r) => setTimeout(r, 30));
-
     const snap = await captureStage(stage, width, height);
-    snaps.push({
+    staticSnaps.push({
       start: seg.start,
       end: seg.end,
       bitmap: await createImageBitmap(snap),
     });
   }
 
-  opts.onProgress?.({ pct: 55, detail: "Encoding video…" });
+  const hasOutro = active.some((s) => frameAccurateFor(s.id));
+  let outroAssets: Awaited<ReturnType<typeof loadLockedOutroPaintAssets>> | null = null;
+  if (hasOutro && outroCapture === "canvas" && opts.outroCopy) {
+    opts.onProgress?.({ pct: 30, detail: "Loading outro assets…" });
+    outroAssets = await loadLockedOutroPaintAssets();
+  }
 
-  let snapIdx = 0;
+  opts.onProgress?.({ pct: 32, detail: "Encoding video…" });
+
+  const segmentAt = (t: number): ExportSegment => {
+    for (const seg of active) {
+      if (t >= seg.start && t < seg.end) return seg;
+    }
+    return active[active.length - 1]!;
+  };
+
+  const staticFor = (t: number): ImageBitmap | null => {
+    for (const s of staticSnaps) {
+      if (t >= s.start && t < s.end) return s.bitmap;
+    }
+    return null;
+  };
+
   for (let i = 0; i < frameCount; i++) {
     if (encoderError) throw encoderError;
     const t = Math.min(durationSec - 0.0001, i / fps);
+    const seg = segmentAt(t);
 
-    while (snapIdx < snaps.length - 1 && t >= snaps[snapIdx]!.end) {
-      snapIdx++;
+    if (frameAccurateFor(seg.id) && (outroCapture === "dom" || seg.id !== "outro")) {
+      // Exact preview frames — same DOM the creator shows.
+      opts.seekTo(t);
+      await opts.waitForPaint();
+      const snap = await captureStage(stage, width, height);
+      ctx.drawImage(snap, 0, 0, width, height);
+    } else if (
+      frameAccurateFor(seg.id) &&
+      outroCapture === "canvas" &&
+      outroAssets &&
+      opts.outroCopy
+    ) {
+      const local = Math.max(0, t - seg.start);
+      const segDur = Math.max(0.1, seg.end - seg.start);
+      paintLockedOutroFrame(ctx, {
+        assets: outroAssets,
+        copy: opts.outroCopy,
+        localTime: local,
+        durationSec: segDur,
+        width,
+        height,
+      });
+    } else {
+      const bmp = staticFor(t);
+      if (bmp) {
+        ctx.drawImage(bmp, 0, 0, width, height);
+      } else {
+        opts.seekTo(t);
+        await opts.waitForPaint();
+        const snap = await captureStage(stage, width, height);
+        ctx.drawImage(snap, 0, 0, width, height);
+      }
     }
-    const snap = snaps[snapIdx] ?? snaps[snaps.length - 1]!;
-
-    ctx.drawImage(snap.bitmap, 0, 0, width, height);
 
     const frame = new VideoFrame(canvas, {
       timestamp: i * frameDurationUs,
       duration: frameDurationUs,
     });
-    encoder.encode(frame, { keyFrame: i === 0 || i % (fps * 2) === 0 });
+    encoder.encode(frame, { keyFrame: i === 0 || i % fps === 0 });
     frame.close();
 
-    if (i % 45 === 0 || i === frameCount - 1) {
+    while (encoder.encodeQueueSize > 8) {
+      await new Promise((r) => setTimeout(r, 4));
+    }
+
+    if (i % 6 === 0 || i === frameCount - 1) {
       opts.onProgress?.({
-        pct: 55 + Math.round(((i + 1) / frameCount) * 40),
-        detail: `Encoding ${i + 1}/${frameCount}`,
+        pct: 32 + Math.round(((i + 1) / frameCount) * 65),
+        detail: `Master frame ${i + 1}/${frameCount}`,
       });
       await new Promise((r) => setTimeout(r, 0));
     }
   }
 
-  for (const s of snaps) s.bitmap.close();
+  for (const s of staticSnaps) s.bitmap.close();
 
   await encoder.flush();
   encoder.close();

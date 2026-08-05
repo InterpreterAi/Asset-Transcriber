@@ -2,12 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { Route, Switch, Router as WouterRouter } from 'wouter';
+import { Redirect, Route, Switch, Router as WouterRouter } from 'wouter';
 
 import { Navbar } from '@/components/layout/Navbar';
-import Home from '@/pages/home';
+import Studio from '@/pages/studio';
 import Library from '@/pages/library';
-import Builder from '@/pages/builder';
+import OutroExportPage from '@/pages/outro-export';
 
 const queryClient = new QueryClient();
 
@@ -17,10 +17,17 @@ function Router() {
       <Navbar />
       <main className="flex-1 flex flex-col">
         <Switch>
-          <Route path="/" component={Home} />
+          <Route path="/" component={Studio} />
+          <Route path="/studio" component={Studio} />
           <Route path="/library" component={Library} />
-          <Route path="/builder" component={Builder} />
-          <Route path="/builder/:id" component={Builder} />
+          <Route path="/outro" component={OutroExportPage} />
+          {/* Legacy Produce Engine UI retired — rendering lives inside Creative Studio */}
+          <Route path="/builder">
+            <Redirect to="/" />
+          </Route>
+          <Route path="/builder/:id">
+            <Redirect to="/" />
+          </Route>
           <Route component={NotFound} />
         </Switch>
       </main>

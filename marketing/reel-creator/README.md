@@ -6,7 +6,7 @@ Standalone marketing reel builder (62 languages, OpenAI translate + TTS).
 
 ## Run
 
-1. Start api-server with `OPENAI_API_KEY` set (proxied at `/api/reel-builder`).
+1. Start api-server with `ELEVENLABS_API_KEY` (preferred for TTS) and/or `OPENAI_API_KEY` (translate + TTS fallback). Proxied at `/api/reel-builder`.
 2. Reel creator:
 
 ```bash

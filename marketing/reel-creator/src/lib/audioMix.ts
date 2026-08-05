@@ -1,9 +1,10 @@
 /**
- * Preview audio mix: per-bus gains + ducking + master compressor/limiter.
+ * Preview audio mix: per-bus gains + auto-ducking + master compressor/limiter.
  * Buffers peak-normalized to −3 dB on load.
  */
 
 import { createMasterChain, normalizeAudioBuffer } from "@/lib/audioNormalize";
+import { BGM_DUCK_WHILE_VO, BGM_FULL_RATIO, BGM_OUTRO_PAD_RATIO } from "@/lib/bgmDuck";
 
 export type MixSegment = {
   id: string;
@@ -23,8 +24,8 @@ export type MixVolumes = {
 };
 
 const DEFAULT_VOLUMES: MixVolumes = { vo: 1, bgm: 0.25, brand: 0.8 };
-/** Duck BGM to ~49% of slider level while VO speaks */
-const BGM_DUCK_RATIO = 0.49;
+
+type DuckMode = "vo" | "outroPad" | "full";
 
 export class ReelAudioMixer {
   private ctx: AudioContext | null = null;
@@ -39,7 +40,7 @@ export class ReelAudioMixer {
   private stingBuffer: AudioBuffer | null = null;
   private voBuffers = new Map<string, AudioBuffer>();
   private playing = false;
-  private ducking = false;
+  private duckMode: DuckMode = "full";
   private brandStingEnabled = true;
   private stingCues: StingCue[] = [];
   private segments: MixSegment[] = [];
@@ -56,18 +57,22 @@ export class ReelAudioMixer {
     this.applyVolumeNodes();
   }
 
+  private duckRatio(mode: DuckMode): number {
+    if (mode === "vo") return BGM_DUCK_WHILE_VO;
+    if (mode === "outroPad") return BGM_OUTRO_PAD_RATIO;
+    return BGM_FULL_RATIO;
+  }
+
   private applyVolumeNodes() {
     if (this.voGain) this.voGain.gain.value = this.volumes.vo;
     if (this.stingGain) this.stingGain.gain.value = this.volumes.brand;
-    if (this.bedGain && !this.ducking) {
-      this.bedGain.gain.value = this.volumes.bgm;
-    } else if (this.bedGain && this.ducking) {
-      this.bedGain.gain.value = this.volumes.bgm * BGM_DUCK_RATIO;
+    if (this.bedGain) {
+      this.bedGain.gain.value = this.volumes.bgm * this.duckRatio(this.duckMode);
     }
   }
 
-  private bedTarget(ducked: boolean): number {
-    return ducked ? this.volumes.bgm * BGM_DUCK_RATIO : this.volumes.bgm;
+  private bedTarget(mode: DuckMode): number {
+    return this.volumes.bgm * this.duckRatio(mode);
   }
 
   async loadMusic(url: string): Promise<boolean> {
@@ -195,15 +200,15 @@ export class ReelAudioMixer {
     this.voSource = null;
   }
 
-  private setDuck(active: boolean) {
-    if (!this.bedGain || this.ducking === active) return;
-    this.ducking = active;
+  private setDuckMode(mode: DuckMode) {
+    if (!this.bedGain || this.duckMode === mode) return;
+    this.duckMode = mode;
     const ctx = this.ensureCtx();
     const now = ctx.currentTime;
-    const target = this.bedTarget(active);
+    const target = this.bedTarget(mode);
     this.bedGain.gain.cancelScheduledValues(now);
     this.bedGain.gain.setValueAtTime(this.bedGain.gain.value, now);
-    this.bedGain.gain.linearRampToValueAtTime(target, now + 0.04);
+    this.bedGain.gain.linearRampToValueAtTime(target, now + 0.08);
   }
 
   private playVoForSegment(id: string) {
@@ -216,11 +221,13 @@ export class ReelAudioMixer {
     src.connect(this.voGain);
     src.start(0);
     this.voSource = src;
-    this.setDuck(true);
+    this.setDuckMode("vo");
     src.onended = () => {
       if (this.voSource === src) {
         this.voSource = null;
-        this.setDuck(false);
+        const t = this.getTime?.() ?? 0;
+        const seg = this.segments.find((s) => t >= s.start && t < s.end);
+        this.setDuckMode(seg?.id === "outro" ? "outroPad" : "full");
       }
     };
   }
@@ -233,9 +240,13 @@ export class ReelAudioMixer {
     const src = ctx.createBufferSource();
     src.buffer = this.stingBuffer;
     src.connect(this.stingGain);
-    this.setDuck(true);
+    if (!this.voSource) this.setDuckMode("vo");
     src.onended = () => {
-      if (!this.voSource) this.setDuck(false);
+      if (!this.voSource) {
+        const t = this.getTime?.() ?? 0;
+        const seg = this.segments.find((s) => t >= s.start && t < s.end);
+        this.setDuckMode(seg?.id === "outro" ? "outroPad" : "full");
+      }
     };
     src.start(0);
   }
@@ -246,6 +257,7 @@ export class ReelAudioMixer {
     this.playing = true;
     this.stingPlayedFor.clear();
     this.lastVoSeg = null;
+    this.duckMode = "full";
     this.startBed();
     this.tickId = window.setInterval(() => this.syncToTimeline(), 60);
     this.syncToTimeline();
@@ -262,15 +274,19 @@ export class ReelAudioMixer {
     const seg = this.segments.find((s) => t >= s.start && t < s.end);
     if (!seg) {
       this.stopVo();
-      if (!this.voSource) this.setDuck(false);
+      this.setDuckMode("full");
       this.lastVoSeg = null;
       return;
     }
     if (seg.id !== this.lastVoSeg && this.voBuffers.has(seg.id)) {
       this.lastVoSeg = seg.id;
       this.playVoForSegment(seg.id);
-    } else if (!this.voBuffers.has(seg.id) && !this.voSource) {
-      this.setDuck(false);
+    } else if (this.voSource) {
+      this.setDuckMode("vo");
+    } else if (seg.id === "outro") {
+      this.setDuckMode("outroPad");
+    } else if (!this.voBuffers.has(seg.id)) {
+      this.setDuckMode("full");
     }
   }
 
@@ -282,7 +298,7 @@ export class ReelAudioMixer {
     }
     this.stopVo();
     this.stopBed();
-    this.setDuck(false);
+    this.duckMode = "full";
     this.lastVoSeg = null;
     this.stingPlayedFor.clear();
   }
