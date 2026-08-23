@@ -387,14 +387,19 @@ const INTERCALL_OPENAI_LIVE_DEBOUNCE_MS = 420;
 const INTERCALL_ENDPOINT_FINALIZE_GRACE_MS = 140;
 /** Long pause only (6s) — matches canon STT; not every between-sentence pause. */
 const SAME_SPEAKER_PAUSE_SPLIT_MS = 6000;
-/** Legacy diagnostic slack label — not used for sticky-tail snap decisions anymore. */
+/** Legacy diagnostic slack label — kept in sync with stick epsilon for diag “near bottom” reads. */
 const TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX = 72;
 /**
- * Threshold for BOTH: (a) “glued to tail” *before* transcript/translation DOM height grows, and (b) fallback
- * epsilon after growth when no pre-snapshot ran. Auto-follow depends on (a): after new text, scrollHeight grows
- * while scrollTop is unchanged, so post-only distance checks look like “not at bottom” until snap fails.
+ * Chat / Cursor-style sticky tail: auto-follow only while the viewport is already near the bottom.
+ * Used for BOTH: (a) “glued to tail” *before* transcript/translation DOM height grows, and (b) UI pin state.
+ * Auto-follow depends on (a): after new text, scrollHeight grows while scrollTop is unchanged, so post-only
+ * distance checks look like “not at bottom” until a pre-growth latch is used.
+ *
+ * 72px (not ~12): subpixel layout, mobile chrome, and prior growth routinely leave 15–50px residual
+ * distance — a too-tight epsilon made live follow die mid-session while the user still looked “at bottom”.
+ * Scrolling up to read still leaves hundreds of px of distance, so follow stays off until they return.
  */
-const TRANSCRIPT_TAIL_STICK_EPS_PX = 12;
+const TRANSCRIPT_TAIL_STICK_EPS_PX = TRANSCRIPT_SCROLL_BOTTOM_SLACK_PX;
 
 function transcriptScrollDistanceFromBottom(scrollEl: HTMLElement): number {
   return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
