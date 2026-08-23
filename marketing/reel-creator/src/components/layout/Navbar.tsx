@@ -1,12 +1,14 @@
+import type { MouseEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import { InterpreterAILogo } from '@/components/brand/InterpreterAILogo';
+import { openNewCommercial } from '@/lib/studioDraft';
 import { Plus } from 'lucide-react';
 
 export function Navbar() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
 
   const navLink = (href: string, label: string) => {
-    const isActive = href === '/'
+    const isActive = href === '/studio/new'
       ? location === '/' || location.startsWith('/studio')
       : location === href || location.startsWith(href + '/');
 
@@ -23,6 +25,11 @@ export function Navbar() {
       </Link>
     );
   };
+
+  function onNewCommercial(e: MouseEvent) {
+    e.preventDefault();
+    openNewCommercial(setLocation);
+  }
 
   return (
     <header
@@ -48,7 +55,7 @@ export function Navbar() {
           gap: '32px',
         }}
       >
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none', flexShrink: 0, color: '#FFFFFF' }}>
+        <Link href="/studio/new" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none', flexShrink: 0, color: '#FFFFFF' }}>
           <InterpreterAILogo variant="wordmark" height={28} />
           <span style={{
             fontSize: '11px',
@@ -64,13 +71,14 @@ export function Navbar() {
         </Link>
 
         <nav style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1 }}>
-          {navLink('/', 'Studio')}
+          {navLink('/studio/new', 'Studio')}
           {navLink('/library', 'Library')}
           {navLink('/outro', 'Brand Outro')}
         </nav>
 
-        <Link
-          href="/"
+        <a
+          href="/studio/new?fresh=1"
+          onClick={onNewCommercial}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -83,11 +91,12 @@ export function Navbar() {
             fontSize: '13px',
             fontWeight: 700,
             textDecoration: 'none',
+            cursor: 'pointer',
           }}
         >
           <Plus size={14} strokeWidth={2.5} />
           New commercial
-        </Link>
+        </a>
       </div>
     </header>
   );

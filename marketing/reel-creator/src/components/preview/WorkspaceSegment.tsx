@@ -1,376 +1,762 @@
 /**
- * Dynamic InterpreterAI workspace demo segment.
- * Everything renders deterministically from `segmentProgress` (0–1) so the
- * same sequence plays in preview and MP4 export, and compresses/expands
- * proportionally when the workspace duration changes (35s total is fixed).
- *
- * Phase map (fractions of the 15s base):
- *   0–2s    fade in + "Connecting…"
- *   2–6s    type speakerA[0] word by word
- *   6–8s    show speakerB[0] after a short delay
- *   8–11s   type speakerA[1] word by word
- *   11–13s  show speakerB[1]
- *   13–15s  fade to session summary
+ * Live InterpreterAI workspace — pixel match to admin-marketing-demo / user reference.
+ * Frame, logo, sizes, and chrome are fixed; only transcript dialogue is dynamic.
  */
 
-import type { CSSProperties } from "react";
-import { InterpreterAILogo } from "@/components/brand/InterpreterAILogo";
-import { REEL_CAPTION_FONT } from "@/lib/kineticCaptions";
-import type { WorkspaceScript } from "@/lib/generatedReel";
+import { forwardRef, useLayoutEffect, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
+import {
+  BookOpen,
+  ChevronDown,
+  NotebookPen,
+  Rows3,
+  Square,
+  Sun,
+  Zap,
+} from "lucide-react";
+import { reelLanguageLabel, isRtlLanguage } from "@/lib/constants/languages";
 import type { LanguagePair } from "@/lib/languageFlags";
+import {
+  originalTextAtVoTime,
+  translationPhrasesAfterOriginal,
+  type TranslationReveal,
+} from "@/lib/workspaceVoSync";
+import type { TimedWord } from "@/lib/kineticCaptions";
+import {
+  translationAfterOriginalProgress,
+  typedText,
+  TYPING_SPEED,
+  WORKSPACE_SPEAKER_COLORS,
+  type WorkspaceConversation,
+  type WorkspaceExchange,
+} from "@/lib/workspaceModel";
 
-const BASE = 15;
-const PH = {
-  connectEnd: 2 / BASE,
-  typeA0End: 6 / BASE,
-  showB0At: 6.5 / BASE,
-  showB0End: 8 / BASE,
-  typeA1End: 11 / BASE,
-  showB1At: 11.5 / BASE,
-  showB1End: 13 / BASE,
-} as const;
+/** Reference phone width — admin-marketing-demo frame; scaled to 1080 reel canvas. */
+const REF_W = 390;
+const S = 1080 / REF_W;
 
-type Props = {
-  languagePair: LanguagePair;
-  workspaceScript: WorkspaceScript;
-  /** 0–1 across the whole workspace segment. */
-  segmentProgress: number;
-  /** Actual segment length (drives the session timer). */
-  durationSec?: number;
+const px = (n: number) => Math.round(n * S);
+
+const CYAN = "#67E8F9";
+const CYAN_TILE = "rgba(34, 211, 238, 0.15)";
+const LIVE_RED = "#DC2626";
+const BG = "#02050b";
+const HEADER_BG = "rgba(11, 18, 32, 0.92)";
+const BORDER = "rgba(255,255,255,0.08)";
+const BORDER_SOFT = "rgba(255,255,255,0.06)";
+const MUTED = "rgba(148,163,184,0.72)";
+const TEXT = "rgb(241, 245, 249)";
+const TRANS_ROOT_BG = "rgba(11, 17, 29, 0.92)";
+const STRIPE_A = WORKSPACE_SPEAKER_COLORS.A;
+const STRIPE_B = WORKSPACE_SPEAKER_COLORS.B;
+const STRIPE_C = WORKSPACE_SPEAKER_COLORS.C;
+const FONT =
+  'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+type VoScheduleItem = {
+  startSec: number;
+  durationSec: number;
+  speechDurSec?: number;
+  exchangeIndex: number;
 };
 
-function typedWords(text: string, phaseProgress: number): string {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "";
-  const shown = Math.max(1, Math.ceil(Math.min(1, Math.max(0, phaseProgress)) * words.length));
-  return words.slice(0, shown).join(" ");
+type Props = {
+  conversation: WorkspaceConversation;
+  languagePair: LanguagePair;
+  segmentProgress: number;
+  durationSec?: number;
+  playheadSec?: number;
+  voSchedule?: VoScheduleItem[];
+  /** Word timestamps per exchange — synced to decoded audio when present. */
+  wordsByExchange?: TimedWord[][];
+  subtitleScale?: number;
+  voSyncedTyping?: boolean;
+  /** Live preview — ease transcript scroll; export uses instant snap. */
+  smoothTranscriptScroll?: boolean;
+};
+
+function pairCodeLabel(sourceLang: string, targetLang: string): string {
+  const code = (l: string) => (l.split("-")[0] ?? l).toUpperCase();
+  return `${code(sourceLang)} → ${code(targetLang)}`;
 }
 
-function phaseProgress(p: number, start: number, end: number): number {
-  if (p <= start) return 0;
-  if (p >= end) return 1;
-  return (p - start) / (end - start);
+function exchangeProgressFromVo(
+  playheadSec: number,
+  schedule: VoScheduleItem[],
+  exIdx: number,
+): number {
+  const item = schedule.find((s) => s.exchangeIndex === exIdx);
+  if (!item || item.durationSec <= 0) return 0;
+  if (playheadSec < item.startSec) return 0;
+  if (playheadSec >= item.startSec + item.durationSec) return 1;
+  return (playheadSec - item.startSec) / item.durationSec;
 }
 
 function fmtTimer(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function exchangeProgress(p: number, ex: WorkspaceExchange): number {
+  if (p <= ex.startFrac) return 0;
+  if (p >= ex.endFrac) return 1;
+  return (p - ex.startFrac) / (ex.endFrac - ex.startFrac);
+}
+
+function stripeColor(speaker: "A" | "B" | "C"): string {
+  if (speaker === "C") return STRIPE_C;
+  return speaker === "A" ? STRIPE_A : STRIPE_B;
 }
 
 export function WorkspaceSegment({
-  languagePair,
-  workspaceScript,
+  conversation,
   segmentProgress,
   durationSec = 15,
+  playheadSec,
+  voSchedule,
+  wordsByExchange,
+  subtitleScale = 1,
+  voSyncedTyping = false,
+  smoothTranscriptScroll = false,
 }: Props) {
-  const p = Math.min(1, Math.max(0, segmentProgress));
-  const a0 = workspaceScript.speakerA[0] ?? "";
-  const a1 = workspaceScript.speakerA[1] ?? "";
-  const b0 = workspaceScript.speakerB[0] ?? "";
-  const b1 = workspaceScript.speakerB[1] ?? "";
+  const useVoSync = playheadSec !== undefined && (voSchedule?.length ?? 0) > 0;
+  const typingSpeed = voSyncedTyping || useVoSync ? 1 : TYPING_SPEED;
+  const elapsed = useVoSync ? playheadSec! : Math.min(1, Math.max(0, segmentProgress)) * durationSec;
+  const p = useVoSync ? Math.min(1, playheadSec! / durationSec) : Math.min(1, Math.max(0, segmentProgress));
 
-  const fadeIn = Math.min(1, p / (0.6 / BASE));
-  const connecting = p < PH.connectEnd;
-  const summary = p >= PH.showB1End;
-  const summaryOpacity = summary ? Math.min(1, phaseProgress(p, PH.showB1End, PH.showB1End + 0.8 / BASE)) : 0;
+  const exProgress = (exIdx: number, ex: WorkspaceExchange) =>
+    useVoSync
+      ? exchangeProgressFromVo(playheadSec!, voSchedule!, exIdx)
+      : exchangeProgress(p, ex);
 
-  const a0Text = p >= PH.connectEnd ? typedWords(a0, phaseProgress(p, PH.connectEnd, PH.typeA0End)) : "";
-  const b0Visible = p >= PH.showB0At;
-  const a1Text = p >= PH.showB0End ? typedWords(a1, phaseProgress(p, PH.showB0End, PH.typeA1End)) : "";
-  const b1Visible = p >= PH.showB1At;
+  const localClipSec = (exIdx: number): number => {
+    if (!useVoSync) return 0;
+    const item = voSchedule!.find((s) => s.exchangeIndex === exIdx);
+    if (!item) return 0;
+    return Math.max(0, Math.min(item.durationSec, playheadSec! - item.startSec));
+  };
 
-  const typingA = (p >= PH.connectEnd && p < PH.typeA0End) || (p >= PH.showB0End && p < PH.typeA1End);
-  const translating =
-    (p >= PH.typeA0End && p < PH.showB0End) || (p >= PH.typeA1End && p < PH.showB1End);
+  /** Time into the spoken VO only — captions track this, not the translation hold. */
+  const localSpeechSec = (exIdx: number): number => {
+    if (!useVoSync) return 0;
+    const item = voSchedule!.find((s) => s.exchangeIndex === exIdx);
+    if (!item) return 0;
+    const speechDur = item.speechDurSec ?? item.durationSec;
+    return Math.max(0, Math.min(speechDur, playheadSec! - item.startSec));
+  };
 
-  const statusText = connecting
-    ? "Connecting…"
-    : summary
-      ? "Session complete"
-      : translating
-        ? "Translating live…"
-        : typingA
-          ? "Listening…"
-          : "Live";
+  const speechDurSec = (exIdx: number): number => {
+    const item = voSchedule!.find((s) => s.exchangeIndex === exIdx);
+    return item?.speechDurSec ?? item?.durationSec ?? 2;
+  };
+
+
+  const originalForExchange = (exIdx: number, ex: WorkspaceExchange, _progress: number) => {
+    const words = wordsByExchange?.[exIdx];
+    if (words && words.length > 0 && useVoSync) {
+      return originalTextAtVoTime(
+        words,
+        localSpeechSec(exIdx),
+        ex.original,
+        speechDurSec(exIdx),
+      );
+    }
+    return typedText(ex.original, exProgress(exIdx, ex), typingSpeed);
+  };
+
+  const translationForExchange = (
+    exIdx: number,
+    ex: WorkspaceExchange,
+    progress: number,
+  ): TranslationReveal => {
+    const words = wordsByExchange?.[exIdx];
+    if (words && words.length > 0 && useVoSync) {
+      return translationPhrasesAfterOriginal(
+        words,
+        localSpeechSec(exIdx),
+        speechDurSec(exIdx),
+        ex.original,
+        ex.translation,
+      );
+    }
+    return translationAfterOriginalProgress(ex.translation, progress, 0.72);
+  };
+
+  const originalDone = (exIdx: number): boolean => {
+    const words = wordsByExchange?.[exIdx];
+    if (words && words.length > 0 && useVoSync) {
+      return localSpeechSec(exIdx) >= speechDurSec(exIdx) - 0.02;
+    }
+    return exProgress(exIdx, conversation.exchanges[exIdx]!) >= 0.98;
+  };
+
+  const activeIdx = useVoSync
+    ? voSchedule!.findIndex(
+        (s) => playheadSec! >= s.startSec && playheadSec! < s.startSec + s.durationSec,
+      )
+    : conversation.exchanges.findIndex((ex) => p >= ex.startFrac && p < ex.endFrac);
+
+  const settled = conversation.exchanges.filter((ex, i) => {
+    if (useVoSync) {
+      const item = voSchedule!.find((s) => s.exchangeIndex === i);
+      return item ? playheadSec! >= item.startSec + item.durationSec : false;
+    }
+    return p >= ex.endFrac;
+  });
+
+  const fontPx = Math.round(px(12) * subtitleScale);
+  const lineHeight = 1.45;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeRowRef = useRef<HTMLDivElement>(null);
+  const scrollTargetRef = useRef(0);
+  const scrollAnimRef = useRef<number | undefined>(undefined);
+
+  const activeEx = activeIdx >= 0 ? conversation.exchanges[activeIdx] : null;
+  const activeOriginalLen = activeEx
+    ? originalForExchange(activeIdx, activeEx, exProgress(activeIdx, activeEx)).length
+    : 0;
+  const activeTranslationLen =
+    activeEx && activeIdx >= 0
+      ? translationForExchange(activeIdx, activeEx, exProgress(activeIdx, activeEx)).text.length
+      : 0;
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const padding = Math.round(fontPx * 1.1);
+    const viewport = container.clientHeight;
+    const maxScroll = Math.max(0, container.scrollHeight - viewport);
+    let target = 0;
+
+    const anchor = activeRowRef.current;
+    if (anchor) {
+      const anchorBottom = anchor.offsetTop + anchor.offsetHeight;
+      target = Math.max(0, anchorBottom - viewport + padding);
+    } else if (settled.length > 0) {
+      target = maxScroll;
+    }
+
+    scrollTargetRef.current = Math.min(maxScroll, target);
+
+    if (!smoothTranscriptScroll) {
+      container.scrollTop = scrollTargetRef.current;
+      return;
+    }
+
+    if (scrollAnimRef.current) return;
+
+    const tick = () => {
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      const goal = scrollTargetRef.current;
+      const delta = goal - el.scrollTop;
+      if (Math.abs(delta) < 0.75) {
+        el.scrollTop = goal;
+        scrollAnimRef.current = undefined;
+        return;
+      }
+      el.scrollTop += delta * 0.18;
+      scrollAnimRef.current = requestAnimationFrame(tick);
+    };
+
+    scrollAnimRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (scrollAnimRef.current) cancelAnimationFrame(scrollAnimRef.current);
+      scrollAnimRef.current = undefined;
+    };
+  }, [
+    activeIdx,
+    activeOriginalLen,
+    activeTranslationLen,
+    settled.length,
+    fontPx,
+    playheadSec,
+    segmentProgress,
+    conversation.exchanges.length,
+    smoothTranscriptScroll,
+  ]);
 
   return (
     <div
       style={{
         position: "absolute",
         inset: 0,
-        opacity: fadeIn,
-        background:
-          "radial-gradient(ellipse 90% 55% at 50% 0%, rgba(0,112,243,0.14) 0%, transparent 55%), linear-gradient(180deg, #0A1220 0%, #060A12 100%)",
+        background: BG,
         display: "flex",
         flexDirection: "column",
-        padding: "72px 56px 64px",
-        boxSizing: "border-box",
-        fontFamily: REEL_CAPTION_FONT,
-        color: "#F8FAFC",
+        fontFamily: FONT,
+        color: TEXT,
+        overflow: "hidden",
       }}
     >
-      {/* Top bar: wordmark · language pair pill · session timer */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
-        <InterpreterAILogo variant="wordmark" height={52} />
-        <span
+      {/* Header — brand + pair + LIVE */}
+      <header
+        style={{
+          height: px(44),
+          flexShrink: 0,
+          borderBottom: `1px solid ${BORDER}`,
+          background: HEADER_BG,
+          padding: `0 ${px(12)}px`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: px(8),
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: px(8), minWidth: 0 }}>
+          <div
+            style={{
+              width: px(28),
+              height: px(28),
+              borderRadius: px(8),
+              background: CYAN_TILE,
+              color: CYAN,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Zap size={px(14)} strokeWidth={2.2} />
+          </div>
+          <span
+            style={{
+              fontSize: px(13),
+              fontWeight: 600,
+              color: "#FFFFFF",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Interpreter<span style={{ color: CYAN }}>AI</span>
+          </span>
+          <span
+            style={{
+              fontSize: px(10),
+              fontWeight: 600,
+              fontVariantNumeric: "tabular-nums",
+              padding: `${px(2)}px ${px(6)}px`,
+              borderRadius: px(6),
+              border: `1px solid rgba(255,255,255,0.1)`,
+              background: "rgba(255,255,255,0.03)",
+              color: "rgba(148,163,184,0.9)",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            {pairCodeLabel(conversation.sourceLang, conversation.targetLang)}
+          </span>
+        </div>
+        <div
           style={{
             display: "inline-flex",
             alignItems: "center",
-            gap: 12,
-            padding: "12px 24px",
+            gap: px(8),
+            padding: `${px(2)}px ${px(8)}px`,
             borderRadius: 999,
-            background: "rgba(0,112,243,0.16)",
-            border: "1px solid rgba(0,112,243,0.4)",
-            fontSize: 26,
-            fontWeight: 700,
-            whiteSpace: "nowrap",
+            background: LIVE_RED,
+            color: "#FFFFFF",
+            border: "1px solid #EF4444",
+            boxShadow: "0 0 0 1px rgba(220,38,38,0.35)",
+            flexShrink: 0,
           }}
         >
-          {languagePair.sourceFlag} {languagePair.sourceLabel}
-          <span style={{ opacity: 0.6 }}>↔</span>
-          {languagePair.targetFlag} {languagePair.targetLabel}
-        </span>
-        <span
-          style={{
-            fontFamily: "ui-monospace, monospace",
-            fontSize: 26,
-            fontWeight: 700,
-            color: "#67E8F9",
-          }}
-        >
-          {fmtTimer(p * durationSec)}
-        </span>
-      </div>
-
-      {/* Conversation panel */}
-      <div
-        style={{
-          flex: 1,
-          marginTop: 40,
-          borderRadius: 28,
-          border: "1px solid rgba(255,255,255,0.1)",
-          background: "rgba(2,5,11,0.68)",
-          overflow: "hidden",
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {connecting || summary ? (
-          <div
+          <span
             style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 20,
-              zIndex: 5,
-              background: "rgba(2,5,11,0.72)",
-              opacity: connecting ? 1 : summaryOpacity,
-              transition: "opacity 200ms linear",
+              width: px(6),
+              height: px(6),
+              borderRadius: "50%",
+              background: "#FFFFFF",
+            }}
+          />
+          <span
+            style={{
+              fontSize: px(10),
+              fontWeight: 700,
+              letterSpacing: "0.12em",
             }}
           >
-            {connecting ? (
-              <>
-                <span
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: "50%",
-                    background: "#0070F3",
-                    boxShadow: "0 0 24px rgba(0,112,243,0.9)",
-                    opacity: 0.5 + 0.5 * Math.abs(Math.sin(p * BASE * Math.PI * 2)),
-                  }}
-                />
-                <span style={{ fontSize: 34, fontWeight: 700, color: "rgba(248,250,252,0.85)" }}>
-                  Connecting…
-                </span>
-              </>
-            ) : (
-              <>
-                <span style={{ fontSize: 30, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "#67E8F9" }}>
-                  Session summary
-                </span>
-                <span style={{ fontSize: 40, fontWeight: 800, textAlign: "center", lineHeight: 1.3, padding: "0 48px" }}>
-                  2 exchanges · 98% accuracy
-                </span>
-              </>
-            )}
-          </div>
-        ) : null}
-
-        {/* Column headers */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
-          }}
-        >
-          {[`${languagePair.sourceFlag} Speaker`, `${languagePair.targetFlag} AI Translation`].map(
-            (label, i) => (
-              <div
-                key={label}
-                style={{
-                  padding: "18px 24px",
-                  fontSize: 22,
-                  fontWeight: 800,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: i === 0 ? "rgba(248,250,252,0.75)" : "#67E8F9",
-                  borderLeft: i === 1 ? "1px solid rgba(255,255,255,0.08)" : "none",
-                }}
-              >
-                {label}
-              </div>
-            ),
-          )}
+            LIVE
+          </span>
+          <span
+            style={{
+              fontSize: px(10),
+              fontWeight: 600,
+              fontVariantNumeric: "tabular-nums",
+              opacity: 0.95,
+            }}
+          >
+            {fmtTimer(elapsed)}
+          </span>
         </div>
+      </header>
 
-        {/* Exchanges */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, padding: "12px 0" }}>
-          {[
-            { a: a0Text, aFull: a0, b: b0, bVisible: b0Visible },
-            { a: a1Text, aFull: a1, b: b1, bVisible: b1Visible },
-          ].map((row, i) =>
-            row.a ? (
-              <div
-                key={i}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  alignItems: "stretch",
-                }}
-              >
-                <div style={bubbleCell}>
-                  <div style={{ ...bubble, background: "rgba(255,255,255,0.06)" }}>
-                    {row.a}
-                    {row.a !== row.aFull ? <Caret /> : null}
-                  </div>
-                </div>
-                <div style={{ ...bubbleCell, borderLeft: "1px solid rgba(255,255,255,0.06)" }}>
-                  {row.bVisible ? (
-                    <div
-                      style={{
-                        ...bubble,
-                        background: "rgba(0,112,243,0.16)",
-                        border: "1px solid rgba(0,112,243,0.35)",
-                        color: "#E0F2FE",
-                      }}
-                    >
-                      {row.b}
-                    </div>
-                  ) : row.a === row.aFull ? (
-                    <div style={{ ...bubble, opacity: 0.45, fontStyle: "italic" }}>Translating…</div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null,
-          )}
-        </div>
-      </div>
-
-      {/* Bottom: translation status + mic / waveform bar */}
+      {/* Toolbar */}
       <div
         style={{
-          marginTop: 32,
+          flexShrink: 0,
+          borderBottom: `1px solid ${BORDER_SOFT}`,
+          background: "rgba(255,255,255,0.015)",
+          padding: `${px(6)}px ${px(8)}px`,
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "center",
-          gap: 24,
-          padding: "20px 28px",
-          borderRadius: 22,
-          border: "1px solid rgba(255,255,255,0.1)",
-          background: "rgba(2,5,11,0.72)",
+          gap: px(6),
+        }}
+      >
+        <FontSizeStepper />
+        <ToolbarChip>{`0m / 2h · 7 days left`}</ToolbarChip>
+        <ToolbarChip icon={<NotebookPen size={px(12)} strokeWidth={2} />}>Notes</ToolbarChip>
+        <ToolbarChip icon={<BookOpen size={px(12)} strokeWidth={2} />}>Glossary</ToolbarChip>
+        <span
+          style={{
+            marginLeft: "auto",
+            color: "rgba(251, 191, 36, 0.9)",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <Sun size={px(14)} strokeWidth={2} />
+        </span>
+      </div>
+
+      {/* Column headers */}
+      <div
+        style={{
+          height: px(28),
+          flexShrink: 0,
+          borderBottom: `1px solid rgba(255,255,255,0.05)`,
+          background: "rgba(255,255,255,0.02)",
+          padding: `0 ${px(12)}px`,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: px(12),
+          alignItems: "center",
+        }}
+      >
+        {["Original", "Translation"].map((h) => (
+          <span
+            key={h}
+            style={{
+              fontSize: px(10),
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "rgba(100,116,139,0.95)",
+            }}
+          >
+            {h}
+          </span>
+        ))}
+      </div>
+
+      {/* Transcript root */}
+      <main
+        style={{
+          position: "relative",
+          flex: 1,
+          minHeight: 0,
+          padding: `${px(8)}px ${px(10)}px`,
         }}
       >
         <div
+          ref={scrollContainerRef}
           style={{
-            width: 60,
-            height: 60,
-            borderRadius: "50%",
-            background: summary ? "rgba(255,255,255,0.1)" : "#0070F3",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: summary ? "none" : "0 0 28px rgba(0,112,243,0.55)",
-            flex: "0 0 auto",
+            height: "100%",
+            borderRadius: px(12),
+            border: `1px solid ${BORDER}`,
+            background: TRANS_ROOT_BG,
+            overflow: "hidden",
+            padding: `${px(10)}px ${px(8)}px`,
+            overflowY: "auto",
+            scrollBehavior: "auto",
           }}
         >
-          <MicGlyph />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, height: 52 }}>
-          {Array.from({ length: 32 }).map((_, i) => {
-            const active = !connecting && !summary;
-            const h = active
-              ? 10 + 38 * Math.abs(Math.sin(p * BASE * 6 + i * 0.7)) * (0.4 + 0.6 * Math.abs(Math.sin(i * 1.3)))
-              : 6;
+          {settled.map((ex) => {
+            const i = conversation.exchanges.findIndex((e) => e.id === ex.id);
             return (
-              <span
-                key={i}
-                style={{
-                  flex: 1,
-                  height: h,
-                  borderRadius: 4,
-                  background: active ? "rgba(103,232,249,0.85)" : "rgba(255,255,255,0.18)",
-                }}
+              <ExchangeRow
+                key={ex.id}
+                ex={ex}
+                original={ex.original}
+                translation={ex.translation}
+                active={false}
+                fontPx={fontPx}
+                lineHeight={lineHeight}
               />
             );
           })}
+          {activeIdx >= 0 ? (() => {
+            const activeEx = conversation.exchanges[activeIdx]!;
+            const activeProgress = exProgress(activeIdx, activeEx);
+            const trans = translationForExchange(activeIdx, activeEx, activeProgress);
+            return (
+            <ExchangeRow
+              ref={activeRowRef}
+              ex={activeEx}
+              original={originalForExchange(
+                activeIdx,
+                activeEx,
+                activeProgress,
+              )}
+              translation={trans.text}
+              translationOpacity={trans.opacity}
+              active
+              typing={!originalDone(activeIdx)}
+              fontPx={fontPx}
+              lineHeight={lineHeight}
+            />
+            );
+          })() : null}
         </div>
-        <span
+      </main>
+
+      {/* Footer */}
+      <footer
+        style={{
+          flexShrink: 0,
+          borderTop: `1px solid ${BORDER}`,
+          background: HEADER_BG,
+          padding: `${px(10)}px ${px(12)}px`,
+        }}
+      >
+        <div
           style={{
-            fontSize: 24,
-            fontWeight: 700,
-            color: translating ? "#67E8F9" : "rgba(248,250,252,0.7)",
-            whiteSpace: "nowrap",
+            display: "flex",
+            alignItems: "center",
+            gap: px(6),
+            marginBottom: px(8),
           }}
         >
-          {statusText}
-        </span>
-      </div>
+          <LangDropdown label={reelLanguageLabel(conversation.sourceLang)} />
+          <span style={{ fontSize: px(10), fontWeight: 600, color: "rgba(100,116,139,0.9)", flexShrink: 0 }}>
+            ↔
+          </span>
+          <LangDropdown label={reelLanguageLabel(conversation.targetLang)} />
+          <button
+            type="button"
+            aria-hidden
+            style={{
+              marginLeft: "auto",
+              height: px(32),
+              padding: `0 ${px(8)}px`,
+              borderRadius: px(8),
+              border: `1px solid rgba(255,255,255,0.1)`,
+              background: "#121a2a",
+              color: MUTED,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Rows3 size={px(14)} strokeWidth={2} />
+          </button>
+        </div>
+        <div
+          style={{
+            width: "100%",
+            height: px(40),
+            borderRadius: 999,
+            background: "#EF4444",
+            color: "#FFFFFF",
+            fontWeight: 600,
+            fontSize: px(14),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: px(8),
+            boxShadow: "0 0 30px rgba(239,68,68,0.45)",
+          }}
+        >
+          <Square size={px(14)} fill="#FFFFFF" strokeWidth={0} />
+          Stop
+        </div>
+      </footer>
     </div>
   );
 }
 
-function Caret() {
+function FontSizeStepper() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        height: px(24),
+        borderRadius: px(6),
+        border: `1px solid rgba(255,255,255,0.1)`,
+        background: "rgba(255,255,255,0.04)",
+        overflow: "hidden",
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ padding: `0 ${px(6)}px`, fontSize: px(12), fontWeight: 600, color: MUTED }}>−</span>
+      <span
+        style={{
+          padding: `0 ${px(4)}px`,
+          fontSize: px(10),
+          fontWeight: 600,
+          fontVariantNumeric: "tabular-nums",
+          minWidth: px(22),
+          textAlign: "center",
+          color: TEXT,
+        }}
+      >
+        12
+      </span>
+      <span style={{ padding: `0 ${px(6)}px`, fontSize: px(12), fontWeight: 600, color: MUTED }}>+</span>
+    </div>
+  );
+}
+
+function ToolbarChip({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: px(4),
+        height: px(24),
+        padding: `0 ${px(6)}px`,
+        borderRadius: px(6),
+        background: "rgba(255,255,255,0.04)",
+        border: `1px solid rgba(255,255,255,0.08)`,
+        fontSize: px(10),
+        fontWeight: 500,
+        color: "rgba(203,213,225,0.9)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+function LangDropdown({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        height: px(32),
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: `0 ${px(8)}px`,
+        borderRadius: px(8),
+        background: "#121a2a",
+        border: `1px solid rgba(255,255,255,0.1)`,
+        fontSize: px(12),
+        fontWeight: 400,
+        color: TEXT,
+      }}
+    >
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <ChevronDown size={px(14)} color={MUTED} strokeWidth={2} />
+    </div>
+  );
+}
+
+const ExchangeRow = forwardRef(function ExchangeRow(
+  {
+    ex,
+    original,
+    translation,
+    active,
+    typing,
+    translationOpacity = 1,
+    fontPx,
+    lineHeight,
+  }: {
+    ex: WorkspaceExchange;
+    original: string;
+    translation: string;
+    active: boolean;
+    typing?: boolean;
+    translationOpacity?: number;
+    fontPx: number;
+    lineHeight: number;
+  },
+  ref: Ref<HTMLDivElement>,
+) {
+  const textStyle: CSSProperties = {
+    fontSize: fontPx,
+    lineHeight,
+    fontWeight: 500,
+    color: TEXT,
+    margin: 0,
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  };
+  const transStyle: CSSProperties = {
+    ...textStyle,
+    fontWeight: 600,
+    fontStyle: "normal",
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: px(12),
+        alignItems: "start",
+        marginBottom: px(16),
+        borderRadius: px(10),
+        border: active ? "1px solid rgba(34,211,238,0.16)" : "1px solid transparent",
+        background: active ? "rgba(34, 211, 238, 0.09)" : "transparent",
+        padding: active ? px(4) : 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", minWidth: 0 }}>
+        <div
+          style={{
+            width: px(4),
+            alignSelf: "stretch",
+            borderRadius: 999,
+            background: stripeColor(ex.speaker),
+            flexShrink: 0,
+            minHeight: px(20),
+            marginTop: px(2),
+          }}
+        />
+        <p
+          style={{ ...textStyle, paddingLeft: px(12), flex: 1, minWidth: 0 }}
+          dir={isRtlLanguage(ex.originalLang) ? "rtl" : "ltr"}
+        >
+          {original}
+          {typing ? <Caret /> : null}
+        </p>
+      </div>
+      <div style={{ minWidth: 0, paddingTop: px(2) }}>
+        <p
+          style={{
+            ...transStyle,
+            opacity: translation ? translationOpacity : 0,
+            transition: active ? "opacity 0.12s ease-out" : undefined,
+          }}
+          dir={isRtlLanguage(ex.translationLang) ? "rtl" : "ltr"}
+        >
+          {translation}
+        </p>
+      </div>
+    </div>
+  );
+});
+
+function Caret({ dim }: { dim?: boolean }) {
   return (
     <span
       style={{
         display: "inline-block",
-        width: 4,
-        height: "1em",
-        marginLeft: 6,
+        width: 2,
+        height: "0.9em",
+        marginLeft: 2,
         verticalAlign: "text-bottom",
-        background: "#67E8F9",
+        background: dim ? "rgba(148,163,184,0.5)" : CYAN,
       }}
     />
   );
 }
-
-function MicGlyph() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round">
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5 11a7 7 0 0 0 14 0" />
-      <path d="M12 18v3" />
-    </svg>
-  );
-}
-
-const bubbleCell: CSSProperties = {
-  padding: "14px 22px",
-  display: "flex",
-  alignItems: "flex-start",
-};
-
-const bubble: CSSProperties = {
-  padding: "18px 22px",
-  borderRadius: 18,
-  fontSize: 28,
-  fontWeight: 600,
-  lineHeight: 1.4,
-  color: "rgba(248,250,252,0.92)",
-  maxWidth: "100%",
-};

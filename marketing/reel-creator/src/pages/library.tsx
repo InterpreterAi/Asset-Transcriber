@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, type CSSProperties, type MouseEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useReels, SERIES_MAP, type Reel } from '@/hooks/use-reels';
-import { downloadFinishedMp4 } from '@/lib/finishedExports';
+import { newCommercialPath, openNewCommercial, clearStudioDraft } from '@/lib/studioDraft';
+import { downloadLibraryReel, libraryReelCanDownload, libraryReelHasMp4 } from '@/lib/libraryDownload';
+import { reelLanguageLabel } from '@/lib/constants/languages';
 import { format } from 'date-fns';
 import { Search, Edit2, Trash2, Plus, Layers, Download } from 'lucide-react';
 import {
@@ -55,7 +57,56 @@ function ReelCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const canDownload = Boolean(reel.downloadUrl);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadErr, setDownloadErr] = useState('');
+  const [mp4Ready, setMp4Ready] = useState(Boolean(reel.downloadUrl || reel.mp4Cached));
+  const canDownload = libraryReelCanDownload(reel);
+
+  useEffect(() => {
+    if (reel.downloadUrl || reel.mp4Cached) {
+      setMp4Ready(true);
+      return;
+    }
+    let cancelled = false;
+    void libraryReelHasMp4(reel).then((ready) => {
+      if (!cancelled && ready) setMp4Ready(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reel.id, reel.downloadUrl, reel.mp4Cached]);
+  const langLabel =
+    reel.targetLanguage && reel.targetLanguage !== 'en'
+      ? reelLanguageLabel(reel.targetLanguage)
+      : reel.scheduleTag?.includes('·') && reel.fromStudio
+        ? reel.scheduleTag.split('·').pop()?.trim()
+        : null;
+
+  async function onDownload() {
+    setDownloadErr('');
+    setDownloading(true);
+    try {
+      await downloadLibraryReel(reel);
+    } catch (e) {
+      setDownloadErr(e instanceof Error ? e.message : 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const footBtn: CSSProperties = {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    background: 'none',
+    border: 'none',
+    fontSize: '12px',
+    fontWeight: 600,
+    height: '42px',
+    cursor: 'pointer',
+  };
 
   return (
     <div
@@ -87,7 +138,7 @@ function ReelCard({
           }}>
             {SERIES_MAP[reel.series as keyof typeof SERIES_MAP]}
           </span>
-          {canDownload ? (
+          {mp4Ready ? (
             <span style={{
               fontSize: '10px',
               fontWeight: 700,
@@ -97,7 +148,32 @@ function ReelCard({
               borderRadius: '4px',
               padding: '2px 8px',
             }}>
-              Ready MP4
+              MP4 ready
+            </span>
+          ) : canDownload ? (
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: '#A78BFA',
+              background: 'rgba(167,139,250,0.1)',
+              border: '1px solid rgba(167,139,250,0.25)',
+              borderRadius: '4px',
+              padding: '2px 8px',
+            }}>
+              Studio reel
+            </span>
+          ) : null}
+          {langLabel && langLabel !== reel.scheduleTag ? (
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: '#FBBF24',
+              background: 'rgba(251,191,36,0.1)',
+              border: '1px solid rgba(251,191,36,0.25)',
+              borderRadius: '4px',
+              padding: '2px 8px',
+            }}>
+              {langLabel}
             </span>
           ) : null}
           {reel.variationIndex && reel.variationIndex > 0 ? (
@@ -157,72 +233,58 @@ function ReelCard({
         <div style={{ fontSize: '10px', color: 'rgba(248,250,252,0.2)', fontFamily: 'monospace' }}>
           {format(new Date(reel.createdAt), 'MMM d, yyyy · h:mm a')}
         </div>
+        {downloadErr ? (
+          <p style={{ margin: '8px 0 0', fontSize: 10, color: '#F87171', lineHeight: 1.4 }}>{downloadErr}</p>
+        ) : null}
       </div>
 
       <div style={{ display: 'flex', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        {canDownload ? (
-          <button
-            type="button"
-            onClick={() =>
-              downloadFinishedMp4(
-                reel.downloadUrl!,
-                reel.downloadFilename || 'InterpreterAI-reel.mp4',
-              )
-            }
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              background: 'rgba(34,211,238,0.08)',
-              border: 'none',
-              borderRight: '1px solid rgba(255,255,255,0.06)',
-              color: '#22D3EE',
-              fontSize: '12px',
-              fontWeight: 700,
-              height: '42px',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(34,211,238,0.16)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(34,211,238,0.08)';
-            }}
-          >
-            <Download size={13} /> Download
-          </button>
-        ) : (
-          <button
-            onClick={onEdit}
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              background: 'none',
-              border: 'none',
-              borderRight: '1px solid rgba(255,255,255,0.06)',
-              color: 'rgba(248,250,252,0.45)',
-              fontSize: '12px',
-              fontWeight: 600,
-              height: '42px',
-              cursor: 'pointer',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = '#F8FAFC';
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.03)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = 'rgba(248,250,252,0.45)';
-              (e.currentTarget as HTMLButtonElement).style.background = 'none';
-            }}
-          >
-            <Edit2 size={12} /> Edit
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => void onDownload()}
+          disabled={!canDownload || downloading}
+          title={mp4Ready ? 'Download MP4' : 'Download cached MP4 from studio export'}
+          style={{
+            ...footBtn,
+            borderRight: '1px solid rgba(255,255,255,0.06)',
+            color: mp4Ready ? '#22D3EE' : canDownload ? 'rgba(248,250,252,0.55)' : 'rgba(248,250,252,0.2)',
+            background: mp4Ready ? 'rgba(34,211,238,0.08)' : 'none',
+            cursor: canDownload && !downloading ? 'pointer' : 'default',
+            opacity: canDownload ? 1 : 0.45,
+          }}
+          onMouseEnter={(e) => {
+            if (!canDownload || downloading) return;
+            (e.currentTarget as HTMLButtonElement).style.background = mp4Ready
+              ? 'rgba(34,211,238,0.16)'
+              : 'rgba(255,255,255,0.03)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = mp4Ready
+              ? 'rgba(34,211,238,0.08)'
+              : 'none';
+          }}
+        >
+          <Download size={13} /> {downloading ? '…' : 'Download'}
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          style={{
+            ...footBtn,
+            borderRight: '1px solid rgba(255,255,255,0.06)',
+            color: 'rgba(248,250,252,0.45)',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = '#F8FAFC';
+            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.03)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = 'rgba(248,250,252,0.45)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'none';
+          }}
+        >
+          <Edit2 size={12} /> Edit
+        </button>
 
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -278,6 +340,11 @@ export default function Library() {
   const [seriesFilter, setSeriesFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'all' | 'batches' | 'singles'>('all');
   const [, setLocation] = useLocation();
+
+  function onNewCommercial(e: MouseEvent) {
+    e.preventDefault();
+    openNewCommercial(setLocation);
+  }
 
   const filtered = useMemo(() => {
     return reels.filter((reel) => {
@@ -413,7 +480,10 @@ export default function Library() {
               </SelectContent>
             </Select>
 
-            <Link href="/" style={{
+            <a
+              href={newCommercialPath()}
+              onClick={onNewCommercial}
+              style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -425,10 +495,11 @@ export default function Library() {
               fontSize: '13px',
               fontWeight: 700,
               textDecoration: 'none',
+              cursor: 'pointer',
             }}>
               <Plus size={14} strokeWidth={2.5} />
               New commercial
-            </Link>
+            </a>
           </div>
         </div>
 
@@ -449,7 +520,10 @@ export default function Library() {
                 : 'Try adjusting your filters.'}
             </p>
             {reels.length === 0 ? (
-              <Link href="/" style={{
+              <a
+                href={newCommercialPath()}
+                onClick={onNewCommercial}
+                style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
@@ -460,9 +534,10 @@ export default function Library() {
                 fontSize: '13px',
                 fontWeight: 700,
                 textDecoration: 'none',
+                cursor: 'pointer',
               }}>
                 <Plus size={14} /> Open Creative Studio
-              </Link>
+              </a>
             ) : (
               <button
                 onClick={() => { setSearch(''); setSeriesFilter('all'); setViewMode('all'); }}
@@ -501,8 +576,11 @@ export default function Library() {
                     key={reel.id}
                     reel={reel}
                     color={color}
-                    onEdit={() => setLocation(`/`)}
-                    onDelete={() => deleteReel(reel.id)}
+                    onEdit={() => setLocation(`/studio/${reel.id}`)}
+                    onDelete={() => {
+                      clearStudioDraft(reel.id);
+                      deleteReel(reel.id);
+                    }}
                   />
                 );
               })}

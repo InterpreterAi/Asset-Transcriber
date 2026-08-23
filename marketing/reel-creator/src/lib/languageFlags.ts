@@ -73,12 +73,25 @@ export type LanguagePair = {
   targetLabel: string;
 };
 
-/** US English ↔ target (globe fallback when no flag exists). */
-export function buildLanguagePair(targetCode: string, targetLabel: string): LanguagePair {
+/** Bidirectional language pair for workspace + hook display. */
+export function buildLanguagePair(
+  sourceCode: string,
+  sourceLabel: string,
+  targetCode: string,
+  targetLabel: string,
+): LanguagePair {
   return {
-    sourceFlag: FLAGS.en!,
-    sourceLabel: "English",
+    sourceFlag: languageFlag(sourceCode),
+    sourceLabel,
     targetFlag: languageFlag(targetCode),
     targetLabel,
   };
+}
+
+/** Legacy helper — English source ↔ target. */
+export function buildLanguagePairFromTarget(
+  targetCode: string,
+  targetLabel: string,
+): LanguagePair {
+  return buildLanguagePair("en", "English", targetCode, targetLabel);
 }

@@ -77,12 +77,8 @@ export function finishedExportToReel(exp: FinishedExport): Reel {
   };
 }
 
+import { downloadUrlAsFile } from "@/lib/downloadBlob";
+
 export function downloadFinishedMp4(url: string, filename: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  void downloadUrlAsFile(url, filename);
 }

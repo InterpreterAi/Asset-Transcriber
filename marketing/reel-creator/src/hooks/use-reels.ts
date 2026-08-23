@@ -13,6 +13,8 @@ import {
 import { FINISHED_EXPORTS, finishedExportToReel } from '@/lib/finishedExports';
 import type { GeneratedReelResult } from '@/lib/generatedReel';
 import type { OutroConfig } from '@/lib/outroConfig';
+import type { StudioDraft } from '@/lib/studioDraft';
+import { deleteReelMp4, hasReelMp4 } from '@/lib/reelMp4Cache';
 
 export type SeriesType =
   | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10'
@@ -55,9 +57,13 @@ export interface Reel {
   /** Ready MP4 in public/ — Library shows a Download button. */
   downloadUrl?: string;
   downloadFilename?: string;
+  /** MP4 blob stored in IndexedDB — instant library download. */
+  mp4Cached?: boolean;
   /** Focused Studio one-prompt reel — storyboard, footage URLs, timed words,
    * hook/outro audio (base64) and outro config, so it replays after reload. */
   generated?: GeneratedReelSave;
+  /** Full Creative Studio editor snapshot — hook clips, workspace, outro, VO cache. */
+  studioDraft?: StudioDraft;
   createdAt: number;
   updatedAt: number;
 }
@@ -87,6 +93,68 @@ export function seriesFilenameSlug(series: string): string {
 }
 
 const STORAGE_KEY = 'interpreterai_reels';
+const DELETED_KEY = 'interpreterai_reels_deleted';
+
+function loadDeletedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === 'string' && id.length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDeletedIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(DELETED_KEY, JSON.stringify([...ids]));
+  } catch (e) {
+    console.warn('Failed to persist deleted reel ids', e);
+  }
+}
+
+function markReelDeleted(id: string): void {
+  const ids = loadDeletedIds();
+  ids.add(id);
+  persistDeletedIds(ids);
+}
+
+function stripHeavyDraftAudio(draft: StudioDraft | undefined): StudioDraft | undefined {
+  if (!draft) return draft;
+  return {
+    ...draft,
+    hookAudio: null,
+    cachedVoiceover: draft.cachedVoiceover
+      ? {
+          ...draft.cachedVoiceover,
+          audioBase64: null,
+          outroAudioBase64: null,
+          hookVoClips: draft.cachedVoiceover.hookVoClips.map((c) => ({
+            ...c,
+            audioBase64: '',
+          })),
+          workspaceVoClips: draft.cachedVoiceover.workspaceVoClips.map((c) => ({
+            ...c,
+            audioBase64: '',
+          })),
+        }
+      : null,
+    result: draft.result
+      ? {
+          ...draft.result,
+          audioBase64: null,
+          outroAudioBase64: null,
+          hookVoClips: (draft.result.hookVoClips ?? []).map((c) => ({ ...c, audioBase64: '' })),
+          workspaceVoClips: (draft.result.workspaceVoClips ?? []).map((c) => ({
+            ...c,
+            audioBase64: '',
+          })),
+        }
+      : null,
+  };
+}
 
 /**
  * Persist reels; on quota overflow drop heavy audio payloads from older
@@ -101,8 +169,14 @@ function persistReels(reels: Reel[]): void {
   }
   try {
     const slimmed = reels.map((r, i) =>
-      i > 0 && r.generated
-        ? { ...r, generated: { ...r.generated, audioBase64: null, outroAudioBase64: null } }
+      i > 0
+        ? {
+            ...r,
+            generated: r.generated
+              ? { ...r.generated, audioBase64: null, outroAudioBase64: null }
+              : r.generated,
+            studioDraft: stripHeavyDraftAudio(r.studioDraft),
+          }
         : r,
     );
     localStorage.setItem(STORAGE_KEY, JSON.stringify(slimmed));
@@ -173,8 +247,13 @@ function normalizeReel(raw: Partial<Reel> & { id: string }): Reel {
       typeof raw.downloadFilename === "string" && raw.downloadFilename.trim()
         ? raw.downloadFilename.trim()
         : undefined,
+    mp4Cached: Boolean(raw.mp4Cached),
     generated:
       raw.generated && typeof raw.generated === "object" ? raw.generated : undefined,
+    studioDraft:
+      raw.studioDraft && typeof raw.studioDraft === "object"
+        ? (raw.studioDraft as StudioDraft)
+        : undefined,
     createdAt: raw.createdAt ?? Date.now(),
     updatedAt: raw.updatedAt ?? Date.now(),
   };
@@ -200,10 +279,13 @@ export function useReels() {
       }
     }
 
+    const deletedIds = loadDeletedIds();
+
     // Seed finished MP4 exports (public/library) — keep user edits, refresh download URLs.
     const byId = new Map(parsed.map((r) => [r.id, r]));
     let changed = false;
     for (const exp of FINISHED_EXPORTS) {
+      if (deletedIds.has(exp.id)) continue;
       const seeded = finishedExportToReel(exp);
       const existing = byId.get(exp.id);
       if (!existing) {
@@ -230,6 +312,32 @@ export function useReels() {
     setReels(merged);
     setIsLoaded(true);
   }, []);
+
+  /** Restore mp4Cached flags from IndexedDB after reload. */
+  useEffect(() => {
+    if (!isLoaded || reels.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const idsToFlag: string[] = [];
+      for (const reel of reels) {
+        if (reel.downloadUrl || reel.mp4Cached) continue;
+        if (await hasReelMp4(reel.id)) idsToFlag.push(reel.id);
+      }
+      if (cancelled || idsToFlag.length === 0) return;
+      setReels((current) => {
+        const next = current.map((r) =>
+          idsToFlag.includes(r.id) ? { ...r, mp4Cached: true } : r,
+        );
+        persistReels(next);
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, reels.length]);
 
   const getReel = useCallback(
     (id: string) => reels.find((r) => r.id === id),
@@ -270,6 +378,8 @@ export function useReels() {
   }, []);
 
   const deleteReel = useCallback((id: string) => {
+    markReelDeleted(id);
+    void deleteReelMp4(id);
     setReels((currentReels) => {
       const newReels = currentReels.filter((r) => r.id !== id);
       persistReels(newReels);

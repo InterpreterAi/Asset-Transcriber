@@ -39,6 +39,8 @@ export class ReelAudioMixer {
   private musicEnabled = true;
   private stingBuffer: AudioBuffer | null = null;
   private voBuffers = new Map<string, AudioBuffer>();
+  /** When set, one continuous VO track replaces per-segment VO switching. */
+  private fullVoBuffer: AudioBuffer | null = null;
   private playing = false;
   private duckMode: DuckMode = "full";
   private brandStingEnabled = true;
@@ -122,12 +124,18 @@ export class ReelAudioMixer {
   async loadVoiceovers(map: Record<string, Blob | undefined | null>) {
     const ctx = this.ensureCtx();
     this.voBuffers.clear();
+    this.fullVoBuffer = null;
     for (const [id, blob] of Object.entries(map)) {
       if (!blob || blob.size === 0) continue;
       try {
         const ab = await blob.arrayBuffer();
         const decoded = await ctx.decodeAudioData(ab.slice(0));
-        this.voBuffers.set(id, normalizeAudioBuffer(decoded));
+        const normalized = normalizeAudioBuffer(decoded);
+        if (id === "full") {
+          this.fullVoBuffer = normalized;
+        } else {
+          this.voBuffers.set(id, normalized);
+        }
       } catch {
         /* skip */
       }
@@ -211,6 +219,25 @@ export class ReelAudioMixer {
     this.bedGain.gain.linearRampToValueAtTime(target, now + 0.08);
   }
 
+  private playFullVo(fromSec: number) {
+    if (!this.fullVoBuffer || !this.voGain) return;
+    const ctx = this.ensureCtx();
+    this.stopVo();
+    const src = ctx.createBufferSource();
+    src.buffer = this.fullVoBuffer;
+    src.connect(this.voGain);
+    const offset = Math.min(Math.max(0, fromSec), this.fullVoBuffer.duration);
+    src.start(0, offset);
+    this.voSource = src;
+    this.setDuckMode("vo");
+    src.onended = () => {
+      if (this.voSource === src) {
+        this.voSource = null;
+        this.setDuckMode("full");
+      }
+    };
+  }
+
   private playVoForSegment(id: string) {
     const buf = this.voBuffers.get(id);
     if (!buf || !this.voGain) return;
@@ -259,6 +286,9 @@ export class ReelAudioMixer {
     this.lastVoSeg = null;
     this.duckMode = "full";
     this.startBed();
+    if (this.fullVoBuffer) {
+      this.playFullVo(getTime());
+    }
     this.tickId = window.setInterval(() => this.syncToTimeline(), 60);
     this.syncToTimeline();
   }
@@ -266,6 +296,14 @@ export class ReelAudioMixer {
   private syncToTimeline() {
     if (!this.playing || !this.getTime) return;
     const t = this.getTime();
+
+    if (this.fullVoBuffer) {
+      for (const cue of this.stingCues) {
+        if (t >= cue.at) this.playStingOnce(cue.tag);
+      }
+      this.setDuckMode("vo");
+      return;
+    }
 
     for (const cue of this.stingCues) {
       if (t >= cue.at) this.playStingOnce(cue.tag);

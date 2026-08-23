@@ -30,7 +30,8 @@ import {
 } from '@/lib/constants/languages';
 import { generateSegmentVoiceovers, generateScriptVariations, generateSaaSScript, measureBlobDuration, translateReelScript, type VoiceoverPack, type ScriptFrameworkId } from '@/lib/reelBuilderApi';
 import { previewAudioUrl, setPreviewGain, stopAudioPreview } from '@/lib/previewAudio';
-import { estimateSpeechSeconds, formatEstBadge, buildExportFilename, SCENE_PADDING_SEC } from '@/lib/timeline';
+import { estimateSpeechSeconds, formatEstBadge, SCENE_PADDING_SEC } from '@/lib/timeline';
+import { buildReelExportFilename, buildReelLibraryTitle, reelStorylineText } from '@/lib/reelNaming';
 import {
   REEL_HANDOFF_PAYLOAD,
   REEL_HANDOFF_READY,
@@ -335,11 +336,22 @@ export default function Builder() {
   }, [watchedValues.voiceSpeed]);
 
   const exportFilename = useMemo(() => {
-    const scenario = watchedValues.reelType?.trim()
-      ? watchedValues.reelType
-      : seriesFilenameSlug(watchedValues.series || '1');
-    return buildExportFilename(scenario, reelLanguageLabel(watchedValues.targetLanguage || 'en'));
-  }, [watchedValues.reelType, watchedValues.series, watchedValues.targetLanguage]);
+    const storyline =
+      scriptLines.hook?.trim() ||
+      watchedValues.hook?.trim() ||
+      watchedValues.reelType?.trim() ||
+      seriesFilenameSlug(watchedValues.series || '1');
+    return buildReelExportFilename({
+      storyline,
+      language: watchedValues.targetLanguage || 'en',
+    });
+  }, [
+    scriptLines.hook,
+    watchedValues.hook,
+    watchedValues.reelType,
+    watchedValues.series,
+    watchedValues.targetLanguage,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -562,6 +574,13 @@ export default function Builder() {
     scheduleTag?: string;
     id?: string;
   }) {
+    const hookText = extra?.hook ?? scriptLines.hook ?? values.hook;
+    const storyline = reelStorylineText(
+      hookText?.trim() ||
+        values.reelType?.trim() ||
+        seriesFilenameSlug(values.series || '1'),
+    );
+    const lang = values.targetLanguage || 'en';
     return {
       id: extra?.id,
       series: values.series as SeriesType,
@@ -577,7 +596,7 @@ export default function Builder() {
       brandVolume: values.brandVolume,
       problemVisual: values.problemVisual as ProblemVisual,
       solutionVisual: values.solutionVisual as SolutionVisual,
-      hook: extra?.hook ?? scriptLines.hook ?? values.hook,
+      hook: hookText,
       problem: extra?.problem ?? scriptLines.problem ?? values.problem,
       solution: extra?.solution ?? scriptLines.solution ?? values.solution,
       result: extra?.result ?? scriptLines.result ?? values.result,
@@ -588,8 +607,9 @@ export default function Builder() {
       variationIndex: extra?.variationIndex ?? existingReel?.variationIndex ?? 0,
       scheduleTag: (extra?.scheduleTag ?? scheduleTag).trim(),
       fromStudio: studioMode || Boolean(existingReel?.fromStudio),
-      studioBrief: existingReel?.studioBrief || '',
-      storyboardTitle: existingReel?.storyboardTitle || '',
+      studioBrief: existingReel?.studioBrief || hookText?.trim() || '',
+      storyboardTitle: buildReelLibraryTitle({ storyline, language: lang }),
+      downloadFilename: buildReelExportFilename({ storyline, language: lang }),
     };
   }
 

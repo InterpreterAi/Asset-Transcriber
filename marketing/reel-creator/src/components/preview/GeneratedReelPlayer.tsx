@@ -1,71 +1,107 @@
 /**
  * Fixed 35-second generated reel player:
- *   intro 2s → hook 8s (Pexels footage or animated fallback + word subtitles)
- *   → workspace demo (fills) → configurable Brand Outro (5–12s).
- * All visuals derive from the playhead so preview and MP4 export match.
+ *   hook 10s (Pexels or animated fallback + word subtitles)
+ *   → workspace 15s → approved brand outro 10s.
+ * First frame is the hook — no separate intro.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Download, Pause, Play, RotateCcw } from "lucide-react";
-import { InterpreterAILogo } from "@/components/brand/InterpreterAILogo";
 import { UniversalBrandOutro } from "@/components/preview/UniversalBrandOutro";
+import { HookFootagePreview } from "@/components/preview/HookFootagePreview";
 import { WorkspaceSegment } from "@/components/preview/WorkspaceSegment";
 import { ReelAudioMixer } from "@/lib/audioMix";
-import { exportReelMp4, type ExportProgress } from "@/lib/exportReelMp4";
-import { trackFrameTask, waitForFrameTasks } from "@/lib/frameSync";
+import { exportReelMp4, type ExportProgress, waitForStagePaint } from "@/lib/exportReelMp4";
+import { trackFrameTask } from "@/lib/frameSync";
 import {
   base64ToBlob,
   buildGeneratedSegments,
-  REEL_TOTAL_SEC,
+  computeReelTotalSec,
+  resolveHookDurationSec,
+  type GeneratedSegment,
+  computeWorkspaceDurationSec,
+  computeOutroDurationSec,
+  REEL_OUTRO_SEC,
+  buildContinuousReelVoiceover,
+  hookClipsForStitch,
+  stitchSegmentClips,
   trimBlobToDuration,
-  type WorkspaceScript,
+  type HookVoClip,
+  type WorkspaceVoClip,
+  clipExchangeIndex,
 } from "@/lib/generatedReel";
+import { ClipWordSubtitles } from "@/components/preview/ClipWordSubtitles";
 import {
-  captionWindowAt,
   estimateTimedWords,
-  REEL_CAPTION_FONT,
+  mapCaptionWordsToScript,
+  normalizeWordTimestamps,
+  scaleWordsToDuration,
   type TimedWord,
 } from "@/lib/kineticCaptions";
-import { isRtlLanguage } from "@/lib/constants/languages";
+import { speechTrimSecFromWords } from "@/lib/workspaceTiming";
+import { estimateSpeechSec } from "@/lib/workspaceModel";
+import { buildOutroPhraseTimings } from "@/lib/outroVoPacing";
 import type { LanguagePair } from "@/lib/languageFlags";
-import type { OutroConfig } from "@/lib/outroConfig";
-import type { UniversalOutroCopy } from "@/lib/universalBrandOutro";
+import { resolveOutroAudioBlob } from "@/lib/outroAudio";
+import {
+  resolveUniversalOutroCopy,
+  type UniversalOutroCopy,
+} from "@/lib/universalBrandOutro";
+import {
+  defaultOutroLayerDocument,
+  migrateOutroLayerDocument,
+  type OutroLayerDocument,
+} from "@/lib/outroLayerLayout";
+import type { OutroPhraseTiming } from "@/lib/outroVoPacing";
+import type { WorkspaceConversation } from "@/lib/workspaceModel";
+import { resolveWorkspaceVoTiming, packWorkspaceAudioForStitch, stitchWorkspaceDialogue, type ResolvedWorkspaceVo } from "@/lib/workspaceVoSync";
+import { isPlayableFootageUrl } from "@/lib/hookFootage";
+import { isRtlLanguage } from "@/lib/constants/languages";
 
 const CANVAS_W = 1080;
 const CANVAS_H = 1920;
-/** 28px at the 270px preview scale (270/1080 = 0.25 → 112 × 0.25 = 28). */
-const HOOK_SUBTITLE_PX = 112;
 const SUBTITLE_FADE_SEC = 0.1;
 
 export type GeneratedPlayback = {
-  outroConfig: OutroConfig;
-  workspaceScript: WorkspaceScript;
+  workspace: WorkspaceConversation;
   languagePair: LanguagePair;
   footageUrls: string[];
+  hookVoClips?: HookVoClip[];
+  hookDurationSec?: number;
+  subtitleScale?: number;
   audioBase64: string | null;
+  workspaceVoClips?: WorkspaceVoClip[];
+  /** Non-English translated outro audio — English uses canonical asset. */
   outroAudioBase64: string | null;
   words: TimedWord[];
-  outroWords: TimedWord[];
   hookScript: string;
-  /** Spoken outro script (translated when reel language ≠ en). */
-  outroVoiceover: string;
+  targetLanguage: string;
+  outroCopy?: UniversalOutroCopy;
+  outroVoiceover?: string;
+  outroLayout?: import("@/lib/outroLayerLayout").OutroLayerDocument;
+  outroPhraseTimings?: import("@/lib/outroVoPacing").OutroPhraseTiming[];
+  /** When false, reel ends after workspace (no 10s brand outro). */
+  includeOutro?: boolean;
+  /** When false, reel skips workspace dialogue segment. */
+  includeWorkspace?: boolean;
+  /** Override outro segment length (defaults from VO text / audio). */
+  outroDurationSec?: number;
+  /** Override workspace segment length (defaults from VO clips). */
+  workspaceDurationSec?: number;
 };
 
 type Props = {
   playback: GeneratedPlayback;
-  targetLanguage?: string;
   musicUrl?: string | null;
   volumes?: { vo?: number; bgm?: number; brand?: number };
   filename?: string;
   accentColor?: string;
+  subtitleScale?: number;
+  /** Hook segment only — used after Generate VO before footage is attached. */
+  previewScope?: "full" | "hook-only";
 };
 
-/* ------------------------------------------------------------------ */
-/* Hook visuals                                                        */
-/* ------------------------------------------------------------------ */
-
-/** Polished animated fallback when stock footage is unavailable. */
 function AnimatedHookFallback({ localTime }: { localTime: number }) {
   const t = Math.max(0, localTime);
   const drift = (t * 24) % 72;
@@ -120,40 +156,117 @@ function AnimatedHookFallback({ localTime }: { localTime: number }) {
   );
 }
 
-/**
- * Draws Pexels footage frames onto a canvas (html-to-image can capture
- * canvases but not <video>), synced to the hook playhead for export seeks.
- */
+type FootageScheduleClip = { url: string; startSec: number; endSec: number };
+
 function FootageCanvas({
   urls,
+  schedule,
+  hookVoClips,
   localTime,
   durationSec,
   playing,
+  exporting,
 }: {
   urls: string[];
+  schedule?: FootageScheduleClip[];
+  hookVoClips?: HookVoClip[];
   localTime: number;
   durationSec: number;
   playing: boolean;
+  exporting: boolean;
+}) {
+  const fallback = <AnimatedHookFallback localTime={localTime} />;
+
+  if (!exporting) {
+    return (
+      <HookFootagePreview
+        urls={urls}
+        hookVoClips={
+          schedule && schedule.length > 0
+            ? schedule.map((s, i) => ({
+                ...(hookVoClips?.[i] ?? {}),
+                audioBase64: hookVoClips?.[i]?.audioBase64 ?? "",
+                startSec: s.startSec,
+                durationSec: Math.max(0.35, s.endSec - s.startSec),
+                footageUrl: s.url,
+                sayLine: hookVoClips?.[i]?.sayLine ?? "",
+                scenario: hookVoClips?.[i]?.scenario ?? "",
+                words: hookVoClips?.[i]?.words ?? [],
+              }))
+            : hookVoClips
+        }
+        localTime={localTime}
+        durationSec={durationSec}
+        playing={playing}
+        fallback={fallback}
+      />
+    );
+  }
+
+  return (
+    <FootageCanvasExport
+      urls={urls}
+      schedule={schedule}
+      localTime={localTime}
+      durationSec={durationSec}
+      playing={playing}
+      fallback={fallback}
+    />
+  );
+}
+
+/** Canvas draw path — export capture only. */
+function FootageCanvasExport({
+  urls,
+  schedule,
+  localTime,
+  durationSec,
+  playing,
+  fallback,
+}: {
+  urls: string[];
+  schedule?: FootageScheduleClip[];
+  localTime: number;
+  durationSec: number;
+  playing: boolean;
+  fallback: ReactNode;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videosRef = useRef<HTMLVideoElement[]>([]);
   const [failed, setFailed] = useState<Set<number>>(new Set());
-  const clipUrls = useMemo(() => urls.slice(0, 3), [urls]);
+  const [frameReady, setFrameReady] = useState(false);
+
+  const clipDefs = useMemo(() => {
+    if (schedule && schedule.length > 0) {
+      return schedule.map((s) => ({ url: s.url, startSec: s.startSec, endSec: s.endSec }));
+    }
+    const slice = urls;
+    const n = slice.length;
+    const clipDur = n > 0 ? durationSec / n : durationSec;
+    return slice.map((url, i) => ({
+      url,
+      startSec: i * clipDur,
+      endSec: (i + 1) * clipDur,
+    }));
+  }, [schedule, urls, durationSec]);
 
   useEffect(() => {
-    const vids = clipUrls.map((url, i) => {
+    const vids = clipDefs.map((clip, i) => {
       const v = document.createElement("video");
-      v.crossOrigin = "anonymous";
+      if (clip.url.startsWith("http://") || clip.url.startsWith("https://")) {
+        v.crossOrigin = "anonymous";
+      }
       v.muted = true;
       v.playsInline = true;
       v.preload = "auto";
       v.loop = true;
-      v.src = url;
+      v.src = clip.url;
       v.onerror = () => setFailed((prev) => new Set(prev).add(i));
       return v;
     });
     videosRef.current = vids;
     setFailed(new Set());
+    setFrameReady(false);
     return () => {
       for (const v of vids) {
         v.pause();
@@ -161,20 +274,27 @@ function FootageCanvas({
       }
       videosRef.current = [];
     };
-  }, [clipUrls]);
+  }, [clipDefs]);
 
-  const usable = clipUrls.map((_, i) => i).filter((i) => !failed.has(i));
-  const n = usable.length;
-  const clipDur = n > 0 ? durationSec / n : durationSec;
-  const activeSlot = n > 0 ? Math.min(n - 1, Math.floor(localTime / clipDur)) : -1;
-  const activeIdx = activeSlot >= 0 ? usable[activeSlot]! : -1;
-  const clipLocal = activeSlot >= 0 ? localTime - activeSlot * clipDur : 0;
+  const usable = clipDefs.map((_, i) => i).filter((i) => !failed.has(i) && clipDefs[i]?.url);
+  const activeIdx =
+    usable.find((i) => {
+      const c = clipDefs[i]!;
+      return localTime >= c.startSec && localTime < c.endSec;
+    }) ?? usable[usable.length - 1] ?? -1;
+  const clipLocal =
+    activeIdx >= 0 ? localTime - (clipDefs[activeIdx]?.startSec ?? 0) : localTime;
 
   const draw = (video: HTMLVideoElement) => {
     const canvas = canvasRef.current;
-    if (!canvas || video.videoWidth === 0) return;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+    if (video.videoWidth === 0) {
+      setFrameReady(false);
+      return;
+    }
     const scale = Math.max(CANVAS_W / video.videoWidth, CANVAS_H / video.videoHeight);
     const dw = video.videoWidth * scale;
     const dh = video.videoHeight * scale;
@@ -182,12 +302,12 @@ function FootageCanvas({
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     try {
       ctx.drawImage(video, (CANVAS_W - dw) / 2, (CANVAS_H - dh) / 2, dw, dh);
+      setFrameReady(true);
     } catch {
-      /* not ready yet */
+      setFrameReady(false);
     }
   };
 
-  // Live playback: play the active clip and mirror frames onto the canvas.
   useEffect(() => {
     if (!playing || activeIdx < 0) return;
     const video = videosRef.current[activeIdx];
@@ -209,141 +329,267 @@ function FootageCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, activeIdx, failed]);
 
-  // Paused / export: seek the exact frame and repaint (export awaits this).
   useEffect(() => {
-    if (playing || activeIdx < 0) return;
+    if (activeIdx < 0) {
+      setFrameReady(false);
+      return;
+    }
     const video = videosRef.current[activeIdx];
     if (!video) return;
+    if (playing) return;
+
     const task = new Promise<void>((resolve) => {
-      const target = video.duration && Number.isFinite(video.duration)
-        ? clipLocal % Math.max(0.1, video.duration)
-        : clipLocal;
+      const target =
+        video.duration && Number.isFinite(video.duration)
+          ? clipLocal % Math.max(0.1, video.duration)
+          : clipLocal;
       const done = () => {
         video.removeEventListener("seeked", done);
         draw(video);
         resolve();
       };
-      if (video.readyState >= 1) {
+      const prime = () => {
+        video.removeEventListener("loadeddata", prime);
         video.addEventListener("seeked", done);
         try {
           video.currentTime = target;
         } catch {
           done();
         }
-        // Some containers fire no seeked for identical timestamps.
         if (Math.abs(video.currentTime - target) < 0.01) done();
+      };
+      if (video.readyState >= 2) {
+        prime();
       } else {
-        const onMeta = () => {
-          video.removeEventListener("loadedmetadata", onMeta);
-          video.addEventListener("seeked", done);
-          try {
-            video.currentTime = target;
-          } catch {
-            done();
-          }
-        };
-        video.addEventListener("loadedmetadata", onMeta);
-        setTimeout(() => resolve(), 900);
+        video.addEventListener("loadeddata", prime, { once: true });
+        setTimeout(() => resolve(), 1200);
       }
     });
     void trackFrameTask(task);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, activeIdx, clipLocal, failed]);
 
-  if (n === 0) return <AnimatedHookFallback localTime={localTime} />;
+  if (usable.length === 0) return <>{fallback}</>;
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={CANVAS_W}
-      height={CANVAS_H}
-      style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-    />
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Subtitles                                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * Word subtitles: 2–3 words, centered in the bottom third, 28px (preview
- * scale) / 800 / white with drop shadow, no background pill, 0.1s fade.
- */
-function WordSubtitles({
-  words,
-  localTime,
-  rtl,
-  bottomPx = 430,
-  fontPx = HOOK_SUBTITLE_PX,
-}: {
-  words: TimedWord[];
-  localTime: number;
-  rtl: boolean;
-  bottomPx?: number;
-  fontPx?: number;
-}) {
-  const win = captionWindowAt(words, localTime, 3);
-  if (!win || win.words.length === 0) return null;
-  const windowStart = win.words[0]!.start;
-  const opacity = Math.min(1, Math.max(0, (localTime - windowStart) / SUBTITLE_FADE_SEC + 0.15));
-  return (
-    <div
-      dir={rtl ? "rtl" : "ltr"}
-      style={{
-        position: "absolute",
-        left: 48,
-        right: 48,
-        bottom: bottomPx,
-        zIndex: 20,
-        display: "flex",
-        justifyContent: "center",
-        textAlign: "center",
-        pointerEvents: "none",
-        opacity,
-      }}
-    >
-      <span
+    <div style={{ position: "absolute", inset: 0 }}>
+      <div
         style={{
-          fontFamily: REEL_CAPTION_FONT,
-          fontSize: fontPx,
-          fontWeight: 800,
-          lineHeight: 1.15,
-          letterSpacing: rtl ? 0 : "-0.02em",
-          color: "#FFFFFF",
-          textShadow: "0 8px 32px rgba(0,0,0,0.9)",
+          position: "absolute",
+          inset: 0,
+          zIndex: frameReady ? 0 : 2,
+          pointerEvents: "none",
         }}
       >
-        {win.words.map((w) => w.word).join(" ")}
-      </span>
+        {fallback}
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_W}
+        height={CANVAS_H}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          zIndex: frameReady ? 1 : 0,
+          opacity: frameReady ? 1 : 0,
+          transition: "opacity 180ms ease",
+        }}
+      />
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Player                                                              */
-/* ------------------------------------------------------------------ */
+function pickActiveSegment(segments: GeneratedSegment[], t: number): GeneratedSegment {
+  const inside = segments.find((s) => s.end > s.start && t >= s.start && t < s.end);
+  if (inside) return inside;
+  if (t <= 0.001) {
+    const hook = segments.find((s) => s.id === "hook");
+    if (hook && hook.end > hook.start) return hook;
+  }
+  return segments.find((s) => s.end > s.start) ?? segments[segments.length - 1]!;
+}
+
+/** Per-hook-clip captions — maps alignment words to sayLine script text. */
+function HookClipSubtitles({
+  clips,
+  localTime,
+  rtl,
+  scale = 1,
+  fallbackWords,
+  fallbackScript,
+  fallbackDur,
+}: {
+  clips: HookVoClip[];
+  localTime: number;
+  rtl: boolean;
+  scale?: number;
+  fallbackWords: TimedWord[];
+  fallbackScript: string;
+  fallbackDur: number;
+}) {
+  if (clips.length > 0) {
+    let cursor = 0;
+    for (const clip of clips) {
+      const words = normalizeWordTimestamps(clip.words);
+      const dur = speechTrimSecFromWords(words, clip.durationSec ?? 2);
+      if (localTime >= cursor - 0.02 && localTime < cursor + dur + 0.04) {
+        const local = Math.max(0, localTime - cursor);
+        const scaled = scaleWordsToDuration(words, dur);
+        const mapped = mapCaptionWordsToScript(scaled, clip.sayLine);
+        return (
+          <ClipWordSubtitles
+            words={mapped}
+            localTime={local}
+            rtl={rtl}
+            scale={scale}
+            canvasWidth={CANVAS_W}
+          />
+        );
+      }
+      cursor += dur;
+    }
+  }
+  const words =
+    fallbackWords.length > 0
+      ? fallbackWords
+      : estimateTimedWords(fallbackScript, Math.max(0.5, fallbackDur - 0.6));
+  return (
+    <ClipWordSubtitles words={words} localTime={localTime} rtl={rtl} scale={scale} canvasWidth={CANVAS_W} />
+  );
+}
 
 export function GeneratedReelPlayer({
   playback,
-  targetLanguage = "en",
   musicUrl = null,
   volumes,
   filename,
   accentColor = "#0070F3",
+  subtitleScale: subtitleScaleProp = 1,
+  previewScope = "full",
 }: Props) {
+  const hookOnly = previewScope === "hook-only";
   const {
-    outroConfig,
-    workspaceScript,
+    workspace,
     languagePair,
     footageUrls,
+    hookVoClips = [],
+    hookDurationSec: hookDurationProp,
+    subtitleScale: playbackSubtitleScale = 1,
     audioBase64,
+    workspaceVoClips = [],
     outroAudioBase64,
     words,
-    outroWords,
     hookScript,
-    outroVoiceover,
+    targetLanguage,
+    outroCopy: outroCopyProp,
+    outroVoiceover: playbackOutroVo,
+    includeOutro = true,
+    includeWorkspace = true,
+    outroDurationSec: outroDurationProp,
+    workspaceDurationSec: workspaceDurationProp,
   } = playback;
+
+  const subtitleScale = subtitleScaleProp * playbackSubtitleScale;
+
+  const [resolvedWorkspaceVo, setResolvedWorkspaceVo] = useState<ResolvedWorkspaceVo | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (workspaceVoClips.length === 0) {
+      setResolvedWorkspaceVo(null);
+      return;
+    }
+    void resolveWorkspaceVoTiming(workspaceVoClips, workspace.exchanges).then((r) => {
+      if (!cancelled) setResolvedWorkspaceVo(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceVoClips, workspace.exchanges]);
+
+  const workspaceVoSchedule = useMemo(
+    () =>
+      resolvedWorkspaceVo?.schedule ??
+      workspaceVoClips.map((c, i) => ({
+        startSec: c.startSec,
+        durationSec: c.durationSec ?? 2,
+        speechDurSec: c.durationSec ?? 2,
+        exchangeIndex: clipExchangeIndex(c, i),
+      })),
+    [resolvedWorkspaceVo, workspaceVoClips],
+  );
+  const workspaceWordsByExchange = resolvedWorkspaceVo?.wordsByExchange;
+  const hookDur = useMemo(
+    () => resolveHookDurationSec(hookVoClips, hookDurationProp),
+    [hookVoClips, hookDurationProp],
+  );
+  const workspaceDur = hookOnly
+    ? 0
+    : includeWorkspace
+      ? resolvedWorkspaceVo?.durationSec ??
+        (typeof workspaceDurationProp === "number"
+          ? workspaceDurationProp
+          : computeWorkspaceDurationSec(workspaceVoClips))
+      : 0;
+  const outroDur = hookOnly
+    ? 0
+    : includeOutro
+      ? outroDurationProp ??
+        (playback.outroVoiceover
+          ? computeOutroDurationSec(playback.outroVoiceover, targetLanguage)
+          : REEL_OUTRO_SEC)
+      : 0;
+  const segments = useMemo(
+    () =>
+      buildGeneratedSegments(
+        hookDur,
+        workspaceDur,
+        hookOnly ? false : includeOutro,
+        hookOnly ? false : includeWorkspace,
+        outroDur,
+      ),
+    [hookDur, workspaceDur, includeOutro, includeWorkspace, outroDur, hookOnly],
+  );
+  const totalDuration = hookOnly
+    ? hookDur
+    : computeReelTotalSec(
+        hookDur,
+        workspaceDur,
+        includeOutro,
+        includeWorkspace,
+        outroDur,
+      );
+
+  const footageSchedule = useMemo<FootageScheduleClip[]>(() => {
+    if (hookVoClips.length > 0) {
+      return hookVoClips
+        .map((c, i) => {
+          const url =
+            isPlayableFootageUrl(c.footageUrl)
+              ? c.footageUrl
+              : footageUrls[i] && isPlayableFootageUrl(footageUrls[i]!)
+                ? footageUrls[i]!
+                : "";
+          if (!isPlayableFootageUrl(url)) return null;
+          return {
+            url,
+            startSec: c.startSec,
+            endSec: c.startSec + Math.max(0.35, c.durationSec),
+          };
+        })
+        .filter((c): c is FootageScheduleClip => c != null);
+    }
+    return [];
+  }, [hookVoClips, footageUrls]);
+
+  const resolvedFootage = useMemo(() => {
+    if (footageSchedule.length > 0) return footageSchedule.map((c) => c.url);
+    return footageUrls.filter(isPlayableFootageUrl);
+  }, [footageSchedule, footageUrls]);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -363,62 +609,106 @@ export function GeneratedReelPlayer({
   };
 
   const rtl = isRtlLanguage(targetLanguage);
-  const segments = useMemo(
-    () => buildGeneratedSegments(outroConfig.durationSec),
-    [outroConfig.durationSec],
+
+  const outroCopy = useMemo(
+    () =>
+      outroCopyProp ??
+      resolveUniversalOutroCopy({ outroVoiceover: playbackOutroVo }),
+    [outroCopyProp, playbackOutroVo],
   );
-  const totalDuration = REEL_TOTAL_SEC;
 
-  const hookSeg = segments[1]!;
-  const workspaceSeg = segments[2]!;
-  const outroSeg = segments[3]!;
-  const hookDur = hookSeg.end - hookSeg.start;
-  const workspaceDur = workspaceSeg.end - workspaceSeg.start;
-  const outroDur = outroSeg.end - outroSeg.start;
+  const outroLayout = useMemo(
+    () => migrateOutroLayerDocument(playback.outroLayout ?? defaultOutroLayerDocument(outroCopy)),
+    [playback.outroLayout, outroCopy],
+  );
 
-  // Decode + hard-trim VO blobs to their segment windows (fade, never bleed).
-  const [voBlobs, setVoBlobs] = useState<{ hook?: Blob; outro?: Blob }>({});
+  const outroPhraseTimings = useMemo(
+    () =>
+      playback.outroPhraseTimings ??
+      buildOutroPhraseTimings(
+        playbackOutroVo,
+        [],
+        estimateSpeechSec(playbackOutroVo, targetLanguage),
+      ),
+    [playback.outroPhraseTimings, playbackOutroVo, targetLanguage],
+  );
+
+  const [voBlobs, setVoBlobs] = useState<{ hook?: Blob; workspace?: Blob; outro?: Blob; full?: Blob }>({});
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const hook = audioBase64
-        ? await trimBlobToDuration(base64ToBlob(audioBase64), hookDur)
-        : undefined;
-      const outro = outroAudioBase64
-        ? await trimBlobToDuration(base64ToBlob(outroAudioBase64), outroDur - 0.3)
-        : undefined;
-      if (!cancelled) setVoBlobs({ hook, outro });
+      const hookClipBlobs = hookClipsForStitch(hookVoClips);
+      const hook =
+        hookClipBlobs.length > 0
+          ? await stitchSegmentClips(hookClipBlobs, hookDur)
+          : audioBase64
+            ? await trimBlobToDuration(base64ToBlob(audioBase64), hookDur)
+            : undefined;
+      const workspaceClips = hookOnly
+        ? []
+        : includeWorkspace
+          ? packWorkspaceAudioForStitch(
+              workspaceVoClips,
+              resolvedWorkspaceVo?.wordsByExchange,
+              workspace.exchanges,
+            )
+          : [];
+      const outro =
+        hookOnly || !includeOutro
+          ? undefined
+          : await resolveOutroAudioBlob({
+              language: targetLanguage,
+              translatedBase64: outroAudioBase64,
+              durationSec: outroDur,
+              voiceoverText: playbackOutroVo,
+            });
+      const full = hookOnly
+        ? hook
+        : await buildContinuousReelVoiceover({
+            hook,
+            hookClips: hookClipBlobs.length > 0 ? hookClipBlobs : undefined,
+            hookSec: hookDur,
+            workspaceClips,
+            workspaceSec: workspaceDur,
+            outro: includeOutro ? (outro ?? undefined) : undefined,
+            includeOutro,
+            includeWorkspace,
+            outroSec: outroDur,
+          });
+      const workspace =
+        includeWorkspace && workspaceVoClips.length > 0
+          ? await stitchWorkspaceDialogue(
+              workspaceVoClips,
+              resolvedWorkspaceVo?.wordsByExchange,
+              workspace.exchanges,
+              workspaceDur,
+            )
+          : undefined;
+      if (!cancelled) {
+        setVoBlobs({
+          hook,
+          workspace: workspace ?? undefined,
+          outro: includeOutro ? (outro ?? undefined) : undefined,
+          full: full ?? undefined,
+        });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [audioBase64, outroAudioBase64, hookDur, outroDur]);
+    resolvedWorkspaceVo,
+  }, [audioBase64, hookVoClips, workspaceVoClips, workspaceVoSchedule, outroAudioBase64, playbackOutroVo, hookDur, workspaceDur, outroDur, targetLanguage, includeOutro, includeWorkspace, hookOnly, resolvedWorkspaceVo]);
 
-  // Even fallback timing across the hook when ElevenLabs is unavailable.
   const hookWords = useMemo(
     () => (words.length > 0 ? words : estimateTimedWords(hookScript, hookDur - 0.6)),
     [words, hookScript, hookDur],
   );
-  const outroCaptionWords = useMemo(
-    () =>
-      outroWords.length > 0
-        ? outroWords
-        : estimateTimedWords(outroVoiceover, Math.max(2, outroDur - 1.5)),
-    [outroWords, outroVoiceover, outroDur],
+
+  const hookFallbackScript = useMemo(
+    () => hookVoClips.map((c) => c.sayLine).filter(Boolean).join(" ") || hookScript,
+    [hookVoClips, hookScript],
   );
 
-  const outroCopy = useMemo<UniversalOutroCopy>(() => {
-    const sentences = outroConfig.slogan.split(/(?<=[.!?])\s+/).filter(Boolean);
-    return {
-      line1: sentences[0] ?? outroConfig.slogan,
-      line2: sentences.slice(1).join(" "),
-      ctaHeadline: outroConfig.ctaText,
-      languagesLine: outroConfig.slogan,
-      voiceover: outroVoiceover,
-    };
-  }, [outroConfig.slogan, outroConfig.ctaText, outroVoiceover]);
-
-  /* Audio */
   useEffect(() => {
     const mixer = new ReelAudioMixer();
     mixerRef.current = mixer;
@@ -426,11 +716,9 @@ export function GeneratedReelPlayer({
   }, []);
 
   useEffect(() => {
-    const mixer = mixerRef.current;
-    if (!mixer) return;
-    mixer.setSegments(segments);
-    mixer.setBrandStingEnabled(false);
-    mixer.setBrandStingSchedule([]);
+    mixerRef.current?.setSegments(segments);
+    mixerRef.current?.setBrandStingEnabled(false);
+    mixerRef.current?.setBrandStingSchedule([]);
   }, [segments]);
 
   useEffect(() => {
@@ -449,7 +737,6 @@ export function GeneratedReelPlayer({
     void mixerRef.current?.loadVoiceovers(voBlobs);
   }, [voBlobs]);
 
-  /* Clock */
   useEffect(() => {
     timeRef.current = currentTime;
   }, [currentTime]);
@@ -481,61 +768,27 @@ export function GeneratedReelPlayer({
     };
   }, [isPlaying, exporting, totalDuration]);
 
-  const currentSegment =
-    segments.find((s) => currentTime >= s.start && currentTime < s.end) ?? segments[3]!;
+  useEffect(() => {
+    if (resolvedFootage.length === 0) return;
+    seekRef.current(0);
+    setIsPlaying(false);
+  }, [resolvedFootage.join("|")]);
+
+  const currentSegment = pickActiveSegment(segments, currentTime);
   const localTime = Math.max(0, currentTime - currentSegment.start);
-
   const previewW = 270;
-  const previewH = 480;
   const scale = previewW / CANVAS_W;
-
-  /* Segment renderers */
-  const renderIntro = (local: number) => {
-    const logoOp = Math.min(1, local / 0.45);
-    const tagOp = Math.min(1, Math.max(0, (local - 0.55) / 0.5));
-    return (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "#02050B",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 40,
-          zIndex: 10,
-        }}
-      >
-        <div style={{ opacity: logoOp, filter: "drop-shadow(0 0 48px rgba(0,112,243,0.4))" }}>
-          <InterpreterAILogo variant="wordmark" height={92} />
-        </div>
-        <p
-          style={{
-            margin: 0,
-            fontFamily: REEL_CAPTION_FONT,
-            fontSize: 40,
-            fontWeight: 600,
-            letterSpacing: "-0.02em",
-            color: "rgba(248,250,252,0.75)",
-            opacity: tagOp,
-            textAlign: "center",
-            padding: "0 80px",
-          }}
-        >
-          {outroConfig.slogan}
-        </p>
-      </div>
-    );
-  };
 
   const renderHook = (local: number) => (
     <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
       <FootageCanvas
-        urls={footageUrls}
+        urls={resolvedFootage}
+        schedule={footageSchedule.length > 0 ? footageSchedule : undefined}
+        hookVoClips={hookVoClips}
         localTime={local}
         durationSec={hookDur}
         playing={isPlaying && !exporting}
+        exporting={exporting}
       />
       <div
         style={{
@@ -548,17 +801,30 @@ export function GeneratedReelPlayer({
           pointerEvents: "none",
         }}
       />
-      <WordSubtitles words={hookWords} localTime={local} rtl={rtl} />
+      <HookClipSubtitles
+        clips={hookVoClips}
+        localTime={local}
+        rtl={rtl}
+        scale={subtitleScale}
+        fallbackWords={hookWords}
+        fallbackScript={hookFallbackScript}
+        fallbackDur={hookDur}
+      />
     </div>
   );
 
   const renderWorkspace = (local: number) => (
     <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
       <WorkspaceSegment
+        conversation={workspace}
         languagePair={languagePair}
-        workspaceScript={workspaceScript}
         segmentProgress={workspaceDur > 0 ? local / workspaceDur : 1}
+        playheadSec={local}
+        voSchedule={workspaceVoSchedule.length > 0 ? workspaceVoSchedule : undefined}
+        wordsByExchange={workspaceWordsByExchange}
         durationSec={workspaceDur}
+        subtitleScale={subtitleScale}
+        voSyncedTyping
       />
     </div>
   );
@@ -567,26 +833,20 @@ export function GeneratedReelPlayer({
     <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
       <UniversalBrandOutro
         copy={outroCopy}
+        layout={outroLayout}
+        displayLang={targetLanguage}
         rtl={rtl}
         localTime={local}
         durationSec={outroDur}
-        displayUrl={outroConfig.url}
-        showCtaSubline={false}
-      />
-      <WordSubtitles
-        words={outroCaptionWords}
-        localTime={local}
-        rtl={rtl}
-        bottomPx={1180}
-        fontPx={64}
+        phraseTimings={outroPhraseTimings}
+        syncToPhrases
       />
     </div>
   );
 
   const renderStage = () => {
+    if (hookOnly) return renderHook(localTime);
     switch (currentSegment.id) {
-      case "intro":
-        return renderIntro(localTime);
       case "hook":
         return renderHook(localTime);
       case "workspace":
@@ -596,12 +856,9 @@ export function GeneratedReelPlayer({
     }
   };
 
-  /* Export */
-  const waitForPaint = async () => {
-    await new Promise<void>((r) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => r())),
-    );
-    await waitForFrameTasks();
+  const waitForPaint = () => {
+    const stage = stageRef.current;
+    return stage ? waitForStagePaint(stage) : Promise.resolve();
   };
 
   const downloadMp4 = async () => {
@@ -619,11 +876,17 @@ export function GeneratedReelPlayer({
         width: CANVAS_W,
         height: CANVAS_H,
         segments,
-        fps: 24,
-        videoBitrate: 12_000_000,
+        fps: 15,
+        videoBitrate: 8_000_000,
         frameAccurate: true,
-        outroCapture: "dom",
+        outroCapture: includeOutro ? "canvas" : "dom",
+        outroCopy: includeOutro ? outroCopy : undefined,
+        outroLayout: includeOutro ? outroLayout : undefined,
+        outroDisplayLang: targetLanguage,
+        outroPhraseTimings: includeOutro ? outroPhraseTimings : undefined,
+        outroRtl: rtl,
         filename: filename || "InterpreterAI_Reel_35s.mp4",
+        fastCapture: true,
         seekTo: (t) => {
           flushSync(() => seekRef.current(t));
         },
@@ -631,7 +894,13 @@ export function GeneratedReelPlayer({
         onProgress: setExportProgress,
         audio: {
           musicUrl: musicUrl || null,
-          voiceovers: voBlobs,
+          voiceovers: voBlobs.full
+            ? { full: voBlobs.full }
+            : {
+                hook: voBlobs.hook,
+                workspace: voBlobs.workspace,
+                outro: voBlobs.outro,
+              },
           segments,
           volumes: { vo: volumes?.vo ?? 1, bgm: volumes?.bgm ?? 0.22, brand: 0 },
         },
@@ -668,7 +937,7 @@ export function GeneratedReelPlayer({
         style={{
           position: "relative",
           width: previewW,
-          height: previewH,
+          height: 480,
           borderRadius: 12,
           overflow: "hidden",
           border: "1px solid rgba(255,255,255,0.08)",
@@ -679,15 +948,20 @@ export function GeneratedReelPlayer({
           ref={stageRef}
           data-reel-export-stage="true"
           style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
             width: CANVAS_W,
             height: CANVAS_H,
             transform: `scale(${scale})`,
             transformOrigin: "top left",
-            background: "#02050B",
-            position: "relative",
+            background: "#0A1628",
             overflow: "hidden",
           }}
         >
+          <div style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }}>
+            <AnimatedHookFallback localTime={currentSegment.id === "hook" ? localTime : 0} />
+          </div>
           {renderStage()}
         </div>
         {!exporting ? (

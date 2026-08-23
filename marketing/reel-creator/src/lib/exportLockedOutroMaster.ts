@@ -9,6 +9,8 @@ import {
   paintLockedOutroFrame,
 } from "@/lib/renderLockedOutroFrame";
 import type { UniversalOutroCopy } from "@/lib/universalBrandOutro";
+import type { OutroLayerDocument } from "@/lib/outroLayerLayout";
+import type { OutroPhraseTiming } from "@/lib/outroVoPacing";
 import { createMasterChain, normalizeAudioBuffer } from "@/lib/audioNormalize";
 
 export type OutroExportProgress = { pct: number; detail: string };
@@ -94,6 +96,8 @@ async function mixVo(
 export async function exportLockedOutroMaster(opts: {
   copy: UniversalOutroCopy;
   durationSec: number;
+  layout?: OutroLayerDocument;
+  phraseTimings?: OutroPhraseTiming[];
   voiceover?: Blob | null;
   filename?: string;
   fps?: number;
@@ -193,8 +197,11 @@ export async function exportLockedOutroMaster(opts: {
     paintLockedOutroFrame(ctx, {
       assets,
       copy: opts.copy,
+      layout: opts.layout,
       localTime: t,
       durationSec,
+      phraseTimings: opts.phraseTimings,
+      syncToPhrases: true,
       width,
       height,
     });

@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, RotateCcw, FastForward, Download } from 'lucide-react';
 import { InterpreterAILogo } from '@/components/brand/InterpreterAILogo';
-import { exportReelMp4, type ExportProgress } from '@/lib/exportReelMp4';
+import { exportReelMp4, type ExportProgress, waitForStagePaint } from '@/lib/exportReelMp4';
 import { ReelAudioMixer } from '@/lib/audioMix';
 import { isRtlLanguage } from '@/lib/constants/languages';
 import {
@@ -28,7 +28,8 @@ import {
 import {
   CAPTION_SIDE_PAD,
   captionFontSizePx,
-  captionWindowAt,
+  clipCaptionWindowAt,
+  layoutClipCaptionLines,
   estimateTimedWords,
   activeWordAt,
   KINETIC_ACTIVE_BLUE,
@@ -38,8 +39,9 @@ import {
 } from '@/lib/kineticCaptions';
 import { activeStatAt, parseStatCallouts } from '@/lib/statCallouts';
 import { GeneratedReelPlayer } from '@/components/preview/GeneratedReelPlayer';
-import type { OutroConfig } from '@/lib/outroConfig';
-import type { WorkspaceScript } from '@/lib/generatedReel';
+import type { WorkspaceConversation } from '@/lib/workspaceModel';
+import { migrateWorkspaceScript } from '@/lib/workspaceModel';
+import type { UniversalOutroCopy } from '@/lib/universalBrandOutro';
 import type { LanguagePair } from '@/lib/languageFlags';
 
 /** Default looping product-proof clip (drop file in public/media/). */
@@ -97,19 +99,34 @@ interface ReelPlayerProps {
   /** Optional playhead callback for external waveform / scrub UI. */
   onTimeChange?: (t: number, total: number) => void;
 
-  /* --- Generated 35s reel mode (intro → hook → workspace → outro) --- */
-  /** Configurable Brand Outro. Providing this + workspaceScript switches the
-   * player to the fixed 35s timeline (2s intro, 8s hook, dynamic workspace). */
-  outroConfig?: OutroConfig;
-  workspaceScript?: WorkspaceScript;
+  /* --- Generated 35s reel mode (hook → workspace → outro) --- */
+  workspace?: WorkspaceConversation;
+  /** @deprecated — migrated to workspace */
+  workspaceScript?: { speakerA: string[]; speakerB: string[] };
   languagePair?: LanguagePair;
   footageUrls?: string[];
+  hookVoClips?: import("@/lib/generatedReel").HookVoClip[];
+  hookDurationSec?: number;
+  subtitleScale?: number;
   audioBase64?: string | null;
+  workspaceVoClips?: import("@/lib/generatedReel").WorkspaceVoClip[];
   outroAudioBase64?: string | null;
   words?: TimedWord[];
-  outroWords?: TimedWord[];
+  outroCopy?: UniversalOutroCopy;
   /** Spoken outro script (translated when reel language ≠ en). */
   outroVoiceoverText?: string;
+  /** Include 10s brand outro at end (default true). */
+  includeOutro?: boolean;
+  /** Include workspace dialogue segment (default true). */
+  includeWorkspace?: boolean;
+  /** Dynamic outro segment length from VO script. */
+  outroDurationSec?: number;
+  workspaceDurationSec?: number;
+  /** Editable outro layer layout for preview/export parity */
+  outroLayout?: import("@/lib/outroLayerLayout").OutroLayerDocument;
+  outroPhraseTimings?: import("@/lib/outroVoPacing").OutroPhraseTiming[];
+  /** Hook-only after VO; full reel after Generate Reel. */
+  previewScope?: "full" | "hook-only";
 }
 
 function stockBrollStyle(series: string): CSSProperties {
@@ -391,7 +408,7 @@ function KineticCaption({
   compact?: boolean;
   fallbackText?: string;
 }) {
-  const win = captionWindowAt(words, localTime, 3);
+  const win = clipCaptionWindowAt(words, localTime);
   const fontSize = captionFontSizePx(Math.max(2, win?.words.length ?? 3), canvasWidth);
   const size = compact ? Math.round(fontSize * 0.78) : fontSize;
 
@@ -419,6 +436,8 @@ function KineticCaption({
     );
   }
 
+  const lines = layoutClipCaptionLines(win.words);
+
   return (
     <div
       dir={rtl ? 'rtl' : 'ltr'}
@@ -427,39 +446,53 @@ function KineticCaption({
         zIndex: 12,
         width: '100%',
         display: 'flex',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
+        flexDirection: 'column',
         alignItems: 'center',
-        gap: `${Math.round(size * 0.22)}px ${Math.round(size * 0.28)}px`,
+        gap: Math.round(size * 0.12),
         padding: `0 ${CAPTION_SIDE_PAD}px`,
         boxSizing: 'border-box',
         fontFamily: REEL_CAPTION_FONT,
       }}
     >
-      {win.words.map((w) => {
-        const on = w.index === win.activeIndex;
-        return (
-          <span
-            key={`${w.index}-${w.word}`}
-            style={{
-              fontSize: size,
-              fontWeight: 800,
-              lineHeight: 1.12,
-              letterSpacing: rtl ? 0 : '-0.03em',
-              color: on ? KINETIC_ACTIVE_BLUE : KINETIC_IDLE_WHITE,
-              textShadow: on
-                ? `0 0 32px ${KINETIC_ACTIVE_BLUE}aa, 0 6px 28px rgba(0,0,0,0.75)`
-                : '0 6px 28px rgba(0,0,0,0.7)',
-              borderBottom: on ? `5px solid ${KINETIC_ACTIVE_BLUE}` : '5px solid transparent',
-              paddingBottom: 6,
-              transition: 'color 60ms linear, text-shadow 60ms linear, border-color 60ms linear',
-              willChange: 'color',
-            }}
-          >
-            {w.word}
-          </span>
-        );
-      })}
+      {lines.map((lineWords, lineIdx) => (
+        <div
+          key={`line-${lineIdx}-${lineWords[0]?.index ?? 0}`}
+          style={{
+            display: 'flex',
+            flexWrap: 'nowrap',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: `${Math.round(size * 0.22)}px ${Math.round(size * 0.28)}px`,
+            maxWidth: '100%',
+          }}
+        >
+          {lineWords.map((w) => {
+            const on = w.index === win.activeIndex;
+            return (
+              <span
+                key={`${w.index}-${w.word}`}
+                style={{
+                  fontSize: size,
+                  fontWeight: 800,
+                  lineHeight: 1.12,
+                  letterSpacing: rtl ? 0 : '-0.03em',
+                  color: on ? KINETIC_ACTIVE_BLUE : KINETIC_IDLE_WHITE,
+                  textShadow: on
+                    ? `0 0 32px ${KINETIC_ACTIVE_BLUE}aa, 0 6px 28px rgba(0,0,0,0.75)`
+                    : '0 6px 28px rgba(0,0,0,0.7)',
+                  borderBottom: on ? `5px solid ${KINETIC_ACTIVE_BLUE}` : '5px solid transparent',
+                  paddingBottom: 6,
+                  transition: 'color 60ms linear, text-shadow 60ms linear, border-color 60ms linear',
+                  willChange: 'color',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {w.word}
+              </span>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -477,28 +510,46 @@ function wordsForSegment(
 }
 
 export function ReelPlayer(props: ReelPlayerProps) {
-  const { outroConfig, workspaceScript, languagePair } = props;
-  // Generated 35s reel — fixed intro/hook/workspace/outro timeline.
-  if (outroConfig && workspaceScript && languagePair) {
+  const { workspace, workspaceScript, languagePair } = props;
+  const ws =
+    workspace ??
+    (workspaceScript && languagePair
+      ? migrateWorkspaceScript(
+          workspaceScript,
+          languagePair.sourceLabel === 'English' ? 'en' : props.targetLanguage,
+          props.targetLanguage,
+        )
+      : null);
+  if (ws && languagePair) {
     return (
       <GeneratedReelPlayer
         playback={{
-          outroConfig,
-          workspaceScript,
+          workspace: ws,
           languagePair,
           footageUrls: props.footageUrls ?? [],
+          hookVoClips: props.hookVoClips ?? [],
+          hookDurationSec: props.hookDurationSec,
+          subtitleScale: props.subtitleScale ?? 1,
           audioBase64: props.audioBase64 ?? null,
+          workspaceVoClips: props.workspaceVoClips ?? [],
           outroAudioBase64: props.outroAudioBase64 ?? null,
           words: props.words ?? [],
-          outroWords: props.outroWords ?? [],
           hookScript: props.data.hook || '',
-          outroVoiceover: props.outroVoiceoverText || outroConfig.voiceover,
+          targetLanguage: props.targetLanguage ?? 'en',
+          outroCopy: props.outroCopy,
+          outroVoiceover: props.outroVoiceoverText,
+          outroLayout: props.outroLayout,
+          outroPhraseTimings: props.outroPhraseTimings,
+          includeOutro: props.includeOutro !== false,
+          includeWorkspace: props.includeWorkspace !== false,
+          outroDurationSec: props.outroDurationSec,
+          workspaceDurationSec: props.workspaceDurationSec,
         }}
-        targetLanguage={props.targetLanguage}
         musicUrl={props.musicUrl}
         volumes={props.volumes}
         filename={props.filename}
         accentColor={props.accentColor}
+        previewScope={props.previewScope ?? "full"}
       />
     );
   }
@@ -812,8 +863,10 @@ function ClassicReelPlayer({
     );
   };
 
-  const waitForPaint = () =>
-    new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+  const waitForPaint = () => {
+    const stage = stageRef.current;
+    return stage ? waitForStagePaint(stage) : Promise.resolve();
+  };
 
   const downloadMp4 = async () => {
     const stage = stageRef.current;
@@ -832,6 +885,7 @@ function ClassicReelPlayer({
         segments,
         fps: 30,
         videoBitrate: 14_000_000,
+        frameAccurate: true,
         outroCapture: 'canvas',
         outroCopy,
         filename: filename || 'InterpreterAI_Reel.mp4',

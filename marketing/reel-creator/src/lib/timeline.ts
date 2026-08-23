@@ -1,5 +1,6 @@
 /** Dynamic reel timeline — starts at Hook (no logo intro hold). */
 
+import { buildReelExportFilename } from "@/lib/reelNaming";
 import { LOCKED_OUTRO_MIN_SEC, outroDurationForVoSec } from "@/lib/universalBrandOutro";
 
 export const WORDS_PER_SEC = 2.5; // ~150 wpm
@@ -111,8 +112,6 @@ export function sanitizeFilenamePart(raw: string): string {
     .replace(/_+/g, "_") || "Reel";
 }
 
-export function buildExportFilename(scenario: string, languageLabel: string): string {
-  const s = sanitizeFilenamePart(scenario);
-  const l = sanitizeFilenamePart(languageLabel);
-  return `${s}_${l}_Reel.mp4`;
+export function buildExportFilename(scenario: string, language: string): string {
+  return buildReelExportFilename({ storyline: scenario, language });
 }

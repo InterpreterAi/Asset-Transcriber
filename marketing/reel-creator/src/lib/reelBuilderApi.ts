@@ -8,11 +8,13 @@ import {
   type TimedWord,
 } from "@/lib/kineticCaptions";
 import {
-  buildLockedOutroVoiceParts,
   lockedOutroVoiceText,
   prepareLockedOutroAudio,
-  stitchLockedOutroSpeech,
 } from "@/lib/universalBrandOutro";
+import {
+  DEFAULT_OUTRO_PHRASE_GAP_SEC,
+  formatOutroForSingleTts,
+} from "@/lib/outroVoPacing";
 
 function apiHeaders(): HeadersInit {
   const key = import.meta.env.VITE_REEL_BUILDER_API_KEY as string | undefined;
@@ -271,6 +273,8 @@ export async function synthesizeVoiceover(
   text: string,
   voice: string,
   speed = 1,
+  language?: string,
+  delivery?: string,
 ): Promise<SynthesizedVoiceover> {
   const res = await fetch("/api/reel-builder/tts", {
     method: "POST",
@@ -278,7 +282,14 @@ export async function synthesizeVoiceover(
       ...apiHeaders(),
       Accept: "application/json",
     },
-    body: JSON.stringify({ text, voice, speed, withTimestamps: true }),
+    body: JSON.stringify({
+      text,
+      voice,
+      speed,
+      withTimestamps: true,
+      ...(language ? { language } : {}),
+      ...(delivery ? { delivery } : {}),
+    }),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -338,7 +349,7 @@ export async function synthesizeVoiceover(
 async function fetchTtsRaw(
   text: string,
   voice: string,
-  opts?: { speed?: number; pacing?: "brand" },
+  opts?: { speed?: number; pacing?: "brand"; language?: string },
 ): Promise<{ blob: Blob; words: TimedWord[]; provider?: string }> {
   const res = await fetch("/api/reel-builder/tts", {
     method: "POST",
@@ -349,6 +360,7 @@ async function fetchTtsRaw(
       speed: opts?.speed ?? 1,
       pacing: opts?.pacing,
       withTimestamps: true,
+      ...(opts?.language ? { language: opts.language } : {}),
     }),
   });
   if (!res.ok) {
@@ -374,38 +386,27 @@ async function fetchTtsRaw(
 }
 
 /**
- * Locked Universal Brand Outro VO — natural 1.0× brand pacing:
- * brand + slogan → real silence → Supports + CTA (no rushed single take).
+ * Locked Universal Brand Outro VO — single take, phrase-synced to on-screen layers.
  */
 export async function synthesizeLockedOutroVoiceover(
   text: string,
   voice: string,
+  language = "en",
 ): Promise<SynthesizedVoiceover> {
   const spoken = lockedOutroVoiceText({ voiceover: text });
-  // Always: "InterpreterAI…" first; always end on "Start your free trial now." (no URL).
-  const { brandSlogan, payoff } = buildLockedOutroVoiceParts(
-    spoken.match(/Stay focused on the conversation[.!]?/i)?.[0],
-    spoken.match(/We(?:'ll| will) handle the (?:rest|words)[.!]?/i)?.[0],
-  );
-
-  const [a, b] = await Promise.all([
-    fetchTtsRaw(brandSlogan, voice, { speed: 1, pacing: "brand" }),
-    fetchTtsRaw(payoff, voice, { speed: 1, pacing: "brand" }),
-  ]);
-
-  const stitched = await stitchLockedOutroSpeech(a.blob, b.blob);
-  const blob = await prepareLockedOutroAudio(stitched);
+  const formatted = formatOutroForSingleTts(spoken, DEFAULT_OUTRO_PHRASE_GAP_SEC);
+  const result = await fetchTtsRaw(formatted, voice, { speed: 1, pacing: "brand", language });
+  const blob = await prepareLockedOutroAudio(result.blob);
   const speechDuration = await measureBlobDuration(blob);
-  const fullText = `${brandSlogan} ${payoff}`.trim();
-  let words = [...a.words, ...b.words];
+  let words = result.words;
   if (words.length === 0) {
-    words = estimateTimedWords(fullText, Math.max(0.4, speechDuration));
+    words = estimateTimedWords(spoken, Math.max(0.4, speechDuration));
   }
   return {
     blob,
     words,
     speechDuration,
-    provider: a.provider || b.provider,
+    provider: result.provider,
   };
 }
 
@@ -422,16 +423,18 @@ export async function generateSegmentVoiceovers(
   voice: string,
   speed = 1,
   onProgress?: (label: string) => void,
+  language = "en",
 ): Promise<VoiceoverPack> {
   const empty = (): SynthesizedVoiceover => ({
     blob: new Blob([], { type: "audio/mpeg" }),
     words: [],
     speechDuration: 0,
   });
+  const lang = language !== "en" ? language : undefined;
   const run = async (label: string, text: string) => {
     onProgress?.(label);
     if (!text.trim()) return empty();
-    return synthesizeVoiceover(text, voice, speed);
+    return synthesizeVoiceover(text, voice, speed, lang);
   };
   const hook = await run("hook", texts.hook);
   const problem = await run("problem", texts.problem);
@@ -440,7 +443,7 @@ export async function generateSegmentVoiceovers(
   let outro: SynthesizedVoiceover | undefined;
   if (texts.outro?.trim()) {
     onProgress?.("outro");
-    outro = await synthesizeLockedOutroVoiceover(texts.outro, voice);
+    outro = await synthesizeLockedOutroVoiceover(texts.outro, voice, language);
   }
   return { hook, problem, solution, result, outro };
 }

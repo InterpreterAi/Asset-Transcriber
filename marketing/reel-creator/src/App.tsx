@@ -5,6 +5,7 @@ import NotFound from '@/pages/not-found';
 import { Redirect, Route, Switch, Router as WouterRouter } from 'wouter';
 
 import { Navbar } from '@/components/layout/Navbar';
+import { AppErrorBoundary } from '@/components/layout/AppErrorBoundary';
 import Studio from '@/pages/studio';
 import Library from '@/pages/library';
 import OutroExportPage from '@/pages/outro-export';
@@ -17,16 +18,17 @@ function Router() {
       <Navbar />
       <main className="flex-1 flex flex-col">
         <Switch>
-          <Route path="/" component={Studio} />
+          <Route path="/studio/new" component={Studio} />
+          <Route path="/studio/:id" component={Studio} />
           <Route path="/studio" component={Studio} />
+          <Route path="/" component={Studio} />
           <Route path="/library" component={Library} />
           <Route path="/outro" component={OutroExportPage} />
-          {/* Legacy Produce Engine UI retired — rendering lives inside Creative Studio */}
-          <Route path="/builder">
-            <Redirect to="/" />
-          </Route>
           <Route path="/builder/:id">
-            <Redirect to="/" />
+            {(params) => <Redirect to={`/studio/${params.id}`} />}
+          </Route>
+          <Route path="/builder">
+            <Redirect to={`/studio/new?fresh=1&t=${Date.now()}`} />
           </Route>
           <Route component={NotFound} />
         </Switch>
@@ -37,14 +39,16 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </AppErrorBoundary>
   );
 }
 

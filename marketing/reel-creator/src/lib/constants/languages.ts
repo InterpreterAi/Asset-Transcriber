@@ -90,40 +90,33 @@ export function reelLanguageLabel(code: string): string {
   return REEL_LANGUAGES.find((l) => l.code === code)?.label ?? code;
 }
 
-/** Premier ElevenLabs commercial voices (mapped server-side to voice_id). */
-export type VoiceActorId = "adam" | "rachel" | "antoni" | "josh" | "bella";
+import {
+  VOICE_ACTOR_ENTRIES,
+  type VoiceActorId,
+  type VoiceActorGender,
+} from "@/lib/voiceActors";
 
-export const VOICE_ACTORS: readonly {
-  id: VoiceActorId;
-  label: string;
-  elevenLabsId: string;
-}[] = [
-  {
-    id: "adam",
-    label: "Adam — Deep, Professional Commercial (Male)",
-    elevenLabsId: "pNInz6obpgDQGcFmaJgB",
-  },
-  {
-    id: "rachel",
-    label: "Rachel — Energetic Tech & Brand (Female)",
-    elevenLabsId: "21m00Tcm4TlvDq8ikWAM",
-  },
-  {
-    id: "antoni",
-    label: "Antoni — Natural Tech Presenter (Male)",
-    elevenLabsId: "ErXwobaYiN019PkySvjV",
-  },
-  {
-    id: "josh",
-    label: "Josh — Deep Hype Commercial (Male)",
-    elevenLabsId: "TxGEqnHWrfWFTfGW9XjX",
-  },
-  {
-    id: "bella",
-    label: "Bella — Smooth Conversational (Female)",
-    elevenLabsId: "EXAVITQu4vr4xnSDxMaL",
-  },
-] as const;
+export type { VoiceActorId, VoiceActorGender };
+
+/** Premier ElevenLabs commercial voices (mapped server-side to voice_id). Multilingual turbo v2.5. */
+export const VOICE_ACTORS = VOICE_ACTOR_ENTRIES;
+
+export function getVoiceActor(id: VoiceActorId) {
+  return VOICE_ACTORS.find((v) => v.id === id) ?? VOICE_ACTORS.find((v) => v.id === "rachel")!;
+}
+
+export function voicePreviewUrl(id: VoiceActorId): string {
+  return getVoiceActor(id).previewUrl;
+}
+
+export function sortVoiceActorsForPicker(favoriteIds: VoiceActorId[]): (typeof VOICE_ACTORS)[number][] {
+  const favSet = new Set(favoriteIds);
+  const favorites = favoriteIds
+    .map((id) => VOICE_ACTORS.find((v) => v.id === id))
+    .filter((v): v is (typeof VOICE_ACTORS)[number] => v != null);
+  const rest = VOICE_ACTORS.filter((v) => !favSet.has(v.id));
+  return [...favorites, ...rest];
+}
 
 const LEGACY_VOICE_MAP: Record<string, VoiceActorId> = {
   onyx: "adam",
@@ -134,12 +127,45 @@ const LEGACY_VOICE_MAP: Record<string, VoiceActorId> = {
   shimmer: "bella",
 };
 
+export const DEFAULT_WORKSPACE_SPEAKER_A_VOICE: VoiceActorId = "adam";
+/** Softer, less polished — reads as LEP / refugee speaker in any language. */
+export const DEFAULT_WORKSPACE_SPEAKER_B_VOICE: VoiceActorId = "elli";
+
 export function normalizeVoiceActorId(raw: unknown): VoiceActorId {
   if (typeof raw === "string") {
     if (VOICE_ACTORS.some((v) => v.id === raw)) return raw as VoiceActorId;
     if (raw in LEGACY_VOICE_MAP) return LEGACY_VOICE_MAP[raw]!;
   }
   return "rachel";
+}
+
+/** First voice in the catalog that is not blue/yellow workspace speaker A or B. */
+export function defaultThirdSpeakerVoiceId(
+  speakerA: VoiceActorId,
+  speakerB: VoiceActorId,
+  preferred?: VoiceActorId | null,
+): VoiceActorId {
+  const blocked = new Set<VoiceActorId>([speakerA, speakerB]);
+  if (preferred) {
+    const pref = normalizeVoiceActorId(preferred);
+    if (!blocked.has(pref)) return pref;
+  }
+  return VOICE_ACTORS.find((v) => !blocked.has(v.id))?.id ?? "antoni";
+}
+
+/** Keep 3rd speaker distinct from the two main workspace voices. */
+export function resolveThirdSpeakerVoiceId(
+  raw: unknown,
+  speakerA: VoiceActorId,
+  speakerB: VoiceActorId,
+  preferred?: VoiceActorId | null,
+): VoiceActorId {
+  if (typeof raw !== "string" || !raw.trim()) {
+    return defaultThirdSpeakerVoiceId(speakerA, speakerB, preferred);
+  }
+  const id = normalizeVoiceActorId(raw);
+  if (id !== speakerA && id !== speakerB) return id;
+  return defaultThirdSpeakerVoiceId(speakerA, speakerB, preferred);
 }
 
 export type VoiceSpeedId = "1" | "1.15" | "1.25";

@@ -1,51 +1,61 @@
 /**
- * InterpreterAI Universal Brand Outro — locked brand sequence.
- * Visual plate = approved 3D master. Domain = working app URL only.
+ * InterpreterAI Universal Brand Outro — fixed 5s deterministic composition.
+ * Visual layers use a locked timeline; VO subtitles sync separately.
  */
 
-/**
- * Minimum visual hold for the full English locked script.
- * Full VO ≈ 8–10s; never cut off “Supports 62 languages” / CTA.
- * Timeline still extends further when measured VO is longer (localized).
- */
-export const LOCKED_OUTRO_MIN_SEC = 10.0;
+import {
+  INTERPRETER_AI_OUTRO_COPY,
+  INTERPRETER_AI_OUTRO_VO,
+} from "@/lib/interpreterAIOutro/lockedCopy";
+import { INTERPRETER_AI_OUTRO_DURATION_SEC } from "@/lib/interpreterAIOutro/timeline";
+
+/** Fixed visual composition length (seconds). Segment may extend for longer VO. */
+export const CANONICAL_OUTRO_DURATION_SEC = INTERPRETER_AI_OUTRO_DURATION_SEC;
+export const LOCKED_OUTRO_MIN_SEC = CANONICAL_OUTRO_DURATION_SEC;
 export const LOCKED_OUTRO_FADE_BLACK_SEC = 0.35;
-/** Calm open before brand name — commercial pacing. */
-export const LOCKED_OUTRO_VO_DELAY_SEC = 0.55;
-/** Real silence after slogan before “Supports…” (brand-spot beat). */
-export const LOCKED_OUTRO_SLOGAN_PAUSE_SEC = 0.4;
-/** Pad after speech so last words never clip into fade-black. */
-export const LOCKED_OUTRO_TAIL_PAD_SEC = 0.65;
+/** Hold CTA / URL on screen after VO ends before fade — premium SaaS outro pacing. */
+export const OUTRO_POST_VO_HOLD_SEC = 1.0;
+/** No lead silence — logo establishes brand visually first. */
+export const LOCKED_OUTRO_VO_DELAY_SEC = 0;
+/** No artificial pause between slogan and payoff. */
+export const LOCKED_OUTRO_SLOGAN_PAUSE_SEC = 0;
+/** No artificial tail pad — punctuation + TTS handle pacing. */
+export const LOCKED_OUTRO_TAIL_PAD_SEC = 0;
 /** @deprecated */
 export const LOCKED_OUTRO_STING_AT_SEC = -1;
 /** @deprecated */
 export const LOCKED_OUTRO_DURATION_SEC = LOCKED_OUTRO_MIN_SEC;
 
 /**
- * Never translate brand name / domain.
- * Use app.interpreterai.org — InterpreterAI.org does not resolve.
+ * Never translate brand name in slogan layers.
+ * QR/link may still resolve to the working app URL.
  */
 export const BRAND_LOCKED = {
   name: "InterpreterAI",
   domain: "app.interpreterai.org",
   url: "https://app.interpreterai.org",
-  displayUrl: "app.interpreterai.org",
+  /** On-screen URL in the fixed outro composition. */
+  displayUrl: INTERPRETER_AI_OUTRO_COPY.urlFull,
   qrSrc: "/brand/interpreterai-org-qr.png",
-  /** Approved 3D master plate (Flow) — exact logo look */
-  masterVideo: "/brand/universal-outro-master.mp4",
-  masterStill: "/brand/universal-outro-plate.png",
+  brandIconSrc: "/brand/outro-brand-icon.png?v=1",
+  brandLockupSrc: "/brand/outro-brand-lockup.png?v=2",
+  /** Approved 1080×1920 reference outro plate — exact brand design. */
+  outroPlateSrc: "/brand/interpreterai-outro-plate.png?v=2",
+  masterVideo: "/brand/approved-outro.mp4",
+  masterStill: "/brand/interpreterai-outro-plate.png?v=2",
+  masterBackground: "/brand/interpreterai-outro-plate.png?v=2",
+  canonicalAudio: "/brand/universal-outro-vo-en.m4a",
 } as const;
 
-/** English source of truth — translate slogan/CTA/VO only. */
+/** English source of truth — locked on-screen strings; do not edit in reel builder. */
 export const UNIVERSAL_OUTRO_EN = {
-  brandSpoken: "InterpreterAI.",
-  line1: "Stay focused on the conversation.",
-  line2: "We'll handle the words.",
-  languagesLine: "Supports 62 languages",
-  ctaHeadline: "Start Free Trial",
-  /** Risk remover under CTA — keep short. */
-  ctaSubline: "7 days free · No credit card",
-  ctaVoice: "Start your free trial now.",
+  line1: INTERPRETER_AI_OUTRO_COPY.tagline1,
+  line2: INTERPRETER_AI_OUTRO_COPY.tagline2,
+  languagesLine: INTERPRETER_AI_OUTRO_COPY.languages,
+  ctaHeadline: INTERPRETER_AI_OUTRO_COPY.cta,
+  ctaSubline: INTERPRETER_AI_OUTRO_COPY.ctaSub,
+  ctaVoice: "Start your free trial today.",
+  urlVoice: "",
   badges: ["Live Transcription", "AI Translation", "62 Languages"] as const,
 } as const;
 
@@ -61,7 +71,6 @@ export type UniversalOutroCopy = {
 export const DEFAULT_OUTRO_SLOGAN = {
   line1: UNIVERSAL_OUTRO_EN.line1,
   line2: UNIVERSAL_OUTRO_EN.line2,
-  brand: UNIVERSAL_OUTRO_EN.brandSpoken,
   ctaHeadline: UNIVERSAL_OUTRO_EN.ctaHeadline,
 } as const;
 
@@ -74,99 +83,102 @@ function normalizeSloganLines(line1?: string, line2?: string) {
   return { a, b };
 }
 
-/** Locked VO ending — never speak the URL or anything after this. */
-function lockedCtaVoice(): string {
-  return UNIVERSAL_OUTRO_EN.ctaVoice;
+/**
+ * Canonical full outro VO — locked script for every reel.
+ */
+export function buildCanonicalOutroVoiceover(_line1?: string, _line2?: string): string {
+  return INTERPRETER_AI_OUTRO_VO;
 }
 
-/** Two-part brand script — stitch with silence after the slogan for natural spots. */
+/** @deprecated Use buildCanonicalOutroVoiceover */
+export function buildLockedOutroVoiceover(line1?: string, line2?: string): string {
+  return buildCanonicalOutroVoiceover(line1, line2);
+}
+
+/** @deprecated Single-pass TTS — parts kept for legacy callers. */
 export function buildLockedOutroVoiceParts(
   line1?: string,
   line2?: string,
 ): { brandSlogan: string; payoff: string } {
-  const { a, b } = normalizeSloganLines(line1, line2);
-  return {
-    // Brand name first, plain, every speaker.
-    brandSlogan: [UNIVERSAL_OUTRO_EN.brandSpoken, a, b].join(" ").replace(/\s+/g, " ").trim(),
-    // Ends on “Start your free trial now.” — nothing after.
-    payoff: [`${UNIVERSAL_OUTRO_EN.languagesLine}.`, lockedCtaVoice()]
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim(),
-  };
+  const full = buildCanonicalOutroVoiceover(line1, line2);
+  const phrases = full.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const brandSlogan = phrases.slice(0, 2).join(" ").trim();
+  const payoff = phrases.slice(2).join(" ").trim();
+  return { brandSlogan, payoff };
 }
 
-/**
- * Canonical full outro VO:
- * InterpreterAI → slogan → Supports 62 languages → Start your free trial now.
- */
-export function buildLockedOutroVoiceover(line1?: string, line2?: string): string {
-  const { brandSlogan, payoff } = buildLockedOutroVoiceParts(line1, line2);
-  return `${brandSlogan} ${payoff}`.replace(/\s+/g, " ").trim();
-}
-
-/** Always returns the complete locked script (never a truncated pack line). */
+/** Always returns the complete canonical script. */
 export function lockedOutroVoiceText(copy?: Partial<UniversalOutroCopy>): string {
-  // Prefer rebuilding from lines so stale short pack narration cannot drop beats.
   if (copy?.line1 || copy?.line2 || !copy?.voiceover?.trim()) {
-    return buildLockedOutroVoiceover(copy?.line1, copy?.line2);
+    return buildCanonicalOutroVoiceover(copy?.line1, copy?.line2);
   }
   return normalizeOutroVoiceover(copy.voiceover);
 }
 
 export function normalizeOutroVoiceover(raw: string): string {
   const v = raw.trim().replace(/\s+/g, " ");
-  if (!v) return buildLockedOutroVoiceover();
-
-  const line1Match = v.match(/Stay focused on the conversation[.!]?/i);
-  const line2Match = v.match(/We(?:'ll| will) handle the (?:rest|words)[.!]?/i);
-
-  // Always rebuild — CTA is locked to “…now.” (never URL / never trailing extras).
-  return buildLockedOutroVoiceover(
-    line1Match?.[0],
-    line2Match?.[0]?.replace(/rest/i, "words").replace(/\bwe will\b/i, "We'll"),
-  );
-}
-
-/** Recommended outro segment length for a VO blob (speech + settle + tail). */
-export function outroDurationForVoSec(voSec: number): number {
-  const speech = Math.max(0, voSec);
-  return Math.max(
-    LOCKED_OUTRO_MIN_SEC,
-    speech + LOCKED_OUTRO_FADE_BLACK_SEC + 0.15,
-  );
+  if (!v) return buildCanonicalOutroVoiceover();
+  return v;
 }
 
 export function defaultOutroVoiceText(line1?: string, line2?: string): string {
-  return lockedOutroVoiceText({ line1, line2 });
+  return buildCanonicalOutroVoiceover(line1, line2);
 }
 
-export function resolveUniversalOutroCopy(partial?: {
+/** Outro segment length from measured speech — no fixed hold unless minHoldSec set. */
+export function outroDurationForVoSec(voSec: number, minHoldSec = 0): number {
+  const speech = Math.max(0, voSec);
+  const tail = OUTRO_POST_VO_HOLD_SEC + LOCKED_OUTRO_FADE_BLACK_SEC;
+  if (minHoldSec > 0) {
+    return Math.max(minHoldSec, speech + tail);
+  }
+  return Math.max(1.5, speech + tail);
+}
+
+export function resolveUniversalOutroCopy(_partial?: {
   outroLine1?: string;
   outroLine2?: string;
   ctaHeadline?: string;
   outroVoiceover?: string;
   languagesLine?: string;
+  ctaSubline?: string;
 }): UniversalOutroCopy {
-  const line1 = (partial?.outroLine1 || UNIVERSAL_OUTRO_EN.line1).trim();
-  let line2 = (partial?.outroLine2 || UNIVERSAL_OUTRO_EN.line2).trim();
-  line2 = line2
-    .replace(/\bhandle the rest\b/gi, "handle the words")
-    .replace(/\b[Ww]e will\b/g, "We'll");
-  if (/rest/i.test(line2) && !/words/i.test(line2)) {
-    line2 = UNIVERSAL_OUTRO_EN.line2;
-  }
   return {
-    line1,
-    line2,
-    ctaHeadline: (partial?.ctaHeadline || UNIVERSAL_OUTRO_EN.ctaHeadline).trim(),
-    languagesLine: (partial?.languagesLine || UNIVERSAL_OUTRO_EN.languagesLine).trim(),
-    voiceover: lockedOutroVoiceText({
-      line1,
-      line2,
-      voiceover: partial?.outroVoiceover,
-    }),
+    line1: UNIVERSAL_OUTRO_EN.line1,
+    line2: UNIVERSAL_OUTRO_EN.line2,
+    ctaHeadline: UNIVERSAL_OUTRO_EN.ctaHeadline,
+    languagesLine: UNIVERSAL_OUTRO_EN.languagesLine,
+    ctaSubline: UNIVERSAL_OUTRO_EN.ctaSubline,
+    voiceover: INTERPRETER_AI_OUTRO_VO,
   };
+}
+
+export function buildStudioOutroCopy(fields: {
+  line1: string;
+  line2: string;
+  ctaHeadline?: string;
+  languagesLine?: string;
+  voiceover: string;
+}): UniversalOutroCopy {
+  return resolveUniversalOutroCopy({
+    outroLine1: fields.line1,
+    outroLine2: fields.line2,
+    ctaHeadline: fields.ctaHeadline,
+    languagesLine: fields.languagesLine,
+    outroVoiceover: fields.voiceover,
+  });
+}
+
+export function outroScreenCopyIsCustom(
+  copy: Pick<UniversalOutroCopy, "line1" | "line2" | "ctaHeadline" | "languagesLine">,
+): boolean {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ").replace(/[.!?…]+$/g, "");
+  return (
+    norm(copy.line1.trim()) !== norm(UNIVERSAL_OUTRO_EN.line1) ||
+    norm(copy.line2.trim()) !== norm(UNIVERSAL_OUTRO_EN.line2) ||
+    norm((copy.ctaHeadline?.trim() ?? UNIVERSAL_OUTRO_EN.ctaHeadline)) !== norm(UNIVERSAL_OUTRO_EN.ctaHeadline) ||
+    norm((copy.languagesLine?.trim() ?? UNIVERSAL_OUTRO_EN.languagesLine)) !== norm(UNIVERSAL_OUTRO_EN.languagesLine)
+  );
 }
 
 export const OUTRO_BEAT_FRACS = {
@@ -186,32 +198,34 @@ export const OUTRO_BEATS = {
   badgeStaggerSec: 0.12,
 } as const;
 
+/** Minimal tail pad for fade — no lead silence or slogan gap. */
 export async function prepareLockedOutroAudio(rawSpeechBlob: Blob): Promise<Blob> {
-  const withLead = await prependSilence(rawSpeechBlob, LOCKED_OUTRO_VO_DELAY_SEC);
-  return appendSilence(withLead, LOCKED_OUTRO_TAIL_PAD_SEC);
+  if (LOCKED_OUTRO_TAIL_PAD_SEC <= 0.001) return rawSpeechBlob;
+  return appendSilence(rawSpeechBlob, LOCKED_OUTRO_TAIL_PAD_SEC);
 }
 
-/** Join brand+slogan → pause → payoff (Supports + CTA). */
+/** @deprecated No longer stitches with pause — returns first blob only. */
 export async function stitchLockedOutroSpeech(
   brandSloganBlob: Blob,
   payoffBlob: Blob,
-  pauseSec = LOCKED_OUTRO_SLOGAN_PAUSE_SEC,
+  _pauseSec = LOCKED_OUTRO_SLOGAN_PAUSE_SEC,
 ): Promise<Blob> {
+  if (!payoffBlob || payoffBlob.size === 0) return brandSloganBlob;
+  if (!brandSloganBlob || brandSloganBlob.size === 0) return payoffBlob;
   const ctx = new AudioContext();
   try {
     const a = await ctx.decodeAudioData((await brandSloganBlob.arrayBuffer()).slice(0));
     const b = await ctx.decodeAudioData((await payoffBlob.arrayBuffer()).slice(0));
     const rate = a.sampleRate;
     const ch = Math.max(a.numberOfChannels, b.numberOfChannels);
-    const gap = Math.max(0, Math.ceil(pauseSec * rate));
-    const total = a.length + gap + b.length;
+    const total = a.length + b.length;
     const out = ctx.createBuffer(ch, total, rate);
     for (let c = 0; c < ch; c++) {
       const dest = out.getChannelData(c);
       const srcA = a.getChannelData(Math.min(c, a.numberOfChannels - 1));
       const srcB = b.getChannelData(Math.min(c, b.numberOfChannels - 1));
       dest.set(srcA, 0);
-      dest.set(srcB, a.length + gap);
+      dest.set(srcB, a.length);
     }
     return audioBufferToWavBlob(out);
   } finally {

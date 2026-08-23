@@ -1,5 +1,6 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import { toCanvas } from "html-to-image";
+import { downloadBlob } from "@/lib/downloadBlob";
 import { createMasterChain, normalizeAudioBuffer } from "@/lib/audioNormalize";
 import { BGM_DUCK_WHILE_VO, BGM_OUTRO_PAD_RATIO } from "@/lib/bgmDuck";
 import {
@@ -10,6 +11,20 @@ import { VO_TRAILING_SILENCE_SEC } from "@/lib/timeline";
 import type { UniversalOutroCopy } from "@/lib/universalBrandOutro";
 
 export type ExportProgress = { pct: number; detail: string };
+
+/** html-to-image often rejects with Event (not Error) — normalize for UI. */
+export function formatExportError(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  if (err instanceof Event) {
+    return "Frame capture failed — reload the page and try Chrome/Edge.";
+  }
+  if (err && typeof err === "object" && "message" in err) {
+    const msg = String((err as { message?: unknown }).message ?? "").trim();
+    if (msg) return msg;
+  }
+  return "Export failed — use Chrome or Edge, then hard-refresh and retry.";
+}
 
 export type ExportSegment = {
   id: string;
@@ -33,41 +48,131 @@ export type ExportAudioOpts = {
   volumes?: ExportVolumes;
 };
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+function downloadBlobLegacy(blob: Blob, filename: string) {
+  downloadBlob(blob, filename);
+}
+
+type VideoSnapshot = {
+  video: HTMLVideoElement;
+  prevDisplay: string;
+  replacement: HTMLCanvasElement;
+};
+
+/** html-to-image cannot rasterize <video> — paint current frames to canvas first. */
+async function waitForVideoFrame(video: HTMLVideoElement, timeoutMs = 400): Promise<void> {
+  if (video.readyState >= 2 && !video.seeking) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    video.addEventListener("seeked", finish, { once: true });
+    video.addEventListener("loadeddata", finish, { once: true });
+    video.addEventListener("canplay", finish, { once: true });
+    window.setTimeout(finish, timeoutMs);
+  });
+}
+
+/** Wait for DOM paint + visible video seeks before frame capture. */
+export async function waitForStagePaint(stage: HTMLElement): Promise<void> {
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  const videos = stage.querySelectorAll("video");
+  await Promise.all(
+    [...videos].map(async (node) => {
+      const video = node as HTMLVideoElement;
+      const opacity = Number.parseFloat(getComputedStyle(video).opacity || "1");
+      if (opacity < 0.02) return;
+      await waitForVideoFrame(video);
+    }),
+  );
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+}
+
+/** Block export until visible hook/payoff videos have decoded frames (post blob-fetch). */
+export async function waitForStageFootage(stage: HTMLElement, maxMs = 12_000): Promise<void> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const visible = [...stage.querySelectorAll("video")].filter((node) => {
+      const video = node as HTMLVideoElement;
+      const opacity = Number.parseFloat(getComputedStyle(video).opacity || "1");
+      return opacity >= 0.02;
+    }) as HTMLVideoElement[];
+    if (visible.length === 0) return;
+    if (visible.every((v) => v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0)) {
+      return;
+    }
+    await new Promise((r) => window.setTimeout(r, 80));
+  }
 }
 
 async function captureStage(
   stage: HTMLElement,
   width: number,
   height: number,
+  fast = false,
 ): Promise<HTMLCanvasElement> {
-  return toCanvas(stage, {
-    width,
-    height,
-    pixelRatio: 1,
-    quality: 1,
-    cacheBust: false,
-    backgroundColor: "#0A0A0A",
-    style: {
-      transform: "none",
-      transformOrigin: "top left",
-      width: `${width}px`,
-      height: `${height}px`,
-      margin: "0",
-      left: "0",
-      top: "0",
-      right: "auto",
-      bottom: "auto",
-      opacity: "1",
-      position: "relative",
-    },
-  });
+  const snapshots: VideoSnapshot[] = [];
+
+  for (const node of stage.querySelectorAll("video")) {
+    const video = node as HTMLVideoElement;
+    const opacity = Number.parseFloat(getComputedStyle(video).opacity || "1");
+    if (opacity < 0.02) continue;
+
+    await waitForVideoFrame(video);
+    if (video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) continue;
+
+    const replacement = document.createElement("canvas");
+    replacement.width = video.videoWidth;
+    replacement.height = video.videoHeight;
+    replacement.style.cssText = video.style.cssText;
+    const rctx = replacement.getContext("2d");
+    if (!rctx) continue;
+    try {
+      rctx.drawImage(video, 0, 0, replacement.width, replacement.height);
+    } catch {
+      // Cross-origin / tainted video — skip rasterization so SVG export stays clean.
+      continue;
+    }
+
+    video.parentNode?.insertBefore(replacement, video);
+    const prevDisplay = video.style.display;
+    video.style.display = "none";
+    snapshots.push({ video, prevDisplay, replacement });
+  }
+
+  try {
+    return await toCanvas(stage, {
+      width,
+      height,
+      pixelRatio: 1,
+      quality: fast ? 0.92 : 1,
+      cacheBust: false,
+      skipFonts: true,
+      backgroundColor: "#0A0A0A",
+      style: {
+        transform: "none",
+        transformOrigin: "top left",
+        width: `${width}px`,
+        height: `${height}px`,
+        margin: "0",
+        left: "0",
+        top: "0",
+        right: "auto",
+        bottom: "auto",
+        opacity: "1",
+        position: "relative",
+      },
+    });
+  } catch (err) {
+    throw new Error(formatExportError(err));
+  } finally {
+    for (const snap of snapshots) {
+      snap.replacement.remove();
+      snap.video.style.display = snap.prevDisplay;
+    }
+  }
 }
 
 async function decodeBlob(ctx: BaseAudioContext, blob: Blob): Promise<AudioBuffer | null> {
@@ -141,19 +246,34 @@ async function mixExportAudio(
   }
 
   if (audio.voiceovers) {
-    for (const seg of audio.segments) {
-      const blob = audio.voiceovers[seg.id];
-      if (!blob || blob.size === 0) continue;
-      const buf = await decodeBlob(ctx, blob);
-      if (!buf) continue;
-      hasAny = true;
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const g = ctx.createGain();
-      g.gain.value = voGain;
-      src.connect(g);
-      g.connect(master);
-      src.start(seg.start);
+    const fullBlob = audio.voiceovers.full;
+    if (fullBlob && fullBlob.size > 0) {
+      const buf = await decodeBlob(ctx, fullBlob);
+      if (buf) {
+        hasAny = true;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const g = ctx.createGain();
+        g.gain.value = voGain;
+        src.connect(g);
+        g.connect(master);
+        src.start(0);
+      }
+    } else {
+      for (const seg of audio.segments) {
+        const blob = audio.voiceovers[seg.id];
+        if (!blob || blob.size === 0) continue;
+        const buf = await decodeBlob(ctx, blob);
+        if (!buf) continue;
+        hasAny = true;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const g = ctx.createGain();
+        g.gain.value = voGain;
+        src.connect(g);
+        g.connect(master);
+        src.start(seg.start);
+      }
     }
   }
 
@@ -248,9 +368,9 @@ async function tryEncodeAac(
   return true;
 }
 
-/** Timed outro motion (shine + staggered CTAs) must re-capture every frame. */
+/** Segments that need per-frame DOM capture (footage, typing workspace, animated outro). */
 function needsFrameAccurateCapture(segId: string): boolean {
-  return segId === "outro" || segId === "full";
+  return segId === "hook" || segId === "productPayoff" || segId === "workspace" || segId === "outro";
 }
 
 /**
@@ -272,6 +392,10 @@ export async function exportReelMp4(opts: {
   audio?: ExportAudioOpts;
   /** Used only when outroCapture is "canvas". */
   outroCopy?: UniversalOutroCopy;
+  outroLayout?: import("@/lib/outroLayerLayout").OutroLayerDocument;
+  outroDisplayLang?: string;
+  outroPhraseTimings?: import("@/lib/outroVoPacing").OutroPhraseTiming[];
+  outroRtl?: boolean;
   /**
    * "dom" = capture the live preview (best quality / exact match).
    * "canvas" = fast approximate painter.
@@ -283,9 +407,22 @@ export async function exportReelMp4(opts: {
    * Capture EVERY segment from the live DOM per frame (generated 35s reels:
    * hook footage, typing workspace and word subtitles all animate).
    */
+  /** Faster DOM capture — slightly lower quality, skips font re-fetch. */
+  fastCapture?: boolean;
   frameAccurate?: boolean;
-}): Promise<void> {
+  /** When false, returns the blob without triggering a browser download. */
+  autoDownload?: boolean;
+  /** Canvas painter — bypasses html-to-image (studio export). */
+  paintFrame?: (
+    ctx: CanvasRenderingContext2D,
+    tSec: number,
+    seg: ExportSegment,
+    width: number,
+    height: number,
+  ) => void | Promise<void>;
+}): Promise<Blob> {
   const fps = opts.fps ?? 15;
+  const fastCapture = opts.fastCapture !== false;
   const { stage, durationSec, width, height, segments } = opts;
   const frameCount = Math.max(1, Math.ceil(durationSec * fps));
   const frameDurationUs = Math.round(1_000_000 / fps);
@@ -357,30 +494,33 @@ export async function exportReelMp4(opts: {
     },
   });
 
-  // Prefer High profile for master quality.
+  // Prefer High profile for master quality; fall back to software if GPU encoder fails.
   let configured = false;
-  for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42001f"]) {
-    const config: VideoEncoderConfig = {
-      codec,
-      width,
-      height,
-      bitrate: videoBitrate,
-      framerate: fps,
-      avc: { format: "avc" },
-      hardwareAcceleration: "prefer-hardware",
-    };
-    try {
-      const support = await VideoEncoder.isConfigSupported(config);
-      if (support.supported) {
-        encoder.configure(config);
-        configured = true;
-        break;
+  const accelModes: HardwareAcceleration[] = ["prefer-hardware", "prefer-software", "no-preference"];
+  outer: for (const hw of accelModes) {
+    for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42001f"]) {
+      const config: VideoEncoderConfig = {
+        codec,
+        width,
+        height,
+        bitrate: videoBitrate,
+        framerate: fps,
+        avc: { format: "avc" },
+        hardwareAcceleration: hw,
+      };
+      try {
+        const support = await VideoEncoder.isConfigSupported(config);
+        if (support.supported) {
+          encoder.configure(config);
+          configured = true;
+          break outer;
+        }
+      } catch {
+        /* try next */
       }
-    } catch {
-      /* try next */
     }
   }
-  if (!configured) throw new Error("No supported H.264 encoder config.");
+  if (!configured) throw new Error("No supported H.264 encoder — use Chrome or Edge.");
 
   const active = segments.length
     ? segments
@@ -409,7 +549,7 @@ export async function exportReelMp4(opts: {
 
   const hasOutro = active.some((s) => frameAccurateFor(s.id));
   let outroAssets: Awaited<ReturnType<typeof loadLockedOutroPaintAssets>> | null = null;
-  if (hasOutro && outroCapture === "canvas" && opts.outroCopy) {
+  if (!opts.paintFrame && hasOutro && outroCapture === "canvas" && opts.outroCopy) {
     opts.onProgress?.({ pct: 30, detail: "Loading outro assets…" });
     outroAssets = await loadLockedOutroPaintAssets();
   }
@@ -435,11 +575,14 @@ export async function exportReelMp4(opts: {
     const t = Math.min(durationSec - 0.0001, i / fps);
     const seg = segmentAt(t);
 
-    if (frameAccurateFor(seg.id) && (outroCapture === "dom" || seg.id !== "outro")) {
+    if (opts.paintFrame && frameAccurateFor(seg.id)) {
+      opts.seekTo(t);
+      await opts.paintFrame(ctx, t, seg, width, height);
+    } else if (frameAccurateFor(seg.id) && (outroCapture === "dom" || seg.id !== "outro")) {
       // Exact preview frames — same DOM the creator shows.
       opts.seekTo(t);
       await opts.waitForPaint();
-      const snap = await captureStage(stage, width, height);
+      const snap = await captureStage(stage, width, height, fastCapture);
       ctx.drawImage(snap, 0, 0, width, height);
     } else if (
       frameAccurateFor(seg.id) &&
@@ -452,6 +595,11 @@ export async function exportReelMp4(opts: {
       paintLockedOutroFrame(ctx, {
         assets: outroAssets,
         copy: opts.outroCopy,
+        layout: opts.outroLayout,
+        displayLang: opts.outroDisplayLang ?? "en",
+        rtl: opts.outroRtl,
+        phraseTimings: opts.outroPhraseTimings,
+        syncToPhrases: true,
         localTime: local,
         durationSec: segDur,
         width,
@@ -464,7 +612,7 @@ export async function exportReelMp4(opts: {
       } else {
         opts.seekTo(t);
         await opts.waitForPaint();
-        const snap = await captureStage(stage, width, height);
+        const snap = await captureStage(stage, width, height, fastCapture);
         ctx.drawImage(snap, 0, 0, width, height);
       }
     }
@@ -476,11 +624,11 @@ export async function exportReelMp4(opts: {
     encoder.encode(frame, { keyFrame: i === 0 || i % fps === 0 });
     frame.close();
 
-    while (encoder.encodeQueueSize > 8) {
-      await new Promise((r) => setTimeout(r, 4));
+    while (encoder.encodeQueueSize > 16) {
+      await new Promise((r) => setTimeout(r, 2));
     }
 
-    if (i % 6 === 0 || i === frameCount - 1) {
+    if (i % 12 === 0 || i === frameCount - 1) {
       opts.onProgress?.({
         pct: 32 + Math.round(((i + 1) / frameCount) * 65),
         detail: `Master frame ${i + 1}/${frameCount}`,
@@ -496,9 +644,12 @@ export async function exportReelMp4(opts: {
   muxer.finalize();
 
   const blob = new Blob([target.buffer], { type: "video/mp4" });
-  downloadBlob(blob, opts.filename ?? "interpreterai-reel.mp4");
+  if (opts.autoDownload !== false) {
+    downloadBlobLegacy(blob, opts.filename ?? "interpreterai-reel.mp4");
+  }
   opts.onProgress?.({
     pct: 100,
-    detail: withAudio ? "Downloaded (video + audio)" : "Downloaded",
+    detail: withAudio ? "Downloaded (video + audio)" : "Ready",
   });
+  return blob;
 }

@@ -1,5 +1,7 @@
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
+import type { MouseEvent } from 'react';
 import { useReels, SERIES_MAP } from '@/hooks/use-reels';
+import { openNewCommercial } from '@/lib/studioDraft';
 import { format } from 'date-fns';
 import { Plus, Play, ArrowRight } from 'lucide-react';
 import { InterpreterAILogo } from '@/components/brand/InterpreterAILogo';
@@ -15,6 +17,12 @@ const SERIES_COLORS: Record<string, string> = {
 
 export default function Home() {
   const { reels, isLoaded } = useReels();
+  const [, setLocation] = useLocation();
+
+  function onNewCommercial(e: MouseEvent) {
+    e.preventDefault();
+    openNewCommercial(setLocation);
+  }
 
   if (!isLoaded) return null;
 
@@ -55,8 +63,9 @@ export default function Home() {
             Every reel ends with the same locked brand outro. Consistent. Professional. Trusted.
           </p>
 
-          <Link
-            href="/builder"
+          <a
+            href={newCommercialPath()}
+            onClick={onNewCommercial}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -69,11 +78,12 @@ export default function Home() {
               fontWeight: 700,
               textDecoration: 'none',
               letterSpacing: '0.01em',
+              cursor: 'pointer',
             }}
           >
             <Plus size={16} strokeWidth={2.5} />
             Create New Reel
-          </Link>
+          </a>
         </div>
 
         {/* ── Stats ── */}
@@ -160,8 +170,9 @@ export default function Home() {
               <p style={{ fontSize: '13px', color: 'rgba(248,250,252,0.35)', marginBottom: '20px' }}>
                 Your first reel is one click away.
               </p>
-              <Link
-                href="/builder"
+              <a
+                href={newCommercialPath()}
+                onClick={onNewCommercial}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -173,10 +184,11 @@ export default function Home() {
                   fontSize: '13px',
                   fontWeight: 700,
                   textDecoration: 'none',
+                  cursor: 'pointer',
                 }}
               >
                 <Plus size={14} /> Create first reel
-              </Link>
+              </a>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -185,7 +197,7 @@ export default function Home() {
                 return (
                   <Link
                     key={reel.id}
-                    href={`/builder/${reel.id}`}
+                    href={`/studio/${reel.id}`}
                     style={{ textDecoration: 'none' }}
                   >
                     <div style={{
