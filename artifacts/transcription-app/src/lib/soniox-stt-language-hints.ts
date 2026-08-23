@@ -7,6 +7,10 @@
  * Workspace languages can include codes Soniox does **not** STT‑support yet (e.g. Somali `so`).
  * Those map to the nearest documented STT proxy (e.g. `so` → `sw`). English in the same pair is
  * left to Soniox auto-detection (no explicit `en` hint) so the proxy bias is not drowned out.
+ *
+ * Arabic: Soniox documents a single `ar` code covering MSA + regional dialects (Egyptian, Levantine,
+ * Gulf, Maghrebi/Darija including Moroccan, Algerian, Tunisian). There are no separate dialect hint
+ * codes — keep using `ar` and bias via interpreter STT context instead.
  */
 
 /** ISO codes listed on Soniox STT supported-languages doc (as of project sync). */
@@ -88,19 +92,51 @@ export function workspacePairMemberForSonioxHint(
 }
 
 /**
+ * Stable Soniox bilingual order — independent of UI picker A/B slots.
+ *
+ * The workspace UI is bidirectional (A ↔ B). Soniox `language_hints` order and
+ * `translation.two_way.language_a/b` are NOT — putting Arabic (or any non-English)
+ * first biases STT/LID so Arabic speech can land as English text. en↔ar and ar↔en
+ * must configure Soniox identically.
+ *
+ * Rule: when English is in the pair, English is always Soniox language_a / first
+ * hint. Otherwise sort by Soniox hint ISO so fa↔ar and ar↔fa match.
+ */
+export function stableSonioxBilingualOrder(pair: { a: string; b: string }): {
+  a: string;
+  b: string;
+} {
+  const ba = baseIso(pair.a);
+  const bb = baseIso(pair.b);
+  if (ba === bb) return { a: pair.a, b: pair.b };
+  if (ba === "en") return { a: pair.a, b: pair.b };
+  if (bb === "en") return { a: pair.b, b: pair.a };
+  const ha = workspaceLangToSonioxHint(pair.a) ?? ba;
+  const hb = workspaceLangToSonioxHint(pair.b) ?? bb;
+  if (ha < hb) return { a: pair.a, b: pair.b };
+  if (hb < ha) return { a: pair.b, b: pair.a };
+  // Same Soniox hint (rare) — keep workspace codes but still deterministic via base ISO.
+  return ba <= bb ? { a: pair.a, b: pair.b } : { a: pair.b, b: pair.a };
+}
+
+/**
  * Builds `language_hints` for Soniox WebSocket config.
+ *
+ * Hint order is derived from {@link stableSonioxBilingualOrder} so swapping the
+ * workspace A/B selectors does not change STT bias.
  *
  * When the pair includes an STT-proxy language (Somali → `sw`), we send **only** the proxy hint.
  * Soniox still auto-detects English without an explicit `en` hint; stacking `en` + `sw` was
  * drowning Somali-side speech on production en↔so sessions.
  */
 export function buildSonioxLanguageHints(pair: { a: string; b: string }): string[] {
+  const ordered = stableSonioxBilingualOrder(pair);
   const hasProxy = pairUsesSonioxSttProxyLang(pair);
 
   if (hasProxy) {
     const out: string[] = [];
     const seen = new Set<string>();
-    for (const lang of [pair.a, pair.b]) {
+    for (const lang of [ordered.a, ordered.b]) {
       const h = workspaceLangToSonioxHint(lang);
       if (!h || seen.has(h)) continue;
       // Skip explicit English — auto-detect handles the English party.
@@ -113,7 +149,7 @@ export function buildSonioxLanguageHints(pair: { a: string; b: string }): string
 
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const lang of [pair.a, pair.b, "en"]) {
+  for (const lang of [ordered.a, ordered.b, "en"]) {
     const h = workspaceLangToSonioxHint(lang);
     if (!h || seen.has(h)) continue;
     seen.add(h);

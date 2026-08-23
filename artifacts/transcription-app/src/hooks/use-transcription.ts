@@ -6,6 +6,7 @@ import {
   buildSonioxLanguageHints,
   sonioxHintCorrespondsToWorkspaceLang,
   sonioxRealtimeSessionTuning,
+  stableSonioxBilingualOrder,
   workspacePairMemberForSonioxHint,
 } from "@/lib/soniox-stt-language-hints";
 import {
@@ -1389,7 +1390,16 @@ function snapSourceLanguageToPair(
     const soMember = somaliPairMember(pair);
     if (soMember) return soMember;
   }
-  return pair.a;
+  // Script-unique pair member beats UI slot A (ar↔en must behave like en↔ar).
+  const dominant = detectDominantScript(text);
+  if (dominant) {
+    const aFits = scriptSupportsLang(dominant.langs, pair.a);
+    const bFits = scriptSupportsLang(dominant.langs, pair.b);
+    if (aFits && !bFits) return pair.a;
+    if (bFits && !aFits) return pair.b;
+  }
+  // Last resort: stable Soniox order primary — never privilege whichever language is in UI slot A.
+  return stableSonioxBilingualOrder(pair).a;
 }
 
 /** Always the other pair member — translation column must never stay in the spoken language. */
@@ -1564,7 +1574,17 @@ function resolveSourceLangForCanon(
   const validatedSoniox = validateLangByScript(sonioxHint, text, pair);
   const uniqueFromValidated = uniquePairMemberForLang(validatedSoniox, pair);
   const uniqueFromRaw = uniquePairMemberForLang(sonioxHint, pair);
-  return majorityHint ?? uniqueFromValidated ?? uniqueFromRaw ?? pair.a;
+  if (majorityHint ?? uniqueFromValidated ?? uniqueFromRaw) {
+    return (majorityHint ?? uniqueFromValidated ?? uniqueFromRaw)!;
+  }
+  const dominant = detectDominantScript(text);
+  if (dominant) {
+    const aFits = scriptSupportsLang(dominant.langs, pair.a);
+    const bFits = scriptSupportsLang(dominant.langs, pair.b);
+    if (aFits && !bFits) return pair.a;
+    if (bFits && !aFits) return pair.b;
+  }
+  return stableSonioxBilingualOrder(pair).a;
 }
 
 /**
@@ -5198,11 +5218,23 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const validatedSonioxForUnique = validateLangByScript(sonioxHint, text, pair);
     const uniqueFromValidatedSoniox = uniquePairMemberForLang(validatedSonioxForUnique, pair);
     const uniqueFromRawSoniox = uniquePairMemberForLang(sonioxHint, pair);
+    const dominantForSource = detectDominantScript(text);
+    const scriptUniqueSource =
+      dominantForSource
+        ? (() => {
+            const aFits = scriptSupportsLang(dominantForSource.langs, pair.a);
+            const bFits = scriptSupportsLang(dominantForSource.langs, pair.b);
+            if (aFits && !bFits) return pair.a;
+            if (bFits && !aFits) return pair.b;
+            return null;
+          })()
+        : null;
     const chosenSource =
       majorityHint ??
       uniqueFromValidatedSoniox ??
       uniqueFromRawSoniox ??
-      pair.a;
+      scriptUniqueSource ??
+      stableSonioxBilingualOrder(pair).a;
     let dispatchLang = state.segmentSourceLang ?? chosenSource;
 
     const segmentSourceLangBeforePersist = state.segmentSourceLang;
@@ -9614,7 +9646,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       styleUpgradedRef.current       = false;
       liveBufferRef.current          = "";
       finalCountRef.current          = 0;
-      detectedLangRef.current        = "en";
+      detectedLangRef.current        = stableSonioxBilingualOrder(langPairRef.current).a;
       resetSpeakerMap();
       pcmBacklogRef.current          = [];
       intercallFinalizedSegmentIdsRef.current = [];

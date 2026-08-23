@@ -292,7 +292,7 @@ TERMS_BY_LANG["zh"] = [
  * register reminder showing up on an English↔Portuguese session).
  */
 const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
-  ar: { key: "arabic_register", value: "Arabic: always use Modern Standard Arabic (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan, or any Arabic dialect." },
+  ar: { key: "arabic_register", value: "Arabic translation output: always use Modern Standard Arabic only (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan Darija, Algerian, Tunisian, Libyan, or any other dialect in the translated Arabic column." },
   es: { key: "spanish_register", value: "Spanish: always use standard formal Castilian Spanish. Never use regional slang, Chicano, Caribbean, or Latin American colloquial forms." },
   pt: { key: "portuguese_register", value: "Portuguese: always use standard formal European or Brazilian Portuguese grammar. Never use slang or street-level colloquial forms." },
   zh: { key: "chinese_register", value: "Chinese: always use Standard Mandarin (普通话 Putonghua) in simplified characters. Never use Cantonese, Hokkien, or regional dialect forms." },

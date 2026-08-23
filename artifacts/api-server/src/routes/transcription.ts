@@ -697,7 +697,9 @@ setInterval(sweepStaleSessions, 5 * 60_000); // every 5 minutes
 /** When source is English and target is Arabic: MSA + on-screen interpreter reading quality. */
 const ARABIC_EN_INTERPRETER_RULES =
   `ARABIC OUTPUT (English → Arabic):\n` +
-  `- The translation appears in a column read aloud by a professional interpreter: use clear, natural Modern Standard Arabic (العربية الفصحى), not dialect.\n` +
+  `- The translation appears in a column read aloud by a professional interpreter: ALWAYS use clear, natural Modern Standard Arabic only — العربية الفصحى (MSA).\n` +
+  `- NEVER use dialect: no Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi (Moroccan / Algerian / Tunisian) forms.\n` +
+  `- Ban dialect particles and colloquialisms such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا، صافي، باركا.\n` +
   `- Mirror the transcription faithfully in meaning; phrase so it sounds professional when read, without adding or omitting content.\n` +
   `- Avoid broken literal calques: never leave a bare definite article (الـ) before nothing; use complete noun phrases (e.g. المترجم العربي / المترجمة العربية).\n` +
   `- "My name is [Name]" → اسمي [Name] (or أنا اسمي [Name]). NEVER use هل before the name unless the English is a yes/no question.\n` +
@@ -708,10 +710,24 @@ const ARABIC_EN_INTERPRETER_RULES =
   `- Punctuation: use Arabic comma ، where a short pause fits; end each sentence with a single . or ؟ as appropriate. No duplicate sentence marks; no punctuation-only starts.\n` +
   `- Preserve every digit of IDs and numbers exactly as spoken.\n\n`;
 
+/**
+ * Arabic (any dialect) → English: Maghrebi dialects are especially distinct from MSA —
+ * must be understood fully and rendered into complete professional English.
+ */
+const ARABIC_TO_EN_DIALECT_RULES =
+  `ARABIC SOURCE → ENGLISH (dialect comprehension):\n` +
+  `- The Arabic source may be ANY dialect written as spoken: MSA/فصحى, Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi (Moroccan Darija, Algerian, Tunisian, Libyan).\n` +
+  `- Maghrebi (especially Tunisian, Algerian, Moroccan) often differs sharply from MSA — still understand every word and particle (e.g. واش، بزاف، برشا، كيفاش، علاش، دابا، توا، صافي، باش، باركا، زعمة، هاني، يعيشك، عسلامة) and translate their exact meaning into English.\n` +
+  `- Output clear professional international English only — never leave Arabic words, dialect particles, or romanized Arabic in the English column.\n` +
+  `- Translate EVERY word and clause; no omissions, truncated words, missing letters inside English words, dropped negations, or skipped questions/tags.\n` +
+  `- Preserve numbers, names, and IDs exactly. Do not “correct” dialect into MSA in the English meaning — convey what was said.\n\n`;
+
 /** Any non-English source → English target (en is always one side of the pair in your product). */
 const NON_EN_TO_EN_INTERPRETER_RULES =
   `ENGLISH TARGET OUTPUT (any source language → English):\n` +
   `- The translation is read aloud by an interpreter from the screen: use clear, standard professional international English.\n` +
+  `- SOURCE DIALECTS: the source may be a regional dialect, colloquial variety, or non-standard spoken form (not only the formal literary register). Understand it and translate into accurate English — do not refuse, skip, or mistranslate dialect vocabulary.\n` +
+  `- Completeness: every source word and clause must appear in English meaning — no missing words, no truncated English spellings, no dropped endings.\n` +
   `- Medical/clinical terms: use standard English medical terminology (e.g. procedure and disease names), not untransliterated foreign glosses, unless the speaker is naming a specific brand.\n` +
   `- Legal/court and insurance/claims: use standard English legal and insurance terminology when the source uses those domains — not mixed-language fragments.\n` +
   `- Mirror the source faithfully — same facts, questions, and tone. Do not add sentences or confirmations the speaker did not say.\n` +
@@ -792,7 +808,7 @@ const OUTPUT_REGISTER_ZH_TW =
   "Standard Mandarin in Traditional Chinese script (繁體), professional register — no regional slang.";
 
 const OUTPUT_REGISTER_BY_BASE: Record<string, string> = {
-  ar: "Modern Standard Arabic (MSA / الفصحى), phrased for an interpreter reading the translation aloud — clear, professional, full clauses. Do NOT use dialect particles such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه.",
+  ar: "Modern Standard Arabic (MSA / الفصحى), phrased for an interpreter reading the translation aloud — clear, professional, full clauses. Do NOT use dialect (Egyptian, Levantine, Gulf, Maghrebi/Darija, etc.) or particles such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا.",
   bg: "Standard Bulgarian — professional medical/legal register, no regional slang.",
   hr: "Standard Croatian — professional medical/legal register.",
   cs: "Standard Czech — professional medical/legal register.",
@@ -2401,10 +2417,10 @@ router.post("/translate", requireAuth, async (req, res) => {
     if (!termHints.includes(line)) termHints.push(line);
   }
 
-  // Arabic dialect understanding — source text may be any regional dialect
+  // Arabic dialect understanding — source text may be any regional dialect (esp. Maghrebi)
   const arabicSourceRule = srcCode === "ar"
-    ? "- The source text may be in any Arabic dialect (Egyptian, Levantine, Gulf, Moroccan, Iraqi, etc.). " +
-      "Understand and translate dialect vocabulary faithfully — do not reject or misread colloquial words.\n"
+    ? "- The source text may be in any Arabic dialect (Egyptian, Levantine, Gulf, Moroccan Darija, Algerian, Tunisian, Libyan, Iraqi, Sudanese, Yemeni, or MSA). " +
+      "Understand and translate dialect vocabulary faithfully — do not reject, skip, or misread colloquial/Maghrebi words.\n"
     : "";
 
   const termRule = termHints.length > 0
@@ -2437,6 +2453,8 @@ router.post("/translate", requireAuth, async (req, res) => {
 
   const arabicEnTargetBlock =
     srcCode === "en" && tgtCode === "ar" ? ARABIC_EN_INTERPRETER_RULES : "";
+  const arabicToEnDialectBlock =
+    srcCode === "ar" && tgtCode === "en" ? ARABIC_TO_EN_DIALECT_RULES : "";
   const englishTargetBlock =
     srcCode !== "en" && tgtCode === "en" ? NON_EN_TO_EN_INTERPRETER_RULES : "";
 
@@ -2537,6 +2555,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     placeholderRules +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     arabicEnTargetBlock +
+    arabicToEnDialectBlock +
     englishTargetBlock +
     bidirectionalLiveMirrorBlock +
     liveEmbeddedEnglishSupplement +
@@ -2782,6 +2801,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         `No preamble ("Sure", "Here is…"); output ONLY the translation; refusals and apologies are incorrect.\n\n` +
         placeholderRules +
         arabicEnTargetBlock +
+        arabicToEnDialectBlock +
         englishTargetBlock +
         finalSegmentBlock;
       const refusalRetry = await callOpenAI(refusalRetryPrompt, userMessageForModel);
@@ -2810,6 +2830,7 @@ router.post("/translate", requireAuth, async (req, res) => {
           `Medical, legal, and insurance terminology belongs in ${tgtName}, not untranslated English.\n\n` +
           placeholderRules +
           arabicEnTargetBlock +
+          arabicToEnDialectBlock +
           englishTargetBlock +
           finalSegmentBlock;
         const refusalRetry2 = await callOpenAI(refusalRetry2Prompt, userMessageForModel);
@@ -2849,6 +2870,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         buildSystemPrompt(true, streamingDelta) +
         placeholderRules +
         arabicEnTargetBlock +
+        arabicToEnDialectBlock +
         englishTargetBlock +
         finalSegmentBlock;
       const retry = await callOpenAI(retryPrompt, userMessageForModel);

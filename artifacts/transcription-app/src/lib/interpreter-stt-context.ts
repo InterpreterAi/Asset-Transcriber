@@ -84,6 +84,21 @@ const ARABIC_STT_BIAS_TERMS: readonly string[] = [
   "نعم",
   "لا",
   "من فضلك",
+  // Maghrebi (Moroccan / Algerian / Tunisian) — keep as spoken in Original; help recognition.
+  "واش",
+  "بزاف",
+  "برشا",
+  "كيفاش",
+  "علاش",
+  "صافي",
+  "دابا",
+  "توا",
+  "باش",
+  "باركا",
+  "زعمة",
+  "هاني",
+  "يعيشك",
+  "عسلامة",
 ];
 
 function base(code: string): string {
@@ -303,7 +318,10 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
           "ALWAYS transcribe Arabic speech in Arabic script (right-to-left). " +
           "NEVER romanize or transliterate Arabic — output must use Arabic letters only. " +
           "Transcribe English speech in English Latin script. " +
-          "Speakers may use Gulf, Egyptian, Levantine, or Moroccan dialect — transcribe as spoken.",
+          "Arabic speakers may use ANY dialect: Modern Standard Arabic, Egyptian, Levantine, Gulf, Iraqi, " +
+          "Sudanese, Yemeni, or Maghrebi (Moroccan Darija, Algerian, Tunisian, Libyan). " +
+          "Transcribe dialect speech EXACTLY as spoken — do NOT rewrite into الفصحى / MSA in the original transcript. " +
+          "Preserve every dialect word and particle; do not omit, normalize, or substitute dialect forms.",
       },
       { key: "setting", value: "English–Arabic telephone interpreting" },
     );

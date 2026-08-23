@@ -7,6 +7,7 @@ import type { LangPair } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxRealtimeSessionTuning,
+  stableSonioxBilingualOrder,
   workspaceLangToSonioxRealtimeCode,
 } from "@/lib/soniox-stt-language-hints";
 
@@ -424,8 +425,10 @@ export class CanonAppendWsIsolatedRuntime {
     const pair = langPair as { a: string; b: string };
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
-    const sonioxLangA = workspaceLangToSonioxRealtimeCode(pair.a);
-    const sonioxLangB = workspaceLangToSonioxRealtimeCode(pair.b);
+    // two_way language_a/b must follow stable order (not UI A/B) so ar↔en == en↔ar.
+    const ordered = stableSonioxBilingualOrder(pair);
+    const sonioxLangA = workspaceLangToSonioxRealtimeCode(ordered.a);
+    const sonioxLangB = workspaceLangToSonioxRealtimeCode(ordered.b);
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
     const sonioxNativeTranslateConfig = this.chunkV2NativeTranslate
