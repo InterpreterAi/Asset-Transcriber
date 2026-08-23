@@ -146,8 +146,9 @@ export function defaultWorkspaceConversation(
  * - Yellow (Speaker B): ORIGINAL in Language B, TRANSLATION in Language A
  * - Pink (3rd): can speak either language; language is preserved when set
  *
- * Turns alternate by spoken language (not blind index), so after a pink Lang B
- * line the next A/B exchange is always Blue / Lang A.
+ * Preserves an exchange's chosen language/speaker when already valid so the
+ * editor can freely pick Blue/Yellow/Pink after a 3rd-speaker turn. Auto
+ * alternation only fills in when originalLang is missing or off-pair.
  */
 export function applyInterpreterSpeakerPattern(c: WorkspaceConversation): WorkspaceConversation {
   const langA = c.sourceLang || "en";
@@ -158,16 +159,17 @@ export function applyInterpreterSpeakerPattern(c: WorkspaceConversation): Worksp
 
   const exchanges = (c.exchanges ?? []).map((x) => {
     const thirdVoice = x.thirdSpeakerVoiceId?.trim();
-    const useThird = !!thirdVoice;
+    const useThird = !!thirdVoice || x.speaker === "C";
 
     let originalLang: string;
     let speaker: WorkspaceSpeaker;
 
+    const keptLang =
+      x.originalLang === langA || x.originalLang === langB ? x.originalLang : null;
+
     if (useThird) {
-      const kept =
-        x.originalLang === langA || x.originalLang === langB ? x.originalLang : null;
-      if (kept) {
-        originalLang = kept;
+      if (keptLang) {
+        originalLang = keptLang;
       } else if (prevOriginalLang === langA) {
         originalLang = langB;
       } else if (prevOriginalLang === langB) {
@@ -177,6 +179,10 @@ export function applyInterpreterSpeakerPattern(c: WorkspaceConversation): Worksp
         originalLang = langB;
       }
       speaker = "C";
+    } else if (keptLang) {
+      // Respect the user's Blue/Yellow choice — do not force after pink.
+      originalLang = keptLang;
+      speaker = keptLang === langA ? "A" : "B";
     } else if (prevOriginalLang === langA) {
       originalLang = langB;
       speaker = "B";
@@ -195,13 +201,54 @@ export function applyInterpreterSpeakerPattern(c: WorkspaceConversation): Worksp
       ...x,
       id: x.id || newExchangeId(),
       speaker,
-      thirdSpeakerVoiceId: useThird ? thirdVoice : undefined,
+      thirdSpeakerVoiceId: useThird ? thirdVoice || x.thirdSpeakerVoiceId : undefined,
       originalLang,
       translationLang,
     };
   });
 
   return { sourceLang: langA, targetLang: langB, exchanges };
+}
+
+/** Set Blue / Yellow / Pink on one exchange without forcing later rows. */
+export function setExchangeSpeakerRole(
+  c: WorkspaceConversation,
+  index: number,
+  role: WorkspaceSpeaker,
+  opts?: { thirdSpeakerVoiceId?: string; pinkOriginalLang?: string },
+): WorkspaceConversation {
+  const langA = c.sourceLang || "en";
+  let langB = c.targetLang || "es";
+  if (langB === langA) langB = langA === "en" ? "es" : "en";
+
+  const exchanges = c.exchanges.map((ex, i) => {
+    if (i !== index) return ex;
+    if (role === "C") {
+      const pinkLang =
+        opts?.pinkOriginalLang === langA || opts?.pinkOriginalLang === langB
+          ? opts.pinkOriginalLang
+          : ex.originalLang === langA || ex.originalLang === langB
+            ? ex.originalLang
+            : langB;
+      return {
+        ...ex,
+        speaker: "C" as const,
+        thirdSpeakerVoiceId: opts?.thirdSpeakerVoiceId?.trim() || ex.thirdSpeakerVoiceId,
+        originalLang: pinkLang,
+        translationLang: pinkLang === langA ? langB : langA,
+      };
+    }
+    const originalLang = role === "A" ? langA : langB;
+    return {
+      ...ex,
+      speaker: role,
+      thirdSpeakerVoiceId: undefined,
+      originalLang,
+      translationLang: originalLang === langA ? langB : langA,
+    };
+  });
+
+  return applyInterpreterSpeakerPattern({ ...c, exchanges });
 }
 
 /** @deprecated Use applyInterpreterSpeakerPattern */
@@ -256,7 +303,7 @@ export function appendWorkspaceExchange(
   const last = c.exchanges[n - 1];
   const lastLang =
     last?.originalLang === langB ? langB : last?.originalLang === langA ? langA : null;
-  // After pink/yellow Lang B → next is Blue Lang A; after Blue Lang A → Yellow Lang B
+  // Suggested next turn after last exchange — user can change Blue/Yellow/Pink freely.
   const originalLang = lastLang === langA ? langB : langA;
   const translationLang = originalLang === langA ? langB : langA;
   const speaker: WorkspaceSpeaker = originalLang === langA ? "A" : "B";

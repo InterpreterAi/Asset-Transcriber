@@ -2637,9 +2637,20 @@ router.post("/voiceover", async (req, res) => {
   const body = req.body ?? {};
   const hookClips = parseHookClips(body.hookClips);
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-  if (!hookClips && prompt.length < 8) {
+  const includeWorkspace = body.includeWorkspace !== false;
+  const includeOutro = body.includeOutro !== false;
+  const includeHook = body.includeHook !== false;
+  const includeProductPayoff = body.includeProductPayoff !== false;
+  if (includeHook) {
+    if (!hookClips && prompt.length < 8) {
+      res.status(400).json({
+        error: "hookClips (1–6 clips with scenario + sayLine) or prompt (min 8 characters) required",
+      });
+      return;
+    }
+  } else if (!includeWorkspace && !includeOutro && !includeProductPayoff) {
     res.status(400).json({
-      error: "hookClips (1–6 clips with scenario + sayLine) or prompt (min 8 characters) required",
+      error: "Enable at least one segment (workspace, outro, or product payoff) when hook is off",
     });
     return;
   }
@@ -2654,10 +2665,6 @@ router.post("/voiceover", async (req, res) => {
       : language === "en"
         ? "es"
         : "en";
-  const includeWorkspace = body.includeWorkspace !== false;
-  const includeOutro = body.includeOutro !== false;
-  const includeHook = body.includeHook !== false;
-  const includeProductPayoff = body.includeProductPayoff !== false;
   const productPayoff =
     parseProductPayoff(body.productPayoff) ??
     (includeProductPayoff ? defaultProductPayoff("medical") : null);
@@ -2682,7 +2689,11 @@ router.post("/voiceover", async (req, res) => {
     });
     return;
   }
-  let hookScript = hookClips ? hookClips.map((c) => c.sayLine).join(" ") : prompt;
+  let hookScript = includeHook
+    ? hookClips
+      ? hookClips.map((c) => c.sayLine).join(" ")
+      : prompt
+    : "";
   let outroVoiceover = outroVoiceoverInput;
 
   const openaiKey = getOpenAiApiKey();

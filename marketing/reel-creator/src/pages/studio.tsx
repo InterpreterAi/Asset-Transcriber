@@ -88,6 +88,7 @@ import {
 import {
   defaultWorkspaceConversation,
   applyInterpreterSpeakerPattern,
+  setExchangeSpeakerRole,
   appendWorkspaceExchange,
   buildEstimatedWorkspaceSchedule,
   estimateSpeechSec,
@@ -100,6 +101,7 @@ import {
   workspaceScheduleDurationSec,
   type WorkspaceConversation,
   type WorkspaceExchange,
+  type WorkspaceSpeaker,
 } from "@/lib/workspaceModel";
 import {
   consumePendingOutroPreset,
@@ -1194,10 +1196,12 @@ export default function Studio() {
   async function runGenerateVoiceover(): Promise<StudioVoiceoverResult> {
     await invalidateStoredMp4(libraryReelId ?? (!isNew ? reelKey : null));
     const vo = await generateStudioVoiceover({
-      hookClips: hookClips.map((c) => ({
-        scenario: c.scenario.trim(),
-        sayLine: c.sayLine.trim(),
-      })),
+      hookClips: includeHook
+        ? hookClips.map((c) => ({
+            scenario: c.scenario.trim(),
+            sayLine: c.sayLine.trim(),
+          }))
+        : [],
       workspace: applyInterpreterSpeakerPattern(workspace),
       productPayoff: effectiveIncludeProductPayoff ? productPayoff : null,
       language,
@@ -2329,8 +2333,10 @@ export default function Studio() {
               <p style={{ margin: "0 0 14px", fontSize: 13, color: COLORS.inkMuted, lineHeight: 1.5 }}>
                 Two speakers, two languages. <span style={{ color: "#3B82F6" }}>Blue</span> speaks Language A in
                 ORIGINAL — <span style={{ color: "#EAB308" }}>Yellow</span> speaks Language B in ORIGINAL. TRANSLATION
-                column always shows the other language so each side can understand. Optionally pick a{" "}
-                <span style={{ color: WORKSPACE_SPEAKER_COLORS.C }}>pink 3rd speaker</span> per exchange.
+                column always shows the other language so each side can understand. On each exchange pick{" "}
+                <span style={{ color: "#3B82F6" }}>Blue</span>, <span style={{ color: "#EAB308" }}>Yellow</span>, or{" "}
+                <span style={{ color: WORKSPACE_SPEAKER_COLORS.C }}>Pink 3rd</span> — after a pink turn you choose who
+                speaks next (nothing is forced).
                 {!includeWorkspace ? (
                   <span style={{ display: "block", marginTop: 6, color: "#67E8F9" }}>
                     Workspace disabled — reel jumps from hook to outro (or ends after hook if outro is off).
@@ -2445,25 +2451,32 @@ export default function Studio() {
                     workspaceThirdSpeakerVoiceId,
                   );
                   setWorkspaceThirdSpeakerVoiceId(voice);
-                  // Opening with pink: speak Lang B so the next turn is Blue / Lang A
-                  const opensWorkspace = i === 0;
-                  updateExchange(i, {
-                    thirdSpeakerVoiceId: voice,
-                    ...(opensWorkspace
-                      ? {
-                          originalLang: targetLang,
-                          translationLang: sourceLang,
-                        }
-                      : {}),
-                  });
+                  setWorkspace((w) =>
+                    setExchangeSpeakerRole(w, i, "C", { thirdSpeakerVoiceId: voice }),
+                  );
                 };
                 const setThirdSpeakerVoice = (id: VoiceActorId) => {
                   setWorkspaceThirdSpeakerVoiceId(id);
                   updateExchange(i, { thirdSpeakerVoiceId: id });
                 };
+                const chooseSpeaker = (role: WorkspaceSpeaker) => {
+                  if (role === "C") {
+                    enableThirdSpeaker();
+                    return;
+                  }
+                  setWorkspace((w) => setExchangeSpeakerRole(w, i, role));
+                };
+                const setPinkLanguage = (lang: string) => {
+                  setWorkspace((w) =>
+                    setExchangeSpeakerRole(w, i, "C", {
+                      thirdSpeakerVoiceId: thirdVoiceId,
+                      pinkOriginalLang: lang,
+                    }),
+                  );
+                };
                 return (
                 <div key={ex.id} style={{ marginBottom: 16, padding: 14, borderRadius: 12, border: `1px solid ${COLORS.glassBorder}` }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                     <p style={{ margin: 0, fontSize: 11, color: COLORS.inkFaint }}>
                       Exchange {i + 1} ·{" "}
                       <span style={{ color: accent }}>
@@ -2483,19 +2496,17 @@ export default function Studio() {
                       </button>
                     ) : null}
                   </div>
+                  <ExchangeSpeakerPicker
+                    speaker={useThird ? "C" : ex.speaker === "B" ? "B" : "A"}
+                    disabled={generating || voGenerating || !includeWorkspace}
+                    sourceLang={sourceLang}
+                    targetLang={targetLang}
+                    pinkOriginalLang={ex.originalLang}
+                    onChoose={chooseSpeaker}
+                    onPinkLanguage={setPinkLanguage}
+                  />
                   <Field
                     label={`ORIGINAL — ${useThird ? "Pink 3rd speaker" : ex.speaker === "A" ? "Blue speaks" : "Yellow speaks"} (${reelLanguageLabel(ex.originalLang)})`}
-                    labelAction={
-                      <ThirdSpeakerToggle
-                        active={useThird}
-                        disabled={generating || voGenerating}
-                        onToggle={() =>
-                          updateExchange(i, useThird
-                            ? { thirdSpeakerVoiceId: undefined }
-                            : enableThirdSpeaker())
-                        }
-                      />
-                    }
                   >
                     <textarea
                       value={ex.original}
@@ -2524,17 +2535,6 @@ export default function Studio() {
                   ) : null}
                   <Field
                     label={`TRANSLATION — other language (${reelLanguageLabel(ex.translationLang)})`}
-                    labelAction={
-                      <ThirdSpeakerToggle
-                        active={useThird}
-                        disabled={generating || voGenerating}
-                        onToggle={() =>
-                          updateExchange(i, useThird
-                            ? { thirdSpeakerVoiceId: undefined }
-                            : enableThirdSpeaker())
-                        }
-                      />
-                    }
                   >
                     <textarea
                       value={ex.translation}
@@ -3364,49 +3364,99 @@ function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-function ThirdSpeakerToggle({
-  active,
+function ExchangeSpeakerPicker({
+  speaker,
   disabled,
-  onToggle,
+  sourceLang,
+  targetLang,
+  pinkOriginalLang,
+  onChoose,
+  onPinkLanguage,
 }: {
-  active: boolean;
+  speaker: WorkspaceSpeaker;
   disabled?: boolean;
-  onToggle: () => void;
+  sourceLang: string;
+  targetLang: string;
+  pinkOriginalLang: string;
+  onChoose: (role: WorkspaceSpeaker) => void;
+  onPinkLanguage: (lang: string) => void;
 }) {
+  const options: { role: WorkspaceSpeaker; label: string; color: string }[] = [
+    { role: "A", label: `Blue · ${reelLanguageLabel(sourceLang)}`, color: WORKSPACE_SPEAKER_COLORS.A },
+    { role: "B", label: `Yellow · ${reelLanguageLabel(targetLang)}`, color: WORKSPACE_SPEAKER_COLORS.B },
+    { role: "C", label: "Pink · 3rd", color: WORKSPACE_SPEAKER_COLORS.C },
+  ];
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onToggle}
-      title={active ? "Use default blue/yellow speaker" : "Use pink 3rd speaker for this exchange"}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "3px 8px",
-        borderRadius: 999,
-        border: `1px solid ${active ? WORKSPACE_SPEAKER_COLORS.C : COLORS.glassBorder}`,
-        background: active ? "rgba(236,72,153,0.14)" : "rgba(255,255,255,0.03)",
-        color: active ? WORKSPACE_SPEAKER_COLORS.C : COLORS.inkFaint,
-        fontSize: 10,
-        fontWeight: 650,
-        letterSpacing: "0.04em",
-        cursor: disabled ? "default" : "pointer",
-        opacity: disabled ? 0.55 : 1,
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: active ? WORKSPACE_SPEAKER_COLORS.C : "transparent",
-          border: `1.5px solid ${active ? WORKSPACE_SPEAKER_COLORS.C : COLORS.inkFaint}`,
-          flexShrink: 0,
-        }}
-      />
-      3rd speaker
-    </button>
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {options.map((opt) => {
+          const active = speaker === opt.role;
+          return (
+            <button
+              key={opt.role}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChoose(opt.role)}
+              title={`Set this exchange to ${opt.label}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 10px",
+                borderRadius: 999,
+                border: `1px solid ${active ? opt.color : COLORS.glassBorder}`,
+                background: active ? `${opt.color}22` : "rgba(255,255,255,0.03)",
+                color: active ? opt.color : COLORS.inkFaint,
+                fontSize: 11,
+                fontWeight: 650,
+                cursor: disabled ? "default" : "pointer",
+                opacity: disabled ? 0.55 : 1,
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: opt.color,
+                  flexShrink: 0,
+                }}
+              />
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      {speaker === "C" ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 10, color: COLORS.inkFaint, fontWeight: 650 }}>Pink speaks</span>
+          {([sourceLang, targetLang] as const).map((lang) => {
+            const active = pinkOriginalLang === lang;
+            return (
+              <button
+                key={lang}
+                type="button"
+                disabled={disabled}
+                onClick={() => onPinkLanguage(lang)}
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: 999,
+                  border: `1px solid ${active ? WORKSPACE_SPEAKER_COLORS.C : COLORS.glassBorder}`,
+                  background: active ? "rgba(236,72,153,0.14)" : "rgba(255,255,255,0.03)",
+                  color: active ? WORKSPACE_SPEAKER_COLORS.C : COLORS.inkFaint,
+                  fontSize: 10,
+                  fontWeight: 650,
+                  cursor: disabled ? "default" : "pointer",
+                  opacity: disabled ? 0.55 : 1,
+                }}
+              >
+                {reelLanguageLabel(lang)}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
