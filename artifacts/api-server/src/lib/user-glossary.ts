@@ -445,6 +445,29 @@ function arabicMatchCore(s: string): string {
   return t.replace(/ا{2,}/g, "ا");
 }
 
+function longestCommonSubstringLengthGraphemes(a: string, b: string): number {
+  const ca = [...a.normalize("NFC")];
+  const cb = [...b.normalize("NFC")];
+  let best = 0;
+  for (let i = 0; i < ca.length; i++) {
+    for (let j = 0; j < cb.length; j++) {
+      let k = 0;
+      while (i + k < ca.length && j + k < cb.length && graphemeCpEqualFold(ca[i + k]!, cb[j + k]!)) {
+        k++;
+      }
+      if (k > best) best = k;
+    }
+  }
+  return best;
+}
+
+function arabicCoresShareRoot(wordCore: string, prefCore: string): boolean {
+  const lcs = longestCommonSubstringLengthGraphemes(wordCore, prefCore);
+  if (lcs < 3) return false;
+  const shorter = Math.min(graphemeLen(wordCore), graphemeLen(prefCore));
+  return lcs / Math.max(shorter, 1) >= 0.55;
+}
+
 /** Only mix scripts we can safely prefix-match (Latin, Arabic, Cyrillic, Han). */
 function scriptsCompatibleForGlossaryFix(word: string, preferred: string): boolean {
   const wAr = preferredLooksArabicScript(word);
@@ -506,6 +529,11 @@ function replaceAllTargetTokensByPreferredSimilarity(outputText: string, preferr
 
     const lenW = graphemeLen(t.core);
     if (lenW < 3) continue;
+
+    if (prefAr && preferredLooksArabicScript(t.core) && arabicCoresShareRoot(t.core, Tcore)) {
+      hits.push(t);
+      continue;
+    }
 
     const lcp = longestCommonPrefixLengthGraphemes(t.core, Tcore);
     const lcs = longestCommonSuffixLengthGraphemes(t.core, Tcore);
@@ -621,7 +649,7 @@ function tryReplaceTargetCognatesFromSource(
  * 3) Replace known target-side cognates/transliterations (e.g. es/ar forms of "colonoscopy")
  *    in place before append fallback.
  * 4) Append only if still missing and not already semantically close to the preferred translation
- *    (disabled for targets where in-place-only behavior is preferred, e.g. `es`, `ar`).
+ *    (backup after in-place cognate/root replace — including Arabic/Spanish).
  */
 export function ensureGlossaryTranslationsFromSource(
   outputText: string,
@@ -713,9 +741,7 @@ export function ensureGlossaryTranslationsFromSource(
 
     if (translationSemanticallyCloseInOutput(out, row.trans, "append_gate")) continue;
 
-    // For these targets we prefer strict in-place replacements only (no sentence-end appends).
-    if (tgtBase === "es" || tgtBase === "ar") continue;
-
+    // In-place preferred; append once as backup so preferred never silently disappears.
     const tailBase = out.trimEnd();
     const spacer = tailBase.length > 0 ? " " : "";
     out = `${tailBase}${spacer}${row.trans}`.trim();

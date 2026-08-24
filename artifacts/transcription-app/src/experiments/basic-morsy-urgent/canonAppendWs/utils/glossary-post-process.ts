@@ -57,6 +57,28 @@ function longestCommonSuffixGraphemes(a: string, b: string): number {
   return i;
 }
 
+/** Longest contiguous shared grapheme run (Arabic roots like تعب in متعب / تعبااان). */
+function longestCommonSubstringGraphemes(a: string, b: string): number {
+  const ca = [...a.normalize("NFC")];
+  const cb = [...b.normalize("NFC")];
+  let best = 0;
+  for (let i = 0; i < ca.length; i++) {
+    for (let j = 0; j < cb.length; j++) {
+      let k = 0;
+      while (i + k < ca.length && j + k < cb.length && ca[i + k] === cb[j + k]) k++;
+      if (k > best) best = k;
+    }
+  }
+  return best;
+}
+
+function arabicCoresShareRoot(wordCore: string, prefCore: string): boolean {
+  const lcs = longestCommonSubstringGraphemes(wordCore, prefCore);
+  if (lcs < 3) return false;
+  const shorter = Math.min(graphemeLen(wordCore), graphemeLen(prefCore));
+  return lcs >= 3 && lcs / Math.max(shorter, 1) >= 0.55;
+}
+
 /** True when every whitespace word of `needle` appears somewhere in `hay` (substring). */
 function sourceSpokenInOriginal(original: string, source: string): boolean {
   const hay = normalizeLoose(original);
@@ -128,6 +150,13 @@ function replaceSimilarPreferredInPlace(outputText: string, preferred: string): 
 
     const lenW = graphemeLen(wCore);
     if (lenW < 3) continue;
+
+    // Arabic: shared root/substring (متعب ↔ تعبااان via تعب), not only prefix/suffix.
+    if (prefAr && arabicCoresShareRoot(wCore, Tcore)) {
+      hits.push(t);
+      continue;
+    }
+
     const lcp = longestCommonPrefixGraphemes(wCore, Tcore);
     const lcs = longestCommonSuffixGraphemes(wCore, Tcore);
     const bestEdge = Math.max(lcp, lcs);
@@ -155,8 +184,9 @@ function replaceSimilarPreferredInPlace(outputText: string, preferred: string): 
  * Enforce personal glossary on Soniox native (chunk-v2) translation text.
  * 1) Replace leaked source phrases in the translation with preferred targets.
  * 2) When the spoken original matched a glossary source but the preferred target
- *    is still missing, replace same-script MT cognates/stems in place
- *    (بالتعب → تعبااان). Append only as last resort for non-Arabic targets.
+ *    is still missing, replace same-script MT cognates/roots in place
+ *    (متعب / بالتعب → تعبااان).
+ * 3) Append preferred once only if in-place still failed (never silent miss).
  */
 export function applyGlossaryPostProcess(
   text: string,
@@ -215,9 +245,7 @@ export function applyGlossaryPostProcess(
     }
     if (inlined) continue;
 
-    // Match server: Arabic (and Spanish) prefer in-place only — never sentence-end append.
-    if (looksArabic(tgt)) continue;
-
+    // Backup: append so preferred never silently disappears when in-place miss.
     if (!translationContainsPreferred(result, tgt)) {
       const tail = result.trimEnd();
       result = `${tail}${tail.length > 0 ? " " : ""}${tgt}`.trim();
