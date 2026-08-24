@@ -65,7 +65,9 @@ export class SonioxRealtimeClient {
         audio_format:                   "pcm_s16le",
         sample_rate:                    config.sampleRate ?? 16_000,
         num_channels:                   1,
-        ...(language_hints ? { language_hints } : {}),
+        ...(language_hints
+          ? { language_hints, language_hints_strict: true }
+          : {}),
         enable_speaker_diarization:     true,
         enable_endpoint_detection:      true,
         enable_language_identification: config.enableLanguageIdentification ?? true,

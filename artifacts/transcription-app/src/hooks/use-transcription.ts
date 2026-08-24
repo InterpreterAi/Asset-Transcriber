@@ -8370,6 +8370,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
         language_hints,
+        language_hints_strict:          true,
         context:                        interpreterCtx,
         enable_language_identification: tuning.enableLanguageIdentification,
         enable_speaker_diarization:     true,
