@@ -273,6 +273,8 @@ async function migrateSchemaOnce() {
     `);
       await run(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS enforce_mode TEXT NOT NULL DEFAULT 'strict'`);
       await run(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`);
+      await run(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS source_language TEXT`);
+      await run(`ALTER TABLE glossary_entries ADD COLUMN IF NOT EXISTS target_language TEXT`);
       await run(`
       CREATE UNIQUE INDEX IF NOT EXISTS glossary_entries_user_id_term_uidx
         ON glossary_entries (user_id, term)

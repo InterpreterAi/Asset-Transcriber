@@ -8,6 +8,10 @@ export const glossaryEntriesTable = pgTable(
     userId:       integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
     term:         text("term").notNull(),
     translation:  text("translation").notNull(),
+    /** Workspace language code for the source/original side (nullable for legacy rows). */
+    sourceLanguage: text("source_language"),
+    /** Workspace language code for the preferred translation side (nullable for legacy rows). */
+    targetLanguage: text("target_language"),
     /** Post-process enforcement vs prompt-only hints. */
     enforceMode:  text("enforce_mode").notNull().default("strict"),
     /** Higher runs first when applying strict rules (tie-break after source match length). */

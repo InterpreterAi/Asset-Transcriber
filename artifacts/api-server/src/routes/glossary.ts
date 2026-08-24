@@ -3,6 +3,10 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { db } from "@workspace/db";
 import { glossaryEntriesTable } from "@workspace/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import {
+  isWorkspaceLanguageCode,
+  normalizeWorkspaceLanguageCode,
+} from "../lib/workspace-languages.js";
 
 const router = Router();
 
@@ -18,10 +22,33 @@ router.get("/", requireAuth, async (req, res) => {
 
 router.post("/", requireAuth, async (req, res) => {
   const userId = req.session.userId!;
-  const body = req.body as { term?: string; translation?: string; enforceMode?: string; priority?: unknown };
+  const body = req.body as {
+    term?: string;
+    translation?: string;
+    enforceMode?: string;
+    priority?: unknown;
+    sourceLanguage?: string;
+    targetLanguage?: string;
+  };
   const { term, translation } = body;
   if (!term?.trim() || !translation?.trim()) {
     res.status(400).json({ error: "term and translation are required" });
+    return;
+  }
+  const rawSrc = `${body.sourceLanguage ?? ""}`.trim();
+  const rawTgt = `${body.targetLanguage ?? ""}`.trim();
+  if (!rawSrc || !rawTgt) {
+    res.status(400).json({ error: "sourceLanguage and targetLanguage are required" });
+    return;
+  }
+  if (!isWorkspaceLanguageCode(rawSrc) || !isWorkspaceLanguageCode(rawTgt)) {
+    res.status(400).json({ error: "sourceLanguage and targetLanguage must be workspace language codes" });
+    return;
+  }
+  const sourceLanguage = normalizeWorkspaceLanguageCode(rawSrc);
+  const targetLanguage = normalizeWorkspaceLanguageCode(rawTgt);
+  if (sourceLanguage === targetLanguage) {
+    res.status(400).json({ error: "sourceLanguage and targetLanguage must differ" });
     return;
   }
   const enforceMode = body.enforceMode === "hint" ? "hint" : "strict";
@@ -39,12 +66,20 @@ router.post("/", requireAuth, async (req, res) => {
       userId,
       term: term.trim(),
       translation: translation.trim(),
+      sourceLanguage,
+      targetLanguage,
       enforceMode,
       priority,
     })
     .onConflictDoUpdate({
       target: [glossaryEntriesTable.userId, glossaryEntriesTable.term],
-      set: { translation: translation.trim(), enforceMode, priority },
+      set: {
+        translation: translation.trim(),
+        sourceLanguage,
+        targetLanguage,
+        enforceMode,
+        priority,
+      },
     })
     .returning();
   res.status(201).json({ entry });

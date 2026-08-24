@@ -10,5 +10,8 @@ export {
   workspaceLanguageNameMap,
   workspaceLanguageTuples,
   workspaceLanguageCatalogJson,
+  normalizeWorkspaceLanguageCode,
+  isWorkspaceLanguageCode,
+  workspaceLanguagesEqual,
   type WorkspaceLanguageOption,
 } from "../../../transcription-app/src/lib/workspace-languages.js";

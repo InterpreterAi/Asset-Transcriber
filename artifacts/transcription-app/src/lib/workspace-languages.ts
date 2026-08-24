@@ -87,6 +87,35 @@ export function workspaceLanguageOptions(): WorkspaceLanguageOption[] {
   return WORKSPACE_LANGUAGES.map((l) => ({ value: l.value, label: l.label }));
 }
 
+/** Normalize a code to the workspace catalog value (exact match, then base-language match). */
+export function normalizeWorkspaceLanguageCode(code: string): string {
+  const t = (code ?? "").trim();
+  if (!t) return t;
+  const exact = WORKSPACE_LANGUAGES.find((l) => l.value === t);
+  if (exact) return exact.value;
+  const base = t.split("-")[0]!.toLowerCase();
+  const byBase = WORKSPACE_LANGUAGES.find(
+    (l) => l.value.split("-")[0]!.toLowerCase() === base,
+  );
+  return byBase?.value ?? t;
+}
+
+/** True when `code` resolves to a workspace catalog language. */
+export function isWorkspaceLanguageCode(code: string): boolean {
+  const t = (code ?? "").trim();
+  if (!t) return false;
+  if (WORKSPACE_LANGUAGES.some((l) => l.value === t)) return true;
+  const base = t.split("-")[0]!.toLowerCase();
+  return WORKSPACE_LANGUAGES.some(
+    (l) => l.value.split("-")[0]!.toLowerCase() === base,
+  );
+}
+
+/** Compare two workspace language codes after catalog normalization. */
+export function workspaceLanguagesEqual(a: string, b: string): boolean {
+  return normalizeWorkspaceLanguageCode(a) === normalizeWorkspaceLanguageCode(b);
+}
+
 /** Display label for a workspace language code; falls back to the code string. */
 export function workspaceLanguageLabel(code: string): string {
   const exact = WORKSPACE_LANGUAGES.find((l) => l.value === code);

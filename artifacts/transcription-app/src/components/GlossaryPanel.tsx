@@ -2,11 +2,14 @@ import { useState, useEffect, useMemo } from "react";
 import { BookOpen, Plus, Trash2, X, ArrowRight, Loader2 } from "lucide-react";
 import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
 import { glossaryPreferredTranslationPlaceholder } from "@/lib/glossary-translation-placeholder-example";
+import { workspaceLanguageLabel } from "@/lib/workspace-languages";
 
 interface GlossaryEntry {
   id: number;
   term: string;
   translation: string;
+  sourceLanguage: string | null;
+  targetLanguage: string | null;
   enforceMode: "strict" | "hint";
   priority: number;
   createdAt: string;
@@ -44,6 +47,8 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
         setEntries(
           (data.entries ?? []).map(e => ({
             ...e,
+            sourceLanguage: e.sourceLanguage ?? null,
+            targetLanguage: e.targetLanguage ?? null,
             enforceMode: e.enforceMode === "hint" ? "hint" : "strict",
             priority: typeof e.priority === "number" && Number.isFinite(e.priority) ? e.priority : 0,
           })),
@@ -69,6 +74,8 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
         body: JSON.stringify({
           term: term.trim(),
           translation: translation.trim(),
+          sourceLanguage: langA,
+          targetLanguage: langB,
           enforceMode,
           priority: (() => {
             if (priority.trim() === "") return 0;
@@ -126,12 +133,16 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
 
       <div className="p-3 border-b-2 border-border dark:border-b dark:border-white/[0.06] bg-muted/30 dark:bg-muted/35 shrink-0 space-y-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          Add source phrases and your preferred target wording. Every row is sent as a{" "}
+          Add source phrases and your preferred target wording for{" "}
+          <span className="font-medium text-foreground/80">
+            {workspaceLanguageLabel(langA)} → {workspaceLanguageLabel(langB)}
+          </span>
+          . Every row is sent as a{" "}
           <span className="font-medium text-foreground/80">prompt hint</span>.{" "}
           <span className="font-medium text-foreground/80">Strict</span> rows also get lightweight output fixes (when enabled below);{" "}
           <span className="font-medium text-foreground/80">Hint</span> rows never change the model text after the fact. Use commas for alternate
           source phrases, e.g. <span className="font-mono">claim number, claim #</span>. Higher <span className="font-mono">priority</span> runs first
-          when several strict rows apply. Transcription (STT) is unchanged.
+          when several strict rows apply. For the reverse direction, add a separate entry with the workspace languages swapped. Transcription (STT) is unchanged.
         </p>
         <label className="flex items-start gap-2 cursor-pointer select-none">
           <input
@@ -245,6 +256,15 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
                   <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/50 shrink-0" />
                   <p className="text-[11px] text-muted-foreground truncate" dir="auto">{entry.translation}</p>
                 </div>
+                {entry.sourceLanguage && entry.targetLanguage ? (
+                  <p className="text-[9px] text-muted-foreground/80 mt-0.5 truncate">
+                    {workspaceLanguageLabel(entry.sourceLanguage)} → {workspaceLanguageLabel(entry.targetLanguage)}
+                  </p>
+                ) : (
+                  <p className="text-[9px] text-amber-700/90 mt-0.5 truncate">
+                    No direction saved — edit to set languages for chunk-v2
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => void handleDelete(entry.id)}

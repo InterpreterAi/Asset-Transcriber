@@ -78,7 +78,11 @@ import {
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
 import { applyGlossaryPostProcess } from "../experiments/basic-morsy-urgent/canonAppendWs/utils/glossary-post-process";
-import type { SonioxContextTerm } from "../experiments/basic-morsy-urgent/canonAppendWs/ws/interpreter-context";
+import {
+  chunkV2GlossaryToSonioxTerms,
+  fetchChunkV2GlossaryForPair,
+  type ChunkV2GlossaryEntry,
+} from "../experiments/basic-morsy-urgent/canonAppendWs/utils/chunk-v2-glossary";
 import {
   committedOrigDomIntegrityTraceEnabled,
   emitCommittedOrigDomContainerWipe,
@@ -3420,7 +3424,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchMorsyChunkV2StableGrowRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
-  const chunkV2GlossaryTermsRef = useRef<SonioxContextTerm[]>([]);
+  const chunkV2GlossaryEntriesRef = useRef<ChunkV2GlossaryEntry[]>([]);
   const executeMorsyChunkV2TranslationRef = useRef<(
     payload: CanonRowDualBufferPayload,
     opts: { mode: "stable" | "live" | "endpoint"; firstChunk?: boolean; debounceFlush?: boolean },
@@ -3902,11 +3906,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             // Live translation: paint in-progress Soniox translation while speaker is talking.
             // row.translationText on the active row = state.activeTranslationText from reducer.
             if (!row.finalized) {
-              const liveTx = applyGlossaryPostProcess(
-                (row.translationText ?? "").trim(),
-                chunkV2GlossaryTermsRef.current,
-                row.committedText ?? row.text ?? "",
-              );
+              const liveTx = (row.translationText ?? "").trim();
               if (liveTx.length > 0) {
                 paintCanonRowTranslationIfAllowed(row.row_id, liveTx, { force: false });
               }
@@ -4035,6 +4035,43 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   // The user's selected language pair {a, b}. Per-segment target is computed
   // dynamically: if detected matches b → translate to a; otherwise translate to b.
   const langPairRef       = useRef<{ a: string; b: string }>({ a: "en", b: "ar" });
+
+  const applyChunkV2FinalGlossaryPostProcess = useCallback((
+    translationText: string,
+    committedOriginal: string,
+    rowSourceLanguage: string,
+  ): string => {
+    const pair = langPairRef.current;
+    return applyGlossaryPostProcess(
+      translationText.trim(),
+      chunkV2GlossaryEntriesRef.current,
+      {
+        originalText: committedOriginal,
+        rowSourceLanguage,
+        langA: pair.a,
+        langB: pair.b,
+      },
+    );
+  }, []);
+
+  const clearChunkV2GlossaryState = useCallback(() => {
+    chunkV2GlossaryEntriesRef.current = [];
+    canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms([]);
+  }, []);
+
+  const loadAndApplyChunkV2Glossary = useCallback(async (
+    langA: string,
+    langB: string,
+    sessionApiKey: string,
+  ): Promise<void> => {
+    const entries = await fetchChunkV2GlossaryForPair(langA, langB);
+    if (sonioxSessionApiKeyRef.current !== sessionApiKey) return;
+    chunkV2GlossaryEntriesRef.current = entries;
+    canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms(
+      chunkV2GlossaryToSonioxTerms(entries),
+    );
+  }, []);
+
   const styleUpgradedRef  = useRef(false);
 
   // ── Per-bubble translation state ───────────────────────────────────────────
@@ -5987,23 +6024,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     if (morsyUsesChunkTranslationV2Experiment()) {
       // Soniox native translation — baked into the frozen utterance.
       // No external API call needed.
-      const nativeTx = applyGlossaryPostProcess(
+      const nativeTx = applyChunkV2FinalGlossaryPostProcess(
         (utterance.translationText ?? "").trim(),
-        chunkV2GlossaryTermsRef.current,
         committedText,
+        utterance.language ?? detectedLangRef.current,
       );
-      const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
-        // Do not replace an already longer translation with a shorter finalized
-        // payload; this avoids visible "appear then shrink/disappear" regressions.
-        const keepExisting = existing.length > nativeTx.length;
-        paintCanonRowTranslationIfAllowed(rowId, keepExisting ? existing : nativeTx, { force: true });
+        paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
       } else {
         // Never clear in chunk-v2 finalization path.
         // If Soniox emits no finalized translation for this row, preserve existing
         // painted translation; otherwise mirror committed source so the bubble
         // never disappears.
-        const fallback = existing || committedText.trim() || utteranceCommittedText(utterance).trim();
+        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim()
+          || committedText.trim()
+          || utteranceCommittedText(utterance).trim();
         if (fallback.length > 0) {
           paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
         }
@@ -7243,20 +7278,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const rowId = payload.utterance.utterance_id;
     if (morsyUsesChunkTranslationV2Experiment()) {
       // Soniox native translation — paint from frozen utterance, skip external API.
-      const nativeTx = applyGlossaryPostProcess(
+      const nativeTx = applyChunkV2FinalGlossaryPostProcess(
         (payload.utterance.translationText ?? "").trim(),
-        chunkV2GlossaryTermsRef.current,
         utteranceCommittedText(payload.utterance),
+        payload.utterance.language ?? detectedLangRef.current,
       );
-      const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
-        // Normal path: Soniox translated this utterance.
-        const keepExisting = existing.length > nativeTx.length;
-        paintCanonRowTranslationIfAllowed(rowId, keepExisting ? existing : nativeTx, { force: true });
+        paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
       } else {
-        // Third-language path: Soniox produced no translation (language not in the pair).
-        // Mirror the transcription text into the translation column so the bubble is never empty.
-        const fallback = existing || utteranceCommittedText(payload.utterance).trim();
+        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim()
+          || utteranceCommittedText(payload.utterance).trim();
         if (fallback.length > 0) {
           paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
         }
@@ -8186,6 +8217,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     canonWsIsolationRecordingRef.current = false;
     sonioxSessionApiKeyRef.current = null;
     sonioxRtUrlRef.current = null;
+    clearChunkV2GlossaryState();
 
     canonWsIsolationEngineRef.current?.stopSoniox();
     canonWsIsolationEngineRef.current?.setHooks({ onSpeechToken: undefined });
@@ -9795,38 +9827,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         eng.setMorsyCleanMtTuning(true);
         const chunkV2Enabled = morsyUsesChunkTranslationV2Experiment();
         eng.setChunkV2NativeTranslate(chunkV2Enabled);
+        clearChunkV2GlossaryState();
         if (chunkV2Enabled) {
-          eng.setChunkV2GlossaryTerms([]);
-          chunkV2GlossaryTermsRef.current = [];
-          const glossarySessionApiKey = tokenRes.apiKey;
-          void (async () => {
-            try {
-              const res = await fetch("/api/glossary", { credentials: "include" });
-              const data = await res.json() as {
-                entries?: Array<{ term?: string; translation?: string }>;
-              };
-              const glossaryTerms = (data.entries ?? [])
-                .flatMap((entry) => {
-                  const target = `${entry.translation ?? ""}`.trim();
-                  if (!target) return [];
-                  return `${entry.term ?? ""}`
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                    .map((source) => ({ source, target }));
-                });
-              if (sonioxSessionApiKeyRef.current !== glossarySessionApiKey) return;
-              eng.setChunkV2GlossaryTerms(glossaryTerms);
-              chunkV2GlossaryTermsRef.current = glossaryTerms;
-            } catch {
-              if (sonioxSessionApiKeyRef.current !== glossarySessionApiKey) return;
-              eng.setChunkV2GlossaryTerms([]);
-              chunkV2GlossaryTermsRef.current = [];
-            }
-          })();
-        } else {
-          eng.setChunkV2GlossaryTerms([]);
-          chunkV2GlossaryTermsRef.current = [];
+          await loadAndApplyChunkV2Glossary(
+            langPairRef.current.a,
+            langPairRef.current.b,
+            tokenRes.apiKey,
+          );
         }
         eng.startSoniox(tokenRes.apiKey, langPairRef.current, TARGET_RATE, tokenRes.rtUrl);
       } else {
@@ -9989,9 +9996,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const setLangPair = useCallback((a: string, b: string) => {
     const prev = langPairRef.current;
     langPairRef.current = { a, b };
-    // Reconnect live for morsy-urgent AND any plan hard-routed to Soniox native
-    // two-way translation — otherwise a mid-session pair change would leave the
-    // already-open Soniox `translation.language_a/b` config stuck on the old pair.
     if (
       !isBasicMorsyUrgentPlan(planTypeRef.current) &&
       !planForcesChunkV2Soniox(planTypeRef.current)
@@ -10001,8 +10005,16 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const eng = canonWsIsolationEngineRef.current;
     const apiKey = sonioxSessionApiKeyRef.current;
     if (!eng || !apiKey) return;
-    eng.restartSoniox(apiKey, { a, b }, TARGET_RATE, sonioxRtUrlRef.current ?? undefined);
-  }, []);
+    void (async () => {
+      clearChunkV2GlossaryState();
+      if (morsyUsesChunkTranslationV2Experiment()) {
+        await loadAndApplyChunkV2Glossary(a, b, apiKey);
+      }
+      if (sonioxSessionApiKeyRef.current !== apiKey) return;
+      if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
+      eng.restartSoniox(apiKey, { a, b }, TARGET_RATE, sonioxRtUrlRef.current ?? undefined);
+    })();
+  }, [clearChunkV2GlossaryState, loadAndApplyChunkV2Glossary]);
 
   // ── getSnapshot ────────────────────────────────────────────────────────────
   // Returns accumulated finalized transcript/translation for admin snapshots.

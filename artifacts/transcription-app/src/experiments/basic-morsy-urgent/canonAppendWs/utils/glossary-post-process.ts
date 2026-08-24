@@ -1,256 +1,143 @@
-import type { SonioxContextTerm } from "../ws/interpreter-context";
+import {
+  normalizeWorkspaceLanguageCode,
+  workspaceLanguagesEqual,
+} from "@/lib/workspace-languages";
+
+import type { ChunkV2GlossaryEntry } from "./chunk-v2-glossary";
+import { resolveRowTranslationDirection } from "./chunk-v2-glossary";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function normalizeLoose(s: string): string {
+/** NFC, strip ZW/NBSP, collapse whitespace — for exact-match surfaces only. */
+function normalizeExactMatchSurface(s: string): string {
   return s
     .normalize("NFC")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
 }
 
-function looksArabic(s: string): boolean {
-  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
-}
-
-/** Strip Arabic clitics (ب/ال/و/…) and collapse elongated ا so بالتعب ↔ تعبااان can match. */
-function arabicMatchCore(s: string): string {
-  let t = s.normalize("NFC").replace(/\u0640/g, "");
-  let guard = 0;
-  while (guard++ < 6) {
-    if (t.startsWith("ال") && t.length > 3) {
-      t = t.slice(2);
-      continue;
-    }
-    if (/^[وفبلك]/.test(t) && t.length > 3) {
-      t = t.slice(1);
-      continue;
-    }
-    break;
-  }
-  return t.replace(/ا{2,}/g, "ا");
-}
-
-function graphemeLen(s: string): number {
-  return [...s.normalize("NFC")].length;
-}
-
-function longestCommonPrefixGraphemes(a: string, b: string): number {
-  const ca = [...a.normalize("NFC")];
-  const cb = [...b.normalize("NFC")];
-  let i = 0;
-  const n = Math.min(ca.length, cb.length);
-  while (i < n && ca[i] === cb[i]) i++;
-  return i;
-}
-
-function longestCommonSuffixGraphemes(a: string, b: string): number {
-  const ca = [...a.normalize("NFC")];
-  const cb = [...b.normalize("NFC")];
-  let i = 0;
-  const n = Math.min(ca.length, cb.length);
-  while (i < n && ca[ca.length - 1 - i] === cb[cb.length - 1 - i]) i++;
-  return i;
-}
-
-/** Longest contiguous shared grapheme run (Arabic roots like تعب in متعب / تعبااان). */
-function longestCommonSubstringGraphemes(a: string, b: string): number {
-  const ca = [...a.normalize("NFC")];
-  const cb = [...b.normalize("NFC")];
-  let best = 0;
-  for (let i = 0; i < ca.length; i++) {
-    for (let j = 0; j < cb.length; j++) {
-      let k = 0;
-      while (i + k < ca.length && j + k < cb.length && ca[i + k] === cb[j + k]) k++;
-      if (k > best) best = k;
-    }
-  }
-  return best;
-}
-
-function arabicCoresShareRoot(wordCore: string, prefCore: string): boolean {
-  const lcs = longestCommonSubstringGraphemes(wordCore, prefCore);
-  if (lcs < 3) return false;
-  const shorter = Math.min(graphemeLen(wordCore), graphemeLen(prefCore));
-  return lcs >= 3 && lcs / Math.max(shorter, 1) >= 0.55;
-}
-
-/** True when every whitespace word of `needle` appears somewhere in `hay` (substring). */
-function sourceSpokenInOriginal(original: string, source: string): boolean {
-  const hay = normalizeLoose(original);
-  const words = normalizeLoose(source)
-    .split(/\s+/)
-    .filter((w) => w.length >= 2);
-  if (words.length === 0) {
-    const v = normalizeLoose(source);
-    return v.length >= 2 && hay.includes(v);
-  }
-  return words.every((w) => hay.includes(w));
-}
-
-function translationContainsPreferred(translation: string, target: string): boolean {
-  const t = target.trim();
-  if (t.length < 2) return true;
-  if (/^[\x00-\x7F]+$/.test(t)) {
-    return normalizeLoose(translation).includes(normalizeLoose(t));
-  }
-  return translation.normalize("NFC").includes(t.normalize("NFC"));
-}
-
-function preserveCaseReplace(match: string, replacement: string): string {
-  if (match.toUpperCase() === match && match.toLowerCase() !== match) {
-    return replacement.toUpperCase();
-  }
-  if (
-    match[0] === match[0]?.toUpperCase() &&
-    match[0] !== match[0]?.toLowerCase()
-  ) {
-    return replacement.charAt(0).toUpperCase() + replacement.slice(1);
-  }
-  return replacement;
+function normalizeExactMatchSurfaceLower(s: string): string {
+  return normalizeExactMatchSurface(s).toLowerCase();
 }
 
 /**
- * Replace MT words that are stem/clitic variants of the preferred glossary target
- * (e.g. بالتعب / التعب → تعبااان) instead of appending at sentence end.
+ * Unicode-aware exact word/phrase boundary pattern.
+ * Multiword phrases require contiguous words in order (flexible internal whitespace).
  */
-function replaceSimilarPreferredInPlace(outputText: string, preferred: string): string {
-  const T = preferred.trim();
-  if (T.length < 2 || /\s/.test(T)) return outputText;
-  const prefAr = looksArabic(T);
-  const Tcore = prefAr ? arabicMatchCore(T) : T;
-  if (Tcore.length < 2) return outputText;
-
-  type Tok = { start: number; end: number; raw: string };
-  const tokens: Tok[] = [];
-  const re = /[\p{L}\p{M}][\p{L}\p{M}'’\-]*/gu;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(outputText)) !== null) {
-    tokens.push({ start: m.index, end: m.index + m[0].length, raw: m[0] });
+export function buildExactPhrasePattern(phrase: string): RegExp {
+  const trimmed = phrase.trim();
+  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) {
+    return /(?!)/u;
   }
+  const parts = words.map((w) => escapeRegex(w));
+  const body = parts.length === 1 ? parts[0]! : parts.join("\\s+");
+  return new RegExp(
+    `(?<![\\p{L}\\p{M}])${body}(?![\\p{L}\\p{M}])`,
+    "iu",
+  );
+}
 
-  const lenT = graphemeLen(Tcore);
-  const hits: Tok[] = [];
+/** True when the complete source phrase appears in Original with exact word/phrase boundaries. */
+export function sourcePhraseInOriginal(original: string, source: string): boolean {
+  const src = source.trim();
+  if (src.length < 2) return false;
+  const orig = normalizeExactMatchSurface(original);
+  if (orig.length < 1) return false;
+  return buildExactPhrasePattern(src).test(orig);
+}
 
-  for (const t of tokens) {
-    const raw = t.raw;
-    if (raw === T) continue;
-    if (prefAr !== looksArabic(raw)) continue;
-
-    const wCore = prefAr ? arabicMatchCore(raw) : raw;
-    if (wCore.length < 2) continue;
-    if (wCore === Tcore) {
-      hits.push(t);
-      continue;
-    }
-
-    const lenW = graphemeLen(wCore);
-    if (lenW < 3) continue;
-
-    // Arabic: shared root/substring (متعب ↔ تعبااان via تعب), not only prefix/suffix.
-    if (prefAr && arabicCoresShareRoot(wCore, Tcore)) {
-      hits.push(t);
-      continue;
-    }
-
-    const lcp = longestCommonPrefixGraphemes(wCore, Tcore);
-    const lcs = longestCommonSuffixGraphemes(wCore, Tcore);
-    const bestEdge = Math.max(lcp, lcs);
-    const ratio = bestEdge / Math.max(lenW, lenT, 1);
-
-    const minRatio = prefAr ? 0.4 : 0.5;
-    const minEdge = prefAr ? 3 : 4;
-    if (ratio < minRatio || bestEdge < minEdge) continue;
-    if (lenW > lenT * 1.85 && ratio < 0.62) continue;
-    if (lenT > lenW * 1.85 && ratio < 0.62) continue;
-    hits.push(t);
-  }
-
-  if (hits.length === 0) return outputText;
-
-  hits.sort((a, b) => b.start - a.start);
-  let out = outputText;
-  for (const t of hits) {
-    out = out.slice(0, t.start) + T + out.slice(t.end);
-  }
-  return out;
+function entryMatchesDirection(
+  entry: ChunkV2GlossaryEntry,
+  direction: { sourceLanguage: string; targetLanguage: string },
+): boolean {
+  return (
+    workspaceLanguagesEqual(entry.sourceLanguage, direction.sourceLanguage) &&
+    workspaceLanguagesEqual(entry.targetLanguage, direction.targetLanguage)
+  );
 }
 
 /**
- * Enforce personal glossary on Soniox native (chunk-v2) translation text.
- * 1) Replace leaked source phrases in the translation with preferred targets.
- * 2) When the spoken original matched a glossary source but the preferred target
- *    is still missing, replace same-script MT cognates/roots in place
- *    (متعب / بالتعب → تعبااان).
- * 3) Append preferred once only if in-place still failed (never silent miss).
+ * Replace spans that normalize identically to the preferred target but differ in exact form
+ * (Unicode normalization / ASCII case only — no semantic guessing).
+ */
+function normalizeExactPreferredVariant(text: string, preferred: string): string {
+  const prefExact = preferred.trim();
+  const prefNorm = normalizeExactMatchSurfaceLower(prefExact);
+  if (prefNorm.length < 2) return text;
+
+  const pattern = buildExactPhrasePattern(prefExact);
+  return text.replace(pattern, (match) => {
+    if (normalizeExactMatchSurfaceLower(match) === prefNorm && match !== prefExact) {
+      return prefExact;
+    }
+    return match;
+  });
+}
+
+export type ApplyGlossaryPostProcessOpts = {
+  /** Finalized Original text for this row only. */
+  originalText: string;
+  /** Detected/spoken language of the Original row. */
+  rowSourceLanguage: string;
+  /** Active workspace pair side A. */
+  langA: string;
+  /** Active workspace pair side B. */
+  langB: string;
+};
+
+/**
+ * Conservative chunk-v2 personal glossary cleanup on finalized Soniox translation text.
+ * hint rows: no client enforcement (Soniox translation_terms only).
+ * strict rows: replace exact source leaks or normalize exact preferred variants only when
+ * the source phrase is proven in the finalized Original and direction matches.
  */
 export function applyGlossaryPostProcess(
   text: string,
-  terms: readonly SonioxContextTerm[],
-  originalText?: string,
+  entries: readonly ChunkV2GlossaryEntry[],
+  opts: ApplyGlossaryPostProcessOpts,
 ): string {
-  if (!terms.length || !text.trim()) return text;
+  if (!text.trim() || !entries.length) return text;
 
-  const sorted = [...terms]
-    .filter((t) => `${t.source ?? ""}`.trim() && `${t.target ?? ""}`.trim())
-    .sort((a, b) => `${b.source}`.length - `${a.source}`.length);
+  const original = normalizeExactMatchSurface(opts.originalText);
+  if (original.length < 1) return text;
+
+  const direction = resolveRowTranslationDirection(
+    opts.rowSourceLanguage,
+    opts.langA,
+    opts.langB,
+  );
+  if (!direction) return text;
+
+  const strictEntries = entries
+    .filter((e) => e.enforceMode === "strict")
+    .filter((e) => entryMatchesDirection(e, direction))
+    .sort(
+      (a, b) =>
+        b.priority - a.priority ||
+        b.source.length - a.source.length ||
+        a.source.localeCompare(b.source),
+    );
 
   let result = text;
-  const original = (originalText ?? "").trim();
 
-  for (const { source, target } of sorted) {
-    const src = source.trim();
-    const tgt = target.trim();
-    if (!src || !tgt) continue;
+  for (const entry of strictEntries) {
+    if (!sourcePhraseInOriginal(original, entry.source)) continue;
 
-    const escaped = escapeRegex(src);
-    const re = new RegExp(
-      `(?<![\\w\\u00C0-\\u024F\\u0600-\\u06FF])${escaped}(?![\\w\\u00C0-\\u024F\\u0600-\\u06FF])`,
-      "gi",
-    );
-    result = result.replace(re, (match) => preserveCaseReplace(match, tgt));
-  }
+    const leakPattern = buildExactPhrasePattern(entry.source);
+    result = result.replace(leakPattern, entry.target);
 
-  if (!original) return result;
-
-  for (const { source, target } of sorted) {
-    const src = source.trim();
-    const tgt = target.trim();
-    if (!src || !tgt) continue;
-    if (!sourceSpokenInOriginal(original, src)) continue;
-    if (translationContainsPreferred(result, tgt)) continue;
-
-    const beforeSimilar = result;
-    result = replaceSimilarPreferredInPlace(result, tgt);
-    if (result !== beforeSimilar && translationContainsPreferred(result, tgt)) continue;
-
-    const words = src.split(/\s+/).filter((w) => w.length >= 4);
-    let inlined = false;
-    for (const w of [...words].sort((a, b) => b.length - a.length)) {
-      const wr = new RegExp(
-        `(?<![\\w\\u00C0-\\u024F\\u0600-\\u06FF])${escapeRegex(w)}(?![\\w\\u00C0-\\u024F\\u0600-\\u06FF])`,
-        "gi",
-      );
-      if (!wr.test(result)) continue;
-      wr.lastIndex = 0;
-      result = result.replace(wr, (match) => {
-        inlined = true;
-        return preserveCaseReplace(match, tgt);
-      });
-      if (inlined) break;
-    }
-    if (inlined) continue;
-
-    // Backup: append so preferred never silently disappears when in-place miss.
-    if (!translationContainsPreferred(result, tgt)) {
-      const tail = result.trimEnd();
-      result = `${tail}${tail.length > 0 ? " " : ""}${tgt}`.trim();
-    }
+    result = normalizeExactPreferredVariant(result, entry.target);
   }
 
   return result;
+}
+
+/** @internal test helper */
+export function normalizeWorkspaceLangForGlossary(code: string): string {
+  return normalizeWorkspaceLanguageCode(code);
 }
