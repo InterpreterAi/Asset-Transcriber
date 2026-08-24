@@ -3902,7 +3902,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             // Live translation: paint in-progress Soniox translation while speaker is talking.
             // row.translationText on the active row = state.activeTranslationText from reducer.
             if (!row.finalized) {
-              const liveTx = (row.translationText ?? "").trim();
+              const liveTx = applyGlossaryPostProcess(
+                (row.translationText ?? "").trim(),
+                chunkV2GlossaryTermsRef.current,
+                row.committedText ?? row.text ?? "",
+              );
               if (liveTx.length > 0) {
                 paintCanonRowTranslationIfAllowed(row.row_id, liveTx, { force: false });
               }
@@ -5986,6 +5990,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       const nativeTx = applyGlossaryPostProcess(
         (utterance.translationText ?? "").trim(),
         chunkV2GlossaryTermsRef.current,
+        committedText,
       );
       const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
@@ -7238,7 +7243,11 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     const rowId = payload.utterance.utterance_id;
     if (morsyUsesChunkTranslationV2Experiment()) {
       // Soniox native translation — paint from frozen utterance, skip external API.
-      const nativeTx = (payload.utterance.translationText ?? "").trim();
+      const nativeTx = applyGlossaryPostProcess(
+        (payload.utterance.translationText ?? "").trim(),
+        chunkV2GlossaryTermsRef.current,
+        utteranceCommittedText(payload.utterance),
+      );
       const existing = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
       if (nativeTx.length > 0) {
         // Normal path: Soniox translated this utterance.

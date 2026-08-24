@@ -2369,7 +2369,13 @@ router.post("/translate", requireAuth, async (req, res) => {
         glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
       if (applyUserGlossaryMt) {
         outMt = applyUserGlossaryStrict(outMt, userGlossary, appliedMt);
-        outMt = ensureGlossaryTranslationsFromSource(outMt, phraseNormalized, userGlossary, appliedMt);
+        outMt = ensureGlossaryTranslationsFromSource(
+          outMt,
+          phraseNormalized,
+          userGlossary,
+          appliedMt,
+          tgtLangResolved,
+        );
       }
       diagCounter.translationSegments += 1;
       diagLastTranslatedBySession.set(diagSid, { segmentId: diagSegId, translated: outMt });
@@ -2907,10 +2913,19 @@ router.post("/translate", requireAuth, async (req, res) => {
 
     const appliedAi: string[] = [];
     let outAi = result.text;
-    // OpenAI terminology behavior is enforced in-prompt (request level only).
-    // Keep applied list empty here; no post-response glossary rewriting for OpenAI.
-    if (glossaryStrictMode) {
-      void glossaryStrictMode;
+    // Personal glossary: same finals-only forced pass as Libre/Basic so trial (OpenAI)
+    // cannot ignore saved source→preferred wording after the model responds.
+    const applyUserGlossaryAi =
+      glossaryStrictMode && isFinalSegment && userGlossary.length > 0;
+    if (applyUserGlossaryAi) {
+      outAi = applyUserGlossaryStrict(outAi, userGlossary, appliedAi);
+      outAi = ensureGlossaryTranslationsFromSource(
+        outAi,
+        phraseNormalized,
+        userGlossary,
+        appliedAi,
+        tgtLangResolved,
+      );
     }
 
     diagCounter.translationSegments += 1;
