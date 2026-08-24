@@ -5,6 +5,7 @@ import { appCalendarDayChanged, startOfAppDay } from "@workspace/app-timezone";
 import { logger } from "./logger.js";
 import { isGoogleOnlyAccount } from "./account-auth.js";
 import { subscriptionPeriodEndFallback } from "./paypal.js";
+import { effectiveSessionSecondsSql } from "./session-billable-seconds.js";
 
 export type TranslationRoutingUser = {
   planType: string | null | undefined;
@@ -257,25 +258,16 @@ export function translationEnabledForUser(user: User): boolean {
 }
 
 /**
- * Billable minutes credited today (app calendar), aligned with daily-cap checks:
- * closed sessions use stored audio/duration seconds; open sessions use
- * `audio_seconds_processed` only (same basis as open-session billing in transcription routes).
+ * Billable minutes credited today (app calendar), aligned with admin session-history
+ * effective duration (duration/audio when > 0, then activity / wall-clock fallbacks).
+ * Open sessions prefer reported PCM audio, else elapsed wall time.
  */
 export async function getBillableMinutesUsedToday(userId: number): Promise<number> {
   const todayStart = startOfAppDay();
   const [row] = await db
     .select({
       minutesToday: sql<number>`
-        COALESCE(
-          SUM(
-            CASE
-              WHEN ${sessionsTable.endedAt} IS NULL
-                THEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0)
-              ELSE COALESCE(${sessionsTable.audioSecondsProcessed}, ${sessionsTable.durationSeconds}, 0)
-            END
-          ),
-          0
-        ) / 60.0`,
+        COALESCE(SUM(${effectiveSessionSecondsSql()}), 0) / 60.0`,
     })
     .from(sessionsTable)
     .where(and(eq(sessionsTable.userId, userId), gte(sessionsTable.startedAt, todayStart)));

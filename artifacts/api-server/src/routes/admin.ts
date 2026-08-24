@@ -23,6 +23,10 @@ import {
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
 import {
+  effectiveSessionSecondsSql,
+  effectiveSessionSecondsSqlAliasS,
+} from "../lib/session-billable-seconds.js";
+import {
   dbPlanTypeFromPayPalBilling,
   billingPlanTierDisplayName,
   billingProductKeyFromPlanType,
@@ -436,7 +440,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
-  const [users, shareCounts, todayUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
+  const [users, shareCounts, todayUsageRows, lifetimeUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
@@ -445,19 +449,18 @@ router.get("/users", requireAdmin, async (_req, res) => {
     db.select({
       userId: sessionsTable.userId,
       minutesToday: sql<number>`
-        COALESCE(
-          SUM(
-            CASE
-              WHEN ${sessionsTable.endedAt} IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - ${sessionsTable.startedAt}))
-              ELSE COALESCE(${sessionsTable.audioSecondsProcessed}, ${sessionsTable.durationSeconds}, 0)
-            END
-          ),
-          0
-        ) / 60.0`,
+        COALESCE(SUM(${effectiveSessionSecondsSql()}), 0) / 60.0`,
     })
       .from(sessionsTable)
       .where(gte(sessionsTable.startedAt, todayStartNy))
+      .groupBy(sessionsTable.userId),
+    db.select({
+      userId: sessionsTable.userId,
+      totalMinutes: sql<number>`
+        COALESCE(SUM(${effectiveSessionSecondsSql()}), 0) / 60.0`,
+      sessionCount: sql<number>`COUNT(*)::int`,
+    })
+      .from(sessionsTable)
       .groupBy(sessionsTable.userId),
     // IPs where 2+ distinct users have had at least one successful login (same person, multiple accounts).
     db
@@ -496,12 +499,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
     }>(`
       SELECT u.id AS user_id,
         COALESCE((
-          SELECT SUM(
-            CASE
-              WHEN s.ended_at IS NULL THEN COALESCE(s.audio_seconds_processed, 0)::double precision
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)::double precision
-            END
-          ) / 60.0
+          SELECT SUM((${effectiveSessionSecondsSqlAliasS()})) / 60.0
           FROM sessions s
           WHERE s.user_id = u.id
             AND s.started_at >= COALESCE(u.subscription_started_at, u.created_at)
@@ -522,6 +520,12 @@ router.get("/users", requireAdmin, async (_req, res) => {
 
   const shareMap = new Map(shareCounts.map(s => [s.userId, Number(s.count)]));
   const todayUsageMap = new Map(todayUsageRows.map((r) => [r.userId, Number(r.minutesToday)]));
+  const lifetimeUsageMap = new Map(
+    lifetimeUsageRows.map((r) => [
+      r.userId,
+      { minutes: Number(r.totalMinutes), sessions: Number(r.sessionCount) },
+    ]),
+  );
 
   const ipAccountCount = new Map<string, number>();
   for (const row of loginIpStats) {
@@ -640,10 +644,10 @@ router.get("/users", requireAdmin, async (_req, res) => {
       stripeSubscriptionId: u.stripeSubscriptionId ?? null,
       trialDaysRemaining: getTrialDaysRemaining(u),
       dailyLimitMinutes:  u.dailyLimitMinutes,
-      // Live-accurate "today" usage for admin table/pills.
+      // Live-accurate "today" usage for admin table/pills (same effective seconds as session history).
       minutesUsedToday:   todayUsageMap.get(u.id) ?? u.minutesUsedToday,
-      totalMinutesUsed:   u.totalMinutesUsed,
-      totalSessions:      u.totalSessions,
+      totalMinutesUsed:   lifetimeUsageMap.get(u.id)?.minutes ?? u.totalMinutesUsed,
+      totalSessions:      lifetimeUsageMap.get(u.id)?.sessions ?? u.totalSessions,
       totalShares:        shareMap.get(u.id) ?? 0,
       defaultLangA:       (u as { defaultLangA?: string }).defaultLangA ?? "en",
       defaultLangB:       (u as { defaultLangB?: string }).defaultLangB ?? "ar",
@@ -886,7 +890,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
     // Minutes used today — non-admin users only (since midnight America/New_York).
     // Includes live sessions by using elapsed time when duration_seconds is not yet set.
-    db.select({ total: sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0` })
+    db.select({ total: sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0` })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
@@ -1135,7 +1139,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
 
     // Minutes and real cost today
     db.select({
-      minutes:     sql<number>`COALESCE(SUM(CASE WHEN s.ended_at IS NULL THEN EXTRACT(EPOCH FROM (NOW() - s.started_at)) ELSE s.duration_seconds END), 0) / 60.0`,
+      minutes:     sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
       sessions:    sql<number>`COUNT(*)`,
       costToday:   sql<number>`
         COALESCE(SUM(CASE
@@ -1181,11 +1185,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       minutesToday: sql<number>`
         COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) / 60.0`,
@@ -1201,21 +1201,13 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       .groupBy(usersTable.id, usersTable.username, usersTable.totalMinutesUsed, usersTable.planType)
       .having(sql`COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) > 0`)
       .orderBy(desc(sql`COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         )`))
@@ -1226,11 +1218,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       hours: sql<number>`
         COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) / 3600.0`,
@@ -1248,22 +1236,14 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       transcriptionHours: sql<number>`
         COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) / 3600.0`,
       translationHours: sql<number>`
         COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) / 3600.0`,
@@ -1459,11 +1439,7 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       minutesToday: sql<number>`
         COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) / 60.0`,
@@ -1479,21 +1455,13 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
       .groupBy(usersTable.id, usersTable.username, usersTable.dailyLimitMinutes)
       .having(sql`COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         ) > 0`)
       .orderBy(desc(sql`COALESCE(
           SUM(
-            CASE
-              WHEN s.ended_at IS NULL
-                THEN EXTRACT(EPOCH FROM (NOW() - s.started_at))
-              ELSE COALESCE(s.audio_seconds_processed, s.duration_seconds, 0)
-            END
+${sql.raw(effectiveSessionSecondsSqlAliasS())}
           ),
           0
         )`))
@@ -1744,24 +1712,7 @@ router.post("/session/:sessionId/hetzner-core-override", requireAdmin, async (re
 router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
   const userId = parseInt(String(req.params.userId));
   if (isNaN(userId)) { res.status(400).json({ error: "Invalid user ID" }); return; }
-  const effectiveDurationSecondsSql = sql<number>`
-    CASE
-      WHEN ${sessionsTable.endedAt} IS NULL
-        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${sessionsTable.startedAt}))))
-      WHEN COALESCE(${sessionsTable.durationSeconds}, 0) > 0
-        THEN ${sessionsTable.durationSeconds}
-      WHEN COALESCE(${sessionsTable.audioSecondsProcessed}, 0) > 0
-        THEN ${sessionsTable.audioSecondsProcessed}
-      -- Machine-stack historical fallback: session had heartbeats but stale-close stored zero duration.
-      WHEN ${sessionsTable.lastActivityAt} IS NOT NULL
-        AND EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt})) >= 90
-        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.lastActivityAt} - ${sessionsTable.startedAt}))))
-      -- Backfill historical rows that show 0 min despite real translated activity.
-      WHEN COALESCE(${sessionsTable.translationTokens}, 0) > 0
-        THEN LEAST(10800, GREATEST(0, EXTRACT(EPOCH FROM (${sessionsTable.endedAt} - ${sessionsTable.startedAt}))))
-      ELSE 0
-    END
-  `;
+  const effectiveDurationSecondsSql = effectiveSessionSecondsSql();
 
   const rows = await db
     .select({

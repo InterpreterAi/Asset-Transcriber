@@ -15,6 +15,7 @@ import { eq, and, isNull, or, lt, sql, desc, gte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireJsonObjectBody } from "../middlewares/aiRequestValidation.js";
 import {
+  getBillableMinutesUsedToday,
   getLiveTranslateEngineRouting,
   getUserWithResetCheck,
   isTrialExpired,
@@ -24,6 +25,7 @@ import {
   touchActivity,
   translationEnabledForUser,
 } from "../lib/usage.js";
+import { computeBillableSecondsFromSessionRow } from "../lib/session-billable-seconds.js";
 import { findTermHints } from "../data/terminology.js";
 import {
   initInterpreterGlossaries,
@@ -263,19 +265,15 @@ async function sumOpenSessionsBillableMinutes(userId: number): Promise<number> {
 }
 
 /**
- * Daily cap: stored usage plus in-flight billable minutes (current open session(s)).
+ * Daily cap using session-history-aligned billable minutes (includes open sessions).
  * `dailyLimitMinutes <= 0` or unlimited cap → never block.
  */
-function isDailyCapReachedWithLiveExtra(
-  user: { minutesUsedToday: number; dailyLimitMinutes: number },
-  liveBillableMinutes: number,
-): boolean {
-  const cap = Number(user.dailyLimitMinutes);
+function isDailyCapReachedFromBillable(usedMinutes: number, dailyLimitMinutes: number): boolean {
+  const cap = Number(dailyLimitMinutes);
   if (!Number.isFinite(cap) || cap <= 0) return false;
   if (cap >= UNLIMITED_DAILY_CAP_MINUTES) return false;
-  const used = Number(user.minutesUsedToday);
-  const live = Math.max(0, Number(liveBillableMinutes));
-  return used + live >= cap - 1e-6;
+  const used = Math.max(0, Number(usedMinutes) || 0);
+  return used >= cap - 1e-6;
 }
 
 function trialLimitBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean {
@@ -546,7 +544,8 @@ router.post("/token", requireAuth, async (req, res) => {
     }
 
     const liveBillable = await sumOpenSessionsBillableMinutes(user.id);
-    if (!trialLimitBypassedForAdmin(user) && isDailyCapReachedWithLiveExtra(user, liveBillable)) {
+    const billableToday = await getBillableMinutesUsedToday(user.id);
+    if (!trialLimitBypassedForAdmin(user) && isDailyCapReachedFromBillable(billableToday, user.dailyLimitMinutes)) {
       res.status(403).json({
         error: isTrialLikePlanType(user.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
         code: "DAILY_LIMIT_REACHED",
@@ -658,7 +657,15 @@ async function sweepStaleSessions(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - STALE_SESSION_MS);
     const stale = await db
-      .select({ id: sessionsTable.id, startedAt: sessionsTable.startedAt, userId: sessionsTable.userId })
+      .select({
+        id: sessionsTable.id,
+        startedAt: sessionsTable.startedAt,
+        userId: sessionsTable.userId,
+        audioSecondsProcessed: sessionsTable.audioSecondsProcessed,
+        durationSeconds: sessionsTable.durationSeconds,
+        lastActivityAt: sessionsTable.lastActivityAt,
+        translationTokens: sessionsTable.translationTokens,
+      })
       .from(sessionsTable)
       .where(and(
         isNull(sessionsTable.endedAt),
@@ -667,22 +674,11 @@ async function sweepStaleSessions(): Promise<void> {
 
     if (stale.length === 0) return;
 
-    const now = new Date();
     for (const s of stale) {
-      // Do not bill wall-clock time: the client never reported processed audio (tab close / refresh).
-      // Daily limits must reflect only audio seconds credited via POST /session/stop.
-      await db
-        .update(sessionsTable)
-        .set({
-          endedAt:               now,
-          durationSeconds:        0,
-          audioSecondsProcessed: 0,
-          sonioxCost:            "0",
-          totalSessionCost:      sql`COALESCE(translation_cost, 0)`,
-          hetznerMtManualLane:   null,
-          hetznerMtAssignedLane: null,
-        })
-        .where(eq(sessionsTable.id, s.id));
+      // Bill reconstructed usage (PCM and/or last-activity span) so admin TODAY/caps
+      // match session history instead of zeroing unstopped sessions.
+      const creditSec = computeBillableSecondsFromSessionRow(s);
+      await closeOpenSessionWithBillingIfNeeded(s.id, s.userId, creditSec);
       sessionStore.delete(s.id);
     }
     logger.info(`Swept ${stale.length} stale session(s)`);
@@ -1224,16 +1220,14 @@ router.post("/session/start", requireAuth, async (req, res) => {
     .where(and(eq(sessionsTable.userId, user.id), isNull(sessionsTable.endedAt)));
 
   for (const orphan of openSessions) {
-    await closeOpenSessionWithBillingIfNeeded(
-      orphan.id,
-      user.id,
-      Number(orphan.audioSecondsProcessed ?? 0),
-    );
+    const creditSec = computeBillableSecondsFromSessionRow(orphan);
+    await closeOpenSessionWithBillingIfNeeded(orphan.id, user.id, creditSec);
   }
 
   const userForCap = (await getUserWithResetCheck(user.id)) ?? user;
   const liveAfterOrphans = await sumOpenSessionsBillableMinutes(userForCap.id);
-  if (!trialLimitBypassedForAdmin(userForCap) && isDailyCapReachedWithLiveExtra(userForCap, liveAfterOrphans)) {
+  const billableToday = await getBillableMinutesUsedToday(userForCap.id);
+  if (!trialLimitBypassedForAdmin(userForCap) && isDailyCapReachedFromBillable(billableToday, userForCap.dailyLimitMinutes)) {
     res.status(403).json({
       error: isTrialLikePlanType(userForCap.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",
@@ -1359,14 +1353,20 @@ router.post("/session/heartbeat", requireAuth, async (req, res) => {
     res.status(401).json({ error: "Not authenticated" });
     return;
   }
-  const liveBillable = await sumOpenSessionsBillableMinutes(userId);
-  if (!trialLimitBypassedForAdmin(hbUser) && isDailyCapReachedWithLiveExtra(hbUser, liveBillable)) {
+  const billableToday = await getBillableMinutesUsedToday(userId);
+  if (!trialLimitBypassedForAdmin(hbUser) && isDailyCapReachedFromBillable(billableToday, hbUser.dailyLimitMinutes)) {
     const [capRow] = await db
-      .select({ audioSecondsProcessed: sessionsTable.audioSecondsProcessed })
+      .select({
+        audioSecondsProcessed: sessionsTable.audioSecondsProcessed,
+        durationSeconds: sessionsTable.durationSeconds,
+        startedAt: sessionsTable.startedAt,
+        lastActivityAt: sessionsTable.lastActivityAt,
+        translationTokens: sessionsTable.translationTokens,
+      })
       .from(sessionsTable)
       .where(eq(sessionsTable.id, sessionId))
       .limit(1);
-    const rawSec = Number(capRow?.audioSecondsProcessed ?? 0);
+    const rawSec = capRow ? computeBillableSecondsFromSessionRow(capRow) : 0;
     await closeOpenSessionWithBillingIfNeeded(sessionId, userId, rawSec);
     res.json({ ok: true, dailyLimitReached: true, sessionEnded: true });
     return;
@@ -1768,8 +1768,11 @@ router.post("/translate", requireAuth, async (req, res) => {
     return;
   }
 
-  const translateLiveBillable = await sumOpenSessionsBillableMinutes(translateUser.id);
-  if (!trialLimitBypassedForAdmin(translateUser) && isDailyCapReachedWithLiveExtra(translateUser, translateLiveBillable)) {
+  const translateBillableToday = await getBillableMinutesUsedToday(translateUser.id);
+  if (
+    !trialLimitBypassedForAdmin(translateUser) &&
+    isDailyCapReachedFromBillable(translateBillableToday, translateUser.dailyLimitMinutes)
+  ) {
     res.status(403).json({
       error: isTrialLikePlanType(translateUser.planType) ? dailyLimitTrialMessage() : DAILY_LIMIT_PAID_MESSAGE,
       code: "DAILY_LIMIT_REACHED",
