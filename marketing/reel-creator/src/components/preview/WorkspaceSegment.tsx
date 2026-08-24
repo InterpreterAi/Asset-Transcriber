@@ -22,6 +22,7 @@ import {
 } from "@/lib/workspaceVoSync";
 import type { TimedWord } from "@/lib/kineticCaptions";
 import {
+  exchangeStripeSpeaker,
   translationAfterOriginalProgress,
   typedText,
   TYPING_SPEED,
@@ -190,9 +191,19 @@ export function WorkspaceSegment({
   };
 
   const activeIdx = useVoSync
-    ? voSchedule!.findIndex(
-        (s) => playheadSec! >= s.startSec && playheadSec! < s.startSec + s.durationSec,
-      )
+    ? (() => {
+        const t = playheadSec!;
+        // Prefer spoken VO window, then visual hold — always use exchangeIndex (not schedule slot).
+        const speechHit = voSchedule!.find((s) => {
+          const speech = s.speechDurSec ?? s.durationSec;
+          return t >= s.startSec && t < s.startSec + speech;
+        });
+        if (speechHit) return speechHit.exchangeIndex;
+        const visualHit = voSchedule!.find(
+          (s) => t >= s.startSec && t < s.startSec + s.durationSec,
+        );
+        return visualHit ? visualHit.exchangeIndex : -1;
+      })()
     : conversation.exchanges.findIndex((ex) => p >= ex.startFrac && p < ex.endFrac);
 
   const settled = conversation.exchanges.filter((ex, i) => {
@@ -716,7 +727,7 @@ const ExchangeRow = forwardRef(function ExchangeRow(
             width: px(4),
             alignSelf: "stretch",
             borderRadius: 999,
-            background: stripeColor(ex.speaker),
+            background: stripeColor(exchangeStripeSpeaker(ex)),
             flexShrink: 0,
             minHeight: px(20),
             marginTop: px(2),

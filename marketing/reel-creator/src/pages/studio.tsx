@@ -89,6 +89,7 @@ import {
   defaultWorkspaceConversation,
   applyInterpreterSpeakerPattern,
   setExchangeSpeakerRole,
+  stampWorkspaceVoRouting,
   appendWorkspaceExchange,
   buildEstimatedWorkspaceSchedule,
   estimateSpeechSec,
@@ -913,6 +914,7 @@ export default function Studio() {
       includeWorkspace,
       includeOutro,
       includeProductPayoff: effectiveIncludeProductPayoff,
+      workspaceExchanges: workspace.exchanges,
     });
     if (!covers) return null;
     return {
@@ -1119,6 +1121,7 @@ export default function Studio() {
         includeWorkspace,
         includeOutro,
         includeProductPayoff: effectiveIncludeProductPayoff,
+        workspaceExchanges: workspace.exchanges,
       }),
   );
   const voReady = Boolean(
@@ -1195,6 +1198,15 @@ export default function Studio() {
 
   async function runGenerateVoiceover(): Promise<StudioVoiceoverResult> {
     await invalidateStoredMp4(libraryReelId ?? (!isNew ? reelKey : null));
+    const routedWorkspace = stampWorkspaceVoRouting(
+      applyInterpreterSpeakerPattern(workspace),
+      {
+        speakerAVoiceId: workspaceSpeakerAVoiceId,
+        speakerBVoiceId: workspaceSpeakerBVoiceId,
+        thirdSpeakerVoiceId: workspaceThirdSpeakerVoiceId,
+      },
+    );
+    setWorkspace(routedWorkspace);
     const vo = await generateStudioVoiceover({
       hookClips: includeHook
         ? hookClips.map((c) => ({
@@ -1202,7 +1214,7 @@ export default function Studio() {
             sayLine: c.sayLine.trim(),
           }))
         : [],
-      workspace: applyInterpreterSpeakerPattern(workspace),
+      workspace: routedWorkspace,
       productPayoff: effectiveIncludeProductPayoff ? productPayoff : null,
       language,
       sourceLang,
@@ -1219,6 +1231,7 @@ export default function Studio() {
       productPayoffVoiceId,
       workspaceSpeakerAVoiceId,
       workspaceSpeakerBVoiceId,
+      workspaceThirdSpeakerVoiceId,
       workspaceSpeakerADelivery,
       workspaceSpeakerBDelivery,
       workspaceThirdSpeakerDelivery,

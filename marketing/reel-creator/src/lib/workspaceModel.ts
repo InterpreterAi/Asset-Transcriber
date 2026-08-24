@@ -3,7 +3,7 @@
  * per-line direction, editable timing. Visuals follow workspace-demo reference.
  */
 
-import { reelLanguageLabel } from "@/lib/constants/languages";
+import { reelLanguageLabel, resolveThirdSpeakerVoiceId, type VoiceActorId } from "@/lib/constants/languages";
 import {
   WORKSPACE_POST_VO_HOLD_SEC,
   WORKSPACE_EXCHANGE_GAP_SEC,
@@ -251,6 +251,50 @@ export function setExchangeSpeakerRole(
   return applyInterpreterSpeakerPattern({ ...c, exchanges });
 }
 
+/**
+ * Materialize Blue/Yellow/Pink routing for VO — every pink row gets an explicit
+ * thirdSpeakerVoiceId matching the Studio picker (never silent antoni fallback).
+ */
+export function stampWorkspaceVoRouting(
+  c: WorkspaceConversation,
+  opts: {
+    speakerAVoiceId: VoiceActorId | string;
+    speakerBVoiceId: VoiceActorId | string;
+    thirdSpeakerVoiceId?: VoiceActorId | string | null;
+  },
+): WorkspaceConversation {
+  const patterned = applyInterpreterSpeakerPattern(c);
+  const speakerA = opts.speakerAVoiceId;
+  const speakerB = opts.speakerBVoiceId;
+  const preferredThird = opts.thirdSpeakerVoiceId ?? undefined;
+
+  const exchanges = patterned.exchanges.map((ex) => {
+    const isPink = ex.speaker === "C" || !!ex.thirdSpeakerVoiceId?.trim();
+    if (!isPink) {
+      const speaker: WorkspaceSpeaker =
+        ex.originalLang === patterned.sourceLang ? "A" : "B";
+      return {
+        ...ex,
+        speaker,
+        thirdSpeakerVoiceId: undefined,
+      };
+    }
+    const voice = resolveThirdSpeakerVoiceId(
+      ex.thirdSpeakerVoiceId,
+      speakerA as VoiceActorId,
+      speakerB as VoiceActorId,
+      preferredThird as VoiceActorId | null | undefined,
+    );
+    return {
+      ...ex,
+      speaker: "C" as const,
+      thirdSpeakerVoiceId: voice,
+    };
+  });
+
+  return { ...patterned, exchanges };
+}
+
 /** @deprecated Use applyInterpreterSpeakerPattern */
 export const enforceEnglishAlternatingPattern = applyInterpreterSpeakerPattern;
 
@@ -332,12 +376,19 @@ export function normalizeConversation(c: WorkspaceConversation): WorkspaceConver
     .map((x, i, arr) => {
       const thirdVoice =
         typeof x.thirdSpeakerVoiceId === "string" ? x.thirdSpeakerVoiceId.trim() : "";
-      const useThird = !!thirdVoice;
+      const rawSpeaker = String(x.speaker ?? "").toUpperCase();
+      const useThird = !!thirdVoice || rawSpeaker === "C";
       return {
         ...x,
         id: x.id || newExchangeId(),
-        speaker: (useThird ? "C" : i % 2 === 0 ? "A" : "B") as WorkspaceSpeaker,
-        thirdSpeakerVoiceId: useThird ? thirdVoice : undefined,
+        speaker: (useThird
+          ? "C"
+          : rawSpeaker === "A" || rawSpeaker === "B"
+            ? rawSpeaker
+            : i % 2 === 0
+              ? "A"
+              : "B") as WorkspaceSpeaker,
+        thirdSpeakerVoiceId: useThird ? thirdVoice || x.thirdSpeakerVoiceId : undefined,
         original: sanitizeWorkspaceLine(x.original ?? ""),
         translation: sanitizeWorkspaceLine(x.translation ?? ""),
         startFrac: typeof x.startFrac === "number" ? x.startFrac : i / arr.length,
@@ -417,13 +468,19 @@ export function workspaceScheduleDurationSec(schedule: WorkspaceVoScheduleItem[]
 }
 
 export function exchangeAccentColor(ex: WorkspaceExchange): string {
-  if (ex.speaker === "C" || ex.thirdSpeakerVoiceId) return WORKSPACE_SPEAKER_COLORS.C;
+  if (ex.speaker === "C" || !!ex.thirdSpeakerVoiceId?.trim()) return WORKSPACE_SPEAKER_COLORS.C;
   return ex.speaker === "A" ? WORKSPACE_SPEAKER_COLORS.A : WORKSPACE_SPEAKER_COLORS.B;
 }
 
 export function exchangeSpeakerLabel(ex: WorkspaceExchange): string {
-  if (ex.speaker === "C" || ex.thirdSpeakerVoiceId) return "Pink · 3rd speaker";
+  if (ex.speaker === "C" || !!ex.thirdSpeakerVoiceId?.trim()) return "Pink · 3rd speaker";
   return ex.speaker === "A" ? "Blue · Lang A" : "Yellow · Lang B";
+}
+
+/** Resolved stripe role for preview/export — matches VO routing. */
+export function exchangeStripeSpeaker(ex: WorkspaceExchange): WorkspaceSpeaker {
+  if (ex.speaker === "C" || !!ex.thirdSpeakerVoiceId?.trim()) return "C";
+  return ex.speaker === "B" ? "B" : "A";
 }
 
 export function pairPill(sourceLang: string, targetLang: string): string {

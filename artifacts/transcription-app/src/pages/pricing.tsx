@@ -27,7 +27,10 @@ export default function PricingPage() {
         </div>
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-8">
-          <motion.div {...marketingFade(0)} className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 lg:items-stretch">
+          <motion.div
+            {...marketingFade(0)}
+            className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 max-w-3xl mx-auto md:items-stretch"
+          >
             {PRICING_PLANS.map((plan, i) => (
               <motion.div
                 key={plan.key}
@@ -69,7 +72,7 @@ export default function PricingPage() {
             ))}
           </motion.div>
 
-          <motion.div {...marketingFade(0.12)} className="mt-14 cinematic-v2-glass rounded-2xl p-8 sm:p-10">
+          <motion.div {...marketingFade(0.12)} className="mt-14 cinematic-v2-glass rounded-2xl p-8 sm:p-10 max-w-3xl mx-auto">
             <h2 className="text-lg font-semibold text-white">{PRICING_SHARED_FEATURES_SECTION_TITLE}</h2>
             <p className="mt-1 text-sm text-slate-400">Included across InterpreterAI plans where applicable.</p>
             <ul className="mt-6 grid sm:grid-cols-2 gap-3">
@@ -82,14 +85,13 @@ export default function PricingPage() {
             </ul>
           </motion.div>
 
-          <motion.div {...marketingFade(0.15)} className="mt-10 overflow-x-auto cinematic-v2-glass rounded-2xl">
-            <table className="w-full min-w-[640px] text-sm text-left border-collapse">
+          <motion.div {...marketingFade(0.15)} className="mt-10 overflow-x-auto cinematic-v2-glass rounded-2xl max-w-3xl mx-auto">
+            <table className="w-full min-w-[480px] text-sm text-left border-collapse">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="py-4 pl-6 pr-4 font-semibold text-slate-300 w-[40%]">Capability</th>
+                  <th className="py-4 pl-6 pr-4 font-semibold text-slate-300 w-[45%]">Capability</th>
                   <th className="py-4 px-4 font-semibold text-slate-300">Basic</th>
-                  <th className="py-4 px-4 font-semibold text-cyan-300">Professional</th>
-                  <th className="py-4 pr-6 pl-4 font-semibold text-slate-300">Platinum</th>
+                  <th className="py-4 pr-6 pl-4 font-semibold text-cyan-300">Professional</th>
                 </tr>
               </thead>
               <tbody>
@@ -97,8 +99,7 @@ export default function PricingPage() {
                   <tr key={row.label} className={idx % 2 === 0 ? "bg-white/[0.02]" : "bg-transparent"}>
                     <td className="py-3.5 pl-6 pr-4 text-slate-400">{row.label}</td>
                     <td className="py-3.5 px-4 text-slate-200">{row.basic}</td>
-                    <td className="py-3.5 px-4 font-medium text-white">{row.professional}</td>
-                    <td className="py-3.5 pr-6 pl-4 text-slate-200">{row.platinum}</td>
+                    <td className="py-3.5 pr-6 pl-4 font-medium text-white">{row.professional}</td>
                   </tr>
                 ))}
               </tbody>

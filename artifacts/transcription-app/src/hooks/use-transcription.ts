@@ -830,8 +830,8 @@ const CLS = {
 const CLS_ROW_SEMANTIC_STACK =
   "group relative grid grid-cols-1 gap-y-5 gap-x-0 mb-3 rounded-lg hover:bg-muted/20 px-2 py-1.5 -mx-2 transition-colors";
 
-const TRANSLATION_PLATINUM_PLACEHOLDER =
-  "InterpreterAI Translation is available on the Platinum plan.";
+const TRANSLATION_OFF_PLACEHOLDER =
+  "Translation is turned off. Enable it to see live translations here.";
 
 // ── Soniox real-time types ───────────────────────────────────────────────────
 interface SonioxToken {
@@ -3149,7 +3149,7 @@ type TranslationDiag = {
 export type UseTranscriptionOptions = {
   /** Fired when finalized transcript/translation lines are appended for admin live view (debounce in parent). */
   onAdminSnapshotBuffersUpdated?: () => void;
-  /** When false, skips OpenAI translation calls and shows a Platinum upgrade hint in the translation column. */
+  /** When false, skips OpenAI translation calls and shows an off-state hint in the translation column. */
   translationEnabled?: boolean;
   /** Controls how the translation column looks when translation is disabled. */
   translationUiMode?: "upsell" | "hidden";
@@ -7595,7 +7595,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     } else {
       transTextP.textContent = translationOn
         ? ""
-        : (translationUiModeRef.current === "hidden" ? "" : TRANSLATION_PLATINUM_PLACEHOLDER);
+        : (translationUiModeRef.current === "hidden" ? "" : TRANSLATION_OFF_PLACEHOLDER);
     }
     applyTextStyle(transTextP);
     transRow.appendChild(transTextP);

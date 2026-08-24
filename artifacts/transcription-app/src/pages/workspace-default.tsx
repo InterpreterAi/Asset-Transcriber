@@ -523,16 +523,19 @@ export default function WorkspaceDefault() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<"basic" | "professional" | "platinum" | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<"basic" | "professional" | null>(null);
   const [testPlanLoading, setTestPlanLoading] = useState<string | null>(null);
 
   const handleOpenUpgrade = () => {
     setShowUpgrade(true);
     setUpgradeError(null);
-    setSelectedPlan(null);
+    const tier = workspacePlanTierKey(user?.planType);
+    if (tier === "basic") setSelectedPlan("professional");
+    else if (tier === "professional") setSelectedPlan("basic");
+    else setSelectedPlan(null);
   };
 
-  const handlePayPalCheckout = async (planType: "basic" | "professional" | "platinum") => {
+  const handlePayPalCheckout = async (planType: "basic" | "professional") => {
     setUpgradeLoading(planType);
     setUpgradeError(null);
     try {
@@ -934,15 +937,29 @@ export default function WorkspaceDefault() {
     user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType);
   const isPaidUser = !isTrialLikePlanType(user.planType);
   const currentTier = workspacePlanTierKey(user.planType);
-  const canUpgradePaidPlan = currentTier === "basic" || currentTier === "professional";
+  /** Customer catalog is Basic + Professional only — Platinum stays admin-only. */
+  const canChangePlan =
+    currentTier === "trial" || currentTier === "basic" || currentTier === "professional";
   const upgradePlanOptions = PRICING_PLANS.filter((plan) => {
     if (currentTier === "trial") return true;
-    if (currentTier === "basic") return plan.key === "professional" || plan.key === "platinum";
-    if (currentTier === "professional") return plan.key === "platinum";
+    if (currentTier === "basic") return plan.key === "professional";
+    if (currentTier === "professional") return plan.key === "basic";
     return false;
   });
   const selectedPlanIsAvailable =
     selectedPlan !== null && upgradePlanOptions.some((plan) => plan.key === selectedPlan);
+  const isDowngradeFlow = currentTier === "professional";
+  const planModalTitle = isDowngradeFlow ? "Change Your Plan" : "Upgrade Your Plan";
+  const planModalSubtitle = isDowngradeFlow
+    ? "Switch to Basic anytime — lower monthly price, 5 hours per day"
+    : currentTier === "basic"
+      ? "Upgrade to Professional for unlimited interpreting hours"
+      : "Choose a plan that fits your workflow";
+  const checkoutCtaLabel = isDowngradeFlow
+    ? "Downgrade to Basic — continue to PayPal"
+    : selectedPlan === "professional"
+      ? "Upgrade to Professional — continue to PayPal"
+      : "Pay with card — continue to PayPal";
 
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
@@ -985,16 +1002,12 @@ export default function WorkspaceDefault() {
       {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-card text-card-foreground border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-card text-card-foreground border border-border rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
               <div>
-                <h2 className="text-lg font-bold text-foreground">Upgrade Your Plan</h2>
-                <p className="text-sm text-foreground/75 mt-0.5">
-                  {currentTier === "trial"
-                    ? "Choose a plan that fits your workflow"
-                    : "Choose a bigger plan for your workflow"}
-                </p>
+                <h2 className="text-lg font-bold text-foreground">{planModalTitle}</h2>
+                <p className="text-sm text-foreground/75 mt-0.5">{planModalSubtitle}</p>
               </div>
               <button
                 type="button"
@@ -1026,7 +1039,14 @@ export default function WorkspaceDefault() {
                 </ul>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div
+                className={cn(
+                  "grid gap-4 mx-auto w-full",
+                  upgradePlanOptions.length >= 2
+                    ? "sm:grid-cols-2 max-w-xl"
+                    : "sm:grid-cols-1 max-w-sm",
+                )}
+              >
                 {upgradePlanOptions.map((plan) => (
                   <button
                     key={plan.key}
@@ -1039,9 +1059,14 @@ export default function WorkspaceDefault() {
                         : "border-border bg-muted/35 dark:bg-muted/20 hover:border-primary/50 hover:bg-muted/50",
                     )}
                   >
-                    {plan.highlight && (
+                    {plan.highlight && !isDowngradeFlow && (
                       <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-sm">
                         MOST POPULAR
+                      </span>
+                    )}
+                    {isDowngradeFlow && plan.key === "basic" && (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-muted text-foreground text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-border shadow-sm">
+                        DOWNGRADE
                       </span>
                     )}
                     <div>
@@ -1070,9 +1095,9 @@ export default function WorkspaceDefault() {
                 <div className="rounded-xl border border-border bg-muted/45 dark:bg-muted/25 p-4">
                   <p className="text-sm font-semibold text-foreground">Secure checkout</p>
                   <p className="text-xs text-foreground/80 mt-1 leading-relaxed">
-                    Pay with your debit or credit card on the next screen. Checkout is processed securely by PayPal — you
-                    don&apos;t need a PayPal balance; card payments run through PayPal, then you&apos;ll return here when
-                    done.
+                    {isDowngradeFlow
+                      ? "Continue to PayPal to switch to Basic. After you confirm, cancel or replace your current Professional subscription in PayPal if both appear active."
+                      : "Pay with your debit or credit card on the next screen. Checkout is processed securely by PayPal — you don't need a PayPal balance; card payments run through PayPal, then you'll return here when done."}
                   </p>
 
                   <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-background/80 dark:bg-background/40 px-3 py-2.5">
@@ -1093,7 +1118,7 @@ export default function WorkspaceDefault() {
                     ) : (
                       <CreditCard className="w-4 h-4" aria-hidden />
                     )}
-                    Pay with card — continue to PayPal
+                    {checkoutCtaLabel}
                   </button>
                 </div>
               )}
@@ -1289,13 +1314,13 @@ export default function WorkspaceDefault() {
               </button>
             ) : (
               <div className="mt-2 space-y-1.5">
-                {canUpgradePaidPlan && (
+                {canChangePlan && (
                   <button
                     onClick={handleOpenUpgrade}
                     className="w-full h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    Upgrade Plan
+                    {currentTier === "professional" ? "Change Plan" : "Upgrade Plan"}
                   </button>
                 )}
                 <div className="grid grid-cols-2 gap-1.5">

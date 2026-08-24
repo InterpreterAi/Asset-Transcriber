@@ -25,7 +25,7 @@ export function Chapter08Pricing() {
         />
         <p className="text-center text-sm text-slate-500 mt-2">{CINEMATIC_CONTENT.pricing.landingSub}</p>
 
-        <div className="mt-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {PRICING_PLANS.map((plan, i) => (
             <motion.div
               key={plan.key}
@@ -70,7 +70,7 @@ export function Chapter08Pricing() {
           ))}
         </div>
 
-        <div className="mt-10 cinematic-v2-glass rounded-2xl p-6 sm:p-8">
+        <div className="mt-10 cinematic-v2-glass rounded-2xl p-6 sm:p-8 max-w-3xl mx-auto">
           <h3 className="text-base font-semibold text-white">{PRICING_SHARED_FEATURES_SECTION_TITLE}</h3>
           <ul className="mt-4 grid sm:grid-cols-2 gap-2">
             {PRICING_SHARED_FEATURES.map((f) => (
@@ -82,14 +82,13 @@ export function Chapter08Pricing() {
           </ul>
         </div>
 
-        <div className="mt-8 overflow-x-auto cinematic-v2-glass rounded-2xl">
-          <table className="w-full min-w-[640px] text-xs text-left">
+        <div className="mt-8 overflow-x-auto cinematic-v2-glass rounded-2xl max-w-3xl mx-auto">
+          <table className="w-full min-w-[480px] text-xs text-left">
             <thead>
               <tr className="border-b border-white/10 text-slate-400">
                 <th className="py-3 pl-5 font-semibold">Capability</th>
                 <th className="py-3 px-3 font-semibold">Basic</th>
-                <th className="py-3 px-3 font-semibold text-cyan-400">Professional</th>
-                <th className="py-3 pr-5 font-semibold">Platinum</th>
+                <th className="py-3 pr-5 font-semibold text-cyan-400">Professional</th>
               </tr>
             </thead>
             <tbody>
@@ -97,8 +96,7 @@ export function Chapter08Pricing() {
                 <tr key={row.label} className="border-b border-white/5">
                   <td className="py-2.5 pl-5 text-slate-500">{row.label}</td>
                   <td className="py-2.5 px-3 text-slate-300">{row.basic}</td>
-                  <td className="py-2.5 px-3 text-white font-medium">{row.professional}</td>
-                  <td className="py-2.5 pr-5 text-slate-300">{row.platinum}</td>
+                  <td className="py-2.5 pr-5 text-white font-medium">{row.professional}</td>
                 </tr>
               ))}
             </tbody>

@@ -57,7 +57,7 @@ export const VOICE_ACTOR_ENTRIES: readonly VoiceActorEntry[] = [
   { id: "james", shortLabel: "James", label: "James — Confident Australian (M)", gender: "male", elevenLabsId: "EkK5I93UQWFDigLMpZcX", previewUrl: "/audio/voice-samples/james.mp3" },
   { id: "george", shortLabel: "George", label: "George — Mature British storyteller (M)", gender: "male", elevenLabsId: "JBFqnCBsd6RMkjVDRZzb", previewUrl: "" },
   { id: "michael", shortLabel: "Michael", label: "Michael — Older American (M)", gender: "male", elevenLabsId: "flq6f7yk4E4fJM5XTYuZ", previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/1da06ea679a54975ad96a2221fe6530d/voices/A41HRDgOrF1mgUtjuSGM/eizk5tRN8MtQJWgzTNpE.mp3" },
-  { id: "giovanni", shortLabel: "Giovanni", label: "Giovanni — Italian accent (M)", gender: "male", elevenLabsId: "zcAOhNBS3c14rBihA8pP", previewUrl: "" },
+  { id: "giovanni", shortLabel: "Giovanni", label: "Giovanni — Italian accent (M)", gender: "male", elevenLabsId: "zcAOhNBS3c14rBihAFp1", previewUrl: "" },
   { id: "river", shortLabel: "River", label: "River — Calm neutral (N)", gender: "neutral", elevenLabsId: "SAWy7570XJyXuSyN6Zq0", previewUrl: "" },
 ] as const;
 

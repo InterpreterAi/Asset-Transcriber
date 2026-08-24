@@ -4,7 +4,13 @@
  */
 
 import type { WorkspaceConversation } from "@/lib/workspaceModel";
-import { migrateWorkspaceScript, normalizeConversation, applyInterpreterSpeakerPattern } from "@/lib/workspaceModel";
+import {
+  migrateWorkspaceScript,
+  normalizeConversation,
+  applyInterpreterSpeakerPattern,
+  stampWorkspaceVoRouting,
+  estimateSpeechSec,
+} from "@/lib/workspaceModel";
 import { normalizeWordTimestamps, type TimedWord } from "@/lib/kineticCaptions";
 import { trimBufferToSpeechWindow, concatMonoBuffers, silenceBuffer } from "@/lib/audioTrim";
 import { base64ToBlob, type StitchClip } from "@/lib/reelBlobUtils";
@@ -15,7 +21,6 @@ import {
   resolveUniversalOutroCopy,
   type UniversalOutroCopy,
 } from "@/lib/universalBrandOutro";
-import { estimateSpeechSec } from "@/lib/workspaceModel";
 import {
   buildOutroSpokenForTts,
   DEFAULT_OUTRO_PHRASE_GAP_SEC,
@@ -315,6 +320,7 @@ export function buildStudioVoFingerprint(input: {
   productPayoffVoiceId?: VoiceActorId;
   workspaceSpeakerAVoiceId?: VoiceActorId;
   workspaceSpeakerBVoiceId?: VoiceActorId;
+  workspaceThirdSpeakerVoiceId?: VoiceActorId;
   workspaceSpeakerADelivery?: string;
   workspaceSpeakerBDelivery?: string;
   workspaceThirdSpeakerDelivery?: string;
@@ -325,11 +331,25 @@ export function buildStudioVoFingerprint(input: {
   const includeOutro = input.includeOutro !== false;
   const includeProductPayoff =
     input.includeProductPayoff !== false && input.productPayoff?.enabled !== false;
+  const speakerA = normalizeVoiceActorId(input.workspaceSpeakerAVoiceId ?? DEFAULT_WORKSPACE_SPEAKER_A_VOICE);
+  const speakerB = normalizeVoiceActorId(input.workspaceSpeakerBVoiceId ?? DEFAULT_WORKSPACE_SPEAKER_B_VOICE);
+  const routedWorkspace = includeWorkspace
+    ? stampWorkspaceVoRouting(input.workspace, {
+        speakerAVoiceId: speakerA,
+        speakerBVoiceId: speakerB,
+        thirdSpeakerVoiceId: input.workspaceThirdSpeakerVoiceId,
+      })
+    : input.workspace;
   return JSON.stringify({
     language: input.language,
     hook: includeHook ? input.hookClips.map((c) => c.sayLine.trim()) : [],
     workspace: includeWorkspace
-      ? input.workspace.exchanges.map((ex) => ex.original.trim())
+      ? routedWorkspace.exchanges.map((ex) => ({
+          original: ex.original.trim(),
+          speaker: ex.speaker,
+          originalLang: ex.originalLang,
+          thirdSpeakerVoiceId: ex.thirdSpeakerVoiceId?.trim() || "",
+        }))
       : [],
     productPayoff:
       includeProductPayoff && input.productPayoff?.sayLine
@@ -350,8 +370,8 @@ export function buildStudioVoFingerprint(input: {
     productPayoffVoiceId: normalizeVoiceActorId(
       input.productPayoffVoiceId ?? input.hookVoiceId,
     ),
-    workspaceSpeakerAVoiceId: normalizeVoiceActorId(input.workspaceSpeakerAVoiceId ?? DEFAULT_WORKSPACE_SPEAKER_A_VOICE),
-    workspaceSpeakerBVoiceId: normalizeVoiceActorId(input.workspaceSpeakerBVoiceId ?? DEFAULT_WORKSPACE_SPEAKER_B_VOICE),
+    workspaceSpeakerAVoiceId: speakerA,
+    workspaceSpeakerBVoiceId: speakerB,
     workspaceSpeakerADelivery: input.workspaceSpeakerADelivery ?? "professional",
     workspaceSpeakerBDelivery: input.workspaceSpeakerBDelivery ?? "hesitant_lep",
     workspaceThirdSpeakerDelivery: input.workspaceThirdSpeakerDelivery ?? "professional",
@@ -382,11 +402,26 @@ export function studioVoiceoverCoversSelection(
     includeWorkspace: boolean;
     includeOutro: boolean;
     includeProductPayoff?: boolean;
+    workspaceExchanges?: Array<{ original?: string }>;
   },
 ): boolean {
   if (!vo) return false;
   if (opts.includeHook !== false && vo.hookVoClips.length === 0) return false;
-  if (opts.includeWorkspace && vo.workspaceVoClips.length === 0) return false;
+  if (opts.includeWorkspace) {
+    if (vo.workspaceVoClips.length === 0) return false;
+    const needed = (opts.workspaceExchanges ?? [])
+      .map((ex, i) => ({ i, has: !!(ex.original?.trim()) }))
+      .filter((x) => x.has)
+      .map((x) => x.i);
+    if (needed.length > 0) {
+      const have = new Set(
+        vo.workspaceVoClips.map((c, i) =>
+          typeof c.exchangeIndex === "number" && c.exchangeIndex >= 0 ? c.exchangeIndex : i,
+        ),
+      );
+      if (needed.some((i) => !have.has(i))) return false;
+    }
+  }
   if (opts.includeProductPayoff !== false && !vo.productPayoffVoClip?.audioBase64) return false;
   if (opts.includeOutro && !vo.outroAudioBase64) return false;
   return true;
@@ -444,11 +479,13 @@ async function parseVoiceoverResponse(
     workspaceVoClips: Array.isArray(data.workspaceVoClips)
       ? (data.workspaceVoClips as WorkspaceVoClip[]).filter(
           (c) => c && typeof c.audioBase64 === "string" && typeof c.startSec === "number",
-        ).map((c) => ({
+        ).map((c, i) => ({
           audioBase64: c.audioBase64,
           startSec: c.startSec,
           durationSec: typeof c.durationSec === "number" ? c.durationSec : undefined,
           words: c.words ? normalizeWordTimestamps(c.words as TimedWord[]) : undefined,
+          exchangeIndex:
+            typeof c.exchangeIndex === "number" && c.exchangeIndex >= 0 ? c.exchangeIndex : i,
         }))
       : [],
     outroAudioBase64:
@@ -499,13 +536,27 @@ export async function generateStudioVoiceover(body: {
   productPayoffVoiceId?: VoiceActorId;
   workspaceSpeakerAVoiceId?: VoiceActorId;
   workspaceSpeakerBVoiceId?: VoiceActorId;
+  workspaceThirdSpeakerVoiceId?: VoiceActorId;
   workspaceSpeakerADelivery?: string;
   workspaceSpeakerBDelivery?: string;
   workspaceThirdSpeakerDelivery?: string;
   outroVoiceId?: VoiceActorId;
 }): Promise<StudioVoiceoverResult> {
   const phraseGap = body.outroPhraseGapSec ?? DEFAULT_OUTRO_PHRASE_GAP_SEC;
-  const payload = { ...body, outroPhraseGapSec: phraseGap };
+  const speakerA = normalizeVoiceActorId(body.workspaceSpeakerAVoiceId ?? DEFAULT_WORKSPACE_SPEAKER_A_VOICE);
+  const speakerB = normalizeVoiceActorId(body.workspaceSpeakerBVoiceId ?? DEFAULT_WORKSPACE_SPEAKER_B_VOICE);
+  const routedWorkspace = stampWorkspaceVoRouting(body.workspace, {
+    speakerAVoiceId: speakerA,
+    speakerBVoiceId: speakerB,
+    thirdSpeakerVoiceId: body.workspaceThirdSpeakerVoiceId,
+  });
+  const payload = {
+    ...body,
+    workspace: routedWorkspace,
+    workspaceSpeakerAVoiceId: speakerA,
+    workspaceSpeakerBVoiceId: speakerB,
+    outroPhraseGapSec: phraseGap,
+  };
 
   let res: Response;
   try {
@@ -597,6 +648,7 @@ async function generateStudioVoiceoverViaTts(body: {
   productPayoffVoiceId?: VoiceActorId;
   workspaceSpeakerAVoiceId?: VoiceActorId;
   workspaceSpeakerBVoiceId?: VoiceActorId;
+  workspaceThirdSpeakerVoiceId?: VoiceActorId;
   workspaceSpeakerADelivery?: string;
   workspaceSpeakerBDelivery?: string;
   workspaceThirdSpeakerDelivery?: string;
@@ -616,6 +668,11 @@ async function generateStudioVoiceoverViaTts(body: {
   const speakerADelivery = body.workspaceSpeakerADelivery ?? "professional";
   const speakerBDelivery = body.workspaceSpeakerBDelivery ?? "hesitant_lep";
   const thirdDelivery = body.workspaceThirdSpeakerDelivery ?? "professional";
+  const workspace = stampWorkspaceVoRouting(body.workspace, {
+    speakerAVoiceId: speakerA,
+    speakerBVoiceId: speakerB,
+    thirdSpeakerVoiceId: body.workspaceThirdSpeakerVoiceId,
+  });
 
   const hookVoClips: HookVoClip[] = [];
   let cursor = 0;
@@ -648,31 +705,44 @@ async function generateStudioVoiceoverViaTts(body: {
       words: TimedWord[];
       exchangeIndex: number;
     }> = [];
-    for (let exIdx = 0; exIdx < body.workspace.exchanges.length; exIdx++) {
-      const ex = body.workspace.exchanges[exIdx]!;
+    for (let exIdx = 0; exIdx < workspace.exchanges.length; exIdx++) {
+      const ex = workspace.exchanges[exIdx]!;
       const line = ex.original?.trim();
       if (!line) continue;
-      const lineVoice =
-        ex.thirdSpeakerVoiceId?.trim()
-          ? normalizeVoiceActorId(ex.thirdSpeakerVoiceId)
-          : ex.speaker === "B"
-            ? speakerB
-            : speakerA;
-      const delivery = ex.thirdSpeakerVoiceId?.trim()
+      const isThird = !!ex.thirdSpeakerVoiceId?.trim() || ex.speaker === "C";
+      const lineVoice = isThird
+        ? normalizeVoiceActorId(ex.thirdSpeakerVoiceId)
+        : ex.speaker === "B"
+          ? speakerB
+          : speakerA;
+      const delivery = isThird
         ? thirdDelivery
         : ex.speaker === "B"
           ? speakerBDelivery
           : speakerADelivery;
-      const syn = await synthesizeVoiceover(line, lineVoice, 1, ex.originalLang, delivery);
-      workspaceRaw.push({
-        audioBase64: await blobToBase64(syn.blob),
-        words: syn.words,
-        exchangeIndex: exIdx,
-      });
+      try {
+        const syn = await synthesizeVoiceover(line, lineVoice, 1, ex.originalLang, delivery);
+        workspaceRaw.push({
+          audioBase64: await blobToBase64(syn.blob),
+          words: syn.words,
+          exchangeIndex: exIdx,
+        });
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        throw new Error(
+          `Workspace exchange ${exIdx + 1} voiceover failed (${lineVoice}): ${detail}. Try a different speaker voice.`,
+        );
+      }
+    }
+    const needed = workspace.exchanges.filter((ex) => ex.original?.trim()).length;
+    if (needed > 0 && workspaceRaw.length < needed) {
+      throw new Error(
+        "Workspace voiceover incomplete — every dialogue line with ORIGINAL text needs audio. Regenerate voiceover.",
+      );
     }
     if (workspaceRaw.length > 0) {
       const { packWorkspaceVoClipsMeta } = await import("@/lib/workspaceVoSync");
-      workspaceVoClips.push(...packWorkspaceVoClipsMeta(workspaceRaw, body.workspace.exchanges));
+      workspaceVoClips.push(...packWorkspaceVoClipsMeta(workspaceRaw, workspace.exchanges));
     }
   }
 
@@ -744,7 +814,7 @@ async function generateStudioVoiceoverViaTts(body: {
     workspaceVoClips,
     outroAudioBase64,
     outroWords,
-    workspace: applyInterpreterSpeakerPattern(body.workspace),
+    workspace,
     hookScript: body.hookClips.map((c) => c.sayLine).join(" "),
     outroVoiceover: body.outroVoiceover,
     productPayoff: body.productPayoff ?? undefined,
@@ -1123,11 +1193,13 @@ export async function generateReel(body: {
     workspaceVoClips: Array.isArray(data.workspaceVoClips)
       ? (data.workspaceVoClips as WorkspaceVoClip[]).filter(
           (c) => c && typeof c.audioBase64 === "string" && typeof c.startSec === "number",
-        ).map((c) => ({
+        ).map((c, i) => ({
           audioBase64: c.audioBase64,
           startSec: c.startSec,
           durationSec: typeof c.durationSec === "number" ? c.durationSec : undefined,
           words: c.words ? normalizeWordTimestamps(c.words as TimedWord[]) : undefined,
+          exchangeIndex:
+            typeof c.exchangeIndex === "number" && c.exchangeIndex >= 0 ? c.exchangeIndex : i,
         }))
       : [],
     outroAudioBase64:

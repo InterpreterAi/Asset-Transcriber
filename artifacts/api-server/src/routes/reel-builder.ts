@@ -1418,19 +1418,39 @@ function normalizeExchanges(raw: unknown, sourceLang: string, targetLang: string
     });
   }
   const n = raw.length;
-  const span = 0.92 / n;
+  const span = 0.92 / Math.max(1, n);
   return raw.slice(0, 8).map((item, i) => {
     const r = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
-    const defaultSpeaker = i % 2 === 0 ? "A" : "B";
-    const originalLang = defaultSpeaker === "A" ? langA : langB;
-    const translationLang = defaultSpeaker === "A" ? langB : langA;
     const thirdSpeakerVoiceId =
       typeof r.thirdSpeakerVoiceId === "string" ? r.thirdSpeakerVoiceId.trim() : "";
-    const useThird = !!thirdSpeakerVoiceId;
+    const rawSpeaker = String(r.speaker ?? "").toUpperCase();
+    const useThird = !!thirdSpeakerVoiceId || rawSpeaker === "C";
+    const keptLang =
+      typeof r.originalLang === "string" &&
+      (r.originalLang === langA || r.originalLang === langB)
+        ? r.originalLang
+        : null;
+    const defaultSpeaker: "A" | "B" = i % 2 === 0 ? "A" : "B";
+    let speaker: "A" | "B" | "C";
+    let originalLang: string;
+    if (useThird) {
+      speaker = "C";
+      originalLang = keptLang ?? (i % 2 === 0 ? langA : langB);
+    } else if (rawSpeaker === "A" || rawSpeaker === "B") {
+      speaker = rawSpeaker;
+      originalLang = speaker === "A" ? langA : langB;
+    } else if (keptLang) {
+      originalLang = keptLang;
+      speaker = keptLang === langA ? "A" : "B";
+    } else {
+      speaker = defaultSpeaker;
+      originalLang = defaultSpeaker === "A" ? langA : langB;
+    }
+    const translationLang = originalLang === langA ? langB : langA;
     return {
       id: typeof r.id === "string" ? r.id : newExId(),
-      speaker: useThird ? "C" : defaultSpeaker,
-      thirdSpeakerVoiceId: useThird ? thirdSpeakerVoiceId : undefined,
+      speaker,
+      thirdSpeakerVoiceId: useThird ? thirdSpeakerVoiceId || undefined : undefined,
       original: stripWorkspaceRolePrefix(String(r.original ?? "")),
       translation: stripWorkspaceRolePrefix(String(r.translation ?? "")),
       originalLang,
@@ -1570,25 +1590,64 @@ function parseWorkspaceFromBody(
   });
 }
 
-/** Blue = Lang A in ORIGINAL; yellow = Lang B in ORIGINAL — never swap spoken langs. */
+/** Preserve Studio Blue/Yellow/Pink + originalLang — never force A/B by row index. */
 function applyInterpreterSpeakerPattern(ws: WorkspacePayload): WorkspacePayload {
   const langA = ws.sourceLang || "en";
   let langB = ws.targetLang || "es";
   if (langB === langA) langB = langA === "en" ? "es" : "en";
-  const exchanges = ws.exchanges.map((x, i) => {
-    const defaultSpeaker: "A" | "B" = i % 2 === 0 ? "A" : "B";
-    const originalLang = i % 2 === 0 ? langA : langB;
-    const translationLang = i % 2 === 0 ? langB : langA;
+
+  let prevOriginalLang: string | null = null;
+
+  const exchanges = ws.exchanges.map((x) => {
     const thirdVoice = x.thirdSpeakerVoiceId?.trim();
-    const useThird = !!thirdVoice;
+    const useThird = !!thirdVoice || x.speaker === "C";
+
+    let originalLang: string;
+    let speaker: "A" | "B" | "C";
+
+    const keptLang =
+      x.originalLang === langA || x.originalLang === langB ? x.originalLang : null;
+
+    if (useThird) {
+      if (keptLang) {
+        originalLang = keptLang;
+      } else if (prevOriginalLang === langA) {
+        originalLang = langB;
+      } else if (prevOriginalLang === langB) {
+        originalLang = langA;
+      } else {
+        originalLang = langB;
+      }
+      speaker = "C";
+    } else if (keptLang) {
+      originalLang = keptLang;
+      speaker = keptLang === langA ? "A" : "B";
+    } else if (x.speaker === "A" || x.speaker === "B") {
+      speaker = x.speaker;
+      originalLang = speaker === "A" ? langA : langB;
+    } else if (prevOriginalLang === langA) {
+      originalLang = langB;
+      speaker = "B";
+    } else if (prevOriginalLang === langB) {
+      originalLang = langA;
+      speaker = "A";
+    } else {
+      originalLang = langA;
+      speaker = "A";
+    }
+
+    const translationLang = originalLang === langA ? langB : langA;
+    prevOriginalLang = originalLang;
+
     return {
       ...x,
-      speaker: useThird ? "C" : defaultSpeaker,
-      thirdSpeakerVoiceId: useThird ? thirdVoice : undefined,
+      speaker,
+      thirdSpeakerVoiceId: useThird ? thirdVoice || x.thirdSpeakerVoiceId : undefined,
       originalLang,
       translationLang,
     };
   });
+
   return { sourceLang: langA, targetLang: langB, exchanges };
 }
 
@@ -1769,19 +1828,27 @@ function formatOutroForSingleTts(text: string, phraseGapSec: number): string {
   return phrases.join(".  ");
 }
 
-/** Pack workspace exchange TTS — brief gap between speakers (translation is visual-only). */
+/** Pack workspace exchange TTS — hold after speech for translation reveal, then gap before next speaker. */
 function packWorkspaceVoClips(
   clips: Array<{ audioBase64: string; words: WordTimestamp[]; exchangeIndex: number }>,
-  exchanges?: Array<{ speaker?: string; thirdSpeakerVoiceId?: string }>,
-): Array<{ audioBase64: string; startSec: number; exchangeIndex: number }> {
+  exchanges?: Array<{ speaker?: string; thirdSpeakerVoiceId?: string; translation?: string }>,
+): Array<{ audioBase64: string; startSec: number; exchangeIndex: number; durationSec?: number }> {
   const sorted = [...clips].sort((a, b) => a.exchangeIndex - b.exchangeIndex);
   let cursor = 0;
-  const out: Array<{ audioBase64: string; startSec: number; exchangeIndex: number }> = [];
+  const out: Array<{ audioBase64: string; startSec: number; exchangeIndex: number; durationSec?: number }> = [];
   for (const clip of sorted) {
     cursor += workspaceExchangeGapSec(exchanges, clip.exchangeIndex);
-    out.push({ audioBase64: clip.audioBase64, startSec: cursor, exchangeIndex: clip.exchangeIndex });
     const audio = Buffer.from(clip.audioBase64, "base64");
-    cursor += clipSpeechEndSec(clip.words, audio);
+    const speechDur = clipSpeechEndSec(clip.words, audio);
+    // Match client TRANS_TAIL_HOLD_SEC (0.24) so preview schedule and packed startSec stay aligned.
+    const holdSec = 0.24;
+    out.push({
+      audioBase64: clip.audioBase64,
+      startSec: cursor,
+      exchangeIndex: clip.exchangeIndex,
+      durationSec: speechDur,
+    });
+    cursor += speechDur + holdSec;
   }
   return out;
 }
@@ -2466,30 +2533,59 @@ async function synthesizeReelVoiceovers(opts: {
 
   if (includeWorkspace) {
     const workspaceRaw: Array<{ audioBase64: string; words: WordTimestamp[]; exchangeIndex: number }> = [];
+    const workspaceTtsFailures: string[] = [];
     for (let exIdx = 0; exIdx < workspace.exchanges.length; exIdx++) {
       const ex = workspace.exchanges[exIdx]!;
       const line = ex.original?.trim();
       if (!line) continue;
+      const isThird =
+        !!ex.thirdSpeakerVoiceId?.trim() || ex.speaker === "C";
+      const primaryVoiceId = isThird
+        ? elevenLabsIdForVoice(ex.thirdSpeakerVoiceId, "antoni")
+        : ex.speaker === "B"
+          ? speakerBElevenId
+          : speakerAElevenId;
+      const fallbackVoiceId = isThird
+        ? elevenLabsIdForVoice("antoni", "antoni")
+        : ex.speaker === "B"
+          ? elevenLabsIdForVoice("elli", "elli")
+          : elevenLabsIdForVoice("adam", "adam");
+      const delivery: WorkspaceTtsDelivery = isThird
+        ? thirdDelivery
+        : ex.speaker === "B"
+          ? speakerBDelivery
+          : speakerADelivery;
+      const lineForTts = applyWorkspaceDeliveryText(line, delivery);
+      const settings = workspaceElevenLabsSettings(delivery);
       try {
-        const voiceId = ex.thirdSpeakerVoiceId?.trim()
-          ? elevenLabsIdForVoice(ex.thirdSpeakerVoiceId, "antoni")
-          : ex.speaker === "B"
-            ? speakerBElevenId
-            : speakerAElevenId;
-        const delivery: WorkspaceTtsDelivery = ex.thirdSpeakerVoiceId?.trim()
-          ? thirdDelivery
-          : ex.speaker === "B"
-            ? speakerBDelivery
-            : speakerADelivery;
-        const lineForTts = applyWorkspaceDeliveryText(line, delivery);
-        const clip = await synthesizeElevenLabsWithTimestamps(
-          elevenKey,
-          voiceId,
-          lineForTts,
-          "default",
-          workspaceElevenLabsSettings(delivery),
-          ex.originalLang,
-        );
+        let clip: ElevenTimestampResult;
+        try {
+          clip = await synthesizeElevenLabsWithTimestamps(
+            elevenKey,
+            primaryVoiceId,
+            lineForTts,
+            "default",
+            settings,
+            ex.originalLang,
+          );
+        } catch (firstErr) {
+          const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+          if (primaryVoiceId !== fallbackVoiceId && /voice_not_found|not found/i.test(msg)) {
+            console.warn(
+              `[reel-builder/voice] workspace exchange ${exIdx} voice ${primaryVoiceId} missing — retry ${fallbackVoiceId}`,
+            );
+            clip = await synthesizeElevenLabsWithTimestamps(
+              elevenKey,
+              fallbackVoiceId,
+              lineForTts,
+              "default",
+              settings,
+              ex.originalLang,
+            );
+          } else {
+            throw firstErr;
+          }
+        }
         workspaceRaw.push({
           audioBase64: clip.audio.toString("base64"),
           words: clip.words,
@@ -2497,8 +2593,18 @@ async function synthesizeReelVoiceovers(opts: {
         });
         if (voiceStatus !== "ok") voiceStatus = "ok";
       } catch (e) {
-        console.error("[reel-builder/voice] workspace line TTS failed:", e);
+        const detail = e instanceof Error ? e.message : String(e);
+        console.error(`[reel-builder/voice] workspace line TTS failed (exchange ${exIdx}):`, e);
+        workspaceTtsFailures.push(`exchange ${exIdx + 1}: ${detail.slice(0, 160)}`);
       }
+    }
+    if (
+      workspace.exchanges.some((ex) => ex.original?.trim()) &&
+      workspaceRaw.length < workspace.exchanges.filter((ex) => ex.original?.trim()).length
+    ) {
+      throw new Error(
+        `Workspace voiceover incomplete — missing dialogue audio (${workspaceTtsFailures.join("; ") || "unknown"}). Pick a different speaker voice and regenerate.`,
+      );
     }
     workspaceVoClips = packWorkspaceVoClips(workspaceRaw, workspace.exchanges).map((clip) => {
       const raw = workspaceRaw.find((r) => r.exchangeIndex === clip.exchangeIndex);

@@ -66,7 +66,8 @@ export function packWorkspaceVoClipsMeta(
 ): WorkspaceVoClip[] {
   let cursor = 0;
   const out: WorkspaceVoClip[] = [];
-  for (const clip of clips) {
+  const sorted = [...clips].sort((a, b) => a.exchangeIndex - b.exchangeIndex);
+  for (const clip of sorted) {
     cursor += workspaceExchangeGapSec(exchanges, clip.exchangeIndex);
     const words = normalizeWordTimestamps(clip.words);
     const durationSec = speechTrimSecFromWords(words, 2);
@@ -77,7 +78,8 @@ export function packWorkspaceVoClipsMeta(
       exchangeIndex: clip.exchangeIndex,
       words,
     });
-    cursor += durationSec;
+    // Hold after speech so startSec of the next clip matches resolveWorkspaceVoTiming.
+    cursor += durationSec + TRANS_TAIL_HOLD_SEC;
   }
   return out;
 }
@@ -386,9 +388,16 @@ export async function resolveWorkspaceVoTiming(
   const wordsByExchange: TimedWord[][] = [];
   let audioCursor = 0;
 
-  for (let i = 0; i < clips.length; i++) {
-    const clip = clips[i]!;
-    const exIdx = clipExchangeIndex(clip, i);
+  const ordered = clips
+    .map((clip, order) => ({ clip, order }))
+    .sort((a, b) => {
+      const ai = clipExchangeIndex(a.clip, a.order);
+      const bi = clipExchangeIndex(b.clip, b.order);
+      return ai !== bi ? ai - bi : a.order - b.order;
+    });
+
+  for (const { clip, order } of ordered) {
+    const exIdx = clipExchangeIndex(clip, order);
     audioCursor += workspaceExchangeGapSec(exchanges, exIdx);
     const blob = base64ToBlob(clip.audioBase64);
     const audioDur = await measureBlobDuration(blob);
@@ -418,7 +427,9 @@ export async function resolveWorkspaceVoTiming(
       exchangeIndex: exIdx,
     });
     wordsByExchange[exIdx] = words;
-    audioCursor += speechDur;
+    // Advance by full visual window so the next speaker never overlaps this exchange's
+    // translation hold (audio stitch inserts matching silence — see packWorkspaceAudioForStitch).
+    audioCursor += visualDur;
   }
 
   const last = schedule[schedule.length - 1];
@@ -443,11 +454,16 @@ export function estimateWorkspaceDurationFromClips(
   return Math.max(2.5, last.startSec + (last.durationSec ?? 2) + END_PAD_SEC);
 }
 
-/** Tight VO pack — trim to spoken word end; brief gap between speakers. */
+/** Tight VO pack — trim to spoken word end; hold through translation reveal; gap between speakers. */
 export function packWorkspaceAudioForStitch(
   clips: WorkspaceVoClip[],
   wordsByExchange?: TimedWord[][],
-  exchanges?: ExchangeGapHint[],
+  exchanges?: Array<{
+    original?: string;
+    translation?: string;
+    speaker?: string;
+    thirdSpeakerVoiceId?: string;
+  }>,
 ): StitchClip[] {
   const indexed = clips
     .map((clip, order) => ({ clip, order }))
@@ -464,14 +480,22 @@ export function packWorkspaceAudioForStitch(
     const exIdx = clipExchangeIndex(clip, order);
     cursor += workspaceExchangeGapSec(exchanges, exIdx);
     const words = wordsByExchange?.[exIdx] ?? normalizeWordTimestamps(clip.words);
-    const durationSec = speechTrimSecFromWords(words, clip.durationSec ?? 2);
+    const speechDur = speechTrimSecFromWords(words, clip.durationSec ?? 2);
+    const speechEnd = originalSpeechEndSec(words, speechDur);
+    const transTail = computeTranslationRevealTail(exchanges?.[exIdx]?.translation ?? "");
+    const visualDur = Math.max(speechDur, speechEnd + transTail);
     out.push({
       blob: base64ToBlob(clip.audioBase64),
       startSec: cursor,
-      durationSec,
+      durationSec: speechDur,
       words,
     });
-    cursor += durationSec;
+    cursor += speechDur;
+    const hold = Math.max(0, visualDur - speechDur);
+    if (hold > 0.02) {
+      // Placeholder silence region — stitchWorkspaceDialogue / continuous builder honor gaps via startSec.
+      cursor += hold;
+    }
   }
   return out;
 }
@@ -510,7 +534,15 @@ export async function stitchWorkspaceDialogue(
         (await base64ToBlob(clip.audioBase64).arrayBuffer()).slice(0),
       );
       const words = wordsByExchange?.[exIdx] ?? normalizeWordTimestamps(clip.words);
+      const speechDur = speechTrimSecFromWords(words, clip.durationSec ?? 2);
+      const speechEnd = originalSpeechEndSec(words, speechDur);
+      const transTail = computeTranslationRevealTail(
+        (exchanges as Array<{ translation?: string }> | undefined)?.[exIdx]?.translation ?? "",
+      );
+      const visualDur = Math.max(speechDur, speechEnd + transTail);
       parts.push(trimBufferToSpeechWindow(decoded, words, clip.durationSec ?? 2));
+      const hold = Math.max(0, visualDur - speechDur);
+      if (hold > 0.02) parts.push(silenceBuffer(hold, sampleRate));
     } catch {
       /* skip bad clip */
     }

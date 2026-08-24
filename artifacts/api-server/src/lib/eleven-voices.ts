@@ -61,7 +61,7 @@ export const ELEVEN_VOICES: Record<string, VoiceMap> = {
   james: v("EkK5I93UQWFDigLMpZcX", "onyx"),
   george: v("JBFqnCBsd6RMkjVDRZzb", "onyx"),
   michael: v("flq6f7yk4E4fJM5XTYuZ", "onyx"),
-  giovanni: v("zcAOhNBS3c14rBihA8pP", "onyx"),
+  giovanni: v("zcAOhNBS3c14rBihAFp1", "onyx"),
   river: v("SAWy7570XJyXuSyN6Zq0", "nova"),
   onyx: v("pNInz6obpgDQGcFmaJgB", "onyx"),
   nova: v("21m00Tcm4TlvDq8ikWAM", "nova"),

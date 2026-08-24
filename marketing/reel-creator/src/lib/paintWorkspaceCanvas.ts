@@ -10,6 +10,7 @@ import {
 } from "@/lib/workspaceVoSync";
 import type { TimedWord } from "@/lib/kineticCaptions";
 import {
+  exchangeStripeSpeaker,
   translationAfterOriginalProgress,
   typedText,
   WORKSPACE_SPEAKER_COLORS,
@@ -358,7 +359,7 @@ function drawExchangeRow(
   const origX = contentX;
   const transX = contentX + colW + gap;
 
-  ctx.fillStyle = stripeColor(row.ex.speaker);
+  ctx.fillStyle = stripeColor(exchangeStripeSpeaker(row.ex));
   roundRect(ctx, origX, rowTop + px(2), px(4), innerH, 999);
   ctx.fill();
 
@@ -556,9 +557,14 @@ export function paintWorkspaceCanvas(
   const viewportTop = mainTop + scrollPadY;
   const viewportH = mainH - scrollPadY * 2;
 
-  const activeIdx = voSchedule.findIndex(
+  const speechActive = voSchedule.find((s) => {
+    const speech = s.speechDurSec ?? s.durationSec;
+    return playheadSec >= s.startSec && playheadSec < s.startSec + speech;
+  });
+  const visualActive = voSchedule.find(
     (s) => playheadSec >= s.startSec && playheadSec < s.startSec + s.durationSec,
   );
+  const activeIdx = speechActive?.exchangeIndex ?? visualActive?.exchangeIndex ?? -1;
 
   const rows: RowData[] = [];
 

@@ -68,10 +68,6 @@ export default function Terms() {
               <strong>Professional</strong> – $99/month – unlimited interpreting hours as offered in the product; a daily platform cap
               may still apply
             </li>
-            <li>
-              <strong>Platinum</strong> – $179/month – unlimited interpreting hours as offered in the product, including the premium
-              translation tier where applicable; a daily platform cap may still apply
-            </li>
           </ul>
 
           <h2>Acceptable Use</h2>

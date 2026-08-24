@@ -103,7 +103,7 @@ export function CinematicChapterOverlays({ timeline }: Props) {
         >
           <p className="text-xl sm:text-2xl font-semibold text-white text-center">{CINEMATIC_CONTENT.pricing.pageTitle}</p>
           <p className="mt-2 text-sm text-slate-400 text-center">{CINEMATIC_CONTENT.pricing.pageIntro}</p>
-          <div className="mt-5 grid grid-cols-3 gap-3 max-w-2xl mx-auto">
+          <div className="mt-5 grid grid-cols-2 gap-3 max-w-md mx-auto">
             {PRICING_PLANS.map((plan) => (
               <div
                 key={plan.key}

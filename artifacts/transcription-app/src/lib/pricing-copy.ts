@@ -1,5 +1,6 @@
 /**
  * Pricing copy shared by the public landing page and the in-app upgrade modal.
+ * Customer-facing catalog is Basic + Professional only (Platinum remains admin-only).
  */
 
 import { WORKSPACE_LANGUAGE_COUNT } from "./workspace-languages";
@@ -16,7 +17,8 @@ export const PRICING_SHARED_FEATURES: readonly string[] = [
   SUPPORTED_LANGUAGES_FEATURE,
 ];
 
-export type PricingPlanKey = "basic" | "professional" | "platinum";
+/** Customer-facing plan keys (Platinum is not sold on the website). */
+export type PricingPlanKey = "basic" | "professional";
 
 export type PricingPlanDefinition = {
   key: PricingPlanKey;
@@ -28,15 +30,18 @@ export type PricingPlanDefinition = {
   features: readonly string[];
 };
 
-export const PRICING_COMPARISON_ROWS: readonly { label: string; basic: string; professional: string; platinum: string }[] = [
-  { label: "Best for", basic: "Periodic sessions", professional: "Daily practice", platinum: "Full-day workflows" },
-  { label: "Daily platform time", basic: "Up to 5 hours", professional: "Generous daily allowance", platinum: "Generous daily allowance" },
-  { label: "OPI & VRI-style workflows", basic: "Included", professional: "Included", platinum: "Included" },
-  { label: "Real-time transcription", basic: "Yes", professional: "Yes", platinum: "Yes" },
-  { label: "Professional InterpreterAI translation", basic: "—", professional: "—", platinum: "Yes" },
-  { label: "Speaker separation", basic: "Yes", professional: "Yes", platinum: "Yes" },
-  { label: "Tab audio capture", basic: "Yes", professional: "Yes", platinum: "Yes" },
-  { label: "Personal glossary", basic: "Yes", professional: "Yes", platinum: "Yes" },
+export const PRICING_COMPARISON_ROWS: readonly {
+  label: string;
+  basic: string;
+  professional: string;
+}[] = [
+  { label: "Best for", basic: "Periodic sessions", professional: "Daily practice" },
+  { label: "Daily platform time", basic: "Up to 5 hours", professional: "Generous daily allowance" },
+  { label: "OPI & VRI-style workflows", basic: "Included", professional: "Included" },
+  { label: "Real-time transcription", basic: "Yes", professional: "Yes" },
+  { label: "Speaker separation", basic: "Yes", professional: "Yes" },
+  { label: "Tab audio capture", basic: "Yes", professional: "Yes" },
+  { label: "Personal glossary", basic: "Yes", professional: "Yes" },
 ];
 
 export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
@@ -68,24 +73,6 @@ export const PRICING_PLANS: readonly PricingPlanDefinition[] = [
       "All core features included",
       "Unlimited interpreting hours",
       "Real-time transcription",
-      "Speaker identification",
-      "Tab audio capture",
-      "Personal glossary support",
-      SUPPORTED_LANGUAGES_FEATURE,
-    ],
-  },
-  {
-    key: "platinum",
-    name: "Platinum",
-    priceLabel: "$179",
-    priceAmount: 179,
-    tagline: "For professional full-day interpreting",
-    highlight: false,
-    features: [
-      "All core features included",
-      "Unlimited interpreting hours",
-      "Real-time transcription",
-      "Professional InterpreterAI translation",
       "Speaker identification",
       "Tab audio capture",
       "Personal glossary support",
