@@ -13,6 +13,50 @@ function normalizeLoose(s: string): string {
     .toLowerCase();
 }
 
+function looksArabic(s: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
+}
+
+/** Strip Arabic clitics (ب/ال/و/…) and collapse elongated ا so بالتعب ↔ تعبااان can match. */
+function arabicMatchCore(s: string): string {
+  let t = s.normalize("NFC").replace(/\u0640/g, "");
+  let guard = 0;
+  while (guard++ < 6) {
+    if (t.startsWith("ال") && t.length > 3) {
+      t = t.slice(2);
+      continue;
+    }
+    if (/^[وفبلك]/.test(t) && t.length > 3) {
+      t = t.slice(1);
+      continue;
+    }
+    break;
+  }
+  return t.replace(/ا{2,}/g, "ا");
+}
+
+function graphemeLen(s: string): number {
+  return [...s.normalize("NFC")].length;
+}
+
+function longestCommonPrefixGraphemes(a: string, b: string): number {
+  const ca = [...a.normalize("NFC")];
+  const cb = [...b.normalize("NFC")];
+  let i = 0;
+  const n = Math.min(ca.length, cb.length);
+  while (i < n && ca[i] === cb[i]) i++;
+  return i;
+}
+
+function longestCommonSuffixGraphemes(a: string, b: string): number {
+  const ca = [...a.normalize("NFC")];
+  const cb = [...b.normalize("NFC")];
+  let i = 0;
+  const n = Math.min(ca.length, cb.length);
+  while (i < n && ca[ca.length - 1 - i] === cb[cb.length - 1 - i]) i++;
+  return i;
+}
+
 /** True when every whitespace word of `needle` appears somewhere in `hay` (substring). */
 function sourceSpokenInOriginal(original: string, source: string): boolean {
   const hay = normalizeLoose(original);
@@ -35,7 +79,7 @@ function translationContainsPreferred(translation: string, target: string): bool
   return translation.normalize("NFC").includes(t.normalize("NFC"));
 }
 
-function preserveCase(match: string, replacement: string): string {
+function preserveCaseReplace(match: string, replacement: string): string {
   if (match.toUpperCase() === match && match.toLowerCase() !== match) {
     return replacement.toUpperCase();
   }
@@ -49,11 +93,70 @@ function preserveCase(match: string, replacement: string): string {
 }
 
 /**
+ * Replace MT words that are stem/clitic variants of the preferred glossary target
+ * (e.g. بالتعب / التعب → تعبااان) instead of appending at sentence end.
+ */
+function replaceSimilarPreferredInPlace(outputText: string, preferred: string): string {
+  const T = preferred.trim();
+  if (T.length < 2 || /\s/.test(T)) return outputText;
+  const prefAr = looksArabic(T);
+  const Tcore = prefAr ? arabicMatchCore(T) : T;
+  if (Tcore.length < 2) return outputText;
+
+  type Tok = { start: number; end: number; raw: string };
+  const tokens: Tok[] = [];
+  const re = /[\p{L}\p{M}][\p{L}\p{M}'’\-]*/gu;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(outputText)) !== null) {
+    tokens.push({ start: m.index, end: m.index + m[0].length, raw: m[0] });
+  }
+
+  const lenT = graphemeLen(Tcore);
+  const hits: Tok[] = [];
+
+  for (const t of tokens) {
+    const raw = t.raw;
+    if (raw === T) continue;
+    if (prefAr !== looksArabic(raw)) continue;
+
+    const wCore = prefAr ? arabicMatchCore(raw) : raw;
+    if (wCore.length < 2) continue;
+    if (wCore === Tcore) {
+      hits.push(t);
+      continue;
+    }
+
+    const lenW = graphemeLen(wCore);
+    if (lenW < 3) continue;
+    const lcp = longestCommonPrefixGraphemes(wCore, Tcore);
+    const lcs = longestCommonSuffixGraphemes(wCore, Tcore);
+    const bestEdge = Math.max(lcp, lcs);
+    const ratio = bestEdge / Math.max(lenW, lenT, 1);
+
+    const minRatio = prefAr ? 0.4 : 0.5;
+    const minEdge = prefAr ? 3 : 4;
+    if (ratio < minRatio || bestEdge < minEdge) continue;
+    if (lenW > lenT * 1.85 && ratio < 0.62) continue;
+    if (lenT > lenW * 1.85 && ratio < 0.62) continue;
+    hits.push(t);
+  }
+
+  if (hits.length === 0) return outputText;
+
+  hits.sort((a, b) => b.start - a.start);
+  let out = outputText;
+  for (const t of hits) {
+    out = out.slice(0, t.start) + T + out.slice(t.end);
+  }
+  return out;
+}
+
+/**
  * Enforce personal glossary on Soniox native (chunk-v2) translation text.
  * 1) Replace leaked source phrases in the translation with preferred targets.
  * 2) When the spoken original matched a glossary source but the preferred target
- *    is still missing, replace the longest source leak again / inject preferred
- *    wording in place when a shorter wrong form of the preferred first token appears.
+ *    is still missing, replace same-script MT cognates/stems in place
+ *    (بالتعب → تعبااان). Append only as last resort for non-Arabic targets.
  */
 export function applyGlossaryPostProcess(
   text: string,
@@ -79,7 +182,7 @@ export function applyGlossaryPostProcess(
       `(?<![\\w\\u00C0-\\u024F\\u0600-\\u06FF])${escaped}(?![\\w\\u00C0-\\u024F\\u0600-\\u06FF])`,
       "gi",
     );
-    result = result.replace(re, (match) => preserveCase(match, tgt));
+    result = result.replace(re, (match) => preserveCaseReplace(match, tgt));
   }
 
   if (!original) return result;
@@ -91,11 +194,10 @@ export function applyGlossaryPostProcess(
     if (!sourceSpokenInOriginal(original, src)) continue;
     if (translationContainsPreferred(result, tgt)) continue;
 
-    // Preferred missing after leak pass: try replacing the first preferred token's
-    // close Latin/Arabic lookalikes is too risky — instead replace any remaining
-    // exact source leak (already done) and, if still missing, swap the first
-    // whitespace token of a wrong English/Latin leak of `src` when present as a
-    // whole-phrase failure: inject preferred by replacing the shortest source alias.
+    const beforeSimilar = result;
+    result = replaceSimilarPreferredInPlace(result, tgt);
+    if (result !== beforeSimilar && translationContainsPreferred(result, tgt)) continue;
+
     const words = src.split(/\s+/).filter((w) => w.length >= 4);
     let inlined = false;
     for (const w of [...words].sort((a, b) => b.length - a.length)) {
@@ -107,14 +209,15 @@ export function applyGlossaryPostProcess(
       wr.lastIndex = 0;
       result = result.replace(wr, (match) => {
         inlined = true;
-        return preserveCase(match, tgt);
+        return preserveCaseReplace(match, tgt);
       });
       if (inlined) break;
     }
     if (inlined) continue;
 
-    // Last resort: if preferred is still absent, place it where the source phrase
-    // would have been by appending once (Soniox already finished the sentence).
+    // Match server: Arabic (and Spanish) prefer in-place only — never sentence-end append.
+    if (looksArabic(tgt)) continue;
+
     if (!translationContainsPreferred(result, tgt)) {
       const tail = result.trimEnd();
       result = `${tail}${tail.length > 0 ? " " : ""}${tgt}`.trim();

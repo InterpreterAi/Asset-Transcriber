@@ -424,6 +424,27 @@ function longestCommonSuffixLengthGraphemes(a: string, b: string): number {
   return i;
 }
 
+/**
+ * Strip Arabic clitics (ب/ال/و/…) and collapse elongated ا so MT forms like
+ * بالتعب / التعب match a preferred glossary form like تعبااان.
+ */
+function arabicMatchCore(s: string): string {
+  let t = s.normalize("NFC").replace(/\u0640/g, "");
+  let guard = 0;
+  while (guard++ < 6) {
+    if (t.startsWith("ال") && t.length > 3) {
+      t = t.slice(2);
+      continue;
+    }
+    if (/^[وفبلك]/.test(t) && t.length > 3) {
+      t = t.slice(1);
+      continue;
+    }
+    break;
+  }
+  return t.replace(/ا{2,}/g, "ا");
+}
+
 /** Only mix scripts we can safely prefix-match (Latin, Arabic, Cyrillic, Han). */
 function scriptsCompatibleForGlossaryFix(word: string, preferred: string): boolean {
   const wAr = preferredLooksArabicScript(word);
@@ -451,8 +472,11 @@ function scriptsCompatibleForGlossaryFix(word: string, preferred: string): boole
 function replaceAllTargetTokensByPreferredSimilarity(outputText: string, preferred: string): string {
   const T = preferred.trim();
   if (T.length < 2) return outputText;
-  const Tcore = stripEdgePunct(T);
-  if (Tcore.length < 2 || /\s/.test(Tcore)) return outputText;
+  const Tstrip = stripEdgePunct(T);
+  if (Tstrip.length < 2 || /\s/.test(Tstrip)) return outputText;
+  const prefAr = preferredLooksArabicScript(Tstrip);
+  const Tcore = prefAr ? arabicMatchCore(Tstrip) : Tstrip;
+  if (Tcore.length < 2) return outputText;
 
   type Tok = { start: number; end: number; raw: string; core: string };
   const tokens: Tok[] = [];
@@ -460,19 +484,24 @@ function replaceAllTargetTokensByPreferredSimilarity(outputText: string, preferr
   let m: RegExpExecArray | null;
   while ((m = re.exec(outputText)) !== null) {
     const raw = m[0];
-    const core = stripEdgePunct(raw);
+    const stripped = stripEdgePunct(raw);
+    if (stripped.length < 2) continue;
+    const core = preferredLooksArabicScript(stripped) ? arabicMatchCore(stripped) : stripped;
     if (core.length < 2) continue;
     tokens.push({ start: m.index, end: m.index + raw.length, raw, core });
   }
 
   const lenT = graphemeLen(Tcore);
   const prefHan = /\p{Script=Han}/u.test(Tcore);
-  const prefAr = preferredLooksArabicScript(Tcore);
 
   const hits: Tok[] = [];
 
   for (const t of tokens) {
-    if (tokensMatchPreferredToken(t.core, Tcore)) continue;
+    if (tokensMatchPreferredToken(t.core, Tcore)) {
+      // Same stem after clitic strip (بالتعب ↔ تعب) — still replace with preferred spelling.
+      if (prefAr && t.raw !== T) hits.push(t);
+      continue;
+    }
     if (!scriptsCompatibleForGlossaryFix(t.core, Tcore)) continue;
 
     const lenW = graphemeLen(t.core);
