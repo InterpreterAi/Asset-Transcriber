@@ -2,9 +2,18 @@
  * interpreter-context.ts
  * Builds the Soniox `context` payload for interpreter sessions.
  * Covers all 62+ Soniox languages with medical + legal term pinning.
+ *
+ * MUST stay under Soniox's 10k-char context limit or the realtime session
+ * rejects config and chunk-v2 Trial/Basic/Professional STT+translation goes dark.
  */
 
 import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
+import {
+  fitSonioxContextToBudget,
+  mergeUniqueTranslationTerms,
+  sonioxContextCharLength,
+  SONIOX_CONTEXT_SAFE_CHARS,
+} from "./soniox-context-budget";
 
 export type SonioxContextTerm = { source: string; target: string };
 
@@ -334,30 +343,37 @@ export function getInterpreterContext(
 ): SonioxContext {
   const a = langA.split("-")[0]!.toLowerCase();
   const b = langB.split("-")[0]!.toLowerCase();
-  const terms: SonioxContextTerm[] = [];
+  /** Built in priority order so budget trim drops lowest-value rows first. */
+  const translationTerms: SonioxContextTerm[] = [];
   const seen = new Set<string>();
 
+  // 1) Personal glossary first (highest priority — protected during budget trim).
+  const protectedGlossaryCount = mergeUniqueTranslationTerms(
+    translationTerms,
+    seen,
+    injectedTerms,
+  );
+
+  // 2) Vaccine + ISA medical pack (vaccines ordered first inside the builder).
+  const medicalPack = buildChunkV2MedicalPackContext(langA, langB);
+  mergeUniqueTranslationTerms(translationTerms, seen, medicalPack.translation_terms);
+
+  // 3) Pair builtin maps (can be large for ar/es expansions — trimmed last among these).
   const addTerms = (from: string, to: string) => {
     if (from === "en" && TERMS_BY_LANG[to]) {
-      for (const t of TERMS_BY_LANG[to]!) {
-        const key = `${t.source}->${t.target}`;
-        if (!seen.has(key)) { seen.add(key); terms.push(t); }
-      }
+      mergeUniqueTranslationTerms(translationTerms, seen, TERMS_BY_LANG[to]!);
     }
     if (to === "en" && TERMS_BY_LANG[from]) {
-      for (const t of TERMS_BY_LANG[from]!) {
-        const flipped: SonioxContextTerm = { source: t.target, target: t.source };
-        const key = `${flipped.source}->${flipped.target}`;
-        if (!seen.has(key)) { seen.add(key); terms.push(flipped); }
-      }
+      mergeUniqueTranslationTerms(
+        translationTerms,
+        seen,
+        TERMS_BY_LANG[from]!.map((t) => ({ source: t.target, target: t.source })),
+      );
     }
     if (from !== "en" && to !== "en") {
       for (const lang of [from, to]) {
         if (TERMS_BY_LANG[lang]) {
-          for (const t of TERMS_BY_LANG[lang]!) {
-            const key = `${t.source}->${t.target}`;
-            if (!seen.has(key)) { seen.add(key); terms.push(t); }
-          }
+          mergeUniqueTranslationTerms(translationTerms, seen, TERMS_BY_LANG[lang]!);
         }
       }
     }
@@ -367,7 +383,7 @@ export function getInterpreterContext(
   addTerms(b, a);
 
   if ((a === "en" && b === "es") || (a === "es" && b === "en")) {
-    const enEsExtraTerms: SonioxContextTerm[] = [
+    mergeUniqueTranslationTerms(translationTerms, seen, [
       { source: "safe for fluids", target: "apto para recibir líquidos" },
       { source: "urine analysis", target: "análisis de orina" },
       { source: "good faith exam", target: "examen de buena fe" },
@@ -377,13 +393,17 @@ export function getInterpreterContext(
       { source: "urinary tract infection", target: "infección de las vías urinarias" },
       { source: "date of birth", target: "fecha de nacimiento" },
       { source: "consent for telehealth", target: "consentimiento para teleconsulta" },
-    ];
-    for (const t of enEsExtraTerms) {
-      const key = `${t.source}->${t.target}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        terms.push(t);
-      }
+    ]);
+  }
+
+  const recognitionPins = [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN];
+  if (medicalPack.terms.length > 0) {
+    const pinSeen = new Set(recognitionPins.map((t) => t.toLowerCase()));
+    for (const pin of medicalPack.terms) {
+      const k = pin.toLowerCase();
+      if (pinSeen.has(k)) continue;
+      pinSeen.add(k);
+      recognitionPins.push(pin);
     }
   }
 
@@ -398,45 +418,24 @@ export function getInterpreterContext(
       { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
       { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],
-    terms: [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN],
+    terms: recognitionPins,
   };
 
-  if (injectedTerms.length > 0) {
-    for (const t of injectedTerms) {
-      const source = `${t.source ?? ""}`.trim();
-      const target = `${t.target ?? ""}`.trim();
-      if (!source || !target) continue;
-      const key = `${source}->${target}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        terms.push({ source, target });
-      }
-    }
+  if (translationTerms.length > 0) {
+    ctx.translation_terms = translationTerms;
   }
 
-  // Chunk-v2 vaccine + LLS UK ISA medical pack (pair-scoped; Trial/Basic/Professional Soniox path).
-  const medicalPack = buildChunkV2MedicalPackContext(a, b);
-  for (const t of medicalPack.translation_terms) {
-    const key = `${t.source}->${t.target}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      terms.push(t);
-    }
+  const fitted = fitSonioxContextToBudget(ctx, {
+    protectedTranslationTermCount: protectedGlossaryCount,
+    maxChars: SONIOX_CONTEXT_SAFE_CHARS,
+  });
+
+  if (!import.meta.env.PROD && sonioxContextCharLength(fitted) > SONIOX_CONTEXT_SAFE_CHARS) {
+    console.warn(
+      "[canonAppendWs] Soniox context still over budget after trim:",
+      sonioxContextCharLength(fitted),
+    );
   }
 
-  if (terms.length > 0) {
-    ctx.translation_terms = terms;
-  }
-
-  if (medicalPack.terms.length > 0) {
-    const pinSeen = new Set(ctx.terms.map((t) => t.toLowerCase()));
-    for (const pin of medicalPack.terms) {
-      const k = pin.toLowerCase();
-      if (pinSeen.has(k)) continue;
-      pinSeen.add(k);
-      ctx.terms.push(pin);
-    }
-  }
-
-  return ctx;
+  return fitted;
 }

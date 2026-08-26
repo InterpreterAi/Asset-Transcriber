@@ -24,10 +24,14 @@ type MedicalTermPack = {
 
 const pack = packJson as MedicalTermPack;
 
-/** Soft cap for personal+builtin translation_terms added from this pack (per direction merge). */
-const MAX_PACK_TRANSLATION_TERMS = 280;
-/** Soft cap for extra EN recognition pins from this pack. */
-const MAX_PACK_EN_PINS = 220;
+/**
+ * Soft caps — Soniox context max is 10k chars total (general + terms + translation_terms).
+ * Keep pack small; vaccines are ordered first so ISA fills only leftover slots.
+ * Final hard trim lives in `fitSonioxContextToBudget`.
+ */
+const MAX_PACK_TRANSLATION_TERMS = 72;
+/** Soft cap for extra EN recognition pins from this pack (vaccines/abbr first). */
+const MAX_PACK_EN_PINS = 96;
 
 function baseLang(code: string): string {
   return (code || "").trim().split("-")[0]!.toLowerCase();

@@ -42,7 +42,7 @@ describe("chunk-v2 medical term pack", () => {
 
   it("respects translation_terms budget", () => {
     const ctx = buildChunkV2MedicalPackContext("en", "ar");
-    expect(ctx.translation_terms.length).toBeLessThanOrEqual(280);
-    expect(ctx.terms.length).toBeLessThanOrEqual(220);
+    expect(ctx.translation_terms.length).toBeLessThanOrEqual(72);
+    expect(ctx.terms.length).toBeLessThanOrEqual(96);
   });
 });

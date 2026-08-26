@@ -98,6 +98,12 @@ export class SonioxRealtimeClient {
           if (!import.meta.env.PROD) {
             console.error("[canonAppendWs/engine] realtime STT error:", errText);
           }
+          // Context overflow kills the whole chunk-v2 session (no tokens arrive).
+          if (/context is too long/i.test(errText)) {
+            console.error(
+              "[canonAppendWs/engine] Soniox rejected oversized context — STT/translation will stay silent until context is trimmed under 10k chars.",
+            );
+          }
           return;
         }
         const seq = this.allocateSeq();
