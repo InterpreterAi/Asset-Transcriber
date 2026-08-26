@@ -4,6 +4,8 @@
  * Covers all 62+ Soniox languages with medical + legal term pinning.
  */
 
+import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
+
 export type SonioxContextTerm = { source: string; target: string };
 
 export type SonioxContext = {
@@ -412,8 +414,28 @@ export function getInterpreterContext(
     }
   }
 
+  // Chunk-v2 vaccine + LLS UK ISA medical pack (pair-scoped; Trial/Basic/Professional Soniox path).
+  const medicalPack = buildChunkV2MedicalPackContext(a, b);
+  for (const t of medicalPack.translation_terms) {
+    const key = `${t.source}->${t.target}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      terms.push(t);
+    }
+  }
+
   if (terms.length > 0) {
     ctx.translation_terms = terms;
+  }
+
+  if (medicalPack.terms.length > 0) {
+    const pinSeen = new Set(ctx.terms.map((t) => t.toLowerCase()));
+    for (const pin of medicalPack.terms) {
+      const k = pin.toLowerCase();
+      if (pinSeen.has(k)) continue;
+      pinSeen.add(k);
+      ctx.terms.push(pin);
+    }
   }
 
   return ctx;
