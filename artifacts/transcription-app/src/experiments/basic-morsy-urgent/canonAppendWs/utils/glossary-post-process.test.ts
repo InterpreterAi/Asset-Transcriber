@@ -154,8 +154,8 @@ describe("sourcePhraseInOriginal", () => {
   });
 });
 
-describe("applyGlossaryPostProcess (chunk-v2 conservative)", () => {
-  it("1. spoken exact source can use preferred via leak replace", () => {
+describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
+  it("1. spoken exact source replaces leaked source with preferred", () => {
     const out = post("I am tired today", [EN_AR_STRICT], "I am tired today", "en");
     expect(out).toBe("I am تعبااان today");
   });
@@ -165,16 +165,15 @@ describe("applyGlossaryPostProcess (chunk-v2 conservative)", () => {
     expect(out).toBe("I feel weary");
   });
 
-  it("3. preferred term is never appended", () => {
+  it("3. forces preferred when source spoken even if Soniox used another word", () => {
     const out = post("I am weary", [EN_AR_STRICT], "I am tired", "en");
-    expect(out).not.toMatch(/تعبااان\s*$/);
-    expect(out).not.toContain("تعبااان");
+    expect(out).toContain("تعبااان");
   });
 
-  it("4. does not duplicate normal translation and preferred term", () => {
+  it("4. forces preferred spelling when Soniox used Arabic cognate/clitic form", () => {
     const out = post("بالتعب", [EN_AR_STRICT], "I am tired", "en");
-    expect(out).toBe("بالتعب");
-    expect(out.match(/تعبااان/g)?.length ?? 0).toBe(0);
+    expect(out).toContain("تعبااان");
+    expect(out.match(/تعبااان/g)?.length).toBe(1);
   });
 
   it("5. glossary for another language pair has no effect", () => {
@@ -220,9 +219,11 @@ describe("applyGlossaryPostProcess (chunk-v2 conservative)", () => {
     expect(out).toBe("retired");
   });
 
-  it("10. unrelated Arabic words sharing a root are not replaced", () => {
+  it("10. forces preferred alongside Soniox cognate when stem differs", () => {
+    // متعب does not share exact arabicMatchCore with تعبااان (تعب vs تعباان→تعبان)
+    // so force-append once rather than silent miss.
     const out = post("متعب جدا", [EN_AR_STRICT], "I am tired", "en");
-    expect(out).toBe("متعب جدا");
+    expect(out).toContain("تعبااان");
   });
 
   it("11. interim source absent from finalized Original has no effect when Original empty", () => {
@@ -235,7 +236,7 @@ describe("applyGlossaryPostProcess (chunk-v2 conservative)", () => {
     expect(out).toBe("I am tired");
   });
 
-  it("13. strict entries replace exact leaked source occurrence", () => {
+  it("13. strict entries replace exact leaked source / only-source Original", () => {
     const out = post("tired", [EN_AR_STRICT], "tired", "en");
     expect(out).toBe("تعبااان");
   });
@@ -246,6 +247,44 @@ describe("applyGlossaryPostProcess (chunk-v2 conservative)", () => {
     const corrected = post(sonioxFinal, [EN_AR_STRICT], "I am tired", "en");
     expect(corrected.length).toBeLessThan(corruptedLive.length);
     expect(corrected).toBe("I am تعبااان");
+  });
+
+  it("15. forces nonsense preferred when testing glossary (any wrong saved target)", () => {
+    const entry: ChunkV2GlossaryEntry = {
+      source: "tired",
+      target: "ZZZPREF",
+      sourceLanguage: "en",
+      targetLanguage: "ar",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    expect(post("أنا متعب", [entry], "tired", "en")).toBe("ZZZPREF");
+    expect(post("أنا متعب", [entry], "I am tired", "en")).toContain("ZZZPREF");
+  });
+
+  it("16. Arabic → English force on reverse direction", () => {
+    expect(post("I feel weary", [AR_EN_STRICT], "متعب", "ar", "en", "ar")).toBe("tired");
+    expect(post("I feel weary", [AR_EN_STRICT], "انا متعب", "ar", "en", "ar")).toContain("tired");
+    // Wrong direction (English row) ignores Arabic→English entry
+    expect(post("I am tired", [AR_EN_STRICT], "I am tired", "en", "en", "ar")).toBe("I am tired");
+  });
+
+  it("17. French → Spanish force for non-English pair", () => {
+    const out = post("estoy agotado", [FR_ES_STRICT], "fatigué", "fr", "fr", "es");
+    expect(out).toBe("cansado");
+  });
+
+  it("18. English → Spanish force", () => {
+    const entry: ChunkV2GlossaryEntry = {
+      source: "claim number",
+      target: "número de reclamo",
+      sourceLanguage: "en",
+      targetLanguage: "es",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    const out = post("el folio es 12", [entry], "claim number is 12", "en", "en", "es");
+    expect(out).toContain("número de reclamo");
   });
 
   it("normalizes exact preferred variant without appending duplicates", () => {

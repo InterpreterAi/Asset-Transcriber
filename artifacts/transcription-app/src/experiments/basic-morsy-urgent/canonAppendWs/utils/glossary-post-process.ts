@@ -24,6 +24,28 @@ function normalizeExactMatchSurfaceLower(s: string): string {
   return normalizeExactMatchSurface(s).toLowerCase();
 }
 
+function looksArabic(s: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
+}
+
+/** Strip Arabic clitics / tatweel / elongated ا for "already present" checks only. */
+function arabicMatchCore(s: string): string {
+  let t = s.normalize("NFC").replace(/\u0640/g, "");
+  let guard = 0;
+  while (guard++ < 6) {
+    if (t.startsWith("ال") && t.length > 3) {
+      t = t.slice(2);
+      continue;
+    }
+    if (/^[وفبلك]/.test(t) && t.length > 3) {
+      t = t.slice(1);
+      continue;
+    }
+    break;
+  }
+  return t.replace(/ا{2,}/g, "ا");
+}
+
 /**
  * Unicode-aware exact word/phrase boundary pattern.
  * Multiword phrases require contiguous words in order (flexible internal whitespace).
@@ -51,6 +73,21 @@ export function sourcePhraseInOriginal(original: string, source: string): boolea
   return buildExactPhrasePattern(src).test(orig);
 }
 
+/**
+ * True when Original (ignoring punctuation) is exactly the glossary source phrase.
+ * Used to fully replace the translation with the preferred target.
+ */
+export function originalIsOnlySourcePhrase(original: string, source: string): boolean {
+  const strip = (s: string) =>
+    normalizeExactMatchSurfaceLower(s)
+      .replace(/[^\p{L}\p{M}\p{N}\s]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const o = strip(original);
+  const src = strip(source);
+  return o.length >= 2 && o === src;
+}
+
 function entryMatchesDirection(
   entry: ChunkV2GlossaryEntry,
   direction: { sourceLanguage: string; targetLanguage: string },
@@ -61,22 +98,99 @@ function entryMatchesDirection(
   );
 }
 
-/**
- * Replace spans that normalize identically to the preferred target but differ in exact form
- * (Unicode normalization / ASCII case only — no semantic guessing).
- */
+/** Preferred already present (exact phrase, or Arabic core-equivalent token). */
+export function translationContainsPreferred(translation: string, preferred: string): boolean {
+  const t = preferred.trim();
+  if (t.length < 2) return true;
+  if (buildExactPhrasePattern(t).test(translation)) return true;
+
+  if (/^[\x00-\x7F]+$/.test(t)) {
+    return normalizeExactMatchSurfaceLower(translation).includes(
+      normalizeExactMatchSurfaceLower(t),
+    );
+  }
+
+  if (translation.normalize("NFC").includes(t.normalize("NFC"))) return true;
+
+  if (looksArabic(t)) {
+    const prefCore = arabicMatchCore(t);
+    if (prefCore.length < 2) return false;
+    const re = /[\p{L}\p{M}][\p{L}\p{M}'’\-]*/gu;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(translation)) !== null) {
+      if (looksArabic(m[0]) && arabicMatchCore(m[0]) === prefCore) return true;
+    }
+  }
+
+  return false;
+}
+
 function normalizeExactPreferredVariant(text: string, preferred: string): string {
   const prefExact = preferred.trim();
   const prefNorm = normalizeExactMatchSurfaceLower(prefExact);
   if (prefNorm.length < 2) return text;
 
   const pattern = buildExactPhrasePattern(prefExact);
-  return text.replace(pattern, (match) => {
+  let out = text.replace(pattern, (match) => {
     if (normalizeExactMatchSurfaceLower(match) === prefNorm && match !== prefExact) {
       return prefExact;
     }
     return match;
   });
+
+  // Arabic: same stem after clitic/elongation strip → rewrite to exact preferred spelling.
+  if (looksArabic(prefExact)) {
+    const prefCore = arabicMatchCore(prefExact);
+    if (prefCore.length >= 2) {
+      const re = /[\p{L}\p{M}][\p{L}\p{M}'’\-]*/gu;
+      const hits: { start: number; end: number }[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(out)) !== null) {
+        const raw = m[0];
+        if (raw === prefExact) continue;
+        if (!looksArabic(raw)) continue;
+        if (arabicMatchCore(raw) === prefCore) {
+          hits.push({ start: m.index, end: m.index + raw.length });
+        }
+      }
+      for (let i = hits.length - 1; i >= 0; i--) {
+        const h = hits[i]!;
+        out = out.slice(0, h.start) + prefExact + out.slice(h.end);
+      }
+    }
+  }
+
+  return out;
+}
+
+function dedupeAdjacentPreferred(out: string, pref: string): string {
+  const p = pref.trim();
+  if (p.length < 2) return out;
+  const esc = escapeRegex(p);
+  return out.replace(new RegExp(`(${esc})(\\s+${esc})+`, "gu"), "$1");
+}
+
+function forcePreferredIntoTranslation(
+  translation: string,
+  preferred: string,
+  original: string,
+  source: string,
+): string {
+  const pref = preferred.trim();
+  if (pref.length < 2) return translation;
+
+  if (originalIsOnlySourcePhrase(original, source)) {
+    return pref;
+  }
+
+  if (translationContainsPreferred(translation, pref)) {
+    return normalizeExactPreferredVariant(translation, pref);
+  }
+
+  // Preferred still missing after leak/normalize passes: force it once into the segment.
+  const tail = translation.trimEnd();
+  const forced = `${tail}${tail.length > 0 ? " " : ""}${pref}`.trim();
+  return dedupeAdjacentPreferred(forced, pref);
 }
 
 export type ApplyGlossaryPostProcessOpts = {
@@ -91,17 +205,27 @@ export type ApplyGlossaryPostProcessOpts = {
 };
 
 /**
- * Conservative chunk-v2 personal glossary cleanup on finalized Soniox translation text.
- * hint rows: no client enforcement (Soniox translation_terms only).
- * strict rows: replace exact source leaks or normalize exact preferred variants only when
- * the source phrase is proven in the finalized Original and direction matches.
+ * Chunk-v2 personal glossary enforcement (any workspace language pair, either direction).
+ *
+ * Gates (all required):
+ * - Entry has matching sourceLanguage → targetLanguage for this row's direction
+ * - enforceMode === strict
+ * - Exact source phrase in this row's finalized Original
+ *
+ * Force behavior:
+ * - Replace exact source leaks with preferred
+ * - Normalize exact/clitic-equivalent preferred spelling already present
+ * - If Original is only the source phrase → translation becomes preferred
+ * - Otherwise if preferred still missing → force preferred into the translation once
+ *
+ * hint rows: Soniox translation_terms only (no client force).
  */
 export function applyGlossaryPostProcess(
   text: string,
   entries: readonly ChunkV2GlossaryEntry[],
   opts: ApplyGlossaryPostProcessOpts,
 ): string {
-  if (!text.trim() || !entries.length) return text;
+  if (!entries.length) return text;
 
   const original = normalizeExactMatchSurface(opts.originalText);
   if (original.length < 1) return text;
@@ -123,6 +247,8 @@ export function applyGlossaryPostProcess(
         a.source.localeCompare(b.source),
     );
 
+  if (strictEntries.length === 0) return text;
+
   let result = text;
 
   for (const entry of strictEntries) {
@@ -132,6 +258,19 @@ export function applyGlossaryPostProcess(
     result = result.replace(leakPattern, entry.target);
 
     result = normalizeExactPreferredVariant(result, entry.target);
+
+    if (!translationContainsPreferred(result, entry.target)) {
+      result = forcePreferredIntoTranslation(
+        result,
+        entry.target,
+        original,
+        entry.source,
+      );
+    } else {
+      result = normalizeExactPreferredVariant(result, entry.target);
+    }
+
+    result = dedupeAdjacentPreferred(result, entry.target);
   }
 
   return result;
