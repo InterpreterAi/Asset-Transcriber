@@ -48,8 +48,12 @@ export function filterGlossaryForLanguagePair(
   const out: ChunkV2GlossaryEntry[] = [];
 
   for (const row of rows) {
-    const { sourceLanguage: rawSrc, targetLanguage: rawTgt } = glossaryRowLanguages(row);
-    if (!rawSrc || !rawTgt) continue;
+    let { sourceLanguage: rawSrc, targetLanguage: rawTgt } = glossaryRowLanguages(row);
+    // Legacy rows saved before direction metadata: treat as current workspace langA→langB.
+    if (!rawSrc || !rawTgt) {
+      rawSrc = a;
+      rawTgt = b;
+    }
 
     const sourceLanguage = normalizeWorkspaceLanguageCode(rawSrc);
     const targetLanguage = normalizeWorkspaceLanguageCode(rawTgt);

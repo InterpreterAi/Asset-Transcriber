@@ -101,7 +101,10 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered).toHaveLength(0);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.source).toBe("tired");
+    expect(filtered[0]?.sourceLanguage).toBe("en");
+    expect(filtered[0]?.targetLanguage).toBe("ar");
   });
 
   it("accepts snake_case language fields from API payloads", () => {

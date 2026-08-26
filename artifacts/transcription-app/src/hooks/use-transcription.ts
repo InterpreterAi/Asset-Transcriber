@@ -3907,22 +3907,25 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (morsyUsesChunkTranslationV2Experiment()) {
           const rows = eng.getTranscriptProjection().rows;
           for (const row of rows) {
-            // Live translation: paint Soniox text while speaking, but run the same
-            // glossary force as endpoint/frozen. Endpoint flush can paint preferred,
-            // then this tick would otherwise overwrite it with raw Soniox while the
-            // row is still !finalized (endpoint quiet close is currently a no-op).
-            if (!row.finalized) {
-              const liveTx = (row.translationText ?? "").trim();
-              if (liveTx.length > 0) {
-                const originalForGlossary = `${row.committedText} ${row.liveText}`.trim();
-                const painted = applyChunkV2FinalGlossaryPostProcessRef.current(
-                  liveTx,
-                  originalForGlossary,
-                  row.language ?? detectedLangRef.current,
-                );
-                paintCanonRowTranslationIfAllowed(row.row_id, painted, { force: false });
-              }
-            }
+            const originalForGlossary = row.finalized
+              ? row.committedText.trim()
+              : `${row.committedText} ${row.liveText}`.trim();
+            if (!originalForGlossary.length) continue;
+
+            const baseTx = (
+              row.translationText ??
+              eng.getRowTranslation(row.row_id) ??
+              ""
+            ).trim();
+            const painted = applyChunkV2FinalGlossaryPostProcessRef.current(
+              baseTx,
+              originalForGlossary,
+              row.language ?? detectedLangRef.current,
+            );
+            if (!painted.length && !baseTx.length) continue;
+            paintCanonRowTranslationIfAllowed(row.row_id, painted, {
+              force: row.finalized,
+            });
           }
           // Track the active row ID — do NOT clear translation on transition.
           // The frozen-row paint (dispatchMorsyChunkV2EndpointFlush / onRowFrozen)
