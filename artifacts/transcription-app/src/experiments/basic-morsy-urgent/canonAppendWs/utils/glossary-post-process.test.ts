@@ -104,6 +104,25 @@ describe("filterGlossaryForLanguagePair", () => {
     expect(filtered).toHaveLength(0);
   });
 
+  it("accepts snake_case language fields from API payloads", () => {
+    const filtered = filterGlossaryForLanguagePair(
+      [
+        {
+          term: "tired",
+          translation: "تعبااان",
+          source_language: "en",
+          target_language: "ar",
+          enforce_mode: "strict",
+        },
+      ],
+      "en",
+      "ar",
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.source).toBe("tired");
+    expect(filtered[0]?.sourceLanguage).toBe("en");
+  });
+
   it("expands comma-separated aliases with shared direction", () => {
     const filtered = filterGlossaryForLanguagePair(
       [
@@ -219,10 +238,15 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect(out).toBe("retired");
   });
 
-  it("10. forces preferred alongside Soniox cognate when stem differs", () => {
-    // متعب does not share exact arabicMatchCore with تعبااان (تعب vs تعباان→تعبان)
-    // so force-append once rather than silent miss.
-    const out = post("متعب جدا", [EN_AR_STRICT], "I am tired", "en");
+  it("10. replaces Arabic MT cognate in-place when stem is related (متعب → preferred)", () => {
+    const out = post("أنا متعب جدا", [EN_AR_STRICT], "I am tired", "en");
+    expect(out).toBe("أنا تعبااان جدا");
+    expect(out.match(/تعبااان/g)?.length).toBe(1);
+  });
+
+  it("10b. forces preferred when Soniox LID mismatches pair but source is in Original", () => {
+    // LID said "fr" but Original is English with en→ar entry — still force.
+    const out = post("أنا متعب", [EN_AR_STRICT], "I am tired", "fr", "en", "ar");
     expect(out).toContain("تعبااان");
   });
 

@@ -21,9 +21,22 @@ export type GlossaryApiRow = {
   translation?: string;
   sourceLanguage?: string | null;
   targetLanguage?: string | null;
+  /** Defensive: some serializers may emit snake_case. */
+  source_language?: string | null;
+  target_language?: string | null;
   enforceMode?: string;
+  enforce_mode?: string;
   priority?: number;
 };
+
+function glossaryRowLanguages(row: GlossaryApiRow): {
+  sourceLanguage: string;
+  targetLanguage: string;
+} {
+  const rawSrc = `${row.sourceLanguage ?? row.source_language ?? ""}`.trim();
+  const rawTgt = `${row.targetLanguage ?? row.target_language ?? ""}`.trim();
+  return { sourceLanguage: rawSrc, targetLanguage: rawTgt };
+}
 
 export function filterGlossaryForLanguagePair(
   rows: readonly GlossaryApiRow[],
@@ -35,8 +48,7 @@ export function filterGlossaryForLanguagePair(
   const out: ChunkV2GlossaryEntry[] = [];
 
   for (const row of rows) {
-    const rawSrc = row.sourceLanguage?.trim() ?? "";
-    const rawTgt = row.targetLanguage?.trim() ?? "";
+    const { sourceLanguage: rawSrc, targetLanguage: rawTgt } = glossaryRowLanguages(row);
     if (!rawSrc || !rawTgt) continue;
 
     const sourceLanguage = normalizeWorkspaceLanguageCode(rawSrc);
@@ -51,8 +63,9 @@ export function filterGlossaryForLanguagePair(
     const target = `${row.translation ?? ""}`.trim();
     if (target.length < 1) continue;
 
+    const rawMode = `${row.enforceMode ?? row.enforce_mode ?? ""}`.trim();
     const enforceMode: ChunkV2GlossaryEnforceMode =
-      row.enforceMode === "hint" ? "hint" : "strict";
+      rawMode === "hint" ? "hint" : "strict";
     const priority =
       typeof row.priority === "number" && Number.isFinite(row.priority)
         ? Math.trunc(row.priority)

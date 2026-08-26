@@ -46,6 +46,31 @@ function arabicMatchCore(s: string): string {
   return t.replace(/ا{2,}/g, "ا");
 }
 
+/** Cores for relatedness: base core plus optional participle prefix م. */
+function arabicMatchCoresForRelatedness(s: string): string[] {
+  const base = arabicMatchCore(s);
+  const cores = [base];
+  if (base.startsWith("م") && base.length > 3) {
+    cores.push(base.slice(1));
+  }
+  return cores;
+}
+
+function arabicCoresRelated(a: string, b: string): boolean {
+  const coresA = arabicMatchCoresForRelatedness(a);
+  const coresB = arabicMatchCoresForRelatedness(b);
+  for (const ca of coresA) {
+    for (const cb of coresB) {
+      if (ca.length < 2 || cb.length < 2) continue;
+      if (ca === cb) return true;
+      if (ca.length >= 3 && cb.length >= 3 && (ca.includes(cb) || cb.includes(ca))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * Unicode-aware exact word/phrase boundary pattern.
  * Multiword phrases require contiguous words in order (flexible internal whitespace).
@@ -98,6 +123,22 @@ function entryMatchesDirection(
   );
 }
 
+/** Entry is for the active workspace pair (either direction). */
+function entryBelongsToPair(
+  entry: ChunkV2GlossaryEntry,
+  langA: string,
+  langB: string,
+): boolean {
+  const a = normalizeWorkspaceLanguageCode(langA);
+  const b = normalizeWorkspaceLanguageCode(langB);
+  return (
+    (workspaceLanguagesEqual(entry.sourceLanguage, a) &&
+      workspaceLanguagesEqual(entry.targetLanguage, b)) ||
+    (workspaceLanguagesEqual(entry.sourceLanguage, b) &&
+      workspaceLanguagesEqual(entry.targetLanguage, a))
+  );
+}
+
 /** Preferred already present (exact phrase, or Arabic core-equivalent token). */
 export function translationContainsPreferred(translation: string, preferred: string): boolean {
   const t = preferred.trim();
@@ -139,6 +180,8 @@ function normalizeExactPreferredVariant(text: string, preferred: string): string
   });
 
   // Arabic: same stem after clitic/elongation strip → rewrite to exact preferred spelling.
+  // Also rewrite related stems where one core contains the other (min 3 chars),
+  // e.g. متعب (تعب) ↔ تعبااان (تعبان) when source was proven in Original.
   if (looksArabic(prefExact)) {
     const prefCore = arabicMatchCore(prefExact);
     if (prefCore.length >= 2) {
@@ -149,7 +192,8 @@ function normalizeExactPreferredVariant(text: string, preferred: string): string
         const raw = m[0];
         if (raw === prefExact) continue;
         if (!looksArabic(raw)) continue;
-        if (arabicMatchCore(raw) === prefCore) {
+        const rawCore = arabicMatchCore(raw);
+        if (rawCore === prefCore || arabicCoresRelated(raw, prefExact)) {
           hits.push({ start: m.index, end: m.index + raw.length });
         }
       }
@@ -208,9 +252,12 @@ export type ApplyGlossaryPostProcessOpts = {
  * Chunk-v2 personal glossary enforcement (any workspace language pair, either direction).
  *
  * Gates (all required):
- * - Entry has matching sourceLanguage → targetLanguage for this row's direction
+ * - Entry belongs to the active workspace pair (either direction)
  * - enforceMode === strict
- * - Exact source phrase in this row's finalized Original
+ * - Exact source phrase in this row's Original (finalized or live committed+live)
+ *
+ * Direction (LID) is a preference for ranking only — Soniox LID mismatches must not
+ * drop a proven source→preferred force when the entry's source is in Original.
  *
  * Force behavior:
  * - Replace exact source leaks with preferred
@@ -235,17 +282,20 @@ export function applyGlossaryPostProcess(
     opts.langA,
     opts.langB,
   );
-  if (!direction) return text;
 
   const strictEntries = entries
     .filter((e) => e.enforceMode === "strict")
-    .filter((e) => entryMatchesDirection(e, direction))
-    .sort(
-      (a, b) =>
+    .filter((e) => entryBelongsToPair(e, opts.langA, opts.langB))
+    .sort((a, b) => {
+      const aDir = direction && entryMatchesDirection(a, direction) ? 1 : 0;
+      const bDir = direction && entryMatchesDirection(b, direction) ? 1 : 0;
+      return (
+        bDir - aDir ||
         b.priority - a.priority ||
         b.source.length - a.source.length ||
-        a.source.localeCompare(b.source),
-    );
+        a.source.localeCompare(b.source)
+      );
+    });
 
   if (strictEntries.length === 0) return text;
 

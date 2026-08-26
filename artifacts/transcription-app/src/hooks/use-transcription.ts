@@ -13,7 +13,7 @@ import {
   getTranslationTypographyMeta,
   wrapAsciiDigitRunsWithLtrSpans,
 } from "@/lib/wrap-ltr-numbers";
-import { readGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
+import { readGlossaryStrictEnabled, GLOSSARY_CHANGED_EVENT } from "@/lib/glossary-strict-storage";
 import {
   createWorkspaceCopyButton,
   installWorkspaceSelectionPaintDeferral,
@@ -3425,6 +3425,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const dispatchMorsyChunkV2LivePreviewRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const dispatchMorsyChunkV2EndpointFlushRef = useRef<(payload: CanonRowDualBufferPayload) => void>(() => {});
   const chunkV2GlossaryEntriesRef = useRef<ChunkV2GlossaryEntry[]>([]);
+  /** Stable call site for engine hooks (defined later in this hook). */
+  const applyChunkV2FinalGlossaryPostProcessRef = useRef<
+    (translationText: string, committedOriginal: string, rowSourceLanguage: string) => string
+  >((translationText) => translationText);
   const executeMorsyChunkV2TranslationRef = useRef<(
     payload: CanonRowDualBufferPayload,
     opts: { mode: "stable" | "live" | "endpoint"; firstChunk?: boolean; debounceFlush?: boolean },
@@ -3903,12 +3907,20 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (morsyUsesChunkTranslationV2Experiment()) {
           const rows = eng.getTranscriptProjection().rows;
           for (const row of rows) {
-            // Live translation: paint in-progress Soniox translation while speaker is talking.
-            // row.translationText on the active row = state.activeTranslationText from reducer.
+            // Live translation: paint Soniox text while speaking, but run the same
+            // glossary force as endpoint/frozen. Endpoint flush can paint preferred,
+            // then this tick would otherwise overwrite it with raw Soniox while the
+            // row is still !finalized (endpoint quiet close is currently a no-op).
             if (!row.finalized) {
               const liveTx = (row.translationText ?? "").trim();
               if (liveTx.length > 0) {
-                paintCanonRowTranslationIfAllowed(row.row_id, liveTx, { force: false });
+                const originalForGlossary = `${row.committedText} ${row.liveText}`.trim();
+                const painted = applyChunkV2FinalGlossaryPostProcessRef.current(
+                  liveTx,
+                  originalForGlossary,
+                  row.language ?? detectedLangRef.current,
+                );
+                paintCanonRowTranslationIfAllowed(row.row_id, painted, { force: false });
               }
             }
           }
@@ -4053,6 +4065,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       },
     );
   }, []);
+  applyChunkV2FinalGlossaryPostProcessRef.current = applyChunkV2FinalGlossaryPostProcess;
 
   const clearChunkV2GlossaryState = useCallback(() => {
     chunkV2GlossaryEntriesRef.current = [];
@@ -4071,6 +4084,21 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       chunkV2GlossaryToSonioxTerms(entries),
     );
   }, []);
+
+  // Mid-session glossary edits: refresh client force entries immediately (Soniox
+  // translation_terms still need a session restart / pair change to update upstream).
+  useEffect(() => {
+    const onGlossaryChanged = () => {
+      if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
+      if (!morsyUsesChunkTranslationV2Experiment()) return;
+      const apiKey = sonioxSessionApiKeyRef.current;
+      if (!apiKey) return;
+      const pair = langPairRef.current;
+      void loadAndApplyChunkV2Glossary(pair.a, pair.b, apiKey);
+    };
+    window.addEventListener(GLOSSARY_CHANGED_EVENT, onGlossaryChanged);
+    return () => window.removeEventListener(GLOSSARY_CHANGED_EVENT, onGlossaryChanged);
+  }, [loadAndApplyChunkV2Glossary]);
 
   const styleUpgradedRef  = useRef(false);
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { BookOpen, Plus, Trash2, X, ArrowRight, Loader2 } from "lucide-react";
-import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled } from "@/lib/glossary-strict-storage";
+import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled, emitGlossaryChanged } from "@/lib/glossary-strict-storage";
 import { glossaryPreferredTranslationPlaceholder } from "@/lib/glossary-translation-placeholder-example";
 import { workspaceLanguageLabel } from "@/lib/workspace-languages";
 
@@ -99,6 +99,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
       setTranslation("");
       setEnforceMode("strict");
       setPriority("0");
+      emitGlossaryChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -111,6 +112,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
     try {
       await fetch(`/api/glossary/${id}`, { method: "DELETE", credentials: "include" });
       setEntries(prev => prev.filter(e => e.id !== id));
+      emitGlossaryChanged();
     } finally {
       setDeletingId(null);
     }
