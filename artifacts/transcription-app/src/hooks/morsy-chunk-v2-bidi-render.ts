@@ -13,6 +13,9 @@ const MIXED_LTR_TOKEN_RE = new RegExp(
   [
     String.raw`\bMRN[-#]?\s*[\w-]+\b`,
     String.raw`\bCLM[-#]?[\w-]+\b`,
+    // Full NANP / intl phones as ONE island (1-888-642-7434, +1 888 642 7434).
+    String.raw`\+?\d{1,3}[-.\s]\d{3}[-.\s]\d{3}[-.\s]\d{4}\b`,
+    String.raw`\b\d{1,3}[-.\s]\d{3}[-.\s]\d{3}[-.\s]\d{4}\b`,
     String.raw`\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b`,
     String.raw`\b\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\b`,
     String.raw`\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b`,

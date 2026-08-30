@@ -60,4 +60,11 @@ describe("getInterpreterContext Soniox budget", () => {
     const blob = JSON.stringify(ctx);
     expect(/MMR|COVID|vaccine|لقاح/i.test(blob)).toBe(true);
   });
+
+  it("pins spoken email punctuation for Soniox-native pairs", () => {
+    const ctx = getInterpreterContext("en", "ar");
+    expect(ctx.translation_terms?.some((t) => t.source === "dot com" && t.target === ".com")).toBe(true);
+    expect(ctx.translation_terms?.some((t) => t.source === "dot" && t.target === ".")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "structured_speech")).toBe(true);
+  });
 });

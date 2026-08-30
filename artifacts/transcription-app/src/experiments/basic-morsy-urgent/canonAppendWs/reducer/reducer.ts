@@ -4,6 +4,11 @@ import type { SonioxFrame } from "../ws/frame-types";
 
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import {
+  looksLikeSpelledAlphanumeric,
+  repairSpokenEmailTranslation,
+  shouldHoldSpelledAlphanumericRow,
+} from "../policies/spelled-alphanumeric";
+import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
@@ -33,11 +38,38 @@ export type ReduceContext = {
   chunkV2NativeTranslate?: boolean;
 };
 
+function freezeRowForSonioxNative(state: EngineState, chunkV2NativeTranslate: boolean): EngineState {
+  if (!chunkV2NativeTranslate || !state.activeUtterance) {
+    return freezeActiveUtterance(state);
+  }
+  const source = utteranceCommittedText(state.activeUtterance);
+  const repaired = repairSpokenEmailTranslation(source, state.activeTranslationText ?? "");
+  return freezeActiveUtterance({
+    ...state,
+    activeTranslationText: repaired,
+  });
+}
+
+function incomingCanonPreview(frame: SonioxFrame): string {
+  return frame.tokens
+    .filter(t => {
+      if (t.translation_status === "translation") return false;
+      if (typeof t.text !== "string") return false;
+      const n = t.text.trim().toLowerCase();
+      return n.length > 0 && n !== "<end>" && n !== "<eos>" && n !== "<eps>";
+    })
+    .map(t => t.text)
+    .join("")
+    .trim();
+}
+
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
 function tryLongPauseSplit(
   state: EngineState,
   wallMs: number,
   pauseSplitMs: number,
+  incomingText: string,
+  chunkV2NativeTranslate: boolean,
 ): EngineState {
   const au = state.activeUtterance;
   if (!au || state.lastTokenActivityWallMs <= 0) return state;
@@ -46,8 +78,14 @@ function tryLongPauseSplit(
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
+  if (
+    chunkV2NativeTranslate &&
+    shouldHoldSpelledAlphanumericRow(utteranceCommittedText(au), incomingText)
+  ) {
+    return state;
+  }
   return {
-    ...freezeActiveUtterance(state),
+    ...freezeRowForSonioxNative(state, chunkV2NativeTranslate),
     endpointPending: false,
     endpointPendingAtMs: 0,
   };
@@ -65,8 +103,15 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
+  const nativeTranslate = ctx.chunkV2NativeTranslate === true;
   if (frame.tokens.length > 0) {
-    next = tryLongPauseSplit(next, wallMs, pauseSplitMs);
+    next = tryLongPauseSplit(
+      next,
+      wallMs,
+      pauseSplitMs,
+      incomingCanonPreview(frame),
+      nativeTranslate,
+    );
   }
 
   const finProc =
@@ -118,9 +163,15 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       // A language switch alone (same speaker, interpreter code-switching en↔ar) is NOT
       // a bubble boundary — only split when BOTH language AND speaker change together.
       const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
-      if (langBreak && spkBreak) {
+      const holdSpelling =
+        nativeTranslate &&
+        shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text);
+      if (holdSpelling && (spkBreak || langBreak)) {
+        // Diarization / LID flicker on spelled letters — keep one email/ID row.
+        next = { ...next, speakerChangeConsecutive: 0 };
+      } else if (langBreak && spkBreak) {
         // Genuine handoff: different language AND different speaker — hard break.
-        next = freezeActiveUtterance(next);
+        next = freezeRowForSonioxNative(next, nativeTranslate);
         next = {
           ...next,
           endpointPending: false,
@@ -132,7 +183,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         // Speaker changed, language stayed the same — use the confirmation debounce.
         const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
         if (consecutive >= speakerBreakConfirmTokens) {
-          next = freezeActiveUtterance(next);
+          next = freezeRowForSonioxNative(next, nativeTranslate);
           next = {
             ...next,
             endpointPending: false,
@@ -166,9 +217,13 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     tailLang &&
     tailLang !== activeLang &&
     frameNonFinals.length > 0 &&
-    utteranceCommittedText(next.activeUtterance!).trim().length > 0
+    utteranceCommittedText(next.activeUtterance!).trim().length > 0 &&
+    !(
+      nativeTranslate &&
+      looksLikeSpelledAlphanumeric(utteranceCommittedText(next.activeUtterance!))
+    )
   ) {
-    next = freezeActiveUtterance(next);
+    next = freezeRowForSonioxNative(next, nativeTranslate);
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 

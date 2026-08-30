@@ -12,6 +12,10 @@ import {
   renderCommittedAppendOnly,
 } from "./committed-renderer";
 import { isolateLtrInRtl, renderHypothesisLcp } from "./hypothesis-renderer";
+import {
+  applyMorsyChunkV2BidiIsolates,
+  shouldMorsyChunkV2BidiPaint,
+} from "@/hooks/morsy-chunk-v2-bidi-render";
 export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
 export type EngineDomRowHandles = {
   row: HTMLElement;
@@ -33,13 +37,6 @@ function getLangDirection(langCode: string): "rtl" | "ltr" {
   const base = langCode.split("-")[0]?.toLowerCase() ?? "";
   return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
-function isolateForeignInRtl(text: string): string {
-  // Inside RTL text: isolate Latin words, brand names, numbers, codes, emails, URLs
-  return text.replace(
-    /([A-Za-z][A-Za-z0-9._@+\-/:%]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/:%]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$|lbs|oz|cm|mm|Hz|kHz|MHz))?)/g,
-    "\u2066$1\u2069",
-  );
-}
 function applyDirectionToElement(el: HTMLElement, langCode: string): void {
   const dir = getLangDirection(langCode);
   el.setAttribute("dir", dir);
@@ -48,9 +45,11 @@ function applyDirectionToElement(el: HTMLElement, langCode: string): void {
 }
 function prepareTextForDisplay(text: string, langCode: string): string {
   const dir = getLangDirection(langCode);
-  // For RTL languages: isolate any embedded LTR content so it reads correctly
-  if (dir === "rtl") return isolateForeignInRtl(text);
-  // For LTR languages: no special handling needed, browser handles it correctly
+  // Script-based: Arabic translation of English speech is still RTL even if
+  // the row language tag is the source (en). Isolate phones/IDs as one LTR run.
+  if (dir === "rtl" || shouldMorsyChunkV2BidiPaint(text)) {
+    return applyMorsyChunkV2BidiIsolates(text);
+  }
   return text;
 }
 function rowSourceLanguage(row: HTMLElement): string {
@@ -213,7 +212,10 @@ export class CanonAppendWsDomWriter {
         : text;
     const prevRendered = handles.translationEl.textContent ?? "";
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(handles.translationEl, translationLanguage);
+      applyDirectionToElement(
+        handles.translationEl,
+        shouldMorsyChunkV2BidiPaint(text) ? "ar" : translationLanguage,
+      );
     }
     if (this.layoutMode === "stacked") {
       const textEl = this.stackedTranslationTextEl(handles.translationEl);
@@ -275,7 +277,10 @@ export class CanonAppendWsDomWriter {
     markWorkspaceSelectableText(lockedEl);
     markWorkspaceSelectableText(liveEl);
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(handles.translationEl, translationLanguage);
+      applyDirectionToElement(
+        handles.translationEl,
+        shouldMorsyChunkV2BidiPaint(composedTarget) ? "ar" : translationLanguage,
+      );
       const lockedDisplay = parts.locked.length
         ? prepareTextForDisplay(parts.locked, translationLanguage)
         : "";

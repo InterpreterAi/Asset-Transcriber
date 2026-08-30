@@ -38,7 +38,10 @@ import {
   workspacePlanDisplayName,
   workspacePlanTierKey,
   planUsesLibreEngine,
+  planUsesSonioxNativeTranslation,
 } from "@/lib/utils";
+import { applyMorsyChunkV2BidiIsolates } from "@/hooks/morsy-chunk-v2-bidi-render";
+import { isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import { startOfAppDayMs } from "@workspace/app-timezone";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -3742,6 +3745,7 @@ export default function Admin() {
                     const n = stableRows.length;
                     const srcHead = adminLanguageLabel(snap.langA, langConfigData?.allLanguages);
                     const trHead = adminLanguageLabel(snap.langB, langConfigData?.allLanguages);
+                    const sonioxNativeView = planUsesSonioxNativeTranslation(sessionDetail.planType);
                     return (
                       <div className="rounded-lg border border-border overflow-hidden bg-card text-sm leading-relaxed">
                         <table className="w-full border-collapse table-fixed">
@@ -3772,6 +3776,12 @@ export default function Admin() {
                               const srcLine = stableRows[i]?.src ?? "";
                               const tgtLine = stableRows[i]?.tgt ?? "";
                               const rowIndex = stableRows[i]?.idx ?? i + 1;
+                              const pending = tgtLine === ADMIN_SNAPSHOT_PENDING_CELL;
+                              const rtlTgt = !pending && isRtlTranslationText(tgtLine);
+                              const paintedTgt =
+                                sonioxNativeView && rtlTgt
+                                  ? applyMorsyChunkV2BidiIsolates(tgtLine)
+                                  : tgtLine;
                               return (
                                 <tr key={i} className="hover:bg-muted/15 align-top">
                                   <td className="px-1.5 py-2.5 text-center font-mono text-[10px] text-muted-foreground border-r border-border align-top">
@@ -3781,10 +3791,10 @@ export default function Admin() {
                                     {srcLine}
                                   </td>
                                   <td
-                                    className={`px-3 py-2.5 leading-relaxed whitespace-pre-wrap align-top ${tgtLine === ADMIN_SNAPSHOT_PENDING_CELL ? "text-muted-foreground italic" : "text-foreground"}`}
-                                    dir="auto"
+                                    className={`px-3 py-2.5 leading-relaxed whitespace-pre-wrap align-top ${pending ? "text-muted-foreground italic" : "text-foreground"}`}
+                                    dir={sonioxNativeView && rtlTgt ? "rtl" : "auto"}
                                   >
-                                    {tgtLine}
+                                    {paintedTgt}
                                   </td>
                                 </tr>
                               );

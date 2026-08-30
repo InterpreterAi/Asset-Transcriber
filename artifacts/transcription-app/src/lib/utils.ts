@@ -102,6 +102,12 @@ export function planUsesTrialHetznerCleanTranslation(planType: string | null | u
  * True when the account uses the machine translation stack — mirrors server `planUsesMachineTranslationStack`
  * (Final Boss 3: Libre for Basic/Professional *-libre and `trial-hetzner`; OpenAI for `trial-libre`, legacy OpenAI trials, Platinum, Unlimited).
  */
+/** Trial / Basic / Professional plans that use Soniox STT + Soniox two-way translation. */
+export function planUsesSonioxNativeTranslation(planType: string | null | undefined): boolean {
+  const p = (planType ?? "").trim().toLowerCase();
+  return p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre";
+}
+
 export function planUsesLibreEngine(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (

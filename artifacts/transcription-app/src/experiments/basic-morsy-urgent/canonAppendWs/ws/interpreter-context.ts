@@ -354,6 +354,25 @@ export function getInterpreterContext(
     injectedTerms,
   );
 
+  // 1b) Spoken email / URL punctuation — keep Latin symbols, do not translate "dot".
+  const spokenEmailCount = mergeUniqueTranslationTerms(
+    translationTerms,
+    seen,
+    [
+      { source: "dot com", target: ".com" },
+      { source: "dot org", target: ".org" },
+      { source: "dot net", target: ".net" },
+      { source: "dot edu", target: ".edu" },
+      { source: "dot gov", target: ".gov" },
+      { source: "dot", target: "." },
+      { source: "period", target: "." },
+      { source: "underscore", target: "_" },
+      { source: "at sign", target: "@" },
+      { source: "at symbol", target: "@" },
+      { source: "نقطة كوم", target: ".com" },
+    ],
+  );
+
   // 2) Vaccine + ISA medical pack (vaccines ordered first inside the builder).
   const medicalPack = buildChunkV2MedicalPackContext(langA, langB);
   mergeUniqueTranslationTerms(translationTerms, seen, medicalPack.translation_terms);
@@ -413,6 +432,7 @@ export function getInterpreterContext(
       { key: "setting", value: "Live professional interpreter session" },
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
+      { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
       { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
       ...registerRulesForPair(a, b),
       { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
@@ -426,7 +446,7 @@ export function getInterpreterContext(
   }
 
   const fitted = fitSonioxContextToBudget(ctx, {
-    protectedTranslationTermCount: protectedGlossaryCount,
+    protectedTranslationTermCount: protectedGlossaryCount + spokenEmailCount,
     maxChars: SONIOX_CONTEXT_SAFE_CHARS,
   });
 
