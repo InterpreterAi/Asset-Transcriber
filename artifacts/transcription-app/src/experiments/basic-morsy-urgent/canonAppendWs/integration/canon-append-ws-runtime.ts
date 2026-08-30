@@ -37,6 +37,8 @@ import {
 } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
+import { applyGlossaryPostProcess } from "../utils/glossary-post-process";
+import type { ChunkV2GlossaryEntry } from "../utils/chunk-v2-glossary";
 import { getInterpreterContext, type SonioxContextTerm } from "../ws/interpreter-context";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
@@ -120,6 +122,8 @@ export class CanonAppendWsIsolatedRuntime {
   private chunkV2NativeTranslate = false;
   /** User glossary rows injected into chunk-v2 Soniox context. */
   private chunkV2GlossaryTerms: SonioxContextTerm[] = [];
+  private chunkV2GlossaryEntries: ChunkV2GlossaryEntry[] = [];
+  private chunkV2LangPair: { a: string; b: string } = { a: "en", b: "ar" };
 
   /** Server-provided realtime WebSocket URL (from transcription token). */
   private sonioxRtUrl: string | null = null;
@@ -151,6 +155,25 @@ export class CanonAppendWsIsolatedRuntime {
 
   setChunkV2GlossaryTerms(terms: SonioxContextTerm[]): void {
     this.chunkV2GlossaryTerms = terms;
+  }
+
+  setChunkV2GlossaryEntries(
+    entries: ChunkV2GlossaryEntry[],
+    pair: { a: string; b: string },
+  ): void {
+    this.chunkV2GlossaryEntries = entries;
+    this.chunkV2LangPair = { a: pair.a, b: pair.b };
+    this.writer.setGlossaryForce(
+      entries.length === 0
+        ? null
+        : (translation, original, rowLang) =>
+            applyGlossaryPostProcess(translation, this.chunkV2GlossaryEntries, {
+              originalText: original,
+              rowSourceLanguage: rowLang,
+              langA: this.chunkV2LangPair.a,
+              langB: this.chunkV2LangPair.b,
+            }),
+    );
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -423,6 +446,7 @@ export class CanonAppendWsIsolatedRuntime {
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000, rtUrl?: string): void {
     if (rtUrl?.trim()) this.sonioxRtUrl = rtUrl.trim();
     const pair = langPair as { a: string; b: string };
+    this.chunkV2LangPair = { a: pair.a, b: pair.b };
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
     // two_way language_a/b must follow stable order (not UI A/B) so ar↔en == en↔ar.

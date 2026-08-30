@@ -4073,6 +4073,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const clearChunkV2GlossaryState = useCallback(() => {
     chunkV2GlossaryEntriesRef.current = [];
     canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms([]);
+    canonWsIsolationEngineRef.current?.setChunkV2GlossaryEntries([], langPairRef.current);
   }, []);
 
   const loadAndApplyChunkV2Glossary = useCallback(async (
@@ -4086,6 +4087,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     canonWsIsolationEngineRef.current?.setChunkV2GlossaryTerms(
       chunkV2GlossaryToSonioxTerms(entries),
     );
+    canonWsIsolationEngineRef.current?.setChunkV2GlossaryEntries(entries, { a: langA, b: langB });
   }, []);
 
   // Mid-session glossary edits: reload force list and restart Soniox so

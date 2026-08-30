@@ -101,8 +101,10 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered.some((e) => e.source === "tired" && e.target === "تعبااان")).toBe(true);
-    expect(filtered.some((e) => e.source === "تعبااان" && e.target === "tired")).toBe(true);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.source).toBe("tired");
+    expect(filtered[0]?.sourceLanguage).toBe("en");
+    expect(filtered[0]?.targetLanguage).toBe("ar");
   });
 
   it("accepts snake_case language fields from API payloads", () => {
@@ -119,8 +121,9 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered.some((e) => e.source === "tired" && e.sourceLanguage === "en")).toBe(true);
-    expect(filtered.some((e) => e.source === "تعبااان" && e.sourceLanguage === "ar")).toBe(true);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.source).toBe("tired");
+    expect(filtered[0]?.sourceLanguage).toBe("en");
   });
 
   it("expands comma-separated aliases with shared direction", () => {
@@ -138,11 +141,8 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered.filter((e) => e.sourceLanguage === "en").map((e) => e.source).sort()).toEqual([
-      "exhausted",
-      "tired",
-    ]);
-    expect(filtered.some((e) => e.source === "تعبااان" && e.targetLanguage === "en")).toBe(true);
+    expect(filtered.map((e) => e.source).sort()).toEqual(["exhausted", "tired"]);
+    expect(filtered.every((e) => e.sourceLanguage === "en" && e.targetLanguage === "ar")).toBe(true);
   });
 });
 
@@ -314,6 +314,42 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect(out).toContain("número de reclamo");
   });
 
+  it("18b. English leaks in Arabic stay replaced even if a reverse row exists", () => {
+    const biopsy: ChunkV2GlossaryEntry = {
+      source: "biopsy",
+      target: "خزعة",
+      sourceLanguage: "en",
+      targetLanguage: "ar",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    const reverseTired: ChunkV2GlossaryEntry = {
+      source: "تعبااان",
+      target: "tired",
+      sourceLanguage: "ar",
+      targetLanguage: "en",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    const tiredOut = post(
+      "نعم، مرحبا، فقط أشعر أنني tired اليوم. لا أعرف لماذا، لكن.",
+      [EN_AR_STRICT, reverseTired],
+      "Yes, hi, it's just that I've been feeling tired today. I don't know why, but.",
+      "en",
+    );
+    expect(tiredOut).toContain("تعبااان");
+    expect(tiredOut.toLowerCase()).not.toContain("tired");
+
+    const biopsyOut = post(
+      "نعم، هناك biopsy أن أجري خزعة.",
+      [biopsy, reverseTired],
+      "Yeah, there I have to take a biopsy.",
+      "en",
+    );
+    expect(biopsyOut).toContain("خزعة");
+    expect(biopsyOut.toLowerCase()).not.toContain("biopsy");
+  });
+
   it("19. replaces the wrong translated word the user saved as the term", () => {
     const entry: ChunkV2GlossaryEntry = {
       source: "مرهق",
@@ -379,8 +415,8 @@ describe("fetchChunkV2GlossaryForPair", () => {
       }),
     );
     const rows = await fetchChunkV2GlossaryForPair("en", "ar");
-    expect(rows.some((e) => e.source === "tired" && e.target === "تعبااان")).toBe(true);
-    expect(rows.some((e) => e.source === "تعبااان" && e.target === "tired")).toBe(true);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.source).toBe("tired");
     vi.unstubAllGlobals();
   });
 });

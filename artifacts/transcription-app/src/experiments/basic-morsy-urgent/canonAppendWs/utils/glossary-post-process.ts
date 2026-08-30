@@ -100,17 +100,31 @@ export function buildExactPhrasePattern(phrase: string): RegExp {
 
 /** True when the complete source phrase appears in Original with exact word/phrase boundaries. */
 export function sourcePhraseInOriginal(original: string, source: string): boolean {
-  const src = source.trim();
-  if (src.length < 2) return false;
-  const orig = normalizeExactMatchSurface(original);
-  if (orig.length < 1) return false;
-  return buildExactPhrasePattern(src).test(orig);
+  return phraseInText(original, source);
+}
+
+function latinPhrasePattern(phrase: string): RegExp | null {
+  const p = phrase.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9 '\-]*$/.test(p)) return null;
+  return new RegExp(`(?<![A-Za-z0-9])${escapeRegex(p)}(?![A-Za-z0-9])`, "gi");
 }
 
 function phraseInText(haystack: string, phrase: string): boolean {
   const p = phrase.trim();
   if (p.length < 2 || !haystack.trim()) return false;
-  return buildExactPhrasePattern(p).test(normalizeExactMatchSurface(haystack));
+  const n = normalizeExactMatchSurface(haystack);
+  if (buildExactPhrasePattern(p).test(n)) return true;
+  const latin = latinPhrasePattern(p);
+  return latin ? latin.test(n) : false;
+}
+
+function replacePhrase(text: string, from: string, to: string): string {
+  const src = from.trim();
+  if (src.length < 2) return text;
+  const next = text.replace(buildExactPhrasePattern(src), to);
+  if (next !== text) return next;
+  const latin = latinPhrasePattern(src);
+  return latin ? text.replace(latin, to) : text;
 }
 
 /**
@@ -299,15 +313,11 @@ export type ApplyGlossaryPostProcessOpts = {
 /**
  * Soniox-native personal glossary enforcement.
  *
- * Triggers (any one):
- * - Saved source phrase is in this row's Original
- * - Saved source phrase is in the Translation (user saved the wrong word that keeps appearing)
- *
- * All pair entries are forced (hint rows included). One saved row is applied in both
- * pair directions via {@link expandGlossaryEntriesBothDirections}.
- *
- * Force: replace leaks / cognates / the primary wrong token. Never leave the
- * wrong word on screen with the preferred term only appended at the end.
+ * For each saved row (source → preferred):
+ * - If Original contains source → force preferred in Translation.
+ * - If Translation leaked source and this row is translating in that direction → replace.
+ * Reverse-direction rows must not fire just because preferred is already in
+ * Translation — that put English leaks like "tired" / "biopsy" back on screen.
  */
 export function applyGlossaryPostProcess(
   text: string,
@@ -343,27 +353,24 @@ export function applyGlossaryPostProcess(
   let result = translationIn;
 
   for (const entry of strictEntries) {
-    const inOriginal = original.length > 0 && sourcePhraseInOriginal(original, entry.source);
-    const inTranslation = phraseInText(result, entry.source);
-    if (!inOriginal && !inTranslation) continue;
+    const matchesRowDir = Boolean(direction && entryMatchesDirection(entry, direction));
+    const spokeSource = original.length > 0 && sourcePhraseInOriginal(original, entry.source);
+    // Only treat a translation hit as a leak for the row's direction.
+    // A reverse row (تعبااان → tired) must not undo tired → تعبااان.
+    const leakedSource = matchesRowDir && phraseInText(result, entry.source);
+    if (!spokeSource && !leakedSource) continue;
 
-    if (inTranslation) {
-      result = result.replace(buildExactPhrasePattern(entry.source), entry.target);
-    }
-
-    const leakPattern = buildExactPhrasePattern(entry.source);
-    result = result.replace(leakPattern, entry.target);
-
+    result = replacePhrase(result, entry.source, entry.target);
     result = normalizeExactPreferredVariant(result, entry.target);
 
-    if (inOriginal && !translationContainsPreferred(result, entry.target)) {
+    if (!translationContainsPreferred(result, entry.target)) {
       result = forcePreferredIntoTranslation(
         result,
         entry.target,
         original,
         entry.source,
       );
-    } else if (inOriginal) {
+    } else {
       result = normalizeExactPreferredVariant(result, entry.target);
     }
 

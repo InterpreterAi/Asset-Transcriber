@@ -108,6 +108,9 @@ export class CanonAppendWsDomWriter {
     const idx = this.rowStripeSlotByUnknownRowId.get(unknownKey)! % ROW_STRIPE_COLOR_CLASSES.length;
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
+  private glossaryForce:
+    | ((translation: string, original: string, rowLang: string) => string)
+    | null = null;
   private readonly translationByRowId = new Map<string, string>();
   private readonly committedRtlCache = new Map<string, { raw: string; processed: string }>();
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
@@ -124,6 +127,23 @@ export class CanonAppendWsDomWriter {
   }
   setChunkV2NativeTranslate(enabled: boolean): void {
     this.chunkV2NativeTranslate = enabled;
+  }
+  setGlossaryForce(
+    fn: ((translation: string, original: string, rowLang: string) => string) | null,
+  ): void {
+    this.glossaryForce = fn;
+  }
+  private applyGlossaryForce(handles: EngineDomRowHandles, text: string): string {
+    if (!this.chunkV2NativeTranslate || !this.glossaryForce || !text.trim()) return text;
+    const original =
+      handles.row.querySelector<HTMLElement>(`[data-caw-role="live-line"]`)?.textContent ?? "";
+    const rowLang = handles.row.dataset.cawLanguage ?? "";
+    const forced = this.glossaryForce(text, original, rowLang);
+    if (forced !== text) {
+      const rowId = handles.row.dataset.cawSegment ?? "";
+      if (rowId) this.translationByRowId.set(rowId, forced);
+    }
+    return forced;
   }
   setRowTranslation(rowId: string, text: string): void {
     const hadPrefix = this.translationPrefixLiveByRowId.has(rowId);
@@ -204,7 +224,7 @@ export class CanonAppendWsDomWriter {
   }
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
-    const text = this.translationByRowId.get(rowId) ?? "";
+    const text = this.applyGlossaryForce(handles, this.translationByRowId.get(rowId) ?? "");
     const translationLanguage = rowTranslationLanguage(handles.row);
     const displayText =
       this.chunkV2NativeTranslate
@@ -266,10 +286,11 @@ export class CanonAppendWsDomWriter {
       this.paintTranslation(handles);
       return;
     }
-    const composedTarget =
+    const composedRaw =
       parts.locked && parts.live
         ? `${parts.locked} ${parts.live}`
         : parts.locked || parts.live;
+    const composedTarget = this.applyGlossaryForce(handles, composedRaw);
     const prevRendered = handles.translationEl.textContent ?? "";
     if (prevRendered.trim() === composedTarget.trim()) return;
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
@@ -497,6 +518,9 @@ export class CanonAppendWsDomWriter {
         // Non-chunk-v2 path remains committed + live split.
         renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
         renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
+      }
+      if (this.chunkV2NativeTranslate && proj.translationText && !this.translationByRowId.get(proj.row_id)) {
+        this.translationByRowId.set(proj.row_id, proj.translationText);
       }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(

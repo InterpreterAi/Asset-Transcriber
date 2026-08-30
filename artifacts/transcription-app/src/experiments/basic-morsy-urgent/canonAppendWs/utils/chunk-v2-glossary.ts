@@ -79,33 +79,6 @@ function inferLegacyGlossaryDirection(
   return { sourceLanguage: langA, targetLanguage: langB };
 }
 
-/** One saved row applies in both pair directions so users do not need a reverse entry. */
-export function expandGlossaryEntriesBothDirections(
-  entries: readonly ChunkV2GlossaryEntry[],
-): ChunkV2GlossaryEntry[] {
-  const seen = new Set<string>();
-  const out: ChunkV2GlossaryEntry[] = [];
-  const push = (e: ChunkV2GlossaryEntry) => {
-    const key = `${e.sourceLanguage}|${e.targetLanguage}|${e.source}->${e.target}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(e);
-  };
-  for (const e of entries) {
-    push(e);
-    if (e.source === e.target) continue;
-    push({
-      source: e.target,
-      target: e.source,
-      sourceLanguage: e.targetLanguage,
-      targetLanguage: e.sourceLanguage,
-      enforceMode: e.enforceMode,
-      priority: e.priority,
-    });
-  }
-  return out;
-}
-
 export function filterGlossaryForLanguagePair(
   rows: readonly GlossaryApiRow[],
   langA: string,
@@ -169,7 +142,7 @@ export function filterGlossaryForLanguagePair(
       y.source.length - x.source.length ||
       x.source.localeCompare(y.source),
   );
-  return expandGlossaryEntriesBothDirections(out);
+  return out;
 }
 
 export function chunkV2GlossaryToSonioxTerms(
