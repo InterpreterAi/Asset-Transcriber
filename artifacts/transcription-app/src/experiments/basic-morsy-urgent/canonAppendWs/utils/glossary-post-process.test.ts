@@ -391,56 +391,6 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect((out.match(/كس/g) ?? []).length).toBe(1);
   });
 
-  it("22b. streaming does not align-replace unrelated words before the row is final", () => {
-    const biopsy: ChunkV2GlossaryEntry = {
-      source: "biopsy",
-      target: "خزرههع",
-      sourceLanguage: "en",
-      targetLanguage: "ar",
-      enforceMode: "strict",
-      priority: 0,
-    };
-    const pussy: ChunkV2GlossaryEntry = {
-      source: "pussy",
-      target: "كس",
-      sourceLanguage: "en",
-      targetLanguage: "ar",
-      enforceMode: "strict",
-      priority: 0,
-    };
-    const live = applyGlossaryPostProcess(
-      "أعرف أنك أجريت تنظيرًا بالقولون من قبل، لكن ماذا عن الخزعة التي طلبوها",
-      [biopsy, pussy],
-      {
-        originalText:
-          "I know that you've done a colonoscopy before, but how about for the biopsy they've asked you a week ago?",
-        rowSourceLanguage: "en",
-        langA: "en",
-        langB: "ar",
-        streaming: true,
-      },
-    );
-    expect(live).toContain("تنظير");
-    expect(live).toContain("القولون");
-    expect(live).not.toContain("خزرههع");
-    expect((live.match(/خزرههع/g) ?? []).length).toBe(0);
-
-    const leaked = applyGlossaryPostProcess(
-      "لكن ماذا عن biopsy التي طلبوها",
-      [biopsy],
-      {
-        originalText: "how about for the biopsy they've asked",
-        rowSourceLanguage: "en",
-        langA: "en",
-        langB: "ar",
-        streaming: true,
-      },
-    );
-    expect(leaked).toContain("خزرههع");
-    expect((leaked.match(/خزرههع/g) ?? []).length).toBe(1);
-    expect(leaked.toLowerCase()).not.toContain("biopsy");
-  });
-
   it("22. inserts a nonsense glossary target only once when the source was said once", () => {
     const biopsy: ChunkV2GlossaryEntry = {
       source: "biopsy",

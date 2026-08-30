@@ -3907,10 +3907,9 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         if (morsyUsesChunkTranslationV2Experiment()) {
           const rows = eng.getTranscriptProjection().rows;
           for (const row of rows) {
-            // Live rows: leak-only paint happens in the writer. Full force
-            // here on unfinished text produced "خزرههع عن خزرههع".
-            if (!row.finalized) continue;
-            const originalForGlossary = row.committedText.trim();
+            const originalForGlossary = row.finalized
+              ? row.committedText.trim()
+              : `${row.committedText} ${row.liveText}`.trim();
             if (!originalForGlossary.length) continue;
 
             const baseTx = (

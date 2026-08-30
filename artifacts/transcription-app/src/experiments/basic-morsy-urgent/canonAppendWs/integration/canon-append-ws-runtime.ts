@@ -163,13 +163,12 @@ export class CanonAppendWsIsolatedRuntime {
   ): void {
     this.chunkV2GlossaryEntries = entries;
     this.chunkV2LangPair = { a: pair.a, b: pair.b };
-    this.writer.setGlossaryForce((translation, original, rowLang, finalized) =>
+    this.writer.setGlossaryForce((translation, original, rowLang) =>
       applyGlossaryPostProcess(translation, this.chunkV2GlossaryEntries, {
         originalText: original,
         rowSourceLanguage: rowLang,
         langA: this.chunkV2LangPair.a,
         langB: this.chunkV2LangPair.b,
-        streaming: !finalized,
       }),
     );
   }
