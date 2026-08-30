@@ -7,6 +7,7 @@
  * rejects config and chunk-v2 Trial/Basic/Professional STT+translation goes dark.
  */
 
+import { normalizeWorkspaceLanguageCode } from "@/lib/workspace-languages";
 import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
 import {
   fitSonioxContextToBudget,
@@ -303,35 +304,77 @@ TERMS_BY_LANG["zh"] = [
  * register reminder showing up on an English↔Portuguese session).
  */
 const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
-  ar: { key: "arabic_register", value: "Arabic translation output: always use Modern Standard Arabic only (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan Darija, Algerian, Tunisian, Libyan, or any other dialect in the translated Arabic column." },
-  es: { key: "spanish_register", value: "Spanish: always use standard formal Castilian Spanish. Never use regional slang, Chicano, Caribbean, or Latin American colloquial forms." },
-  pt: { key: "portuguese_register", value: "Portuguese: always use standard formal European or Brazilian Portuguese grammar. Never use slang or street-level colloquial forms." },
-  zh: { key: "chinese_register", value: "Chinese: always use Standard Mandarin (普通话 Putonghua) in simplified characters. Never use Cantonese, Hokkien, or regional dialect forms." },
-  fr: { key: "french_register", value: "French: always use standard formal French. Never use Québécois informal speech, Verlan, or African French slang." },
-  de: { key: "german_register", value: "German: always use standard formal German (Hochdeutsch). Never use Austrian, Swiss, or regional dialect forms." },
-  ru: { key: "russian_register", value: "Russian: always use standard literary Russian. Never use slang or informal colloquial forms." },
-  pl: { key: "polish_register", value: "Polish: always use standard formal Polish. Never use regional or colloquial forms." },
-  it: { key: "italian_register", value: "Italian: always use standard formal Italian (italiano standard). Never use regional dialects like Sicilian, Neapolitan, or Venetian." },
-  ko: { key: "korean_register", value: "Korean: always use formal polite Korean (존댓말 / 합쇼체). Never use casual speech (반말)." },
-  ja: { key: "japanese_register", value: "Japanese: always use formal polite Japanese (丁寧語 / です・ます form). Never use casual or informal forms." },
-  hi: { key: "hindi_register", value: "Hindi: always use standard formal Hindi. Avoid heavy Urdu mixing or regional colloquial forms." },
-  vi: { key: "vietnamese_register", value: "Vietnamese: always use standard formal Vietnamese. Never use regional slang." },
-  tr: { key: "turkish_register", value: "Turkish: always use standard formal Turkish. Never use slang or informal colloquial forms." },
-  so: { key: "somali_register", value: "Somali: always use standard formal Somali. Never use regional dialect forms." },
-  tl: { key: "tagalog_register", value: "Tagalog/Filipino: always use standard formal Filipino. Avoid heavy Taglish mixing or colloquial forms." },
-  uk: { key: "ukrainian_register", value: "Ukrainian: always use standard literary Ukrainian. Never use slang or informal forms." },
-  ro: { key: "romanian_register", value: "Romanian: always use standard formal Romanian. Never use regional or colloquial forms." },
+  ar: { key: "arabic_register", value: "Arabic translation column: always Modern Standard Arabic only (العربية الفصحى / MSA). Professional interpreter wording. Never Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi/Darija. Never dialect particles such as ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا، دلوقتي، هلق، يلا، أيوه." },
+  en: { key: "english_register", value: "English translation: professional international English. Never slang, dialect spellings, or leftover source-language words." },
+  es: { key: "spanish_register", value: "Spanish: always standard formal written Spanish. Never regional slang, street colloquial, or informal dialect forms." },
+  pt: { key: "portuguese_register", value: "Portuguese: always standard formal written Portuguese. Never slang or street-level colloquial forms." },
+  zh: { key: "chinese_register", value: "Chinese: always Standard Mandarin (普通话). Never Cantonese, Hokkien, or regional dialect forms." },
+  fr: { key: "french_register", value: "French: always standard formal French. Never Québécois informal speech, Verlan, or regional slang." },
+  de: { key: "german_register", value: "German: always standard formal German (Hochdeutsch). Never Austrian, Swiss, or regional dialect forms." },
+  ru: { key: "russian_register", value: "Russian: always standard literary Russian. Never slang or informal colloquial forms." },
+  pl: { key: "polish_register", value: "Polish: always standard formal Polish. Never regional or colloquial forms." },
+  it: { key: "italian_register", value: "Italian: always standard formal Italian (italiano standard). Never regional dialects like Sicilian, Neapolitan, or Venetian." },
+  ko: { key: "korean_register", value: "Korean: always formal polite Korean (존댓말 / 합쇼체). Never casual speech (반말)." },
+  ja: { key: "japanese_register", value: "Japanese: always formal polite Japanese (丁寧語 / です・ます). Never casual forms." },
+  hi: { key: "hindi_register", value: "Hindi: always standard formal Hindi. Avoid heavy mixing or regional colloquial forms." },
+  vi: { key: "vietnamese_register", value: "Vietnamese: always standard formal Vietnamese. Never regional slang." },
+  tr: { key: "turkish_register", value: "Turkish: always standard formal Turkish. Never slang or informal colloquial forms." },
+  so: { key: "somali_register", value: "Somali: always standard formal Somali. Never regional dialect forms." },
+  tl: { key: "tagalog_register", value: "Filipino: always standard formal Filipino. Avoid heavy Taglish or colloquial forms." },
+  uk: { key: "ukrainian_register", value: "Ukrainian: always standard literary Ukrainian. Never slang or informal forms." },
+  ro: { key: "romanian_register", value: "Romanian: always standard formal Romanian. Never regional or colloquial forms." },
+  fa: { key: "persian_register", value: "Persian: always standard formal Farsi. Never regional colloquial or mixed dialect forms." },
+  ur: { key: "urdu_register", value: "Urdu: always standard formal Urdu. Never regional colloquial forms." },
+  he: { key: "hebrew_register", value: "Hebrew: always standard modern Hebrew. Never slang or informal colloquial forms." },
+  th: { key: "thai_register", value: "Thai: always standard Central Thai. Never regional dialect forms." },
+  nl: { key: "dutch_register", value: "Dutch: always standard formal Dutch. Never informal Flemish slang or mixed colloquial forms." },
+  bn: { key: "bengali_register", value: "Bengali: always standard formal Bengali. Never regional colloquial forms." },
+  pa: { key: "punjabi_register", value: "Punjabi: always standard formal Punjabi. Never regional colloquial forms." },
+  ta: { key: "tamil_register", value: "Tamil: always standard formal Tamil. Never regional colloquial forms." },
+  te: { key: "telugu_register", value: "Telugu: always standard formal Telugu. Never regional colloquial forms." },
+  sw: { key: "swahili_register", value: "Swahili: always standard formal Swahili. Never regional colloquial forms." },
+  id: { key: "indonesian_register", value: "Indonesian: always standard formal Indonesian. Never slang or mixed colloquial forms." },
+  ms: { key: "malay_register", value: "Malay: always standard formal Malay. Never slang or mixed colloquial forms." },
+  nb: { key: "norwegian_register", value: "Norwegian: always standard Bokmål. Never dialect spellings." },
 };
 
-/** Build only the register reminders relevant to this session's actual pair (plus Spanish gender note when `es` is involved). */
-function registerRulesForPair(a: string, b: string): { key: string; value: string }[] {
+const GRAMMATICAL_GENDER_BASES = new Set([
+  "ar", "es", "fr", "he", "hi", "ur", "pl", "ru", "de", "it", "pt", "ro",
+]);
+
+/** Build only the register reminders relevant to this session's actual pair. */
+function registerRulesForPair(langA: string, langB: string): { key: string; value: string }[] {
   const rules: { key: string; value: string }[] = [];
-  for (const lang of [a, b]) {
-    const rule = REGISTER_RULE_BY_LANG[lang];
-    if (rule && !rules.some(r => r.key === rule.key)) rules.push(rule);
+  for (const lang of [langA, langB]) {
+    const n = normalizeWorkspaceLanguageCode(lang);
+    if (n === "zh-TW") {
+      const tw = {
+        key: "chinese_register",
+        value: "Chinese: always Standard Mandarin in Traditional characters (正體字). Never Cantonese, Hokkien, or regional dialect forms.",
+      };
+      if (!rules.some((r) => r.key === tw.key)) rules.push(tw);
+      continue;
+    }
+    const base = n.split("-")[0]!.toLowerCase();
+    const rule =
+      base === "zh"
+        ? {
+            key: "chinese_register",
+            value: "Chinese: always Standard Mandarin (普通话) in simplified characters. Never Cantonese, Hokkien, or regional dialect forms.",
+          }
+        : REGISTER_RULE_BY_LANG[base];
+    if (rule && !rules.some((r) => r.key === rule.key)) rules.push(rule);
   }
+  const a = langA.split("-")[0]!.toLowerCase();
+  const b = langB.split("-")[0]!.toLowerCase();
   if (a === "es" || b === "es") {
-    rules.push({ key: "spanish_gender", value: "Spanish gender rules: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Always write 'un análisis', 'el sistema', 'un problema'. Never use feminine articles with these words." });
+    rules.push({ key: "spanish_gender", value: "Spanish noun gender: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Write 'un análisis', 'el sistema', 'un problema'." });
+  }
+  if (GRAMMATICAL_GENDER_BASES.has(a) || GRAMMATICAL_GENDER_BASES.has(b)) {
+    rules.push({
+      key: "speaker_gender",
+      value: "Match grammatical gender to the speaker when the original marks it (he/she/him/her, masculine vs feminine verbs or adjectives, soy médico vs soy médica, Arabic أنا + gendered verb). When first-person English has no gender marker, keep the translation professional and do not invent a gender. Voice gender is not available.",
+    });
   }
   return rules;
 }
@@ -434,7 +477,7 @@ export function getInterpreterContext(
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
       { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
-      ...registerRulesForPair(a, b),
+      ...registerRulesForPair(langA, langB),
       { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
       { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],

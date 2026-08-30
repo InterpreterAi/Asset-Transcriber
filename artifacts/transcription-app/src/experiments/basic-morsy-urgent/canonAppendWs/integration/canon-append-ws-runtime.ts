@@ -163,16 +163,13 @@ export class CanonAppendWsIsolatedRuntime {
   ): void {
     this.chunkV2GlossaryEntries = entries;
     this.chunkV2LangPair = { a: pair.a, b: pair.b };
-    this.writer.setGlossaryForce(
-      entries.length === 0
-        ? null
-        : (translation, original, rowLang) =>
-            applyGlossaryPostProcess(translation, this.chunkV2GlossaryEntries, {
-              originalText: original,
-              rowSourceLanguage: rowLang,
-              langA: this.chunkV2LangPair.a,
-              langB: this.chunkV2LangPair.b,
-            }),
+    this.writer.setGlossaryForce((translation, original, rowLang) =>
+      applyGlossaryPostProcess(translation, this.chunkV2GlossaryEntries, {
+        originalText: original,
+        rowSourceLanguage: rowLang,
+        langA: this.chunkV2LangPair.a,
+        langB: this.chunkV2LangPair.b,
+      }),
     );
   }
 
@@ -447,6 +444,7 @@ export class CanonAppendWsIsolatedRuntime {
     if (rtUrl?.trim()) this.sonioxRtUrl = rtUrl.trim();
     const pair = langPair as { a: string; b: string };
     this.chunkV2LangPair = { a: pair.a, b: pair.b };
+    this.setChunkV2GlossaryEntries(this.chunkV2GlossaryEntries, this.chunkV2LangPair);
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
     // two_way language_a/b must follow stable order (not UI A/B) so ar↔en == en↔ar.

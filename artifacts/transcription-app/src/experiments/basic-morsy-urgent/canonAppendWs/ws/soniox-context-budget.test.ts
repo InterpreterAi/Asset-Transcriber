@@ -67,4 +67,12 @@ describe("getInterpreterContext Soniox budget", () => {
     expect(ctx.translation_terms?.some((t) => t.source === "dot" && t.target === ".")).toBe(true);
     expect(ctx.general.some((g) => g.key === "structured_speech")).toBe(true);
   });
+
+  it("pins MSA فصحى and speaker-gender-from-text for English↔Arabic", () => {
+    const ctx = getInterpreterContext("en", "ar");
+    const arabic = ctx.general.find((g) => g.key === "arabic_register");
+    expect(arabic?.value).toMatch(/الفصحى|MSA/);
+    expect(ctx.general.some((g) => g.key === "speaker_gender")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "english_register")).toBe(true);
+  });
 });

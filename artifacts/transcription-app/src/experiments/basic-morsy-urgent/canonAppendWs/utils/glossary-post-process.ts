@@ -5,6 +5,7 @@ import {
 
 import type { ChunkV2GlossaryEntry } from "./chunk-v2-glossary";
 import { resolveRowTranslationDirection } from "./chunk-v2-glossary";
+import { normalizeChunkV2StandardRegister } from "./chunk-v2-standard-register";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -319,12 +320,25 @@ export type ApplyGlossaryPostProcessOpts = {
  * Reverse-direction rows must not fire just because preferred is already in
  * Translation — that put English leaks like "tired" / "biopsy" back on screen.
  */
+function polishStandardRegister(
+  text: string,
+  entries: readonly ChunkV2GlossaryEntry[],
+  opts: ApplyGlossaryPostProcessOpts,
+): string {
+  return normalizeChunkV2StandardRegister(text, {
+    rowSourceLanguage: opts.rowSourceLanguage,
+    langA: opts.langA,
+    langB: opts.langB,
+    protectedPhrases: entries.map((e) => e.target),
+  });
+}
+
 export function applyGlossaryPostProcess(
   text: string,
   entries: readonly ChunkV2GlossaryEntry[],
   opts: ApplyGlossaryPostProcessOpts,
 ): string {
-  if (!entries.length) return text;
+  if (!entries.length) return polishStandardRegister(text, entries, opts);
 
   const original = normalizeExactMatchSurface(opts.originalText);
   const translationIn = text;
@@ -348,7 +362,7 @@ export function applyGlossaryPostProcess(
       );
     });
 
-  if (strictEntries.length === 0) return text;
+  if (strictEntries.length === 0) return polishStandardRegister(text, entries, opts);
 
   let result = translationIn;
 
@@ -377,7 +391,7 @@ export function applyGlossaryPostProcess(
     result = dedupeAdjacentPreferred(result, entry.target);
   }
 
-  return result;
+  return polishStandardRegister(result, entries, opts);
 }
 
 /** @internal test helper */
