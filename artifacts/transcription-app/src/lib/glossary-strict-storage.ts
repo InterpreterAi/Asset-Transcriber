@@ -10,14 +10,7 @@ export function emitGlossaryChanged(): void {
 }
 
 export function readGlossaryStrictEnabled(): boolean {
-  try {
-    if (typeof localStorage === "undefined") return true;
-    const v = localStorage.getItem(GLOSSARY_STRICT_STORAGE_KEY);
-    if (v === null) return true;
-    return v !== "0" && v !== "false";
-  } catch {
-    return true;
-  }
+  return true;
 }
 
 export function writeGlossaryStrictEnabled(enabled: boolean): void {

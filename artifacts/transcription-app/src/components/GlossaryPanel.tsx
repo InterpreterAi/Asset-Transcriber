@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { BookOpen, Plus, Trash2, X, ArrowRight, Loader2 } from "lucide-react";
-import { readGlossaryStrictEnabled, writeGlossaryStrictEnabled, emitGlossaryChanged } from "@/lib/glossary-strict-storage";
+import { emitGlossaryChanged } from "@/lib/glossary-strict-storage";
 import { glossaryPreferredTranslationPlaceholder } from "@/lib/glossary-translation-placeholder-example";
 import { workspaceLanguageLabel } from "@/lib/workspace-languages";
 
@@ -32,7 +32,6 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [glossaryStrict, setGlossaryStrict] = useState(() => readGlossaryStrictEnabled());
 
   const translationPlaceholder = useMemo(
     () => glossaryPreferredTranslationPlaceholder(langA, langB),
@@ -144,25 +143,6 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
           directions. Use commas for aliases, e.g.{" "}
           <span className="font-mono">claim number, claim #</span>. Transcription (STT) is unchanged.
         </p>
-        <label className="flex items-start gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            className="mt-0.5 rounded border-2 border-border text-primary accent-primary"
-            checked={glossaryStrict}
-            onChange={e => {
-              const v = e.target.checked;
-              setGlossaryStrict(v);
-              writeGlossaryStrictEnabled(v);
-            }}
-          />
-          <span className="text-[10px] text-foreground leading-snug">
-            <span className="font-semibold">Force glossary on output</span>
-            <span className="text-muted-foreground">
-              {" "}
-              (recommended) — on Soniox Trial / Basic / Professional translation, saved words always replace the wrong term in the translation column.
-            </span>
-          </span>
-        </label>
       </div>
 
       <form
@@ -262,7 +242,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
                   </p>
                 ) : (
                   <p className="text-[9px] text-amber-700/90 mt-0.5 truncate">
-                    No direction saved — edit to set languages for chunk-v2
+                    No language pair saved
                   </p>
                 )}
               </div>
