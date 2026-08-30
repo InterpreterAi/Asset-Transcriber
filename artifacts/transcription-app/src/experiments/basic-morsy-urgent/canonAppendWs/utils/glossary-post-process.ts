@@ -423,6 +423,12 @@ export type ApplyGlossaryPostProcessOpts = {
   langA: string;
   /** Active workspace pair side B. */
   langB: string;
+  /**
+   * Unfinalized streaming text. Only replace an exact leaked source term.
+   * Alignment/force waits until the row is final — live alignment produced
+   * duplicates like "خزرههع عن خزرههع" that later settled correctly.
+   */
+  streaming?: boolean;
 };
 
 /**
@@ -489,6 +495,15 @@ export function applyGlossaryPostProcess(
     if (!spokeSource && !leakedSource) continue;
 
     result = replacePhrase(result, entry.source, entry.target);
+    if (opts.streaming) {
+      result = dedupeAdjacentPreferred(result, entry.target);
+      result = limitPreferredOccurrences(
+        result,
+        entry.target,
+        Math.max(countPhrase(original, entry.source), 1),
+      );
+      continue;
+    }
     const focused = originalIsGlossaryFocused(original, entry.source);
     result = normalizeExactPreferredVariant(result, entry.target, focused);
 

@@ -109,7 +109,7 @@ export class CanonAppendWsDomWriter {
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
   private glossaryForce:
-    | ((translation: string, original: string, rowLang: string) => string)
+    | ((translation: string, original: string, rowLang: string, finalized: boolean) => string)
     | null = null;
   private readonly translationByRowId = new Map<string, string>();
   private readonly committedRtlCache = new Map<string, { raw: string; processed: string }>();
@@ -129,7 +129,7 @@ export class CanonAppendWsDomWriter {
     this.chunkV2NativeTranslate = enabled;
   }
   setGlossaryForce(
-    fn: ((translation: string, original: string, rowLang: string) => string) | null,
+    fn: ((translation: string, original: string, rowLang: string, finalized: boolean) => string) | null,
   ): void {
     this.glossaryForce = fn;
   }
@@ -138,8 +138,11 @@ export class CanonAppendWsDomWriter {
     const original =
       handles.row.querySelector<HTMLElement>(`[data-caw-role="live-line"]`)?.textContent ?? "";
     const rowLang = handles.row.dataset.cawLanguage ?? "";
-    const forced = this.glossaryForce(text, original, rowLang);
-    if (forced !== text) {
+    const finalized = handles.row.dataset.cawFinalized === "1";
+    const forced = this.glossaryForce(text, original, rowLang, finalized);
+    // Persist only on finalized rows. Writing live force back into storage
+    // made the next frame align against already-rewritten text (duplicates).
+    if (finalized && forced !== text) {
       const rowId = handles.row.dataset.cawSegment ?? "";
       if (rowId) this.translationByRowId.set(rowId, forced);
     }
@@ -286,11 +289,12 @@ export class CanonAppendWsDomWriter {
       this.paintTranslation(handles);
       return;
     }
-    const composedRaw =
-      parts.locked && parts.live
-        ? `${parts.locked} ${parts.live}`
-        : parts.locked || parts.live;
-    const composedTarget = this.applyGlossaryForce(handles, composedRaw);
+    const lockedForced = this.applyGlossaryForce(handles, parts.locked);
+    const liveForced = this.applyGlossaryForce(handles, parts.live);
+    const composedTarget =
+      lockedForced && liveForced
+        ? `${lockedForced} ${liveForced}`
+        : lockedForced || liveForced;
     const prevRendered = handles.translationEl.textContent ?? "";
     if (prevRendered.trim() === composedTarget.trim()) return;
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
@@ -302,11 +306,11 @@ export class CanonAppendWsDomWriter {
         handles.translationEl,
         shouldMorsyChunkV2BidiPaint(composedTarget) ? "ar" : translationLanguage,
       );
-      const lockedDisplay = parts.locked.length
-        ? prepareTextForDisplay(parts.locked, translationLanguage)
+      const lockedDisplay = lockedForced.length
+        ? prepareTextForDisplay(lockedForced, translationLanguage)
         : "";
-      const liveDisplay = parts.live.length
-        ? prepareTextForDisplay(parts.live, translationLanguage)
+      const liveDisplay = liveForced.length
+        ? prepareTextForDisplay(liveForced, translationLanguage)
         : "";
       if (prev?.locked !== parts.locked) {
         lockedEl.textContent = lockedDisplay;
@@ -320,7 +324,7 @@ export class CanonAppendWsDomWriter {
       return;
     }
     if (prev?.locked !== parts.locked) {
-      lockedEl.textContent = parts.locked;
+      lockedEl.textContent = lockedForced;
     }
     const _selB = liveEl.ownerDocument.getSelection();
     const _userSelectingB = _selB != null && _selB.rangeCount > 0 && !_selB.isCollapsed &&
@@ -397,6 +401,7 @@ export class CanonAppendWsDomWriter {
     const row = doc.createElement("div");
     row.dataset.cawSegment = proj.row_id;
     row.className = outerRowClass(this.layoutMode);
+    row.dataset.cawFinalized = proj.finalized ? "1" : "";
     if (proj.speaker) row.dataset.cawSpeaker = proj.speaker;
     if (proj.language) row.dataset.cawLanguage = proj.language;
     const { card, stripe } = this.buildOrigCard(doc, proj);
@@ -487,6 +492,7 @@ export class CanonAppendWsDomWriter {
       const body = card?.children[1] as HTMLElement | undefined;
       const line = body?.querySelector<HTMLElement>(`[data-caw-role="live-line"]`);
       const hypo = line?.querySelector<HTMLElement>(`[data-caw-engine="hypothesis"]`);
+      handles.row.dataset.cawFinalized = proj.finalized ? "1" : "";
       if (proj.speaker) handles.row.dataset.cawSpeaker = proj.speaker;
       if (proj.language) handles.row.dataset.cawLanguage = proj.language;
       handles.stripe.className = `w-1 shrink-0 rounded-full self-stretch min-h-[1.25rem] mt-0.5 ${this.stripeColorForRow(proj.speaker, proj.row_id)}`;
