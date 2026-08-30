@@ -440,30 +440,45 @@ function lastSeen(date: string | null | undefined) {
   );
 }
 
-/** Canonical plan types including separate OpenAI / Hetzner / mixed trial modes. */
-const ADMIN_PLAN_OPTIONS_OPENAI: { value: string; label: string }[] = [
-  { value: "trial-openai", label: "Trial · Default (Chunk v2 Soniox)" },
-  { value: "trial", label: "Trial · OpenAI (legacy)" },
-  { value: "basic-openai", label: "Basic · OpenAI" },
-  { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy STT, OpenAI translation)" },
-  { value: "legacy2", label: "Basic · Legacy 2 (Morsy STT, transcription only)" },
-  { value: "professional-openai", label: "Professional · OpenAI" },
-  { value: "platinum-openai", label: "Platinum · OpenAI" },
+/** Current product defaults: Soniox STT + Soniox translation. */
+const ADMIN_PLAN_OPTIONS_DEFAULTS: { value: string; label: string }[] = [
+  { value: "trial-openai", label: "Trial · Default (Soniox)" },
+  { value: "basic-hetzner", label: "Basic · Default (Soniox, 5h/day)" },
+  { value: "professional-libre", label: "Professional · Default (Soniox, 12h/day)" },
 ];
 
-const ADMIN_PLAN_OPTIONS_LIBRE: { value: string; label: string }[] = [
-  { value: "trial-hetzner", label: "Trial · Hetzner (7 days, full Hetzner)" },
-  { value: "trial-libre", label: "Trial · Mixed (days 1–4 OpenAI, then Hetzner)" },
-  { value: "basic-hetzner", label: "Basic · Default PayPal (Chunk v2 Soniox, 5h/day)" },
-  { value: "basic-libre", label: "Basic · Hetzner / machine (legacy)" },
-  { value: "professional-libre", label: "Professional · Default PayPal (Chunk v2 Soniox, 12h/day)" },
-  { value: "platinum-libre", label: "Platinum · Hetzner / machine" },
+const ADMIN_PLAN_OPTIONS_LEGACY: { value: string; label: string }[] = [
+  { value: "trial", label: "Trial · OpenAI (legacy)" },
+  { value: "trial-libre", label: "Trial · Mixed (legacy)" },
+  { value: "trial-hetzner", label: "Trial · Hetzner (legacy)" },
+  { value: "basic-openai", label: "Basic · OpenAI (legacy)" },
+  { value: "basic-libre", label: "Basic · Hetzner (legacy)" },
+  { value: "morsy-urgent", label: "Basic · Morsy Urgent (legacy)" },
+  { value: "legacy2", label: "Basic · Legacy 2 (transcription only)" },
+  { value: "professional-openai", label: "Professional · OpenAI (legacy)" },
+  { value: "platinum-openai", label: "Platinum · OpenAI" },
+  { value: "platinum-libre", label: "Platinum · Hetzner" },
 ];
 
 const ADMIN_PLAN_VALUE_SET = new Set([
-  ...ADMIN_PLAN_OPTIONS_OPENAI.map(o => o.value),
-  ...ADMIN_PLAN_OPTIONS_LIBRE.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_DEFAULTS.map(o => o.value),
+  ...ADMIN_PLAN_OPTIONS_LEGACY.map(o => o.value),
 ]);
+
+function adminEngineLabel(plan: string): string {
+  if (planUsesSonioxNativeTranslation(plan)) return "Soniox";
+  if (planUsesLibreEngine(plan)) return "Hetzner";
+  return "OpenAI";
+}
+
+function adminPlanChipLabel(plan: string): string {
+  if (planUsesSonioxNativeTranslation(plan)) {
+    const tier = workspacePlanTierKey(plan);
+    const name = tier === "trial" ? "Trial" : tier === "basic" ? "Basic" : "Professional";
+    return `${name} · Soniox`;
+  }
+  return workspacePlanDisplayName(plan);
+}
 
 function defaultDailyLimitForAdminPlan(planType: string): number {
   const p = (planType ?? "").trim().toLowerCase();
@@ -508,11 +523,11 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
 }
 
 function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
+  const engine = adminEngineLabel(plan);
   if (!isTrialLikePlanType(plan)) {
-    const engine = planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI";
     return (
       <span className="text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 flex-wrap bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25">
-        <span>{workspacePlanDisplayName(plan)}</span>
+        <span>{adminPlanChipLabel(plan)}</span>
         <span className="text-[9px] font-normal opacity-90">· {engine}</span>
         <span className="text-[9px] font-mono opacity-75">({plan})</span>
       </span>
@@ -527,12 +542,12 @@ function trialBadge(trialEndsAt: string | null | undefined, plan: string) {
   );
   if (daysLeft <= 3) return (
     <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:text-amber-100 dark:border-amber-400/30">
-      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
+      <AlertTriangle className="w-3 h-3" />{daysLeft}d left · {engine}
     </span>
   );
   return (
     <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-900 border border-violet-200 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/25">
-      {daysLeft}d left · {planUsesLibreEngine(plan) ? "Hetzner" : "OpenAI"}
+      {daysLeft}d left · {engine}
     </span>
   );
 }
@@ -1362,6 +1377,28 @@ export default function Admin() {
     setEditForm(f => ({ ...f, trialEndsAt: base.toISOString().slice(0, 10) }));
   }
 
+  function extendPaidGrantDays(days: number) {
+    const now = new Date();
+    const raw = editForm.subscriptionPeriodEndsAtLocal.trim();
+    const base = raw ? new Date(raw) : new Date();
+    if (!Number.isFinite(base.getTime()) || base < now) base.setTime(now.getTime());
+    base.setDate(base.getDate() + days);
+    base.setHours(23, 59, 0, 0);
+    const startRaw = editForm.subscriptionStartedAtLocal.trim();
+    setEditForm(f => ({
+      ...f,
+      subscriptionStartedAtLocal: startRaw || isoToDatetimeLocalValue(now.toISOString()),
+      subscriptionPeriodEndsAtLocal: isoToDatetimeLocalValue(base.toISOString()),
+    }));
+  }
+
+  function addComplimentaryHours(hours: number) {
+    setEditForm(f => ({
+      ...f,
+      dailyLimitMinutes: Math.min(9999, Math.max(1, f.dailyLimitMinutes + hours * 60)),
+    }));
+  }
+
   async function saveEditUser() {
     if (!editingUser) return;
     setEditSaving(true);
@@ -1783,24 +1820,24 @@ export default function Admin() {
                           className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
                             workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"
                           }`}
-                          title="Database plan_type. For trial-libre, live /translate may still be OpenAI for the first four trial days — see line below."
+                          title={`Database plan_type: ${s.planType}`}
                         >
-                          {s.planType}
+                          {adminPlanChipLabel(s.planType)}
                         </span>
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            (s.translationStack ?? "openai") === "openai"
+                            (s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "openai"
                               ? "bg-violet-100 text-violet-800"
-                              : (s.translationStack ?? "openai") === "soniox"
+                              : (s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "soniox"
                                 ? "bg-emerald-100 text-emerald-900"
                                 : "bg-amber-100 text-amber-900"
                           }`}
                           title={s.translationRouteDetail ?? "Live translation path from API"}
                         >
-                          {(s.translationStack ?? "openai") === "openai"
+                          {(s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "openai"
                             ? "OpenAI MT"
-                            : (s.translationStack ?? "openai") === "soniox"
-                              ? "Chunk v2 Soniox"
+                            : (s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "soniox"
+                              ? "Soniox"
                               : "Hetzner MT"}
                         </span>
                       </div>
@@ -4040,9 +4077,23 @@ export default function Admin() {
                       setEditForm(f => {
                         const currentDefault = defaultDailyLimitForAdminPlan(f.planType);
                         const nextDefault = defaultDailyLimitForAdminPlan(nextPlan);
-                        // Auto-align plan cap when current value still matches the previous plan's default.
                         const nextLimit = f.dailyLimitMinutes === currentDefault ? nextDefault : f.dailyLimitMinutes;
-                        return { ...f, planType: nextPlan, dailyLimitMinutes: nextLimit };
+                        const nextPaid = !isTrialLikePlanType(nextPlan);
+                        const now = new Date();
+                        const end = new Date(now);
+                        end.setDate(end.getDate() + 3);
+                        end.setHours(23, 59, 0, 0);
+                        return {
+                          ...f,
+                          planType: nextPlan,
+                          dailyLimitMinutes: nextLimit,
+                          subscriptionStartedAtLocal: nextPaid
+                            ? (f.subscriptionStartedAtLocal || isoToDatetimeLocalValue(now.toISOString()))
+                            : "",
+                          subscriptionPeriodEndsAtLocal: nextPaid
+                            ? (f.subscriptionPeriodEndsAtLocal || isoToDatetimeLocalValue(end.toISOString()))
+                            : "",
+                        };
                       });
                     }}
                     className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -4050,13 +4101,13 @@ export default function Admin() {
                     {!ADMIN_PLAN_VALUE_SET.has(editForm.planType) && (
                       <option value={editForm.planType}>Legacy / other: {editForm.planType}</option>
                     )}
-                    <optgroup label="OpenAI interpreter">
-                      {ADMIN_PLAN_OPTIONS_OPENAI.map(o => (
+                    <optgroup label="Defaults (Soniox)">
+                      {ADMIN_PLAN_OPTIONS_DEFAULTS.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="Hetzner / machine">
-                      {ADMIN_PLAN_OPTIONS_LIBRE.map(o => (
+                    <optgroup label="Legacy / other">
+                      {ADMIN_PLAN_OPTIONS_LEGACY.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
@@ -4064,8 +4115,8 @@ export default function Admin() {
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
                     <span className="font-medium text-foreground/80">Customer sees:</span>{" "}
                     {workspacePlanDisplayName(editForm.planType)} only ·{" "}
-                    <span className="font-medium text-foreground/80">You assign:</span>{" "}
-                    {planUsesLibreEngine(editForm.planType) ? "Hetzner / machine" : "OpenAI interpreter"} ·{" "}
+                    <span className="font-medium text-foreground/80">Engine:</span>{" "}
+                    {adminEngineLabel(editForm.planType)} ·{" "}
                     <span className="font-mono text-[9px] opacity-80">{editForm.planType}</span>
                   </p>
                 </div>
@@ -4120,7 +4171,20 @@ export default function Admin() {
                           className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                         />
                       </div>
-                      <div className="flex flex-col gap-1.5">
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground">Complimentary window (no PayPal/Stripe) — ends that night</p>
+                        <div className="flex gap-2">
+                          {[1, 3, 7, 14].map(d => (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => extendPaidGrantDays(d)}
+                              className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+                            >
+                              +{d}d
+                            </button>
+                          ))}
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -4133,21 +4197,9 @@ export default function Admin() {
                               ),
                             }));
                           }}
-                          className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+                          className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted"
                         >
                           Payment = now; period end +30 days
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const s = editForm.subscriptionStartedAtLocal.trim();
-                            if (!s) return;
-                            const d = addBillingFallbackPeriod(new Date(s));
-                            setEditForm(f => ({ ...f, subscriptionPeriodEndsAtLocal: isoToDatetimeLocalValue(d.toISOString()) }));
-                          }}
-                          className="w-full h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
-                        >
-                          Set period end = start + 30 days
                         </button>
                       </div>
                     </div>
@@ -4174,7 +4226,7 @@ export default function Admin() {
                       className="w-full h-9 px-3 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     />
                     <div className="flex gap-2">
-                      {[7, 14, 30].map(d => (
+                      {[1, 3, 7, 14, 30].map(d => (
                         <button
                           key={d}
                           type="button"
@@ -4258,6 +4310,16 @@ export default function Admin() {
                       className="h-9 text-sm"
                     />
                     <div className="flex flex-wrap gap-1">
+                      {[1, 2, 5].map(h => (
+                        <button
+                          key={`add-${h}`}
+                          type="button"
+                          onClick={() => addComplimentaryHours(h)}
+                          className="h-9 px-2.5 rounded-lg border border-emerald-200 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100"
+                        >
+                          +{h}h
+                        </button>
+                      ))}
                       {[60, 120, 180, 300, 360, 480, 540, 600, 720].map(m => (
                         <button
                           key={m}

@@ -20,6 +20,7 @@ import {
   getTrialDaysRemaining,
   isTrialLikePlanType,
   liveTranslateUsesMachineTranslation,
+  expireAdminComplimentaryIfDue,
   TRIAL_LIKE_PLAN_TYPES,
 } from "../lib/usage.js";
 import {
@@ -440,7 +441,7 @@ router.get("/users", requireAdmin, async (_req, res) => {
     .set({ minutesUsedToday: 0, lastUsageResetAt: now })
     .where(lt(usersTable.lastUsageResetAt, todayStartNy));
 
-  const [users, shareCounts, todayUsageRows, lifetimeUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
+  const [usersRaw, shareCounts, todayUsageRows, lifetimeUsageRows, loginIpStats, userLoginIps, paidBillingRows] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select({
       userId: shareEventsTable.userId,
@@ -513,6 +514,8 @@ router.get("/users", requireAdmin, async (_req, res) => {
         AND LOWER(TRIM(COALESCE(u.plan_type, ''))) NOT IN ('trial', 'trial-libre', 'trial-openai')
     `),
   ]);
+
+  const users = await Promise.all(usersRaw.map((u) => expireAdminComplimentaryIfDue(u)));
 
   const paidMinuteMap = new Map<number, number>(
     paidBillingRows.rows.map((r) => [Number(r.user_id), Number(r.minutes_in_period)]),

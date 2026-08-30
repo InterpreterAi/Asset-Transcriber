@@ -6,6 +6,7 @@ import { logger } from "./logger.js";
 import { isGoogleOnlyAccount } from "./account-auth.js";
 import { subscriptionPeriodEndFallback } from "./paypal.js";
 import { effectiveSessionSecondsSql } from "./session-billable-seconds.js";
+import { TRIAL_DAILY_LIMIT_MINUTES } from "./trial-constants.js";
 
 export type TranslationRoutingUser = {
   planType: string | null | undefined;
@@ -193,6 +194,52 @@ function isPaidTranslationPlan(eff: string): boolean {
   );
 }
 
+function billingProviderId(user: User): string {
+  return `${user.paypalSubscriptionId ?? ""}`.trim() || `${user.stripeSubscriptionId ?? ""}`.trim();
+}
+
+/** Admin-granted paid SKU (Basic/Pro/etc.) with an end date and no PayPal/Stripe subscription. */
+export function isAdminComplimentaryPaidGrant(user: User): boolean {
+  if (user.isAdmin) return false;
+  if (isTrialLikePlanType(user.planType)) return false;
+  if (billingProviderId(user)) return false;
+  const end = user.subscriptionPeriodEndsAt;
+  if (!end) return false;
+  return Number.isFinite(new Date(end as Date | string).getTime());
+}
+
+export function isAdminComplimentaryExpired(user: User): boolean {
+  if (!isAdminComplimentaryPaidGrant(user)) return false;
+  const end = new Date(user.subscriptionPeriodEndsAt as Date | string);
+  return Date.now() >= end.getTime();
+}
+
+/** Same access outcome as an expired trial: default Soniox trial SKU, already ended. PayPal cancel path is unchanged. */
+export function adminComplimentaryExpirePatch(): Partial<User> {
+  return {
+    planType: "trial-openai",
+    dailyLimitMinutes: TRIAL_DAILY_LIMIT_MINUTES,
+    subscriptionStatus: "inactive",
+    subscriptionPlan: null,
+    subscriptionStartedAt: null,
+    subscriptionPeriodEndsAt: null,
+    trialEndsAt: new Date(Date.now() - 1000),
+  };
+}
+
+export async function expireAdminComplimentaryIfDue(user: User): Promise<User> {
+  if (!isAdminComplimentaryExpired(user)) return user;
+  const patch = adminComplimentaryExpirePatch();
+  try {
+    await db.update(usersTable).set(patch).where(eq(usersTable.id, user.id));
+    Object.assign(user, patch);
+    logger.info({ userId: user.id }, "admin complimentary grant expired; reverted to trial-openai");
+  } catch (err) {
+    logger.warn({ err, userId: user.id }, "admin complimentary expire skipped");
+  }
+  return user;
+}
+
 /** True only when the user is on a trial-like plan, was granted a real trial window, and that window has ended. */
 export function isTrialExpired(user: User): boolean {
   if (!isTrialLikePlanType(user.planType)) return false;
@@ -293,7 +340,7 @@ export async function getUserWithResetCheck(userId: number): Promise<User | unde
     logger.warn({ err, userId }, "getUserWithResetCheck: daily reset skipped");
   }
 
-  return user;
+  return expireAdminComplimentaryIfDue(user);
 }
 
 export function buildUserInfo(user: User) {
