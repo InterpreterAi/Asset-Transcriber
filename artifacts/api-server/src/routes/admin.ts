@@ -121,10 +121,29 @@ function paidBillingWindowForUser(
 }
 
 // ── Cost constants ─────────────────────────────────────────────────────────
-// SONIOX_COST_PER_MIN is only used for estimating live (not-yet-ended) session
-// Soniox cost, since audio goes browser→Soniox and we only know elapsed time.
-// All completed sessions use the real stored total_session_cost from the DB.
-const SONIOX_COST_PER_MIN = 0.0025; // $0.0025 / transcription-minute
+// STT is always Soniox. Native translation (Chunk v2) is billed in the same
+// Soniox stream — Soniox publishes ~$0.06/hr extra output tokens (~$0.001/min).
+// Stored translation_cost is OpenAI /translate only (legacy leftover plans).
+const SONIOX_STT_COST_PER_MIN = 0.0025;
+const SONIOX_COST_PER_MIN = SONIOX_STT_COST_PER_MIN;
+const SONIOX_NATIVE_TRANSLATION_COST_PER_MIN = 0.001;
+
+const SONIOX_NATIVE_ANALYTICS_WHERE = sql`(
+  LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
+)`;
+const HETZNER_MT_ANALYTICS_WHERE = sql`(
+  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic', 'professional')
+)`;
+const OPENAI_MT_ANALYTICS_WHERE = sql`(
+  NOT (${SONIOX_NATIVE_ANALYTICS_WHERE}) AND NOT (${HETZNER_MT_ANALYTICS_WHERE})
+)`;
+
+function stackKeyFromPlanType(planType: string | null | undefined): "soniox" | "hetzner" | "openai" {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre") return "soniox";
+  if (p === "trial-hetzner" || p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
+  return "openai";
+}
 
 const PLAN_PRICES: Record<string, number> = {
   basic: 59,
@@ -143,6 +162,7 @@ const PLAN_PRICES: Record<string, number> = {
   trial:               0,
   "trial-openai":      0,
   "trial-libre":       0,
+  "trial-hetzner":     0,
 };
 
 function defaultDailyLimitMinutesForPlanType(planType: string): number | null {
@@ -153,12 +173,6 @@ function defaultDailyLimitMinutesForPlanType(planType: string): number | null {
   if (!billingKey) return null;
   return paypalPlanConfig(billingKey).dailyLimitMinutes;
 }
-
-/** Analytics stack split mirrors strict live translation routing by effective plan family. */
-const MACHINE_STACK_ANALYTICS_WHERE = sql`(
-  LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic-hetzner', 'professional-libre', 'platinum-libre')
-)`;
-const OPENAI_STACK_ANALYTICS_WHERE = sql`NOT (${MACHINE_STACK_ANALYTICS_WHERE})`;
 
 type ActiveSessionRow = {
   sessionId: number;
@@ -875,6 +889,7 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     trialUsersRow,
     sessionsTodayCustomerRow,
     allRegisteredUsersRow,
+    stackMinutesTodayRows,
   ] = await Promise.all([
     // Active users (all roles): last_activity within the past 5 minutes
     db.select({ count: sql<number>`COUNT(*)` })
@@ -1015,6 +1030,37 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
     // All registered users (admins + customers) — headline "Total Users"
     db.select({ count: sql<number>`COUNT(*)` }).from(usersTable),
+
+    // Minutes + stored costs today by live engine (default = Soniox native).
+    db.select({
+      stack: sql<string>`
+        CASE
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre') THEN 'soniox'
+          WHEN LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic', 'professional') THEN 'hetzner'
+          ELSE 'openai'
+        END`,
+      minutes: sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
+      sessions: sql<number>`COUNT(*)`,
+      soniox: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN s.ended_at IS NOT NULL THEN COALESCE(s.soniox_cost, 0)
+          ELSE EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_STT_COST_PER_MIN}
+        END), 0)`,
+      translation: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfToday}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`(s.duration_seconds >= 30 OR s.ended_at IS NULL)`,
+      ))
+      .groupBy(sql`
+        CASE
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre') THEN 'soniox'
+          WHEN LOWER(${usersTable.planType}) IN ('trial-hetzner', 'basic-libre', 'basic', 'professional') THEN 'hetzner'
+          ELSE 'openai'
+        END`),
   ]);
 
   // Display minutes: non-admin users only
@@ -1022,9 +1068,41 @@ router.get("/stats", requireAdmin, async (_req, res) => {
   const minutesWeek  = Number(minutesWeekRow[0]?.total  ?? 0);
   const minutesMonth = Number(minutesMonthRow[0]?.total ?? 0);
 
-  // Real API cost breakdown today — from stored costs + live session estimate
+  const emptyStack = { users: 0, minutesToday: 0, sessionsToday: 0, liveSessions: 0, sttCost: 0, translationCost: 0 };
+  const stackMix = {
+    sonioxNative: { ...emptyStack },
+    hetznerMt: { ...emptyStack },
+    openaiMt: { ...emptyStack },
+  };
+  for (const u of allUsersForMrr) {
+    const key = stackKeyFromPlanType(u.planType);
+    if (key === "soniox") stackMix.sonioxNative.users += 1;
+    else if (key === "hetzner") stackMix.hetznerMt.users += 1;
+    else stackMix.openaiMt.users += 1;
+  }
+  for (const row of stackMinutesTodayRows) {
+    const minutes = Number(row.minutes ?? 0);
+    const stt = +(Number(row.soniox ?? 0)).toFixed(4);
+    const storedMt = +(Number(row.translation ?? 0)).toFixed(4);
+    const sessionsN = Number(row.sessions ?? 0);
+    const bucket =
+      row.stack === "soniox" ? stackMix.sonioxNative :
+      row.stack === "hetzner" ? stackMix.hetznerMt :
+      stackMix.openaiMt;
+    bucket.minutesToday = +minutes.toFixed(2);
+    bucket.sessionsToday = sessionsN;
+    bucket.sttCost = +stt;
+    bucket.translationCost = row.stack === "soniox"
+      ? +(minutes * SONIOX_NATIVE_TRANSLATION_COST_PER_MIN).toFixed(4)
+      : +storedMt;
+  }
+
+  // Real API cost: Soniox STT (all) + Soniox native translation estimate + leftover OpenAI /translate.
   const sonioxCostToday    = +(Number(costTodayRow[0]?.soniox      ?? 0)).toFixed(4);
-  const translateCostToday = +(Number(costTodayRow[0]?.translation ?? 0)).toFixed(4);
+  const sonioxTranslationEstToday = stackMix.sonioxNative.translationCost;
+  const openaiTranslationCostToday = stackMix.openaiMt.translationCost;
+  const hetznerTranslationCostToday = stackMix.hetznerMt.translationCost;
+  const translateCostToday = +(sonioxTranslationEstToday + openaiTranslationCostToday + hetznerTranslationCostToday).toFixed(4);
   const totalCostToday     = +(sonioxCostToday + translateCostToday).toFixed(4);
 
   // MRR estimate: sum up plan prices for all non-admin, non-trial users
@@ -1047,6 +1125,19 @@ router.get("/stats", requireAdmin, async (_req, res) => {
 
   const enrichedLive = enrichActiveSessionRows(activeSessionRows);
   const liveSessionSummary = liveSessionSummaryFromEnriched(enrichedLive);
+  const liveByStack = { soniox: 0, hetzner: 0, openai: 0 };
+  for (const s of enrichedLive) {
+    if (s.translationStack === "soniox") liveByStack.soniox += 1;
+    else if (s.translationStack === "libre") liveByStack.hetzner += 1;
+    else liveByStack.openai += 1;
+  }
+  stackMix.sonioxNative.liveSessions = liveByStack.soniox;
+  stackMix.hetznerMt.liveSessions = liveByStack.hetzner;
+  stackMix.openaiMt.liveSessions = liveByStack.openai;
+
+  const impliedMonthlyCogs = totalCostToday * 30;
+  const estimatedGrossMarginPct =
+    mrrEstimate > 0 ? +((1 - impliedMonthlyCogs / mrrEstimate) * 100).toFixed(1) : null;
 
   res.json({
     activeUsers:       Number(activeRow[0]?.count  ?? 0),
@@ -1058,10 +1149,14 @@ router.get("/stats", requireAdmin, async (_req, res) => {
     minutesToday,
     minutesWeek,
     minutesMonth,
-    // Real API costs — from stored soniox_cost + translation_cost per session
     sonioxCostToday,
+    sonioxTranslationEstToday,
+    openaiTranslationCostToday,
+    hetznerTranslationCostToday,
     translateCostToday,
     totalCostToday,
+    estimatedGrossMarginPct,
+    stackMix,
     // SaaS metrics
     mrrEstimate,
     conversionRate,
@@ -1110,8 +1205,10 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     usageMonthRow,
     conversionRows,
     topUsersRows,
+    sonioxNativeHoursMonthRow,
     hetznerHoursMonthRow,
     openAiHoursMonthRow,
+    monthCostRow,
     paidUsersNowRow,
     churnSignalsRow,
   ] = await Promise.all([
@@ -1143,6 +1240,12 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
     // Minutes and real cost today
     db.select({
       minutes:     sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
+      sonioxNativeMinutes: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
+            THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
+          ELSE 0
+        END), 0) / 60.0`,
       sessions:    sql<number>`COUNT(*)`,
       costToday:   sql<number>`
         COALESCE(SUM(CASE
@@ -1150,7 +1253,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
             THEN COALESCE(s.total_session_cost, 0)
           ELSE
             COALESCE(s.translation_cost, 0)
-            + EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+            + EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_STT_COST_PER_MIN}
         END), 0)`,
     })
       .from(sql`sessions s`)
@@ -1216,47 +1319,54 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
         )`))
       .limit(10),
 
-    // Hetzner MT usage hours MTD (machine-translation routes only; mirrors live routing semantics).
     db.select({
       hours: sql<number>`
-        COALESCE(
-          SUM(
-${sql.raw(effectiveSessionSecondsSqlAliasS())}
-          ),
-          0
-        ) / 3600.0`,
+        COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 3600.0`,
     })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
         sql`${usersTable.isAdmin} = false`,
-        MACHINE_STACK_ANALYTICS_WHERE,
+        SONIOX_NATIVE_ANALYTICS_WHERE,
       )),
 
-    // OpenAI usage hours MTD (complement of machine route split above).
     db.select({
-      transcriptionHours: sql<number>`
-        COALESCE(
-          SUM(
-${sql.raw(effectiveSessionSecondsSqlAliasS())}
-          ),
-          0
-        ) / 3600.0`,
-      translationHours: sql<number>`
-        COALESCE(
-          SUM(
-${sql.raw(effectiveSessionSecondsSqlAliasS())}
-          ),
-          0
-        ) / 3600.0`,
+      hours: sql<number>`
+        COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 3600.0`,
     })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
       .where(and(
         sql`s.started_at >= ${startOfMonthNy}`,
         sql`${usersTable.isAdmin} = false`,
-        OPENAI_STACK_ANALYTICS_WHERE,
+        HETZNER_MT_ANALYTICS_WHERE,
+      )),
+
+    db.select({
+      hours: sql<number>`
+        COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 3600.0`,
+      storedTranslation: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonthNy}`,
+        sql`${usersTable.isAdmin} = false`,
+        OPENAI_MT_ANALYTICS_WHERE,
+      )),
+
+    db.select({
+      stt: sql<number>`COALESCE(SUM(COALESCE(s.soniox_cost, 0)), 0)`,
+      storedTranslation: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
+      minutes: sql<number>`COALESCE(SUM(s.duration_seconds), 0) / 60.0`,
+    })
+      .from(sql`sessions s`)
+      .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
+      .where(and(
+        sql`s.started_at >= ${startOfMonthNy}`,
+        sql`${usersTable.isAdmin} = false`,
+        sql`s.duration_seconds >= 30`,
       )),
 
     // Active paid base (current).
@@ -1300,22 +1410,22 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
   const minutesToday       = Number(usageTodayRow[0]?.minutes   ?? 0);
   const minutesMonth       = Number(usageMonthRow[0]?.minutes   ?? 0);
   const sessionsTodayCount = Number(usageTodayRow[0]?.sessions  ?? 0);
-  const realCostToday      = +(Number(usageTodayRow[0]?.costToday ?? 0)).toFixed(4);
-  // Month cost: completed sessions only (no live-session adjustment needed for monthly view)
-  const realCostMonth      = +(minutesMonth * SONIOX_COST_PER_MIN).toFixed(4);
-
-  const hetznerTranslationHoursMtd = +Number(hetznerHoursMonthRow[0]?.hours ?? 0).toFixed(2);
-  const openAiTranscriptionHoursMtd = +Number(openAiHoursMonthRow[0]?.transcriptionHours ?? 0).toFixed(2);
-  const openAiTranslationHoursMtd = +Number(openAiHoursMonthRow[0]?.translationHours ?? 0).toFixed(2);
-  const hetznerSavingsMtd = +(hetznerTranslationHoursMtd * 0.35).toFixed(2);
-  const estimatedOpenAiBurnMtd = +(
-    openAiTranscriptionHoursMtd * 0.15 +
-    openAiTranslationHoursMtd * 0.35
-  ).toFixed(2);
-  const serverUtilizationPerDollar = +(hetznerTranslationHoursMtd / 13).toFixed(3);
-  const effectiveHetznerCostPerHour = hetznerTranslationHoursMtd > 0
-    ? +(13 / hetznerTranslationHoursMtd).toFixed(3)
-    : 0;
+  const sonioxNativeHoursMtd = +Number(sonioxNativeHoursMonthRow[0]?.hours ?? 0).toFixed(2);
+  const hetznerMtHoursMtd = +Number(hetznerHoursMonthRow[0]?.hours ?? 0).toFixed(2);
+  const openAiMtHoursMtd = +Number(openAiHoursMonthRow[0]?.hours ?? 0).toFixed(2);
+  const openaiTranslationStoredMtd = +Number(openAiHoursMonthRow[0]?.storedTranslation ?? 0).toFixed(4);
+  const sttMonthStored = +Number(monthCostRow[0]?.stt ?? 0).toFixed(4);
+  const sttMonthFallback = +(minutesMonth * SONIOX_STT_COST_PER_MIN).toFixed(4);
+  const sonioxSttCostMtd = sttMonthStored > 0 ? +sttMonthStored : +sttMonthFallback;
+  const sonioxTranslationEstMtd = +(sonioxNativeHoursMtd * 60 * SONIOX_NATIVE_TRANSLATION_COST_PER_MIN).toFixed(4);
+  const sonioxNativeMinutesToday = Number(usageTodayRow[0]?.sonioxNativeMinutes ?? 0);
+  const realCostToday = +(
+    Number(usageTodayRow[0]?.costToday ?? 0) +
+    sonioxNativeMinutesToday * SONIOX_NATIVE_TRANSLATION_COST_PER_MIN
+  ).toFixed(4);
+  const realCostMonth = +(
+    Number(sonioxSttCostMtd) + Number(sonioxTranslationEstMtd) + Number(openaiTranslationStoredMtd)
+  ).toFixed(4);
   const churnPercentMonthly = (() => {
     const paidNow = Number(paidUsersNowRow[0]?.count ?? 0);
     const churnCount = Number(churnSignalsRow[0]?.count ?? 0);
@@ -1333,6 +1443,7 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
     return sum + price * count;
   }, 0);
   const ltvEstimate = churnPercentMonthly > 0 ? +(activeMrr / churnPercentMonthly).toFixed(2) : null;
+  const estimatedGrossMarginPct = activeMrr > 0 ? +((1 - Number(realCostMonth) / activeMrr) * 100).toFixed(1) : null;
 
   res.json({
     userGrowth:  growthChart,
@@ -1345,13 +1456,14 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       sessionsToday:   sessionsTodayCount,
     },
     businessMetrics: {
-      hetznerSavingsMtd,
-      hetznerTranslationHoursMtd,
-      estimatedOpenAiBurnMtd,
-      openAiTranscriptionHoursMtd,
-      openAiTranslationHoursMtd,
-      serverUtilizationPerDollar,
-      effectiveHetznerCostPerHour,
+      sonioxNativeHoursMtd,
+      hetznerMtHoursMtd,
+      openAiMtHoursMtd,
+      sonioxSttCostMtd,
+      sonioxTranslationEstMtd,
+      openaiTranslationCostMtd: openaiTranslationStoredMtd,
+      cogsMtd: realCostMonth,
+      estimatedGrossMarginPct,
       ltvEstimate,
       churnPercentMonthly,
       activeMrr,
@@ -1402,16 +1514,22 @@ router.get("/analytics/extended", requireAdmin, async (req, res) => {
           WHEN s.ended_at IS NOT NULL
             THEN COALESCE(s.soniox_cost, 0)
           ELSE
-            EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+            EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_STT_COST_PER_MIN}
         END), 0)`,
       translationCost: sql<number>`COALESCE(SUM(COALESCE(s.translation_cost, 0)), 0)`,
+      sonioxNativeMinutes: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN LOWER(${usersTable.planType}) IN ('trial-openai', 'basic-hetzner', 'professional-libre')
+            THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
+          ELSE 0
+        END), 0) / 60.0`,
       totalCost:       sql<number>`
         COALESCE(SUM(CASE
           WHEN s.ended_at IS NOT NULL
             THEN COALESCE(s.total_session_cost, 0)
           ELSE
             COALESCE(s.translation_cost, 0)
-            + EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_COST_PER_MIN}
+            + EXTRACT(EPOCH FROM (NOW() - s.started_at)) / 60.0 * ${SONIOX_STT_COST_PER_MIN}
         END), 0)`,
       sessions:        sql<number>`COUNT(*)`,
       uniqueUsers:     sql<number>`COUNT(DISTINCT s.user_id)`,
@@ -1473,8 +1591,10 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
 
   const cr            = costRows[0];
   const sonioxCost    = +(Number(cr?.sonioxCost    ?? 0)).toFixed(4);
-  const translateCost = +(Number(cr?.translationCost ?? 0)).toFixed(4);
-  const totalCost     = +(Number(cr?.totalCost     ?? 0)).toFixed(4);
+  const openaiTranslateCost = +(Number(cr?.translationCost ?? 0)).toFixed(4);
+  const sonioxTranslationEst = +(Number(cr?.sonioxNativeMinutes ?? 0) * SONIOX_NATIVE_TRANSLATION_COST_PER_MIN).toFixed(4);
+  const translateCost = +(Number(openaiTranslateCost) + Number(sonioxTranslationEst)).toFixed(4);
+  const totalCost     = +(Number(cr?.totalCost ?? 0) + Number(sonioxTranslationEst)).toFixed(4);
   const sessions      =   Number(cr?.sessions      ?? 0);
   const uniqueUsers   =   Number(cr?.uniqueUsers   ?? 0);
 
@@ -1484,6 +1604,8 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
     range: { label: range, start: rangeStart.toISOString() },
     costBreakdown: {
       sonioxCost,
+      sonioxTranslationEst,
+      openaiTranslateCost,
       translateCost,
       totalCost,
       sessions,
@@ -1725,6 +1847,8 @@ router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
       durationSeconds: effectiveDurationSecondsSql,
       langPair:        sessionsTable.langPair,
       lastActivityAt:  sessionsTable.lastActivityAt,
+      sonioxCost:      sessionsTable.sonioxCost,
+      translationCost: sessionsTable.translationCost,
     })
     .from(sessionsTable)
     .where(eq(sessionsTable.userId, userId))
@@ -1740,6 +1864,8 @@ router.get("/users/:userId/sessions", requireAdmin, async (req, res) => {
       langPair:       s.langPair ?? null,
       minutesUsed:    +(Math.max(0, Number(s.durationSeconds ?? 0)) / 60).toFixed(2),
       isLive:         !s.endedAt,
+      sonioxCost:     +(Number(s.sonioxCost ?? 0)),
+      translationCost: +(Number(s.translationCost ?? 0)),
     })),
   });
 });

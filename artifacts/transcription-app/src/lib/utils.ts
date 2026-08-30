@@ -108,6 +108,14 @@ export function planUsesSonioxNativeTranslation(planType: string | null | undefi
   return p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre";
 }
 
+/** Admin cost / engine map — must match server `stackKeyFromPlanType`. */
+export function adminTranslationStack(planType: string | null | undefined): "soniox" | "hetzner" | "openai" {
+  const p = (planType ?? "").trim().toLowerCase();
+  if (p === "trial-openai" || p === "basic-hetzner" || p === "professional-libre") return "soniox";
+  if (p === "trial-hetzner" || p === "basic-libre" || p === "basic" || p === "professional") return "hetzner";
+  return "openai";
+}
+
 export function planUsesLibreEngine(planType: string | null | undefined): boolean {
   const p = (planType ?? "").trim().toLowerCase();
   if (

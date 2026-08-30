@@ -10,7 +10,7 @@ import {
   Mic, Monitor, ChevronDown, Calendar,
 } from "lucide-react";
 import { Card } from "@/components/ui-components";
-import { isTrialLikePlanType } from "@/lib/utils";
+import { adminTranslationStack, isTrialLikePlanType } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -26,13 +26,14 @@ interface AnalyticsData {
     sessionsToday: number;
   };
   businessMetrics?: {
-    hetznerSavingsMtd: number;
-    hetznerTranslationHoursMtd: number;
-    estimatedOpenAiBurnMtd: number;
-    openAiTranscriptionHoursMtd: number;
-    openAiTranslationHoursMtd: number;
-    serverUtilizationPerDollar: number;
-    effectiveHetznerCostPerHour: number;
+    sonioxNativeHoursMtd?: number;
+    hetznerMtHoursMtd?: number;
+    openAiMtHoursMtd?: number;
+    sonioxSttCostMtd?: number;
+    sonioxTranslationEstMtd?: number;
+    openaiTranslationCostMtd?: number;
+    cogsMtd?: number;
+    estimatedGrossMarginPct?: number | null;
     ltvEstimate: number | null;
     churnPercentMonthly: number;
     activeMrr: number;
@@ -55,6 +56,8 @@ interface ExtendedData {
   range: { label: string; start: string };
   costBreakdown: {
     sonioxCost: number;
+    sonioxTranslationEst?: number;
+    openaiTranslateCost?: number;
     translateCost: number;
     totalCost: number;
     sessions: number;
@@ -124,8 +127,16 @@ const CHART_COLORS = {
 const PIE_COLORS = [CHART_COLORS.primary, CHART_COLORS.green];
 
 const tooltipStyle = {
-  contentStyle: { border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" },
-  labelStyle:   { fontWeight: 600, marginBottom: 4 },
+  contentStyle: {
+    border: "1px solid hsl(var(--border))",
+    background: "hsl(var(--card))",
+    color: "hsl(var(--foreground))",
+    borderRadius: 10,
+    fontSize: 12,
+    boxShadow: "0 4px 12px hsl(var(--foreground) / 0.08)",
+  },
+  labelStyle:   { fontWeight: 600, marginBottom: 4, color: "hsl(var(--foreground))" },
+  itemStyle:    { color: "hsl(var(--foreground))" },
 };
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
@@ -211,7 +222,7 @@ function PanelSkeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="animate-pulse space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-10 bg-gray-100 rounded-xl" />
+        <div key={i} className="h-10 bg-gray-100 dark:bg-white/10 rounded-xl" />
       ))}
     </div>
   );
@@ -223,11 +234,11 @@ function UsageBar({ pct }: { pct: number }) {
   const color = clamped >= 90 ? "bg-red-500" : clamped >= 70 ? "bg-amber-400" : "bg-indigo-500";
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+      <div className="flex-1 h-1.5 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${clamped}%` }} />
       </div>
       <span className={`text-[10px] font-semibold tabular-nums w-8 text-right
-        ${clamped >= 90 ? "text-red-600" : clamped >= 70 ? "text-amber-600" : "text-muted-foreground"}`}>
+        ${clamped >= 90 ? "text-red-600 dark:text-red-300" : clamped >= 70 ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}>
         {pct}%
       </span>
     </div>
@@ -308,90 +319,114 @@ export default function AdminAnalytics() {
           <SectionTitle><Calendar className="w-4 h-4 text-slate-400" />Time Range for Extended Metrics</SectionTitle>
         </div>
         <p className="text-[11px] text-muted-foreground mb-3">
-          Applies to: AI cost breakdown, cost efficiency, and top trial usage panels.
+          Applies to API COGS, cost efficiency, and top trial usage. Default product is Soniox STT + native translation.
         </p>
         <RangeFilter value={range} onChange={setRange} />
       </section>
 
       {/* ── AI Cost Breakdown ────────────────────────────────────────────── */}
       <section>
-        <SectionTitle><DollarSign className="w-4 h-4 text-amber-500" />AI Cost Breakdown — {rangeLabel}</SectionTitle>
+        <SectionTitle><DollarSign className="w-4 h-4 text-amber-500" />API Cost Breakdown — {rangeLabel}</SectionTitle>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-3">
           {extLoading ? <PanelSkeleton rows={1} /> : ext ? (
             <>
               <StatCard
                 icon={<Mic className="w-4.5 h-4.5" />}
-                label="Soniox Transcription"
+                label="Soniox STT"
                 value={fmtUsd(ext.costBreakdown.sonioxCost)}
-                sub="speech-to-text"
-                color="bg-violet-50 text-violet-600"
+                sub="$0.0025/min · all sessions"
+                color="bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-200"
               />
               <StatCard
                 icon={<Zap className="w-4.5 h-4.5" />}
-                label="OpenAI Translation"
-                value={fmtUsd(ext.costBreakdown.translateCost)}
-                sub="gpt-4o-mini"
-                color="bg-blue-50 text-blue-600"
+                label="Soniox Translation"
+                value={fmtUsd(ext.costBreakdown.sonioxTranslationEst ?? 0)}
+                sub="Native Chunk v2 · ~$0.06/hr"
+                color="bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-200"
               />
+              {(ext.costBreakdown.openaiTranslateCost ?? 0) > 0 && (
+                <StatCard
+                  icon={<DollarSign className="w-4.5 h-4.5" />}
+                  label="Leftover OpenAI MT"
+                  value={fmtUsd(ext.costBreakdown.openaiTranslateCost ?? 0)}
+                  sub="Stored /translate only"
+                  color="bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+                />
+              )}
               <StatCard
                 icon={<DollarSign className="w-4.5 h-4.5" />}
-                label="Total AI Cost"
+                label="Total API COGS"
                 value={fmtUsd(ext.costBreakdown.totalCost)}
-                sub="Soniox + GPT"
-                color="bg-amber-50 text-amber-600"
+                sub="Soniox STT + native translation"
+                color="bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-200"
               />
               <StatCard
                 icon={<Activity className="w-4.5 h-4.5" />}
                 label="Sessions"
                 value={ext.costBreakdown.sessions}
                 sub="≥30s"
-                color="bg-green-50 text-green-600"
+                color="bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-300"
               />
               <StatCard
                 icon={<Users className="w-4.5 h-4.5" />}
                 label="Unique Users"
                 value={ext.costBreakdown.uniqueUsers}
                 sub="with sessions"
-                color="bg-slate-100 text-slate-600"
+                color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
               />
             </>
           ) : null}
         </div>
       </section>
 
-      {/* ── Efficiency & Profit (MTD) ───────────────────────────────────── */}
+      {/* ── Engine mix & margin (MTD) ───────────────────────────────────── */}
       <section>
-        <SectionTitle><DollarSign className="w-4 h-4 text-emerald-500" />Efficiency & Profit Metrics (MTD)</SectionTitle>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+        <SectionTitle><DollarSign className="w-4 h-4 text-emerald-500" />Engine mix & margin (MTD)</SectionTitle>
+        <p className="text-[11px] text-muted-foreground mt-1 mb-3">
+          Default traffic is Soniox STT + native translation. OpenAI and Hetzner hours are leftover SKUs only.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard
             icon={<Zap className="w-4.5 h-4.5" />}
-            label="Hetzner Savings"
-            value={fmtUsd(business?.hetznerSavingsMtd ?? 0)}
-            sub={`${(business?.hetznerTranslationHoursMtd ?? 0).toFixed(2)} h x $0.35`}
-            color="bg-emerald-50 text-emerald-700"
+            label="Soniox native hours"
+            value={`${(business?.sonioxNativeHoursMtd ?? 0).toFixed(2)} h`}
+            sub={`STT ${fmtUsd(business?.sonioxSttCostMtd ?? 0)} · MT ${fmtUsd(business?.sonioxTranslationEstMtd ?? 0)}`}
+            color="bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-200"
           />
           <StatCard
             icon={<DollarSign className="w-4.5 h-4.5" />}
-            label="Estimated OpenAI Burn"
-            value={fmtUsd(business?.estimatedOpenAiBurnMtd ?? 0)}
-            sub={`${(business?.openAiTranscriptionHoursMtd ?? 0).toFixed(2)}h x $0.15 + ${(business?.openAiTranslationHoursMtd ?? 0).toFixed(2)}h x $0.35`}
-            color="bg-rose-50 text-rose-700"
+            label="COGS this month"
+            value={fmtUsd(business?.cogsMtd ?? 0)}
+            sub={
+              (business?.openaiTranslationCostMtd ?? 0) > 0
+                ? `incl. leftover OpenAI ${fmtUsd(business?.openaiTranslationCostMtd ?? 0)}`
+                : "Soniox STT + native translation"
+            }
+            color="bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200"
           />
           <StatCard
-            icon={<Activity className="w-4.5 h-4.5" />}
-            label="Server Utilization vs Cost"
-            value={`${(business?.serverUtilizationPerDollar ?? 0).toFixed(3)} h/$`}
-            sub={`Real cost/hour: ${fmtUsd(business?.effectiveHetznerCostPerHour ?? 0)} (${(business?.hetznerTranslationHoursMtd ?? 0).toFixed(2)}h / $13)`}
-            color="bg-blue-50 text-blue-700"
+            icon={<TrendingUp className="w-4.5 h-4.5" />}
+            label="Est. gross margin"
+            value={business?.estimatedGrossMarginPct != null ? `${business.estimatedGrossMarginPct}%` : "N/A"}
+            sub={`MRR ${fmtUsd(business?.activeMrr ?? 0)} vs month COGS`}
+            color="bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200"
           />
           <StatCard
             icon={<Users className="w-4.5 h-4.5" />}
             label="User LTV"
             value={business?.ltvEstimate != null ? fmtUsd(business.ltvEstimate) : "N/A"}
-            sub={`MRR ${fmtUsd(business?.activeMrr ?? 0)} / churn ${(business?.churnPercentMonthly ?? 0).toFixed(2)}%`}
-            color="bg-violet-50 text-violet-700"
+            sub={`Churn ${(business?.churnPercentMonthly ?? 0).toFixed(2)}%`}
+            color="bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
           />
         </div>
+        {((business?.openAiMtHoursMtd ?? 0) > 0 || (business?.hetznerMtHoursMtd ?? 0) > 0) && (
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Leftover hours this month: OpenAI {(business?.openAiMtHoursMtd ?? 0).toFixed(2)}h
+            {(business?.openaiTranslationCostMtd ?? 0) > 0 ? ` (${fmtUsd(business?.openaiTranslationCostMtd ?? 0)})` : ""}
+            {" · "}
+            Hetzner {(business?.hetznerMtHoursMtd ?? 0).toFixed(2)}h (~$0 /translate)
+          </p>
+        )}
       </section>
 
       {/* ── Cost Efficiency & Active Sessions (side-by-side) ─────────────── */}
@@ -407,15 +442,15 @@ export default function AdminAnalytics() {
                   icon={<DollarSign className="w-4.5 h-4.5" />}
                   label="Avg Cost / Session"
                   value={fmtUsd(ext.efficiency.costPerSession)}
-                  sub="AI cost per session"
-                  color="bg-indigo-50 text-indigo-600"
+                  sub="API COGS per session"
+                  color="bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-200"
                 />
                 <StatCard
                   icon={<DollarSign className="w-4.5 h-4.5" />}
                   label="Avg Cost / User"
                   value={fmtUsd(ext.efficiency.costPerUser)}
-                  sub="AI cost per active user"
-                  color="bg-pink-50 text-pink-600"
+                  sub="API COGS per active user"
+                  color="bg-pink-50 text-pink-600 dark:bg-pink-500/15 dark:text-pink-200"
                 />
               </>
             ) : null}
@@ -433,14 +468,14 @@ export default function AdminAnalytics() {
                   label="Sessions Now"
                   value={ext.activeSessions.count}
                   sub={ext.activeSessions.count === 1 ? "user recording" : "users recording"}
-                  color={ext.activeSessions.count > 0 ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-400"}
+                  color={ext.activeSessions.count > 0 ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-300" : "bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-400"}
                 />
                 <StatCard
                   icon={<Clock className="w-4.5 h-4.5" />}
                   label="Audio Processing"
                   value={fmtMin(ext.activeSessions.minutesLive)}
                   sub="total minutes live"
-                  color={ext.activeSessions.minutesLive > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-100 text-gray-400"}
+                  color={ext.activeSessions.minutesLive > 0 ? "bg-orange-50 text-orange-600 dark:bg-orange-500/15 dark:text-orange-200" : "bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-400"}
                 />
               </>
             ) : null}
@@ -463,7 +498,7 @@ export default function AdminAnalytics() {
             </div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+              <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <tr>
                   <th className="px-4 py-2 font-semibold text-left">#</th>
                   <th className="px-4 py-2 font-semibold text-left">User</th>
@@ -494,41 +529,41 @@ export default function AdminAnalytics() {
 
       {/* ── AI Usage Stats ─────────────────────────────────────────────── */}
       <section>
-        <SectionTitle><Zap className="w-4 h-4 text-amber-500" />AI Usage Statistics</SectionTitle>
+        <SectionTitle><Zap className="w-4 h-4 text-amber-500" />Usage & API spend</SectionTitle>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-3">
           <StatCard
             icon={<Clock className="w-4.5 h-4.5" />}
             label="Transcribed Today"
             value={fmtMin(usageStats.minutesToday)}
             sub={`${usageStats.sessionsToday} session${usageStats.sessionsToday !== 1 ? "s" : ""}`}
-            color="bg-indigo-50 text-indigo-600"
+            color="bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-200"
           />
           <StatCard
             icon={<Clock className="w-4.5 h-4.5" />}
             label="Transcribed This Month"
             value={fmtMin(usageStats.minutesMonth)}
-            color="bg-blue-50 text-blue-600"
+            color="bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-200"
           />
           <StatCard
             icon={<DollarSign className="w-4.5 h-4.5" />}
-            label="AI Cost Today"
+            label="API Cost Today"
             value={`$${usageStats.costToday.toFixed(2)}`}
-            sub="Soniox + GPT"
-            color="bg-amber-50 text-amber-600"
+            sub="STT + native translation"
+            color="bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-200"
           />
           <StatCard
             icon={<DollarSign className="w-4.5 h-4.5" />}
-            label="AI Cost This Month"
+            label="API Cost This Month"
             value={`$${usageStats.costMonth.toFixed(2)}`}
-            sub="Soniox + GPT"
-            color="bg-orange-50 text-orange-600"
+            sub="STT + native translation"
+            color="bg-orange-50 text-orange-600 dark:bg-orange-500/15 dark:text-orange-200"
           />
           <StatCard
             icon={<Activity className="w-4.5 h-4.5" />}
             label="Sessions Today"
             value={usageStats.sessionsToday}
             sub="≥30s only"
-            color="bg-green-50 text-green-600"
+            color="bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-300"
           />
         </div>
       </section>
@@ -542,26 +577,26 @@ export default function AdminAnalytics() {
               icon={<Users className="w-4.5 h-4.5" />}
               label="Total Users"
               value={conversion.totalUsers}
-              color="bg-slate-100 text-slate-600"
+              color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
             />
             <StatCard
               icon={<Users className="w-4.5 h-4.5" />}
               label="Trial Users"
               value={conversion.trialUsers}
-              color="bg-violet-50 text-violet-600"
+              color="bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-200"
             />
             <StatCard
               icon={<Users className="w-4.5 h-4.5" />}
               label="Paid Users"
               value={conversion.paidUsers}
-              color="bg-green-50 text-green-600"
+              color="bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-300"
             />
             <StatCard
               icon={<TrendingUp className="w-4.5 h-4.5" />}
               label="Conversion Rate"
               value={`${conversion.conversionRate}%`}
               sub="trial → paid"
-              color="bg-blue-50 text-blue-600"
+              color="bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-200"
             />
           </div>
           <Card className="p-4 border-border">
@@ -610,9 +645,9 @@ export default function AdminAnalytics() {
                     <stop offset="95%" stopColor={CHART_COLORS.primary} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
                 <Tooltip {...tooltipStyle} formatter={(v: number) => [v, "New Users"]} labelFormatter={l => `Date: ${l}`} />
                 <Area type="monotone" dataKey="users" stroke={CHART_COLORS.primary} strokeWidth={2} fill="url(#gradGrowth)" dot={false} activeDot={{ r: 4 }} />
               </AreaChart>
@@ -630,9 +665,9 @@ export default function AdminAnalytics() {
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={dauWithLabel} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
                 <Tooltip {...tooltipStyle} formatter={(v: number) => [v, "Active Users"]} labelFormatter={l => `Date: ${l}`} />
                 <Bar dataKey="users" fill={CHART_COLORS.green} radius={[4, 4, 0, 0]} maxBarSize={36} />
               </BarChart>
@@ -656,19 +691,19 @@ export default function AdminAnalytics() {
                     layout="vertical"
                     margin={{ top: 0, right: 60, left: 4, bottom: 0 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${v}m`} />
-                    <YAxis type="category" dataKey="username" tick={{ fontSize: 11 }} width={90} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => `${v}m`} />
+                    <YAxis type="category" dataKey="username" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={90} />
                     <Tooltip
                       {...tooltipStyle}
                       formatter={(v: number) => [fmtMin(v), "Today"]}
                     />
-                    <Bar dataKey="minutesToday" fill={CHART_COLORS.primary} radius={[0, 4, 4, 0]} maxBarSize={22} label={{ position: "right", fontSize: 10, formatter: (v: number) => fmtMin(v) }} />
+                    <Bar dataKey="minutesToday" fill={CHART_COLORS.primary} radius={[0, 4, 4, 0]} maxBarSize={22} label={{ position: "right", fontSize: 10, fill: "hsl(var(--foreground))", formatter: (v: number) => fmtMin(v) }} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                   <tr>
                     <th className="px-4 py-2 font-semibold text-left">#</th>
                     <th className="px-4 py-2 font-semibold text-left">User</th>
@@ -683,8 +718,13 @@ export default function AdminAnalytics() {
                       <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
                       <td className="px-4 py-2.5 font-medium text-sm">{u.username}</td>
                       <td className="px-4 py-2.5">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${isTrialLikePlanType(u.planType) ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}>
-                          {u.planType}
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${isTrialLikePlanType(u.planType) ? "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200" : "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"}`}>
+                          {adminTranslationStack(u.planType) === "soniox"
+                            ? "Soniox"
+                            : adminTranslationStack(u.planType) === "hetzner"
+                              ? "Hetzner leftover"
+                              : "OpenAI leftover"}
+                          <span className="font-mono font-normal opacity-70 ml-1">{u.planType}</span>
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary">{fmtMin(u.minutesToday)}</td>

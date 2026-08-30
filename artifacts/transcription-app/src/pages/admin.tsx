@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import {
   ApiError,
@@ -37,12 +37,19 @@ import {
   isTrialLikePlanType,
   workspacePlanDisplayName,
   workspacePlanTierKey,
-  planUsesLibreEngine,
+  adminTranslationStack,
   planUsesSonioxNativeTranslation,
 } from "@/lib/utils";
 import { applyMorsyChunkV2BidiIsolates } from "@/hooks/morsy-chunk-v2-bidi-render";
 import { isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import { startOfAppDayMs } from "@workspace/app-timezone";
+import {
+  SONIOX_STT_COST_PER_MIN,
+  SONIOX_NATIVE_TRANSLATION_COST_PER_MIN,
+  adminEstimateSessionCostUsd,
+  adminSessionApiCostUsd,
+  adminSessionCostPerMin,
+} from "@/lib/admin-cost";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface AdminStats {
@@ -55,8 +62,17 @@ interface AdminStats {
   minutesWeek:        number;
   minutesMonth:       number;
   sonioxCostToday:    number;
+  sonioxTranslationEstToday?: number;
+  openaiTranslationCostToday?: number;
+  hetznerTranslationCostToday?: number;
   translateCostToday: number;
   totalCostToday:     number;
+  estimatedGrossMarginPct?: number | null;
+  stackMix?: {
+    sonioxNative: { users: number; minutesToday: number; sessionsToday: number; liveSessions: number; sttCost: number; translationCost: number };
+    hetznerMt:    { users: number; minutesToday: number; sessionsToday: number; liveSessions: number; sttCost: number; translationCost: number };
+    openaiMt:     { users: number; minutesToday: number; sessionsToday: number; liveSessions: number; sttCost: number; translationCost: number };
+  };
   mrrEstimate:        number;
   conversionRate:     number;
   avgSessionMin:      number;
@@ -105,6 +121,8 @@ interface UserSession {
   langPair:        string | null;
   minutesUsed:     number | null;
   isLive:          boolean;
+  sonioxCost?:     number;
+  translationCost?: number;
 }
 
 interface SessionSnapshot {
@@ -431,7 +449,7 @@ function lastSeen(date: string | null | undefined) {
   );
   const ms = Date.now() - new Date(date).getTime();
   const dotColor = ms < 5 * 60 * 1000 ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.6)]" :
-                   ms < 60 * 60 * 1000 ? "bg-yellow-400" : "bg-gray-300";
+                   ms < 60 * 60 * 1000 ? "bg-yellow-400" : "bg-gray-300 dark:bg-white/30";
   return (
     <span className="flex items-center gap-1.5">
       <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
@@ -466,9 +484,18 @@ const ADMIN_PLAN_VALUE_SET = new Set([
 ]);
 
 function adminEngineLabel(plan: string): string {
-  if (planUsesSonioxNativeTranslation(plan)) return "Soniox";
-  if (planUsesLibreEngine(plan)) return "Hetzner";
+  const stack = adminTranslationStack(plan);
+  if (stack === "soniox") return "Soniox";
+  if (stack === "hetzner") return "Hetzner";
   return "OpenAI";
+}
+
+function liveSessionStack(s: { translationStack?: "libre" | "openai" | "soniox"; planType: string }): "libre" | "openai" | "soniox" {
+  if (s.translationStack) return s.translationStack;
+  const stack = adminTranslationStack(s.planType);
+  if (stack === "soniox") return "soniox";
+  if (stack === "hetzner") return "libre";
+  return "openai";
 }
 
 function adminPlanChipLabel(plan: string): string {
@@ -557,18 +584,18 @@ function detectAudioDevice(label: string | null | undefined) {
   if (!label) return null;
   const l = label.toLowerCase();
   if (label === "Browser Tab Audio") {
-    return { type: "Tab Audio",  badgeCls: "bg-blue-50 text-blue-700 border-blue-100",   icon: <Monitor   className="w-3 h-3" /> };
+    return { type: "Tab Audio",  badgeCls: "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-500/15 dark:text-blue-100 dark:border-blue-400/25",   icon: <Monitor   className="w-3 h-3" /> };
   }
   if (l.includes("usb")) {
-    return { type: "USB",        badgeCls: "bg-violet-50 text-violet-700 border-violet-100", icon: <Usb      className="w-3 h-3" /> };
+    return { type: "USB",        badgeCls: "bg-violet-50 text-violet-700 border-violet-100 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/25", icon: <Usb      className="w-3 h-3" /> };
   }
   if (l.includes("bluetooth") || l.includes("airpod") || l.includes("wireless")) {
-    return { type: "Bluetooth",  badgeCls: "bg-sky-50 text-sky-700 border-sky-100",      icon: <Bluetooth className="w-3 h-3" /> };
+    return { type: "Bluetooth",  badgeCls: "bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-500/15 dark:text-sky-100 dark:border-sky-400/25",      icon: <Bluetooth className="w-3 h-3" /> };
   }
   if (l.includes("built-in") || l.includes("built in") || l.includes("internal") || l.includes("macbook") || l.includes("laptop")) {
     return { type: "Built-in",   badgeCls: "bg-gray-100 text-gray-600 border-gray-200 dark:bg-white/10 dark:text-slate-200 dark:border-white/20",  icon: <Mic       className="w-3 h-3" /> };
   }
-  return   { type: "Microphone", badgeCls: "bg-green-50 text-green-700 border-green-100", icon: <Mic      className="w-3 h-3" /> };
+  return   { type: "Microphone", badgeCls: "bg-green-50 text-green-700 border-green-100 dark:bg-green-500/12 dark:text-green-300 dark:border-green-500/30", icon: <Mic      className="w-3 h-3" /> };
 }
 
 /** Resolve BCP-47-ish workspace code to admin UI label (for session column headers). */
@@ -631,7 +658,7 @@ function sessionStatusBadge(userId: number, lastActivityAt: string | null | unde
   );
   const minsAgo = (Date.now() - new Date(lastActivityAt).getTime()) / 60000;
   if (minsAgo < 30) return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-600">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100">
       <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />Idle
     </span>
   );
@@ -744,6 +771,17 @@ export default function Admin() {
     }
   }, [adminTheme]);
   const adminDark = adminTheme === "dark";
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    const prevDark = html.classList.contains("dark");
+    const prevScheme = html.style.colorScheme;
+    html.classList.toggle("dark", adminDark);
+    html.style.colorScheme = adminDark ? "dark" : "light";
+    return () => {
+      html.classList.toggle("dark", prevDark);
+      html.style.colorScheme = prevScheme;
+    };
+  }, [adminDark]);
 
   // Fast-poll live sessions on Overview / Users / Monitor — 3 s (Libre-heavy traffic needs fresh rows).
   // Must come AFTER mainTab useState to avoid temporal dead zone crash.
@@ -1027,12 +1065,12 @@ export default function Admin() {
   const [bumpDailyFloorPending, setBumpDailyFloorPending] = useState(false);
 
   // ── Session History drawer ─────────────────────────────────────────────────
-  const [historyUser,    setHistoryUser]    = useState<{ id: number; username: string } | null>(null);
+  const [historyUser,    setHistoryUser]    = useState<{ id: number; username: string; planType?: string } | null>(null);
   const [userSessions,   setUserSessions]   = useState<UserSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const openHistory = useCallback(async (userId: number, username: string) => {
-    setHistoryUser({ id: userId, username });
+  const openHistory = useCallback(async (userId: number, username: string, planType?: string) => {
+    setHistoryUser({ id: userId, username, planType });
     setHistoryLoading(true);
     try {
       const res = await fetch(`/api/admin/users/${userId}/sessions`, { credentials: "include" });
@@ -1045,7 +1083,12 @@ export default function Admin() {
   const exportHistory = () => {
     if (!historyUser) return;
     const totalMin  = userSessions.reduce((s, x) => s + (x.minutesUsed ?? 0), 0);
-    const totalCost = totalMin * 0.0027;
+    const totalCost = userSessions.reduce((sum, s) => sum + adminSessionApiCostUsd({
+      minutes: s.minutesUsed ?? 0,
+      planType: historyUser.planType,
+      storedSttUsd: s.sonioxCost,
+      storedTranslationUsd: s.translationCost,
+    }), 0);
     const rows = [
       ["#", "Date", "Start Time", "End Time", "Duration (min)", "Language Pair", "Transcription Min", "Est. Cost ($)"],
       ...userSessions.map((s, i) => [
@@ -1056,7 +1099,12 @@ export default function Admin() {
         s.minutesUsed != null ? s.minutesUsed.toFixed(2) : s.durationSeconds != null ? (s.durationSeconds / 60).toFixed(2) : "",
         s.langPair ?? "",
         s.minutesUsed != null ? s.minutesUsed.toFixed(2) : "",
-        s.minutesUsed != null ? (s.minutesUsed * 0.0027).toFixed(4) : "",
+        s.minutesUsed != null ? adminSessionApiCostUsd({
+          minutes: s.minutesUsed,
+          planType: historyUser.planType,
+          storedSttUsd: s.sonioxCost,
+          storedTranslationUsd: s.translationCost,
+        }).toFixed(4) : "",
       ]),
       [],
       ["TOTALS", "", "", "", "", `${userSessions.length} sessions`, totalMin.toFixed(2), totalCost.toFixed(4)],
@@ -1244,7 +1292,7 @@ export default function Admin() {
 
   if (meLoading || usersLoading) {
     return (
-      <div className="min-h-screen bg-[#f5f5f7] flex items-center justify-center">
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" />
       </div>
     );
@@ -1545,9 +1593,8 @@ export default function Admin() {
   return (
     <div
       className={cn(
-        "h-full text-foreground flex overflow-hidden",
-        adminDark && "dark workspace-demo-night workspace-hero-accent bg-background",
-        !adminDark && "bg-[#f5f5f7]",
+        "admin-surface h-full text-foreground flex overflow-hidden bg-background",
+        adminDark && "dark workspace-demo-night workspace-hero-accent",
       )}
     >
 
@@ -1594,7 +1641,7 @@ export default function Admin() {
 
         {/* Live session badge */}
         {sessions.length > 0 && (
-          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-100/80 px-3 py-2 rounded-lg border border-red-200 dark:bg-red-500/10 dark:border-red-500/30 shrink-0">
+          <div className="mx-3 mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-red-100/80 px-3 py-2 rounded-lg border border-red-200 dark:text-red-200 dark:bg-red-500/10 dark:border-red-500/30 shrink-0">
             <Radio className="w-3 h-3 animate-pulse shrink-0" />
             {sessions.length} Live Session{sessions.length > 1 ? "s" : ""}
           </div>
@@ -1720,7 +1767,7 @@ export default function Admin() {
                   { label: "Conversion Rate",   value: `${stats?.conversionRate ?? 0}%`,             sub: `${stats?.trialUsers ?? 0} still on trial`,  color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",      icon: <TrendingUp className="w-4 h-4" /> },
                   { label: "Avg Session",       value: `${stats?.avgSessionMin ?? 0}m`,              sub: "last 30 days",                               color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15",  icon: <Clock className="w-4 h-4" /> },
                   { label: "Sessions Today",    value: stats?.sessionsToday ?? 0,                    sub: "all sessions",                               color: "text-orange-700 bg-orange-100/80 dark:text-orange-300 dark:bg-orange-500/15",  icon: <Radio className="w-4 h-4" /> },
-                  { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: "today's average",                            color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15",      icon: <BarChart2 className="w-4 h-4" /> },
+                  { label: "Cost / Session",    value: fmtMoney(stats?.costPerSession ?? 0),         sub: (stats?.minutesToday ?? 0) > 0 ? `${fmtMoney((stats?.totalCostToday ?? 0) / (stats?.minutesToday ?? 1))}/min blended` : "today's average", color: "text-pink-700 bg-pink-100/80 dark:text-pink-300 dark:bg-pink-500/15",      icon: <BarChart2 className="w-4 h-4" /> },
                 ].map(({ label, value, sub, color, icon }) => (
                   <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
@@ -1732,14 +1779,42 @@ export default function Admin() {
               </div>
             </section>
 
-            {/* Cost Monitoring */}
+            {/* API COGS — default product is Soniox STT + Soniox native translation */}
             <section>
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Estimated API Costs Today</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">API cost today (COGS)</h2>
+              <p className="text-[11px] text-muted-foreground mb-3">
+                Default product: Soniox STT (${SONIOX_STT_COST_PER_MIN}/min) + Soniox native translation (~${SONIOX_NATIVE_TRANSLATION_COST_PER_MIN}/min). OpenAI / Hetzner only if leftover plans are still live.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                  { label: "Soniox Transcription", value: fmtMoney(stats?.sonioxCostToday ?? 0),    sub: `${formatMinutes(stats?.minutesToday ?? 0)} @ $0.0025/min`, color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15" },
-                  { label: "Translation (est.)",    value: fmtMoney(stats?.translateCostToday ?? 0), sub: `${formatMinutes(stats?.minutesToday ?? 0)} · OpenAI $0.0002/min; Hetzner ~$0`, color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15" },
-                  { label: "Total API Cost",        value: fmtMoney(stats?.totalCostToday ?? 0),     sub: "Soniox + Translation",                                     color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15" },
+                  {
+                    label: "Soniox STT",
+                    value: fmtMoney(stats?.sonioxCostToday ?? 0),
+                    sub: `${formatMinutes(stats?.minutesToday ?? 0)} · $0.0025/min · all sessions`,
+                    color: "text-blue-700 bg-blue-100/80 dark:text-blue-300 dark:bg-blue-500/15",
+                  },
+                  {
+                    label: "Soniox Translation",
+                    value: fmtMoney(stats?.sonioxTranslationEstToday ?? 0),
+                    sub: `${formatMinutes(stats?.stackMix?.sonioxNative.minutesToday ?? 0)} native · ~$0.06/hr`,
+                    color: "text-teal-700 bg-teal-100/80 dark:text-teal-200 dark:bg-teal-500/15",
+                  },
+                  ...(((stats?.openaiTranslationCostToday ?? 0) > 0 || (stats?.stackMix?.openaiMt.minutesToday ?? 0) > 0)
+                    ? [{
+                        label: "Leftover OpenAI MT",
+                        value: fmtMoney(stats?.openaiTranslationCostToday ?? 0),
+                        sub: `${formatMinutes(stats?.stackMix?.openaiMt.minutesToday ?? 0)} · stored /translate`,
+                        color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15",
+                      }]
+                    : []),
+                  {
+                    label: "Total COGS",
+                    value: fmtMoney(stats?.totalCostToday ?? 0),
+                    sub: stats?.estimatedGrossMarginPct != null
+                      ? `${stats.estimatedGrossMarginPct}% est. monthly margin · $${((stats?.totalCostToday ?? 0) * 30).toFixed(2)} run-rate`
+                      : "STT + native translation",
+                    color: "text-emerald-700 bg-emerald-100/80 dark:text-emerald-300 dark:bg-emerald-500/15",
+                  },
                 ].map(({ label, value, sub, color }) => (
                   <Card key={label} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card flex items-center gap-4">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -1755,16 +1830,82 @@ export default function Admin() {
               </div>
             </section>
 
+            <section>
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Engine map</h2>
+              <p className="text-[11px] text-muted-foreground mb-3">
+                Accounts and today&apos;s minutes by live engine. Trial / Basic / Professional default to Soniox.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {([
+                  {
+                    key: "soniox",
+                    title: "Soniox (default)",
+                    detail: "STT + Chunk v2 translation",
+                    mix: stats?.stackMix?.sonioxNative,
+                    color: "text-teal-700 bg-teal-100/80 dark:text-teal-200 dark:bg-teal-500/15",
+                  },
+                  {
+                    key: "openai",
+                    title: "OpenAI /translate",
+                    detail: "Legacy Platinum / leftover SKUs",
+                    mix: stats?.stackMix?.openaiMt,
+                    color: "text-violet-700 bg-violet-100/80 dark:text-violet-300 dark:bg-violet-500/15",
+                  },
+                  {
+                    key: "hetzner",
+                    title: "Hetzner /translate",
+                    detail: "Leftover Libre lanes only",
+                    mix: stats?.stackMix?.hetznerMt,
+                    color: "text-amber-800 bg-amber-100/80 dark:text-amber-200 dark:bg-amber-500/15",
+                  },
+                ] as const).map(({ key, title, detail, mix, color }) => (
+                  <Card key={key} className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>
+                      <Globe className="w-4 h-4" />
+                    </div>
+                    <p className="text-sm font-semibold">{title}</p>
+                    <p className="text-[10px] text-muted-foreground mb-3">{detail}</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Accounts</p>
+                        <p className="font-bold tabular-nums">{mix?.users ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Live now</p>
+                        <p className="font-bold tabular-nums">{mix?.liveSessions ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Min today</p>
+                        <p className="font-bold tabular-nums">{formatMinutes(mix?.minutesToday ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Sessions</p>
+                        <p className="font-bold tabular-nums">{mix?.sessionsToday ?? 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">STT today</p>
+                        <p className="font-bold tabular-nums">{fmtMoney(mix?.sttCost ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Translation</p>
+                        <p className="font-bold tabular-nums">{fmtMoney(mix?.translationCost ?? 0)}</p>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </section>
+
             {/* Live Sessions */}
             <section>
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2 flex-wrap">
                 <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
                 Live Sessions ({sessions.length})
                 <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                  · updates every 3s · live /translate path (not plan label alone)
+                  · updates every 3s · live engine (Soniox default)
                 </span>
                 {pollLiveSessions && liveSessionsPollFetching && (
-                  <span className="text-[10px] font-medium normal-case text-blue-600">refreshing…</span>
+                  <span className="text-[10px] font-medium normal-case text-blue-600 dark:text-blue-300">refreshing…</span>
                 )}
               </h2>
               {pollLiveSessions && liveSessionsPollError && (
@@ -1776,7 +1917,7 @@ export default function Admin() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 shrink-0 border-red-300 text-red-900"
+                    className="h-8 shrink-0 border-red-300 text-red-900 dark:border-red-400/40 dark:text-red-100"
                     onClick={() => void refetchLiveSessions()}
                   >
                     Retry now
@@ -1784,11 +1925,11 @@ export default function Admin() {
                 </div>
               )}
               {(liveSessionSummary?.usersWithMultipleOpen ?? 0) > 0 && (
-                <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-300 mt-0.5" />
                   <div>
                     <p className="font-semibold">Duplicate open sessions</p>
-                    <p className="text-amber-900/90 mt-0.5">
+                    <p className="text-amber-900/90 dark:text-amber-100/90 mt-0.5">
                       {liveSessionSummary!.usersWithMultipleOpen} user(s) have more than one unclosed session row (e.g. tab closed before /session/stop).
                       Review cards marked “Duplicate” and terminate stale rows if needed.
                     </p>
@@ -1802,23 +1943,23 @@ export default function Admin() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {sessions.map(s => (
-                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-card" : "bg-amber-50/60"}`}>
+                    <Card key={s.sessionId} className={`p-4 border-none shadow-sm ${s.hasSnapshot ? "bg-card" : "bg-amber-50/60 dark:bg-amber-500/10"}`}>
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         {s.hasSnapshot
                           ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
                           : <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
                         <span className="font-semibold text-sm truncate">{s.username}</span>
                         {!s.hasSnapshot && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">stale</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100 flex-shrink-0">stale</span>
                         )}
                         {(s.openSessionsForUser ?? 1) > 1 && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 flex-shrink-0" title="Multiple DB rows with ended_at null for this user">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200 flex-shrink-0" title="Multiple DB rows with ended_at null for this user">
                             Duplicate #{s.openSessionOrdinal ?? "?"}/{s.openSessionsForUser}
                           </span>
                         )}
                         <span
                           className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"
+                            workspacePlanTierKey(s.planType) === "trial" ? "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-100" : "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-100"
                           }`}
                           title={`Database plan_type: ${s.planType}`}
                         >
@@ -1826,27 +1967,27 @@ export default function Admin() {
                         </span>
                         <span
                           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                            (s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "openai"
-                              ? "bg-violet-100 text-violet-800"
-                              : (s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "soniox"
-                                ? "bg-emerald-100 text-emerald-900"
-                                : "bg-amber-100 text-amber-900"
+                            liveSessionStack(s) === "openai"
+                              ? "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-100"
+                              : liveSessionStack(s) === "soniox"
+                                ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
+                                : "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-100"
                           }`}
                           title={s.translationRouteDetail ?? "Live translation path from API"}
                         >
-                          {(s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "openai"
+                          {liveSessionStack(s) === "openai"
                             ? "OpenAI MT"
-                            : (s.translationStack ?? (planUsesSonioxNativeTranslation(s.planType) ? "soniox" : "openai")) === "soniox"
+                            : liveSessionStack(s) === "soniox"
                               ? "Soniox"
                               : "Hetzner MT"}
                         </span>
                       </div>
-                      {((s.translationStack ?? "openai") === "openai" || (s.translationStack ?? "openai") === "soniox") && s.translationRouteDetail && (
+                      {(liveSessionStack(s) === "openai" || liveSessionStack(s) === "soniox") && s.translationRouteDetail && (
                         <p className="text-[10px] text-muted-foreground leading-snug mb-1.5 border-l-2 border-border pl-2">
                           {s.translationRouteDetail}
                         </p>
                       )}
-                      {(s.translationStack ?? "openai") === "libre" && (
+                      {liveSessionStack(s) === "libre" && (
                         <div className="space-y-1.5 mb-1.5">
                           <div className="flex flex-wrap items-center gap-2">
                             {s.liveHetznerLane != null && s.liveHetznerNodeLabel ? (
@@ -1915,7 +2056,7 @@ export default function Admin() {
                         </div>
                       )}
                       {!s.hasSnapshot && !s.micLabel && (
-                        <p className="text-xs text-amber-600 mb-1">No active connection — may be a ghost session</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mb-1">No active connection — may be a ghost session</p>
                       )}
                       <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
                         <span>Duration: <span className="font-medium text-foreground">{fmtDuration(s.durationSeconds)}</span></span>
@@ -2014,7 +2155,7 @@ export default function Admin() {
                     <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-red-100/80 ring-1 ring-red-200 dark:bg-red-500/10 dark:ring-red-500/30" : "bg-card"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
-                      <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-red-600" : ""}`}>{value}</p>
+                      <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-red-600 dark:text-red-300" : ""}`}>{value}</p>
                       <p className="text-[10px] text-muted-foreground">{sub}</p>
                     </Card>
                   ))}
@@ -2024,7 +2165,7 @@ export default function Admin() {
                     <Card key={label} className={`p-4 border-none shadow-sm ${alert ? "bg-orange-100/80 ring-1 ring-orange-200 dark:bg-orange-500/10 dark:ring-orange-500/30" : "bg-card"}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${color}`}>{icon}</div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider leading-tight">{label}</p>
-                      <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-orange-600" : ""}`}>{value}</p>
+                      <p className={`text-xl font-bold font-display mt-0.5 ${alert ? "text-orange-500 dark:text-orange-300" : ""}`}>{value}</p>
                       <p className="text-[10px] text-muted-foreground">{sub}</p>
                     </Card>
                   ))}
@@ -2079,7 +2220,7 @@ export default function Admin() {
                                 <span className="text-[10px] bg-orange-50 text-orange-600 dark:bg-orange-500/12 dark:text-orange-300 px-1.5 py-0.5 rounded-full font-medium">proxy</span>
                               )}
                               {ev.type === "api_error" && (
-                                <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-mono">{String(ev.meta.statusCode ?? "")}</span>
+                                <span className="text-[10px] bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100 px-1.5 py-0.5 rounded-full font-mono">{String(ev.meta.statusCode ?? "")}</span>
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 truncate">{ev.description}</p>
@@ -2093,7 +2234,7 @@ export default function Admin() {
                     </div>
                   )}
                   {filtered.length > 0 && (
-                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a] text-[11px] text-muted-foreground flex items-center justify-between">
+                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-muted text-[11px] text-muted-foreground flex items-center justify-between">
                       <span>Showing {filtered.length} event{filtered.length !== 1 ? "s" : ""} from the last 24 hours</span>
                       <span className="text-primary font-medium">Auto-refreshes every 15 s</span>
                     </div>
@@ -2223,7 +2364,7 @@ export default function Admin() {
                   type="button"
                   disabled={bumpDailyFloorPending}
                   onClick={() => bumpAllUsersDailyFloor(360)}
-                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 dark:hover:bg-violet-500/15 dark:hover:text-violet-100 dark:hover:border-violet-400/40 disabled:opacity-50"
                 >
                   Floor ≥ 6h
                 </button>
@@ -2231,24 +2372,24 @@ export default function Admin() {
                   type="button"
                   disabled={bumpDailyFloorPending}
                   onClick={() => bumpAllUsersDailyFloor(480)}
-                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 disabled:opacity-50"
+                  className="h-7 px-2.5 rounded-lg border border-border bg-card text-[11px] font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-800 hover:border-violet-300 dark:hover:bg-violet-500/15 dark:hover:text-violet-100 dark:hover:border-violet-400/40 disabled:opacity-50"
                 >
                   Floor ≥ 8h
                 </button>
               </div>
 
               {sharedLoginIpIndex.length > 0 && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs text-blue-900">
+                <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs text-blue-900 dark:border-blue-400/25 dark:bg-blue-500/10 dark:text-blue-100">
                   Shared-IP review moved to <strong>IP Watch</strong> tab ({sharedLoginIpIndex.length} flagged IP{sharedLoginIpIndex.length !== 1 ? "s" : ""}).
                 </div>
               )}
 
               {paidBillingRollup && (
-                <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 space-y-1">
-                  <p className="font-semibold text-[11px] uppercase tracking-wide text-emerald-900/90">
+                <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5 text-xs text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100 space-y-1">
+                  <p className="font-semibold text-[11px] uppercase tracking-wide text-emerald-900/90 dark:text-emerald-100">
                     Paid users — billing window (admin only)
                   </p>
-                  <p className="text-[11px] leading-snug text-emerald-900/85">
+                  <p className="text-[11px] leading-snug text-emerald-900/85 dark:text-emerald-100/90">
                     <span className="font-semibold tabular-nums">{paidBillingRollup.paidUsersInRollup}</span> paying accounts with a window ·{" "}
                     <span className="font-semibold tabular-nums">{paidBillingRollup.totalEligibleHoursThisPeriod} h</span> total eligible this period
                     (full daily cap each day) ·{" "}
@@ -2256,7 +2397,7 @@ export default function Admin() {
                     <span className="font-semibold tabular-nums">{paidBillingRollup.totalProjectedHoursAtPeriodEnd} h</span> projected at renewal
                     (pace extrapolation, capped at eligible).
                   </p>
-                  <p className="text-[10px] text-emerald-900/70 leading-snug">
+                  <p className="text-[10px] text-emerald-900/70 dark:text-emerald-200/70 leading-snug">
                     Window uses <code className="font-mono bg-card/60 px-0.5 rounded">subscription_started_at</code> or signup date, and{" "}
                     <code className="font-mono bg-card/60 px-0.5 rounded">subscription_period_ends_at</code> or start + 30 days. Compare to month-end once period end is in the same month.
                   </p>
@@ -2266,7 +2407,7 @@ export default function Admin() {
 
             {/* Create form */}
             {showCreate && (
-              <div className="p-5 bg-gray-50 dark:bg-[#131d2a] border-b border-border dark:border-white/[0.08]">
+              <div className="p-5 bg-gray-50 dark:bg-muted border-b border-border dark:border-white/[0.08]">
                 <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Username</label>
@@ -2292,7 +2433,7 @@ export default function Admin() {
             {/* Table */}
             <div className="overflow-x-auto bg-card">
               <table className="w-full text-sm text-left min-w-[1180px]">
-                <thead className="bg-gray-50/80 dark:bg-[#131d2a] text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border dark:border-white/[0.08]">
+                <thead className="bg-gray-50/80 dark:bg-muted text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border dark:border-white/[0.08]">
                   <tr>
                     <th className="px-4 py-3 font-semibold">User</th>
                     <th className="px-4 py-3 font-semibold">Risk</th>
@@ -2336,7 +2477,7 @@ export default function Admin() {
                               }
                             : undefined
                         }
-                        onClick={() => openHistory(u.id, u.username)}
+                        onClick={() => openHistory(u.id, u.username, u.planType)}
                       >
                         {/* User */}
                         <td className="px-4 py-3">
@@ -2344,7 +2485,7 @@ export default function Admin() {
                             {u.username}
                             {u.isAdmin && <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full uppercase font-bold">Admin</span>}
                             {!u.isAdmin && (Date.now() - new Date(u.createdAt).getTime()) < 24 * 60 * 60 * 1000 && (
-                              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                              <span className="text-[9px] bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-200 px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
                             )}
                           </div>
                           {u.email && <div className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[180px]">{u.email}</div>}
@@ -2354,7 +2495,7 @@ export default function Admin() {
                         <td className="px-4 py-3 align-top text-xs" onClick={(e) => e.stopPropagation()}>
                           {(u.sharedLoginIpMaxAccounts ?? 1) >= 2 ? (
                             <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-100">
                                 Shared IP ({u.sharedLoginIpMaxAccounts})
                               </span>
                               {firstCluster?.ip && (
@@ -2435,7 +2576,7 @@ export default function Admin() {
                                         ) : null}
                                       </span>
                                     ) : (
-                                      <span className="text-amber-700 font-medium">—</span>
+                                      <span className="text-amber-700 dark:text-amber-300 font-medium">—</span>
                                     )}
                                   </div>
                                   <div className="text-muted-foreground whitespace-nowrap">
@@ -2448,7 +2589,7 @@ export default function Admin() {
                                         ) : null}
                                       </span>
                                     ) : (
-                                      <span className="text-amber-700 font-medium">—</span>
+                                      <span className="text-amber-700 dark:text-amber-300 font-medium">—</span>
                                     )}
                                   </div>
                                 </div>
@@ -2498,7 +2639,7 @@ export default function Admin() {
                           <span className="text-muted-foreground/70 text-[10px]"> ({u.totalSessions} sess)</span>
                           {u.totalShares > 0 && (
                             <span
-                              className="ml-1.5 text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold"
+                              className="ml-1.5 text-[10px] bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200 px-1.5 py-0.5 rounded-full font-semibold"
                               title={
                                 'Invite actions (copied/shared link via in-app Invite). Does not prove a sign-up credited to this user — see Referrals tab for attributed trial accounts.'
                               }
@@ -2515,10 +2656,10 @@ export default function Admin() {
 
                         {/* Actions */}
                         <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                          <Button variant="outline" size="sm" onClick={() => openHistory(u.id, u.username)} title="Session History" className="h-7 w-7 p-0 text-primary/70 hover:text-primary hover:border-primary/40">
+                          <Button variant="outline" size="sm" onClick={() => openHistory(u.id, u.username, u.planType)} title="Session History" className="h-7 w-7 p-0 text-primary/70 hover:text-primary hover:border-primary/40">
                             <History className="w-3 h-3" />
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => openEditUser(u)} title="Manage User" className="h-7 w-7 p-0 text-violet-600/70 hover:text-violet-700 hover:border-violet-300 hover:bg-violet-50">
+                          <Button variant="outline" size="sm" onClick={() => openEditUser(u)} title="Manage User" className="h-7 w-7 p-0 text-violet-600/70 hover:text-violet-700 hover:border-violet-300 hover:bg-violet-50 dark:text-violet-300 dark:hover:text-violet-100 dark:hover:border-violet-400/40 dark:hover:bg-violet-500/15">
                             <Pencil className="w-3 h-3" />
                           </Button>
                           <Button variant="outline" size="sm" onClick={() => resetUsage(u.id)} title="Reset Usage" className="h-7 w-7 p-0">
@@ -2544,7 +2685,7 @@ export default function Admin() {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 bg-gray-50/50 dark:bg-[#131d2a] border-t border-border dark:border-white/[0.08] text-[11px] text-muted-foreground space-y-0.5">
+            <div className="px-4 py-2 bg-gray-50/50 dark:bg-muted border-t border-border dark:border-white/[0.08] text-[11px] text-muted-foreground space-y-0.5">
               <div>Click a row to view session history.</div>
               <div>
                 <strong className="text-foreground">Risk</strong> is a compact shared-IP indicator only; full account/IP mapping and disable actions are in <strong className="text-foreground">IP Watch</strong>.
@@ -2704,7 +2845,7 @@ export default function Admin() {
               </div>
 
               {/* Default pair selectors */}
-              <div className="mb-5 p-4 bg-gray-50 dark:bg-[#131d2a] rounded-xl flex flex-wrap gap-4">
+              <div className="mb-5 p-4 bg-gray-50 dark:bg-muted rounded-xl flex flex-wrap gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Default Language A</label>
                   <select
@@ -2754,10 +2895,10 @@ export default function Admin() {
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-left text-sm transition-all ${
                         enabled
                           ? "border-primary/30 bg-primary/5 text-foreground"
-                          : "border-border bg-card text-muted-foreground hover:border-gray-300"
+                          : "border-border bg-card text-muted-foreground hover:border-muted-foreground/40"
                       } ${isDefault ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:shadow-sm"}`}
                     >
-                      <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${enabled ? "bg-primary border-primary" : "border-gray-300"}`}>
+                      <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${enabled ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
                         {enabled && <Check className="w-2.5 h-2.5 text-white" />}
                       </div>
                       <span className="truncate text-xs font-medium">{lang.label}</span>
@@ -2796,7 +2937,7 @@ export default function Admin() {
                   </div>
                   <div className="flex gap-0.5">
                     {[1, 2, 3, 4, 5].map(s => (
-                      <Star key={s} className={`w-3.5 h-3.5 ${s <= item.rating ? "text-amber-400 fill-amber-400" : "text-gray-200"}`} />
+                      <Star key={s} className={`w-3.5 h-3.5 ${s <= item.rating ? "text-amber-400 fill-amber-400" : "text-gray-200 dark:text-white/20"}`} />
                     ))}
                   </div>
                 </div>
@@ -2843,23 +2984,23 @@ export default function Admin() {
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Active referrals</p>
-                <p className="text-2xl font-bold mt-1 text-green-700">{referralsAdminData?.totals.activeReferrals ?? 0}</p>
+                <p className="text-2xl font-bold mt-1 text-green-700 dark:text-green-300">{referralsAdminData?.totals.activeReferrals ?? 0}</p>
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pending referrals</p>
-                <p className="text-2xl font-bold mt-1 text-amber-700">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
+                <p className="text-2xl font-bold mt-1 text-amber-700 dark:text-amber-300">{referralsAdminData?.totals.pendingReferrals ?? 0}</p>
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Upgrades</p>
-                <p className="text-2xl font-bold mt-1 text-sky-700">{referralsAdminData?.totals.upgrades ?? 0}</p>
+                <p className="text-2xl font-bold mt-1 text-sky-700 dark:text-sky-300">{referralsAdminData?.totals.upgrades ?? 0}</p>
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">$ Credited</p>
-                <p className="text-2xl font-bold mt-1 text-emerald-700">{fmtMoney(referralsAdminData?.totals.creditedUsd ?? 0)}</p>
+                <p className="text-2xl font-bold mt-1 text-emerald-700 dark:text-emerald-300">{fmtMoney(referralsAdminData?.totals.creditedUsd ?? 0)}</p>
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">$ Pending hold</p>
-                <p className="text-2xl font-bold mt-1 text-orange-700">{fmtMoney(referralsAdminData?.totals.pendingUsd ?? 0)}</p>
+                <p className="text-2xl font-bold mt-1 text-orange-600 dark:text-orange-300">{fmtMoney(referralsAdminData?.totals.pendingUsd ?? 0)}</p>
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Signups</p>
@@ -2985,8 +3126,8 @@ export default function Admin() {
                         <td className="px-4 py-2.5">
                           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
                             row.accountType === "paid"
-                              ? "bg-violet-50 text-violet-700"
-                              : "bg-slate-100 text-slate-700"
+                              ? "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-100"
+                              : "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200"
                           }`}>
                             {row.planLabel}
                           </span>
@@ -2997,7 +3138,7 @@ export default function Admin() {
                         </td>
                         <td className="px-4 py-2.5">
                           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                            row.status === "active" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                            row.status === "active" ? "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300" : "bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100"
                           }`}>
                             {row.status}
                           </span>
@@ -3005,7 +3146,7 @@ export default function Admin() {
                         <td className="px-4 py-2.5">
                           {row.upgraded ? (
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                              row.holdCleared ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"
+                              row.holdCleared ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200" : "bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200"
                             }`}>
                               {row.holdCleared ? "upgraded (credited)" : "upgraded (hold)"}
                             </span>
@@ -3019,7 +3160,7 @@ export default function Admin() {
                         <td className="px-4 py-2.5">{fmtMoney(row.pendingUsd ?? 0)}</td>
                         <td className="px-4 py-2.5">
                           {row.rewardPending ? (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-100">
                               Reward pending - 3 referrals completed
                             </span>
                           ) : (
@@ -3156,7 +3297,7 @@ export default function Admin() {
               </Card>
               <Card className="p-4 border border-border dark:border-white/[0.08] shadow-sm bg-card">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Fetch failures</p>
-                <p className="text-2xl font-bold mt-1 text-amber-700">{invoicesAdminData?.totals.failures ?? 0}</p>
+                <p className="text-2xl font-bold mt-1 text-amber-700 dark:text-amber-300">{invoicesAdminData?.totals.failures ?? 0}</p>
               </Card>
             </div>
 
@@ -3198,7 +3339,7 @@ export default function Admin() {
                         <td className="px-4 py-2.5">{format(new Date(row.createdAt), "MMM d, yyyy p")}</td>
                         <td className="px-4 py-2.5">{row.currency} {Number(row.amount).toFixed(2)}</td>
                         <td className="px-4 py-2.5">
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200">
                             {row.status}
                           </span>
                         </td>
@@ -3290,11 +3431,11 @@ export default function Admin() {
                             <div className="flex items-center gap-2 flex-wrap mb-1">
                               <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded">#{ticket.id}</span>
                               {ticket.status === "resolved" ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 px-2 py-0.5 rounded-full">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-100 dark:bg-green-500/12 dark:text-green-300 dark:border-green-500/30 px-2 py-0.5 rounded-full">
                                   <CheckCircle className="w-2.5 h-2.5" /> Resolved
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-100 dark:bg-amber-500/15 dark:text-amber-100 dark:border-amber-400/30 px-2 py-0.5 rounded-full">
                                   <Clock className="w-2.5 h-2.5" /> Open
                                 </span>
                               )}
@@ -3304,10 +3445,10 @@ export default function Admin() {
                             </div>
                             <p className="text-sm font-semibold text-foreground truncate flex items-center gap-1.5">
                               {ticket.subject.startsWith("[Translation Issue") && (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded shrink-0">⚠ Translation</span>
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-orange-100 text-orange-800 border border-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:border-orange-400/30 px-1.5 py-0.5 rounded shrink-0">⚠ Translation</span>
                               )}
                               {ticket.subject.startsWith("[User Feedback]") && (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-violet-100 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded shrink-0">💬 Feedback</span>
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold bg-violet-100 text-violet-800 border border-violet-200 dark:bg-violet-500/15 dark:text-violet-100 dark:border-violet-400/30 px-1.5 py-0.5 rounded shrink-0">💬 Feedback</span>
                               )}
                               <span className="truncate">{ticket.subject.replace(/^\[(Translation Issue Report|User Feedback)\]\s*/, "").trim() || ticket.subject}</span>
                             </p>
@@ -3324,7 +3465,7 @@ export default function Admin() {
                               variant="outline" size="sm"
                               onClick={e => { e.stopPropagation(); void toggleTicketStatus(ticket.id, ticket.status); }}
                               isLoading={statusLoading === ticket.id}
-                              className={`h-7 text-xs px-2.5 ${ticket.status === "open" ? "text-green-700 border-green-200 hover:bg-green-50" : "text-amber-700 border-amber-200 hover:bg-amber-50"}`}
+                              className={`h-7 text-xs px-2.5 ${ticket.status === "open" ? "text-green-700 border-green-200 hover:bg-green-50 dark:text-green-300 dark:border-green-500/30 dark:hover:bg-green-500/15" : "text-amber-800 border-amber-200 hover:bg-amber-50 dark:text-amber-200 dark:border-amber-500/30 dark:hover:bg-amber-500/15"}`}
                             >
                               {ticket.status === "open" ? <><CheckCircle className="w-3 h-3 mr-1" />Resolve</> : <><Clock className="w-3 h-3 mr-1" />Reopen</>}
                             </Button>
@@ -3336,13 +3477,13 @@ export default function Admin() {
 
                         {/* Expanded thread */}
                         {expandedTicket === ticket.id && (
-                          <div className="bg-gray-50 dark:bg-[#0f1722] border-t border-border dark:border-white/[0.08] px-6 py-4 space-y-4">
+                          <div className="bg-muted/40 dark:bg-muted/20 border-t border-border dark:border-white/[0.08] px-6 py-4 space-y-4">
                             {detailLoading ? (
                               <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" /></div>
                             ) : ticketDetail && (
                               <>
                                 {/* Original message */}
-                                <div className="bg-card dark:bg-[#162233] rounded-xl border border-border dark:border-white/[0.08] p-4">
+                                <div className="bg-card rounded-xl border border-border dark:border-white/[0.08] p-4">
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                     <span>{ticket.username ? `@${ticket.username}` : ticket.email}</span>
                                     <span className="normal-case font-normal">{format(new Date(ticket.createdAt), "MMM d, yyyy HH:mm")}</span>
@@ -3353,7 +3494,7 @@ export default function Admin() {
 
                                 {/* Thread replies */}
                                 {ticketDetail.replies.map(reply => (
-                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 dark:bg-sky-500/10 dark:border-sky-400/25 ml-6" : "bg-card dark:bg-[#162233] border-border dark:border-white/[0.08]"}`}>
+                                  <div key={reply.id} className={`rounded-xl border p-4 ${reply.isAdmin ? "bg-blue-50 border-blue-100 dark:bg-sky-500/10 dark:border-sky-400/25 ml-6" : "bg-card border-border dark:border-white/[0.08]"}`}>
                                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                                       {reply.isAdmin ? (
                                         <><span className="w-2 h-2 rounded-full bg-primary inline-block" /><span className="text-primary">Support Team</span></>
@@ -3374,7 +3515,7 @@ export default function Admin() {
                                     onChange={e => setReplyText(e.target.value)}
                                     rows={3}
                                     placeholder="Type your reply..."
-                                    className="w-full text-sm text-foreground dark:text-slate-100 rounded-xl border border-border dark:border-white/10 bg-card dark:bg-[#162233] px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                                    className="w-full text-sm text-foreground rounded-xl border border-border dark:border-white/10 bg-card px-3 py-2.5 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                                   />
                                   <div className="flex items-center gap-2">
                                     <Button
@@ -3424,7 +3565,7 @@ export default function Admin() {
                 {/* Login summary cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { label: "Total logins (24h)", value: loginEventsSummary?.total24h ?? "—",    color: "bg-blue-50 text-blue-700",   icon: <Activity className="w-4 h-4" /> },
+                    { label: "Total logins (24h)", value: loginEventsSummary?.total24h ?? "—",    color: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200",   icon: <Activity className="w-4 h-4" /> },
                     { label: "Successful",          value: loginEventsSummary?.success24h ?? "—",  color: "bg-green-50 text-green-700 dark:bg-green-500/12 dark:text-green-300", icon: <CheckCircle className="w-4 h-4" /> },
                     { label: "Failed",              value: loginEventsSummary?.failures24h ?? "—", color: "bg-red-50 text-red-700 dark:bg-red-500/12 dark:text-red-300",     icon: <AlertTriangle className="w-4 h-4" /> },
                     { label: "2FA verified",        value: loginEventsSummary?.twoFa24h ?? "—",    color: "bg-violet-50 text-violet-700 dark:bg-violet-500/12 dark:text-violet-300", icon: <Lock className="w-4 h-4" /> },
@@ -3467,7 +3608,7 @@ export default function Admin() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
+                          <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-muted">
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Result</th>
                             <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">User</th>
@@ -3484,7 +3625,7 @@ export default function Admin() {
                                 {format(new Date(e.createdAt), "MMM d HH:mm:ss")}
                               </td>
                               <td className="px-4 py-2.5">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.success ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.success ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-200" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200"}`}>
                                   {e.success ? "Success" : "Failed"}
                                 </span>
                               </td>
@@ -3496,7 +3637,7 @@ export default function Admin() {
                               </td>
                               <td className="px-4 py-2.5">
                                 {e.is2fa
-                                  ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700">2FA</span>
+                                  ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-100">2FA</span>
                                   : <span className="text-muted-foreground">—</span>}
                               </td>
                               <td className="px-4 py-2.5 text-muted-foreground">
@@ -3512,7 +3653,7 @@ export default function Admin() {
                     </div>
                   )}
                   {loginEventsData?.events?.length ? (
-                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
+                    <div className="px-4 py-2 border-t border-border dark:border-white/[0.08] bg-gray-50 dark:bg-muted">
                       <p className="text-[11px] text-muted-foreground">
                         Showing {loginEventsData.events.length} most recent events · auto-refreshes every 30s
                       </p>
@@ -3596,7 +3737,7 @@ export default function Admin() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-[#131d2a]">
+                      <tr className="border-b border-border dark:border-white/[0.08] bg-gray-50 dark:bg-muted">
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Time</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Type</th>
                         <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Endpoint</th>
@@ -3614,12 +3755,12 @@ export default function Admin() {
                           </td>
                           <td className="px-4 py-2.5">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold capitalize
-                              ${e.errorType === "login_failure"  ? "bg-amber-100 text-amber-700"  :
-                                e.errorType === "rate_limited"   ? "bg-violet-100 text-violet-700" :
-                                e.errorType === "server_error"   ? "bg-red-100 text-red-700"      :
-                                e.errorType === "session_expired"? "bg-blue-100 text-blue-700"    :
-                                e.errorType === "proxy_error"    ? "bg-orange-100 text-orange-700":
-                                                                    "bg-gray-100 text-gray-600"}`}>
+                              ${e.errorType === "login_failure"  ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-100"  :
+                                e.errorType === "rate_limited"   ? "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-100" :
+                                e.errorType === "server_error"   ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200"      :
+                                e.errorType === "session_expired"? "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-100"    :
+                                e.errorType === "proxy_error"    ? "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-200":
+                                                                    "bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-slate-200"}`}>
                               {e.errorType.replace(/_/g, " ")}
                             </span>
                           </td>
@@ -3627,7 +3768,7 @@ export default function Admin() {
                             <span className="text-muted-foreground">{e.method} </span>{e.endpoint}
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className={`font-semibold ${e.statusCode >= 500 ? "text-red-600" : e.statusCode >= 400 ? "text-amber-600" : "text-foreground"}`}>
+                            <span className={`font-semibold ${e.statusCode >= 500 ? "text-red-600 dark:text-red-300" : e.statusCode >= 400 ? "text-amber-700 dark:text-amber-300" : "text-foreground"}`}>
                               {e.statusCode}
                             </span>
                           </td>
@@ -3655,7 +3796,7 @@ export default function Admin() {
                 </div>
               )}
               {errorsData?.errors?.length ? (
-                <div className="px-4 py-2 border-t border-border bg-gray-50 flex items-center justify-between">
+                <div className="px-4 py-2 border-t border-border bg-gray-50 dark:bg-muted flex items-center justify-between">
                   <p className="text-[11px] text-muted-foreground">
                     Showing {errorsData.errors.length} most recent errors · auto-refreshes every 30s
                   </p>
@@ -3673,7 +3814,7 @@ export default function Admin() {
                     return (
                       <div key={r.errorType} className="flex items-center gap-3">
                         <span className="w-32 text-xs capitalize text-foreground">{r.errorType.replace(/_/g, " ")}</span>
-                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="flex-1 h-2 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
                           <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />
                         </div>
                         <span className="text-xs font-semibold text-foreground w-8 text-right">{r.count}</span>
@@ -3697,8 +3838,8 @@ export default function Admin() {
             {/* Modal header */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-0 justify-between p-4 sm:p-5 border-b border-border">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
-                  <Radio className="w-4 h-4 text-red-500 animate-pulse" />
+                <div className="w-8 h-8 rounded-lg bg-red-50 dark:bg-red-500/15 flex items-center justify-center shrink-0">
+                  <Radio className="w-4 h-4 text-red-500 dark:text-red-300 animate-pulse" />
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-semibold text-base truncate">
@@ -3719,7 +3860,7 @@ export default function Admin() {
                     size="sm"
                     isLoading={terminateLoading}
                     onClick={() => terminateSession(viewingSessionId)}
-                    className="h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                    className="h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/15 dark:hover:border-red-400/40"
                   >
                     <StopCircle className="w-3.5 h-3.5 mr-1.5" /> Terminate
                   </Button>
@@ -3747,7 +3888,7 @@ export default function Admin() {
                 </span>
               </div>
             ) : sessionDetail?.isLive && sessionDetail.langPair ? (
-              <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+              <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-100">
                 <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>No live data received — session may be inactive. <span className="font-medium">{sessionDetail.langPair}</span></span>
               </div>
@@ -3897,10 +4038,15 @@ export default function Admin() {
             {/* Summary stats banner */}
             {!historyLoading && userSessions.length > 0 && (() => {
               const totalMin  = userSessions.reduce((s, x) => s + (x.minutesUsed ?? 0), 0);
-              const totalCost = totalMin * 0.0027;
+              const totalCost = userSessions.reduce((sum, s) => sum + adminSessionApiCostUsd({
+                minutes: s.minutesUsed ?? 0,
+                planType: historyUser.planType,
+                storedSttUsd: s.sonioxCost,
+                storedTranslationUsd: s.translationCost,
+              }), 0);
               const langPairs = [...new Set(userSessions.map(s => s.langPair).filter(Boolean))];
               return (
-                <div className="px-5 py-3 bg-gray-50 border-b border-border grid grid-cols-3 gap-3">
+                <div className="px-5 py-3 bg-gray-50 dark:bg-muted border-b border-border grid grid-cols-3 gap-3">
                   <div className="text-center">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Sessions</p>
                     <p className="text-xl font-bold text-foreground mt-0.5">{userSessions.length}</p>
@@ -3947,12 +4093,12 @@ export default function Admin() {
                         {/* Row header */}
                         <div className="flex items-center justify-between mb-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 px-1.5 py-0.5 rounded">#{userSessions.length - idx}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded">#{userSessions.length - idx}</span>
                             <span className="text-sm font-semibold text-foreground">
                               {format(new Date(s.startedAt), "EEE, MMM d yyyy")}
                             </span>
                             {s.isLive && (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-red-600 font-semibold bg-red-50 px-1.5 py-0.5 rounded-full border border-red-100">
+                              <span className="inline-flex items-center gap-1 text-[10px] text-red-700 dark:text-red-200 font-semibold bg-red-50 dark:bg-red-500/15 px-1.5 py-0.5 rounded-full border border-red-100 dark:border-red-500/30">
                                 <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Live
                               </span>
                             )}
@@ -3987,7 +4133,12 @@ export default function Admin() {
                             <span className="font-bold text-sky-950 dark:text-sky-50 tabular-nums">
                               {minUsed != null ? `${minUsed.toFixed(2)} min` : "—"}
                               {minUsed != null && (
-                                <span className="font-normal text-sky-700 dark:text-sky-300 ml-2">≈ ${(minUsed * 0.0027).toFixed(4)}</span>
+                                <span className="font-normal text-sky-700 dark:text-sky-300 ml-2">≈ ${adminSessionApiCostUsd({
+                                  minutes: minUsed,
+                                  planType: historyUser.planType,
+                                  storedSttUsd: s.sonioxCost,
+                                  storedTranslationUsd: s.translationCost,
+                                }).toFixed(4)}</span>
                               )}
                             </span>
                           </div>
@@ -4002,7 +4153,11 @@ export default function Admin() {
             {/* Drawer footer */}
             <div className="px-5 py-3 border-t border-border bg-muted/40 dark:bg-muted/20 flex items-center justify-between">
               <p className="text-[11px] text-muted-foreground">
-                Showing last 100 sessions · Cost rate: $0.0027/min
+                Showing last 100 sessions · {adminTranslationStack(historyUser.planType) === "soniox"
+                  ? `Soniox STT + native translation · $${adminSessionCostPerMin(historyUser.planType).toFixed(4)}/min`
+                  : adminTranslationStack(historyUser.planType) === "hetzner"
+                    ? `Soniox STT · leftover Hetzner /translate (~$0)`
+                    : `Soniox STT · leftover OpenAI /translate billed when stored`}
               </p>
               {userSessions.length > 0 && (
                 <Button variant="outline" size="sm" onClick={exportHistory} className="h-7 text-xs gap-1">
@@ -4026,8 +4181,8 @@ export default function Admin() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card shrink-0">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
-                  <Pencil className="w-4 h-4 text-violet-600" />
+                <div className="w-9 h-9 rounded-xl bg-violet-100 dark:bg-violet-500/15 flex items-center justify-center shrink-0">
+                  <Pencil className="w-4 h-4 text-violet-600 dark:text-violet-300" />
                 </div>
                 <div className="min-w-0">
                   <h2 className="text-sm font-semibold text-foreground truncate">Manage: {editingUser.username}</h2>
@@ -4054,7 +4209,7 @@ export default function Admin() {
                   </div>
                   <button
                     onClick={() => setEditForm(f => ({ ...f, isActive: !f.isActive }))}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${editForm.isActive ? "bg-green-500" : "bg-gray-300"}`}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${editForm.isActive ? "bg-green-500" : "bg-gray-300 dark:bg-white/20"}`}
                   >
                     <span className={`absolute top-0.5 w-5 h-5 bg-card rounded-full shadow transition-all ${editForm.isActive ? "left-5.5 translate-x-0" : "left-0.5"}`} style={{ left: editForm.isActive ? "calc(100% - 22px)" : "2px" }} />
                   </button>
@@ -4128,7 +4283,7 @@ export default function Admin() {
                   </p>
                   {!isTrialLikePlanType(editForm.planType) &&
                     (!editingUser.subscriptionStartedAt || !editingUser.subscriptionPeriodEndsAt) && (
-                      <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200/80 rounded-md px-2.5 py-2 leading-snug">
+                      <p className="text-[11px] text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-500/10 border border-amber-200/80 dark:border-amber-500/30 rounded-md px-2.5 py-2 leading-snug">
                         <span className="font-semibold">PayPal may not have stored these dates.</span> Set the real payment date below. If you only set subscription started and save, the server fills period end as start + 30 days. Leave both fields empty to leave the database unchanged.
                       </p>
                     )}
@@ -4179,7 +4334,7 @@ export default function Admin() {
                               key={d}
                               type="button"
                               onClick={() => extendPaidGrantDays(d)}
-                              className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+                              className="flex-1 h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 dark:hover:bg-violet-500/15 dark:hover:text-violet-100 dark:hover:border-violet-400/40"
                             >
                               +{d}d
                             </button>
@@ -4231,7 +4386,7 @@ export default function Admin() {
                           key={d}
                           type="button"
                           onClick={() => extendTrial(d)}
-                          className="flex-1 h-7 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 transition-colors flex items-center justify-center gap-1"
+                          className="flex-1 h-7 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300 dark:hover:bg-violet-500/15 dark:hover:text-violet-100 dark:hover:border-violet-400/40 transition-colors flex items-center justify-center gap-1"
                         >
                           <Gift className="w-3 h-3" /> +{d}d
                         </button>
@@ -4315,7 +4470,7 @@ export default function Admin() {
                           key={`add-${h}`}
                           type="button"
                           onClick={() => addComplimentaryHours(h)}
-                          className="h-9 px-2.5 rounded-lg border border-emerald-200 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100"
+                          className="h-9 px-2.5 rounded-lg border border-emerald-200 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-500/30 dark:text-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25"
                         >
                           +{h}h
                         </button>
@@ -4353,7 +4508,7 @@ export default function Admin() {
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="flex-1 h-1.5 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-all"
                         style={{ width: `${Math.min(100, (editForm.minutesUsedToday / editForm.dailyLimitMinutes) * 100)}%` }}
@@ -4372,28 +4527,32 @@ export default function Admin() {
                   <DollarSign className="w-3 h-3" /> Usage & Estimated API Cost
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
-                    <p className="text-base font-bold text-blue-700 leading-none">{formatMinutes(editingUser.totalMinutesUsed)}</p>
-                    <p className="text-[10px] text-blue-500 font-medium mt-0.5">Total Transcription</p>
+                  <div className="bg-blue-50 dark:bg-blue-500/15 rounded-xl p-3 border border-blue-100 dark:border-blue-400/25">
+                    <p className="text-base font-bold text-blue-700 dark:text-blue-100 leading-none">{formatMinutes(editingUser.totalMinutesUsed)}</p>
+                    <p className="text-[10px] text-blue-600 dark:text-blue-200 font-medium mt-0.5">Total Transcription</p>
                   </div>
-                  <div className="bg-violet-50 rounded-xl p-3 border border-violet-100">
-                    <p className="text-base font-bold text-violet-700 leading-none">{editingUser.totalSessions}</p>
-                    <p className="text-[10px] text-violet-500 font-medium mt-0.5">Total Sessions</p>
+                  <div className="bg-violet-50 dark:bg-violet-500/15 rounded-xl p-3 border border-violet-100 dark:border-violet-400/25">
+                    <p className="text-base font-bold text-violet-700 dark:text-violet-100 leading-none">{editingUser.totalSessions}</p>
+                    <p className="text-[10px] text-violet-600 dark:text-violet-200 font-medium mt-0.5">Total Sessions</p>
                   </div>
-                  <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
-                    <p className="text-base font-bold text-emerald-700 leading-none">
-                      ${(editingUser.totalMinutesUsed * 0.0027).toFixed(3)}
+                  <div className="bg-emerald-50 dark:bg-emerald-500/15 rounded-xl p-3 border border-emerald-100 dark:border-emerald-400/25">
+                    <p className="text-base font-bold text-emerald-700 dark:text-emerald-100 leading-none">
+                      ${adminEstimateSessionCostUsd(editingUser.totalMinutesUsed, editingUser.planType).toFixed(3)}
                     </p>
-                    <p className="text-[10px] text-emerald-500 font-medium mt-0.5">Est. Total API Cost</p>
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-200 font-medium mt-0.5">Est. Total API Cost</p>
                   </div>
-                  <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-                    <p className="text-base font-bold text-amber-700 leading-none">
-                      ${(editingUser.minutesUsedToday * 0.0027).toFixed(4)}
+                  <div className="bg-amber-50 dark:bg-amber-500/15 rounded-xl p-3 border border-amber-100 dark:border-amber-400/25">
+                    <p className="text-base font-bold text-amber-800 dark:text-amber-100 leading-none">
+                      ${adminEstimateSessionCostUsd(editingUser.minutesUsedToday, editingUser.planType).toFixed(4)}
                     </p>
-                    <p className="text-[10px] text-amber-500 font-medium mt-0.5">Est. Cost Today</p>
+                    <p className="text-[10px] text-amber-700 dark:text-amber-200 font-medium mt-0.5">Est. Cost Today</p>
                   </div>
                 </div>
-                <p className="text-[10px] text-muted-foreground/60">Estimates: $0.0025/min Soniox + $0.0002/min GPT-4o-mini</p>
+                <p className="text-[10px] text-muted-foreground/60">
+                  {planUsesSonioxNativeTranslation(editingUser.planType)
+                    ? `Soniox STT $${SONIOX_STT_COST_PER_MIN}/min + native translation ~$${SONIOX_NATIVE_TRANSLATION_COST_PER_MIN}/min`
+                    : `Soniox STT $${SONIOX_STT_COST_PER_MIN}/min · leftover /translate billed separately when stored`}
+                </p>
               </section>
 
               {/* ── Account Info ── */}
