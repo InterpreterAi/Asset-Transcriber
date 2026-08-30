@@ -227,11 +227,15 @@ export default function Signup() {
                 <p className="text-[11px] text-slate-600 text-center leading-relaxed">
                   By signing up you agree to our{" "}
                   <button type="button" onClick={() => setLocation("/terms")} className="underline hover:text-slate-900">
-                    Terms of Use
-                  </button>{" "}
-                  and{" "}
+                    Terms of Service
+                  </button>
+                  ,{" "}
                   <button type="button" onClick={() => setLocation("/privacy")} className="underline hover:text-slate-900">
                     Privacy Policy
+                  </button>
+                  , and{" "}
+                  <button type="button" onClick={() => setLocation("/refund")} className="underline hover:text-slate-900">
+                    Refund Policy
                   </button>
                 </p>
 

@@ -47,13 +47,18 @@ export function MarketingFooter() {
                   </Link>
                 </li>
                 <li>
-                  <Link href="/security#privacy-policy" className="hover:text-foreground transition-colors">
-                    Privacy policy
+                  <Link href="/privacy" className="hover:text-foreground transition-colors">
+                    Privacy Policy
                   </Link>
                 </li>
                 <li>
                   <Link href="/terms" className="hover:text-foreground transition-colors">
-                    Terms
+                    Terms of Service
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/refund" className="hover:text-foreground transition-colors">
+                    Refund Policy
                   </Link>
                 </li>
               </ul>
@@ -78,8 +83,14 @@ export function MarketingFooter() {
         <div className="mt-12 pt-8 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <span>© {new Date().getFullYear()} InterpreterAI · All rights reserved</span>
           <div className="flex items-center gap-6">
-            <Link href="/security#privacy-policy" className="hover:text-foreground transition-colors">
+            <Link href="/privacy" className="hover:text-foreground transition-colors">
               Privacy
+            </Link>
+            <Link href="/terms" className="hover:text-foreground transition-colors">
+              Terms
+            </Link>
+            <Link href="/refund" className="hover:text-foreground transition-colors">
+              Refunds
             </Link>
             <Link href="/security" className="hover:text-foreground transition-colors">
               Security

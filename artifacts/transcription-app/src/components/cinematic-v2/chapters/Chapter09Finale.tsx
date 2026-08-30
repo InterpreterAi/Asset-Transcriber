@@ -55,11 +55,14 @@ export function Chapter09Finale() {
             <Link href="/privacy" className="hover:text-slate-300">
               Privacy
             </Link>
-            <Link href="/security" className="hover:text-slate-300">
-              Security
-            </Link>
             <Link href="/terms" className="hover:text-slate-300">
               Terms
+            </Link>
+            <Link href="/refund" className="hover:text-slate-300">
+              Refunds
+            </Link>
+            <Link href="/security" className="hover:text-slate-300">
+              Security
             </Link>
             <Link href="/pricing" className="hover:text-slate-300">
               Pricing

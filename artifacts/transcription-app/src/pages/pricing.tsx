@@ -113,6 +113,21 @@ export default function PricingPage() {
             </Link>{" "}
             to manage billing or upgrade your plan.
           </motion.p>
+          <motion.p {...marketingFade(0.2)} className="mt-4 text-center text-xs text-slate-500 max-w-2xl mx-auto leading-relaxed">
+            Paid orders are processed by Paddle.com as Merchant of Record. By purchasing you agree to our{" "}
+            <Link href="/terms" className="text-slate-400 hover:text-slate-200 underline">
+              Terms
+            </Link>
+            ,{" "}
+            <Link href="/privacy" className="text-slate-400 hover:text-slate-200 underline">
+              Privacy Policy
+            </Link>
+            , and{" "}
+            <Link href="/refund" className="text-slate-400 hover:text-slate-200 underline">
+              Refund Policy
+            </Link>
+            .
+          </motion.p>
         </div>
       </section>
     </MarketingPageShell>

@@ -1,132 +1,148 @@
 import { Link } from "wouter";
-import { motion } from "framer-motion";
-import { MarketingNav } from "@/components/marketing/MarketingNav";
-import { MarketingFooter } from "@/components/marketing/MarketingFooter";
-
-const fade = (delay = 0) => ({
-  initial: { opacity: 0, y: 18 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true },
-  transition: { duration: 0.45, delay },
-});
+import { LegalDocument, LEGAL_CONTACT_EMAIL, LEGAL_SUPPORT_EMAIL } from "@/components/marketing/LegalDocument";
 
 export default function Terms() {
   return (
-    <div className="public-marketing-surface min-h-screen bg-[#F8FAFC] text-foreground overflow-x-hidden">
-      <MarketingNav />
+    <LegalDocument eyebrow="Legal" title="Terms of Service" current="/terms">
+      <p>
+        These Terms of Service (“Terms”) govern access to and use of InterpreterAI, including the website, workspace, and
+        related services (the “Service”). They are an agreement between you and the operator of InterpreterAI (“InterpreterAI,”
+        “we,” “us,” or “our”).
+      </p>
+      <p>
+        By creating an account, starting a trial, or using the Service, you agree to these Terms, our{" "}
+        <Link href="/privacy">Privacy Policy</Link>, and our <Link href="/refund">Refund Policy</Link>. If you do not agree,
+        do not use the Service.
+      </p>
 
-      <section className="relative border-b border-border/60 bg-white overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(70%_55%_at_20%_0%,rgba(37,99,235,0.08),transparent_60%)]" />
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-14">
-          <motion.h1 {...fade(0)} className="text-3xl sm:text-4xl font-semibold tracking-tight">
-            Terms of Use
-          </motion.h1>
-          <motion.p {...fade(0.05)} className="mt-3 text-muted-foreground">
-            Last updated: March 2026
-          </motion.p>
-        </div>
-      </section>
+      <h2>1. The Service</h2>
+      <p>
+        InterpreterAI provides real-time speech-to-text and translation assistance for professional interpreters, including
+        over-the-phone (OPI) and video-remote (VRI) style workflows. The Service is a productivity aid. It does not replace a
+        certified human interpreter, legal advice, medical advice, or your professional judgment.
+      </p>
+      <p>
+        You are solely responsible for confirming that your use complies with employer rules, platform policies, confidentiality
+        agreements, and applicable law. We are not responsible for how you apply captions or translations in a live encounter.
+      </p>
 
-      <section className="max-w-3xl mx-auto px-4 sm:px-6 py-14 lg:py-20">
-        <motion.article
-          {...fade(0.08)}
-          className="prose prose-slate prose-sm max-w-none bg-white rounded-2xl border border-border p-8 sm:p-12 prose-headings:font-semibold prose-headings:tracking-tight prose-p:text-muted-foreground prose-li:text-muted-foreground shadow-sm"
-        >
-          <p>
-            This application provides AI-powered language assistance tools intended for language practice, study, and professional
-            development.
-          </p>
+      <h2>2. Accounts</h2>
+      <p>
+        You must provide accurate account information and keep your credentials confidential. You are responsible for activity
+        under your account. Notify us promptly at{" "}
+        <a href={`mailto:${LEGAL_SUPPORT_EMAIL}`}>{LEGAL_SUPPORT_EMAIL}</a> if you suspect unauthorized access.
+      </p>
+      <p>
+        New accounts typically receive a time-limited free trial with a daily usage cap. Trial length and limits are shown in
+        the product. After the trial, continued access requires a paid subscription unless we agree otherwise in writing.
+      </p>
 
-          <p>
-            The service is not designed to replace professional interpretation services or to be used in violation of employer,
-            contractor, or platform policies.
-          </p>
+      <h2>3. Subscriptions and billing</h2>
+      <p>
+        Paid plans are billed in advance on a recurring monthly basis until cancelled. Current public plans are:
+      </p>
+      <ul>
+        <li>
+          <strong>Basic</strong> — $59 per month — up to 5 hours of interpreting time per day
+        </li>
+        <li>
+          <strong>Professional</strong> — $99 per month — unlimited interpreting hours as offered in the product; a daily
+          platform cap may still apply for reliability
+        </li>
+      </ul>
+      <p>
+        Prices, features, and limits may change. Material changes will be reflected on our{" "}
+        <Link href="/pricing">Pricing</Link> page. Taxes may be added where required.
+      </p>
+      <p>
+        Subscriptions renew automatically at the then-current rate unless you cancel before the renewal date. You can cancel
+        from your account billing settings or by contacting support. Cancellation stops future renewals; you keep access until
+        the end of the paid period unless a refund is issued under the <Link href="/refund">Refund Policy</Link>.
+      </p>
 
-          <p>
-            Users are solely responsible for ensuring that their use of this tool complies with any contractual obligations,
-            confidentiality agreements, employer rules, or applicable laws.
-          </p>
+      <h2>4. Payments and Merchant of Record</h2>
+      <p>
+        Our order process is conducted by our online reseller Paddle.com. Paddle.com is the Merchant of Record for all our
+        orders. Paddle provides all customer service inquiries and handles returns.
+      </p>
+      <p>
+        Payment cards and tax invoices are processed by Paddle, not by InterpreterAI. For checkout, receipts, tax, and
+        payment-method questions, you may also contact Paddle at{" "}
+        <a href="https://www.paddle.com/help" target="_blank" rel="noreferrer">
+          paddle.com/help
+        </a>
+        .
+      </p>
 
-          <p>The platform does not assume responsibility for how users apply the outputs generated by the tool.</p>
+      <h2>5. Acceptable use</h2>
+      <p>You agree not to:</p>
+      <ul>
+        <li>Use the Service where your employer, contracting platform, or applicable law prohibits third-party AI tools</li>
+        <li>Process audio or content you do not have the right to handle</li>
+        <li>Attempt to reverse-engineer, scrape, overload, or disrupt the Service</li>
+        <li>Share an account, resell access, or circumvent usage limits</li>
+        <li>Use the Service for unlawful, harmful, or abusive activity</li>
+      </ul>
+      <p>
+        We may suspend or terminate accounts that violate these Terms, create risk, or fail to pay. Upon termination, access
+        ends at the close of the current billing period unless we terminate immediately for cause.
+      </p>
 
-          <p>
-            By using this service, you agree that the developers are not liable for any misuse of the tool in professional
-            environments where such tools may be restricted.
-          </p>
+      <h2>6. Professional and confidentiality duties</h2>
+      <p>
+        Interpreters remain responsible for accuracy, ethics, and confidentiality. Do not treat model output as a certified
+        record. If a session involves sensitive information, follow your organization’s privacy rules in addition to ours.
+      </p>
 
-          <h2>Subscription Plans</h2>
-          <p>
-            New accounts receive a 7-day free trial with a daily usage limit of 120 minutes (2 hours). Existing users keep the
-            trial limits and duration that were originally assigned to their account. After the trial period, continued access
-            requires a paid subscription. Plans are billed monthly and may be cancelled at any time:
-          </p>
-          <ul>
-            <li>
-              <strong>Basic</strong> – $59/month – up to 5 hours of interpreting per day
-            </li>
-            <li>
-              <strong>Professional</strong> – $99/month – unlimited interpreting hours as offered in the product; a daily platform cap
-              may still apply
-            </li>
-          </ul>
+      <h2>7. Intellectual property</h2>
+      <p>
+        InterpreterAI and its branding, software, and documentation remain our property or that of our licensors. You receive
+        a limited, non-exclusive, non-transferable right to use the Service during your subscription. You retain rights in
+        content you submit, and you grant us a limited license to process it solely to operate the Service.
+      </p>
 
-          <h2>Acceptable Use</h2>
-          <p>
-            You agree not to misuse the service. You may not use this tool to process content you do not have the legal right to
-            handle, to attempt to reverse-engineer proprietary technology, or to violate any applicable laws or regulations.
-          </p>
+      <h2>8. Third-party services</h2>
+      <p>
+        Live speech recognition and related processing may be performed by subprocessors (including speech and translation
+        providers). Checkout is handled by Paddle. Those providers process data under their own terms and our instructions as
+        described in the <Link href="/privacy">Privacy Policy</Link>.
+      </p>
 
-          <h2>Limitation of Liability</h2>
-          <p>
-            The service is provided &quot;as is.&quot; We make no warranties about accuracy, availability, or fitness for a particular
-            purpose. Our liability is limited to the amount you paid for the service in the preceding month.
-          </p>
+      <h2>9. Disclaimers</h2>
+      <p>
+        The Service is provided “as is” and “as available.” Speech recognition and translation can be incomplete or incorrect.
+        We do not warrant uninterrupted availability, specific accuracy, or fitness for a particular purpose, including
+        medical, legal, or emergency interpretation.
+      </p>
 
-          <h2>Termination</h2>
-          <p>
-            We reserve the right to terminate accounts that violate these terms. You may cancel your account at any time. Upon
-            termination, access to the service will cease at the end of the billing period.
-          </p>
+      <h2>10. Limitation of liability</h2>
+      <p>
+        To the fullest extent permitted by law, InterpreterAI and its operators are not liable for indirect, incidental,
+        special, consequential, or punitive damages, or for lost profits, data, or business. Our aggregate liability for
+        claims relating to the Service is limited to the amount you paid for the Service in the one month before the claim.
+        Some jurisdictions do not allow certain limitations; in those places, our liability is limited to the maximum extent
+        permitted.
+      </p>
 
-          <h2>Changes to Terms</h2>
-          <p>We may update these terms at any time. Continued use of the service after changes constitutes acceptance of the new terms.</p>
+      <h2>11. Changes</h2>
+      <p>
+        We may update these Terms. The “Last updated” date will change when we do. Continued use after an update constitutes
+        acceptance. If a change is material, we will provide additional notice where practical.
+      </p>
 
-          <h2>Responsible Use Policy</h2>
-
-          <p>This tool is intended for language learning, practice, and general assistance.</p>
-
-          <p>
-            Users must not use this tool in situations where third-party AI tools are prohibited by their employer, contracting
-            organization, or interpreting platform.
-          </p>
-
-          <p>Users are responsible for complying with confidentiality rules and professional standards associated with interpretation services.</p>
-
-          <p>The developers do not collect, store, or retain audio conversations or transcripts from user sessions.</p>
-
-          <p>The tool processes audio in real time only to generate temporary outputs for user assistance.</p>
-
-          <h2>Contact</h2>
-          <p>
-            For questions about these Terms, contact us at{" "}
-            <a href="mailto:legal@interpreterai.com" className="text-primary font-medium no-underline hover:underline">
-              legal@interpreterai.com
-            </a>
-            .
-          </p>
-        </motion.article>
-
-        <div className="mt-10 flex flex-wrap justify-center gap-8 text-sm text-muted-foreground">
-          <Link href="/privacy" className="hover:text-foreground transition-colors">
-            Privacy Policy
-          </Link>
-          <Link href="/security" className="hover:text-foreground transition-colors">
-            Security
-          </Link>
-        </div>
-      </section>
-
-      <MarketingFooter />
-    </div>
+      <h2>12. Contact</h2>
+      <p>
+        Product and account support:{" "}
+        <a href={`mailto:${LEGAL_SUPPORT_EMAIL}`}>{LEGAL_SUPPORT_EMAIL}</a>
+        <br />
+        Legal notices:{" "}
+        <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
+        <br />
+        Billing, invoices, and returns: Paddle.com (Merchant of Record),{" "}
+        <a href="https://www.paddle.com/help" target="_blank" rel="noreferrer">
+          paddle.com/help
+        </a>
+      </p>
+    </LegalDocument>
   );
 }

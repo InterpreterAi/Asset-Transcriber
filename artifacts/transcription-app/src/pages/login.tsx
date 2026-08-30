@@ -331,8 +331,9 @@ export default function Login() {
                 </button>
               </p>
               <div className="flex items-center justify-center gap-5 mt-4">
-                <button onClick={() => setLocation("/terms")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Terms of Use</button>
-                <button onClick={() => setLocation("/privacy")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Privacy Policy</button>
+                <button onClick={() => setLocation("/terms")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Terms</button>
+                <button onClick={() => setLocation("/privacy")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Privacy</button>
+                <button onClick={() => setLocation("/refund")} className="text-xs text-slate-500 hover:text-slate-800 transition-colors">Refunds</button>
               </div>
             </motion.div>
           )}

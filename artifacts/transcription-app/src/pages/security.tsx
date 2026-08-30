@@ -83,7 +83,11 @@ export default function Security() {
             Privacy policy highlights
           </motion.h2>
           <motion.p {...marketingFade(0.32)} className="text-sm text-slate-400 mb-6">
-            Last updated: March 2026
+            Highlights only. The full policy is at{" "}
+            <Link href="/privacy" className="text-cyan-400 hover:underline">
+              /privacy
+            </Link>
+            .
           </motion.p>
           <div className="grid md:grid-cols-2 gap-5 mb-10">
             {privacyHighlights.map((p, i) => (
@@ -108,10 +112,19 @@ export default function Security() {
               assistive software.
             </p>
             <p>
+              Read the full{" "}
+              <Link href="/privacy" className="text-cyan-400 hover:underline">
+                Privacy Policy
+              </Link>
+              ,{" "}
               <Link href="/terms" className="text-cyan-400 hover:underline">
                 Terms of Service
-              </Link>{" "}
-              and contractual questions can be directed through your usual InterpreterAI channel.
+              </Link>
+              , and{" "}
+              <Link href="/refund" className="text-cyan-400 hover:underline">
+                Refund Policy
+              </Link>
+              .
             </p>
           </motion.article>
         </div>

@@ -11,6 +11,7 @@ import Workspace from "./pages/workspace";
 import Admin from "./pages/admin";
 import Terms from "./pages/terms";
 import Privacy from "./pages/privacy";
+import Refund from "./pages/refund";
 import Security from "./pages/security";
 import PricingPage from "./pages/pricing";
 import InvitePage from "./pages/invite";
@@ -108,6 +109,8 @@ function Router() {
       <Route path="/admin/demo-marketing" component={AdminMarketingDemoRoute} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={Privacy} />
+      <Route path="/refund" component={Refund} />
+      <Route path="/refund-policy" component={Refund} />
       <Route path="/security" component={Security} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/invite" component={InvitePage} />
