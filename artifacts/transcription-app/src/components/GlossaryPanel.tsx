@@ -135,16 +135,14 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
 
       <div className="p-3 border-b-2 border-border dark:border-b dark:border-white/[0.06] bg-muted/30 dark:bg-muted/35 shrink-0 space-y-2">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          Add source phrases and your preferred target wording for{" "}
+          Saved words replace the live translation for this account on{" "}
           <span className="font-medium text-foreground/80">
-            {workspaceLanguageLabel(langA)} → {workspaceLanguageLabel(langB)}
+            {workspaceLanguageLabel(langA)} ↔ {workspaceLanguageLabel(langB)}
           </span>
-          . Every row is sent as a{" "}
-          <span className="font-medium text-foreground/80">prompt hint</span>.{" "}
-          <span className="font-medium text-foreground/80">Strict</span> rows also get lightweight output fixes (when enabled below);{" "}
-          <span className="font-medium text-foreground/80">Hint</span> rows never change the model text after the fact. Use commas for alternate
-          source phrases, e.g. <span className="font-mono">claim number, claim #</span>. Higher <span className="font-mono">priority</span> runs first
-          when several strict rows apply. For the reverse direction, add a separate entry with the workspace languages swapped. Transcription (STT) is unchanged.
+          . Put the original word <span className="font-medium text-foreground/80">or</span> the wrong
+          translated word that keeps appearing, then the wording you want. One row applies both
+          directions. Use commas for aliases, e.g.{" "}
+          <span className="font-mono">claim number, claim #</span>. Transcription (STT) is unchanged.
         </p>
         <label className="flex items-start gap-2 cursor-pointer select-none">
           <input
@@ -161,7 +159,7 @@ export function GlossaryPanel({ onClose, langA, langB }: Props) {
             <span className="font-semibold">Force glossary on output</span>
             <span className="text-muted-foreground">
               {" "}
-              (recommended) — replaces leaked source phrases in-line when possible; otherwise appends at most two preferred terms per segment (no extra AI calls).
+              (recommended) — on Soniox Trial / Basic / Professional translation, saved words always replace the wrong term in the translation column.
             </span>
           </span>
         </label>

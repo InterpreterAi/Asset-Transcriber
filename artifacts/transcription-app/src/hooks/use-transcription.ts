@@ -3924,7 +3924,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
             );
             if (!painted.length && !baseTx.length) continue;
             paintCanonRowTranslationIfAllowed(row.row_id, painted, {
-              force: row.finalized,
+              force: true,
             });
           }
           // Track the active row ID — do NOT clear translation on transition.
@@ -4088,16 +4088,22 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     );
   }, []);
 
-  // Mid-session glossary edits: refresh client force entries immediately (Soniox
-  // translation_terms still need a session restart / pair change to update upstream).
+  // Mid-session glossary edits: reload force list and restart Soniox so
+  // translation_terms pick up the new preferred wording immediately.
   useEffect(() => {
     const onGlossaryChanged = () => {
       if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
       if (!morsyUsesChunkTranslationV2Experiment()) return;
       const apiKey = sonioxSessionApiKeyRef.current;
-      if (!apiKey) return;
+      const eng = canonWsIsolationEngineRef.current;
+      if (!apiKey || !eng) return;
       const pair = langPairRef.current;
-      void loadAndApplyChunkV2Glossary(pair.a, pair.b, apiKey);
+      void (async () => {
+        await loadAndApplyChunkV2Glossary(pair.a, pair.b, apiKey);
+        if (sonioxSessionApiKeyRef.current !== apiKey) return;
+        if (!isRecRef.current || !canonWsIsolationRecordingRef.current) return;
+        eng.restartSoniox(apiKey, pair, TARGET_RATE, sonioxRtUrlRef.current ?? undefined);
+      })();
     };
     window.addEventListener(GLOSSARY_CHANGED_EVENT, onGlossaryChanged);
     return () => window.removeEventListener(GLOSSARY_CHANGED_EVENT, onGlossaryChanged);

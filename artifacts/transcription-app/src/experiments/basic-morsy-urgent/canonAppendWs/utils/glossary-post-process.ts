@@ -28,7 +28,6 @@ function looksArabic(s: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
 }
 
-/** Strip Arabic clitics / tatweel / elongated ا for "already present" checks only. */
 function arabicMatchCore(s: string): string {
   let t = s.normalize("NFC").replace(/\u0640/g, "");
   let guard = 0;
@@ -46,7 +45,6 @@ function arabicMatchCore(s: string): string {
   return t.replace(/ا{2,}/g, "ا");
 }
 
-/** Cores for relatedness: base core plus optional participle prefix م. */
 function arabicMatchCoresForRelatedness(s: string): string[] {
   const base = arabicMatchCore(s);
   const cores = [base];
@@ -69,6 +67,17 @@ function arabicCoresRelated(a: string, b: string): boolean {
     }
   }
   return false;
+}
+
+const FILLER_WORD =
+  /^(i|me|my|we|you|he|she|it|they|am|is|are|was|were|be|been|the|a|an|and|or|of|to|in|on|for|at|this|that|yes|no|ok|okay|please|today|yesterday|tomorrow|now|here|there|very|also|أنا|نحن|هو|هي|هم|هذا|هذه|ذلك|و|في|من|إلى|على|نعم|لا|اليوم|أمس|غدا|الآن|هنا|هناك|جدا|أيضا)$/iu;
+
+function isFillerWord(w: string): boolean {
+  return FILLER_WORD.test(w.trim());
+}
+
+function isMostlyNumeric(s: string): boolean {
+  return /^[\d.,+\-#%/:]+$/.test(s.trim());
 }
 
 /**
@@ -98,6 +107,12 @@ export function sourcePhraseInOriginal(original: string, source: string): boolea
   return buildExactPhrasePattern(src).test(orig);
 }
 
+function phraseInText(haystack: string, phrase: string): boolean {
+  const p = phrase.trim();
+  if (p.length < 2 || !haystack.trim()) return false;
+  return buildExactPhrasePattern(p).test(normalizeExactMatchSurface(haystack));
+}
+
 /**
  * True when Original (ignoring punctuation) is exactly the glossary source phrase.
  * Used to fully replace the translation with the preferred target.
@@ -113,6 +128,19 @@ export function originalIsOnlySourcePhrase(original: string, source: string): bo
   return o.length >= 2 && o === src;
 }
 
+/** Original is the source phrase plus fillers ("I am tired", "نعم tired"). */
+export function originalIsGlossaryFocused(original: string, source: string): boolean {
+  if (originalIsOnlySourcePhrase(original, source)) return true;
+  if (!sourcePhraseInOriginal(original, source)) return false;
+  const leftover = normalizeExactMatchSurface(original)
+    .replace(buildExactPhrasePattern(source), " ")
+    .replace(/[^\p{L}\p{M}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!leftover) return true;
+  return leftover.split(/\s+/).every((w) => isFillerWord(w) || isMostlyNumeric(w));
+}
+
 function entryMatchesDirection(
   entry: ChunkV2GlossaryEntry,
   direction: { sourceLanguage: string; targetLanguage: string },
@@ -123,7 +151,6 @@ function entryMatchesDirection(
   );
 }
 
-/** Entry is for the active workspace pair (either direction). */
 function entryBelongsToPair(
   entry: ChunkV2GlossaryEntry,
   langA: string,
@@ -139,7 +166,6 @@ function entryBelongsToPair(
   );
 }
 
-/** Preferred already present (exact phrase, or Arabic core-equivalent token). */
 export function translationContainsPreferred(translation: string, preferred: string): boolean {
   const t = preferred.trim();
   if (t.length < 2) return true;
@@ -179,9 +205,6 @@ function normalizeExactPreferredVariant(text: string, preferred: string): string
     return match;
   });
 
-  // Arabic: same stem after clitic/elongation strip → rewrite to exact preferred spelling.
-  // Also rewrite related stems where one core contains the other (min 3 chars),
-  // e.g. متعب (تعب) ↔ تعبااان (تعبان) when source was proven in Original.
   if (looksArabic(prefExact)) {
     const prefCore = arabicMatchCore(prefExact);
     if (prefCore.length >= 2) {
@@ -214,6 +237,33 @@ function dedupeAdjacentPreferred(out: string, pref: string): string {
   return out.replace(new RegExp(`(${esc})(\\s+${esc})+`, "gu"), "$1");
 }
 
+/** Replace the longest content token so the wrong Soniox word does not stay on screen. */
+function replacePrimaryContentToken(translation: string, preferred: string): string {
+  const pref = preferred.trim();
+  if (!translation.trim()) return pref;
+  const re = /[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}'’\-]*/gu;
+  const tokens: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(translation)) !== null) {
+    tokens.push(m[0]);
+  }
+  if (tokens.length === 0) return pref;
+  if (tokens.length === 1) {
+    return translation.replace(buildExactPhrasePattern(tokens[0]!), pref);
+  }
+  const candidates = tokens.filter(
+    (t) =>
+      !isFillerWord(t) &&
+      !isMostlyNumeric(t) &&
+      normalizeExactMatchSurfaceLower(t) !== normalizeExactMatchSurfaceLower(pref),
+  );
+  const pick = (candidates.length > 0 ? candidates : tokens)
+    .slice()
+    .sort((a, b) => b.length - a.length)[0];
+  if (!pick) return pref;
+  return translation.replace(buildExactPhrasePattern(pick), pref);
+}
+
 function forcePreferredIntoTranslation(
   translation: string,
   preferred: string,
@@ -231,10 +281,8 @@ function forcePreferredIntoTranslation(
     return normalizeExactPreferredVariant(translation, pref);
   }
 
-  // Preferred still missing after leak/normalize passes: force it once into the segment.
-  const tail = translation.trimEnd();
-  const forced = `${tail}${tail.length > 0 ? " " : ""}${pref}`.trim();
-  return dedupeAdjacentPreferred(forced, pref);
+  const replaced = replacePrimaryContentToken(translation, pref);
+  return dedupeAdjacentPreferred(replaced, pref);
 }
 
 export type ApplyGlossaryPostProcessOpts = {
@@ -249,23 +297,17 @@ export type ApplyGlossaryPostProcessOpts = {
 };
 
 /**
- * Chunk-v2 personal glossary enforcement (any workspace language pair, either direction).
+ * Soniox-native personal glossary enforcement.
  *
- * Gates (all required):
- * - Entry belongs to the active workspace pair (either direction)
- * - enforceMode === strict
- * - Exact source phrase in this row's Original (finalized or live committed+live)
+ * Triggers (any one):
+ * - Saved source phrase is in this row's Original
+ * - Saved source phrase is in the Translation (user saved the wrong word that keeps appearing)
  *
- * Direction (LID) is a preference for ranking only — Soniox LID mismatches must not
- * drop a proven source→preferred force when the entry's source is in Original.
+ * All pair entries are forced (hint rows included). One saved row is applied in both
+ * pair directions via {@link expandGlossaryEntriesBothDirections}.
  *
- * Force behavior:
- * - Replace exact source leaks with preferred
- * - Normalize exact/clitic-equivalent preferred spelling already present
- * - If Original is only the source phrase → translation becomes preferred
- * - Otherwise if preferred still missing → force preferred into the translation once
- *
- * hint rows: Soniox translation_terms only (no client force).
+ * Force: replace leaks / cognates / the primary wrong token. Never leave the
+ * wrong word on screen with the preferred term only appended at the end.
  */
 export function applyGlossaryPostProcess(
   text: string,
@@ -275,7 +317,7 @@ export function applyGlossaryPostProcess(
   if (!entries.length) return text;
 
   const original = normalizeExactMatchSurface(opts.originalText);
-  if (original.length < 1) return text;
+  const translationIn = text;
 
   const direction = resolveRowTranslationDirection(
     opts.rowSourceLanguage,
@@ -284,7 +326,6 @@ export function applyGlossaryPostProcess(
   );
 
   const strictEntries = entries
-    .filter((e) => e.enforceMode === "strict")
     .filter((e) => entryBelongsToPair(e, opts.langA, opts.langB))
     .sort((a, b) => {
       const aDir = direction && entryMatchesDirection(a, direction) ? 1 : 0;
@@ -299,24 +340,30 @@ export function applyGlossaryPostProcess(
 
   if (strictEntries.length === 0) return text;
 
-  let result = text;
+  let result = translationIn;
 
   for (const entry of strictEntries) {
-    if (!sourcePhraseInOriginal(original, entry.source)) continue;
+    const inOriginal = original.length > 0 && sourcePhraseInOriginal(original, entry.source);
+    const inTranslation = phraseInText(result, entry.source);
+    if (!inOriginal && !inTranslation) continue;
+
+    if (inTranslation) {
+      result = result.replace(buildExactPhrasePattern(entry.source), entry.target);
+    }
 
     const leakPattern = buildExactPhrasePattern(entry.source);
     result = result.replace(leakPattern, entry.target);
 
     result = normalizeExactPreferredVariant(result, entry.target);
 
-    if (!translationContainsPreferred(result, entry.target)) {
+    if (inOriginal && !translationContainsPreferred(result, entry.target)) {
       result = forcePreferredIntoTranslation(
         result,
         entry.target,
         original,
         entry.source,
       );
-    } else {
+    } else if (inOriginal) {
       result = normalizeExactPreferredVariant(result, entry.target);
     }
 

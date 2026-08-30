@@ -101,10 +101,8 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.source).toBe("tired");
-    expect(filtered[0]?.sourceLanguage).toBe("en");
-    expect(filtered[0]?.targetLanguage).toBe("ar");
+    expect(filtered.some((e) => e.source === "tired" && e.target === "تعبااان")).toBe(true);
+    expect(filtered.some((e) => e.source === "تعبااان" && e.target === "tired")).toBe(true);
   });
 
   it("accepts snake_case language fields from API payloads", () => {
@@ -121,9 +119,8 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.source).toBe("tired");
-    expect(filtered[0]?.sourceLanguage).toBe("en");
+    expect(filtered.some((e) => e.source === "tired" && e.sourceLanguage === "en")).toBe(true);
+    expect(filtered.some((e) => e.source === "تعبااان" && e.sourceLanguage === "ar")).toBe(true);
   });
 
   it("expands comma-separated aliases with shared direction", () => {
@@ -141,8 +138,11 @@ describe("filterGlossaryForLanguagePair", () => {
       "en",
       "ar",
     );
-    expect(filtered.map((e) => e.source).sort()).toEqual(["exhausted", "tired"]);
-    expect(filtered.every((e) => e.sourceLanguage === "en" && e.targetLanguage === "ar")).toBe(true);
+    expect(filtered.filter((e) => e.sourceLanguage === "en").map((e) => e.source).sort()).toEqual([
+      "exhausted",
+      "tired",
+    ]);
+    expect(filtered.some((e) => e.source === "تعبااان" && e.targetLanguage === "en")).toBe(true);
   });
 });
 
@@ -203,7 +203,7 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect(out).toBe("je suis fatigué");
   });
 
-  it("6. reverse-direction entry has no effect on wrong direction", () => {
+  it("6. reverse-direction entry does not fire until the Arabic source is spoken", () => {
     const out = post("I am tired", [AR_EN_STRICT], "I am tired", "en", "en", "ar");
     expect(out).toBe("I am tired");
   });
@@ -253,14 +253,14 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect(out).toContain("تعبااان");
   });
 
-  it("11. interim source absent from finalized Original has no effect when Original empty", () => {
+  it("11. leaked source in the translation column is replaced even before Original lands", () => {
     const out = post("tired", [EN_AR_STRICT], "", "en");
-    expect(out).toBe("tired");
+    expect(out).toBe("تعبااان");
   });
 
-  it("12. hint entries are not enforced client-side", () => {
+  it("12. hint entries are also forced on Soniox-native output", () => {
     const out = post("I am tired", [EN_AR_HINT], "I am tired", "en");
-    expect(out).toBe("I am tired");
+    expect(out).toBe("I am تعبااان");
   });
 
   it("13. strict entries replace exact leaked source / only-source Original", () => {
@@ -314,6 +314,24 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect(out).toContain("número de reclamo");
   });
 
+  it("19. replaces the wrong translated word the user saved as the term", () => {
+    const entry: ChunkV2GlossaryEntry = {
+      source: "مرهق",
+      target: "تعبااان",
+      sourceLanguage: "en",
+      targetLanguage: "ar",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    expect(post("أنا مرهق اليوم", [entry], "I feel weary", "en")).toBe("أنا تعبااان اليوم");
+  });
+
+  it("20. replaces the primary wrong Soniox word instead of appending", () => {
+    const out = post("أنا مرهق اليوم", [EN_AR_STRICT], "I am tired today", "en");
+    expect(out).toBe("أنا تعبااان اليوم");
+    expect(out.includes("مرهق")).toBe(false);
+  });
+
   it("normalizes exact preferred variant without appending duplicates", () => {
     const entry: ChunkV2GlossaryEntry = {
       source: "tired",
@@ -361,8 +379,8 @@ describe("fetchChunkV2GlossaryForPair", () => {
       }),
     );
     const rows = await fetchChunkV2GlossaryForPair("en", "ar");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.source).toBe("tired");
+    expect(rows.some((e) => e.source === "tired" && e.target === "تعبااان")).toBe(true);
+    expect(rows.some((e) => e.source === "تعبااان" && e.target === "tired")).toBe(true);
     vi.unstubAllGlobals();
   });
 });
