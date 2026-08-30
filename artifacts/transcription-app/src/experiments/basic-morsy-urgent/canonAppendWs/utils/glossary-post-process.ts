@@ -207,7 +207,11 @@ export function translationContainsPreferred(translation: string, preferred: str
   return false;
 }
 
-function normalizeExactPreferredVariant(text: string, preferred: string): string {
+function normalizeExactPreferredVariant(
+  text: string,
+  preferred: string,
+  allowRelatedCognates = false,
+): string {
   const prefExact = preferred.trim();
   const prefNorm = normalizeExactMatchSurfaceLower(prefExact);
   if (prefNorm.length < 2) return text;
@@ -231,7 +235,8 @@ function normalizeExactPreferredVariant(text: string, preferred: string): string
         if (raw === prefExact) continue;
         if (!looksArabic(raw)) continue;
         const rawCore = arabicMatchCore(raw);
-        if (rawCore === prefCore || arabicCoresRelated(raw, prefExact)) {
+        const related = allowRelatedCognates && arabicCoresRelated(raw, prefExact);
+        if (rawCore === prefCore || related) {
           hits.push({ start: m.index, end: m.index + raw.length });
         }
       }
@@ -252,31 +257,132 @@ function dedupeAdjacentPreferred(out: string, pref: string): string {
   return out.replace(new RegExp(`(${esc})(\\s+${esc})+`, "gu"), "$1");
 }
 
-/** Replace the longest content token so the wrong Soniox word does not stay on screen. */
+type WordToken = { raw: string; start: number; end: number };
+
+function wordTokens(text: string): WordToken[] {
+  const re = /[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}'’\-]*/gu;
+  const out: WordToken[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out.push({ raw: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  return out;
+}
+
+function tokensMatchPhrase(tokens: WordToken[], start: number, phraseWords: string[]): boolean {
+  if (start + phraseWords.length > tokens.length) return false;
+  for (let i = 0; i < phraseWords.length; i++) {
+    if (normalizeExactMatchSurfaceLower(tokens[start + i]!.raw) !==
+      normalizeExactMatchSurfaceLower(phraseWords[i]!)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function findSourceSpan(tokens: WordToken[], source: string): { start: number; end: number } | null {
+  const words = source.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return null;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokensMatchPhrase(tokens, i, words)) return { start: i, end: i + words.length };
+  }
+  return null;
+}
+
+function spliceTokenRange(
+  text: string,
+  tokens: WordToken[],
+  from: number,
+  to: number,
+  replacement: string,
+): string {
+  if (tokens.length === 0) return replacement;
+  const i0 = Math.max(0, Math.min(from, tokens.length - 1));
+  const i1 = Math.max(i0, Math.min(to - 1, tokens.length - 1));
+  return text.slice(0, tokens[i0]!.start) + replacement + text.slice(tokens[i1]!.end);
+}
+
+/** Replace only the translation token(s) that sit where the source phrase was spoken. */
+function replaceAlignedSourceToken(
+  translation: string,
+  original: string,
+  source: string,
+  preferred: string,
+): string {
+  const pref = preferred.trim();
+  const origToks = wordTokens(original);
+  const span = findSourceSpan(origToks, source);
+  if (!span) return translation;
+  const transToks = wordTokens(translation);
+  if (transToks.length === 0) return pref;
+
+  const lastOrig = origToks.length - 1;
+  let i0: number;
+  let i1: number;
+  if (span.end - span.start === 1) {
+    if (span.start === lastOrig) i0 = transToks.length - 1;
+    else if (span.start === 0) i0 = 0;
+    else if (lastOrig === 0) i0 = 0;
+    else {
+      i0 = Math.round((span.start / lastOrig) * (transToks.length - 1));
+    }
+    i0 = Math.max(0, Math.min(i0, transToks.length - 1));
+    i1 = i0 + 1;
+    const picked = transToks[i0]!;
+    if (normalizeExactMatchSurfaceLower(picked.raw) === normalizeExactMatchSurfaceLower(pref)) {
+      return translation;
+    }
+  } else {
+    const startRatio = span.start / Math.max(1, origToks.length);
+    i0 = Math.min(transToks.length - 1, Math.floor(startRatio * transToks.length));
+    i1 = i0 + 1;
+  }
+  return spliceTokenRange(translation, transToks, i0, i1, pref);
+}
+
 function replacePrimaryContentToken(translation: string, preferred: string): string {
   const pref = preferred.trim();
   if (!translation.trim()) return pref;
-  const re = /[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}'’\-]*/gu;
-  const tokens: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(translation)) !== null) {
-    tokens.push(m[0]);
-  }
+  const tokens = wordTokens(translation);
   if (tokens.length === 0) return pref;
   if (tokens.length === 1) {
-    return translation.replace(buildExactPhrasePattern(tokens[0]!), pref);
+    return translation.slice(0, tokens[0]!.start) + pref + translation.slice(tokens[0]!.end);
   }
   const candidates = tokens.filter(
     (t) =>
-      !isFillerWord(t) &&
-      !isMostlyNumeric(t) &&
-      normalizeExactMatchSurfaceLower(t) !== normalizeExactMatchSurfaceLower(pref),
+      !isFillerWord(t.raw) &&
+      !isMostlyNumeric(t.raw) &&
+      normalizeExactMatchSurfaceLower(t.raw) !== normalizeExactMatchSurfaceLower(pref),
   );
   const pick = (candidates.length > 0 ? candidates : tokens)
     .slice()
-    .sort((a, b) => b.length - a.length)[0];
+    .sort((a, b) => b.raw.length - a.raw.length)[0];
   if (!pick) return pref;
-  return translation.replace(buildExactPhrasePattern(pick), pref);
+  return translation.slice(0, pick.start) + pref + translation.slice(pick.end);
+}
+
+function countPhrase(text: string, phrase: string): number {
+  const p = phrase.trim();
+  if (p.length < 2 || !text.trim()) return 0;
+  const exact = new RegExp(buildExactPhrasePattern(p).source, "giu");
+  const latin = latinPhrasePattern(p);
+  const re = latin ?? exact;
+  return [...text.matchAll(re)].length;
+}
+
+function limitPreferredOccurrences(text: string, preferred: string, max: number): string {
+  const pref = preferred.trim();
+  if (pref.length < 2 || max < 0) return text;
+  let seen = 0;
+  const exact = new RegExp(buildExactPhrasePattern(pref).source, "giu");
+  return text
+    .replace(exact, (match) => {
+      seen += 1;
+      return seen > max ? "" : match;
+    })
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([،,.!?؟])/g, "$1")
+    .trim();
 }
 
 function forcePreferredIntoTranslation(
@@ -293,11 +399,19 @@ function forcePreferredIntoTranslation(
   }
 
   if (translationContainsPreferred(translation, pref)) {
-    return normalizeExactPreferredVariant(translation, pref);
+    return normalizeExactPreferredVariant(
+      translation,
+      pref,
+      originalIsGlossaryFocused(original, source),
+    );
   }
 
-  const replaced = replacePrimaryContentToken(translation, pref);
-  return dedupeAdjacentPreferred(replaced, pref);
+  if (originalIsGlossaryFocused(original, source)) {
+    return dedupeAdjacentPreferred(replacePrimaryContentToken(translation, pref), pref);
+  }
+
+  const aligned = replaceAlignedSourceToken(translation, original, source, pref);
+  return dedupeAdjacentPreferred(aligned, pref);
 }
 
 export type ApplyGlossaryPostProcessOpts = {
@@ -375,7 +489,8 @@ export function applyGlossaryPostProcess(
     if (!spokeSource && !leakedSource) continue;
 
     result = replacePhrase(result, entry.source, entry.target);
-    result = normalizeExactPreferredVariant(result, entry.target);
+    const focused = originalIsGlossaryFocused(original, entry.source);
+    result = normalizeExactPreferredVariant(result, entry.target, focused);
 
     if (!translationContainsPreferred(result, entry.target)) {
       result = forcePreferredIntoTranslation(
@@ -385,10 +500,15 @@ export function applyGlossaryPostProcess(
         entry.source,
       );
     } else {
-      result = normalizeExactPreferredVariant(result, entry.target);
+      result = normalizeExactPreferredVariant(result, entry.target, focused);
     }
 
     result = dedupeAdjacentPreferred(result, entry.target);
+    result = limitPreferredOccurrences(
+      result,
+      entry.target,
+      Math.max(countPhrase(original, entry.source), 1),
+    );
   }
 
   return polishStandardRegister(result, entries, opts);

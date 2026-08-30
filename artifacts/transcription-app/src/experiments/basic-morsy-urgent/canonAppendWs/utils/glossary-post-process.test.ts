@@ -368,6 +368,50 @@ describe("applyGlossaryPostProcess (chunk-v2 force preferred)", () => {
     expect(out.includes("مرهق")).toBe(false);
   });
 
+  it("21. does not paste a glossary term onto an unrelated word in the same sentence", () => {
+    const pussy: ChunkV2GlossaryEntry = {
+      source: "pussy",
+      target: "كس",
+      sourceLanguage: "en",
+      targetLanguage: "ar",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    const out = post(
+      "وماذا عن تنظير القولون؟ وماذا عن قضيبي؟",
+      [pussy],
+      "How about the colonoscopy? How about my pussy?",
+      "en",
+    );
+    expect(out).toContain("كس");
+    expect(out).toContain("تنظير");
+    expect(out).toContain("القولون");
+    expect(out).not.toContain("تنظير كس");
+    expect(out).not.toContain("قضيبي");
+    expect((out.match(/كس/g) ?? []).length).toBe(1);
+  });
+
+  it("22. inserts a nonsense glossary target only once when the source was said once", () => {
+    const biopsy: ChunkV2GlossaryEntry = {
+      source: "biopsy",
+      target: "خززههع",
+      sourceLanguage: "en",
+      targetLanguage: "ar",
+      enforceMode: "strict",
+      priority: 0,
+    };
+    const out = post(
+      "نعم، إنها فقط biopsy التي قمتُ بفحصها الأسبوع الماضي.",
+      [biopsy],
+      "Yes, it's just the biopsy that I've checked last week.",
+      "en",
+    );
+    expect(out).toContain("خززههع");
+    expect(out.toLowerCase()).not.toContain("biopsy");
+    expect((out.match(/خززههع/g) ?? []).length).toBe(1);
+    expect(out).toContain("فحص");
+  });
+
   it("normalizes exact preferred variant without appending duplicates", () => {
     const entry: ChunkV2GlossaryEntry = {
       source: "tired",
