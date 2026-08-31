@@ -1,34 +1,35 @@
 import { AlertTriangle, Check, Lock, X } from "lucide-react";
-import { PayPalCheckoutButton, PaymentMethodLogos } from "@/components/billing/PaymentMethodLogos";
+import { AcceptedCardMethods, PayByCardButton, PayPalCheckoutButton } from "@/components/billing/PaymentMethodLogos";
 import { cn } from "@/lib/utils";
 import type { PricingPlanKey } from "@/lib/pricing-copy";
 
+const BASIC_FEATURES = [
+  "Real-time transcription and translation",
+  "Speaker identification",
+  "Tab audio capture",
+  "Personal glossary",
+  "62+ languages",
+] as const;
+
 const UPGRADE_PLAN_COPY: Record<
   PricingPlanKey,
-  { name: string; priceLabel: string; features: readonly string[]; highlight: boolean }
+  { name: string; priceLabel: string; hours: string; chooseLabel: string; features: readonly string[]; highlight: boolean }
 > = {
   basic: {
     name: "Basic",
     priceLabel: "$59",
+    hours: "Up to 5 interpreting hours per day",
+    chooseLabel: "Choose Basic — $59/month",
     highlight: false,
-    features: [
-      "Up to 5 interpreting hours per day",
-      "Real-time transcription and translation",
-      "Speaker identification",
-      "Tab audio capture",
-      "Personal glossary",
-      "62+ languages",
-    ],
+    features: BASIC_FEATURES,
   },
   professional: {
     name: "Professional",
     priceLabel: "$99",
+    hours: "Unlimited interpreting hours",
+    chooseLabel: "Choose Professional — $99/month",
     highlight: true,
-    features: [
-      "Unlimited interpreting hours",
-      "Everything in Basic",
-      "Designed for daily professional use",
-    ],
+    features: [...BASIC_FEATURES, "Designed for daily professional use"],
   },
 };
 
@@ -64,7 +65,7 @@ export function UpgradePlanModal(props: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-      <div className="relative w-full max-w-[44rem] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0a1220] text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+      <div className="relative w-full max-w-[46rem] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0a1220] text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
         <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-sky-400/50 to-transparent" />
 
         <div className="flex items-start justify-between gap-4 px-6 sm:px-8 pt-6 pb-5">
@@ -126,7 +127,8 @@ export function UpgradePlanModal(props: {
                     {plan.priceLabel}
                     <span className="ml-1 text-sm font-normal text-slate-500">/month</span>
                   </p>
-                  <ul className="mt-5 space-y-2.5 flex-1">
+                  <p className="mt-3 text-[13px] font-medium text-sky-200">{plan.hours}</p>
+                  <ul className="mt-4 space-y-2.5 flex-1">
                     {plan.features.map((f) => (
                       <li key={f} className="text-[13px] text-slate-300 flex items-start gap-2.5 leading-snug">
                         <Check className="w-4 h-4 shrink-0 text-sky-400 mt-px" strokeWidth={2.2} />
@@ -136,34 +138,35 @@ export function UpgradePlanModal(props: {
                   </ul>
                   <div
                     className={cn(
-                      "mt-6 h-9 rounded-lg text-xs font-medium flex items-center justify-center border",
+                      "mt-6 h-10 rounded-lg text-sm font-semibold flex items-center justify-center",
                       isSelected
-                        ? "border-sky-400/40 bg-sky-400/10 text-sky-200"
-                        : "border-white/10 text-slate-400",
+                        ? "bg-sky-500 text-white"
+                        : "border border-white/12 text-slate-200",
                     )}
                   >
-                    {isSelected ? "Selected" : `Select ${plan.name}`}
+                    {plan.chooseLabel}
                   </div>
                 </button>
               );
             })}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 space-y-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 space-y-3.5">
             {props.paddleEnabled ? (
               <>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Pay with card</p>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Pay by card</p>
                   <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
                     <Lock className="w-3 h-3" />
                     Secure checkout
                   </span>
                 </div>
-                <PaymentMethodLogos onPaddleCheckout={payWithCard} disabled={payDisabled} />
-                <p className="text-center text-[11px] text-slate-500 leading-relaxed">
+                <PayByCardButton onClick={payWithCard} disabled={payDisabled} loading={paddleBusy} />
+                <AcceptedCardMethods onPayByCard={payWithCard} disabled={payDisabled} />
+                <p className="text-center text-[11px] text-slate-500">
                   {selected
-                    ? "Visa, Mastercard, Amex, Apple Pay, and Google Pay open Paddle checkout. Availability depends on your device and location."
-                    : "Select a plan, then choose a card brand to continue."}
+                    ? "Opens Paddle checkout. Apple Pay and Google Pay appear when your device supports them."
+                    : "Select a plan, then pay by card."}
                 </p>
 
                 <div className="flex items-center gap-3 py-0.5">
