@@ -61,7 +61,7 @@ function loadPaddleScript(): Promise<void> {
     const existing = document.querySelector<HTMLScriptElement>("script[data-paddle-billing]");
     if (existing) {
       existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Failed to load Paddle.js")));
+      existing.addEventListener("error", () => reject(new Error("Failed to load Paddle.js (blocked or unreachable)")));
       return;
     }
     const script = document.createElement("script");
@@ -69,7 +69,7 @@ function loadPaddleScript(): Promise<void> {
     script.async = true;
     script.dataset.paddleBilling = "1";
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Paddle.js"));
+    script.onerror = () => reject(new Error("Failed to load Paddle.js (blocked or unreachable)"));
     document.head.appendChild(script);
   });
 }
