@@ -615,6 +615,7 @@ export default function WorkspaceDefault() {
         planType,
         userId: user?.id ?? 0,
         email: user?.email,
+        onError: (message) => setUpgradeError(message),
         onCompleted: (transactionId) => {
           setPaddlePaymentProcessing(true);
           void fetch("/api/payments/sync-paddle-checkout", {

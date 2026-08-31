@@ -17,8 +17,11 @@ import {
   extractPaddlePriceId,
   extractPaddleSubscriptionId,
   extractPaddleTransactionStatus,
+  inferPaddleEnvironment,
   ipMatchesCidrList,
   isCompletedPaddleTransactionStatus,
+  paddleApiKeyKind,
+  paddleApiKeyLooksLikeClientToken,
   paddleCanceledAccessStillActive,
   paddleTransactionBelongsToUser,
   verifyPaddleSignature,
@@ -55,13 +58,15 @@ function envTrim(name: string): string {
 }
 
 export function paddleEnvironment(): "sandbox" | "live" {
-  const explicit = envTrim("PADDLE_ENV").toLowerCase();
-  if (explicit === "live" || explicit === "production") return "live";
-  if (explicit === "sandbox") return "sandbox";
-  const token = envTrim("PADDLE_CLIENT_TOKEN");
-  const key = envTrim("PADDLE_API_KEY");
-  if (token.startsWith("live_") || key.startsWith("pdl_live_")) return "live";
-  return "sandbox";
+  return inferPaddleEnvironment({
+    env: envTrim("PADDLE_ENV"),
+    apiKey: envTrim("PADDLE_API_KEY"),
+    clientToken: envTrim("PADDLE_CLIENT_TOKEN"),
+  });
+}
+
+export function paddleApiCredentialKind(): string {
+  return paddleApiKeyKind(paddleApiKey());
 }
 
 export function paddleApiBase(): string {
@@ -135,8 +140,9 @@ export async function paddleFetch<T = unknown>(path: string, init?: RequestInit)
   });
   const json = (await res.json().catch(() => null)) as T;
   if (!res.ok) {
-    const detail = (json as { error?: { detail?: string } } | null)?.error?.detail;
-    throw new PaddleApiError(detail || `Paddle API ${res.status}`, res.status, json);
+    const errObj = (json as { error?: { detail?: string; code?: string } } | null)?.error;
+    const detail = errObj?.detail || `Paddle API ${res.status}`;
+    throw new PaddleApiError(detail, res.status, json);
   }
   return json;
 }
@@ -421,6 +427,13 @@ export async function createPaddleCheckoutTransaction(opts: {
   customerId: string | null;
   successUrl: string;
 }): Promise<{ checkoutUrl: string; transactionId: string }> {
+  const key = paddleApiKey();
+  if (paddleApiKeyLooksLikeClientToken(key)) {
+    throw new PaddleApiError(
+      "PADDLE_API_KEY is a client-side token (live_/test_). Use the server API key (pdl_…) for checkout.",
+      503,
+    );
+  }
   const priceId = paddlePriceIdForPlan(opts.planType);
   if (!priceId) throw new PaddleApiError(`Paddle price is not configured for ${opts.planType}`, 503);
   const body: Record<string, unknown> = {

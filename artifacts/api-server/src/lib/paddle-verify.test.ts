@@ -11,14 +11,48 @@ import { TRIAL_DAILY_LIMIT_MINUTES } from "./trial-constants.js";
 import {
   billingPlanFromAllowlistedPriceIds,
   extractPaddlePriceId,
+  inferPaddleEnvironment,
   ipMatchesCidrList,
   isCompletedPaddleTransactionStatus,
+  paddleApiKeyKind,
+  paddleApiKeyLooksLikeClientToken,
   paddleCanceledAccessStillActive,
   paddleTransactionBelongsToUser,
   verifyPaddleSignature,
 } from "./paddle-verify.js";
 
 const allowlist = { basic: "pri_basic_public", professional: "pri_pro_public" };
+
+describe("Paddle environment inference", () => {
+  it("uses live credential prefixes even when PADDLE_ENV=sandbox", () => {
+    assert.equal(
+      inferPaddleEnvironment({
+        env: "sandbox",
+        apiKey: "pdl_live_example",
+        clientToken: "live_example",
+      }),
+      "live",
+    );
+  });
+
+  it("uses test_ client tokens as sandbox even if PADDLE_ENV=live", () => {
+    assert.equal(
+      inferPaddleEnvironment({
+        env: "live",
+        apiKey: "pdl_sdbx_example",
+        clientToken: "test_example",
+      }),
+      "sandbox",
+    );
+  });
+
+  it("detects a client-side token mistakenly used as the API key", () => {
+    assert.equal(paddleApiKeyLooksLikeClientToken("live_abc"), true);
+    assert.equal(paddleApiKeyLooksLikeClientToken("pdl_live_abc"), false);
+    assert.equal(paddleApiKeyKind("live_abc"), "client_token_live");
+    assert.equal(paddleApiKeyKind("pdl_live_abc"), "pdl_live");
+  });
+});
 
 describe("public PayPal/Paddle plan mapping", () => {
   it("maps $59 Basic to basic-hetzner (Soniox default, not leftover basic-libre)", () => {

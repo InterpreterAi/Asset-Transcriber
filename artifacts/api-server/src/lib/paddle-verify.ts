@@ -5,6 +5,37 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
 }
 
+/** Live credential prefixes win over PADDLE_ENV=sandbox (that combo 403s on sandbox-api). */
+export function inferPaddleEnvironment(opts: {
+  env?: string;
+  apiKey?: string;
+  clientToken?: string;
+}): "sandbox" | "live" {
+  const key = (opts.apiKey ?? "").trim();
+  const token = (opts.clientToken ?? "").trim();
+  if (token.startsWith("live_") || key.startsWith("pdl_live_")) return "live";
+  if (token.startsWith("test_")) return "sandbox";
+  const explicit = (opts.env ?? "").trim().toLowerCase();
+  if (explicit === "live" || explicit === "production") return "live";
+  return "sandbox";
+}
+
+export function paddleApiKeyLooksLikeClientToken(key: string): boolean {
+  const k = key.trim();
+  return k.startsWith("live_") || k.startsWith("test_");
+}
+
+export function paddleApiKeyKind(key: string): string {
+  const k = key.trim();
+  if (!k) return "missing";
+  if (k.startsWith("pdl_live_")) return "pdl_live";
+  if (k.startsWith("pdl_sdbx_")) return "pdl_sdbx";
+  if (k.startsWith("pdl_")) return "pdl";
+  if (k.startsWith("live_")) return "client_token_live";
+  if (k.startsWith("test_")) return "client_token_test";
+  return "unknown";
+}
+
 export function isCompletedPaddleTransactionStatus(status: string | null | undefined): boolean {
   const s = (status ?? "").trim().toLowerCase();
   return s === "completed" || s === "paid" || s === "billed";

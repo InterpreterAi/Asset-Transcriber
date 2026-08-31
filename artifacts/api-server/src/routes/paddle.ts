@@ -8,7 +8,10 @@ import {
   createPaddleCheckoutTransaction,
   createPaddlePortalUrl,
   fetchPaddleTransaction,
+  paddleApiBase,
+  paddleApiCredentialKind,
   paddleCheckoutEnabled,
+  paddleEnvironment,
   paddleJsPublicConfig,
   paddlePublicConfig,
 } from "../lib/paddle.js";
@@ -81,8 +84,23 @@ router.post("/create-paddle-checkout", requireAuth, async (req: any, res) => {
     res.json({ checkoutUrl: created.checkoutUrl, transactionId: created.transactionId, provider: "paddle" });
   } catch (err) {
     if (err instanceof PaddleApiError) {
-      logger.error({ err, details: err.details }, "POST /api/payments/create-paddle-checkout Paddle API error");
-      res.status(err.statusCode || 500).json({ error: err.message, code: "paddle_checkout_failed" });
+      logger.error(
+        {
+          err,
+          details: err.details,
+          environment: paddleEnvironment(),
+          apiBase: paddleApiBase(),
+          apiKeyKind: paddleApiCredentialKind(),
+        },
+        "POST /api/payments/create-paddle-checkout Paddle API error",
+      );
+      const forbidden = err.statusCode === 403 || /permitted to perform this request/i.test(err.message);
+      res.status(err.statusCode || 500).json({
+        error: forbidden
+          ? "Paddle blocked the server checkout request. Opening the card form directly — this is not caused by an expired trial."
+          : err.message,
+        code: forbidden ? "paddle_forbidden" : "paddle_checkout_failed",
+      });
       return;
     }
     logger.error({ err }, "POST /api/payments/create-paddle-checkout failed");

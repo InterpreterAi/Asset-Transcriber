@@ -13,7 +13,7 @@ type PaddleInstance = {
   Initialize: (opts: {
     token: string;
     pwCustomer?: { id: string };
-    eventCallback?: (event: { name?: string; data?: { transaction_id?: string; id?: string } }) => void;
+    eventCallback?: (event: PaddleCheckoutEvent) => void;
   }) => void;
   Checkout: {
     open: (opts: {
@@ -26,6 +26,16 @@ type PaddleInstance = {
   };
 };
 
+type PaddleCheckoutEvent = {
+  name?: string;
+  data?: {
+    transaction_id?: string;
+    id?: string;
+    error?: { detail?: string; message?: string };
+    message?: string;
+  };
+};
+
 declare global {
   interface Window {
     Paddle?: PaddleInstance;
@@ -34,6 +44,16 @@ declare global {
 
 let initializedToken: string | null = null;
 let checkoutCompletedHandler: ((transactionId: string) => void) | null = null;
+let checkoutErrorHandler: ((message: string) => void) | null = null;
+
+function paddleEventErrorMessage(event: PaddleCheckoutEvent): string {
+  return (
+    event.data?.error?.detail ||
+    event.data?.error?.message ||
+    event.data?.message ||
+    "Paddle checkout failed to open"
+  );
+}
 
 function loadPaddleScript(): Promise<void> {
   if (window.Paddle) return Promise.resolve();
@@ -87,6 +107,9 @@ export async function initializePaddleJs(config: Pick<PaddleJsPublicConfig, "env
         const txn = event.data?.transaction_id || event.data?.id || "";
         if (txn) checkoutCompletedHandler?.(txn);
       }
+      if (event.name === "checkout.error") {
+        checkoutErrorHandler?.(paddleEventErrorMessage(event));
+      }
     },
   });
   initializedToken = config.clientToken;
@@ -98,11 +121,13 @@ export async function openPaddleCheckout(opts: {
   userId: number;
   email?: string | null;
   onCompleted: (transactionId: string) => void;
+  onError?: (message: string) => void;
 }): Promise<void> {
   const priceId = opts.config.prices[opts.planType];
   if (!opts.config.enabled || !opts.config.clientToken || !priceId) {
     throw new Error("Paddle checkout is not configured");
   }
+  let transactionId = "";
   const created = await fetch("/api/payments/create-paddle-checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -113,20 +138,52 @@ export async function openPaddleCheckout(opts: {
     transactionId?: string;
     checkoutUrl?: string;
     error?: string;
+    code?: string;
+    ignored?: boolean;
   };
-  if (!created.ok || !createdJson.transactionId) {
+  if (createdJson.ignored) {
+    throw new Error("Admin accounts do not use card checkout");
+  }
+  if (created.ok && createdJson.transactionId) {
+    transactionId = createdJson.transactionId;
+  } else if (created.status !== 403 && created.status !== 503 && createdJson.code !== "paddle_forbidden") {
     throw new Error(createdJson.error ?? "Could not start Paddle checkout");
   }
 
   checkoutCompletedHandler = opts.onCompleted;
+  checkoutErrorHandler = opts.onError ?? null;
   await initializePaddleJs(opts.config);
   if (!window.Paddle) throw new Error("Paddle.js did not load");
 
-  window.Paddle.Checkout.open({
-    transactionId: createdJson.transactionId,
-    settings: {
-      displayMode: "overlay",
-      successUrl: `${window.location.origin}/checkout?paddle_txn=_ptxn_`,
-    },
-  });
+  const settings = {
+    displayMode: "overlay" as const,
+    successUrl: `${window.location.origin}/checkout?paddle_txn=_ptxn_`,
+  };
+
+  try {
+    if (transactionId) {
+      window.Paddle.Checkout.open({ transactionId, settings });
+      return;
+    }
+
+    // Server transaction create was forbidden (missing transaction.write or key/env mismatch).
+    // Overlay checkout only needs the public client token + live price IDs.
+    window.Paddle.Checkout.open({
+      items: [{ priceId, quantity: 1 }],
+      customer: opts.config.customerId
+        ? { id: opts.config.customerId }
+        : opts.email
+          ? { email: opts.email }
+          : undefined,
+      customData: {
+        user_id: String(opts.userId),
+        plan_type: opts.planType,
+      },
+      settings,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Paddle checkout failed to open";
+    opts.onError?.(message);
+    throw new Error(message);
+  }
 }
