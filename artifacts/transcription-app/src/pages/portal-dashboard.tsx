@@ -85,6 +85,8 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [customFrom, setCustomFrom] = useState(() => toIsoDateForInput(new Date()));
   const [customTo, setCustomTo] = useState(() => toIsoDateForInput(new Date()));
+  const [billingPortalLoading, setBillingPortalLoading] = useState(false);
+  const [billingPortalError, setBillingPortalError] = useState<string | null>(null);
 
   const trialHistoryBaseline = useMemo(() => {
     const k = "workspace_trial_usage_baseline_v1";
@@ -136,6 +138,21 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
       .catch(() => setSessions([]))
       .finally(() => setSessionsLoading(false));
   }, [period, customFrom, customTo, me]);
+
+  const openBillingPortal = async () => {
+    setBillingPortalError(null);
+    setBillingPortalLoading(true);
+    try {
+      const r = await fetch("/api/payments/manage-billing", { method: "POST", credentials: "include" });
+      const d = (await r.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!r.ok || !d.url) throw new Error(d.error ?? "Billing portal unavailable");
+      window.location.href = d.url;
+    } catch (err) {
+      setBillingPortalError(err instanceof Error ? err.message : "Billing portal unavailable");
+    } finally {
+      setBillingPortalLoading(false);
+    }
+  };
 
   if (meLoading || overviewLoading || !me) {
     return (
@@ -358,10 +375,11 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   </p>
                 </div>
                 <button
-                  onClick={() => (trialLike ? setLocation("/pricing") : void fetch("/api/payments/manage-billing", { method: "POST", credentials: "include" }).then((r) => r.json()).then((d: { url?: string }) => d.url && (window.location.href = d.url)).catch(() => {}))}
-                  className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold"
+                  onClick={() => (trialLike ? setLocation("/pricing") : void openBillingPortal())}
+                  disabled={!trialLike && billingPortalLoading}
+                  className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60"
                 >
-                  {trialLike ? "Upgrade" : "Manage"}
+                  {trialLike ? "Upgrade" : billingPortalLoading ? "Opening…" : "Manage"}
                 </button>
               </div>
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -392,7 +410,12 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
 
             <div className="rounded-2xl border border-border p-5">
               <h2 className="text-lg font-medium">Invoices</h2>
-              <p className="text-sm text-muted-foreground">Download receipts and view payment history.</p>
+              <p className="text-sm text-muted-foreground">
+                View and download receipts in Paddle. Click a row or open the billing portal.
+              </p>
+              {billingPortalError && (
+                <p className="mt-2 text-sm text-destructive">{billingPortalError}</p>
+              )}
               <div className="mt-4 border border-border rounded-xl overflow-hidden">
                 <div className="grid grid-cols-4 text-xs font-medium bg-muted/40 px-4 py-2">
                   <span>Invoice</span>
@@ -401,15 +424,33 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   <span className="text-right">Amount</span>
                 </div>
                 {(overview?.invoices ?? []).length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">No invoices yet.</div>
+                  <div className="px-4 py-6 text-sm text-muted-foreground space-y-3">
+                    <p>No invoices yet{trialLike ? "." : " in InterpreterAI. Open Paddle to view receipts."}</p>
+                    {!trialLike && (
+                      <button
+                        type="button"
+                        onClick={() => void openBillingPortal()}
+                        disabled={billingPortalLoading}
+                        className="h-9 px-3 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-60"
+                      >
+                        {billingPortalLoading ? "Opening…" : "Open Paddle invoices"}
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   (overview?.invoices ?? []).map((inv) => (
-                    <div key={inv.id} className="grid grid-cols-4 text-sm px-4 py-2.5 border-t border-border/60">
+                    <button
+                      key={inv.id}
+                      type="button"
+                      onClick={() => void openBillingPortal()}
+                      disabled={billingPortalLoading}
+                      className="grid grid-cols-4 text-sm px-4 py-2.5 border-t border-border/60 w-full text-left hover:bg-muted/40 disabled:opacity-60"
+                    >
                       <span className="font-mono text-xs truncate pr-2">{inv.id}</span>
                       <span>{new Date(inv.createdAt).toLocaleDateString()}</span>
                       <span>{inv.status}</span>
                       <span className="text-right">{inv.amount} {inv.currency}</span>
-                    </div>
+                    </button>
                   ))
                 )}
               </div>

@@ -7,7 +7,7 @@ import { InviteModal } from "@/components/InviteModal";
 import {
   Menu, Mic, Mic2, LogOut, Settings, AlertTriangle, Clock, User,
   Languages, Trash2, Copy, Check, Monitor, PanelRightClose, PanelRightOpen,
-  Lock, Eye, EyeOff, X, CheckCircle, Zap, CreditCard, ExternalLink, ShieldCheck,
+  Lock, Eye, EyeOff, X, CheckCircle, Zap, ExternalLink, ShieldCheck,
   LifeBuoy, BookOpen, StickyNote, Flag, Share2, MessageCircle, AlertCircle, Gift,
   Sparkles, Sun, Moon, ArrowDownToLine, Columns2, Rows3, BarChart3,
 } from "lucide-react";
@@ -44,11 +44,8 @@ import {
 } from "@/lib/utils";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
 import { fetchPaddleConfig, openPaddleCheckout, type PaddlePublicConfig } from "@/lib/paddle-checkout";
-import {
-  PRICING_PLANS,
-  PRICING_SHARED_FEATURES,
-  PRICING_SHARED_FEATURES_SECTION_TITLE,
-} from "@/lib/pricing-copy";
+import { UpgradePlanModal } from "@/components/UpgradePlanModal";
+import { PRICING_PLANS } from "@/lib/pricing-copy";
 import { workspaceLanguageOptions } from "@/lib/workspace-languages";
 
 const LANG_OPTIONS = workspaceLanguageOptions();
@@ -1050,8 +1047,6 @@ export default function WorkspaceDefault() {
     if (currentTier === "professional") return plan.key === "basic";
     return false;
   });
-  const selectedPlanIsAvailable =
-    selectedPlan !== null && upgradePlanOptions.some((plan) => plan.key === selectedPlan);
   const isDowngradeFlow = currentTier === "professional";
   const planModalTitle = isDowngradeFlow ? "Change Your Plan" : "Upgrade Your Plan";
   const planModalSubtitle = isDowngradeFlow
@@ -1060,17 +1055,6 @@ export default function WorkspaceDefault() {
       ? "Upgrade to Professional for unlimited interpreting hours"
       : "Choose a plan that fits your workflow";
   const paddleCheckoutOn = Boolean(paddleConfig?.enabled);
-  const checkoutCtaLabel = paddleCheckoutOn
-    ? isDowngradeFlow
-      ? "Downgrade to Basic — pay with card"
-      : selectedPlan === "professional"
-        ? "Upgrade to Professional — pay with card"
-        : "Pay with card"
-    : isDowngradeFlow
-      ? "Downgrade to Basic — Continue with PayPal"
-      : selectedPlan === "professional"
-        ? "Upgrade to Professional — Continue with PayPal"
-        : "Continue with PayPal";
 
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
@@ -1118,166 +1102,21 @@ export default function WorkspaceDefault() {
       {showInviteModal && (
         <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />
       )}
-      {/* ── UPGRADE MODAL ────────────────────────────────────────────────── */}
       {showUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-card text-card-foreground border border-border rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-6 py-5 border-b border-border">
-              <div>
-                <h2 className="text-lg font-bold text-foreground">{planModalTitle}</h2>
-                <p className="text-sm text-foreground/75 mt-0.5">{planModalSubtitle}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowUpgrade(false)}
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-foreground/70 hover:text-foreground hover:bg-muted transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Plans */}
-            <div className="p-6 space-y-4">
-              {upgradeError && (
-                <div className="bg-destructive/15 border border-destructive/30 rounded-lg p-3 flex items-start gap-2 text-sm text-destructive dark:text-red-300">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{upgradeError}</span>
-                </div>
-              )}
-
-              <div className="rounded-xl border border-border bg-muted/45 dark:bg-muted/25 p-4">
-                <p className="text-sm font-semibold text-foreground">{PRICING_SHARED_FEATURES_SECTION_TITLE}</p>
-                <ul className="mt-2 space-y-1.5">
-                  {PRICING_SHARED_FEATURES.map(f => (
-                    <li key={f} className="text-sm text-foreground/90 flex items-start gap-2 leading-snug">
-                      <Check className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" strokeWidth={2.5} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div
-                className={cn(
-                  "grid gap-4 mx-auto w-full",
-                  upgradePlanOptions.length >= 2
-                    ? "sm:grid-cols-2 max-w-xl"
-                    : "sm:grid-cols-1 max-w-sm",
-                )}
-              >
-                {upgradePlanOptions.map((plan) => (
-                  <button
-                    key={plan.key}
-                    type="button"
-                    onClick={() => setSelectedPlan(plan.key)}
-                    className={cn(
-                      "text-left relative rounded-xl border p-5 flex flex-col gap-3 transition-all",
-                      selectedPlan === plan.key
-                        ? "border-primary bg-primary/12 dark:bg-primary/20 ring-2 ring-primary/35 shadow-sm"
-                        : "border-border bg-muted/35 dark:bg-muted/20 hover:border-primary/50 hover:bg-muted/50",
-                    )}
-                  >
-                    {plan.highlight && !isDowngradeFlow && (
-                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-sm">
-                        MOST POPULAR
-                      </span>
-                    )}
-                    {isDowngradeFlow && plan.key === "basic" && (
-                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-muted text-foreground text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-border shadow-sm">
-                        DOWNGRADE
-                      </span>
-                    )}
-                    <div>
-                      <p className="font-semibold text-sm text-foreground">{plan.name}</p>
-                      <p className="text-[11px] text-foreground/75 mt-0.5 leading-relaxed">{plan.tagline}</p>
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold text-foreground tabular-nums">
-                        {plan.priceLabel}
-                        <span className="text-sm font-normal text-foreground/65">/mo</span>
-                      </p>
-                    </div>
-                    <ul className="space-y-1 pt-0.5">
-                      {plan.features.map(f => (
-                        <li key={f} className="text-[11px] text-foreground/85 flex items-start gap-2 leading-relaxed">
-                          <Check className="w-3 h-3 shrink-0 text-primary mt-0.5" strokeWidth={2.5} />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                  </button>
-                ))}
-              </div>
-
-              {selectedPlanIsAvailable && (
-                <div className="rounded-xl border border-border bg-muted/45 dark:bg-muted/25 p-4">
-                  <p className="text-sm font-semibold text-foreground">Secure checkout</p>
-                  <p className="text-xs text-foreground/80 mt-1 leading-relaxed">
-                    {paddleCheckoutOn
-                      ? isDowngradeFlow
-                        ? "Pay with card through Paddle. Your plan updates automatically after payment — no admin switch needed."
-                        : "Pay with debit or credit card through Paddle. Your account upgrades from trial automatically when the payment succeeds."
-                      : "Continue with PayPal. Your account upgrades from trial when PayPal confirms the subscription."}
-                  </p>
-
-                  {paddleCheckoutOn && (
-                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-background/80 dark:bg-background/40 px-3 py-2.5">
-                      <CreditCard className="w-4 h-4 shrink-0 text-primary mt-0.5" aria-hidden />
-                      <p className="text-xs text-foreground/85 leading-relaxed">
-                        Checkout is processed by Paddle.com (Merchant of Record). Invoices and renewals sync into InterpreterAI automatically.
-                      </p>
-                    </div>
-                  )}
-
-                  {paddleCheckoutOn ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void handlePaddleCheckout(selectedPlan)}
-                        disabled={upgradeLoading === selectedPlan}
-                        className="mt-3 w-full h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm"
-                      >
-                        {upgradeLoading === selectedPlan ? (
-                          <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                        ) : (
-                          <CreditCard className="w-4 h-4" aria-hidden />
-                        )}
-                        {checkoutCtaLabel}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handlePayPalCheckout(selectedPlan)}
-                        disabled={upgradeLoading === `paypal-${selectedPlan}`}
-                        className="mt-2 w-full h-10 rounded-lg border border-border bg-background text-sm font-medium text-foreground/80 hover:bg-muted transition-colors disabled:opacity-60"
-                      >
-                        {upgradeLoading === `paypal-${selectedPlan}` ? "Opening PayPal…" : "Pay with PayPal instead"}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void handlePayPalCheckout(selectedPlan)}
-                      disabled={upgradeLoading === `paypal-${selectedPlan}`}
-                      className="mt-3 w-full h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm"
-                    >
-                      {upgradeLoading === `paypal-${selectedPlan}` ? "Opening PayPal…" : checkoutCtaLabel}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <p className="text-center text-xs text-foreground/65 pt-1 leading-relaxed px-2">
-                Cancel anytime.{paddleCheckoutOn ? " Card payments are handled by Paddle." : ""}{" "}
-                <a href="/terms" className="underline hover:text-foreground">Terms</a>
-                {" · "}
-                <a href="/privacy" className="underline hover:text-foreground">Privacy</a>
-                {" · "}
-                <a href="/refund" className="underline hover:text-foreground">Refunds</a>
-              </p>
-            </div>
-          </div>
-        </div>
+        <UpgradePlanModal
+          title={planModalTitle}
+          subtitle={planModalSubtitle}
+          error={upgradeError}
+          planKeys={upgradePlanOptions.map((plan) => plan.key)}
+          selectedPlan={selectedPlan}
+          paddleEnabled={paddleCheckoutOn}
+          upgradeLoading={upgradeLoading}
+          isDowngradeFlow={isDowngradeFlow}
+          onClose={() => setShowUpgrade(false)}
+          onSelectPlan={setSelectedPlan}
+          onPaddleCheckout={(plan) => void handlePaddleCheckout(plan)}
+          onPayPalCheckout={(plan) => void handlePayPalCheckout(plan)}
+        />
       )}
 
       {/* MOBILE SETTINGS SIDEBAR BACKDROP */}
