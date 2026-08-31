@@ -592,7 +592,7 @@ export default function WorkspaceDefault() {
     const tier = workspacePlanTierKey(user?.planType);
     if (tier === "basic") setSelectedPlan("professional");
     else if (tier === "professional") setSelectedPlan("basic");
-    else setSelectedPlan(null);
+    else setSelectedPlan("professional");
     void fetchPaddleConfig()
       .then(setPaddleConfig)
       .catch(() => setPaddleConfig({ enabled: false, environment: "sandbox", clientToken: "", customerId: null, prices: { basic: null, professional: null } }));
