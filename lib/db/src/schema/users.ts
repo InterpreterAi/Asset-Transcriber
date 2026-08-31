@@ -49,6 +49,8 @@ export const usersTable = pgTable("users", {
   defaultLangA: text("default_lang_a").notNull().default("en"),
   defaultLangB: text("default_lang_b").notNull().default("ar"),
   paypalSubscriptionId: text("paypal_subscription_id"),
+  paddleCustomerId: text("paddle_customer_id"),
+  paddleSubscriptionId: text("paddle_subscription_id"),
   subscriptionStatus: text("subscription_status"),
   subscriptionPlan: text("subscription_plan"),
   subscriptionStartedAt: timestamp("subscription_started_at"),

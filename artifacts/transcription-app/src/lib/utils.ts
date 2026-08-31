@@ -47,8 +47,8 @@ export function workspacePlanTierKey(planType: string | null | undefined): "tria
 }
 
 /**
- * Workspace usage pill / sidebar: Professional and Platinum tiers show "/ unlimited" while the server still enforces
- * a finite daily cap (payPal plan config). Same for OpenAI and Libre/Hetzner plan_type variants.
+ * Workspace usage pill / sidebar: Professional and Platinum tiers show "/ unlimited".
+ * Public Professional (`professional-libre`) also stores the 9000-minute unlimited cap on the server.
  */
 export function workspaceUsageShowsSlashUnlimited(planType: string | null | undefined): boolean {
   const t = workspacePlanTierKey(planType);

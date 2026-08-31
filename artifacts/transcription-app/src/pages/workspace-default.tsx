@@ -43,6 +43,7 @@ import {
   workspaceUsageShowsSlashUnlimited,
 } from "@/lib/utils";
 import { getWorkspacePlanTestOptions } from "@/lib/workspace-plan-test-options";
+import { fetchPaddleConfig, openPaddleCheckout, type PaddlePublicConfig } from "@/lib/paddle-checkout";
 import {
   PRICING_PLANS,
   PRICING_SHARED_FEATURES,
@@ -394,6 +395,44 @@ export default function WorkspaceDefault() {
     window.history.replaceState(null, "", qs ? `${path}?${qs}` : path);
   }, [user]);
 
+  const [paddlePaymentProcessing, setPaddlePaymentProcessing] = useState(false);
+
+  // ?paddle_txn= is only a lookup key. The server must re-fetch and verify the transaction.
+  useEffect(() => {
+    if (!user?.id) return;
+    const params = new URLSearchParams(window.location.search);
+    const txn = params.get("paddle_txn")?.trim();
+    if (!txn || txn === "_ptxn_") return;
+
+    let cancelled = false;
+    setPaddlePaymentProcessing(true);
+    void (async () => {
+      try {
+        const r = await fetch("/api/payments/sync-paddle-checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ transactionId: txn }),
+        });
+        const data = (await r.json().catch(() => ({}))) as { ok?: boolean };
+        if (cancelled) return;
+        if (r.ok && data.ok) {
+          await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          params.delete("paddle_txn");
+          const q = params.toString();
+          window.history.replaceState(null, "", window.location.pathname + (q ? `?${q}` : "") + window.location.hash);
+          setPaddlePaymentProcessing(false);
+          return;
+        }
+      } catch {
+        /* keep Payment processing until the verified webhook arrives */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, queryClient]);
+
   // PayPal returns here with ?subscription_id=I-... after approval — sync plan + confirmation email if webhook was late or incomplete.
   useEffect(() => {
     if (!user?.id) return;
@@ -525,6 +564,30 @@ export default function WorkspaceDefault() {
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<"basic" | "professional" | null>(null);
   const [testPlanLoading, setTestPlanLoading] = useState<string | null>(null);
+  const [paddleConfig, setPaddleConfig] = useState<PaddlePublicConfig | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void fetchPaddleConfig()
+      .then((config) => {
+        if (!cancelled) setPaddleConfig(config);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPaddleConfig({
+            enabled: false,
+            environment: "sandbox",
+            clientToken: "",
+            customerId: null,
+            prices: { basic: null, professional: null },
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const handleOpenUpgrade = () => {
     setShowUpgrade(true);
@@ -533,10 +596,50 @@ export default function WorkspaceDefault() {
     if (tier === "basic") setSelectedPlan("professional");
     else if (tier === "professional") setSelectedPlan("basic");
     else setSelectedPlan(null);
+    void fetchPaddleConfig()
+      .then(setPaddleConfig)
+      .catch(() => setPaddleConfig({ enabled: false, environment: "sandbox", clientToken: "", customerId: null, prices: { basic: null, professional: null } }));
+  };
+
+  const handlePaddleCheckout = async (planType: "basic" | "professional") => {
+    setUpgradeLoading(planType);
+    setUpgradeError(null);
+    try {
+      const config = await fetchPaddleConfig();
+      setPaddleConfig(config);
+      if (!config.enabled) {
+        throw new Error("Card checkout is not configured");
+      }
+      await openPaddleCheckout({
+        config,
+        planType,
+        userId: user?.id ?? 0,
+        email: user?.email,
+        onCompleted: (transactionId) => {
+          setPaddlePaymentProcessing(true);
+          void fetch("/api/payments/sync-paddle-checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ transactionId }),
+          }).then(async (r) => {
+            const data = (await r.json().catch(() => ({}))) as { ok?: boolean };
+            if (r.ok && data.ok) {
+              await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+              setPaddlePaymentProcessing(false);
+            }
+          });
+        },
+      });
+    } catch (err: unknown) {
+      setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setUpgradeLoading(null);
+    }
   };
 
   const handlePayPalCheckout = async (planType: "basic" | "professional") => {
-    setUpgradeLoading(planType);
+    setUpgradeLoading(`paypal-${planType}`);
     setUpgradeError(null);
     try {
       const res = await fetch("/api/payments/create-subscription", {
@@ -932,7 +1035,7 @@ export default function WorkspaceDefault() {
   }
   if (!user) return null;
 
-  /** True unlimited (e.g. admin 9999) or Pro/Platinum: UI shows "/ unlimited" and hides the cap bar; Pro/Platinum still enforce daily cap on server. */
+  /** True unlimited (dailyLimit ≥ 9000, e.g. public Professional) or Pro/Platinum plan_type: UI shows "/ unlimited". */
   const usageShowsUnlimitedCap =
     user.dailyLimitMinutes >= 9000 || workspaceUsageShowsSlashUnlimited(user.planType);
   const isPaidUser = !isTrialLikePlanType(user.planType);
@@ -955,11 +1058,18 @@ export default function WorkspaceDefault() {
     : currentTier === "basic"
       ? "Upgrade to Professional for unlimited interpreting hours"
       : "Choose a plan that fits your workflow";
-  const checkoutCtaLabel = isDowngradeFlow
-    ? "Downgrade to Basic — continue to PayPal"
-    : selectedPlan === "professional"
-      ? "Upgrade to Professional — continue to PayPal"
-      : "Pay with card — continue to PayPal";
+  const paddleCheckoutOn = Boolean(paddleConfig?.enabled);
+  const checkoutCtaLabel = paddleCheckoutOn
+    ? isDowngradeFlow
+      ? "Downgrade to Basic — pay with card"
+      : selectedPlan === "professional"
+        ? "Upgrade to Professional — pay with card"
+        : "Pay with card"
+    : isDowngradeFlow
+      ? "Downgrade to Basic — Continue with PayPal"
+      : selectedPlan === "professional"
+        ? "Upgrade to Professional — Continue with PayPal"
+        : "Continue with PayPal";
 
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
@@ -990,6 +1100,14 @@ export default function WorkspaceDefault() {
       />
       {/* Mandatory feedback is trial-only now (half of the trial daily cap, i.e. 1 hour of a 2-hour trial).
           Paid plans no longer get any feedback prompt — mandatory or dismissible. */}
+      {paddlePaymentProcessing && (
+        <div className="fixed top-3 left-1/2 z-50 -translate-x-1/2 max-w-md w-[calc(100%-1.5rem)] rounded-lg border border-border bg-background px-4 py-3 shadow-lg text-sm text-foreground">
+          <p className="font-semibold">Payment processing</p>
+          <p className="text-xs text-foreground/75 mt-1 leading-relaxed">
+            Paddle is confirming your payment. Your plan updates when the payment is verified — a return link cannot change your account by itself.
+          </p>
+        </div>
+      )}
       <EarlyTrialFeedbackPrompt
         planType={user.planType}
         trialExpired={user.trialExpired}
@@ -1095,36 +1213,66 @@ export default function WorkspaceDefault() {
                 <div className="rounded-xl border border-border bg-muted/45 dark:bg-muted/25 p-4">
                   <p className="text-sm font-semibold text-foreground">Secure checkout</p>
                   <p className="text-xs text-foreground/80 mt-1 leading-relaxed">
-                    {isDowngradeFlow
-                      ? "Continue to PayPal to switch to Basic. After you confirm, cancel or replace your current Professional subscription in PayPal if both appear active."
-                      : "Pay with your debit or credit card on the next screen. Checkout is processed securely by PayPal — you don't need a PayPal balance; card payments run through PayPal, then you'll return here when done."}
+                    {paddleCheckoutOn
+                      ? isDowngradeFlow
+                        ? "Pay with card through Paddle. Your plan updates automatically after payment — no admin switch needed."
+                        : "Pay with debit or credit card through Paddle. Your account upgrades from trial automatically when the payment succeeds."
+                      : "Continue with PayPal. Your account upgrades from trial when PayPal confirms the subscription."}
                   </p>
 
-                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-background/80 dark:bg-background/40 px-3 py-2.5">
-                    <CreditCard className="w-4 h-4 shrink-0 text-primary mt-0.5" aria-hidden />
-                    <p className="text-xs text-foreground/85 leading-relaxed">
-                      One step: continue below → enter card details on PayPal (or log in if you prefer).
-                    </p>
-                  </div>
+                  {paddleCheckoutOn && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-border bg-background/80 dark:bg-background/40 px-3 py-2.5">
+                      <CreditCard className="w-4 h-4 shrink-0 text-primary mt-0.5" aria-hidden />
+                      <p className="text-xs text-foreground/85 leading-relaxed">
+                        Checkout is processed by Paddle.com (Merchant of Record). Invoices and renewals sync into InterpreterAI automatically.
+                      </p>
+                    </div>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => void handlePayPalCheckout(selectedPlan)}
-                    disabled={upgradeLoading === selectedPlan}
-                    className="mt-3 w-full h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm"
-                  >
-                    {upgradeLoading === selectedPlan ? (
-                      <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                    ) : (
-                      <CreditCard className="w-4 h-4" aria-hidden />
-                    )}
-                    {checkoutCtaLabel}
-                  </button>
+                  {paddleCheckoutOn ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void handlePaddleCheckout(selectedPlan)}
+                        disabled={upgradeLoading === selectedPlan}
+                        className="mt-3 w-full h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm"
+                      >
+                        {upgradeLoading === selectedPlan ? (
+                          <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                        ) : (
+                          <CreditCard className="w-4 h-4" aria-hidden />
+                        )}
+                        {checkoutCtaLabel}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handlePayPalCheckout(selectedPlan)}
+                        disabled={upgradeLoading === `paypal-${selectedPlan}`}
+                        className="mt-2 w-full h-10 rounded-lg border border-border bg-background text-sm font-medium text-foreground/80 hover:bg-muted transition-colors disabled:opacity-60"
+                      >
+                        {upgradeLoading === `paypal-${selectedPlan}` ? "Opening PayPal…" : "Pay with PayPal instead"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handlePayPalCheckout(selectedPlan)}
+                      disabled={upgradeLoading === `paypal-${selectedPlan}`}
+                      className="mt-3 w-full h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm"
+                    >
+                      {upgradeLoading === `paypal-${selectedPlan}` ? "Opening PayPal…" : checkoutCtaLabel}
+                    </button>
+                  )}
                 </div>
               )}
 
               <p className="text-center text-xs text-foreground/65 pt-1 leading-relaxed px-2">
-                Cancel anytime. After PayPal confirms payment, you&apos;ll be redirected back to InterpreterAI.
+                Cancel anytime.{paddleCheckoutOn ? " Card payments are handled by Paddle." : ""}{" "}
+                <a href="/terms" className="underline hover:text-foreground">Terms</a>
+                {" · "}
+                <a href="/privacy" className="underline hover:text-foreground">Privacy</a>
+                {" · "}
+                <a href="/refund" className="underline hover:text-foreground">Refunds</a>
               </p>
             </div>
           </div>

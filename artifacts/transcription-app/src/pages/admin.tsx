@@ -462,7 +462,7 @@ function lastSeen(date: string | null | undefined) {
 const ADMIN_PLAN_OPTIONS_DEFAULTS: { value: string; label: string }[] = [
   { value: "trial-openai", label: "Trial · Default (Soniox)" },
   { value: "basic-hetzner", label: "Basic · Default (Soniox, 5h/day)" },
-  { value: "professional-libre", label: "Professional · Default (Soniox, 12h/day)" },
+  { value: "professional-libre", label: "Professional · Default (Soniox, unlimited)" },
 ];
 
 const ADMIN_PLAN_OPTIONS_LEGACY: { value: string; label: string }[] = [
@@ -515,7 +515,8 @@ function defaultDailyLimitForAdminPlan(planType: string): number {
   ) {
     return 300;
   }
-  if (p === "professional" || p === "professional-openai" || p === "professional-libre") return 720;
+  if (p === "professional-libre") return 9000;
+  if (p === "professional" || p === "professional-openai") return 720;
   if (p === "platinum" || p === "platinum-openai" || p === "platinum-libre" || p === "unlimited") return 720;
   return 60;
 }
@@ -4475,14 +4476,14 @@ export default function Admin() {
                           +{h}h
                         </button>
                       ))}
-                      {[60, 120, 180, 300, 360, 480, 540, 600, 720].map(m => (
+                      {[60, 120, 180, 300, 360, 480, 540, 600, 720, 9000].map(m => (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setEditForm(f => ({ ...f, dailyLimitMinutes: m }))}
                           className={`h-9 px-2.5 rounded-lg border text-xs font-medium transition-colors ${editForm.dailyLimitMinutes === m ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:bg-muted"}`}
                         >
-                          {m % 60 === 0 ? `${m / 60}h` : `${m}m`}
+                          {m >= 9000 ? "Unlimited" : m % 60 === 0 ? `${m / 60}h` : `${m}m`}
                         </button>
                       ))}
                     </div>

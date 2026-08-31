@@ -169,6 +169,9 @@ function defaultDailyLimitMinutesForPlanType(planType: string): number | null {
   const p = (planType ?? "").trim().toLowerCase();
   if (!p) return null;
   if (isTrialLikePlanType(p)) return TRIAL_DAILY_LIMIT_MINUTES;
+  // Public Professional only. Leftover professional / professional-openai stay on the historic 12h cap.
+  if (p === "professional-libre") return paypalPlanConfig("professional").dailyLimitMinutes;
+  if (p === "professional" || p === "professional-openai") return 720;
   const billingKey = billingProductKeyFromPlanType(p);
   if (!billingKey) return null;
   return paypalPlanConfig(billingKey).dailyLimitMinutes;

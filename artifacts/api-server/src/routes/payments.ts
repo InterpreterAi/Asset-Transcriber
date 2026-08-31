@@ -692,8 +692,11 @@ function dailyLimitMinutesForAdminTestPlan(planType: AdminTestPlanType): number 
   ) {
     return paypalPlanConfig("basic").dailyLimitMinutes;
   }
-  if (planType === "professional" || planType === "professional-openai" || planType === "professional-libre") {
+  if (planType === "professional-libre") {
     return paypalPlanConfig("professional").dailyLimitMinutes;
+  }
+  if (planType === "professional" || planType === "professional-openai") {
+    return 720;
   }
   if (planType === "platinum" || planType === "platinum-openai" || planType === "platinum-libre") {
     return paypalPlanConfig("platinum").dailyLimitMinutes;
@@ -793,7 +796,14 @@ router.post("/manage-billing", requireAuth, async (req: any, res) => {
       return;
     }
 
-    // Final Boss 3 billing is primarily PayPal; route users there when they have PayPal subscription state.
+    if (user.paddleCustomerId) {
+      const { createPaddlePortalUrl } = await import("../lib/paddle.js");
+      const url = await createPaddlePortalUrl(user.paddleCustomerId);
+      res.json({ url, provider: "paddle" as const });
+      return;
+    }
+
+    // Legacy PayPal subscribers keep PayPal autopay management.
     if (user.paypalSubscriptionId || user.subscriptionPlan) {
       res.json({ url: paypalManageBillingUrl(), provider: "paypal" as const });
       return;
@@ -834,7 +844,15 @@ router.get("/billing-overview", requireAuth, async (req: any, res) => {
     const subEnd = user.subscriptionPeriodEndsAt ? new Date(user.subscriptionPeriodEndsAt) : null;
 
     let invoices: BillingOverviewInvoice[] = [];
-    if (user.paypalSubscriptionId) {
+    if (user.paddleCustomerId) {
+      try {
+        const { listPaddleCustomerInvoices } = await import("../lib/paddle.js");
+        invoices = await listPaddleCustomerInvoices(user.paddleCustomerId);
+      } catch (err) {
+        logger.warn({ err, userId }, "GET /api/payments/billing-overview: Paddle invoices unavailable");
+      }
+    }
+    if (user.paypalSubscriptionId && invoices.length === 0) {
       const to = now;
       const from = new Date(to);
       from.setFullYear(from.getFullYear() - 1);
@@ -895,6 +913,15 @@ router.get("/billing-overview", requireAuth, async (req: any, res) => {
         subscriptionStartedAt: subStart ? subStart.toISOString() : null,
         subscriptionPeriodEndsAt: subEnd ? subEnd.toISOString() : null,
         paypalSubscriptionId: user.paypalSubscriptionId ?? null,
+        paddleCustomerId: user.paddleCustomerId ?? null,
+        paddleSubscriptionId: user.paddleSubscriptionId ?? null,
+        billingProvider: user.paddleSubscriptionId
+          ? "paddle"
+          : user.paypalSubscriptionId
+            ? "paypal"
+            : user.stripeSubscriptionId
+              ? "stripe"
+              : null,
         memberSince: memberSince.toISOString(),
         trialStartedAt: trialStart.toISOString(),
         trialEndsAt: user.trialEndsAt ? new Date(user.trialEndsAt).toISOString() : null,

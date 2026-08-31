@@ -31,6 +31,9 @@ type BillingOverview = {
     subscriptionStartedAt: string | null;
     subscriptionPeriodEndsAt: string | null;
     paypalSubscriptionId: string | null;
+    paddleCustomerId?: string | null;
+    paddleSubscriptionId?: string | null;
+    billingProvider?: "paddle" | "paypal" | "stripe" | null;
     memberSince: string;
     trialStartedAt: string;
     trialEndsAt: string | null;
@@ -144,7 +147,8 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
 
   const userPlanType = String(me.planType ?? "").toLowerCase();
   const trialLike = isTrialLikePlanType(userPlanType);
-  const showUnlimitedCap = workspaceUsageShowsSlashUnlimited(userPlanType);
+  const showUnlimitedCap =
+    workspaceUsageShowsSlashUnlimited(userPlanType) || Number(me.dailyLimitMinutes ?? 0) >= 9000;
   const usedMinutes = Number(me.minutesUsedToday ?? 0);
   const limitMinutes = Number(me.dailyLimitMinutes ?? 0);
   const safePercent = limitMinutes > 0 ? Math.min(100, Math.max(0, (usedMinutes / limitMinutes) * 100)) : 0;
@@ -369,7 +373,15 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Payment</p>
-                  <p className="font-medium">{overview?.user.paypalSubscriptionId ? "PayPal" : "None"}</p>
+                  <p className="font-medium">
+                    {overview?.user.billingProvider === "paddle"
+                      ? "Paddle"
+                      : overview?.user.billingProvider === "paypal" || overview?.user.paypalSubscriptionId
+                        ? "PayPal"
+                        : overview?.user.billingProvider === "stripe"
+                          ? "Stripe"
+                          : "None"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Renewal</p>

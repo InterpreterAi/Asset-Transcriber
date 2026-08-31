@@ -36,7 +36,7 @@ export const PRICING_COMPARISON_ROWS: readonly {
   professional: string;
 }[] = [
   { label: "Best for", basic: "Periodic sessions", professional: "Daily practice" },
-  { label: "Daily platform time", basic: "Up to 5 hours", professional: "Generous daily allowance" },
+  { label: "Daily platform time", basic: "Up to 5 hours", professional: "Unlimited" },
   { label: "OPI & VRI-style workflows", basic: "Included", professional: "Included" },
   { label: "Real-time transcription", basic: "Yes", professional: "Yes" },
   { label: "Speaker separation", basic: "Yes", professional: "Yes" },

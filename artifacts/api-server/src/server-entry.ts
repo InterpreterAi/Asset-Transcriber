@@ -223,6 +223,8 @@ async function migrateSchemaOnce() {
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_limit_reached_email_app_date TEXT`,
       );
       await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paddle_customer_id TEXT`);
+      await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paddle_subscription_id TEXT`);
       await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT`);
       await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan TEXT`);
       await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMP`);
@@ -443,12 +445,22 @@ async function migrateSchemaOnce() {
           AND plan_type NOT IN ('trial', 'trial-openai', 'trial-libre')
       `);
 
-      // Professional / Platinum paid tiers: 12h/day billable cap (720 min). Preserves admin-style caps (≥9000).
+      // Public Professional (`professional-libre`): canonical unlimited cap (9000).
+      // Do not rewrite leftover professional / professional-openai or Platinum.
+      await run(`
+        UPDATE users
+        SET daily_limit_minutes = 9000
+        WHERE LOWER(TRIM(plan_type)) = 'professional-libre'
+          AND daily_limit_minutes > 0
+          AND daily_limit_minutes < 9000
+      `);
+
+      // Leftover Professional SKUs + Platinum: keep the historic 12h/day cap. Preserves admin-style caps (≥9000).
       await run(`
         UPDATE users
         SET daily_limit_minutes = 720
         WHERE LOWER(TRIM(plan_type)) IN (
-          'professional', 'professional-libre', 'professional-openai',
+          'professional', 'professional-openai',
           'platinum', 'platinum-libre', 'platinum-openai', 'unlimited'
         )
           AND daily_limit_minutes > 0

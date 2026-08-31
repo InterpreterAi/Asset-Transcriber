@@ -195,7 +195,11 @@ function isPaidTranslationPlan(eff: string): boolean {
 }
 
 function billingProviderId(user: User): string {
-  return `${user.paypalSubscriptionId ?? ""}`.trim() || `${user.stripeSubscriptionId ?? ""}`.trim();
+  return (
+    `${user.paddleSubscriptionId ?? ""}`.trim() ||
+    `${user.paypalSubscriptionId ?? ""}`.trim() ||
+    `${user.stripeSubscriptionId ?? ""}`.trim()
+  );
 }
 
 /** Admin-granted paid SKU (Basic/Pro/etc.) with an end date and no PayPal/Stripe subscription. */
@@ -340,7 +344,14 @@ export async function getUserWithResetCheck(userId: number): Promise<User | unde
     logger.warn({ err, userId }, "getUserWithResetCheck: daily reset skipped");
   }
 
-  return expireAdminComplimentaryIfDue(user);
+  const afterComplimentary = await expireAdminComplimentaryIfDue(user);
+  try {
+    const { expireCanceledPaddleAccessIfDue } = await import("./paddle.js");
+    return expireCanceledPaddleAccessIfDue(afterComplimentary);
+  } catch (err) {
+    logger.warn({ err, userId }, "getUserWithResetCheck: Paddle cancel-expiry skipped");
+    return afterComplimentary;
+  }
 }
 
 export function buildUserInfo(user: User) {

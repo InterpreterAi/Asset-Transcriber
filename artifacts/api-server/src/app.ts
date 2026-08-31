@@ -4,6 +4,8 @@ import express, { type Express } from "express";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { WebhookHandlers } from "./lib/webhookHandlers.js";
+import { processPaddleWebhook } from "./lib/paddle-webhook.js";
+import { clientIpFromRequest } from "./lib/paddle.js";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import {
@@ -286,6 +288,30 @@ app.post(
       return res.status(400).json({ error: "Webhook processing failed" });
     }
   }
+);
+
+// ── Paddle webhook — raw body required for HMAC (same rule as Stripe) ────────
+app.post(
+  "/api/payments/paddle-webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const signature = req.headers["paddle-signature"];
+    const sig = Array.isArray(signature) ? signature[0] : signature;
+    if (!sig) {
+      return res.status(400).json({ error: "Missing Paddle-Signature header" });
+    }
+    try {
+      const result = await processPaddleWebhook({
+        rawBody: req.body as Buffer,
+        signature: sig,
+        sourceIp: clientIpFromRequest(req),
+      });
+      return res.status(result.status).json(result.body);
+    } catch (err) {
+      logger.error({ err }, "Paddle webhook error");
+      return res.status(400).json({ error: "Webhook processing failed" });
+    }
+  },
 );
 
 // ── Body parsing (after webhook route) ───────────────────────────────────────

@@ -17,6 +17,7 @@ import { computeTrialEndsAt, TRIAL_DAILY_LIMIT_MINUTES } from "./trial-constants
 export type DeactivateUserAccountResult = {
   paypalCancelled: boolean;
   stripeCancelled: boolean;
+  paddleCancelled: boolean;
   softDeleted: boolean;
 };
 
@@ -33,9 +34,21 @@ function subscriptionLooksBillable(status: string | null | undefined): boolean {
   return !["inactive", "cancelled", "canceled", "expired"].includes(s);
 }
 
-async function cancelExternalBilling(user: User): Promise<{ paypalCancelled: boolean; stripeCancelled: boolean }> {
+async function cancelExternalBilling(user: User): Promise<{ paypalCancelled: boolean; stripeCancelled: boolean; paddleCancelled: boolean }> {
   let paypalCancelled = false;
   let stripeCancelled = false;
+  let paddleCancelled = false;
+
+  const paddleSubId = user.paddleSubscriptionId?.trim();
+  if (paddleSubId && subscriptionLooksBillable(user.subscriptionStatus)) {
+    try {
+      const { cancelPaddleSubscription } = await import("./paddle.js");
+      paddleCancelled = await cancelPaddleSubscription(paddleSubId);
+    } catch (err) {
+      logger.error({ err, userId: user.id, paddleSubId }, "deactivateUserAccount: Paddle cancel failed");
+      throw err;
+    }
+  }
 
   const paypalId = user.paypalSubscriptionId?.trim();
   if (paypalId && subscriptionLooksBillable(user.subscriptionStatus)) {
@@ -64,7 +77,7 @@ async function cancelExternalBilling(user: User): Promise<{ paypalCancelled: boo
     }
   }
 
-  return { paypalCancelled, stripeCancelled };
+  return { paypalCancelled, stripeCancelled, paddleCancelled };
 }
 
 async function closeOpenTranscriptionSessions(userId: number): Promise<void> {
@@ -113,6 +126,8 @@ async function softDeactivateUser(user: User): Promise<void> {
       googleAccountId: null,
       subscriptionStatus: "inactive",
       paypalSubscriptionId: null,
+      paddleCustomerId: null,
+      paddleSubscriptionId: null,
       stripeSubscriptionId: null,
     })
     .where(eq(usersTable.id, user.id));
@@ -182,6 +197,8 @@ export async function reactivateClosedAccountForSignup(
       subscriptionStatus: "inactive",
       subscriptionPlan: null,
       paypalSubscriptionId: null,
+      paddleCustomerId: null,
+      paddleSubscriptionId: null,
       stripeSubscriptionId: null,
       subscriptionStartedAt: null,
       subscriptionPeriodEndsAt: null,
@@ -242,7 +259,7 @@ export async function deactivateUserAccount(
   }
 
   if (user.accountDeletedAt && !user.isActive && !options.hardDelete) {
-    return { paypalCancelled: false, stripeCancelled: false, softDeleted: true };
+    return { paypalCancelled: false, stripeCancelled: false, paddleCancelled: false, softDeleted: true };
   }
 
   const billing = await cancelExternalBilling(user);
@@ -269,6 +286,7 @@ export async function deactivateUserAccount(
       hardDelete: Boolean(options.hardDelete),
       paypalCancelled: billing.paypalCancelled,
       stripeCancelled: billing.stripeCancelled,
+      paddleCancelled: billing.paddleCancelled,
     },
     options.hardDelete ? "User account hard-deleted" : "User account soft-deleted (admin row retained)",
   );

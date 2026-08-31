@@ -31,6 +31,16 @@ function paypalBaseUrl(): string {
 
 export { paypalBaseUrl };
 
+/**
+ * Public Professional ($99 → `professional-libre`) daily cap.
+ * 9000 is the existing integer “unlimited” threshold (`UNLIMITED_DAILY_CAP_MINUTES`):
+ * JSON-safe, fits `daily_limit_minutes` INTEGER, and every cap check treats `>= 9000` as no limit.
+ * Do not use 0, null, Infinity, or values above the admin UI max (9999).
+ */
+export const PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES = 9000;
+
+export const PUBLIC_BASIC_DAILY_LIMIT_MINUTES = 300;
+
 export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
   const basicPlanId = envTrim("PAYPAL_PLAN_ID_BASIC");
   const professionalPlanId = envTrim("PAYPAL_PLAN_ID_PROFESSIONAL");
@@ -39,11 +49,11 @@ export function paypalPlanConfig(planType: BillingPlanType): PlanConfig {
   const table: Record<BillingPlanType, PlanConfig> = {
     basic: {
       paypalPlanId: basicPlanId ?? "",
-      dailyLimitMinutes: 300,
+      dailyLimitMinutes: PUBLIC_BASIC_DAILY_LIMIT_MINUTES,
     },
     professional: {
       paypalPlanId: professionalPlanId ?? "",
-      dailyLimitMinutes: 720,
+      dailyLimitMinutes: PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES,
     },
     platinum: {
       paypalPlanId: platinumPlanId ?? "",
@@ -254,7 +264,13 @@ export async function fetchPayPalSubscriptionTransactions(input: {
   return json;
 }
 
-/** PayPal billing tier → DB `plan_type` (Basic = Hetzner machine stack; Prof = Libre; Platinum = OpenAI). */
+/**
+ * PayPal (and Paddle) billing tier → DB `plan_type` for a normal public subscriber.
+ * Evidence: `/sync-paypal-subscription` and PayPal webhooks write these SKUs;
+ * admin defaults label them “Default (Soniox)”; `planUsesSonioxNativeTranslation`
+ * is only `trial-openai` | `basic-hetzner` | `professional-libre`.
+ * `basic-libre` is leftover Hetzner `/translate`, not the $59 public Basic.
+ */
 export function dbPlanTypeFromPayPalBilling(plan: BillingPlanType): string {
   if (plan === "basic") return "basic-hetzner";
   if (plan === "professional") return "professional-libre";
