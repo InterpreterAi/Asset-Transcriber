@@ -27,7 +27,7 @@ function BrandBox({
 
 function VisaMark() {
   return (
-    <svg viewBox="0 0 76 26" className="h-8 w-[4.85rem]" aria-hidden>
+    <svg viewBox="0 0 76 26" className="h-9 w-[5.4rem]" aria-hidden>
       <text
         x="38"
         y="18"
