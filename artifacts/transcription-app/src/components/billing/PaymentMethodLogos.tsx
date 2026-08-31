@@ -18,7 +18,7 @@ function BrandBox({
       onClick={onClick}
       disabled={disabled}
       aria-label={`Pay by card with ${label}`}
-      className="inline-flex h-12 min-w-[5.25rem] items-center justify-center rounded-xl bg-white px-3 ring-1 ring-black/5 transition enabled:hover:-translate-y-px enabled:hover:shadow-md disabled:opacity-45"
+      className="inline-flex h-[3.25rem] min-w-[5.75rem] items-center justify-center rounded-xl bg-white px-3.5 ring-1 ring-black/5 transition enabled:hover:-translate-y-px enabled:hover:shadow-md disabled:opacity-45"
     >
       {children}
     </button>
@@ -27,20 +27,21 @@ function BrandBox({
 
 function VisaMark() {
   return (
-    <svg viewBox="0 0 60 20" className="h-[18px] w-[52px]" aria-hidden>
+    <svg viewBox="0 0 76 26" className="h-8 w-[4.85rem]" aria-hidden>
       <text
-        x="30"
-        y="16"
+        x="38"
+        y="18"
         textAnchor="middle"
         fill="#1A1F71"
-        fontSize="16"
+        fontSize="20"
         fontStyle="italic"
         fontWeight="800"
-        fontFamily="Arial, Helvetica, sans-serif"
-        letterSpacing="1.4"
+        fontFamily="Arial Black, Arial, Helvetica, sans-serif"
+        letterSpacing="0.2"
       >
         VISA
       </text>
+      <rect x="7" y="21.4" width="62" height="2.6" rx="0.5" fill="#F7B600" />
     </svg>
   );
 }

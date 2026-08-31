@@ -1,6 +1,5 @@
 import Navbar from "@/components/landing/navbar";
 import Hero from "@/components/landing/hero";
-import TrustedBy from "@/components/landing/trusted-by";
 import LiveDemo from "@/components/landing/live-demo";
 import Stats from "@/components/landing/stats";
 import Features from "@/components/landing/features";
@@ -16,7 +15,6 @@ export default function Landing() {
       <Navbar />
       <main className="relative pt-24">
         <Hero />
-        <TrustedBy />
         <LiveDemo />
         <Stats />
         <Features />
