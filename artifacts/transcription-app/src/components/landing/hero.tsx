@@ -16,7 +16,7 @@ export default function Hero() {
           className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-8"
         >
           <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse" />
-          Real-time AI infrastructure for professionals
+          Real-time AI infrastructure for professional interpreters
         </motion.div>
 
         <motion.h1
