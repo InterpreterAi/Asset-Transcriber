@@ -24,7 +24,7 @@ import {
   nonFinalsForRow,
 } from "./soniox-frame-split";
 
-const SPEAKER_BREAK_CONFIRM_TOKENS = 1;
+const SPEAKER_BREAK_CONFIRM_TOKENS = 2;
 
 function normalizedSpeakerId(s?: string): string | undefined {
   const t = s?.trim();
@@ -99,7 +99,10 @@ function tryLongPauseSplit(
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
-  const speakerBreakConfirmTokens = ctx.chunkV2NativeTranslate ? 1 : SPEAKER_BREAK_CONFIRM_TOKENS;
+  // Require 2 consecutive finals with a new speaker before opening a row — matches
+  // FAST_SWITCH_MIN_STREAK. Confirm=1 let Soniox diarization flicker open duplicate
+  // same-color segments for one talker. Do not weaken this for chunk-v2 native translate.
+  const speakerBreakConfirmTokens = SPEAKER_BREAK_CONFIRM_TOKENS;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
@@ -168,6 +171,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text);
       if (holdSpelling && (spkBreak || langBreak)) {
         // Diarization / LID flicker on spelled letters — keep one email/ID row.
+        // Do not adopt the flicker speaker/lang onto the active row.
         next = { ...next, speakerChangeConsecutive: 0 };
       } else if (langBreak && spkBreak) {
         // Genuine handoff: different language AND different speaker — hard break.
@@ -192,6 +196,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
             metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
           };
         } else {
+          // Unconfirmed flicker — do not retarget the active bubble speaker id yet.
           next = { ...next, speakerChangeConsecutive: consecutive };
         }
         // langBreak && !spkBreak: same speaker, language switched (interpreter code-switch).
@@ -205,7 +210,24 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       next = openActiveUtterance(next, ct.speaker, ct.language);
     }
 
-    next = appendFinalToActive(next, ct);
+    // While debouncing a speaker flip (or holding a spelled row through flicker),
+    // append text but keep the established row speaker / language.
+    const holdRowIdentity =
+      ((next.speakerChangeConsecutive ?? 0) > 0 ||
+        (nativeTranslate &&
+          next.activeUtterance &&
+          shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text) &&
+          (rowBreaksForSpeaker(next.activeUtterance, ct) ||
+            rowBreaksForLanguage(next.activeUtterance, ct)))) &&
+      !!next.activeUtterance?.speaker;
+    const appendTok = holdRowIdentity
+      ? {
+          ...ct,
+          speaker: next.activeUtterance!.speaker,
+          language: next.activeUtterance!.language ?? ct.language,
+        }
+      : ct;
+    next = appendFinalToActive(next, appendTok);
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);

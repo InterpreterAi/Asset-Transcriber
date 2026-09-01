@@ -64,11 +64,53 @@ describe("Soniox-native spelled email hold", () => {
       frame(1, [token("S.", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
       ctx,
     );
+    // One stray speaker flip must not open a row (confirm = 2).
     state = reduceCanonAppendWs(
       state,
       frame(2, [token("C.", { startMs: 80, speakerId: "2", language: "en" })], 2_000),
       { ...ctx, wallMs: 2_000 },
     );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    // Second consecutive final from speaker 2 confirms the handoff.
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token("okay", { startMs: 120, speakerId: "2", language: "en" })], 2_100),
+      { ...ctx, wallMs: 2_100 },
+    );
     expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not open a second row on a single Soniox speaker flicker", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("Hello ", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [token("there ", { startMs: 40, speakerId: "1", language: "en" })], 1_100),
+      { ...ctx, wallMs: 1_100 },
+    );
+    // One-token diarization glitch to speaker 2 — must stay on the same row.
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token("friend ", { startMs: 70, speakerId: "2", language: "en" })], 1_200),
+      { ...ctx, wallMs: 1_200 },
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("1");
+    // Back to speaker 1 — still one row.
+    state = reduceCanonAppendWs(
+      state,
+      frame(4, [token("today", { startMs: 100, speakerId: "1", language: "en" })], 1_300),
+      { ...ctx, wallMs: 1_300 },
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(utteranceCommittedText(state.activeUtterance!).replace(/\s+/g, " ").trim()).toContain("Hello");
+    expect(utteranceCommittedText(state.activeUtterance!).replace(/\s+/g, " ").trim()).toContain("today");
   });
 });
