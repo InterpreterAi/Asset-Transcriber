@@ -46,8 +46,86 @@ import {
 
 const DRAFT_PREFIX = "interpreterai_studio_draft_";
 const LAST_SETTINGS_KEY = "interpreterai_studio_last_settings";
+/** Sticky master workspace dialogue — survives New commercial / language swaps. */
+const MASTER_WORKSPACE_KEY = "interpreterai_studio_master_workspace";
 
 export const STUDIO_NEW_KEY = "new";
+
+export function workspaceHasDialogue(workspace: WorkspaceConversation | null | undefined): boolean {
+  if (!workspace?.exchanges?.length) return false;
+  return workspace.exchanges.some(
+    (ex) => ex.original.trim().length > 0 || ex.translation.trim().length > 0,
+  );
+}
+
+/** Persist the approved master workspace (EN + Language B lines) for reuse. */
+export function saveMasterWorkspace(workspace: WorkspaceConversation): void {
+  try {
+    if (!workspaceHasDialogue(workspace)) return;
+    localStorage.setItem(
+      MASTER_WORKSPACE_KEY,
+      JSON.stringify(normalizeConversation(workspace)),
+    );
+  } catch (e) {
+    console.warn("Master workspace save failed", e);
+  }
+}
+
+export function loadMasterWorkspace(): WorkspaceConversation | null {
+  try {
+    const raw = localStorage.getItem(MASTER_WORKSPACE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as WorkspaceConversation;
+    if (!parsed || !Array.isArray(parsed.exchanges)) return null;
+    const ws = normalizeConversation(parsed);
+    return workspaceHasDialogue(ws) ? ws : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keep dialogue text; retarget Language A / B codes for the next master language.
+ * Text stays as-is (edit Language B lines when you localize); only lang tags update.
+ */
+export function retargetMasterWorkspace(
+  workspace: WorkspaceConversation,
+  sourceLang: string,
+  targetLang: string,
+): WorkspaceConversation {
+  const prevA = workspace.sourceLang || "en";
+  const prevB =
+    workspace.targetLang && workspace.targetLang !== prevA
+      ? workspace.targetLang
+      : prevA === "en"
+        ? "es"
+        : "en";
+  const langA = sourceLang || "en";
+  let langB = targetLang && targetLang !== langA ? targetLang : langA === "en" ? "es" : "en";
+
+  const exchanges = workspace.exchanges.map((ex) => {
+    const mappedOriginal =
+      ex.originalLang === prevA ? langA : ex.originalLang === prevB ? langB : ex.originalLang;
+    const originalLang =
+      mappedOriginal === langA || mappedOriginal === langB ? mappedOriginal : langA;
+    const translationLang = originalLang === langA ? langB : langA;
+    const speaker: "A" | "B" | "C" =
+      ex.speaker === "C" || ex.thirdSpeakerVoiceId
+        ? "C"
+        : originalLang === langB
+          ? "B"
+          : "A";
+    return {
+      ...ex,
+      speaker,
+      originalLang,
+      translationLang,
+      thirdSpeakerVoiceId: speaker === "C" ? ex.thirdSpeakerVoiceId : undefined,
+    };
+  });
+
+  return normalizeConversation({ sourceLang: langA, targetLang: langB, exchanges });
+}
 
 export type StudioDraft = {
   reelId: string | null;
@@ -70,7 +148,10 @@ export type StudioDraft = {
   outroTrimDurationSec?: number | null;
   includeOutro: boolean;
   includeWorkspace: boolean;
+  includeHook: boolean;
   includeProductPayoff: boolean;
+  workspaceOutroGapSec?: number;
+  aspectRatio?: ReelAspectRatio;
   productPayoff: ProductPayoffInput;
   subtitleScale: number;
   result: GeneratedReelSave | null;
@@ -194,8 +275,8 @@ export function freshStudioDraft(): StudioDraft {
     ...outroFieldsToDraftSlice(defaultOutro),
     includeOutro: true,
     includeWorkspace: true,
-    includeHook: true,
-    includeProductPayoff: true,
+    includeHook: false,
+    includeProductPayoff: false,
     workspaceOutroGapSec: 0,
     aspectRatio: "9:16",
     productPayoff: defaultProductPayoff("medical"),
@@ -235,8 +316,8 @@ export function defaultStudioDraft(): StudioDraft {
     ...outroFieldsToDraftSlice(defaultOutro),
     includeOutro: true,
     includeWorkspace: true,
-    includeHook: true,
-    includeProductPayoff: true,
+    includeHook: false,
+    includeProductPayoff: false,
     workspaceOutroGapSec: 0,
     aspectRatio: "9:16",
     productPayoff: defaultProductPayoff("medical"),
@@ -297,6 +378,9 @@ export function clearStudioDraft(reelKey: string): void {
 /** Persist last-used studio configuration (no audio blobs) for the next blank commercial. */
 export function saveLastStudioSettings(draft: StudioDraft): void {
   try {
+    if (workspaceHasDialogue(draft.workspace)) {
+      saveMasterWorkspace(draft.workspace);
+    }
     const stripped: StudioDraft = {
       ...draft,
       reelId: null,
@@ -327,26 +411,32 @@ export function loadLastStudioSettings(): StudioDraft | null {
 }
 
 /**
- * New commercial — keep every toggle/voice/lang/outro setting from the last reel,
- * but wipe script text boxes and drop generated audio/footage.
+ * New commercial — keep master workspace dialogue + toggles/voices from the last reel.
+ * Clears hook say-lines / payoff copy and drops generated audio/footage.
+ * Prefers the dedicated master workspace snapshot when present.
  */
 export function studioDraftWithClearedText(base: StudioDraft): StudioDraft {
   const hookCount = Math.max(1, base.hookClips.length);
   const clearedHooks = Array.from({ length: hookCount }, () => ({ scenario: "", sayLine: "" }));
-  const clearedWorkspace = normalizeConversation({
-    ...base.workspace,
-    exchanges: base.workspace.exchanges.map((ex) => ({
-      ...ex,
-      original: "",
-      translation: "",
-    })),
-  });
+  const master = loadMasterWorkspace();
+  const stickyWorkspace = normalizeConversation(
+    master && workspaceHasDialogue(master)
+      ? {
+          ...master,
+          sourceLang: base.sourceLang || master.sourceLang,
+          targetLang: base.targetLang || master.targetLang,
+        }
+      : base.workspace,
+  );
   const clearedPayoff = normalizeProductPayoffInput(base.productPayoff) ?? defaultProductPayoff(base.series);
   return normalizeDraft({
     ...base,
     reelId: null,
     hookClips: clearedHooks,
-    workspace: clearedWorkspace,
+    workspace: stickyWorkspace,
+    includeWorkspace: true,
+    includeHook: false,
+    includeProductPayoff: false,
     productPayoff: {
       ...clearedPayoff,
       sayLine: "",
@@ -501,6 +591,16 @@ function voiceoverFromGenerated(
     | "productPayoff"
     | "outroPhraseGapSec"
     | "outroMinHoldSec"
+    | "workspaceOutroGapSec"
+    | "aspectRatio"
+    | "hookVoiceId"
+    | "productPayoffVoiceId"
+    | "workspaceSpeakerAVoiceId"
+    | "workspaceSpeakerBVoiceId"
+    | "workspaceSpeakerADelivery"
+    | "workspaceSpeakerBDelivery"
+    | "workspaceThirdSpeakerDelivery"
+    | "outroVoiceId"
   >,
 ): StudioVoiceoverResult | null {
   if (!gen.hookVoClips?.length && !gen.workspaceVoClips?.length && !gen.outroAudioBase64) {

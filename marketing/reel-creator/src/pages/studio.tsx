@@ -25,6 +25,7 @@ import {
   buildStudioVoFingerprint,
   hookLinesMatchFingerprint,
   studioVoiceoverCoversSelection,
+  studioPackageFromVoiceover,
   defaultProductPayoff,
   computeProductPayoffDurationSec,
   type GeneratedStoryboard,
@@ -140,16 +141,20 @@ import {
   isFreshNewCommercial,
   libraryReelPatchFromStudio,
   loadLastStudioSettings,
+  loadMasterWorkspace,
   loadStudioDraft,
   openNewCommercial,
   resolveStudioDraft,
+  retargetMasterWorkspace,
   saveLastStudioSettings,
+  saveMasterWorkspace,
   saveStudioDraft,
   studioDraftFromReel,
   studioDraftWithClearedText,
   STUDIO_NEW_COMMERCIAL_EVENT,
   STUDIO_NEW_KEY,
   studioDraftKeyFromLocation,
+  workspaceHasDialogue,
   type StudioDraft,
 } from "@/lib/studioDraft";
 
@@ -286,8 +291,8 @@ export default function Studio() {
   const [subtitleScale, setSubtitleScale] = useState(1);
   const [includeOutro, setIncludeOutro] = useState(true);
   const [includeWorkspace, setIncludeWorkspace] = useState(true);
-  const [includeHook, setIncludeHook] = useState(true);
-  const [includeProductPayoff, setIncludeProductPayoff] = useState(true);
+  const [includeHook, setIncludeHook] = useState(false);
+  const [includeProductPayoff, setIncludeProductPayoff] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<ReelAspectRatio>("9:16");
   const [workspaceOutroGapSec, setWorkspaceOutroGapSec] = useState(0);
   const [workspaceOutroGapEnabled, setWorkspaceOutroGapEnabled] = useState(false);
@@ -303,7 +308,14 @@ export default function Studio() {
   const [productPayoff, setProductPayoff] = useState<ProductPayoffInput>(() =>
     defaultProductPayoff("medical"),
   );
-  const hookOnlyReel = includeHook && !includeWorkspace && !includeOutro && !includeProductPayoff;
+  /** Empty hook / payoff rows do not force those segments into the reel. */
+  const effectiveIncludeHook = includeHook && hookClips.some((c) => c.sayLine.trim().length >= 3);
+  const effectiveIncludeProductPayoff =
+    includeProductPayoff &&
+    productPayoff.enabled !== false &&
+    productPayoff.sayLine.trim().length >= 3;
+  const hookOnlyReel =
+    effectiveIncludeHook && !includeWorkspace && !includeOutro && !effectiveIncludeProductPayoff;
   const effectiveWorkspaceOutroGap =
     includeOutro && workspaceOutroGapEnabled ? workspaceOutroGapSec : 0;
   const canvasSize = canvasSizeForAspect(aspectRatio);
@@ -634,13 +646,36 @@ export default function Studio() {
     hydratingRef.current = true;
     setDraftHydrating(true);
     if (fresh && isNew) {
+      const draftNew = loadStudioDraft(STUDIO_NEW_KEY);
+      const last = loadLastStudioSettings();
+      const master = loadMasterWorkspace();
+      // Prefer whatever still has master dialogue text.
       const previous =
-        loadStudioDraft(STUDIO_NEW_KEY) ??
-        loadLastStudioSettings() ??
+        (draftNew && workspaceHasDialogue(draftNew.workspace) ? draftNew : null) ??
+        (last && workspaceHasDialogue(last.workspace) ? last : null) ??
+        draftNew ??
+        last ??
         (editingReel ? studioDraftFromReel(editingReel) : null);
       clearStudioDraft(STUDIO_NEW_KEY);
-      applyStudioDraft(previous ? studioDraftWithClearedText(previous) : freshStudioDraft());
+      const next = previous ? studioDraftWithClearedText(previous) : freshStudioDraft();
+      if (master && workspaceHasDialogue(master)) {
+        next.workspace = retargetMasterWorkspace(
+          master,
+          next.sourceLang || master.sourceLang || "en",
+          next.targetLang || master.targetLang || "es",
+        );
+        next.includeWorkspace = true;
+        next.includeHook = false;
+      }
+      applyStudioDraft(next);
       setOutroSaveName(DEFAULT_STUDIO_OUTRO_PRESET_NAME);
+      if (workspaceHasDialogue(next.workspace)) {
+        toast({
+          title: "Master workspace loaded",
+          description: "Last generated dialogue is sticky — change Language B and edit only what you need.",
+          duration: 4200,
+        });
+      }
     } else {
       applyStudioDraft(resolveStudioDraft(reelKey, editingReel ?? null));
     }
@@ -716,6 +751,10 @@ export default function Studio() {
         updatedAt: Date.now(),
       };
       saveStudioDraft(reelKey, draft);
+      if (workspaceHasDialogue(draft.workspace)) {
+        saveMasterWorkspace(draft.workspace);
+        saveLastStudioSettings(draft);
+      }
       if (!isNew) {
         const existing = getReel(reelKey);
         if (existing) {
@@ -777,6 +816,36 @@ export default function Studio() {
     outroVoiceId,
   ]);
 
+  // Persist sticky master workspace whenever dialogue text exists.
+  useEffect(() => {
+    if (hydratingRef.current || draftHydrating) return;
+    if (workspaceHasDialogue(workspace)) {
+      saveMasterWorkspace(workspace);
+    }
+  }, [workspace, draftHydrating]);
+
+  // Recover workspace/hook audio if draft hydrate dropped clips but cache still has them.
+  useEffect(() => {
+    if (!cachedVoiceover) return;
+    if (
+      workspaceVoClips.length === 0 &&
+      cachedVoiceover.workspaceVoClips.some((c) => !!c.audioBase64)
+    ) {
+      setWorkspaceVoClips(cachedVoiceover.workspaceVoClips);
+    }
+    if (
+      hookVoClips.length === 0 &&
+      cachedVoiceover.hookVoClips.some((c) => !!c.audioBase64)
+    ) {
+      setHookVoClips(cachedVoiceover.hookVoClips);
+      setHookDurationSec(
+        resolveHookDurationSec(cachedVoiceover.hookVoClips, cachedVoiceover.hookDurationSec),
+      );
+      setHookAudio(cachedVoiceover.audioBase64);
+      setHookWords(cachedVoiceover.words);
+    }
+  }, [cachedVoiceover, workspaceVoClips.length, hookVoClips.length]);
+
   useEffect(() => {
     if (hydratingRef.current) return;
     if (sourceLang === targetLang) {
@@ -784,20 +853,49 @@ export default function Studio() {
       setTargetLang(fallback);
       return;
     }
-    setWorkspace((w) =>
-      applyInterpreterSpeakerPattern({ ...w, sourceLang, targetLang }),
-    );
+    setWorkspace((w) => retargetMasterWorkspace(w, sourceLang, targetLang));
   }, [sourceLang, targetLang]);
 
   function applyVoiceoverToState(vo: StudioVoiceoverResult) {
+    const wantHook = vo.hookVoClips.some((c) => !!c.audioBase64);
+    const wantWorkspace = vo.workspaceVoClips.some((c) => !!c.audioBase64);
+    const wantPayoff = !!vo.productPayoffVoClip?.audioBase64;
+    // Keep toggles aligned with what was actually generated (workspace-only must preview).
+    if (!wantHook) setIncludeHook(false);
+    if (wantWorkspace) setIncludeWorkspace(true);
+    if (!wantPayoff) setIncludeProductPayoff(false);
+
     setCachedVoiceover(vo);
-    setHookVoClips(vo.hookVoClips);
-    setHookDurationSec(resolveHookDurationSec(vo.hookVoClips, vo.hookDurationSec));
-    setHookAudio(vo.audioBase64);
-    setHookWords(vo.words);
-    setWorkspaceVoClips(vo.workspaceVoClips);
+    setHookVoClips(wantHook ? vo.hookVoClips : []);
+    setHookDurationSec(wantHook ? resolveHookDurationSec(vo.hookVoClips, vo.hookDurationSec) : 0);
+    setHookAudio(wantHook ? vo.audioBase64 : null);
+    setHookWords(wantHook ? vo.words : []);
+    setWorkspaceVoClips(wantWorkspace ? vo.workspaceVoClips : []);
     if (vo.productPayoff) setProductPayoff(vo.productPayoff);
-    // Never overwrite workspace dialogue or hook script text from the server response.
+
+    // Synthetic "result" so preview + Download work immediately — no hook / Generate Reel required.
+    const packaged = {
+      ...studioPackageFromVoiceover(vo, {
+        language,
+        series,
+        workspace: applyInterpreterSpeakerPattern(workspace),
+        hookClips,
+        productPayoff: wantPayoff ? productPayoff : null,
+        outroVoiceover,
+        outroCopy,
+        includeHook: wantHook,
+        includeWorkspace: wantWorkspace || includeWorkspace,
+        includeOutro,
+        includeProductPayoff: wantPayoff,
+      }),
+      outroConfig: { ...outroCfg },
+    } satisfies GeneratedReelSave;
+    setResult(packaged);
+    setPhase("ready");
+    justGeneratedRef.current = true;
+    if (wantWorkspace) {
+      saveMasterWorkspace(applyInterpreterSpeakerPattern(workspace));
+    }
   }
 
   /** Preview/footage after Generate Reel — keeps your editor text intact. */
@@ -833,10 +931,15 @@ export default function Studio() {
   }
 
   const clipsReady = useMemo(() => {
-    const payoffOn = includeProductPayoff && productPayoff.enabled !== false;
-    const hasAnySegment = includeHook || includeWorkspace || includeOutro || payoffOn;
+    const payoffOn =
+      includeProductPayoff &&
+      productPayoff.enabled !== false &&
+      productPayoff.sayLine.trim().length >= 3;
+    const hookHasContent = hookClips.some((c) => c.sayLine.trim().length >= 3);
+    const effectiveHook = includeHook && hookHasContent;
+    const hasAnySegment = effectiveHook || includeWorkspace || includeOutro || payoffOn;
     const hookClipsReady =
-      !includeHook ||
+      !effectiveHook ||
       hookClips.every((c) => c.scenario.trim().length >= 4 && c.sayLine.trim().length >= 3);
     const workspaceReady =
       !includeWorkspace ||
@@ -850,6 +953,7 @@ export default function Studio() {
     includeOutro,
     includeProductPayoff,
     productPayoff.enabled,
+    productPayoff.sayLine,
     hookClips,
     workspace.exchanges,
   ]);
@@ -858,21 +962,29 @@ export default function Studio() {
 
   const englishRestore = Boolean(result && result.language !== "en" && language === "en");
   const displayLanguage = result ? (englishRestore ? "en" : result.language) : language;
-  const effectiveIncludeProductPayoff = includeProductPayoff && productPayoff.enabled !== false;
 
   const reelStoryline = useMemo(() => {
-    const lines = hookClips.map((c) => c.sayLine.trim()).filter(Boolean);
+    const lines = effectiveIncludeHook
+      ? hookClips.map((c) => c.sayLine.trim()).filter(Boolean)
+      : [];
     if (lines.length > 0) {
       return reelStorylineFromSayLines(
         lines,
         STUDIO_SERIES.find((s) => s.id === series)?.label ?? "Reel",
       );
     }
+    const wsLine = workspace.exchanges.map((ex) => ex.original.trim()).find(Boolean);
+    if (wsLine) {
+      return reelStorylineFromSayLines(
+        [wsLine],
+        STUDIO_SERIES.find((s) => s.id === series)?.label ?? "Workspace",
+      );
+    }
     if (result?.storyboard?.hookScript?.trim()) {
       return result.storyboard.hookScript.trim();
     }
     return STUDIO_SERIES.find((s) => s.id === series)?.label ?? "Reel";
-  }, [hookClips, result?.storyboard?.hookScript, series]);
+  }, [effectiveIncludeHook, hookClips, workspace.exchanges, result?.storyboard?.hookScript, series]);
 
   const mp4ExportFilename = studioExportFilename(reelStoryline, displayLanguage);
 
@@ -910,7 +1022,7 @@ export default function Studio() {
     }
     if (!cachedVoiceover) return null;
     const covers = studioVoiceoverCoversSelection(cachedVoiceover, {
-      includeHook,
+      includeHook: effectiveIncludeHook,
       includeWorkspace,
       includeOutro,
       includeProductPayoff: effectiveIncludeProductPayoff,
@@ -918,13 +1030,13 @@ export default function Studio() {
     });
     if (!covers) return null;
     return {
-      hookScript: includeHook
+      hookScript: effectiveIncludeHook
         ? hookClips
             .map((c) => c.sayLine.trim())
             .filter(Boolean)
             .join(" ")
         : "",
-      hookScenes: includeHook ? hookClips.map((c) => c.scenario.trim()) : [],
+      hookScenes: effectiveIncludeHook ? hookClips.map((c) => c.scenario.trim()) : [],
       workspace,
       productPayoff: effectiveIncludeProductPayoff ? productPayoff : undefined,
       outroVoiceover,
@@ -934,7 +1046,7 @@ export default function Studio() {
     result,
     englishRestore,
     cachedVoiceover,
-    includeHook,
+    effectiveIncludeHook,
     includeWorkspace,
     includeOutro,
     effectiveIncludeProductPayoff,
@@ -945,7 +1057,7 @@ export default function Studio() {
     outroCopy,
   ]);
   const hasHookVo =
-    !includeHook || hookVoClips.some((c) => c.audioBase64 && c.durationSec > 0);
+    !effectiveIncludeHook || hookVoClips.some((c) => c.audioBase64 && c.durationSec > 0);
 
   const outroWordsForSync = useMemo(
     () =>
@@ -1065,10 +1177,10 @@ export default function Studio() {
         productPayoff,
         outroVoiceover,
         outroPhraseMuted,
-        includeHook,
+        includeHook: effectiveIncludeHook,
         includeWorkspace,
         includeOutro,
-        includeProductPayoff,
+        includeProductPayoff: effectiveIncludeProductPayoff,
         outroPhraseGapSec,
         outroMinHoldSec,
         workspaceOutroGapSec: effectiveWorkspaceOutroGap,
@@ -1090,10 +1202,10 @@ export default function Studio() {
       productPayoff,
       outroVoiceover,
       outroPhraseMuted,
-      includeHook,
+      effectiveIncludeHook,
       includeWorkspace,
       includeOutro,
-      includeProductPayoff,
+      effectiveIncludeProductPayoff,
       outroPhraseGapSec,
       outroMinHoldSec,
       effectiveWorkspaceOutroGap,
@@ -1109,15 +1221,30 @@ export default function Studio() {
     ],
   );
   const hookVoCached =
-    !includeHook ||
+    !effectiveIncludeHook ||
     Boolean(
       cachedVoiceover?.hookVoClips.length &&
         hookLinesMatchFingerprint(hookClips, cachedVoiceover.fingerprint),
     );
+  const hasWorkspaceAudio = workspaceVoClips.some(
+    (c) => typeof c.audioBase64 === "string" && c.audioBase64.length > 0,
+  );
+  const hasHookAudio = hookVoClips.some(
+    (c) => typeof c.audioBase64 === "string" && c.audioBase64.length > 0,
+  );
+  const hasOutroAudio = Boolean(
+    cachedVoiceover?.outroAudioBase64 || result?.outroAudioBase64,
+  );
+  const hasPayoffAudio = Boolean(
+    (result?.productPayoffVoClip ?? cachedVoiceover?.productPayoffVoClip)?.audioBase64,
+  );
+  /** Any generated segment audio → show full player + Download (hook optional). */
+  const hasPlayableStudioVo =
+    hasWorkspaceAudio || hasHookAudio || hasOutroAudio || hasPayoffAudio;
   const voCoversSelection = Boolean(
     cachedVoiceover &&
       studioVoiceoverCoversSelection(cachedVoiceover, {
-        includeHook,
+        includeHook: effectiveIncludeHook,
         includeWorkspace,
         includeOutro,
         includeProductPayoff: effectiveIncludeProductPayoff,
@@ -1126,28 +1253,25 @@ export default function Studio() {
   );
   const voReady = Boolean(
     cachedVoiceover &&
-      cachedVoiceover.fingerprint === voFingerprint &&
-      hookVoCached &&
-      voCoversSelection,
+      (hasPlayableStudioVo || cachedVoiceover.fingerprint === voFingerprint) &&
+      (voCoversSelection || hasPlayableStudioVo),
   );
   const canGenerateReel = Boolean(
-    clipsReady && cachedVoiceover && hasHookVo && hookVoCached && voCoversSelection,
+    clipsReady && cachedVoiceover && (voCoversSelection || hasPlayableStudioVo),
   );
-  const voStale = Boolean(cachedVoiceover && !voReady);
+  const voStale = Boolean(cachedVoiceover && !voReady && !hasPlayableStudioVo);
   const voMissingForSelection =
-    includeWorkspace && (cachedVoiceover?.workspaceVoClips.length ?? 0) === 0
+    includeWorkspace && !hasWorkspaceAudio && (cachedVoiceover?.workspaceVoClips.length ?? 0) === 0
       ? "workspace"
-      : effectiveIncludeProductPayoff && !cachedVoiceover?.productPayoffVoClip?.audioBase64
+      : effectiveIncludeProductPayoff && !hasPayoffAudio
         ? "product payoff"
-        : includeOutro && !cachedVoiceover?.outroAudioBase64
-          ? "outro"
-          : null;
+        : null;
   const previewIncludeWorkspace = result
     ? result.includeWorkspace !== false
-    : includeWorkspace;
+    : includeWorkspace || hasWorkspaceAudio;
   const previewIncludeOutro = result ? result.includeOutro !== false : includeOutro;
   const previewIncludeProductPayoff = result
-    ? result.includeProductPayoff !== false
+    ? result.includeProductPayoff === true
     : effectiveIncludeProductPayoff;
   const productPayoffVoClip =
     result?.productPayoffVoClip ?? cachedVoiceover?.productPayoffVoClip ?? null;
@@ -1167,15 +1291,30 @@ export default function Studio() {
       displayLanguage,
     ],
   );
-  const showFullReelPreview = Boolean(
-    storyboard &&
-      voCoversSelection &&
-      (result || !includeHook),
-  );
-  const previewIncludeHook = result ? result.includeHook !== false : includeHook;
-  /** Hook-only VO preview before Generate Reel attaches footage. */
+  const previewStoryboard: GeneratedStoryboard | null = storyboard
+    ? storyboard
+    : hasPlayableStudioVo
+      ? {
+          hookScript: effectiveIncludeHook
+            ? hookClips
+                .map((c) => c.sayLine.trim())
+                .filter(Boolean)
+                .join(" ")
+            : "",
+          hookScenes: effectiveIncludeHook ? hookClips.map((c) => c.scenario.trim()) : [],
+          workspace,
+          productPayoff: effectiveIncludeProductPayoff ? productPayoff : undefined,
+          outroVoiceover,
+          outroCopy,
+        }
+      : null;
+  const showFullReelPreview = Boolean(hasPlayableStudioVo && previewStoryboard);
+  const previewIncludeHook = result
+    ? result.includeHook === true && hasHookAudio
+    : effectiveIncludeHook && hasHookAudio;
+  /** Hook-only VO preview before full-reel player is available (rare). */
   const showStudioHookPreview = Boolean(
-    includeHook && hasHookVo && !result && !showFullReelPreview,
+    effectiveIncludeHook && hasHookVo && !result && !showFullReelPreview,
   );
   const hookPreviewSelectionNote = voMissingForSelection
     ? `Regenerate voiceover to include ${voMissingForSelection}`
@@ -1208,7 +1347,7 @@ export default function Studio() {
     );
     setWorkspace(routedWorkspace);
     const vo = await generateStudioVoiceover({
-      hookClips: includeHook
+      hookClips: effectiveIncludeHook
         ? hookClips.map((c) => ({
             scenario: c.scenario.trim(),
             sayLine: c.sayLine.trim(),
@@ -1220,7 +1359,7 @@ export default function Studio() {
       sourceLang,
       targetLang,
       outroVoiceover: outroSpokenForTts,
-      includeHook,
+      includeHook: effectiveIncludeHook,
       includeWorkspace,
       includeOutro,
       includeProductPayoff: effectiveIncludeProductPayoff,
@@ -1248,12 +1387,11 @@ export default function Studio() {
     setVoError("");
     try {
       await runGenerateVoiceover();
+      saveLastStudioSettings(buildLiveDraft());
       toast({
         title: "Voiceover ready",
-        description: includeHook
-          ? `Hook preview on the right — Generate Reel adds ${hookFootageProviderLabel(footageProvider)} footage.`
-          : "Reel preview on the right — Generate Reel to finalize and download MP4.",
-        duration: 3200,
+        description: "Preview + Download MP4 are at the top of the page (hook not required).",
+        duration: 4200,
       });
     } catch (e) {
       setVoPhase("error");
@@ -1275,7 +1413,7 @@ export default function Studio() {
     setFootageSource("none");
     setHookVoClips((prev) => prev.map((c) => ({ ...c, footageUrl: "" })));
     const res = await generateReel({
-      hookClips: includeHook
+      hookClips: effectiveIncludeHook
         ? hookClips.map((c) => ({
             scenario: c.scenario.trim(),
             sayLine: c.sayLine.trim(),
@@ -1283,14 +1421,14 @@ export default function Studio() {
         : [],
       workspace: applyInterpreterSpeakerPattern(workspace),
       productPayoff: effectiveIncludeProductPayoff ? productPayoff : undefined,
-      prompt: includeHook ? hookClips.map((c) => c.sayLine).join(" ") : undefined,
+      prompt: effectiveIncludeHook ? hookClips.map((c) => c.sayLine).join(" ") : undefined,
       language: "en",
       series,
       sourceLang,
       targetLang,
       outroVoiceover,
       skipVoice: true,
-      includeHook,
+      includeHook: effectiveIncludeHook,
       includeWorkspace,
       includeOutro,
       includeProductPayoff: effectiveIncludeProductPayoff,
@@ -1303,7 +1441,7 @@ export default function Studio() {
     });
     const save: GeneratedReelSave = {
       ...merged,
-      includeHook,
+      includeHook: effectiveIncludeHook,
       includeWorkspace,
       includeOutro,
       includeProductPayoff: effectiveIncludeProductPayoff,
@@ -1311,8 +1449,10 @@ export default function Studio() {
         ...merged.storyboard,
         outroVoiceover,
         outroCopy,
-        hookScript: hookClips.map((c) => c.sayLine.trim()).filter(Boolean).join(" "),
-        hookScenes: hookClips.map((c) => c.scenario.trim()),
+        hookScript: effectiveIncludeHook
+          ? hookClips.map((c) => c.sayLine.trim()).filter(Boolean).join(" ")
+          : "",
+        hookScenes: effectiveIncludeHook ? hookClips.map((c) => c.scenario.trim()) : [],
         workspace: applyInterpreterSpeakerPattern(workspace),
         productPayoff: effectiveIncludeProductPayoff ? productPayoff : undefined,
       },
@@ -1347,7 +1487,7 @@ export default function Studio() {
       outroMinHoldSec,
       includeOutro,
       includeWorkspace,
-      includeHook,
+      includeHook: effectiveIncludeHook,
       includeProductPayoff: effectiveIncludeProductPayoff,
       workspaceOutroGapSec: effectiveWorkspaceOutroGap,
       aspectRatio,
@@ -1474,6 +1614,7 @@ export default function Studio() {
       outroMinHoldSec,
       includeOutro,
       includeWorkspace,
+      includeHook,
       includeProductPayoff,
       productPayoff,
       subtitleScale,
@@ -1865,14 +2006,13 @@ export default function Studio() {
     [workspaceVoClips, workspace.exchanges],
   );
   const totalEstimateSec =
-    (includeHook ? hookEstimateSec : 0) +
+    (effectiveIncludeHook ? hookEstimateSec : 0) +
     (includeWorkspace ? workspaceDurationSec : 0) +
     (effectiveIncludeProductPayoff ? productPayoffDurationSec : 0) +
     effectiveWorkspaceOutroGap +
     (includeOutro ? outroDurationSec : 0);
   const totalPreviewSec =
-    (result || (!includeHook && voCoversSelection)) &&
-    (includeHook ? hookVoClips.length > 0 : true)
+    voCoversSelection || result
       ? (previewIncludeHook ? hookPreviewSec : 0) +
         (previewIncludeWorkspace ? workspaceDurationSec : 0) +
         (previewIncludeProductPayoff ? productPayoffDurationSec : 0) +
@@ -1965,6 +2105,84 @@ export default function Studio() {
             Hook length follows your voiceover. Then workspace demo + optional brand outro.
           </p>
         </header>
+
+        {showFullReelPreview && previewStoryboard ? (
+          <section
+            style={{
+              ...panel,
+              marginBottom: 24,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 28,
+              alignItems: "flex-start",
+              border: "1px solid rgba(32,212,240,0.35)",
+              background: "rgba(32,212,240,0.06)",
+            }}
+          >
+            <div style={{ flex: "1 1 280px", minWidth: 240 }}>
+              <SectionLabel>Reel preview · download</SectionLabel>
+              <p style={{ margin: "0 0 12px", fontSize: 13, color: COLORS.inkMuted, lineHeight: 1.5 }}>
+                {hasWorkspaceAudio && !hasHookAudio
+                  ? "Workspace voiceover ready (no hook). Play below and Download MP4 anytime."
+                  : "Voiceover ready. Play the full reel and Download MP4 — hook footage is optional."}
+              </p>
+            </div>
+            <div style={{ flex: "0 0 auto" }}>
+              <StudioFullReelPreview
+                ref={fullPreviewRef}
+                key={`sticky-${result?.createdAt ?? cachedVoiceover?.fingerprint ?? "vo"}-${displayLanguage}-${workspaceVoClips.length}-${hookVoClips.length}`}
+                hookVoClips={hookVoClips}
+                hookWords={englishRestore ? [] : hookWords}
+                hookAudio={englishRestore ? null : hookAudio}
+                hookDurationSec={hookPreviewSec}
+                hookScript={previewStoryboard.hookScript}
+                footageUrls={footageUrls}
+                workspace={workspace}
+                languagePair={languagePair}
+                workspaceVoClips={
+                  englishRestore || !previewIncludeWorkspace ? [] : workspaceVoClips
+                }
+                workspaceDurationSec={
+                  previewIncludeWorkspace ? workspaceDurationSec : undefined
+                }
+                outroCopy={outroCopy}
+                outroLayout={outroLayout}
+                outroPhraseTimings={outroPhraseTimings}
+                outroVoiceover={outroVoiceover}
+                outroDurationSec={previewIncludeOutro ? outroDurationSec : 0}
+                outroAudioBase64={
+                  previewIncludeOutro
+                    ? cachedVoiceover?.outroAudioBase64 ?? result?.outroAudioBase64 ?? null
+                    : null
+                }
+                includeOutro={previewIncludeOutro}
+                includeWorkspace={previewIncludeWorkspace}
+                includeHook={previewIncludeHook}
+                includeProductPayoff={previewIncludeProductPayoff}
+                workspaceOutroGapSec={effectiveWorkspaceOutroGap}
+                aspectRatio={aspectRatio}
+                productPayoffVoClip={
+                  englishRestore || !previewIncludeProductPayoff ? null : productPayoffVoClip
+                }
+                productPayoffDurationSec={
+                  previewIncludeProductPayoff ? productPayoffDurationSec : 0
+                }
+                productPayoffSayLine={productPayoff.sayLine}
+                productPayoffHeadline={productPayoff.headline}
+                productPayoffSupportingText={productPayoff.supportingText}
+                targetLanguage={displayLanguage}
+                subtitleScale={subtitleScale}
+                accentColor={COLORS.accent}
+                filename={mp4ExportFilename}
+                reelId={libraryReelId ?? undefined}
+                onMp4Cached={() => {
+                  const id = libraryReelId ?? reelKey;
+                  if (id) markMp4Cached(id, mp4ExportFilename);
+                }}
+              />
+            </div>
+          </section>
+        ) : null}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
             <section style={panel}>
@@ -2084,9 +2302,11 @@ export default function Studio() {
                 For each clip: describe the footage ({hookFootageProviderLabel(footageProvider)} search) and exactly what the voiceover
                 says. Footage, subtitles, and audio stay synced per clip. Write hook lines in English —
                 translate the finished reel at the bottom after you generate it.
-                {!includeHook ? (
+                {!includeHook || !effectiveIncludeHook ? (
                   <span style={{ display: "block", marginTop: 6, color: "#67E8F9" }}>
-                    Hook disabled — reel starts with workspace (or outro if workspace is off).
+                    {!includeHook
+                      ? "Hook disabled — reel starts with workspace (or outro if workspace is off)."
+                      : "Hook clips are empty — workspace-only preview & download work without a hook. Add say-lines to include a hook."}
                   </span>
                 ) : null}
               </p>
@@ -2207,59 +2427,10 @@ export default function Studio() {
                       : `Reel preview · ${totalPreviewSec.toFixed(1)}s · ${aspectRatio}`
                   }
                 >
-                  {showFullReelPreview && storyboard ? (
-                    <StudioFullReelPreview
-                      ref={fullPreviewRef}
-                      key={`full-${result?.createdAt ?? "reel"}-${displayLanguage}-${hookVoClips.length}-${footageUrls.length}-${previewIncludeOutro}-${previewIncludeWorkspace}-${previewIncludeProductPayoff}`}
-                      hookVoClips={hookVoClips}
-                      hookWords={englishRestore ? [] : hookWords}
-                      hookAudio={englishRestore ? null : hookAudio}
-                      hookDurationSec={hookPreviewSec}
-                      hookScript={storyboard.hookScript}
-                      footageUrls={footageUrls}
-                      workspace={workspace}
-                      languagePair={languagePair}
-                      workspaceVoClips={
-                        englishRestore || !previewIncludeWorkspace ? [] : workspaceVoClips
-                      }
-                      workspaceDurationSec={
-                        previewIncludeWorkspace ? workspaceDurationSec : undefined
-                      }
-                      outroCopy={outroCopy}
-                      outroLayout={outroLayout}
-                      outroPhraseTimings={outroPhraseTimings}
-                      outroVoiceover={outroVoiceover}
-                      outroDurationSec={previewIncludeOutro ? outroDurationSec : 0}
-                      outroAudioBase64={
-                        previewIncludeOutro
-                          ? cachedVoiceover?.outroAudioBase64 ?? result?.outroAudioBase64 ?? null
-                          : null
-                      }
-                      includeOutro={previewIncludeOutro}
-                      includeWorkspace={previewIncludeWorkspace}
-                      includeHook={previewIncludeHook}
-                      includeProductPayoff={previewIncludeProductPayoff}
-                      workspaceOutroGapSec={effectiveWorkspaceOutroGap}
-                      aspectRatio={aspectRatio}
-                      productPayoffVoClip={
-                        englishRestore || !previewIncludeProductPayoff ? null : productPayoffVoClip
-                      }
-                      productPayoffDurationSec={
-                        previewIncludeProductPayoff ? productPayoffDurationSec : 0
-                      }
-                      productPayoffSayLine={productPayoff.sayLine}
-                      productPayoffHeadline={productPayoff.headline}
-                      productPayoffSupportingText={productPayoff.supportingText}
-                      targetLanguage={displayLanguage}
-                      subtitleScale={subtitleScale}
-                      accentColor={COLORS.accent}
-                      filename={mp4ExportFilename}
-                      reelId={libraryReelId ?? undefined}
-                      onMp4Cached={() => {
-                        const id = libraryReelId ?? reelKey;
-                        if (id) markMp4Cached(id, mp4ExportFilename);
-                      }}
-                    />
+                  {showFullReelPreview ? (
+                    <div style={emptyPreview}>
+                      Full reel preview + Download MP4 are pinned at the top of this page.
+                    </div>
                   ) : showStudioHookPreview ? (
                     <div style={{ position: "relative" }}>
                       {generating ? (
@@ -2303,14 +2474,14 @@ export default function Studio() {
                     <div style={emptyPreview}>
                       {generating || voGenerating ? (
                         <Loader2 className="animate-spin" size={22} />
-                      ) : includeHook && hasHookVo ? (
-                        <>Hook voiceover ready — Generate Reel to attach footage and download MP4</>
-                      ) : !includeHook && voCoversSelection ? (
-                        <>Voiceover ready — preview loads above; Generate Reel to finalize MP4</>
-                      ) : !includeHook ? (
-                        <>~{totalEstimateSec.toFixed(1)}s reel · generate voiceover to preview</>
+                      ) : effectiveIncludeHook && hasHookVo && !voCoversSelection ? (
+                        <>Regenerate voiceover so workspace/outro match — then preview &amp; download appear here</>
+                      ) : !effectiveIncludeHook && voCoversSelection ? (
+                        <>Voiceover ready — full reel preview should load above</>
+                      ) : !effectiveIncludeHook ? (
+                        <>~{totalEstimateSec.toFixed(1)}s reel · generate voiceover to preview &amp; download</>
                       ) : (
-                        <>Hook ~{hookEstimateSec.toFixed(1)}s · generate voiceover to preview</>
+                        <>Hook ~{hookEstimateSec.toFixed(1)}s · generate voiceover to preview &amp; download</>
                       )}
                     </div>
                   )}
@@ -2350,6 +2521,9 @@ export default function Studio() {
                 <span style={{ color: "#3B82F6" }}>Blue</span>, <span style={{ color: "#EAB308" }}>Yellow</span>, or{" "}
                 <span style={{ color: WORKSPACE_SPEAKER_COLORS.C }}>Pink 3rd</span> — after a pink turn you choose who
                 speaks next (nothing is forced).
+                <span style={{ display: "block", marginTop: 6, color: "#67E8F9" }}>
+                  Master dialogue sticks by default on New commercial — change Language B for the next master language, edit/delete/add lines only where needed, then regenerate voiceover.
+                </span>
                 {!includeWorkspace ? (
                   <span style={{ display: "block", marginTop: 6, color: "#67E8F9" }}>
                     Workspace disabled — reel jumps from hook to outro (or ends after hook if outro is off).
@@ -2572,8 +2746,18 @@ export default function Studio() {
                 </p>
               )}
                 </div>
-                <PreviewColumn label={`Workspace preview · ~${workspaceDurationSec.toFixed(1)}s`}>
-                  {includeWorkspace ? (
+                <PreviewColumn
+                  label={
+                    showFullReelPreview && hasWorkspaceAudio
+                      ? `Reel ready · see preview at top`
+                      : `Workspace preview · ~${workspaceDurationSec.toFixed(1)}s`
+                  }
+                >
+                  {includeWorkspace && showFullReelPreview && hasWorkspaceAudio ? (
+                    <div style={emptyPreview}>
+                      Full reel preview + Download MP4 are pinned at the top of this page.
+                    </div>
+                  ) : includeWorkspace ? (
                     <WorkspacePreviewPanel
                       conversation={workspace}
                       languagePair={languagePair}
@@ -3122,7 +3306,7 @@ export default function Studio() {
             <section style={panel}>
               <SectionLabel>Timeline estimate · ~{totalEstimateSec.toFixed(0)}s total</SectionLabel>
               <div style={{ fontSize: 13, color: COLORS.inkMuted, lineHeight: 1.8 }}>
-                {includeHook ? (
+                {effectiveIncludeHook ? (
                   <div>Hook · ~{hookEstimateSec.toFixed(1)}s ({hookClips.length} clips)</div>
                 ) : (
                   <div style={{ opacity: 0.55 }}>Hook · skipped</div>
@@ -3279,13 +3463,9 @@ export default function Studio() {
                   {generating ? progressSteps[progressIdx] : "Generate Reel only"}
                 </button>
               </div>
-              {!canGenerateReel && hasHookVo && !voCoversSelection ? (
+              {!canGenerateReel && !hasPlayableStudioVo && clipsReady ? (
                 <p style={{ margin: "10px 0 0", fontSize: 12, color: "#FBBF24" }}>
-                  Regenerate voiceover — current cache doesn&apos;t match workspace/outro toggles.
-                </p>
-              ) : !canGenerateReel && clipsReady && !hasHookVo ? (
-                <p style={{ margin: "10px 0 0", fontSize: 12, color: "#FBBF24" }}>
-                  Generate voiceover first, then Generate Reel adds {hookFootageProviderLabel(footageProvider)} footage.
+                  Generate voiceover first — preview and Download MP4 appear as soon as audio is ready (hook optional).
                 </p>
               ) : null}
             </section>

@@ -189,6 +189,17 @@ router.post("/create-subscription", requireAuth, async (req: any, res) => {
       return;
     }
 
+    // Avoid double-billing: Paddle subscribers should change plan / payment in Paddle portal.
+    if (user.paddleSubscriptionId && (user.subscriptionStatus ?? "").toLowerCase() === "active") {
+      res.status(409).json({
+        error:
+          "You already have an active card subscription. Use Manage Billing to update your plan, payment method, or cancel.",
+        code: "use_paddle_portal",
+        provider: "paddle",
+      });
+      return;
+    }
+
     const plan = paypalPlanConfig(planType);
     logger.info(
       {
@@ -796,16 +807,37 @@ router.post("/manage-billing", requireAuth, async (req: any, res) => {
       return;
     }
 
+    // Prefer Paddle customer portal (payment method, invoices, cancel, plan updates).
     if (user.paddleCustomerId) {
       const { createPaddlePortalUrl } = await import("../lib/paddle.js");
       const url = await createPaddlePortalUrl(user.paddleCustomerId);
-      res.json({ url, provider: "paddle" as const });
+      res.json({
+        url,
+        provider: "paddle" as const,
+        capabilities: {
+          updatePaymentMethod: true,
+          viewInvoices: true,
+          changePlan: true,
+          cancel: true,
+        },
+      });
       return;
     }
 
-    // Legacy PayPal subscribers keep PayPal autopay management.
-    if (user.paypalSubscriptionId || user.subscriptionPlan) {
-      res.json({ url: paypalManageBillingUrl(), provider: "paypal" as const });
+    // PayPal subscribers — Autopay manage URL (change method / cancel on PayPal).
+    // Do NOT fall back on subscriptionPlan alone (Paddle users also have that field).
+    if (user.paypalSubscriptionId) {
+      res.json({
+        url: paypalManageBillingUrl(),
+        provider: "paypal" as const,
+        capabilities: {
+          updatePaymentMethod: true,
+          viewInvoices: false,
+          changePlan: false,
+          cancel: true,
+          canSwitchToCard: true,
+        },
+      });
       return;
     }
 
@@ -817,11 +849,24 @@ router.post("/manage-billing", requireAuth, async (req: any, res) => {
         user.stripeCustomerId,
         `${proto}://${host}/workspace`,
       );
-      res.json({ url: session.url, provider: "stripe" as const });
+      res.json({
+        url: session.url,
+        provider: "stripe" as const,
+        capabilities: {
+          updatePaymentMethod: true,
+          viewInvoices: true,
+          changePlan: true,
+          cancel: true,
+        },
+      });
       return;
     }
 
-    res.status(400).json({ error: "No active billing profile found" });
+    res.status(400).json({
+      error:
+        "No billing portal yet. Start or switch to card (Paddle) checkout to manage payment method, invoices, and plan changes.",
+      code: "no_billing_profile",
+    });
   } catch (err) {
     logger.error({ err }, "POST /api/payments/manage-billing failed");
     res.status(500).json({ error: "Failed to open billing management" });
@@ -902,6 +947,19 @@ router.get("/billing-overview", requireAuth, async (req: any, res) => {
       Math.ceil((trialEndBoundary.getTime() - trialStart.getTime()) / (24 * 60 * 60 * 1000)),
     );
 
+    const billingProvider = user.paddleSubscriptionId || user.paddleCustomerId
+      ? ("paddle" as const)
+      : user.paypalSubscriptionId
+        ? ("paypal" as const)
+        : user.stripeSubscriptionId
+          ? ("stripe" as const)
+          : null;
+
+    const { paddleCheckoutEnabled } = await import("../lib/paddle.js");
+    const paddleOn = paddleCheckoutEnabled();
+    const status = (user.subscriptionStatus ?? "").trim().toLowerCase();
+    const paidActive = !trialLike && (status === "active" || status === "canceled" || Boolean(user.subscriptionPlan));
+
     res.json({
       user: {
         id: user.id,
@@ -915,13 +973,15 @@ router.get("/billing-overview", requireAuth, async (req: any, res) => {
         paypalSubscriptionId: user.paypalSubscriptionId ?? null,
         paddleCustomerId: user.paddleCustomerId ?? null,
         paddleSubscriptionId: user.paddleSubscriptionId ?? null,
-        billingProvider: user.paddleSubscriptionId
-          ? "paddle"
-          : user.paypalSubscriptionId
-            ? "paypal"
-            : user.stripeSubscriptionId
-              ? "stripe"
-              : null,
+        billingProvider,
+        paymentMethodLabel:
+          billingProvider === "paddle"
+            ? "Card (Paddle)"
+            : billingProvider === "paypal"
+              ? "PayPal"
+              : billingProvider === "stripe"
+                ? "Card (Stripe)"
+                : "None",
         memberSince: memberSince.toISOString(),
         trialStartedAt: trialStart.toISOString(),
         trialEndsAt: user.trialEndsAt ? new Date(user.trialEndsAt).toISOString() : null,
@@ -929,6 +989,27 @@ router.get("/billing-overview", requireAuth, async (req: any, res) => {
         trialLike,
         dailyLimitMinutes: user.dailyLimitMinutes,
         minutesUsedToday: user.minutesUsedToday,
+      },
+      capabilities: {
+        paddleCheckoutEnabled: paddleOn,
+        canOpenProviderPortal: Boolean(
+          user.paddleCustomerId || user.paypalSubscriptionId || user.stripeCustomerId,
+        ),
+        canUpdatePaymentMethod: Boolean(
+          user.paddleCustomerId || user.paypalSubscriptionId || user.stripeCustomerId,
+        ),
+        canViewInvoices: Boolean(user.paddleCustomerId || user.paypalSubscriptionId),
+        canChangePlan: paidActive || trialLike,
+        /** PayPal-paid users can move to Paddle card for full SaaS portal (method, invoices, plan). */
+        canSwitchToCard: Boolean(user.paypalSubscriptionId) && paddleOn && !user.paddleSubscriptionId,
+        manageHint:
+          billingProvider === "paddle"
+            ? "Open Paddle to update your card, view invoices, change plan, or cancel."
+            : billingProvider === "paypal"
+              ? "Manage PayPal Autopay, or switch to card (Paddle) for invoices and payment-method controls."
+              : trialLike
+                ? "Choose a plan to start billing."
+                : "Start card checkout (Paddle) to manage billing in one place.",
       },
       invoices,
     });

@@ -696,7 +696,6 @@ export function GeneratedReelPlayer({
     return () => {
       cancelled = true;
     };
-    resolvedWorkspaceVo,
   }, [audioBase64, hookVoClips, workspaceVoClips, workspaceVoSchedule, outroAudioBase64, playbackOutroVo, hookDur, workspaceDur, outroDur, targetLanguage, includeOutro, includeWorkspace, hookOnly, resolvedWorkspaceVo]);
 
   const hookWords = useMemo(

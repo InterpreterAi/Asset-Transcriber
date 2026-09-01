@@ -41,7 +41,7 @@ export function MarketingPageShell({ children, premiumNav = true, dark = false }
       <div className="relative z-10">
         <MarketingNav premium={premiumNav} />
         {children}
-        <MarketingFooter />
+        <MarketingFooter dark={dark} />
       </div>
     </div>
   );

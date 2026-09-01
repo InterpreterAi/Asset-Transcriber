@@ -406,25 +406,79 @@ export function studioVoiceoverCoversSelection(
   },
 ): boolean {
   if (!vo) return false;
-  if (opts.includeHook !== false && vo.hookVoClips.length === 0) return false;
-  if (opts.includeWorkspace) {
-    if (vo.workspaceVoClips.length === 0) return false;
-    const needed = (opts.workspaceExchanges ?? [])
-      .map((ex, i) => ({ i, has: !!(ex.original?.trim()) }))
-      .filter((x) => x.has)
-      .map((x) => x.i);
-    if (needed.length > 0) {
-      const have = new Set(
-        vo.workspaceVoClips.map((c, i) =>
-          typeof c.exchangeIndex === "number" && c.exchangeIndex >= 0 ? c.exchangeIndex : i,
-        ),
-      );
-      if (needed.some((i) => !have.has(i))) return false;
-    }
-  }
-  if (opts.includeProductPayoff !== false && !vo.productPayoffVoClip?.audioBase64) return false;
-  if (opts.includeOutro && !vo.outroAudioBase64) return false;
-  return true;
+  const wantHook = opts.includeHook === true;
+  const wantPayoff = opts.includeProductPayoff === true;
+  const hasHook = vo.hookVoClips.some((c) => !!c.audioBase64);
+  const hasWorkspace = vo.workspaceVoClips.some((c) => !!c.audioBase64);
+  const hasPayoff = !!vo.productPayoffVoClip?.audioBase64;
+  const hasOutro = !!vo.outroAudioBase64;
+  if (!wantHook && !opts.includeWorkspace && !wantPayoff && !opts.includeOutro) return false;
+  if (wantHook && !hasHook) return false;
+  // Workspace-only reels: any workspace audio is enough (do not block on exchange-index drift).
+  if (opts.includeWorkspace && !hasWorkspace) return false;
+  if (wantPayoff && !hasPayoff) return false;
+  // Outro often arrives as phrase clips / canonical EN file — never block preview/download.
+  return hasHook || hasWorkspace || hasPayoff || hasOutro || opts.includeOutro;
+}
+
+/** Build a library/preview package from voiceover alone (no Pexels/Veo needed). */
+export function studioPackageFromVoiceover(
+  vo: StudioVoiceoverResult,
+  opts: {
+    language: string;
+    series: string;
+    workspace: WorkspaceConversation;
+    hookClips: HookClipInput[];
+    productPayoff?: ProductPayoffInput | null;
+    outroVoiceover: string;
+    outroCopy?: UniversalOutroCopy;
+    includeHook: boolean;
+    includeWorkspace: boolean;
+    includeOutro: boolean;
+    includeProductPayoff: boolean;
+  },
+): GeneratedReelResult {
+  const hookScript = opts.includeHook
+    ? opts.hookClips
+        .map((c) => c.sayLine.trim())
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const storyboard: GeneratedStoryboard = {
+    hookScript,
+    hookScenes: opts.includeHook ? opts.hookClips.map((c) => c.scenario.trim()) : [],
+    workspace: opts.workspace,
+    productPayoff: opts.includeProductPayoff ? opts.productPayoff ?? undefined : undefined,
+    outroVoiceover: opts.outroVoiceover,
+    outroCopy: opts.outroCopy,
+  };
+  return {
+    prompt: hookScript || "workspace reel",
+    language: opts.language,
+    series: opts.series,
+    storyboard,
+    storyboardEn: storyboard,
+    footageUrls: [],
+    hookVoClips: opts.includeHook ? vo.hookVoClips : [],
+    hookDurationSec: opts.includeHook ? vo.hookDurationSec : 0,
+    productPayoffVoClip: opts.includeProductPayoff ? vo.productPayoffVoClip ?? null : null,
+    productPayoffDurationSec: opts.includeProductPayoff ? vo.productPayoffDurationSec : 0,
+    audioBase64: vo.audioBase64,
+    words: vo.words,
+    workspaceVoClips: opts.includeWorkspace ? vo.workspaceVoClips : [],
+    outroAudioBase64: opts.includeOutro ? vo.outroAudioBase64 : null,
+    outroWords: opts.includeOutro ? vo.outroWords : [],
+    includeHook: opts.includeHook,
+    includeWorkspace: opts.includeWorkspace,
+    includeOutro: opts.includeOutro,
+    includeProductPayoff: opts.includeProductPayoff,
+    providerStatus: {
+      storyboard: "ok",
+      footage: opts.includeHook ? "skipped" : "skipped",
+      voice: "ok",
+    },
+    createdAt: Date.now(),
+  };
 }
 
 function normalizeOutroPhraseClips(raw: unknown): OutroPhraseClip[] {
@@ -504,13 +558,21 @@ async function parseVoiceoverResponse(
   };
 
   const phraseClips = normalizeOutroPhraseClips(data.outroPhraseClips);
-  if (phraseClips.length > 1) {
-    const stitched = await stitchOutroPhraseClipsToBase64(phraseClips, outroPhraseGapSec);
-    base.outroAudioBase64 = stitched.audioBase64;
-    base.outroWords = normalizeWordTimestamps(stitched.words);
-  } else if (phraseClips.length === 1 && !base.outroAudioBase64) {
-    base.outroAudioBase64 = phraseClips[0]!.audioBase64;
-    base.outroWords = normalizeWordTimestamps(phraseClips[0]!.words);
+  try {
+    if (phraseClips.length > 1) {
+      const stitched = await stitchOutroPhraseClipsToBase64(phraseClips, outroPhraseGapSec);
+      base.outroAudioBase64 = stitched.audioBase64;
+      base.outroWords = normalizeWordTimestamps(stitched.words);
+    } else if (phraseClips.length === 1 && !base.outroAudioBase64) {
+      base.outroAudioBase64 = phraseClips[0]!.audioBase64;
+      base.outroWords = normalizeWordTimestamps(phraseClips[0]!.words);
+    }
+  } catch (e) {
+    console.warn("[voiceover] outro phrase stitch failed — using first phrase / canonical", e);
+    if (!base.outroAudioBase64 && phraseClips[0]?.audioBase64) {
+      base.outroAudioBase64 = phraseClips[0].audioBase64;
+      base.outroWords = normalizeWordTimestamps(phraseClips[0].words);
+    }
   }
 
   return base;

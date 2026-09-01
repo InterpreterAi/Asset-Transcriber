@@ -40,16 +40,16 @@ export default function Terms() {
       <h2>3. Subscriptions and billing</h2>
       <p>
         Paid plans are billed in advance on a recurring monthly basis until cancelled. Current public plans are:
-      </p>
-      <ul>
-        <li>
+          </p>
+          <ul>
+            <li>
           <strong>Basic</strong> — $59 per month — up to 5 hours of interpreting time per day
-        </li>
-        <li>
+            </li>
+            <li>
           <strong>Professional</strong> — $99 per month — unlimited interpreting hours as offered in the product; a daily
           platform cap may still apply for reliability
-        </li>
-      </ul>
+            </li>
+          </ul>
       <p>
         Prices, features, and limits may change. Material changes will be reflected on our{" "}
         <Link href="/pricing">Pricing</Link> page. Taxes may be added where required.

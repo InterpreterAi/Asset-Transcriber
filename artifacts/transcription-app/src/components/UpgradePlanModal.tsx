@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Lock, X } from "lucide-react";
+import { AlertTriangle, Check, CreditCard, ExternalLink, Lock, X } from "lucide-react";
 import { AcceptedCardMethods, PayByCardButton, PayPalCheckoutButton } from "@/components/billing/PaymentMethodLogos";
 import { cn } from "@/lib/utils";
 import type { PricingPlanKey } from "@/lib/pricing-copy";
@@ -33,6 +33,8 @@ const UPGRADE_PLAN_COPY: Record<
   },
 };
 
+export type BillingProviderKind = "paddle" | "paypal" | "stripe" | null;
+
 export function UpgradePlanModal(props: {
   title: string;
   subtitle: string;
@@ -42,16 +44,29 @@ export function UpgradePlanModal(props: {
   paddleEnabled: boolean;
   upgradeLoading: string | null;
   isDowngradeFlow: boolean;
+  /** Current paid billing provider — shapes SaaS manage options. */
+  billingProvider?: BillingProviderKind;
+  canSwitchToCard?: boolean;
   onClose: () => void;
   onSelectPlan: (plan: PricingPlanKey) => void;
   onPaddleCheckout: (plan: PricingPlanKey) => void;
   onPayPalCheckout: (plan: PricingPlanKey) => void;
+  onOpenManageBilling?: () => void;
+  onViewBilling?: () => void;
+  /** PayPal → Paddle: checkout current (or selected) plan on card. */
+  onSwitchToCard?: (plan: PricingPlanKey) => void;
 }) {
   const selected =
     props.selectedPlan && props.planKeys.includes(props.selectedPlan) ? props.selectedPlan : null;
   const paddleBusy = Boolean(selected && props.upgradeLoading === selected);
   const paypalBusy = Boolean(selected && props.upgradeLoading === `paypal-${selected}`);
-  const payDisabled = !selected || paddleBusy || paypalBusy;
+  const portalBusy = props.upgradeLoading === "portal";
+  const switchBusy = Boolean(selected && props.upgradeLoading === `switch-card-${selected}`);
+  const payDisabled = !selected || paddleBusy || paypalBusy || switchBusy || portalBusy;
+
+  const isPaddleSubscriber = props.billingProvider === "paddle";
+  const isPayPalSubscriber = props.billingProvider === "paypal";
+  const showSaaSManage = isPaddleSubscriber || isPayPalSubscriber;
 
   const payWithCard = () => {
     if (!selected) return;
@@ -61,6 +76,11 @@ export function UpgradePlanModal(props: {
   const payWithPayPal = () => {
     if (!selected) return;
     props.onPayPalCheckout(selected);
+  };
+
+  const switchToCard = () => {
+    if (!selected || !props.onSwitchToCard) return;
+    props.onSwitchToCard(selected);
   };
 
   return (
@@ -88,6 +108,66 @@ export function UpgradePlanModal(props: {
             <div className="rounded-xl border border-red-400/25 bg-red-500/10 p-3 flex items-start gap-2 text-sm text-red-200">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{props.error}</span>
+            </div>
+          )}
+
+          {showSaaSManage && (
+            <div className="rounded-2xl border border-sky-400/25 bg-sky-400/[0.06] p-4 sm:p-5 space-y-3">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-sky-300/90">
+                Manage subscription
+              </p>
+              <p className="text-[13px] text-slate-300 leading-relaxed">
+                {isPaddleSubscriber
+                  ? "Update your card, download invoices, change plan, or cancel in the Paddle billing portal — same as typical SaaS billing."
+                  : "You’re on PayPal. Manage Autopay there, or switch to card (Paddle) for payment method, invoices, and plan controls in one place."}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                {props.onOpenManageBilling && (
+                  <button
+                    type="button"
+                    onClick={props.onOpenManageBilling}
+                    disabled={portalBusy}
+                    className="h-10 px-4 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {portalBusy ? (
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <ExternalLink className="w-4 h-4" />
+                    )}
+                    {isPaddleSubscriber ? "Open billing portal" : "Manage on PayPal"}
+                  </button>
+                )}
+                {props.onViewBilling && (
+                  <button
+                    type="button"
+                    onClick={props.onViewBilling}
+                    className="h-10 px-4 rounded-lg border border-white/15 text-sm font-medium text-slate-200 hover:bg-white/5 inline-flex items-center justify-center gap-2"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    View billing & invoices
+                  </button>
+                )}
+              </div>
+              {isPayPalSubscriber && props.canSwitchToCard && props.paddleEnabled && props.onSwitchToCard && (
+                <div className="pt-1 space-y-2">
+                  <p className="text-[12px] text-slate-400">
+                    Switch to card keeps your selected plan below. Your PayPal subscription is cancelled after card payment confirms.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={switchToCard}
+                    disabled={payDisabled}
+                    className="w-full h-10 rounded-lg border border-emerald-400/35 bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-100 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {switchBusy ? (
+                      <span className="w-4 h-4 border-2 border-emerald-200/30 border-t-emerald-100 rounded-full animate-spin" />
+                    ) : (
+                      <CreditCard className="w-4 h-4" />
+                    )}
+                    Switch to card (Paddle)
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -151,37 +231,57 @@ export function UpgradePlanModal(props: {
             })}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 space-y-3.5">
-            {props.paddleEnabled ? (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">Pay by card</p>
-                  <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-                    <Lock className="w-3 h-3" />
-                    Secure checkout
-                  </span>
-                </div>
-                <PayByCardButton onClick={payWithCard} disabled={payDisabled} loading={paddleBusy} />
-                <AcceptedCardMethods onPayByCard={payWithCard} disabled={payDisabled} />
-                <p className="text-center text-[11px] text-slate-500">
-                  {selected
-                    ? "Opens Paddle checkout. Apple Pay and Google Pay appear when your device supports them."
-                    : "Select a plan, then pay by card."}
-                </p>
+          {/* Paddle downgrade: change plan in portal. Upgrades / new plans still use card checkout. */}
+          {isPaddleSubscriber && props.isDowngradeFlow ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 space-y-2">
+              <p className="text-[13px] text-slate-300 leading-relaxed">
+                Plan changes, payment method, and cancellation for card subscribers are handled in the{" "}
+                <span className="text-white font-medium">Paddle billing portal</span> above — no second checkout needed.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 space-y-3.5">
+              {props.paddleEnabled ? (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+                      {isPayPalSubscriber ? "Pay by card (recommended)" : "Pay by card"}
+                    </p>
+                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                      <Lock className="w-3 h-3" />
+                      Secure checkout
+                    </span>
+                  </div>
+                  <PayByCardButton onClick={payWithCard} disabled={payDisabled} loading={paddleBusy} />
+                  <AcceptedCardMethods onPayByCard={payWithCard} disabled={payDisabled} />
+                  <p className="text-center text-[11px] text-slate-500">
+                    {selected
+                      ? isPayPalSubscriber
+                        ? "Opens Paddle checkout. After payment, PayPal billing is cancelled automatically."
+                        : "Opens Paddle checkout. Apple Pay and Google Pay appear when your device supports them."
+                      : "Select a plan, then pay by card."}
+                  </p>
 
-                <div className="flex items-center gap-3 py-0.5">
-                  <div className="h-px flex-1 bg-white/10" />
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">or</p>
-                  <div className="h-px flex-1 bg-white/10" />
-                </div>
+                  {!isPayPalSubscriber && (
+                    <>
+                      <div className="flex items-center gap-3 py-0.5">
+                        <div className="h-px flex-1 bg-white/10" />
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">or</p>
+                        <div className="h-px flex-1 bg-white/10" />
+                      </div>
 
+                      <PayPalCheckoutButton onClick={payWithPayPal} disabled={payDisabled} loading={paypalBusy} />
+                      <p className="text-center text-[11px] text-slate-500">
+                        Card billing (Paddle) is the default for invoices and payment-method management
+                      </p>
+                    </>
+                  )}
+                </>
+              ) : (
                 <PayPalCheckoutButton onClick={payWithPayPal} disabled={payDisabled} loading={paypalBusy} />
-                <p className="text-center text-[11px] text-slate-500">Secure payments powered by Paddle</p>
-              </>
-            ) : (
-              <PayPalCheckoutButton onClick={payWithPayPal} disabled={payDisabled} loading={paypalBusy} />
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           <p className="text-center text-[12px] text-slate-500">
             Cancel anytime.{" "}

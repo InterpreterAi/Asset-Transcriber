@@ -43,6 +43,11 @@ export default function Footer() {
             <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
               The real-time AI infrastructure for professional OPI and VRI interpreters. 62 languages. Sub-second latency. HIPAA compliant.
             </p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              <a href="mailto:support@interpreterai.com" className="hover:text-white transition-colors">
+                support@interpreterai.com
+              </a>
+            </p>
           </div>
 
           {footerLinks.map((group) => (

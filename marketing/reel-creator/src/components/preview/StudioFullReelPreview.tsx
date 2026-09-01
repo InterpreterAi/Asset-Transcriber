@@ -39,6 +39,7 @@ import {
 import { ClipWordSubtitles } from "@/components/preview/ClipWordSubtitles";
 import {
   estimateTimedWords,
+  REEL_CAPTION_FONT,
   type TimedWord,
 } from "@/lib/kineticCaptions";
 import { isRtlLanguage } from "@/lib/constants/languages";
@@ -166,15 +167,18 @@ function HookBackdrop({ localTime, hasFootage }: { localTime: number; hasFootage
 
 function pickActiveSegment(segments: GeneratedSegment[], t: number): GeneratedSegment {
   const active = segments.filter((s) => s.end > s.start);
+  if (active.length === 0) {
+    return segments[0] ?? { id: "workspace", start: 0, end: Math.max(0.1, t + 0.1) };
+  }
   const inside = active.find((s) => t >= s.start && t < s.end);
   if (inside) return inside;
-  if (t <= 0.001) return active[0] ?? segments[segments.length - 1]!;
-  let prev = active[0];
+  if (t <= 0.001) return active[0]!;
+  let prev = active[0]!;
   for (const s of active) {
     if (s.start <= t) prev = s;
     else break;
   }
-  return prev ?? active[active.length - 1] ?? segments[segments.length - 1]!;
+  return prev;
 }
 
 export const StudioFullReelPreview = forwardRef<StudioFullReelPreviewHandle, Props>(

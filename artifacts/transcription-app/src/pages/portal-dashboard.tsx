@@ -34,6 +34,7 @@ type BillingOverview = {
     paddleCustomerId?: string | null;
     paddleSubscriptionId?: string | null;
     billingProvider?: "paddle" | "paypal" | "stripe" | null;
+    paymentMethodLabel?: string;
     memberSince: string;
     trialStartedAt: string;
     trialEndsAt: string | null;
@@ -41,6 +42,15 @@ type BillingOverview = {
     trialLike: boolean;
     dailyLimitMinutes: number;
     minutesUsedToday: number;
+  };
+  capabilities?: {
+    paddleCheckoutEnabled?: boolean;
+    canOpenProviderPortal?: boolean;
+    canUpdatePaymentMethod?: boolean;
+    canViewInvoices?: boolean;
+    canChangePlan?: boolean;
+    canSwitchToCard?: boolean;
+    manageHint?: string;
   };
   invoices: Array<{
     id: string;
@@ -367,20 +377,53 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
           <section className="space-y-5">
             <h1 className="text-3xl font-semibold tracking-tight">Billing</h1>
             <div className="rounded-2xl border border-border p-5">
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div>
                   <p className="text-xl font-semibold">{trialLike ? "Free Trial" : workspacePlanDisplayName(userPlanType)}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {trialLike ? "Start a plan to unlock monthly billing controls." : "Your current subscription billing status."}
+                    {overview?.capabilities?.manageHint ??
+                      (trialLike
+                        ? "Start a plan to unlock monthly billing controls."
+                        : "Your current subscription billing status.")}
                   </p>
                 </div>
-                <button
-                  onClick={() => (trialLike ? setLocation("/pricing") : void openBillingPortal())}
-                  disabled={!trialLike && billingPortalLoading}
-                  className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60"
-                >
-                  {trialLike ? "Upgrade" : billingPortalLoading ? "Opening…" : "Manage"}
-                </button>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {trialLike ? (
+                    <button
+                      onClick={() => setLocation("/pricing")}
+                      className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold"
+                    >
+                      Upgrade
+                    </button>
+                  ) : (
+                    <>
+                      {overview?.capabilities?.canOpenProviderPortal !== false && (
+                        <button
+                          onClick={() => void openBillingPortal()}
+                          disabled={billingPortalLoading}
+                          className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60"
+                        >
+                          {billingPortalLoading
+                            ? "Opening…"
+                            : overview?.user.billingProvider === "paddle"
+                              ? "Manage payment & plan"
+                              : overview?.user.billingProvider === "paypal"
+                                ? "Manage on PayPal"
+                                : "Manage"}
+                        </button>
+                      )}
+                      {overview?.capabilities?.canSwitchToCard && (
+                        <button
+                          type="button"
+                          onClick={() => setLocation("/workspace?panel=profile")}
+                          className="h-10 px-4 rounded-lg border border-border text-sm font-semibold hover:bg-muted"
+                        >
+                          Switch to card
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                 <div>
@@ -390,15 +433,16 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground text-xs">Payment</p>
+                  <p className="text-muted-foreground text-xs">Payment method</p>
                   <p className="font-medium">
-                    {overview?.user.billingProvider === "paddle"
-                      ? "Paddle"
-                      : overview?.user.billingProvider === "paypal" || overview?.user.paypalSubscriptionId
-                        ? "PayPal"
-                        : overview?.user.billingProvider === "stripe"
-                          ? "Stripe"
-                          : "None"}
+                    {overview?.user.paymentMethodLabel ??
+                      (overview?.user.billingProvider === "paddle"
+                        ? "Card (Paddle)"
+                        : overview?.user.billingProvider === "paypal" || overview?.user.paypalSubscriptionId
+                          ? "PayPal"
+                          : overview?.user.billingProvider === "stripe"
+                            ? "Card (Stripe)"
+                            : "None")}
                   </p>
                 </div>
                 <div>
@@ -406,12 +450,31 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                   <p className="font-medium">{renewalRaw ? new Date(renewalRaw).toLocaleDateString() : "-"}</p>
                 </div>
               </div>
+              {!trialLike && (
+                <ul className="mt-4 text-sm text-muted-foreground space-y-1.5 list-disc pl-5">
+                  {overview?.user.billingProvider === "paddle" && (
+                    <>
+                      <li>Update card or payment method in the Paddle portal</li>
+                      <li>Change plan or cancel anytime from the same portal</li>
+                      <li>Invoices and receipts appear below and in Paddle</li>
+                    </>
+                  )}
+                  {overview?.user.billingProvider === "paypal" && (
+                    <>
+                      <li>Manage or cancel PayPal Autopay from Manage on PayPal</li>
+                      <li>Switch to card (Paddle) in your workspace profile for invoices and payment-method controls</li>
+                    </>
+                  )}
+                </ul>
+              )}
             </div>
 
             <div className="rounded-2xl border border-border p-5">
               <h2 className="text-lg font-medium">Invoices</h2>
               <p className="text-sm text-muted-foreground">
-                View and download receipts in Paddle. Click a row or open the billing portal.
+                {overview?.user.billingProvider === "paypal"
+                  ? "Recent PayPal charges for this subscription. Switch to card for full Paddle invoice history."
+                  : "View and download receipts. Click a row or open the billing portal."}
               </p>
               {billingPortalError && (
                 <p className="mt-2 text-sm text-destructive">{billingPortalError}</p>
@@ -425,15 +488,26 @@ export default function PortalDashboard({ initialTab }: { initialTab: PortalTab 
                 </div>
                 {(overview?.invoices ?? []).length === 0 ? (
                   <div className="px-4 py-6 text-sm text-muted-foreground space-y-3">
-                    <p>No invoices yet{trialLike ? "." : " in InterpreterAI. Open Paddle to view receipts."}</p>
-                    {!trialLike && (
+                    <p>
+                      No invoices yet
+                      {trialLike
+                        ? "."
+                        : overview?.user.billingProvider === "paypal"
+                          ? ". Open PayPal Autopay for payment history, or switch to card."
+                          : ". Open the billing portal to view receipts."}
+                    </p>
+                    {!trialLike && overview?.capabilities?.canOpenProviderPortal !== false && (
                       <button
                         type="button"
                         onClick={() => void openBillingPortal()}
                         disabled={billingPortalLoading}
                         className="h-9 px-3 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-60"
                       >
-                        {billingPortalLoading ? "Opening…" : "Open Paddle invoices"}
+                        {billingPortalLoading
+                          ? "Opening…"
+                          : overview?.user.billingProvider === "paypal"
+                            ? "Open PayPal billing"
+                            : "Open invoices portal"}
                       </button>
                     )}
                   </div>

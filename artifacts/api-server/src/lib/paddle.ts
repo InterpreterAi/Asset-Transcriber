@@ -222,11 +222,15 @@ export async function activatePaddlePaidUser(opts: {
 
   const plan = paypalPlanConfig(opts.billingPlan);
   const resolvedPlanType = dbPlanTypeFromPayPalBilling(opts.billingPlan);
+  const previousPayPalSubId = (user.paypalSubscriptionId ?? "").trim();
+
   await db
     .update(usersTable)
     .set({
       paddleCustomerId: opts.customerId || user.paddleCustomerId || null,
       paddleSubscriptionId: opts.subscriptionId || user.paddleSubscriptionId || null,
+      // Migrating to card (Paddle) — drop PayPal billing ids so manage-billing opens Paddle.
+      paypalSubscriptionId: previousPayPalSubId ? null : user.paypalSubscriptionId,
       subscriptionStatus: "active",
       subscriptionStartedAt: opts.startAt,
       subscriptionPeriodEndsAt: opts.periodEnd,
@@ -239,12 +243,32 @@ export async function activatePaddlePaidUser(opts: {
     })
     .where(eq(usersTable.id, opts.userId));
 
+  if (previousPayPalSubId) {
+    try {
+      const { cancelPayPalSubscription } = await import("./paypal-cancel.js");
+      await cancelPayPalSubscription(
+        previousPayPalSubId,
+        "Switched payment method to card (Paddle)",
+      );
+      logger.info(
+        { userId: opts.userId, paypalSubscriptionId: previousPayPalSubId },
+        "Cancelled PayPal subscription after Paddle activation",
+      );
+    } catch (err) {
+      logger.warn(
+        { err, userId: opts.userId, paypalSubscriptionId: previousPayPalSubId },
+        "PayPal cancel after Paddle activation failed — user is on Paddle; cancel manually if still charging",
+      );
+    }
+  }
+
   logger.info(
     {
       userId: opts.userId,
       planType: resolvedPlanType,
       subscriptionPlan: opts.billingPlan,
       paddleSubscriptionId: opts.subscriptionId,
+      migratedFromPayPal: Boolean(previousPayPalSubId),
     },
     "Paddle subscription activated",
   );

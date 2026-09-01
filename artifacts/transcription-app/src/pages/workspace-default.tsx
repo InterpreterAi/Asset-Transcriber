@@ -596,6 +596,12 @@ export default function WorkspaceDefault() {
     void fetchPaddleConfig()
       .then(setPaddleConfig)
       .catch(() => setPaddleConfig({ enabled: false, environment: "sandbox", clientToken: "", customerId: null, prices: { basic: null, professional: null } }));
+    void fetch("/api/payments/billing-overview", { credentials: "include" })
+      .then(async (r) => (r.ok ? ((await r.json()) as ProfileBillingOverview) : null))
+      .then((d) => {
+        if (d) setProfileBilling(d);
+      })
+      .catch(() => {});
   };
 
   const handlePaddleCheckout = async (planType: "basic" | "professional") => {
@@ -680,17 +686,37 @@ export default function WorkspaceDefault() {
 
   const handleManageBilling = async () => {
     setUpgradeLoading("portal");
+    setUpgradeError(null);
     try {
       const res = await fetch("/api/payments/manage-billing", {
         method: "POST",
         credentials: "include",
       });
-      const data = await res.json() as { url?: string; error?: string };
-      if (!res.ok || !data.url) throw new Error(data.error ?? "Portal unavailable");
+      const data = await res.json() as { url?: string; error?: string; code?: string };
+      if (!res.ok || !data.url) {
+        if (data.code === "no_billing_profile") {
+          throw new Error(
+            "No billing portal yet. Use Pay by card (Paddle) to set up card billing, then you can manage payment method and invoices.",
+          );
+        }
+        throw new Error(data.error ?? "Portal unavailable");
+      }
       window.location.href = data.url;
     } catch (err: unknown) {
       setUpgradeError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
+      setUpgradeLoading(null);
+    }
+  };
+
+  /** PayPal → Paddle card for selected (or current) plan. */
+  const handleSwitchToCard = async (planType: "basic" | "professional") => {
+    setUpgradeLoading(`switch-card-${planType}`);
+    setUpgradeError(null);
+    try {
+      await handlePaddleCheckout(planType);
+    } finally {
+      // handlePaddleCheckout clears its own loading in finally; keep switch key cleared
       setUpgradeLoading(null);
     }
   };
@@ -714,7 +740,21 @@ export default function WorkspaceDefault() {
   type ProfileBillingOverview = {
     user: {
       paypalSubscriptionId: string | null;
+      paddleCustomerId?: string | null;
+      paddleSubscriptionId?: string | null;
       subscriptionStatus: string | null;
+      subscriptionPlan?: string | null;
+      billingProvider?: "paddle" | "paypal" | "stripe" | null;
+      paymentMethodLabel?: string;
+    };
+    capabilities?: {
+      paddleCheckoutEnabled?: boolean;
+      canOpenProviderPortal?: boolean;
+      canUpdatePaymentMethod?: boolean;
+      canViewInvoices?: boolean;
+      canChangePlan?: boolean;
+      canSwitchToCard?: boolean;
+      manageHint?: string;
     };
   };
   const [profileBilling, setProfileBilling] = useState<ProfileBillingOverview | null>(null);
@@ -1050,11 +1090,20 @@ export default function WorkspaceDefault() {
   const isDowngradeFlow = currentTier === "professional";
   const planModalTitle = isDowngradeFlow ? "Change Your Plan" : "Upgrade Your Plan";
   const planModalSubtitle = isDowngradeFlow
-    ? "Switch to Basic anytime — lower monthly price, 5 hours per day"
+    ? "Manage billing, switch payment method, or move to Basic"
     : currentTier === "basic"
       ? "Upgrade to Professional for unlimited interpreting hours"
       : "Choose a plan that fits your workflow";
   const paddleCheckoutOn = Boolean(paddleConfig?.enabled);
+  const billingProvider = profileBilling?.user.billingProvider ?? null;
+  const canSwitchToCard = Boolean(profileBilling?.capabilities?.canSwitchToCard);
+  const paymentMethodLabel =
+    profileBilling?.user.paymentMethodLabel ??
+    (billingProvider === "paddle"
+      ? "Card (Paddle)"
+      : billingProvider === "paypal"
+        ? "PayPal"
+        : null);
 
   const isLimitReached =
     user.minutesUsedToday > 0 && user.minutesRemainingToday <= 0;
@@ -1112,10 +1161,18 @@ export default function WorkspaceDefault() {
           paddleEnabled={paddleCheckoutOn}
           upgradeLoading={upgradeLoading}
           isDowngradeFlow={isDowngradeFlow}
+          billingProvider={billingProvider}
+          canSwitchToCard={canSwitchToCard}
           onClose={() => setShowUpgrade(false)}
           onSelectPlan={setSelectedPlan}
           onPaddleCheckout={(plan) => void handlePaddleCheckout(plan)}
           onPayPalCheckout={(plan) => void handlePayPalCheckout(plan)}
+          onOpenManageBilling={() => void handleManageBilling()}
+          onViewBilling={() => {
+            setShowUpgrade(false);
+            setLocation("/billing");
+          }}
+          onSwitchToCard={(plan) => void handleSwitchToCard(plan)}
         />
       )}
 
@@ -1291,7 +1348,7 @@ export default function WorkspaceDefault() {
               )}
             </div>
 
-            {/* Upgrade / Manage billing button */}
+            {/* Upgrade / Manage billing — SaaS-style for paid subscribers */}
             {isTrialLikePlanType(user.planType) ? (
               <button
                 onClick={handleOpenUpgrade}
@@ -1302,6 +1359,11 @@ export default function WorkspaceDefault() {
               </button>
             ) : (
               <div className="mt-2 space-y-1.5">
+                {paymentMethodLabel && (
+                  <p className="text-[10px] text-muted-foreground px-0.5">
+                    Payment: <span className="font-medium text-foreground/80">{paymentMethodLabel}</span>
+                  </p>
+                )}
                 {canChangePlan && (
                   <button
                     onClick={handleOpenUpgrade}
@@ -1313,26 +1375,73 @@ export default function WorkspaceDefault() {
                 )}
                 <div className="grid grid-cols-2 gap-1.5">
                   <button
+                    onClick={() => setLocation("/billing")}
+                    className="h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    View Billing
+                  </button>
+                  <button
                     onClick={() => void handleManageBilling()}
                     disabled={upgradeLoading === "portal"}
                     className="h-8 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                    title={
+                      billingProvider === "paddle"
+                        ? "Update card, invoices, plan, or cancel in Paddle"
+                        : billingProvider === "paypal"
+                          ? "Manage PayPal Autopay"
+                          : "Open billing portal"
+                    }
                   >
                     {upgradeLoading === "portal" ? (
                       <span className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
                     ) : (
                       <ExternalLink className="w-3.5 h-3.5" />
                     )}
-                    Manage Billing
-                  </button>
-                  <button
-                    onClick={() => void handleManageBilling()}
-                    disabled={upgradeLoading === "portal"}
-                    className="h-8 rounded-lg border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
-                    title="Open billing page to cancel your subscription and stop auto-renew charges."
-                  >
-                    Cancel Subscription
+                    {billingProvider === "paddle" ? "Payment method" : "Manage Billing"}
                   </button>
                 </div>
+                {canSwitchToCard && paddleCheckoutOn && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const plan =
+                        currentTier === "basic"
+                          ? "basic"
+                          : currentTier === "professional"
+                            ? "professional"
+                            : (selectedPlan ?? "professional");
+                      setSelectedPlan(plan);
+                      setShowUpgrade(true);
+                      setUpgradeError(null);
+                      void fetchPaddleConfig()
+                        .then(setPaddleConfig)
+                        .catch(() =>
+                          setPaddleConfig({
+                            enabled: false,
+                            environment: "sandbox",
+                            clientToken: "",
+                            customerId: null,
+                            prices: { basic: null, professional: null },
+                          }),
+                        );
+                    }}
+                    className="w-full h-8 rounded-lg border border-emerald-500/30 bg-emerald-500/5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    Switch to card
+                  </button>
+                )}
+                <button
+                  onClick={() => void handleManageBilling()}
+                  disabled={upgradeLoading === "portal"}
+                  className="w-full h-8 rounded-lg border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  title="Open billing portal to cancel and stop auto-renew."
+                >
+                  Cancel Subscription
+                </button>
+                {upgradeError && activeTab === "profile" && !showUpgrade && (
+                  <p className="text-[11px] text-destructive leading-snug">{upgradeError}</p>
+                )}
               </div>
             )}
           </div>
