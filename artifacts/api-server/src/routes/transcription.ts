@@ -700,6 +700,17 @@ const LOCKED_OFFICIAL_REGISTER_RULES =
   `- When the source is dialect — especially Maghrebi Arabic — render the EXACT meaning in the official TARGET. Never leave dialect particles in the translation column.\n` +
   `- This lock applies to every supported language the same way: translation = official standard only; originals stay as spoken.\n\n`;
 
+/** STT may insert . ! ? after silence. Originals stay as written. Translation uses natural target punctuation. */
+function spokenPausePunctuationRules(tgtDisplayName: string): string {
+  return (
+    `SPOKEN PAUSE PUNCTUATION (every language pair):\n` +
+    `- The original may contain extra . ! ? after a short silence or interjection (e.g. "Oh." / "Worse." / "Okay, okay."). That is automatic speech punctuation — do not copy every mark as a hard new sentence in ${tgtDisplayName}.\n` +
+    `- Keep every word and the full meaning. When those beats are one thought, write natural spoken ${tgtDisplayName} with normal ${tgtDisplayName} punctuation (comma, brief pause, or one sentence).\n` +
+    `- Real questions stay questions. Real exclamations stay emphasis. Do not strip punctuation from the ${tgtDisplayName} column — use correct ${tgtDisplayName} marks. Do not invent extra sentence breaks.\n` +
+    `- Never remove or rewrite punctuation on the original. You only output ${tgtDisplayName}.\n\n`
+  );
+}
+
 /** When source is English and target is Arabic: MSA + on-screen interpreter reading quality. */
 const ARABIC_EN_INTERPRETER_RULES =
   `ARABIC OUTPUT (English → Arabic):\n` +
@@ -2604,6 +2615,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     placeholderRules +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     LOCKED_OFFICIAL_REGISTER_RULES +
+    spokenPausePunctuationRules(tgtName) +
     sessionContinuityPromptBlock(diagSessionId, tgtName) +
     arabicEnTargetBlock +
     arabicToEnDialectBlock +
