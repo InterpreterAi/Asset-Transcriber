@@ -10,6 +10,7 @@ describe("buildIsolatedRuntimeSonioxContext", () => {
     });
     expect(ctx.general.some((g) => g.key === "pair_language")).toBe(true);
     expect(ctx.general.some((g) => g.key === "spoken_as_is")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "speakers")).toBe(true);
     expect(ctx.text).toMatch(/interpreter/i);
   });
 

@@ -292,7 +292,13 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
 
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Telephone and video interpreting" },
-    { key: "topic", value: "Live interpreter call — introductions, confidentiality, turn-taking" },
+    { key: "topic", value: "Live interpreter call — any subject the parties discuss" },
+    {
+      key: "speakers",
+      value:
+        "Usually 2 speakers on a live interpreter call, sometimes 3 if the interpreter speaks. " +
+        "Voices may be male or female. Separate each real voice; do not invent extra speakers.",
+    },
     {
       key: "pair_language",
       value:
@@ -363,6 +369,10 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
           "Transcribe each speaker in the language they are speaking — never substitute one for the other.",
       },
     );
+  }
+
+  if (!general.some((g) => g.key === "language")) {
+    general.push({ key: "language", value: `${da} and ${db}` });
   }
 
   return {

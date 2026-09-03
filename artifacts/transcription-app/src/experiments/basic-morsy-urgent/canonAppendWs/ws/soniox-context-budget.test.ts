@@ -75,5 +75,6 @@ describe("getInterpreterContext Soniox budget", () => {
     expect(ctx.general.some((g) => g.key === "speaker_gender")).toBe(true);
     expect(ctx.general.some((g) => g.key === "english_register")).toBe(true);
     expect(ctx.general.some((g) => g.key === "pair_language")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "speakers")).toBe(true);
   });
 });
