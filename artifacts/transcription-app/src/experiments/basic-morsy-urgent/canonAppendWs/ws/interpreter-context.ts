@@ -304,7 +304,7 @@ TERMS_BY_LANG["zh"] = [
  * register reminder showing up on an English↔Portuguese session).
  */
 const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
-  ar: { key: "arabic_register", value: "Arabic translation column: always Modern Standard Arabic only (العربية الفصحى / MSA). Professional interpreter wording. Never Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi/Darija. Never dialect particles such as ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا، دلوقتي، هلق، يلا، أيوه." },
+  ar: { key: "arabic_register", value: "Arabic translation column: always Modern Standard Arabic only (العربية الفصحى / MSA), locked for the whole session. Never switch into Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi/Darija. Never dialect particles such as ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، علاش، دابا، توا، صافي، باركا، دلوقتي، هلق، يلا، أيوه." },
   en: { key: "english_register", value: "English translation: professional international English. Never slang, dialect spellings, or leftover source-language words." },
   es: { key: "spanish_register", value: "Spanish: always standard formal written Spanish. Never regional slang, street colloquial, or informal dialect forms." },
   pt: { key: "portuguese_register", value: "Portuguese: always standard formal written Portuguese. Never slang or street-level colloquial forms." },
@@ -336,6 +336,35 @@ const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
   id: { key: "indonesian_register", value: "Indonesian: always standard formal Indonesian. Never slang or mixed colloquial forms." },
   ms: { key: "malay_register", value: "Malay: always standard formal Malay. Never slang or mixed colloquial forms." },
   nb: { key: "norwegian_register", value: "Norwegian: always standard Bokmål. Never dialect spellings." },
+  af: { key: "afrikaans_register", value: "Afrikaans: always standard formal Afrikaans. Never regional colloquial forms." },
+  sq: { key: "albanian_register", value: "Albanian: always standard formal Albanian. Never regional dialect forms." },
+  az: { key: "azerbaijani_register", value: "Azerbaijani: always standard formal Azerbaijani. Never regional dialect forms." },
+  eu: { key: "basque_register", value: "Basque: always standard formal Basque. Never regional dialect forms." },
+  be: { key: "belarusian_register", value: "Belarusian: always standard formal Belarusian. Never regional colloquial forms." },
+  bs: { key: "bosnian_register", value: "Bosnian: always standard formal Bosnian. Never regional colloquial forms." },
+  bg: { key: "bulgarian_register", value: "Bulgarian: always standard formal Bulgarian. Never regional colloquial forms." },
+  ca: { key: "catalan_register", value: "Catalan: always standard formal Catalan. Never regional colloquial forms." },
+  hr: { key: "croatian_register", value: "Croatian: always standard formal Croatian. Never regional colloquial forms." },
+  cs: { key: "czech_register", value: "Czech: always standard formal Czech. Never regional colloquial forms." },
+  da: { key: "danish_register", value: "Danish: always standard formal Danish. Never regional dialect spellings." },
+  et: { key: "estonian_register", value: "Estonian: always standard formal Estonian. Never regional colloquial forms." },
+  fi: { key: "finnish_register", value: "Finnish: always standard formal Finnish. Never regional dialect forms." },
+  gl: { key: "galician_register", value: "Galician: always standard formal Galician. Never regional colloquial forms." },
+  el: { key: "greek_register", value: "Greek: always standard formal Modern Greek. Never regional dialect forms." },
+  gu: { key: "gujarati_register", value: "Gujarati: always standard formal Gujarati. Never regional colloquial forms." },
+  hu: { key: "hungarian_register", value: "Hungarian: always standard formal Hungarian. Never regional colloquial forms." },
+  kn: { key: "kannada_register", value: "Kannada: always standard formal Kannada. Never regional colloquial forms." },
+  kk: { key: "kazakh_register", value: "Kazakh: always standard formal Kazakh. Never regional dialect forms." },
+  lv: { key: "latvian_register", value: "Latvian: always standard formal Latvian. Never regional colloquial forms." },
+  lt: { key: "lithuanian_register", value: "Lithuanian: always standard formal Lithuanian. Never regional colloquial forms." },
+  mk: { key: "macedonian_register", value: "Macedonian: always standard formal Macedonian. Never regional colloquial forms." },
+  ml: { key: "malayalam_register", value: "Malayalam: always standard formal Malayalam. Never regional colloquial forms." },
+  mr: { key: "marathi_register", value: "Marathi: always standard formal Marathi. Never regional colloquial forms." },
+  sr: { key: "serbian_register", value: "Serbian: always standard formal Serbian. Never regional colloquial forms." },
+  sk: { key: "slovak_register", value: "Slovak: always standard formal Slovak. Never regional colloquial forms." },
+  sl: { key: "slovenian_register", value: "Slovenian: always standard formal Slovenian. Never regional colloquial forms." },
+  sv: { key: "swedish_register", value: "Swedish: always standard formal Swedish. Never regional dialect forms." },
+  cy: { key: "welsh_register", value: "Welsh: always standard formal Welsh. Never regional dialect forms." },
 };
 
 const GRAMMATICAL_GENDER_BASES = new Set([
@@ -367,6 +396,13 @@ function registerRulesForPair(langA: string, langB: string): { key: string; valu
   }
   const a = langA.split("-")[0]!.toLowerCase();
   const b = langB.split("-")[0]!.toLowerCase();
+  if (a === "ar" || b === "ar") {
+    rules.push({
+      key: "arabic_source_dialects",
+      value:
+        "Arabic originals: write the dialect as spoken (Egyptian, Levantine, Gulf, Moroccan / Algerian / Tunisian Darija, etc.). Do not normalize originals to الفصحى. Arabic translation column: الفصحى only, locked for the whole session. Maghrebi meaning must still become exact official-target wording.",
+    });
+  }
   if (a === "es" || b === "es") {
     rules.push({ key: "spanish_gender", value: "Spanish noun gender: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Write 'un análisis', 'el sistema', 'un problema'." });
   }
@@ -476,7 +512,8 @@ export function getInterpreterContext(
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
-      { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
+      { key: "language_register", value: "Translation column: always the official standard written form of the target language. Never colloquial, slang, or regional dialect. Never switch that official form mid-session." },
+      { key: "source_as_spoken", value: "Original speech may be any dialect. Understand it fully. Do not normalize dialect originals into the official standard. Official standard is for the translation column only." },
       ...registerRulesForPair(langA, langB),
       { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
       { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },

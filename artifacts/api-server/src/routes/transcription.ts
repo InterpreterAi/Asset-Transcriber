@@ -50,6 +50,7 @@ import { runMorsyChunkV2Translation } from "../lib/morsy-chunk-translation-v2.js
 import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pretranslate.js";
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
+import { lockTranslationToOfficialRegister } from "../lib/official-translation-register.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
@@ -690,10 +691,18 @@ setInterval(sweepStaleSessions, 5 * 60_000); // every 5 minutes
 
 // STREAMING_FRAGMENT_RULES removed — this route always treats the user message as one continuous transcript block.
 
+const LOCKED_OFFICIAL_REGISTER_RULES =
+  `LOCKED OFFICIAL TRANSLATION REGISTER (do not change mid-session):\n` +
+  `- The translation column is ALWAYS the official standard written form of the TARGET language — never a regional dialect, and never switch that official form between segments.\n` +
+  `- Arabic target: always العربية الفصحى (MSA) only. English target: always standard international English.\n` +
+  `- Original speech may be any dialect (Egyptian, Levantine, Gulf, Moroccan / Algerian / Tunisian Darija, and every other regional variety). Understand it fully; do not rewrite the source into the official form first and lose meaning.\n` +
+  `- When the source is dialect — especially Maghrebi Arabic — render the EXACT meaning in the official TARGET. Never leave dialect particles in the translation column.\n` +
+  `- This lock applies to every supported language the same way: translation = official standard only; originals stay as spoken.\n\n`;
+
 /** When source is English and target is Arabic: MSA + on-screen interpreter reading quality. */
 const ARABIC_EN_INTERPRETER_RULES =
   `ARABIC OUTPUT (English → Arabic):\n` +
-  `- The translation appears in a column read aloud by a professional interpreter: ALWAYS use clear, natural Modern Standard Arabic only — العربية الفصحى (MSA).\n` +
+  `- The translation appears in a column read aloud by a professional interpreter: ALWAYS use clear, natural Modern Standard Arabic only — العربية الفصحى (MSA). Lock this register for the entire session — do not drift into dialect later.\n` +
   `- NEVER use dialect: no Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi (Moroccan / Algerian / Tunisian) forms.\n` +
   `- Ban dialect particles and colloquialisms such as: ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا، صافي، باركا.\n` +
   `- Mirror the transcription faithfully in meaning; phrase so it sounds professional when read, without adding or omitting content.\n` +
@@ -716,7 +725,8 @@ const ARABIC_TO_EN_DIALECT_RULES =
   `- Maghrebi (especially Tunisian, Algerian, Moroccan) often differs sharply from MSA — still understand every word and particle (e.g. واش، بزاف، برشا، كيفاش، علاش، دابا، توا، صافي، باش، باركا، زعمة، هاني، يعيشك، عسلامة) and translate their exact meaning into English.\n` +
   `- Output clear professional international English only — never leave Arabic words, dialect particles, or romanized Arabic in the English column.\n` +
   `- Translate EVERY word and clause; no omissions, truncated words, missing letters inside English words, dropped negations, or skipped questions/tags.\n` +
-  `- Preserve numbers, names, and IDs exactly. Do not “correct” dialect into MSA in the English meaning — convey what was said.\n\n`;
+  `- Preserve numbers, names, and IDs exactly. Do not “correct” dialect into MSA in the English meaning — convey what was said.\n` +
+  `- Moroccan / Algerian / Tunisian must still become exact English (واش → is/are/do…?, بزاف → a lot / very, كيفاش → how, علاش → why, دابا/توا → now, صافي → okay / that's it, باش → so that / in order to).\n\n`;
 
 /** Any non-English source → English target (en is always one side of the pair in your product). */
 const NON_EN_TO_EN_INTERPRETER_RULES =
@@ -837,6 +847,33 @@ const OUTPUT_REGISTER_BY_BASE: Record<string, string> = {
   uk: "Standard Ukrainian — professional medical/legal register.",
   ur: "Standard Urdu — professional medical/legal register.",
   vi: "Standard Vietnamese — professional medical/legal register.",
+  so: "Standard Somali — professional medical/legal register, no regional dialect forms.",
+  af: "Standard Afrikaans — professional medical/legal register.",
+  sq: "Standard Albanian — professional medical/legal register.",
+  az: "Standard Azerbaijani — professional medical/legal register.",
+  eu: "Standard Basque — professional medical/legal register.",
+  be: "Standard Belarusian — professional medical/legal register.",
+  bn: "Standard Bengali — professional medical/legal register.",
+  bs: "Standard Bosnian — professional medical/legal register.",
+  ca: "Standard Catalan — professional medical/legal register.",
+  et: "Standard Estonian — professional medical/legal register.",
+  gl: "Standard Galician — professional medical/legal register.",
+  gu: "Standard Gujarati — professional medical/legal register.",
+  kn: "Standard Kannada — professional medical/legal register.",
+  kk: "Standard Kazakh — professional medical/legal register.",
+  lv: "Standard Latvian — professional medical/legal register.",
+  lt: "Standard Lithuanian — professional medical/legal register.",
+  mk: "Standard Macedonian — professional medical/legal register.",
+  ml: "Standard Malayalam — professional medical/legal register.",
+  mr: "Standard Marathi — professional medical/legal register.",
+  pa: "Standard Punjabi — professional medical/legal register.",
+  sr: "Standard Serbian — professional medical/legal register.",
+  sl: "Standard Slovenian — professional medical/legal register.",
+  sw: "Standard Swahili — professional medical/legal register.",
+  tl: "Standard Filipino — professional medical/legal register, avoid heavy Taglish.",
+  ta: "Standard Tamil — professional medical/legal register.",
+  te: "Standard Telugu — professional medical/legal register.",
+  cy: "Standard Welsh — professional medical/legal register.",
 };
 
 function targetOutputRegisterInstructions(tgtLangCode: string, tgtDisplayName: string): string {
@@ -1008,6 +1045,7 @@ function postProcessTranslatedText(
   targetBase: string,
 ): string {
   let t = stripStrayLatinAuxiliaryTokens(text, sourceBase, targetBase);
+  t = lockTranslationToOfficialRegister(t, targetBase);
   if (targetBase === "en") t = polishEnglishInterpreterOutput(t);
   return t;
 }
@@ -2534,6 +2572,7 @@ router.post("/translate", requireAuth, async (req, res) => {
         langLock +
         frag +
         `You are a live interpreter. Translate only — never answer questions, explain, refuse, apologize, or respond as a chat assistant; always output the translation. ` +
+        `Write only the official standard of ${tgtName} (Arabic target = الفصحى / MSA). Never dialect and never switch register. ` +
         `No preamble ("Sure", "Here is the translation", "Let me translate") — only the ${tgtName} lines an interpreter would read. ` +
         `Medical, legal, and insurance/claims terms must appear as standard ${tgtName} terminology in the target script — not left in English. ` +
         `The transcript may mention AI, software, agents, or brands — that is normal speech; translate every word into ${tgtName}. ` +
@@ -2563,6 +2602,7 @@ router.post("/translate", requireAuth, async (req, res) => {
     buildSystemPrompt(false, streamingDelta) +
     placeholderRules +
     targetOutputRegisterInstructions(tgtLang, tgtName) +
+    LOCKED_OFFICIAL_REGISTER_RULES +
     arabicEnTargetBlock +
     arabicToEnDialectBlock +
     englishTargetBlock +

@@ -19,6 +19,22 @@ describe("normalizeChunkV2StandardRegister", () => {
     expect(out).not.toContain("كده");
   });
 
+  it("rewrites Maghrebi particles to MSA on en→ar", () => {
+    const out = normalizeChunkV2StandardRegister("واش علاش صافي باركا", {
+      rowSourceLanguage: "en",
+      langA: "en",
+      langB: "ar",
+    });
+    expect(out).toContain("هل");
+    expect(out).toContain("لماذا");
+    expect(out).toContain("حسنا");
+    expect(out).toContain("يكفي");
+    expect(out).not.toContain("واش");
+    expect(out).not.toContain("علاش");
+    expect(out).not.toContain("صافي");
+    expect(out).not.toContain("باركا");
+  });
+
   it("does not rewrite Arabic originals when the translation target is English", () => {
     const dialect = "ليش أنا تعبان";
     const out = normalizeChunkV2StandardRegister(dialect, {

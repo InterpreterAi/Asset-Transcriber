@@ -308,6 +308,14 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
     );
   }
 
+  general.push({
+    key: "spoken_as_is",
+    value:
+      "Transcribe each speaker exactly as spoken, including regional dialects. " +
+      "Never rewrite dialect speech into the official literary standard on the original transcript. " +
+      "Official standard is for the translation column only.",
+  });
+
   if (arabicPair) {
     general.push(
       { key: "language", value: "English and Arabic" },
