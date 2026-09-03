@@ -293,6 +293,14 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Telephone and video interpreting" },
     { key: "topic", value: "Live interpreter call — introductions, confidentiality, turn-taking" },
+    {
+      key: "pair_language",
+      value:
+        `This session is only ${da} and ${db}. On every utterance identify which of those two languages is being spoken ` +
+        `and transcribe it in that language's own script exactly as said — first token, no later rewrite. ` +
+        `Never write ${da} as ${db} or ${db} as ${da}. Never romanize a non-Latin language. ` +
+        `Both directions of this pair use the same rule.`,
+    },
   ];
 
   if (somaliPair) {

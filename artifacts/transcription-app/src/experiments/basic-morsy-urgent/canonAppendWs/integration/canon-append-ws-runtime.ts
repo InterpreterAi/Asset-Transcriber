@@ -39,7 +39,8 @@ import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 import { applyGlossaryPostProcess } from "../utils/glossary-post-process";
 import type { ChunkV2GlossaryEntry } from "../utils/chunk-v2-glossary";
-import { getInterpreterContext, type SonioxContextTerm } from "../ws/interpreter-context";
+import type { SonioxContextTerm } from "../ws/interpreter-context";
+import { buildIsolatedRuntimeSonioxContext } from "../ws/isolated-session-context";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
 /** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
@@ -451,18 +452,16 @@ export class CanonAppendWsIsolatedRuntime {
     const ordered = stableSonioxBilingualOrder(pair);
     const sonioxLangA = workspaceLangToSonioxRealtimeCode(ordered.a);
     const sonioxLangB = workspaceLangToSonioxRealtimeCode(ordered.b);
+    this.projections.setOptions({
+      chunkV2NativeTranslate: this.chunkV2NativeTranslate,
+      langPair: { a: pair.a, b: pair.b },
+    });
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
-    const sonioxNativeTranslateConfig = this.chunkV2NativeTranslate
-      ? {
-          translationConfig: {
-            type: "two_way" as const,
-            language_a: sonioxLangA,
-            language_b: sonioxLangB,
-          },
-          interpreterContext: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms),
-        }
-      : {};
+    const interpreterContext = buildIsolatedRuntimeSonioxContext(pair, {
+      chunkV2NativeTranslate: this.chunkV2NativeTranslate,
+      glossaryTerms: this.chunkV2GlossaryTerms,
+    });
     this.client.connect({
       apiKey,
       rtUrl: this.sonioxRtUrl ?? "",
@@ -471,7 +470,16 @@ export class CanonAppendWsIsolatedRuntime {
       enableLanguageIdentification: tuning.enableLanguageIdentification,
       maxEndpointDelayMs: tuning.maxEndpointDelayMs,
       morsyUrgentTuning: this.morsyUrgentTuning,
-      ...sonioxNativeTranslateConfig,
+      interpreterContext,
+      ...(this.chunkV2NativeTranslate
+        ? {
+            translationConfig: {
+              type: "two_way" as const,
+              language_a: sonioxLangA,
+              language_b: sonioxLangB,
+            },
+          }
+        : {}),
     });
   }
 

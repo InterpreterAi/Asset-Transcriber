@@ -26,6 +26,7 @@ export type SonioxClientConfig = {
     general: { key: string; value: string }[];
     terms?: string[];
     translation_terms?: { source: string; target: string }[];
+    text?: string;
   };
 };
 

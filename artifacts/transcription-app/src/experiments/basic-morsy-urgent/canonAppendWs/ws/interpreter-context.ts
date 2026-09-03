@@ -7,7 +7,10 @@
  * rejects config and chunk-v2 Trial/Basic/Professional STT+translation goes dark.
  */
 
-import { normalizeWorkspaceLanguageCode } from "@/lib/workspace-languages";
+import {
+  normalizeWorkspaceLanguageCode,
+  workspaceLanguageLabel,
+} from "@/lib/workspace-languages";
 import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
 import {
   fitSonioxContextToBudget,
@@ -512,6 +515,7 @@ export function getInterpreterContext(
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
+      { key: "pair_language", value: `This session is only ${workspaceLanguageLabel(langA)} and ${workspaceLanguageLabel(langB)}. Identify which of those two languages is being spoken and transcribe it in that language's own script exactly as said. Never write one language as the other. Never romanize. Both directions of this pair use the same rule.` },
       { key: "language_register", value: "Translation column: always the official standard written form of the target language. Never colloquial, slang, or regional dialect. Never switch that official form mid-session." },
       { key: "source_as_spoken", value: "Original speech may be any dialect. Understand it fully. Do not normalize dialect originals into the official standard. Official standard is for the translation column only." },
       ...registerRulesForPair(langA, langB),
