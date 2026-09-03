@@ -4,7 +4,6 @@ import type { SonioxFrame } from "../ws/frame-types";
 
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import {
-  looksLikeSpelledAlphanumeric,
   repairSpokenEmailTranslation,
   shouldHoldSpelledAlphanumericRow,
 } from "../policies/spelled-alphanumeric";
@@ -94,8 +93,8 @@ function tryLongPauseSplit(
 /**
  * Soniox real-time contract + Intercall row timing:
  * - Append finals once; replace non-finals each frame
- * - New row on speaker/language final boundary
- * - Same speaker: new row only after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
+ * - New row only on a confirmed speaker change (2 consecutive finals) or a long same-speaker pause
+ * - Same speaker language flicker / code-switch stays on the same colored row
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
@@ -162,9 +161,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
-      // spkBreak is now evaluated independently of langBreak.
-      // A language switch alone (same speaker, interpreter code-switching en↔ar) is NOT
-      // a bubble boundary — only split when BOTH language AND speaker change together.
+      // Language-only flicker / code-switch is not a row break. Speaker change needs 2 finals.
       const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
       const holdSpelling =
         nativeTranslate &&
@@ -173,18 +170,9 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         // Diarization / LID flicker on spelled letters — keep one email/ID row.
         // Do not adopt the flicker speaker/lang onto the active row.
         next = { ...next, speakerChangeConsecutive: 0 };
-      } else if (langBreak && spkBreak) {
-        // Genuine handoff: different language AND different speaker — hard break.
-        next = freezeRowForSonioxNative(next, nativeTranslate);
-        next = {
-          ...next,
-          endpointPending: false,
-          endpointPendingAtMs: 0,
-          speakerChangeConsecutive: 0,
-          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
-        };
       } else if (spkBreak) {
-        // Speaker changed, language stayed the same — use the confirmation debounce.
+        // Confirmed speaker handoff only — same 2-token rule whether language flickered or not.
+        // Instant lang+spk freeze was splitting mid-word on one-token Soniox flicker ("v" / "agina").
         const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
         if (consecutive >= speakerBreakConfirmTokens) {
           next = freezeRowForSonioxNative(next, nativeTranslate);
@@ -199,9 +187,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
           // Unconfirmed flicker — do not retarget the active bubble speaker id yet.
           next = { ...next, speakerChangeConsecutive: consecutive };
         }
-        // langBreak && !spkBreak: same speaker, language switched (interpreter code-switch).
-        // Fall through — no freeze, token appended to the active row below.
       } else {
+        // Same speaker, including language code-switch — stay on this colored row.
         next = { ...next, speakerChangeConsecutive: 0 };
       }
     }
@@ -231,23 +218,6 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
-
-  const tailLang = tail.language?.split("-")[0]?.toLowerCase();
-  const activeLang = next.activeUtterance?.language;
-  if (
-    activeLang &&
-    tailLang &&
-    tailLang !== activeLang &&
-    frameNonFinals.length > 0 &&
-    utteranceCommittedText(next.activeUtterance!).trim().length > 0 &&
-    !(
-      nativeTranslate &&
-      looksLikeSpelledAlphanumeric(utteranceCommittedText(next.activeUtterance!))
-    )
-  ) {
-    next = freezeRowForSonioxNative(next, nativeTranslate);
-    next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
-  }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {
     next = openActiveUtterance(next, tail.speaker, tail.language);
