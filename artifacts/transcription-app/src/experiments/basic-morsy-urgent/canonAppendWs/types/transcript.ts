@@ -1,3 +1,4 @@
+import type { CanonToken } from "./canon-token";
 import type { CanonUtterance } from "./canon-utterance";
 
 /**
@@ -10,6 +11,9 @@ export type EngineState = {
   activeTranslationText: string;
   activeTranslationPreviewText: string;
   speakerChangeConsecutive: number;
+  /** First new-speaker finals held off the old row until the handoff is real. */
+  pendingSpeakerId: string | undefined;
+  pendingSpeakerFinals: CanonToken[];
   nextUtteranceSeq: number;
   /** Dedupe — Soniox sends each final token once. */
   seenFinalTokenIds: string[];
@@ -38,6 +42,8 @@ export function createInitialEngineState(): EngineState {
     activeTranslationText: "",
     activeTranslationPreviewText: "",
     speakerChangeConsecutive: 0,
+    pendingSpeakerId: undefined,
+    pendingSpeakerFinals: [],
     nextUtteranceSeq: 0,
     seenFinalTokenIds: [],
 

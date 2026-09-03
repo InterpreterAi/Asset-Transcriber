@@ -69,7 +69,9 @@ export class SonioxRealtimeClient {
           ? { language_hints, language_hints_strict: true }
           : {}),
         enable_speaker_diarization:     true,
-        enable_endpoint_detection:      true,
+        // Soniox: endpointing / early finalize reduces realtime diarization accuracy.
+        // Rows group by token.speaker only — see https://soniox.com/docs/stt/concepts/speaker-diarization
+        enable_endpoint_detection:      false,
         enable_language_identification: config.enableLanguageIdentification ?? true,
         ...(config.translationConfig
           ? { translation: config.translationConfig }
@@ -77,7 +79,6 @@ export class SonioxRealtimeClient {
         ...(config.interpreterContext
           ? { context: config.interpreterContext }
           : {}),
-        max_endpoint_delay_ms:          config.maxEndpointDelayMs ?? 1000,
       }));
       this.flushPcmQueue();
     };

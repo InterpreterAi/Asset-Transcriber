@@ -64,19 +64,28 @@ describe("Soniox-native spelled email hold", () => {
       frame(1, [token("S.", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
       ctx,
     );
-    // Aug 25: confirm = 1 — first new-speaker token opens the next row immediately.
+    // First new-speaker token is held off the old row.
     state = reduceCanonAppendWs(
       state,
       frame(2, [token("C.", { startMs: 80, speakerId: "2", language: "en" })], 2_000),
       { ...ctx, wallMs: 2_000 },
     );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(utteranceCommittedText(state.activeUtterance!).trim()).toBe("S.");
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token("okay", { startMs: 120, speakerId: "2", language: "en" })], 2_100),
+      { ...ctx, wallMs: 2_100 },
+    );
     expect(state.finalizedUtterances).toHaveLength(1);
     expect(utteranceCommittedText(state.finalizedUtterances[0]!).trim()).toBe("S.");
     expect(state.activeUtterance?.speaker).toBe("2");
-    expect(utteranceCommittedText(state.activeUtterance!).trim()).toBe("C.");
+    expect(utteranceCommittedText(state.activeUtterance!)).toMatch(/C\.\s*okay/);
   });
+});
 
-  it("opens a new colored row on the first token from a different speaker", () => {
+describe("speaker-synced rows", () => {
+  it("does not paint new-speaker live text on the old row", () => {
     const ledger = new AppendOnlyCanonLedger();
     let state = createInitialEngineState();
     const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: false };
@@ -88,14 +97,134 @@ describe("Soniox-native spelled email hold", () => {
     );
     state = reduceCanonAppendWs(
       state,
-      frame(2, [token("We got it up in the morning", { startMs: 80, speakerId: "2", language: "en" })], 1_200),
-      { ...ctx, wallMs: 1_200 },
+      frame(
+        2,
+        [token("We", { startMs: 80, speakerId: "2", language: "en", isFinal: false })],
+        1_080,
+      ),
+      { ...ctx, wallMs: 1_080 },
+    );
+
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("1");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("Why do marines");
+    expect(state.activeUtterance!.nonFinalTokens.map(t => t.text).join("")).not.toContain("We");
+  });
+
+  it("opens a new row from substantial new-speaker live text without leaving it on the old row", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: false };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("Why do marines get steak and eggs", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        2,
+        [token("We got it up in the morning", { startMs: 80, speakerId: "2", language: "en", isFinal: false })],
+        1_080,
+      ),
+      { ...ctx, wallMs: 1_080 },
     );
 
     expect(state.finalizedUtterances).toHaveLength(1);
     expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toContain("Why do marines");
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).not.toContain("We got");
+    expect(state.activeUtterance?.speaker).toBe("2");
+    expect(state.activeUtterance!.nonFinalTokens.map(t => t.text).join("")).toContain("We got it");
+  });
+
+  it("puts confirmed new-speaker finals on the new row only", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: false };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("Why do marines get steak and eggs", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [token("We got it ", { startMs: 80, speakerId: "2", language: "en" })], 1_200),
+      { ...ctx, wallMs: 1_200 },
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(utteranceCommittedText(state.activeUtterance!)).not.toContain("We got");
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token("up in the morning", { startMs: 140, speakerId: "2", language: "en" })], 1_280),
+      { ...ctx, wallMs: 1_280 },
+    );
+
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toContain("Why do marines");
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).not.toContain("We got");
     expect(state.activeUtterance?.speaker).toBe("2");
     expect(utteranceCommittedText(state.activeUtterance!)).toContain("We got it");
-    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).not.toContain("We got");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("up in the morning");
+  });
+
+  it("does not open a second row on one-token speaker flicker", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: false };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("Hello ", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [token("there ", { startMs: 40, speakerId: "1", language: "en" })], 1_100),
+      { ...ctx, wallMs: 1_100 },
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token("friend ", { startMs: 70, speakerId: "2", language: "en" })], 1_200),
+      { ...ctx, wallMs: 1_200 },
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("1");
+    state = reduceCanonAppendWs(
+      state,
+      frame(4, [token("today", { startMs: 100, speakerId: "1", language: "en" })], 1_300),
+      { ...ctx, wallMs: 1_300 },
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("1");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("Hello");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("today");
+  });
+
+  it("does not open a new row when only the live-tail language flickers", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: false };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("I never had a steak", { startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        2,
+        [token(" in the Marine Corps", { startMs: 80, speakerId: "1", language: "ar", isFinal: false })],
+        1_080,
+      ),
+      { ...ctx, wallMs: 1_080 },
+    );
+
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.activeUtterance?.speaker).toBe("1");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("I never had a steak");
   });
 });
