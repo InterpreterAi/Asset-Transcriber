@@ -9,7 +9,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/lib/paddle-verify.test.ts src/lib/official-translation-register.test.ts src/middlewares/securityHeaders.test.ts",
+    "test": "tsx --test src/lib/paddle-verify.test.ts src/lib/official-translation-register.test.ts src/lib/session-translation-continuity.test.ts src/middlewares/securityHeaders.test.ts",
     "glossary:generate": "node ./scripts/generate-interpreter-glossaries.mjs",
     "glossary:verify": "tsx ./scripts/verify-interpreter-glossary.ts",
     "glossary:audit": "tsx ./scripts/audit-interpreter-glossary.ts",
