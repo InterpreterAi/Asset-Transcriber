@@ -3,7 +3,11 @@
  * Append-only finals + replace-only non-finals + speaker/endpoint rows.
  */
 
-import type { LangPair } from "@/lib/interpreter-stt-context";
+import {
+  buildSonioxInterpreterContext,
+  sonioxContextForRealtimePayload,
+  type LangPair,
+} from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxRealtimeSessionTuning,
@@ -453,16 +457,19 @@ export class CanonAppendWsIsolatedRuntime {
     const sonioxLangB = workspaceLangToSonioxRealtimeCode(ordered.b);
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
-    const sonioxNativeTranslateConfig = this.chunkV2NativeTranslate
-      ? {
-          translationConfig: {
-            type: "two_way" as const,
-            language_a: sonioxLangA,
-            language_b: sonioxLangB,
-          },
-          interpreterContext: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms),
-        }
-      : {};
+    // Always send light bilingual recognition context so Arabic (and every other
+    // pair language) is written in its own script from the first token — same as English.
+    // Do not reuse English medical `terms` lists; those bias STT toward English.
+    const recognitionCtx = buildSonioxInterpreterContext(pair);
+    const interpreterContext = sonioxContextForRealtimePayload(
+      this.chunkV2NativeTranslate
+        ? {
+            ...recognitionCtx,
+            translation_terms: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms)
+              .translation_terms,
+          }
+        : recognitionCtx,
+    );
     this.client.connect({
       apiKey,
       rtUrl: this.sonioxRtUrl ?? "",
@@ -471,7 +478,16 @@ export class CanonAppendWsIsolatedRuntime {
       enableLanguageIdentification: tuning.enableLanguageIdentification,
       maxEndpointDelayMs: tuning.maxEndpointDelayMs,
       morsyUrgentTuning: this.morsyUrgentTuning,
-      ...sonioxNativeTranslateConfig,
+      interpreterContext,
+      ...(this.chunkV2NativeTranslate
+        ? {
+            translationConfig: {
+              type: "two_way" as const,
+              language_a: sonioxLangA,
+              language_b: sonioxLangB,
+            },
+          }
+        : {}),
     });
   }
 

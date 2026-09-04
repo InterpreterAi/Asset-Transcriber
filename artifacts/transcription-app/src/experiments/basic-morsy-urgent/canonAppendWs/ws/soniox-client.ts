@@ -26,6 +26,7 @@ export type SonioxClientConfig = {
     | { type: "two_way"; language_a: string; language_b: string };
   interpreterContext?: {
     general: { key: string; value: string }[];
+    text?: string;
     terms?: string[];
     translation_terms?: { source: string; target: string }[];
   };

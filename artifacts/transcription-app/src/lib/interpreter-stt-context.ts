@@ -1,9 +1,15 @@
 /**
  * Soniox WebSocket `context` for phone / video interpreter sessions.
- * @see https://soniox.com/docs/stt/api-reference/websocket-api
+ * @see https://soniox.com/docs/stt/concepts/context
+ *
+ * Recognition-only: bias STT to write each pair language in its own script.
+ * Do NOT pin English medical/legal word lists here — that made Arabic (and other
+ * pair languages) transcribe as English that was never spoken.
  *
  * Context must stay under 10k chars (Soniox limit).
  */
+
+import { stableSonioxBilingualOrder } from "./soniox-stt-language-hints";
 
 export type LangPair = { a: string; b: string };
 
@@ -55,36 +61,31 @@ const NON_LATIN_SCRIPT_BASES = new Set<string>([
 /** Per-language Soniox STT script instructions (Arabic handled separately). */
 const NON_LATIN_SCRIPT_STT_BIAS: readonly {
   lang: string;
-  scriptName: string;
   instruction: string;
 }[] = [
-  { lang: "he", scriptName: "Hebrew", instruction: "Always transcribe in Hebrew script. Never romanize." },
-  { lang: "hi", scriptName: "Devanagari", instruction: "Always transcribe in Devanagari script. Never romanize." },
+  { lang: "he", instruction: "Always transcribe Hebrew speech in Hebrew script. Never romanize." },
+  { lang: "hi", instruction: "Always transcribe Hindi speech in Devanagari. Never romanize." },
   {
     lang: "zh",
-    scriptName: "Chinese characters (Hanzi)",
-    instruction: "Always transcribe in Chinese characters (Hanzi). Never romanize or use Pinyin.",
+    instruction: "Always transcribe Chinese speech in Chinese characters (Hanzi). Never romanize or use Pinyin.",
   },
   {
     lang: "ja",
-    scriptName: "Japanese script (Hiragana/Katakana/Kanji)",
-    instruction: "Always transcribe using Japanese script (Hiragana/Katakana/Kanji). Never romanize.",
+    instruction:
+      "Always transcribe Japanese speech in Japanese script (Hiragana/Katakana/Kanji). Never romanize.",
   },
-  { lang: "ko", scriptName: "Hangul", instruction: "Always transcribe in Hangul. Never romanize." },
-  { lang: "th", scriptName: "Thai", instruction: "Always transcribe in Thai script. Never romanize." },
-  { lang: "ur", scriptName: "Urdu/Nastaliq", instruction: "Always transcribe in Urdu/Nastaliq script. Never romanize." },
+  { lang: "ko", instruction: "Always transcribe Korean speech in Hangul. Never romanize." },
+  { lang: "th", instruction: "Always transcribe Thai speech in Thai script. Never romanize." },
+  { lang: "ur", instruction: "Always transcribe Urdu speech in Urdu/Nastaliq script. Never romanize." },
 ];
 
+/** Short Arabic recognition anchors only — not English medical vocabulary. */
 const ARABIC_STT_BIAS_TERMS: readonly string[] = [
-  "Arabic interpreter",
-  "you are through to the Arabic interpreter",
-  "you're through to the Arabic interpreter",
   "مرحبا",
   "شكراً",
   "نعم",
   "لا",
   "من فضلك",
-  // Maghrebi (Moroccan / Algerian / Tunisian) — keep as spoken in Original; help recognition.
   "واش",
   "بزاف",
   "برشا",
@@ -93,12 +94,6 @@ const ARABIC_STT_BIAS_TERMS: readonly string[] = [
   "صافي",
   "دابا",
   "توا",
-  "باش",
-  "باركا",
-  "زعمة",
-  "هاني",
-  "يعيشك",
-  "عسلامة",
 ];
 
 function base(code: string): string {
@@ -132,9 +127,7 @@ export function getInterpreterDemonyms(pair: LangPair): string[] {
 function demonymFor(code: string): string {
   const b = base(code);
   if (b === "zh") {
-    return code.toLowerCase().includes("tw") || code.toLowerCase().includes("hant")
-      ? "Chinese"
-      : "Chinese";
+    return "Chinese";
   }
   return DEMONYM_BY_BASE[b] ?? b;
 }
@@ -142,216 +135,144 @@ function demonymFor(code: string): string {
 /** Common Somali words/phrases for Soniox `terms` when `so` is in the pair (Soniox has no native `so` STT). */
 const SOMALI_STT_BIAS_TERMS: readonly string[] = [
   "nabadgelyo",
-  "nabad gelyo",
   "mahadsanid",
-  "waad mahadsantahay",
   "salaan",
-  "salaam",
   "fadlan",
   "waxaan",
   "waan",
-  "waa",
-  "baa",
-  "ayuu",
-  "ayay",
-  "tahay",
-  "maya",
   "haa",
+  "maya",
   "sidee",
-  "sidee tahay",
   "turjumaan",
-  "turjubaan",
-  "af Ingiriisi",
   "af Soomaali",
   "Soomaali",
-  "Soomaaliya",
-  "caafimaad",
-  "dawlada",
-  "codsiga",
-  "waan ku",
-  "waan kuu",
-  "igu soo",
-  "maalin",
-  "wanaagsan",
-  "wanagsan",
-  "fiican",
   "waan fahmay",
   "ma fahmin",
-  "fadlan ii",
-  "fadlan i",
-  "waan rabaa",
-  "waxaad",
-  "waxay",
-  "waxuu",
-  "waxuu yiri",
-  "waxaan ku",
-  "waxaan idin",
-  "waan idin",
-  "waad",
-  "waan",
-  "aad",
-  "iyo",
-  "oo",
-  "ka",
-  "ku",
-  "la",
-  "ee",
-  "ah",
-  "ugu",
-  "ugu horeeya",
-  "daryeel",
-  "caafimaadka",
-  "dhakhtar",
-  "isbitaal",
-  "cuntada",
-  "guri",
-  "qoys",
-  "caruur",
-  "hooyo",
-  "aabo",
-  "walaal",
-  "saaxiib",
 ];
 
-const SOMALI_STT_BIAS_TEXT =
-  "Waxaa socda wicitaan turjumaan telefoonka ah oo u dhexeeya af Ingiriisi iyo af Soomaali. " +
-  "Labada dhinac waxay ku hadlaan weedho gaagaaban oo cad. Turjumaanku wuxuu bilaabaa: nabadgelyo, " +
-  "mahadsanid, fadlan ku hadla weedho gaagaaban. Waxaa laga yaabaa in qofku yidhaahdo waxaan rabaa, " +
-  "sidee tahay, waan fahmay, ma fahmin, waad mahadsantahay, turjumaan, caafimaad, dawlada, codsiga. " +
-  "Bilingual English–Somali relay interpreting: parties alternate between English and Somali speech.";
-
-/** Fixed English phrases + pair-specific interpreter lines for STT biasing. */
+/**
+ * Recognition context for bilingual interpreter STT.
+ * Keeps English and the other pair language equally writable from the first token.
+ */
 export function buildSonioxInterpreterContext(pair: LangPair): {
   general: { key: string; value: string }[];
   text: string;
   terms: string[];
 } {
-  const da = demonymFor(pair.a);
-  const db = demonymFor(pair.b);
+  // Same Soniox config for en↔ar and ar↔en (UI A/B must not change STT bias).
+  const ordered = stableSonioxBilingualOrder(pair);
+  const da = demonymFor(ordered.a);
+  const db = demonymFor(ordered.b);
   const demonyms = [...new Set([da, db])].filter(Boolean);
   const somaliPair = pairIncludesSomali(pair);
   const arabicPair = pairIncludesArabic(pair);
 
-  const lines: string[] = [
-    "Telephone or video relay interpreting session.",
-    "Interpreter opens with: you're through to the interpreter, or you are through to the interpreter.",
-    "Thank you for calling the interpreter.",
-    "Interpreter gives name and ID: my name is … and my ID number is …",
-    "Please ask parties to speak in short clear phrases.",
-    "Confidentiality: all information discussed will remain confidential.",
-    "Use \"you're\" (you are) for connection lines, \"to\" (not too or two) before the interpreter language, \"their/there/they're\" only in grammatical context.",
+  const general: { key: string; value: string }[] = [
+    { key: "domain", value: "Live telephone or video interpreter call" },
+    {
+      key: "speakers",
+      value:
+        "Usually 2 speakers, sometimes 3 if the interpreter speaks. " +
+        "Separate each real voice; do not invent extra speakers.",
+    },
+    { key: "language", value: `${da} and ${db}` },
+    {
+      key: "instructions",
+      value:
+        `This session is only ${da} and ${db}. ` +
+        `On every utterance, write the language that is actually being spoken in that language's own script — ` +
+        `from the first token, exactly as heard. ` +
+        `Never write ${da} speech as ${db}, or ${db} speech as ${da}. ` +
+        `Never romanize a non-Latin language.`,
+    },
   ];
 
-  if (somaliPair) {
-    lines.push(SOMALI_STT_BIAS_TEXT);
+  if (arabicPair) {
+    general.push({
+      key: "arabic_script",
+      value:
+        "Arabic speech must be written in Arabic script (right-to-left). " +
+        "Never romanize or transliterate Arabic into Latin letters. " +
+        "Keep dialect as spoken on the original — do not rewrite into الفصحى / MSA here.",
+    });
   }
 
-  const terms: string[] = [];
+  if (somaliPair) {
+    general.push({
+      key: "somali_script",
+      value:
+        "Somali speech must be written in Somali Latin orthography. English speech stays English.",
+    });
+  }
 
+  for (const entry of NON_LATIN_SCRIPT_STT_BIAS) {
+    if (!pairIncludesLang(pair, entry.lang)) continue;
+    general.push({ key: "script", value: entry.instruction });
+  }
+
+  if (pairUsesLatinScriptOnly(pair) && !somaliPair) {
+    general.push({
+      key: "latin_pair",
+      value:
+        `Speakers alternate between ${da} and ${db}. ` +
+        "Transcribe each speaker in the language they are speaking — never substitute one for the other.",
+    });
+  }
+
+  // Minimal interpreter-line pins only (both languages named). No English medical lists.
+  const terms: string[] = [];
   for (const d of demonyms) {
     terms.push(
       `you're through to the ${d} interpreter`,
       `you are through to the ${d} interpreter`,
-      `You are through to the ${d} interpreter`,
       `thank you for calling the ${d} interpreter`,
-      `through to the ${d} interpreter`,
-      `the ${d} interpreter`,
     );
   }
-
   terms.push(
     "you're through to the interpreter",
     "you are through to the interpreter",
-    "thank you for calling the interpreter",
     "thank you for calling",
-    "Arabic interpreter",
-    "Somali interpreter",
-    "my interpreter ID number is",
     "my name is",
     "my ID number is",
-    "my number is",
-    "please speak in short clear phrases",
-    "short clear phrases",
-    "all information discussed will remain confidential",
-    "remain confidential",
-    "interpreter",
-    "interpreting",
-    "ID number",
-    "SSI benefits",
-    "Medicaid",
-    "Social Security",
   );
 
   if (somaliPair) {
     terms.push(...SOMALI_STT_BIAS_TERMS);
   }
-
   if (arabicPair) {
     terms.push(...ARABIC_STT_BIAS_TERMS);
   }
 
-  const general: { key: string; value: string }[] = [
-    { key: "domain", value: "Telephone and video interpreting" },
-    { key: "topic", value: "Live interpreter call — introductions, confidentiality, turn-taking" },
-  ];
-
-  if (somaliPair) {
-    general.push(
-      { key: "language", value: "English and Somali" },
-      {
-        key: "instructions",
-        value:
-          "Bilingual English and Somali relay call. Transcribe Somali speech in Somali Latin orthography. " +
-          "Transcribe English speech in English. Parties alternate languages.",
-      },
-      { key: "setting", value: "English–Somali telephone interpreting" },
-    );
-  }
-
-  if (arabicPair) {
-    general.push(
-      { key: "language", value: "English and Arabic" },
-      {
-        key: "instructions",
-        value:
-          "Bilingual English and Arabic relay call. " +
-          "ALWAYS transcribe Arabic speech in Arabic script (right-to-left). " +
-          "NEVER romanize or transliterate Arabic — output must use Arabic letters only. " +
-          "Transcribe English speech in English Latin script. " +
-          "Arabic speakers may use ANY dialect: Modern Standard Arabic, Egyptian, Levantine, Gulf, Iraqi, " +
-          "Sudanese, Yemeni, or Maghrebi (Moroccan Darija, Algerian, Tunisian, Libyan). " +
-          "Transcribe dialect speech EXACTLY as spoken — do NOT rewrite into الفصحى / MSA in the original transcript. " +
-          "Preserve every dialect word and particle; do not omit, normalize, or substitute dialect forms.",
-      },
-      { key: "setting", value: "English–Arabic telephone interpreting" },
-    );
-  }
-
-  for (const entry of NON_LATIN_SCRIPT_STT_BIAS) {
-    if (!pairIncludesLang(pair, entry.lang)) continue;
-    general.push({
-      key: "instructions",
-      value:
-        `Bilingual ${da} and ${db} relay call. ${entry.instruction} ` +
-        "Transcribe Latin-script speech in the speaker's language using Latin letters.",
-    });
-  }
-
-  if (pairUsesLatinScriptOnly(pair) && !somaliPair) {
-    general.push(
-      { key: "language", value: `${da} and ${db}` },
-      {
-        key: "instructions",
-        value:
-          `Bilingual ${da} and ${db} relay call. Speakers will alternate between ${da} and ${db}. ` +
-          "Transcribe each speaker in the language they are speaking — never substitute one for the other.",
-      },
-    );
-  }
-
   return {
     general,
-    text: lines.join(" "),
+    // Omit free-form English boilerplate — it biased early tokens toward English.
+    text: "",
     terms: [...new Set(terms)],
   };
+}
+
+/** Strip empty `text` so Soniox does not get a useless English-leaning field. */
+export function sonioxContextForRealtimePayload(ctx: {
+  general: { key: string; value: string }[];
+  text?: string;
+  terms?: string[];
+  translation_terms?: { source: string; target: string }[];
+}): {
+  general: { key: string; value: string }[];
+  text?: string;
+  terms?: string[];
+  translation_terms?: { source: string; target: string }[];
+} {
+  const out: {
+    general: { key: string; value: string }[];
+    text?: string;
+    terms?: string[];
+    translation_terms?: { source: string; target: string }[];
+  } = { general: ctx.general };
+  if (ctx.text?.trim()) out.text = ctx.text.trim();
+  if (ctx.terms && ctx.terms.length > 0) out.terms = ctx.terms;
+  if (ctx.translation_terms && ctx.translation_terms.length > 0) {
+    out.translation_terms = ctx.translation_terms;
+  }
+  return out;
 }

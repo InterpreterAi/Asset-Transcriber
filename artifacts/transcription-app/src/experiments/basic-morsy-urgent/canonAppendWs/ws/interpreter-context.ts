@@ -327,8 +327,10 @@ export function getInterpreterContext(
 
   const ctx: SonioxContext = {
     general: [
-      { key: "domain", value: "Medical and legal interpretation" },
-      { key: "setting", value: "Live professional interpreter session" },
+      // Keep domain neutral for STT — "Medical and legal" + English term pins
+      // previously biased Arabic/other pair speech toward English at session start.
+      { key: "domain", value: "Live professional interpreter session" },
+      { key: "setting", value: "Telephone or video relay — any subject the parties discuss" },
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },

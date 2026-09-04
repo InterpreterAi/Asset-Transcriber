@@ -80,4 +80,11 @@ describe("getInterpreterContext Soniox budget", () => {
     expect(ctx.general.some((g) => g.key === "language_register")).toBe(false);
     expect(ctx.general.some((g) => g.key === "speaker_gender")).toBe(false);
   });
+
+  it("keeps a neutral interpreter domain (not English medical STT bias)", () => {
+    const ctx = getInterpreterContext("en", "ar");
+    expect(ctx.general.some((g) => g.key === "domain" && /medical and legal interpretation/i.test(g.value))).toBe(
+      false,
+    );
+  });
 });

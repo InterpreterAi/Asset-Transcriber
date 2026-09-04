@@ -1,7 +1,7 @@
 /** Client transcription + translation dispatch (single canonical hook). dailyCapRef + heartbeat cap for daily limits. */
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, type MutableRefObject } from "react";
 import { useGetTranscriptionToken, useStartSession, useStopSession } from "@workspace/api-client-react";
-import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
+import { buildSonioxInterpreterContext, sonioxContextForRealtimePayload } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxHintCorrespondsToWorkspaceLang,
@@ -8433,7 +8433,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     ws.onopen = () => {
       const pair = langPairRef.current;
       const language_hints = buildSonioxLanguageHints(pair);
-      const interpreterCtx = buildSonioxInterpreterContext(pair);
+      const interpreterCtx = sonioxContextForRealtimePayload(buildSonioxInterpreterContext(pair));
       const tuning = sonioxRealtimeSessionTuning(pair);
       ws.send(JSON.stringify({
         api_key:                        apiKey,
