@@ -7,10 +7,7 @@
  * rejects config and chunk-v2 Trial/Basic/Professional STT+translation goes dark.
  */
 
-import {
-  normalizeWorkspaceLanguageCode,
-  workspaceLanguageLabel,
-} from "@/lib/workspace-languages";
+import { normalizeWorkspaceLanguageCode } from "@/lib/workspace-languages";
 import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
 import {
   fitSonioxContextToBudget,
@@ -307,7 +304,7 @@ TERMS_BY_LANG["zh"] = [
  * register reminder showing up on an English↔Portuguese session).
  */
 const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
-  ar: { key: "arabic_register", value: "Arabic translation column: always Modern Standard Arabic only (العربية الفصحى / MSA), locked for the whole session. Never switch into Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi/Darija. Never dialect particles such as ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، علاش، دابا، توا، صافي، باركا، دلوقتي، هلق، يلا، أيوه." },
+  ar: { key: "arabic_register", value: "Arabic translation column: always Modern Standard Arabic only (العربية الفصحى / MSA). Professional interpreter wording. Never Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi/Darija. Never dialect particles such as ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا، دلوقتي، هلق، يلا، أيوه." },
   en: { key: "english_register", value: "English translation: professional international English. Never slang, dialect spellings, or leftover source-language words." },
   es: { key: "spanish_register", value: "Spanish: always standard formal written Spanish. Never regional slang, street colloquial, or informal dialect forms." },
   pt: { key: "portuguese_register", value: "Portuguese: always standard formal written Portuguese. Never slang or street-level colloquial forms." },
@@ -399,13 +396,6 @@ function registerRulesForPair(langA: string, langB: string): { key: string; valu
   }
   const a = langA.split("-")[0]!.toLowerCase();
   const b = langB.split("-")[0]!.toLowerCase();
-  if (a === "ar" || b === "ar") {
-    rules.push({
-      key: "arabic_source_dialects",
-      value:
-        "Arabic originals: write the dialect as spoken (Egyptian, Levantine, Gulf, Moroccan / Algerian / Tunisian Darija, etc.). Do not normalize originals to الفصحى. Arabic translation column: الفصحى only, locked for the whole session. Maghrebi meaning must still become exact official-target wording.",
-    });
-  }
   if (a === "es" || b === "es") {
     rules.push({ key: "spanish_gender", value: "Spanish noun gender: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Write 'un análisis', 'el sistema', 'un problema'." });
   }
@@ -510,16 +500,12 @@ export function getInterpreterContext(
 
   const ctx: SonioxContext = {
     general: [
-      { key: "domain", value: "Live professional interpreter session" },
-      { key: "setting", value: "Telephone or video relay — any subject the parties discuss" },
-      { key: "speakers", value: "Usually 2 speakers on a live interpreter call, sometimes 3 if the interpreter speaks. Voices may be male or female. Separate each real voice; do not invent extra speakers." },
+      { key: "domain", value: "Medical and legal interpretation" },
+      { key: "setting", value: "Live professional interpreter session" },
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
-      { key: "pair_language", value: `This session is only ${workspaceLanguageLabel(langA)} and ${workspaceLanguageLabel(langB)}. Identify which of those two languages is being spoken and transcribe it in that language's own script exactly as said. Never write one language as the other. Never romanize. Both directions of this pair use the same rule.` },
-      { key: "language_register", value: "Translation column: always the official standard written form of the target language. Never colloquial, slang, or regional dialect. Never switch that official form mid-session." },
-      { key: "source_as_spoken", value: "Original speech may be any dialect. Understand it fully. Do not normalize dialect originals into the official standard. Official standard is for the translation column only." },
-      { key: "pause_punctuation", value: "Keep original punctuation as transcribed. In the translation column, treat pause-periods after short interjections or silence as spoken rhythm — not a new sentence. Do not drop words. Use natural official-target punctuation." },
+      { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
       ...registerRulesForPair(langA, langB),
       { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
       { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },

@@ -292,21 +292,7 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
 
   const general: { key: string; value: string }[] = [
     { key: "domain", value: "Telephone and video interpreting" },
-    { key: "topic", value: "Live interpreter call — any subject the parties discuss" },
-    {
-      key: "speakers",
-      value:
-        "Usually 2 speakers on a live interpreter call, sometimes 3 if the interpreter speaks. " +
-        "Voices may be male or female. Separate each real voice; do not invent extra speakers.",
-    },
-    {
-      key: "pair_language",
-      value:
-        `This session is only ${da} and ${db}. On every utterance identify which of those two languages is being spoken ` +
-        `and transcribe it in that language's own script exactly as said — first token, no later rewrite. ` +
-        `Never write ${da} as ${db} or ${db} as ${da}. Never romanize a non-Latin language. ` +
-        `Both directions of this pair use the same rule.`,
-    },
+    { key: "topic", value: "Live interpreter call — introductions, confidentiality, turn-taking" },
   ];
 
   if (somaliPair) {
@@ -321,14 +307,6 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
       { key: "setting", value: "English–Somali telephone interpreting" },
     );
   }
-
-  general.push({
-    key: "spoken_as_is",
-    value:
-      "Transcribe each speaker exactly as spoken, including regional dialects. " +
-      "Never rewrite dialect speech into the official literary standard on the original transcript. " +
-      "Official standard is for the translation column only.",
-  });
 
   if (arabicPair) {
     general.push(
@@ -369,10 +347,6 @@ export function buildSonioxInterpreterContext(pair: LangPair): {
           "Transcribe each speaker in the language they are speaking — never substitute one for the other.",
       },
     );
-  }
-
-  if (!general.some((g) => g.key === "language")) {
-    general.push({ key: "language", value: `${da} and ${db}` });
   }
 
   return {
