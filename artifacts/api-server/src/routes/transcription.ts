@@ -51,7 +51,6 @@ import { applyInterpreterPhrasePretranslate } from "../lib/interpreter-phrase-pr
 import { logger } from "../lib/logger.js";
 import { sessionStore } from "../lib/session-store.js";
 import { lockTranslationToOfficialRegister } from "../lib/official-translation-register.js";
-import { sessionContinuityPromptBlock } from "../lib/session-translation-continuity.js";
 import { isOpenAiConfigured } from "../lib/ai-env.js";
 import { openai } from "../lib/openai-client.js";
 import { getSonioxMasterApiKey } from "../lib/soniox-env.js";
@@ -2616,7 +2615,6 @@ router.post("/translate", requireAuth, async (req, res) => {
     targetOutputRegisterInstructions(tgtLang, tgtName) +
     LOCKED_OFFICIAL_REGISTER_RULES +
     spokenPausePunctuationRules(tgtName) +
-    sessionContinuityPromptBlock(diagSessionId, tgtName) +
     arabicEnTargetBlock +
     arabicToEnDialectBlock +
     englishTargetBlock +

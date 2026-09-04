@@ -108,6 +108,7 @@ import { gateCanonAppendWsIsolatedRebuild, planUsesCanonAppendWsStt } from "@/ex
 import {
   planUsesOpenAiLegacy2CleanTranslation,
   planUsesHetznerCanonStreamingStt,
+  planUsesSonioxNativeTranslation,
 } from "@/lib/utils";
 import {
   CanonAppendWsIsolatedRuntime,
@@ -2889,12 +2890,7 @@ function isBasicMorsyUrgentPlan(planTypeLower: string): boolean {
 
 /** Plans hard-routed to chunk-v2 Soniox native translation (no external MT fetch path). */
 function planForcesChunkV2Soniox(planTypeLower: string): boolean {
-  const p = planTypeLower.trim().toLowerCase();
-  return (
-    p === "basic-hetzner" ||
-    p === "professional-libre" ||
-    p === "trial-openai"
-  );
+  return planUsesSonioxNativeTranslation(planTypeLower);
 }
 
 /** Immediate committed-original DOM append — no `visibleCommittedBoundary` lag (morsy-urgent + Hetzner canon STT). */

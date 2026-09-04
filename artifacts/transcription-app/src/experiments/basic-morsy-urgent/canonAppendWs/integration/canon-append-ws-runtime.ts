@@ -44,6 +44,10 @@ import type { SonioxFrame } from "../ws/frame-types";
 import { applyGlossaryPostProcess } from "../utils/glossary-post-process";
 import type { ChunkV2GlossaryEntry } from "../utils/chunk-v2-glossary";
 import { getInterpreterContext, type SonioxContextTerm } from "../ws/interpreter-context";
+import {
+  fitSonioxContextToBudget,
+  SONIOX_CONTEXT_SAFE_CHARS,
+} from "../ws/soniox-context-budget";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
 /** Minimum grey NF tail before volatile pulse fires (Intercall-style dual buffer). */
@@ -147,7 +151,10 @@ export class CanonAppendWsIsolatedRuntime {
   setChunkV2NativeTranslate(enabled: boolean): void {
     if (this.chunkV2NativeTranslate === enabled) return;
     this.chunkV2NativeTranslate = enabled;
-    this.projections.setOptions({ chunkV2NativeTranslate: enabled });
+    this.projections.setOptions({
+      chunkV2NativeTranslate: enabled,
+      langPair: this.chunkV2LangPair,
+    });
     this.writer.setChunkV2NativeTranslate(enabled);
     if (this.containerEl) {
       const snap = this.projections.getProjection();
@@ -449,6 +456,10 @@ export class CanonAppendWsIsolatedRuntime {
     const pair = langPair as { a: string; b: string };
     this.chunkV2LangPair = { a: pair.a, b: pair.b };
     this.setChunkV2GlossaryEntries(this.chunkV2GlossaryEntries, this.chunkV2LangPair);
+    this.projections.setOptions({
+      chunkV2NativeTranslate: this.chunkV2NativeTranslate,
+      langPair: { a: pair.a, b: pair.b },
+    });
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
     // two_way language_a/b must follow stable order (not UI A/B) so ar↔en == en↔ar.
@@ -459,17 +470,30 @@ export class CanonAppendWsIsolatedRuntime {
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
     // Always send light bilingual recognition context so Arabic (and every other
     // pair language) is written in its own script from the first token — same as English.
-    // Do not reuse English medical `terms` lists; those bias STT toward English.
+    // Chunk-v2 adds translation_terms only (no English medical STT `terms` lists).
     const recognitionCtx = buildSonioxInterpreterContext(pair);
-    const interpreterContext = sonioxContextForRealtimePayload(
-      this.chunkV2NativeTranslate
-        ? {
-            ...recognitionCtx,
-            translation_terms: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms)
-              .translation_terms,
-          }
-        : recognitionCtx,
-    );
+    let interpreterContext = sonioxContextForRealtimePayload(recognitionCtx);
+    if (this.chunkV2NativeTranslate) {
+      const native = getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms);
+      const protectedGlossaryCount = this.chunkV2GlossaryTerms.length;
+      const merged = fitSonioxContextToBudget(
+        {
+          general: recognitionCtx.general,
+          terms: recognitionCtx.terms,
+          translation_terms: native.translation_terms,
+        },
+        {
+          protectedTranslationTermCount: protectedGlossaryCount,
+          maxChars: SONIOX_CONTEXT_SAFE_CHARS,
+        },
+      );
+      interpreterContext = sonioxContextForRealtimePayload({
+        general: merged.general,
+        text: recognitionCtx.text,
+        terms: merged.terms,
+        translation_terms: merged.translation_terms,
+      });
+    }
     this.client.connect({
       apiKey,
       rtUrl: this.sonioxRtUrl ?? "",

@@ -1,3 +1,5 @@
+import { lockPairLanguageFromWrittenText } from "@/lib/soniox-stt-language-hints";
+
 import type { CanonUtterance } from "../types/canon-utterance";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import type { EngineState } from "../types/transcript";
@@ -16,7 +18,20 @@ export type TranscriptProjection = {
 };
 export type TranscriptProjectionOptions = {
   chunkV2NativeTranslate?: boolean;
+  /** Workspace pair — used to tag originals from written script when LID flickers. */
+  langPair?: { a: string; b: string };
 };
+
+function projectedPairLanguage(
+  text: string,
+  lid: string | undefined,
+  opts: TranscriptProjectionOptions,
+): string | undefined {
+  if (opts.chunkV2NativeTranslate && opts.langPair) {
+    return lockPairLanguageFromWrittenText(text, lid, opts.langPair);
+  }
+  return lid?.split("-")[0]?.toLowerCase();
+}
 
 function stripTrailingPartialFragment(text: string): string {
   let t = text.trimEnd();
@@ -203,7 +218,7 @@ export function projectTranscriptView(
       rows.push({
         row_id: fu.utterance_id,
         speaker: norm(fu.speaker),
-        language: fu.language?.split("-")[0]?.toLowerCase(),
+        language: projectedPairLanguage(committedText, fu.language, opts),
         committedText,
         liveText: "",
         finalized: true,
@@ -219,7 +234,11 @@ export function projectTranscriptView(
         rows.push({
           row_id: state.activeUtterance.utterance_id,
           speaker: state.activeUtterance.speaker,
-          language: state.activeUtterance.language,
+          language: projectedPairLanguage(
+            committedText + liveText,
+            state.activeUtterance.language,
+            opts,
+          ),
           committedText,
           liveText,
           finalized: false,

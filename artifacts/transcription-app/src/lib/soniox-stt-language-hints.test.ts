@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSonioxLanguageHints,
+  lockPairLanguageFromWrittenText,
   sonioxRealtimeLanguageHintConfig,
   stableSonioxBilingualOrder,
 } from "./soniox-stt-language-hints";
@@ -27,5 +28,27 @@ describe("sonioxRealtimeLanguageHintConfig", () => {
       language_hints: ["sw"],
       language_hints_strict: true,
     });
+  });
+});
+
+describe("lockPairLanguageFromWrittenText", () => {
+  const pair = { a: "en", b: "ar" };
+
+  it("tags Arabic script as Arabic even when LID said English", () => {
+    expect(lockPairLanguageFromWrittenText("واش راك لاباس", "en", pair)).toBe("ar");
+  });
+
+  it("tags Latin as English even when LID said Arabic", () => {
+    expect(lockPairLanguageFromWrittenText("I never had a steak", "ar", pair)).toBe("en");
+  });
+
+  it("does not rewrite Latin↔Latin pairs from script", () => {
+    expect(lockPairLanguageFromWrittenText("Buenos dias amigo", "es", { a: "en", b: "es" })).toBe(
+      "es",
+    );
+  });
+
+  it("keeps the LID tag when the text is too short", () => {
+    expect(lockPairLanguageFromWrittenText("hi", "en", pair)).toBe("en");
   });
 });
