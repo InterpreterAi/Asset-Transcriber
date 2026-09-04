@@ -5,6 +5,8 @@
  * layout; the REST websocket schema does not expose that field — reducer rows group from token metadata.
  */
 
+import { sonioxRealtimeLanguageHintConfig } from "@/lib/soniox-stt-language-hints";
+
 import type { SonioxFrame } from "./frame-types";
 import { parseSonioxWebSocketPayload } from "./soniox-parser";
 
@@ -26,7 +28,6 @@ export type SonioxClientConfig = {
     general: { key: string; value: string }[];
     terms?: string[];
     translation_terms?: { source: string; target: string }[];
-    text?: string;
   };
 };
 
@@ -67,7 +68,7 @@ export class SonioxRealtimeClient {
         sample_rate:                    config.sampleRate ?? 16_000,
         num_channels:                   1,
         ...(language_hints
-          ? { language_hints, language_hints_strict: true }
+          ? sonioxRealtimeLanguageHintConfig(language_hints)
           : {}),
         enable_speaker_diarization:     true,
         // Soniox: endpointing / early finalize reduces realtime diarization accuracy.

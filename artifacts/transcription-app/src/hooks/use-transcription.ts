@@ -5,6 +5,7 @@ import { buildSonioxInterpreterContext } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxHintCorrespondsToWorkspaceLang,
+  sonioxRealtimeLanguageHintConfig,
   sonioxRealtimeSessionTuning,
   stableSonioxBilingualOrder,
   workspacePairMemberForSonioxHint,
@@ -8440,8 +8441,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
         audio_format:                   "pcm_s16le",
         sample_rate:                    TARGET_RATE,
         num_channels:                   1,
-        language_hints,
-        language_hints_strict:          true,
+        ...sonioxRealtimeLanguageHintConfig(language_hints),
         context:                        interpreterCtx,
         enable_language_identification: tuning.enableLanguageIdentification,
         enable_speaker_diarization:     true,

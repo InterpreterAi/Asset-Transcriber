@@ -55,6 +55,11 @@ describe("getInterpreterContext Soniox budget", () => {
     });
   }
 
+  it("does not pin English medical word lists into STT terms for bilingual pairs", () => {
+    const ctx = getInterpreterContext("en", "ar");
+    expect(ctx.terms).toEqual([]);
+  });
+
   it("still includes vaccine pins for en↔ar when under budget", () => {
     const ctx = getInterpreterContext("en", "ar");
     const blob = JSON.stringify(ctx);
@@ -68,11 +73,11 @@ describe("getInterpreterContext Soniox budget", () => {
     expect(ctx.general.some((g) => g.key === "structured_speech")).toBe(true);
   });
 
-  it("pins MSA فصحى and speaker-gender-from-text for English↔Arabic", () => {
+  it("does not send register or dialect-rewrite instructions into STT context", () => {
     const ctx = getInterpreterContext("en", "ar");
-    const arabic = ctx.general.find((g) => g.key === "arabic_register");
-    expect(arabic?.value).toMatch(/الفصحى|MSA/);
-    expect(ctx.general.some((g) => g.key === "speaker_gender")).toBe(true);
-    expect(ctx.general.some((g) => g.key === "english_register")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "arabic_register")).toBe(false);
+    expect(ctx.general.some((g) => g.key === "english_register")).toBe(false);
+    expect(ctx.general.some((g) => g.key === "language_register")).toBe(false);
+    expect(ctx.general.some((g) => g.key === "speaker_gender")).toBe(false);
   });
 });

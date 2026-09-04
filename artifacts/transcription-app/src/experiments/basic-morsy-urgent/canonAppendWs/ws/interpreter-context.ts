@@ -7,7 +7,6 @@
  * rejects config and chunk-v2 Trial/Basic/Professional STT+translation goes dark.
  */
 
-import { normalizeWorkspaceLanguageCode } from "@/lib/workspace-languages";
 import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
 import {
   fitSonioxContextToBudget,
@@ -23,54 +22,6 @@ export type SonioxContext = {
   terms: string[];
   translation_terms?: SonioxContextTerm[];
 };
-
-const MEDICAL_TERMS_EN: string[] = [
-  "stroke", "seizure", "hypertension", "diabetes", "hypoglycemia",
-  "hyperglycemia", "tachycardia", "bradycardia", "arrhythmia", "angina",
-  "myocardial infarction", "pulmonary embolism", "deep vein thrombosis",
-  "aneurysm", "sepsis", "pneumonia", "bronchitis", "asthma", "COPD",
-  "appendicitis", "peritonitis", "pancreatitis", "cholecystitis",
-  "hepatitis", "cirrhosis", "nephritis", "dialysis", "anemia",
-  "leukemia", "lymphoma", "chemotherapy", "radiation therapy", "biopsy",
-  "metastasis", "benign", "malignant", "carcinoma", "sarcoma",
-  "fracture", "dislocation", "laceration", "contusion", "concussion",
-  "dementia", "Alzheimer's", "Parkinson's", "multiple sclerosis",
-  "epilepsy", "migraine", "vertigo", "tinnitus", "glaucoma", "cataract",
-  "MRI", "CT scan", "X-ray", "ultrasound", "echocardiogram", "EKG", "ECG",
-  "colonoscopy", "endoscopy", "laparoscopy", "intubation", "CPR",
-  "defibrillation", "anesthesia", "angioplasty", "catheterization",
-  "lumbar puncture", "sutures", "transfusion", "vaccination",
-  "antibiotic", "antiviral", "anticoagulant", "antihistamine",
-  "analgesic", "acetaminophen", "ibuprofen", "amoxicillin", "penicillin",
-  "metformin", "insulin", "lisinopril", "atorvastatin", "warfarin",
-  "heparin", "aspirin", "nitroglycerin", "morphine", "opioid",
-  "benzodiazepine", "antidepressant", "antipsychotic",
-  "diagnosis", "prognosis", "dosage", "prescription", "referral",
-  "triage", "ICU", "emergency", "ambulatory", "inpatient", "outpatient",
-  "informed consent", "advance directive", "DNR", "palliative",
-  "physical therapy", "occupational therapy", "rehabilitation",
-  "blood pressure", "heart rate", "oxygen saturation", "temperature",
-  "CBC", "BMP", "urinalysis", "blood glucose", "cholesterol",
-  "contraindication", "side effect", "allergy", "adverse reaction",
-  "medical power of attorney", "HIPAA", "malpractice", "liability",
-];
-
-const LEGAL_TERMS_EN: string[] = [
-  "plaintiff", "defendant", "testimony", "subpoena", "deposition",
-  "affidavit", "jurisdiction", "indictment", "prosecution", "defense attorney",
-  "verdict", "injunction", "restraining order", "bail", "parole",
-  "probation", "felony", "misdemeanor", "statute", "ordinance",
-  "due process", "habeas corpus", "Miranda rights", "plea bargain",
-  "arraignment", "preliminary hearing", "grand jury", "cross-examination",
-  "objection", "sustained", "overruled", "contempt of court",
-  "perjury", "evidence", "exhibit", "hearsay", "circumstantial",
-  "reasonable doubt", "burden of proof", "acquittal", "conviction",
-  "sentence", "appeal", "class action", "settlement", "damages",
-  "negligence", "liability", "breach of contract", "intellectual property",
-  "copyright", "trademark", "patent", "asylum", "deportation",
-  "immigration", "visa", "citizenship", "naturalization", "green card",
-  "custody", "alimony", "guardian", "power of attorney", "notary",
-];
 
 type TermMap = Record<string, SonioxContextTerm[]>;
 
@@ -295,119 +246,6 @@ TERMS_BY_LANG["zh"] = [
 
 // Fallbacks for other language pairs: keep only EN anchors when pair-specific map missing.
 
-/**
- * Per-language "formal register" reminders, keyed by ISO code.
- * Only the two languages actually in the session's pair are injected into
- * Soniox's `context.general` — mentioning every supported language on every
- * session (regardless of pair) added irrelevant noise that could bias
- * real-time translation/LID toward an unrelated language (e.g. a Spanish
- * register reminder showing up on an English↔Portuguese session).
- */
-const REGISTER_RULE_BY_LANG: Record<string, { key: string; value: string }> = {
-  ar: { key: "arabic_register", value: "Arabic translation column: always Modern Standard Arabic only (العربية الفصحى / MSA). Professional interpreter wording. Never Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, or Maghrebi/Darija. Never dialect particles such as ليش، شو، مو، هيك، زي، كده، عشان، وين، فين، إزاي، ليه، واش، بزاف، برشا، كيفاش، دابا، توا، دلوقتي، هلق، يلا، أيوه." },
-  en: { key: "english_register", value: "English translation: professional international English. Never slang, dialect spellings, or leftover source-language words." },
-  es: { key: "spanish_register", value: "Spanish: always standard formal written Spanish. Never regional slang, street colloquial, or informal dialect forms." },
-  pt: { key: "portuguese_register", value: "Portuguese: always standard formal written Portuguese. Never slang or street-level colloquial forms." },
-  zh: { key: "chinese_register", value: "Chinese: always Standard Mandarin (普通话). Never Cantonese, Hokkien, or regional dialect forms." },
-  fr: { key: "french_register", value: "French: always standard formal French. Never Québécois informal speech, Verlan, or regional slang." },
-  de: { key: "german_register", value: "German: always standard formal German (Hochdeutsch). Never Austrian, Swiss, or regional dialect forms." },
-  ru: { key: "russian_register", value: "Russian: always standard literary Russian. Never slang or informal colloquial forms." },
-  pl: { key: "polish_register", value: "Polish: always standard formal Polish. Never regional or colloquial forms." },
-  it: { key: "italian_register", value: "Italian: always standard formal Italian (italiano standard). Never regional dialects like Sicilian, Neapolitan, or Venetian." },
-  ko: { key: "korean_register", value: "Korean: always formal polite Korean (존댓말 / 합쇼체). Never casual speech (반말)." },
-  ja: { key: "japanese_register", value: "Japanese: always formal polite Japanese (丁寧語 / です・ます). Never casual forms." },
-  hi: { key: "hindi_register", value: "Hindi: always standard formal Hindi. Avoid heavy mixing or regional colloquial forms." },
-  vi: { key: "vietnamese_register", value: "Vietnamese: always standard formal Vietnamese. Never regional slang." },
-  tr: { key: "turkish_register", value: "Turkish: always standard formal Turkish. Never slang or informal colloquial forms." },
-  so: { key: "somali_register", value: "Somali: always standard formal Somali. Never regional dialect forms." },
-  tl: { key: "tagalog_register", value: "Filipino: always standard formal Filipino. Avoid heavy Taglish or colloquial forms." },
-  uk: { key: "ukrainian_register", value: "Ukrainian: always standard literary Ukrainian. Never slang or informal forms." },
-  ro: { key: "romanian_register", value: "Romanian: always standard formal Romanian. Never regional or colloquial forms." },
-  fa: { key: "persian_register", value: "Persian: always standard formal Farsi. Never regional colloquial or mixed dialect forms." },
-  ur: { key: "urdu_register", value: "Urdu: always standard formal Urdu. Never regional colloquial forms." },
-  he: { key: "hebrew_register", value: "Hebrew: always standard modern Hebrew. Never slang or informal colloquial forms." },
-  th: { key: "thai_register", value: "Thai: always standard Central Thai. Never regional dialect forms." },
-  nl: { key: "dutch_register", value: "Dutch: always standard formal Dutch. Never informal Flemish slang or mixed colloquial forms." },
-  bn: { key: "bengali_register", value: "Bengali: always standard formal Bengali. Never regional colloquial forms." },
-  pa: { key: "punjabi_register", value: "Punjabi: always standard formal Punjabi. Never regional colloquial forms." },
-  ta: { key: "tamil_register", value: "Tamil: always standard formal Tamil. Never regional colloquial forms." },
-  te: { key: "telugu_register", value: "Telugu: always standard formal Telugu. Never regional colloquial forms." },
-  sw: { key: "swahili_register", value: "Swahili: always standard formal Swahili. Never regional colloquial forms." },
-  id: { key: "indonesian_register", value: "Indonesian: always standard formal Indonesian. Never slang or mixed colloquial forms." },
-  ms: { key: "malay_register", value: "Malay: always standard formal Malay. Never slang or mixed colloquial forms." },
-  nb: { key: "norwegian_register", value: "Norwegian: always standard Bokmål. Never dialect spellings." },
-  af: { key: "afrikaans_register", value: "Afrikaans: always standard formal Afrikaans. Never regional colloquial forms." },
-  sq: { key: "albanian_register", value: "Albanian: always standard formal Albanian. Never regional dialect forms." },
-  az: { key: "azerbaijani_register", value: "Azerbaijani: always standard formal Azerbaijani. Never regional dialect forms." },
-  eu: { key: "basque_register", value: "Basque: always standard formal Basque. Never regional dialect forms." },
-  be: { key: "belarusian_register", value: "Belarusian: always standard formal Belarusian. Never regional colloquial forms." },
-  bs: { key: "bosnian_register", value: "Bosnian: always standard formal Bosnian. Never regional colloquial forms." },
-  bg: { key: "bulgarian_register", value: "Bulgarian: always standard formal Bulgarian. Never regional colloquial forms." },
-  ca: { key: "catalan_register", value: "Catalan: always standard formal Catalan. Never regional colloquial forms." },
-  hr: { key: "croatian_register", value: "Croatian: always standard formal Croatian. Never regional colloquial forms." },
-  cs: { key: "czech_register", value: "Czech: always standard formal Czech. Never regional colloquial forms." },
-  da: { key: "danish_register", value: "Danish: always standard formal Danish. Never regional dialect spellings." },
-  et: { key: "estonian_register", value: "Estonian: always standard formal Estonian. Never regional colloquial forms." },
-  fi: { key: "finnish_register", value: "Finnish: always standard formal Finnish. Never regional dialect forms." },
-  gl: { key: "galician_register", value: "Galician: always standard formal Galician. Never regional colloquial forms." },
-  el: { key: "greek_register", value: "Greek: always standard formal Modern Greek. Never regional dialect forms." },
-  gu: { key: "gujarati_register", value: "Gujarati: always standard formal Gujarati. Never regional colloquial forms." },
-  hu: { key: "hungarian_register", value: "Hungarian: always standard formal Hungarian. Never regional colloquial forms." },
-  kn: { key: "kannada_register", value: "Kannada: always standard formal Kannada. Never regional colloquial forms." },
-  kk: { key: "kazakh_register", value: "Kazakh: always standard formal Kazakh. Never regional dialect forms." },
-  lv: { key: "latvian_register", value: "Latvian: always standard formal Latvian. Never regional colloquial forms." },
-  lt: { key: "lithuanian_register", value: "Lithuanian: always standard formal Lithuanian. Never regional colloquial forms." },
-  mk: { key: "macedonian_register", value: "Macedonian: always standard formal Macedonian. Never regional colloquial forms." },
-  ml: { key: "malayalam_register", value: "Malayalam: always standard formal Malayalam. Never regional colloquial forms." },
-  mr: { key: "marathi_register", value: "Marathi: always standard formal Marathi. Never regional colloquial forms." },
-  sr: { key: "serbian_register", value: "Serbian: always standard formal Serbian. Never regional colloquial forms." },
-  sk: { key: "slovak_register", value: "Slovak: always standard formal Slovak. Never regional colloquial forms." },
-  sl: { key: "slovenian_register", value: "Slovenian: always standard formal Slovenian. Never regional colloquial forms." },
-  sv: { key: "swedish_register", value: "Swedish: always standard formal Swedish. Never regional dialect forms." },
-  cy: { key: "welsh_register", value: "Welsh: always standard formal Welsh. Never regional dialect forms." },
-};
-
-const GRAMMATICAL_GENDER_BASES = new Set([
-  "ar", "es", "fr", "he", "hi", "ur", "pl", "ru", "de", "it", "pt", "ro",
-]);
-
-/** Build only the register reminders relevant to this session's actual pair. */
-function registerRulesForPair(langA: string, langB: string): { key: string; value: string }[] {
-  const rules: { key: string; value: string }[] = [];
-  for (const lang of [langA, langB]) {
-    const n = normalizeWorkspaceLanguageCode(lang);
-    if (n === "zh-TW") {
-      const tw = {
-        key: "chinese_register",
-        value: "Chinese: always Standard Mandarin in Traditional characters (正體字). Never Cantonese, Hokkien, or regional dialect forms.",
-      };
-      if (!rules.some((r) => r.key === tw.key)) rules.push(tw);
-      continue;
-    }
-    const base = n.split("-")[0]!.toLowerCase();
-    const rule =
-      base === "zh"
-        ? {
-            key: "chinese_register",
-            value: "Chinese: always Standard Mandarin (普通话) in simplified characters. Never Cantonese, Hokkien, or regional dialect forms.",
-          }
-        : REGISTER_RULE_BY_LANG[base];
-    if (rule && !rules.some((r) => r.key === rule.key)) rules.push(rule);
-  }
-  const a = langA.split("-")[0]!.toLowerCase();
-  const b = langB.split("-")[0]!.toLowerCase();
-  if (a === "es" || b === "es") {
-    rules.push({ key: "spanish_gender", value: "Spanish noun gender: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Write 'un análisis', 'el sistema', 'un problema'." });
-  }
-  if (GRAMMATICAL_GENDER_BASES.has(a) || GRAMMATICAL_GENDER_BASES.has(b)) {
-    rules.push({
-      key: "speaker_gender",
-      value: "Match grammatical gender to the speaker when the original marks it (he/she/him/her, masculine vs feminine verbs or adjectives, soy médico vs soy médica, Arabic أنا + gendered verb). When first-person English has no gender marker, keep the translation professional and do not invent a gender. Voice gender is not available.",
-    });
-  }
-  return rules;
-}
-
 export function getInterpreterContext(
   langA: string,
   langB: string,
@@ -487,17 +325,6 @@ export function getInterpreterContext(
     ]);
   }
 
-  const recognitionPins = [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN];
-  if (medicalPack.terms.length > 0) {
-    const pinSeen = new Set(recognitionPins.map((t) => t.toLowerCase()));
-    for (const pin of medicalPack.terms) {
-      const k = pin.toLowerCase();
-      if (pinSeen.has(k)) continue;
-      pinSeen.add(k);
-      recognitionPins.push(pin);
-    }
-  }
-
   const ctx: SonioxContext = {
     general: [
       { key: "domain", value: "Medical and legal interpretation" },
@@ -505,12 +332,11 @@ export function getInterpreterContext(
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
       { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
-      { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
-      ...registerRulesForPair(langA, langB),
-      { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
-      { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],
-    terms: recognitionPins,
+    // Do not pin hundreds of English medical/legal words into STT `terms`.
+    // That list made Arabic (and other pair languages) transcribe as English
+    // that was never spoken. Native translation still uses translation_terms.
+    terms: [],
   };
 
   if (translationTerms.length > 0) {
