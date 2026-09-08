@@ -8,6 +8,11 @@ import {
   shouldHoldSpelledAlphanumericRow,
 } from "../policies/spelled-alphanumeric";
 import {
+  mergeAppendedTranslationText,
+  translationFinalFingerprint,
+} from "../policies/translation-merge";
+import { rowBreaksForWrittenScript } from "../policies/written-script";
+import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
@@ -19,7 +24,7 @@ import { utteranceCommittedText, utteranceLiveText } from "../types/canon-uttera
 import {
   canonTokensFromFrame,
   translationPreviewTextFromFrame,
-  translationTextFromFrame,
+  translationFinalTokensFromFrame,
   inferTailSpeakerLang,
   nonFinalsForRow,
   stabilizeCanonSpeakers,
@@ -27,6 +32,8 @@ import {
 
 /** Two consecutive new-speaker finals confirm a handoff. First token stays off the old row. */
 const SPEAKER_BREAK_CONFIRM_TOKENS = 2;
+/** Same-speaker Latin↔Arabic (etc.) script flip — confirm before opening a new row. */
+const SCRIPT_BREAK_CONFIRM_TOKENS = 2;
 /** New-speaker live text this long opens the next colored row immediately (no paint on the old row). */
 const SUBSTANTIAL_NEW_SPEAKER_NF_CHARS = 8;
 const SUBSTANTIAL_NEW_SPEAKER_NF_TOKENS = 2;
@@ -48,6 +55,8 @@ function freezeRowForSonioxNative(state: EngineState, chunkV2NativeTranslate: bo
     ...state,
     pendingSpeakerId: undefined,
     pendingSpeakerFinals: [],
+    pendingScriptFinals: [],
+    scriptChangeConsecutive: 0,
   };
   if (!chunkV2NativeTranslate || !cleared.activeUtterance) {
     return freezeActiveUtterance(cleared);
@@ -73,6 +82,8 @@ function handoffToSpeaker(
     endpointPending: false,
     endpointPendingAtMs: 0,
     speakerChangeConsecutive: 0,
+    pendingScriptFinals: [],
+    scriptChangeConsecutive: 0,
     metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
   };
   next = openActiveUtterance(next, speaker, language);
@@ -105,6 +116,26 @@ function absorbPendingIntoActive(state: EngineState): EngineState {
       speaker: au.speaker,
       language: au.language ?? tok.language,
     });
+  }
+  return next;
+}
+
+function absorbPendingScriptIntoActive(state: EngineState): EngineState {
+  const pending = state.pendingScriptFinals;
+  if (!pending.length || !state.activeUtterance) {
+    return {
+      ...state,
+      pendingScriptFinals: [],
+      scriptChangeConsecutive: 0,
+    };
+  }
+  let next: EngineState = {
+    ...state,
+    pendingScriptFinals: [],
+    scriptChangeConsecutive: 0,
+  };
+  for (const tok of pending) {
+    next = appendFinalToActive(next, tok);
   }
   return next;
 }
@@ -153,12 +184,14 @@ function tryLongPauseSplit(
 /**
  * Soniox real-time contract + Intercall row timing:
  * - Append finals once; replace non-finals each frame
- * - New colored row only on a real speaker handoff (never on language flicker)
- * - Same speaker: new row only after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
+ * - New colored row on confirmed speaker handoff
+ * - Same-speaker written-script flip (Latin↔Arabic etc.) opens a new row after confirm
+ * - Same speaker: also new row after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence
  */
 export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
   const speakerBreakConfirmTokens = SPEAKER_BREAK_CONFIRM_TOKENS;
+  const scriptBreakConfirmTokens = SCRIPT_BREAK_CONFIRM_TOKENS;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
@@ -192,14 +225,24 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     lastHypothesisLagMs: lagComputed !== null ? lagComputed : next.lastHypothesisLagMs,
   };
 
-  const translationChunk = translationTextFromFrame(frame.tokens);
+  const translationFinals = translationFinalTokensFromFrame(frame.tokens);
+  let seenTx = next.seenTranslationFinalKeys;
+  const freshTxParts: string[] = [];
+  for (const t of translationFinals) {
+    const key = translationFinalFingerprint(t);
+    if (seenTx.includes(key)) continue;
+    seenTx = [...seenTx, key];
+    freshTxParts.push(t.text);
+  }
+  const translationChunk = freshTxParts.join("");
   const translationPreview = translationPreviewTextFromFrame(frame.tokens);
-  const nextFinalTranslation =
-    translationChunk.length > 0
-      ? (next.activeTranslationText ?? "") + translationChunk
-      : next.activeTranslationText ?? "";
+  const nextFinalTranslation = mergeAppendedTranslationText(
+    next.activeTranslationText ?? "",
+    translationChunk,
+  );
   next = {
     ...next,
+    seenTranslationFinalKeys: seenTx,
     activeTranslationText: nextFinalTranslation,
     activeTranslationPreviewText:
       translationPreview.length > 0
@@ -219,19 +262,30 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
       const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
+      const scriptBreak = rowBreaksForWrittenScript(
+        utteranceCommittedText(next.activeUtterance),
+        ct.text,
+      );
       const holdSpelling =
         nativeTranslate &&
         shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text);
-      if (holdSpelling && (spkBreak || langBreak)) {
+      if (holdSpelling && (spkBreak || langBreak || scriptBreak)) {
         next = {
           ...next,
           speakerChangeConsecutive: 0,
           pendingSpeakerId: undefined,
           pendingSpeakerFinals: [],
+          pendingScriptFinals: [],
+          scriptChangeConsecutive: 0,
         };
       } else if (spkBreak) {
         // Buffer off the old row. Confirm on the 2nd final — never paint, then rip.
         const sid = normalizedSpeakerId(ct.speaker);
+        next = {
+          ...next,
+          pendingScriptFinals: [],
+          scriptChangeConsecutive: 0,
+        };
         if (sid && next.pendingSpeakerId === sid) {
           const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
           if (consecutive >= speakerBreakConfirmTokens) {
@@ -258,10 +312,40 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
           pendingSpeakerFinals: [ct],
         };
         continue;
+      } else if (scriptBreak && !spkBreak) {
+        // Same speaker, clear writing-system flip (e.g. Latin English → Arabic script).
+        // Confirm twice so mid-word LID flicker without real script change cannot split.
+        if (next.pendingSpeakerFinals.length) {
+          next = absorbPendingIntoActive(next);
+        }
+        const consecutive = (next.scriptChangeConsecutive ?? 0) + 1;
+        if (consecutive >= scriptBreakConfirmTokens) {
+          next = handoffToSpeaker(
+            next,
+            ct.speaker ?? next.activeUtterance.speaker,
+            ct.language,
+            [...next.pendingScriptFinals, ct],
+            nativeTranslate,
+          );
+          continue;
+        }
+        next = {
+          ...next,
+          scriptChangeConsecutive: consecutive,
+          pendingScriptFinals: [...next.pendingScriptFinals, ct],
+          speakerChangeConsecutive: 0,
+        };
+        continue;
       } else if (next.pendingSpeakerFinals.length) {
         next = absorbPendingIntoActive(next);
+      } else if (next.pendingScriptFinals.length) {
+        next = absorbPendingScriptIntoActive(next);
       } else {
-        next = { ...next, speakerChangeConsecutive: 0 };
+        next = {
+          ...next,
+          speakerChangeConsecutive: 0,
+          scriptChangeConsecutive: 0,
+        };
       }
     }
 
@@ -274,7 +358,8 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       !!next.activeUtterance &&
       shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text) &&
       (rowBreaksForSpeaker(next.activeUtterance, ct) ||
-        rowBreaksForLanguage(next.activeUtterance, ct)) &&
+        rowBreaksForLanguage(next.activeUtterance, ct) ||
+        rowBreaksForWrittenScript(utteranceCommittedText(next.activeUtterance), ct.text)) &&
       !!next.activeUtterance.speaker;
     const appendTok = holdSpellingAppend
       ? {

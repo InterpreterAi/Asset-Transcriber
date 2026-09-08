@@ -106,6 +106,9 @@ export function freezeActiveUtterance(state: EngineState): EngineState {
     activeUtterance: null,
     activeTranslationText: "",
     activeTranslationPreviewText: "",
+    seenTranslationFinalKeys: [],
+    pendingScriptFinals: [],
+    scriptChangeConsecutive: 0,
     speakerChangeConsecutive: 0,
     metrics: { ...state.metrics, rowsFrozen: state.metrics.rowsFrozen + 1 },
   };

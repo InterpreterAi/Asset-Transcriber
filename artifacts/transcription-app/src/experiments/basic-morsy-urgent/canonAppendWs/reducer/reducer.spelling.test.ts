@@ -16,6 +16,7 @@ function token(text: string, extra: Partial<Token> = {}): Token {
     startMs: extra.startMs,
     speakerId: extra.speakerId,
     language: extra.language,
+    source_language: extra.source_language,
     translation_status: extra.translation_status ?? "original",
   };
 }
@@ -226,5 +227,178 @@ describe("speaker-synced rows", () => {
     expect(state.finalizedUtterances).toHaveLength(0);
     expect(state.activeUtterance?.speaker).toBe("1");
     expect(utteranceCommittedText(state.activeUtterance!)).toContain("I never had a steak");
+  });
+});
+
+describe("stable original token ids", () => {
+  it("keeps two finals that share start_ms when parser ids differ (not / at)", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        1,
+        [
+          token("Judge is going to be happy about that ", {
+            id: "sx-idx-1",
+            startMs: 100,
+            speakerId: "1",
+            language: "en",
+          }),
+          token("not ", {
+            id: "sx-idx-2",
+            startMs: 170,
+            speakerId: "1",
+            language: "en",
+          }),
+          token("at all.", {
+            id: "sx-idx-3",
+            startMs: 170,
+            speakerId: "1",
+            language: "en",
+          }),
+        ],
+        1_000,
+      ),
+      ctx,
+    );
+
+    const text = utteranceCommittedText(state.activeUtterance!).replace(/\s+/g, " ").trim();
+    expect(text).toContain("not");
+    expect(text).toMatch(/happy about that\s+not\s+at all/);
+  });
+});
+
+describe("translation final dedupe", () => {
+  it("does not loop the same translation fragment across frames", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        1,
+        [
+          token("Okay ", { id: "o1", startMs: 10, speakerId: "1", language: "en" }),
+          token("—he has", {
+            id: "t-1-0",
+            startMs: undefined,
+            speakerId: "1",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+        ],
+        1_000,
+      ),
+      ctx,
+    );
+    expect(state.activeTranslationText).toBe("—he has");
+
+    for (let seq = 2; seq <= 12; seq++) {
+      state = reduceCanonAppendWs(
+        state,
+        frame(
+          seq,
+          [
+            token("—he has", {
+              id: `t-${seq}-0`,
+              speakerId: "1",
+              language: "ar",
+              source_language: "en",
+              translation_status: "translation",
+            }),
+          ],
+          1_000 + seq,
+        ),
+        { ...ctx, wallMs: 1_000 + seq },
+      );
+    }
+
+    expect(state.activeTranslationText).toBe("—he has");
+    expect(state.activeTranslationText.match(/—he has/g)?.length).toBe(1);
+  });
+});
+
+describe("written-script row boundary", () => {
+  it("opens a new row after confirmed Latin→Arabic script finals on the same speaker", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        1,
+        [
+          token("Okay. And has he, uh, Mirham, has—", {
+            id: "en1",
+            startMs: 10,
+            speakerId: "1",
+            language: "en",
+          }),
+        ],
+        1_000,
+      ),
+      ctx,
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        2,
+        [token("خد من", { id: "ar1", startMs: 200, speakerId: "1", language: "ar" })],
+        1_200,
+      ),
+      { ...ctx, wallMs: 1_200 },
+    );
+    // First Arabic-script final is held for confirm — still one row.
+    expect(state.finalizedUtterances).toHaveLength(0);
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        3,
+        [token(" الصيدلية؟", { id: "ar2", startMs: 260, speakerId: "1", language: "ar" })],
+        1_280,
+      ),
+      { ...ctx, wallMs: 1_280 },
+    );
+
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toContain("Mirham");
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).not.toContain("صيدلية");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("خد");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("صيدلية");
+  });
+
+  it("does not split when LID says Arabic but the writing stays Latin", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("I never had a steak", { id: "a", startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [token(" in the Marine", { id: "b", startMs: 80, speakerId: "1", language: "ar" })], 1_100),
+      { ...ctx, wallMs: 1_100 },
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token(" Corps today", { id: "c", startMs: 120, speakerId: "1", language: "ar" })], 1_200),
+      { ...ctx, wallMs: 1_200 },
+    );
+
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("I never had a steak");
+    expect(utteranceCommittedText(state.activeUtterance!)).toContain("Corps today");
   });
 });

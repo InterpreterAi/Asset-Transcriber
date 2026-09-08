@@ -7,7 +7,12 @@ function isEndpointText(text: string): boolean {
 
 function sonioxTokenToCanon(t: Token, idx: number): CanonToken {
   const start_ms = typeof t.startMs === "number" ? t.startMs : undefined;
-  const token_id = start_ms !== undefined ? `t_${start_ms}` : `t_idx_${idx}`;
+  // Prefer the parser's stable id. Never key only on start_ms — short words like
+  // "not" often share a timestamp with a neighbor and get dropped forever.
+  const fromParser = typeof t.id === "string" ? t.id.trim() : "";
+  const token_id =
+    fromParser ||
+    (start_ms !== undefined ? `t_${start_ms}` : `t_idx_${idx}`);
   return {
     token_id,
     text: t.text ?? "",
@@ -33,20 +38,23 @@ export function canonTokensFromFrame(tokens: readonly Token[]): CanonToken[] {
   return out;
 }
 
+/** FINALIZED translation tokens in this frame (non-finals stay out). */
+export function translationFinalTokensFromFrame(tokens: readonly Token[]): Token[] {
+  return tokens.filter(
+    t =>
+      t.translation_status === "translation" &&
+      t.isFinal === true &&
+      typeof t.text === "string" &&
+      t.text.length > 0,
+  );
+}
+
 /**
  * Concatenated text of FINALIZED translation tokens in this frame.
- * Only is_final === true tokens are accumulated to prevent
- * double-counting non-final hypotheses that arrive on every frame.
+ * Prefer {@link translationFinalTokensFromFrame} + merge/dedupe in the reducer.
  */
 export function translationTextFromFrame(tokens: readonly Token[]): string {
-  return tokens
-    .filter(
-      t =>
-        t.translation_status === "translation" &&
-        t.isFinal === true &&
-        typeof t.text === "string" &&
-        t.text.length > 0,
-    )
+  return translationFinalTokensFromFrame(tokens)
     .map(t => t.text)
     .join("");
 }

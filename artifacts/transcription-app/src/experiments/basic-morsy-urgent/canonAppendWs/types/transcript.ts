@@ -17,6 +17,14 @@ export type EngineState = {
   nextUtteranceSeq: number;
   /** Dedupe — Soniox sends each final token once. */
   seenFinalTokenIds: string[];
+  /**
+   * Dedupe Soniox translation finals for the active row.
+   * Cleared when the row freezes (new utterance starts a fresh translation buffer).
+   */
+  seenTranslationFinalKeys: string[];
+  /** Same-speaker written-script flip confirm (Latin↔Arabic etc.). */
+  pendingScriptFinals: CanonToken[];
+  scriptChangeConsecutive: number;
 
   lastFrameSeq: number;
   lastFinalAudioProcMs: number | null;
@@ -46,6 +54,9 @@ export function createInitialEngineState(): EngineState {
     pendingSpeakerFinals: [],
     nextUtteranceSeq: 0,
     seenFinalTokenIds: [],
+    seenTranslationFinalKeys: [],
+    pendingScriptFinals: [],
+    scriptChangeConsecutive: 0,
 
     lastFrameSeq: 0,
     lastFinalAudioProcMs: null,
