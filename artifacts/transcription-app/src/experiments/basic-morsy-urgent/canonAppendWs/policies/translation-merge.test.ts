@@ -16,15 +16,32 @@ describe("mergeAppendedTranslationText", () => {
     expect(t).toBe("—he has");
   });
 
-  it("grows when Soniox extends the translation", () => {
+  it("grows when Soniox extends the full translation revision", () => {
     let t = mergeAppendedTranslationText("", "حسنًا. وهل هو");
     t = mergeAppendedTranslationText(t, "حسنًا. وهل هو، ميرهام");
     expect(t).toBe("حسنًا. وهل هو، ميرهام");
   });
 
-  it("merges overlapping tails without doubling", () => {
-    const t = mergeAppendedTranslationText("Hello wor", "world");
-    expect(t).toBe("Hello world");
+  it("appends sequential Soniox pieces without character-overlap splicing", () => {
+    // Docs-style pieces: "Gu" + "ten" + " Morgen"
+    let t = mergeAppendedTranslationText("", "سأطلق");
+    t = mergeAppendedTranslationText(t, " سراح");
+    t = mergeAppendedTranslationText(t, "ه");
+    expect(t).toBe("سأطلق سراحه");
+  });
+
+  it("must not eat Arabic letters via fuzzy overlap (regression)", () => {
+    // Character-overlap merge used to splice on "أطلق" and corrupt Arabic.
+    // Safe path: simple concat of sequential Soniox pieces.
+    const t = mergeAppendedTranslationText("سأطلق", "أطلقراحه");
+    expect(t).toBe("سأطلقأطلقراحه");
+    expect(t).not.toBe("سراحه");
+  });
+
+  it("must not mash المشكلات + المؤقتة via overlap", () => {
+    const t = mergeAppendedTranslationText("إثبات المشكلات", "المؤقتة");
+    expect(t).toBe("إثبات المشكلاتالمؤقتة");
+    expect(t).not.toContain("المشكلاتؤقتة");
   });
 });
 

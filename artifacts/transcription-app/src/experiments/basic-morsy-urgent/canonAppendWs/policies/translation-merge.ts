@@ -1,26 +1,26 @@
 /**
- * Merge Soniox two-way translation finals into the active buffer.
+ * Append Soniox two-way translation finals into the active buffer.
  *
- * Translation tokens often lack timestamps (Soniox docs). Unstable per-frame ids
- * then make naive `+=` re-append the same fragment ("—he has") on every frame.
+ * Soniox docs: translation tokens are sequential pieces after their originals
+ * (e.g. "Gu" + "ten" + " Morgen") — join in order. They have no timestamps.
+ *
+ * Do NOT fuzzy-overlap-merge strings. Character overlap eats letters in Arabic
+ * (and other scripts), producing garbage like "المشكلاتؤقتة" / "سأطلقراحه".
+ * Exact re-sends are stopped by fingerprint dedupe + endsWith/startsWith checks.
  */
 
-/** Append incoming finals without duplicating an already-present suffix/prefix. */
+/** Safe append: exact suffix skip, full-prefix revision replace, else concatenate. */
 export function mergeAppendedTranslationText(existing: string, incomingChunk: string): string {
   const a = existing;
   const b = incomingChunk;
   if (!b) return a;
   if (!a) return b;
   if (a === b) return a;
+  // Same fragment re-sent as finals again (loop case).
   if (a.endsWith(b)) return a;
+  // Stream replaced the whole active translation with a longer revision.
   if (b.startsWith(a)) return b;
-
-  const max = Math.min(a.length, b.length);
-  for (let k = max; k > 0; k--) {
-    if (a.slice(-k) === b.slice(0, k)) {
-      return a + b.slice(k);
-    }
-  }
+  // Soniox contract: new tokens append. Never splice on partial character overlap.
   return a + b;
 }
 
