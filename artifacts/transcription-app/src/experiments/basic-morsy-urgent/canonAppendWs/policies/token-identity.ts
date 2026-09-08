@@ -8,6 +8,7 @@ export function stableSonioxTokenId(args: {
   id?: unknown;
   start_ms?: unknown;
   end_ms?: unknown;
+  text?: unknown;
   messageSeq: number;
   arrIndex: number;
 }): string {
@@ -17,7 +18,10 @@ export function stableSonioxTokenId(args: {
   if (typeof idRaw === "string" && idRaw.trim()) return idRaw.trim();
   const sm = args.start_ms;
   const em = args.end_ms;
-  if (typeof sm === "number" && typeof em === "number") return `sx-${sm}-${em}`;
+  const textHint =
+    typeof args.text === "string" && args.text.length > 0 ? `:${args.text.slice(0, 32)}` : "";
+  // Include text so short words that share start_ms/end_ms (e.g. "not") are not dropped.
+  if (typeof sm === "number" && typeof em === "number") return `sx-${sm}-${em}${textHint}`;
   return `t-${args.messageSeq}-${args.arrIndex}`;
 }
 

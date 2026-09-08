@@ -6,6 +6,8 @@
 import { escapeHtml, isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 
 const LRI = "\u2066";
+const RLI = "\u2067";
+const FSI = "\u2068";
 const PDI = "\u2069";
 
 /** Longest-first LTR islands inside RTL translation paragraphs. */
@@ -57,17 +59,34 @@ function wrapMixedDirectionTokens(text: string, wrap: (token: string) => string)
   return grouped.replace(MIXED_LTR_TOKEN_RE, (m) => wrap(m));
 }
 
-/** Unicode isolates for textContent paint fallback. */
+/** Strip Unicode bidi isolates so copy/export never leaks ⁦…⁩ marks. */
+export function stripMorsyChunkV2BidiIsolates(text: string): string {
+  return text.replace(new RegExp(`[${LRI}${RLI}${FSI}${PDI}]`, "g"), "");
+}
+
+/** Unicode isolates for textContent paint fallback (prefer HTML path). */
 export function applyMorsyChunkV2BidiIsolates(text: string): string {
   return wrapMixedDirectionTokens(text, (m) => `${LRI}${m}${PDI}`);
 }
 
-/** HTML `<bdi dir="ltr">` for Chunk V2 translation paint. */
+/**
+ * HTML `<bdi dir="ltr">` for Chunk V2 translation paint.
+ * Escapes every segment — safe for innerHTML; plain textContent/copy has no isolates.
+ */
 export function renderMorsyChunkV2BidiHtml(text: string): string {
-  return wrapMixedDirectionTokens(
-    text,
-    (m) => `<bdi dir="ltr">${escapeHtml(m)}</bdi>`,
-  );
+  if (!text) return "";
+  const grouped = groupMedicalMeasurementTokens(text);
+  MIXED_LTR_TOKEN_RE.lastIndex = 0;
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MIXED_LTR_TOKEN_RE.exec(grouped)) !== null) {
+    out += escapeHtml(grouped.slice(last, m.index));
+    out += `<bdi dir="ltr">${escapeHtml(m[0])}</bdi>`;
+    last = m.index + m[0].length;
+  }
+  out += escapeHtml(grouped.slice(last));
+  return out;
 }
 
 /** RTL mixed-token paint (Chunk V2 + Clean MT Arabic/Hebrew output). */

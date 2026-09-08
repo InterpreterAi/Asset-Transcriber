@@ -1,5 +1,7 @@
-import type { CanonToken } from "../types/canon-token";
 import type { Token } from "../types/tokens";
+
+import { joinTranslationTokenTexts } from "../policies/translation-merge";
+import type { CanonToken } from "../types/canon-token";
 
 function isEndpointText(text: string): boolean {
   return text === "<end>" || text === "<eos>" || text === "<eps>";
@@ -10,17 +12,21 @@ function sonioxTokenToCanon(t: Token, idx: number): CanonToken {
   // Prefer the parser's stable id. Never key only on start_ms — short words like
   // "not" often share a timestamp with a neighbor and get dropped forever.
   const fromParser = typeof t.id === "string" ? t.id.trim() : "";
+  const text = t.text ?? "";
+  const end_ms = typeof t.endMs === "number" ? t.endMs : undefined;
   const token_id =
     fromParser ||
-    (start_ms !== undefined ? `t_${start_ms}` : `t_idx_${idx}`);
+    (start_ms !== undefined
+      ? `t_${start_ms}_${end_ms ?? "x"}_${text.slice(0, 32)}`
+      : `t_idx_${idx}_${text.slice(0, 32)}`);
   return {
     token_id,
-    text: t.text ?? "",
+    text,
     is_final: t.isFinal === true,
     speaker: t.speakerId?.trim() || undefined,
     language: t.language?.trim() || undefined,
     start_ms,
-    end_ms: typeof t.endMs === "number" ? t.endMs : undefined,
+    end_ms,
     confidence: typeof t.confidence === "number" ? t.confidence : undefined,
   };
 }
@@ -54,23 +60,24 @@ export function translationFinalTokensFromFrame(tokens: readonly Token[]): Token
  * Prefer {@link translationFinalTokensFromFrame} + merge/dedupe in the reducer.
  */
 export function translationTextFromFrame(tokens: readonly Token[]): string {
-  return translationFinalTokensFromFrame(tokens)
-    .map(t => t.text)
-    .join("");
+  return joinTranslationTokenTexts(
+    translationFinalTokensFromFrame(tokens).map(t => t.text),
+  );
 }
 
 /** Non-final translation hypothesis from this frame, used for instant preview. */
 export function translationPreviewTextFromFrame(tokens: readonly Token[]): string {
-  return tokens
-    .filter(
-      t =>
-        t.translation_status === "translation" &&
-        t.isFinal !== true &&
-        typeof t.text === "string" &&
-        t.text.length > 0,
-    )
-    .map(t => t.text)
-    .join("");
+  return joinTranslationTokenTexts(
+    tokens
+      .filter(
+        t =>
+          t.translation_status === "translation" &&
+          t.isFinal !== true &&
+          typeof t.text === "string" &&
+          t.text.length > 0,
+      )
+      .map(t => t.text),
+  );
 }
 
 /** Infer speaker/language from the tail of the token list */

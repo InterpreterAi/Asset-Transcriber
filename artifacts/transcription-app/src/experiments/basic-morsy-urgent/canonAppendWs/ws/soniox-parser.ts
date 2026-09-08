@@ -35,6 +35,7 @@ function stableTokenId(t: RawSonioxToken, messageSeq: number, i: number): string
     id: t.id,
     start_ms: t.start_ms,
     end_ms: t.end_ms,
+    text: typeof t.text === "string" ? t.text : undefined,
     messageSeq,
     arrIndex: i,
   });

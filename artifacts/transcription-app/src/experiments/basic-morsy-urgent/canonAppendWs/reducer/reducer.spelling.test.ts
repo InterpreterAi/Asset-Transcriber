@@ -401,4 +401,179 @@ describe("written-script row boundary", () => {
     expect(utteranceCommittedText(state.activeUtterance!)).toContain("I never had a steak");
     expect(utteranceCommittedText(state.activeUtterance!)).toContain("Corps today");
   });
+
+  it("does not absorb a pending Arabic island back into a Latin row", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [token("Okay English lead", { id: "e1", startMs: 10, speakerId: "1", language: "en" })], 1_000),
+      ctx,
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [token("خد من", { id: "a1", startMs: 80, speakerId: "1", language: "ar" })], 1_100),
+      { ...ctx, wallMs: 1_100 },
+    );
+    // Returning to Latin without 2nd Arabic confirm must not mash scripts.
+    state = reduceCanonAppendWs(
+      state,
+      frame(3, [token(" and then English", { id: "e2", startMs: 140, speakerId: "1", language: "en" })], 1_200),
+      { ...ctx, wallMs: 1_200 },
+    );
+
+    const all = [
+      ...state.finalizedUtterances.map(u => utteranceCommittedText(u)),
+      utteranceCommittedText(state.activeUtterance!),
+    ].join(" || ");
+    expect(all).toContain("Okay English lead");
+    expect(all).toContain("خد من");
+    expect(all).toContain("and then English");
+    // No single row may contain both Latin lead and Arabic island.
+    for (const u of state.finalizedUtterances) {
+      const t = utteranceCommittedText(u);
+      const mixed =
+        /[A-Za-z]/.test(t) && /[\u0600-\u06FF]/.test(t) && t.includes("خد");
+      expect(mixed).toBe(false);
+    }
+  });
+});
+
+describe("translation assembly revisions", () => {
+  it("grows a truncated durable translation id revision", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        1,
+        [
+          token("get more men", { id: "o1", startMs: 10, speakerId: "1", language: "en" }),
+          token("إحض", {
+            id: "sx-idx-9",
+            speakerId: "1",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+        ],
+        1_000,
+      ),
+      ctx,
+    );
+    expect(state.activeTranslationText).toBe("إحض");
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        2,
+        [
+          token("إحضار الرجل", {
+            id: "sx-idx-9",
+            speakerId: "1",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+        ],
+        1_100,
+      ),
+      { ...ctx, wallMs: 1_100 },
+    );
+    expect(state.activeTranslationText).toBe("إحضار الرجل");
+  });
+
+  it("does not duplicate translation preview that restates finals", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        1,
+        [
+          token("Lord Commander, how can I help", {
+            id: "o1",
+            startMs: 10,
+            speakerId: "1",
+            language: "en",
+          }),
+          token("سيدي القائد، كيف يمكنني مساعدتك", {
+            id: "t1",
+            speakerId: "1",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+        ],
+        1_000,
+      ),
+      ctx,
+    );
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        2,
+        [
+          token("سيدي القائد، كيف يمكنني مساعدتك؟", {
+            id: "nf1",
+            isFinal: false,
+            speakerId: "1",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+        ],
+        1_050,
+      ),
+      { ...ctx, wallMs: 1_050 },
+    );
+
+    expect(state.activeTranslationText).toBe("سيدي القائد، كيف يمكنني مساعدتك");
+    expect(state.activeTranslationPreviewText.match(/سيدي القائد/g)?.length).toBe(1);
+  });
+
+  it("spaces Arabic translation word tokens that omit leading spaces", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    const ctx = { ledger, wallMs: 1_000, chunkV2NativeTranslate: true };
+
+    state = reduceCanonAppendWs(
+      state,
+      frame(
+        1,
+        [
+          token("temporary issues", { id: "o1", startMs: 10, speakerId: "1", language: "en" }),
+          token("إثبات", {
+            id: "t1",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+          token("المشكلات", {
+            id: "t2",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+          token("المؤقتة", {
+            id: "t3",
+            language: "ar",
+            source_language: "en",
+            translation_status: "translation",
+          }),
+        ],
+        1_000,
+      ),
+      ctx,
+    );
+
+    expect(state.activeTranslationText).toBe("إثبات المشكلات المؤقتة");
+  });
 });

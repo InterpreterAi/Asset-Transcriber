@@ -8,10 +8,13 @@ import {
   shouldHoldSpelledAlphanumericRow,
 } from "../policies/spelled-alphanumeric";
 import {
+  joinTranslationPieces,
+  joinTranslationTokenTexts,
   mergeAppendedTranslationText,
   translationFinalFingerprint,
+  translationPreviewBeyondFinal,
 } from "../policies/translation-merge";
-import { rowBreaksForWrittenScript } from "../policies/written-script";
+import { rowBreaksForWrittenScript, writtenScriptFamily } from "../policies/written-script";
 import {
   appendFinalToActive,
   freezeActiveUtterance,
@@ -20,6 +23,7 @@ import {
   rowBreaksForSpeaker,
 } from "./row-lifecycle";
 import type { CanonToken } from "../types/canon-token";
+import { joinCanonText } from "../types/canon-token";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import {
   canonTokensFromFrame,
@@ -120,26 +124,6 @@ function absorbPendingIntoActive(state: EngineState): EngineState {
   return next;
 }
 
-function absorbPendingScriptIntoActive(state: EngineState): EngineState {
-  const pending = state.pendingScriptFinals;
-  if (!pending.length || !state.activeUtterance) {
-    return {
-      ...state,
-      pendingScriptFinals: [],
-      scriptChangeConsecutive: 0,
-    };
-  }
-  let next: EngineState = {
-    ...state,
-    pendingScriptFinals: [],
-    scriptChangeConsecutive: 0,
-  };
-  for (const tok of pending) {
-    next = appendFinalToActive(next, tok);
-  }
-  return next;
-}
-
 function incomingCanonPreview(frame: SonioxFrame): string {
   return frame.tokens
     .filter(t => {
@@ -234,19 +218,20 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
     seenTx = [...seenTx, key];
     freshTxParts.push(t.text);
   }
-  const translationChunk = freshTxParts.join("");
-  const translationPreview = translationPreviewTextFromFrame(frame.tokens);
+  const translationChunk = joinTranslationTokenTexts(freshTxParts);
+  const translationPreviewRaw = translationPreviewTextFromFrame(frame.tokens);
   const nextFinalTranslation = mergeAppendedTranslationText(
     next.activeTranslationText ?? "",
     translationChunk,
   );
+  const previewTail = translationPreviewBeyondFinal(nextFinalTranslation, translationPreviewRaw);
   next = {
     ...next,
     seenTranslationFinalKeys: seenTx,
     activeTranslationText: nextFinalTranslation,
     activeTranslationPreviewText:
-      translationPreview.length > 0
-        ? `${nextFinalTranslation}${translationPreview}`
+      previewTail.length > 0
+        ? joinTranslationPieces(nextFinalTranslation, previewTail)
         : nextFinalTranslation,
   };
 
@@ -339,7 +324,45 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       } else if (next.pendingSpeakerFinals.length) {
         next = absorbPendingIntoActive(next);
       } else if (next.pendingScriptFinals.length) {
-        next = absorbPendingScriptIntoActive(next);
+        // Never mash a different-script island into the Latin/Arabic row.
+        // One confirmed-looking pending run becomes its own row; current token
+        // then re-evaluates against that new row (may start the return handoff).
+        const pending = next.pendingScriptFinals;
+        const pendingText = joinCanonText(pending);
+        const activeText = utteranceCommittedText(next.activeUtterance);
+        if (
+          writtenScriptFamily(pendingText) &&
+          rowBreaksForWrittenScript(activeText, pendingText)
+        ) {
+          next = handoffToSpeaker(
+            next,
+            pending[0]?.speaker ?? next.activeUtterance.speaker,
+            pending[0]?.language ?? ct.language,
+            pending,
+            nativeTranslate,
+          );
+          if (
+            next.activeUtterance &&
+            rowBreaksForWrittenScript(utteranceCommittedText(next.activeUtterance), ct.text)
+          ) {
+            // Immediate return handoff so Latin/Arabic does not sit forever in pending
+            // after we sealed a one-token script island.
+            next = handoffToSpeaker(
+              next,
+              ct.speaker ?? next.activeUtterance.speaker,
+              ct.language,
+              [ct],
+              nativeTranslate,
+            );
+            continue;
+          }
+        } else {
+          next = {
+            ...next,
+            pendingScriptFinals: [],
+            scriptChangeConsecutive: 0,
+          };
+        }
       } else {
         next = {
           ...next,

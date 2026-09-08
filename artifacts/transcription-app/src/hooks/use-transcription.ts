@@ -6070,11 +6070,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       } else {
         // Never clear in chunk-v2 finalization path.
         // If Soniox emits no finalized translation for this row, preserve existing
-        // painted translation; otherwise mirror committed source so the bubble
-        // never disappears.
-        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim()
-          || committedText.trim()
-          || utteranceCommittedText(utterance).trim();
+        // painted translation — do NOT mirror English originals into the MT column.
+        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
         if (fallback.length > 0) {
           paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
         }
@@ -7322,12 +7319,12 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       if (nativeTx.length > 0) {
         paintCanonRowTranslationIfAllowed(rowId, nativeTx, { force: true });
       } else {
-        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim()
-          || utteranceCommittedText(payload.utterance).trim();
+        const fallback = canonWsIsolationEngineRef.current?.getRowTranslation(rowId).trim() ?? "";
         if (fallback.length > 0) {
           paintCanonRowTranslationIfAllowed(rowId, fallback, { force: true });
         }
         // Never call clearCanonRowTranslation — the frozen-row paint already owns the bubble.
+        // Never mirror English originals into the translation column.
       }
       return;
     }
