@@ -158,6 +158,27 @@ export function buildSonioxLanguageHints(pair: { a: string; b: string }): string
   return out.length > 0 ? out : ["en"];
 }
 
+/**
+ * Realtime WebSocket language-hint fields.
+ *
+ * @see https://soniox.com/docs/stt/concepts/language-hints
+ * @see https://soniox.com/docs/stt/concepts/language-restrictions
+ *
+ * Hints bias toward the pair without restricting. `language_hints_strict` with
+ * two languages can transcribe in the wrong language/script — Soniox recommends
+ * restriction only for a single known language. Bilingual interpreter sessions
+ * therefore send hints only; a one-hint proxy pair (Somali → `sw`) may restrict.
+ */
+export function sonioxRealtimeLanguageHintConfig(hints: string[]): {
+  language_hints: string[];
+  language_hints_strict?: true;
+} {
+  if (hints.length === 1) {
+    return { language_hints: hints, language_hints_strict: true };
+  }
+  return { language_hints: hints };
+}
+
 /** Extra realtime session fields when STT-proxy languages need different Soniox tuning. */
 export function sonioxRealtimeSessionTuning(
   pair: { a: string; b: string },
