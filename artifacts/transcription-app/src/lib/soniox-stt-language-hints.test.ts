@@ -18,6 +18,7 @@ describe("sonioxRealtimeLanguageHintConfig", () => {
     const hints = buildSonioxLanguageHints({ a: "en", b: "ar" });
     expect(hints).toEqual(["en", "ar"]);
     expect(sonioxRealtimeLanguageHintConfig(hints)).toEqual({ language_hints: ["en", "ar"] });
+    expect(sonioxRealtimeLanguageHintConfig(hints).language_hints_strict).toBeUndefined();
   });
 
   it("restricts only a single proxy hint", () => {
