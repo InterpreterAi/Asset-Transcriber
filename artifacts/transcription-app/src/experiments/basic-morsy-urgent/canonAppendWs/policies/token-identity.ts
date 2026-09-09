@@ -1,7 +1,12 @@
 import type { CanonToken } from "../types/canon-token";
-import { joinCanonText } from "../types/canon-token";
 
-/** Stable Soniox token id — no final/non-final suffix (avoids F/N duplicate commits). */
+/**
+ * Stable Soniox token id scoped to the current websocket message.
+ *
+ * Never key solely on start_ms / end_ms / reused per-message indexes —
+ * distinct tokens can share timestamps and would collide.
+ * Prefer provider index when present, otherwise messageSeq + arrIndex.
+ */
 export function stableSonioxTokenId(args: {
   token_index?: unknown;
   index?: unknown;
@@ -12,69 +17,41 @@ export function stableSonioxTokenId(args: {
   arrIndex: number;
 }): string {
   const ti = args.token_index ?? args.index;
-  if (typeof ti === "number" && Number.isFinite(ti)) return `sx-idx-${ti}`;
+  if (typeof ti === "number" && Number.isFinite(ti)) {
+    return `sx-msg-${args.messageSeq}-idx-${ti}`;
+  }
   const idRaw = args.id;
-  if (typeof idRaw === "string" && idRaw.trim()) return idRaw.trim();
-  const sm = args.start_ms;
-  const em = args.end_ms;
-  if (typeof sm === "number" && typeof em === "number") return `sx-${sm}-${em}`;
-  return `t-${args.messageSeq}-${args.arrIndex}`;
+  if (typeof idRaw === "string" && idRaw.trim()) {
+    return `sx-msg-${args.messageSeq}-id-${idRaw.trim()}`;
+  }
+  // Always include message + array position so shared timestamps survive.
+  const sm = typeof args.start_ms === "number" ? args.start_ms : "x";
+  const em = typeof args.end_ms === "number" ? args.end_ms : "x";
+  return `sx-msg-${args.messageSeq}-${args.arrIndex}-${sm}-${em}`;
 }
 
 export function committedHasTokenId(committed: readonly CanonToken[], tokenId: string): boolean {
   return committed.some(t => t.token_id === tokenId);
 }
 
-/** Surface + coarse timing overlap dedupe for correction finals. */
+/**
+ * Overlap-based deletion is intentionally disabled for Original integrity.
+ * Confirmed tokens are never dropped because another token shares text/timing.
+ */
 export function committedHasOverlappingFinal(
-  committed: readonly CanonToken[],
-  ct: CanonToken,
+  _committed: readonly CanonToken[],
+  _ct: CanonToken,
 ): boolean {
-  for (const c of committed) {
-    if (c.text !== ct.text) continue;
-    if (c.token_id === ct.token_id) return true;
-    const cs = c.start_ms;
-    const ce = c.end_ms;
-    const ns = ct.start_ms;
-    const ne = ct.end_ms;
-    if (cs === undefined || ce === undefined || ns === undefined || ne === undefined) return true;
-    if (Math.max(cs, ns) <= Math.min(ce, ne)) return true;
-  }
   return false;
 }
 
-/** Extract paint tokens whose joined text continues after committed suffix overlap. */
+/**
+ * Suffix-overlap paint reconciliation is disabled — never slice confirmed text.
+ * Temporary hypotheses are replaced wholesale by the latest non-final set.
+ */
 export function reconcilePaintSuffixTokens(
-  committed: readonly CanonToken[],
+  _committed: readonly CanonToken[],
   paint: readonly CanonToken[],
 ): CanonToken[] {
-  const C = joinCanonText(committed);
-  const P = joinCanonText(paint);
-  if (!P.length) return [];
-
-  let maxOverlap = 0;
-  const maxCheck = Math.min(C.length, P.length);
-  for (let k = maxCheck; k > 0; k--) {
-    if (C.slice(-k) === P.slice(0, k)) {
-      maxOverlap = k;
-      break;
-    }
-  }
-  if (maxOverlap >= P.length) return [];
-
-  let skip = maxOverlap;
-  const out: CanonToken[] = [];
-  for (const t of paint) {
-    const len = t.text.length;
-    if (skip >= len) {
-      skip -= len;
-      continue;
-    }
-    const slice = skip > 0 ? t.text.slice(skip) : t.text;
-    skip = 0;
-    if (slice.length) {
-      out.push({ ...t, text: slice, is_final: true });
-    }
-  }
-  return out;
+  return [...paint];
 }

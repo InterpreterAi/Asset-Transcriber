@@ -4,17 +4,12 @@ import type { SonioxFrame } from "../ws/frame-types";
 
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import {
-  repairSpokenEmailTranslation,
-  shouldHoldSpelledAlphanumericRow,
-} from "../policies/spelled-alphanumeric";
-import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
   rowBreaksForLanguage,
   rowBreaksForSpeaker,
 } from "./row-lifecycle";
-import type { CanonToken } from "../types/canon-token";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import {
   canonTokensFromFrame,
@@ -22,19 +17,8 @@ import {
   translationTextFromFrame,
   inferTailSpeakerLang,
   nonFinalsForRow,
-  stabilizeCanonSpeakers,
 } from "./soniox-frame-split";
-
-/** Two consecutive new-speaker finals confirm a handoff. First token stays off the old row. */
-const SPEAKER_BREAK_CONFIRM_TOKENS = 2;
-/** New-speaker live text this long opens the next colored row immediately (no paint on the old row). */
-const SUBSTANTIAL_NEW_SPEAKER_NF_CHARS = 8;
-const SUBSTANTIAL_NEW_SPEAKER_NF_TOKENS = 2;
-
-function normalizedSpeakerId(s?: string): string | undefined {
-  const t = s?.trim();
-  return t && t.length > 0 ? t : undefined;
-}
+import { reduceCanonAppendWsNonChunkV2 } from "./reducer.non-chunk-v2";
 
 export type ReduceContext = {
   ledger: AppendOnlyCanonLedger;
@@ -43,92 +27,11 @@ export type ReduceContext = {
   chunkV2NativeTranslate?: boolean;
 };
 
-function freezeRowForSonioxNative(state: EngineState, chunkV2NativeTranslate: boolean): EngineState {
-  const cleared: EngineState = {
-    ...state,
-    pendingSpeakerId: undefined,
-    pendingSpeakerFinals: [],
-  };
-  if (!chunkV2NativeTranslate || !cleared.activeUtterance) {
-    return freezeActiveUtterance(cleared);
-  }
-  const source = utteranceCommittedText(cleared.activeUtterance);
-  const repaired = repairSpokenEmailTranslation(source, cleared.activeTranslationText ?? "");
-  return freezeActiveUtterance({
-    ...cleared,
-    activeTranslationText: repaired,
-  });
-}
-
-function handoffToSpeaker(
-  state: EngineState,
-  speaker: string | undefined,
-  language: string | undefined,
-  startFinals: CanonToken[],
-  nativeTranslate: boolean,
-): EngineState {
-  let next = freezeRowForSonioxNative(state, nativeTranslate);
-  next = {
-    ...next,
-    endpointPending: false,
-    endpointPendingAtMs: 0,
-    speakerChangeConsecutive: 0,
-    metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
-  };
-  next = openActiveUtterance(next, speaker, language);
-  for (const tok of startFinals) {
-    next = appendFinalToActive(next, tok);
-  }
-  return next;
-}
-
-function absorbPendingIntoActive(state: EngineState): EngineState {
-  const pending = state.pendingSpeakerFinals;
-  const au = state.activeUtterance;
-  if (!pending.length || !au) {
-    return {
-      ...state,
-      pendingSpeakerId: undefined,
-      pendingSpeakerFinals: [],
-      speakerChangeConsecutive: 0,
-    };
-  }
-  let next: EngineState = {
-    ...state,
-    pendingSpeakerId: undefined,
-    pendingSpeakerFinals: [],
-    speakerChangeConsecutive: 0,
-  };
-  for (const tok of pending) {
-    next = appendFinalToActive(next, {
-      ...tok,
-      speaker: au.speaker,
-      language: au.language ?? tok.language,
-    });
-  }
-  return next;
-}
-
-function incomingCanonPreview(frame: SonioxFrame): string {
-  return frame.tokens
-    .filter(t => {
-      if (t.translation_status === "translation") return false;
-      if (typeof t.text !== "string") return false;
-      const n = t.text.trim().toLowerCase();
-      return n.length > 0 && n !== "<end>" && n !== "<eos>" && n !== "<eps>";
-    })
-    .map(t => t.text)
-    .join("")
-    .trim();
-}
-
 /** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
 function tryLongPauseSplit(
   state: EngineState,
   wallMs: number,
   pauseSplitMs: number,
-  incomingText: string,
-  chunkV2NativeTranslate: boolean,
 ): EngineState {
   const au = state.activeUtterance;
   if (!au || state.lastTokenActivityWallMs <= 0) return state;
@@ -137,40 +40,27 @@ function tryLongPauseSplit(
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
-  if (
-    chunkV2NativeTranslate &&
-    shouldHoldSpelledAlphanumericRow(utteranceCommittedText(au), incomingText)
-  ) {
-    return state;
-  }
   return {
-    ...freezeRowForSonioxNative(state, chunkV2NativeTranslate),
+    ...freezeActiveUtterance(state),
     endpointPending: false,
     endpointPendingAtMs: 0,
   };
 }
 
 /**
- * Soniox real-time contract + Intercall row timing:
+ * Restored chunk-v2 Soniox row contract (4feb41b4 + Original integrity):
  * - Append finals once; replace non-finals each frame
- * - New colored row only on a real speaker handoff (never on language flicker)
- * - Same speaker: new row only after {@link SAME_SPEAKER_LONG_PAUSE_SPLIT_MS} silence (not per-sentence `<end>`)
+ * - Hard freeze on language flip; speaker confirm = 1
+ * - Never overwrite established row speaker labels
  */
-export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
+function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
-  const speakerBreakConfirmTokens = SPEAKER_BREAK_CONFIRM_TOKENS;
+  const speakerBreakConfirmTokens = 1;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
-  const nativeTranslate = ctx.chunkV2NativeTranslate === true;
   if (frame.tokens.length > 0) {
-    next = tryLongPauseSplit(
-      next,
-      wallMs,
-      pauseSplitMs,
-      incomingCanonPreview(frame),
-      nativeTranslate,
-    );
+    next = tryLongPauseSplit(next, wallMs, pauseSplitMs);
   }
 
   const finProc =
@@ -207,7 +97,7 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
         : nextFinalTranslation,
   };
 
-  const canon = stabilizeCanonSpeakers(canonTokensFromFrame(frame.tokens));
+  const canon = canonTokensFromFrame(frame.tokens, frame.seq);
   const frameFinals = canon.filter(t => t.is_final);
   const frameNonFinals = canon.filter(t => !t.is_final);
 
@@ -218,48 +108,30 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
 
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
-      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
-      const holdSpelling =
-        nativeTranslate &&
-        shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text);
-      if (holdSpelling && (spkBreak || langBreak)) {
+      const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
+      if (langBreak) {
+        next = freezeActiveUtterance(next);
         next = {
           ...next,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
           speakerChangeConsecutive: 0,
-          pendingSpeakerId: undefined,
-          pendingSpeakerFinals: [],
+          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
         };
       } else if (spkBreak) {
-        // Buffer off the old row. Confirm on the 2nd final — never paint, then rip.
-        const sid = normalizedSpeakerId(ct.speaker);
-        if (sid && next.pendingSpeakerId === sid) {
-          const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
-          if (consecutive >= speakerBreakConfirmTokens) {
-            next = handoffToSpeaker(
-              next,
-              ct.speaker,
-              ct.language,
-              [...next.pendingSpeakerFinals, ct],
-              nativeTranslate,
-            );
-            continue;
-          }
+        const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
+        if (consecutive >= speakerBreakConfirmTokens) {
+          next = freezeActiveUtterance(next);
           next = {
             ...next,
-            speakerChangeConsecutive: consecutive,
-            pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
+            endpointPending: false,
+            endpointPendingAtMs: 0,
+            speakerChangeConsecutive: 0,
+            metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
           };
-          continue;
+        } else {
+          next = { ...next, speakerChangeConsecutive: consecutive };
         }
-        next = {
-          ...next,
-          speakerChangeConsecutive: 1,
-          pendingSpeakerId: sid,
-          pendingSpeakerFinals: [ct],
-        };
-        continue;
-      } else if (next.pendingSpeakerFinals.length) {
-        next = absorbPendingIntoActive(next);
       } else {
         next = { ...next, speakerChangeConsecutive: 0 };
       }
@@ -269,50 +141,22 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
       next = openActiveUtterance(next, ct.speaker, ct.language);
     }
 
-    const holdSpellingAppend =
-      nativeTranslate &&
-      !!next.activeUtterance &&
-      shouldHoldSpelledAlphanumericRow(utteranceCommittedText(next.activeUtterance), ct.text) &&
-      (rowBreaksForSpeaker(next.activeUtterance, ct) ||
-        rowBreaksForLanguage(next.activeUtterance, ct)) &&
-      !!next.activeUtterance.speaker;
-    const appendTok = holdSpellingAppend
-      ? {
-          ...ct,
-          speaker: next.activeUtterance!.speaker,
-          language: next.activeUtterance!.language ?? ct.language,
-        }
-      : ct;
-    next = appendFinalToActive(next, appendTok);
+    next = appendFinalToActive(next, ct, { preserveEstablishedSpeaker: true });
   }
 
   const tail = inferTailSpeakerLang(canon.length ? canon : frameNonFinals);
-  const activeSpeaker = normalizedSpeakerId(next.activeUtterance?.speaker);
-  const nfNewSpeaker = frameNonFinals.filter(t => {
-    const s = normalizedSpeakerId(t.speaker);
-    return !!s && !!activeSpeaker && s !== activeSpeaker;
-  });
-  const nfNewChars = nfNewSpeaker.map(t => t.text).join("").trim().length;
-  const substantialNewSpeakerNf =
-    nfNewSpeaker.length >= SUBSTANTIAL_NEW_SPEAKER_NF_TOKENS ||
-    nfNewChars >= SUBSTANTIAL_NEW_SPEAKER_NF_CHARS;
+
+  const tailLang = tail.language?.split("-")[0]?.toLowerCase();
+  const activeLang = next.activeUtterance?.language;
   if (
-    next.activeUtterance &&
-    substantialNewSpeakerNf &&
-    utteranceCommittedText(next.activeUtterance).trim().length > 0
+    activeLang &&
+    tailLang &&
+    tailLang !== activeLang &&
+    frameNonFinals.length > 0 &&
+    utteranceCommittedText(next.activeUtterance!).trim().length > 0
   ) {
-    const newSid =
-      normalizedSpeakerId(nfNewSpeaker[nfNewSpeaker.length - 1]?.speaker) ??
-      normalizedSpeakerId(tail.speaker);
-    const pendingForNew =
-      newSid && next.pendingSpeakerId === newSid ? next.pendingSpeakerFinals : [];
-    next = handoffToSpeaker(
-      next,
-      newSid,
-      tail.language,
-      pendingForNew,
-      nativeTranslate,
-    );
+    next = freezeActiveUtterance(next);
+    next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
   }
 
   if (!next.activeUtterance && frameNonFinals.length > 0) {
@@ -346,6 +190,17 @@ export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx:
   }
 
   return next;
+}
+
+/**
+ * Dispatch: restored chunk-v2 behavior vs daffcfbf non-chunk canonAppendWs path.
+ * Trial / Basic / Professional Soniox defaults use chunk-v2 (`chunkV2NativeTranslate`).
+ */
+export function reduceCanonAppendWs(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
+  if (ctx.chunkV2NativeTranslate) {
+    return reduceChunkV2Restored(state, frame, ctx);
+  }
+  return reduceCanonAppendWsNonChunkV2(state, frame, ctx);
 }
 
 /** PCM tick hook — row splits happen on speech resume in {@link reduceCanonAppendWs}, not on idle PCM. */

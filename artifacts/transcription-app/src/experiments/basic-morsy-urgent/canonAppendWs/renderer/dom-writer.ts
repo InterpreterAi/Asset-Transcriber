@@ -12,10 +12,6 @@ import {
   renderCommittedAppendOnly,
 } from "./committed-renderer";
 import { isolateLtrInRtl, renderHypothesisLcp } from "./hypothesis-renderer";
-import {
-  applyMorsyChunkV2BidiIsolates,
-  shouldMorsyChunkV2BidiPaint,
-} from "@/hooks/morsy-chunk-v2-bidi-render";
 export type CanonAppendWsLayoutMode = "side-by-side" | "stacked";
 export type EngineDomRowHandles = {
   row: HTMLElement;
@@ -37,6 +33,13 @@ function getLangDirection(langCode: string): "rtl" | "ltr" {
   const base = langCode.split("-")[0]?.toLowerCase() ?? "";
   return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
+function isolateForeignInRtl(text: string): string {
+  // Inside RTL text: isolate Latin words, brand names, numbers, codes, emails, URLs
+  return text.replace(
+    /([A-Za-z][A-Za-z0-9._@+\-/:%]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/:%]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$|lbs|oz|cm|mm|Hz|kHz|MHz))?)/g,
+    "\u2066$1\u2069",
+  );
+}
 function applyDirectionToElement(el: HTMLElement, langCode: string): void {
   const dir = getLangDirection(langCode);
   el.setAttribute("dir", dir);
@@ -45,11 +48,9 @@ function applyDirectionToElement(el: HTMLElement, langCode: string): void {
 }
 function prepareTextForDisplay(text: string, langCode: string): string {
   const dir = getLangDirection(langCode);
-  // Script-based: Arabic translation of English speech is still RTL even if
-  // the row language tag is the source (en). Isolate phones/IDs as one LTR run.
-  if (dir === "rtl" || shouldMorsyChunkV2BidiPaint(text)) {
-    return applyMorsyChunkV2BidiIsolates(text);
-  }
+  // For RTL languages: isolate any embedded LTR content so it reads correctly
+  if (dir === "rtl") return isolateForeignInRtl(text);
+  // For LTR languages: no special handling needed, browser handles it correctly
   return text;
 }
 function rowSourceLanguage(row: HTMLElement): string {
@@ -108,9 +109,6 @@ export class CanonAppendWsDomWriter {
     const idx = this.rowStripeSlotByUnknownRowId.get(unknownKey)! % ROW_STRIPE_COLOR_CLASSES.length;
     return ROW_STRIPE_COLOR_CLASSES[idx]!;
   }
-  private glossaryForce:
-    | ((translation: string, original: string, rowLang: string) => string)
-    | null = null;
   private readonly translationByRowId = new Map<string, string>();
   private readonly committedRtlCache = new Map<string, { raw: string; processed: string }>();
   /** Basic · Morsy Urgent live paint: frozen prefix span + editable tail span. */
@@ -127,23 +125,6 @@ export class CanonAppendWsDomWriter {
   }
   setChunkV2NativeTranslate(enabled: boolean): void {
     this.chunkV2NativeTranslate = enabled;
-  }
-  setGlossaryForce(
-    fn: ((translation: string, original: string, rowLang: string) => string) | null,
-  ): void {
-    this.glossaryForce = fn;
-  }
-  private applyGlossaryForce(handles: EngineDomRowHandles, text: string): string {
-    if (!this.chunkV2NativeTranslate || !this.glossaryForce || !text.trim()) return text;
-    const original =
-      handles.row.querySelector<HTMLElement>(`[data-caw-role="live-line"]`)?.textContent ?? "";
-    const rowLang = handles.row.dataset.cawLanguage ?? "";
-    const forced = this.glossaryForce(text, original, rowLang);
-    if (forced !== text) {
-      const rowId = handles.row.dataset.cawSegment ?? "";
-      if (rowId) this.translationByRowId.set(rowId, forced);
-    }
-    return forced;
   }
   setRowTranslation(rowId: string, text: string): void {
     const hadPrefix = this.translationPrefixLiveByRowId.has(rowId);
@@ -224,7 +205,7 @@ export class CanonAppendWsDomWriter {
   }
   private paintTranslation(handles: EngineDomRowHandles): void {
     const rowId = handles.row.dataset.cawSegment ?? "";
-    const text = this.applyGlossaryForce(handles, this.translationByRowId.get(rowId) ?? "");
+    const text = this.translationByRowId.get(rowId) ?? "";
     const translationLanguage = rowTranslationLanguage(handles.row);
     const displayText =
       this.chunkV2NativeTranslate
@@ -232,10 +213,7 @@ export class CanonAppendWsDomWriter {
         : text;
     const prevRendered = handles.translationEl.textContent ?? "";
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(
-        handles.translationEl,
-        shouldMorsyChunkV2BidiPaint(text) ? "ar" : translationLanguage,
-      );
+      applyDirectionToElement(handles.translationEl, translationLanguage);
     }
     if (this.layoutMode === "stacked") {
       const textEl = this.stackedTranslationTextEl(handles.translationEl);
@@ -286,11 +264,10 @@ export class CanonAppendWsDomWriter {
       this.paintTranslation(handles);
       return;
     }
-    const composedRaw =
+    const composedTarget =
       parts.locked && parts.live
         ? `${parts.locked} ${parts.live}`
         : parts.locked || parts.live;
-    const composedTarget = this.applyGlossaryForce(handles, composedRaw);
     const prevRendered = handles.translationEl.textContent ?? "";
     if (prevRendered.trim() === composedTarget.trim()) return;
     const { lockedEl, liveEl } = this.translationPartEls(handles.translationEl);
@@ -298,10 +275,7 @@ export class CanonAppendWsDomWriter {
     markWorkspaceSelectableText(lockedEl);
     markWorkspaceSelectableText(liveEl);
     if (this.chunkV2NativeTranslate) {
-      applyDirectionToElement(
-        handles.translationEl,
-        shouldMorsyChunkV2BidiPaint(composedTarget) ? "ar" : translationLanguage,
-      );
+      applyDirectionToElement(handles.translationEl, translationLanguage);
       const lockedDisplay = parts.locked.length
         ? prepareTextForDisplay(parts.locked, translationLanguage)
         : "";
@@ -518,9 +492,6 @@ export class CanonAppendWsDomWriter {
         // Non-chunk-v2 path remains committed + live split.
         renderCommittedAppendOnly(line, proj.committedText, handles.committedMirror);
         renderHypothesisLcp(hypo, proj.finalized ? "" : proj.liveText);
-      }
-      if (this.chunkV2NativeTranslate && proj.translationText && !this.translationByRowId.get(proj.row_id)) {
-        this.translationByRowId.set(proj.row_id, proj.translationText);
       }
       if (this.translationPrefixLiveByRowId.has(proj.row_id)) {
         this.paintTranslationPrefixLive(

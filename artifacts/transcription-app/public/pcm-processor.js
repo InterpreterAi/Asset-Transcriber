@@ -8,7 +8,9 @@
  *  4. Convert to signed 16-bit little-endian PCM.
  *  5. Transfer the ArrayBuffer to the main thread via port.postMessage().
  *
- * The main thread then forwards each chunk to the open Soniox WebSockets.
+ * Main-thread stop must post `{ type: "flush" }` so any partial accumulation
+ * still buffered here is drained before Soniox end-of-audio. Closing the
+ * WebSocket alone does not empty this buffer.
  *
  * AudioWorklet context globals:
  *   sampleRate  — AudioContext native sample rate (e.g. 48000)
@@ -25,6 +27,14 @@ class PcmProcessor extends AudioWorkletProcessor {
     this._chunkSize = Math.round(sampleRate * 0.10);  // e.g. 4800 @ 48 kHz → 1600 @ 16 kHz
     this._buf = new Float32Array(this._chunkSize * 2); // pre-alloc, grow if needed
     this._bufLen = 0;
+
+    this.port.onmessage = (event) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "flush") {
+        this._flushRemaining();
+      }
+    };
   }
 
   process(inputs) {
@@ -55,6 +65,20 @@ class PcmProcessor extends AudioWorkletProcessor {
     }
 
     return true; // keep the processor alive
+  }
+
+  /** Drain any partial accumulation (< chunkSize) then ack the main thread. */
+  _flushRemaining() {
+    if (this._bufLen > 0) {
+      const chunk = this._buf.subarray(0, this._bufLen).slice();
+      this._bufLen = 0;
+      const downsampled = this._downsample(chunk);
+      if (downsampled.length > 0) {
+        const pcm = this._floatToInt16(downsampled);
+        this.port.postMessage(pcm, [pcm]);
+      }
+    }
+    this.port.postMessage({ type: "flushed" });
   }
 
   _downsample(input) {

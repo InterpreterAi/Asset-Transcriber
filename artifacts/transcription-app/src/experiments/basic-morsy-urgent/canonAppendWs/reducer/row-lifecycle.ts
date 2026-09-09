@@ -26,13 +26,10 @@ export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): bool
   return !!(rlg && tlg && rlg !== tlg);
 }
 
-/**
- * Speaker changed — evaluated independently of language now (reducer combines
- * this with `rowBreaksForLanguage` itself to distinguish a genuine handoff
- * from a same-speaker language code-switch).
- */
+/** Speaker changed within same language → requires debounce confirmation */
 export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
+  if (rowBreaksForLanguage(row, tok)) return false;
   const rsp = norm(row.speaker);
   const tsp = norm(tok.speaker);
   return !!(rsp && tsp && rsp !== tsp);
@@ -59,11 +56,20 @@ export function openActiveUtterance(
   };
 }
 
-export function appendFinalToActive(state: EngineState, tok: CanonToken): EngineState {
+export function appendFinalToActive(
+  state: EngineState,
+  tok: CanonToken,
+  opts?: { preserveEstablishedSpeaker?: boolean },
+): EngineState {
   const au = state.activeUtterance;
   if (!au) return state;
-  const sp = norm(tok.speaker) ?? au.speaker;
-  const lg = langBase(tok.language) ?? au.language;
+  // Chunk-v2 integrity: never overwrite a confirmed row speaker/language label.
+  // Non-chunk paths keep prior behavior (incoming token may refresh labels).
+  const preserve = opts?.preserveEstablishedSpeaker === true;
+  const sp = preserve ? (au.speaker ?? norm(tok.speaker)) : (norm(tok.speaker) ?? au.speaker);
+  const lg = preserve
+    ? (au.language ?? langBase(tok.language))
+    : (langBase(tok.language) ?? au.language);
   let start_ms = au.start_ms;
   let end_ms = au.end_ms;
   if (typeof tok.start_ms === "number") {

@@ -66,8 +66,8 @@ describe("normalizeChunkV2StandardRegister", () => {
   });
 });
 
-describe("applyGlossaryPostProcess register polish", () => {
-  it("still forces MSA when the glossary is empty", () => {
+describe("applyGlossaryPostProcess register polish (restored: disabled)", () => {
+  it("does not rewrite MSA/dialect on the restored path", () => {
     const out = applyGlossaryPostProcess(
       "نعم فين العيادة",
       [],
@@ -78,32 +78,6 @@ describe("applyGlossaryPostProcess register polish", () => {
         langB: "ar",
       },
     );
-    expect(out).toContain("أين");
-    expect(out).not.toContain("فين");
-  });
-
-  it("applies MSA after glossary force", () => {
-    const entry: ChunkV2GlossaryEntry = {
-      source: "tired",
-      target: "متعب",
-      sourceLanguage: "en",
-      targetLanguage: "ar",
-      enforceMode: "strict",
-      priority: 0,
-    };
-    const out = applyGlossaryPostProcess(
-      "أنا tired ليش",
-      [entry],
-      {
-        originalText: "I am tired why",
-        rowSourceLanguage: "en",
-        langA: "en",
-        langB: "ar",
-      },
-    );
-    expect(out).toContain("متعب");
-    expect(out).toContain("لماذا");
-    expect(out.toLowerCase()).not.toContain("tired");
-    expect(out).not.toContain("ليش");
+    expect(out).toBe("نعم فين العيادة");
   });
 });

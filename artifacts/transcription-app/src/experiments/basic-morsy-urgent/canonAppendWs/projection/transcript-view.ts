@@ -174,11 +174,13 @@ function cleanChunkV2Final(text: string): string {
   return t.replace(/\s{2,}/g, " ").trim();
 }
 
-function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions, finalized = false): string {
-  if (!opts.chunkV2NativeTranslate) {
-    return legacyCleanSonioxPunctuation(text, opts);
+function cleanSonioxPunctuation(text: string, opts: TranscriptProjectionOptions, _finalized = false): string {
+  // Restored chunk-v2 path: Original is identity-preserving (no partial-word /
+  // punctuation / NATO rewrites). Non-chunk paths keep legacy cleanup.
+  if (opts.chunkV2NativeTranslate) {
+    return text;
   }
-  return finalized ? cleanChunkV2Final(text) : cleanChunkV2Realtime(text);
+  return legacyCleanSonioxPunctuation(text, opts);
 }
 
 const PUNCTUATION_ONLY = /^[\s.,!?;:—–\-"'()[\]{}]+$/;

@@ -29,7 +29,7 @@ describe("fitSonioxContextToBudget", () => {
   });
 });
 
-describe("getInterpreterContext Soniox budget", () => {
+describe("getInterpreterContext Soniox budget (restored 4feb41b4 + cap)", () => {
   const pairs: [string, string][] = [
     ["en", "ar"],
     ["en", "es"],
@@ -48,36 +48,16 @@ describe("getInterpreterContext Soniox budget", () => {
       const len = sonioxContextCharLength(ctx);
       expect(len).toBeLessThanOrEqual(SONIOX_CONTEXT_SAFE_CHARS);
       expect(len).toBeLessThanOrEqual(SONIOX_CONTEXT_MAX_CHARS);
-      // Personal glossary retained when space allows
       expect(
         ctx.translation_terms?.some((t) => t.source === "MyClinic") ?? false,
       ).toBe(true);
     });
   }
 
-  it("does not pin English medical word lists into STT terms for bilingual pairs", () => {
+  it("restores historical register guidance and medical STT term pins (budgeted)", () => {
     const ctx = getInterpreterContext("en", "ar");
-    expect(ctx.terms).toEqual([]);
-  });
-
-  it("still includes vaccine pins for en↔ar when under budget", () => {
-    const ctx = getInterpreterContext("en", "ar");
-    const blob = JSON.stringify(ctx);
-    expect(/MMR|COVID|vaccine|لقاح/i.test(blob)).toBe(true);
-  });
-
-  it("pins spoken email punctuation for Soniox-native pairs", () => {
-    const ctx = getInterpreterContext("en", "ar");
-    expect(ctx.translation_terms?.some((t) => t.source === "dot com" && t.target === ".com")).toBe(true);
-    expect(ctx.translation_terms?.some((t) => t.source === "dot" && t.target === ".")).toBe(true);
-    expect(ctx.general.some((g) => g.key === "structured_speech")).toBe(true);
-  });
-
-  it("does not send register or dialect-rewrite instructions into STT context", () => {
-    const ctx = getInterpreterContext("en", "ar");
-    expect(ctx.general.some((g) => g.key === "arabic_register")).toBe(false);
-    expect(ctx.general.some((g) => g.key === "english_register")).toBe(false);
-    expect(ctx.general.some((g) => g.key === "language_register")).toBe(false);
-    expect(ctx.general.some((g) => g.key === "speaker_gender")).toBe(false);
+    expect(ctx.general.some((g) => g.key === "language_register")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "arabic_register")).toBe(true);
+    expect(ctx.terms.length).toBeGreaterThan(0);
   });
 });

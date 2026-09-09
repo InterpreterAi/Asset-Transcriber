@@ -5,30 +5,34 @@ function isEndpointText(text: string): boolean {
   return text === "<end>" || text === "<eos>" || text === "<eps>";
 }
 
-function sonioxTokenToCanon(t: Token, idx: number): CanonToken {
-  const start_ms = typeof t.startMs === "number" ? t.startMs : undefined;
-  const token_id = start_ms !== undefined ? `t_${start_ms}` : `t_idx_${idx}`;
+/**
+ * Preserve parser-assigned connection-scoped ids. Never collapse distinct tokens
+ * onto shared timestamps or reused per-message array indexes.
+ */
+function sonioxTokenToCanon(t: Token, frameSeq: number, idx: number): CanonToken {
+  const parserId = typeof t.id === "string" && t.id.trim() ? t.id.trim() : "";
+  const token_id = parserId || `conn-${frameSeq}-${idx}`;
   return {
     token_id,
     text: t.text ?? "",
     is_final: t.isFinal === true,
     speaker: t.speakerId?.trim() || undefined,
     language: t.language?.trim() || undefined,
-    start_ms,
+    start_ms: typeof t.startMs === "number" ? t.startMs : undefined,
     end_ms: typeof t.endMs === "number" ? t.endMs : undefined,
     confidence: typeof t.confidence === "number" ? t.confidence : undefined,
   };
 }
 
 /** Transcription tokens only — translation tokens are stripped out */
-export function canonTokensFromFrame(tokens: readonly Token[]): CanonToken[] {
+export function canonTokensFromFrame(tokens: readonly Token[], frameSeq = 0): CanonToken[] {
   const out: CanonToken[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
     if (typeof t.text !== "string" || !t.text.length) continue;
     if (isEndpointText(t.text)) continue;
     if (t.translation_status === "translation") continue;
-    out.push(sonioxTokenToCanon(t, i));
+    out.push(sonioxTokenToCanon(t, frameSeq, i));
   }
   return out;
 }

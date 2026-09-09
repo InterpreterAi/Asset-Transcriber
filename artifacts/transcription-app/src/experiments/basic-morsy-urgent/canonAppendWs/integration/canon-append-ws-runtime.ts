@@ -7,7 +7,6 @@ import type { LangPair } from "@/lib/interpreter-stt-context";
 import {
   buildSonioxLanguageHints,
   sonioxRealtimeSessionTuning,
-  stableSonioxBilingualOrder,
   workspaceLangToSonioxRealtimeCode,
 } from "@/lib/soniox-stt-language-hints";
 
@@ -37,8 +36,6 @@ import {
 } from "../types/canon-utterance";
 import { createInitialEngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
-import { applyGlossaryPostProcess } from "../utils/glossary-post-process";
-import type { ChunkV2GlossaryEntry } from "../utils/chunk-v2-glossary";
 import { getInterpreterContext, type SonioxContextTerm } from "../ws/interpreter-context";
 import { SonioxRealtimeClient } from "../ws/soniox-client";
 
@@ -122,8 +119,6 @@ export class CanonAppendWsIsolatedRuntime {
   private chunkV2NativeTranslate = false;
   /** User glossary rows injected into chunk-v2 Soniox context. */
   private chunkV2GlossaryTerms: SonioxContextTerm[] = [];
-  private chunkV2GlossaryEntries: ChunkV2GlossaryEntry[] = [];
-  private chunkV2LangPair: { a: string; b: string } = { a: "en", b: "ar" };
 
   /** Server-provided realtime WebSocket URL (from transcription token). */
   private sonioxRtUrl: string | null = null;
@@ -157,20 +152,16 @@ export class CanonAppendWsIsolatedRuntime {
     this.chunkV2GlossaryTerms = terms;
   }
 
+  /**
+   * Compatibility stub for hooks that still call setChunkV2GlossaryEntries.
+   * Restored path does NOT force client-side glossary replacements on paint —
+   * only upstream Soniox translation_terms (via setChunkV2GlossaryTerms) apply.
+   */
   setChunkV2GlossaryEntries(
-    entries: ChunkV2GlossaryEntry[],
-    pair: { a: string; b: string },
+    _entries: unknown,
+    _pair: { a: string; b: string },
   ): void {
-    this.chunkV2GlossaryEntries = entries;
-    this.chunkV2LangPair = { a: pair.a, b: pair.b };
-    this.writer.setGlossaryForce((translation, original, rowLang) =>
-      applyGlossaryPostProcess(translation, this.chunkV2GlossaryEntries, {
-        originalText: original,
-        rowSourceLanguage: rowLang,
-        langA: this.chunkV2LangPair.a,
-        langB: this.chunkV2LangPair.b,
-      }),
-    );
+    // no-op: client force disabled on restored chunk-v2 path
   }
 
   setHooks(next: CanonAppendWsRuntimeHooks): void {
@@ -443,14 +434,10 @@ export class CanonAppendWsIsolatedRuntime {
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000, rtUrl?: string): void {
     if (rtUrl?.trim()) this.sonioxRtUrl = rtUrl.trim();
     const pair = langPair as { a: string; b: string };
-    this.chunkV2LangPair = { a: pair.a, b: pair.b };
-    this.setChunkV2GlossaryEntries(this.chunkV2GlossaryEntries, this.chunkV2LangPair);
     const hints = buildSonioxLanguageHints(pair);
     const tuning = sonioxRealtimeSessionTuning(pair, { morsyUrgent: this.morsyUrgentTuning });
-    // two_way language_a/b must follow stable order (not UI A/B) so ar↔en == en↔ar.
-    const ordered = stableSonioxBilingualOrder(pair);
-    const sonioxLangA = workspaceLangToSonioxRealtimeCode(ordered.a);
-    const sonioxLangB = workspaceLangToSonioxRealtimeCode(ordered.b);
+    const sonioxLangA = workspaceLangToSonioxRealtimeCode(pair.a);
+    const sonioxLangB = workspaceLangToSonioxRealtimeCode(pair.b);
     this.client.disconnect(false);
     this.client.onFrame(frame => this.ingestFrame(frame, Date.now()));
     const sonioxNativeTranslateConfig = this.chunkV2NativeTranslate
@@ -461,15 +448,20 @@ export class CanonAppendWsIsolatedRuntime {
             language_b: sonioxLangB,
           },
           interpreterContext: getInterpreterContext(pair.a, pair.b, this.chunkV2GlossaryTerms),
+          // Restored chunk-v2: endpoint detection on with historical 1000 ms delay.
+          enableEndpointDetection: true,
+          maxEndpointDelayMs: 1000,
         }
-      : {};
+      : {
+          // Non-chunk: preserve daffcfbf (endpoint off; shared tuning unused for delay).
+          enableEndpointDetection: false,
+        };
     this.client.connect({
       apiKey,
       rtUrl: this.sonioxRtUrl ?? "",
       sampleRate,
       languageHints: hints,
       enableLanguageIdentification: tuning.enableLanguageIdentification,
-      maxEndpointDelayMs: tuning.maxEndpointDelayMs,
       morsyUrgentTuning: this.morsyUrgentTuning,
       ...sonioxNativeTranslateConfig,
     });
@@ -492,13 +484,27 @@ export class CanonAppendWsIsolatedRuntime {
   }
 
   stopSoniox(): void {
+    void this.stopSonioxGraceful();
+  }
+
+  /**
+   * Flush remaining audio → request Soniox completion → process remaining frames
+   * → freeze confirmed rows → close. Timeout/error still preserve confirmed Original.
+   */
+  async stopSonioxGraceful(timeoutMs = 2500): Promise<"completed" | "timeout" | "closed" | "error"> {
     this.clearDomBatch();
     this.clearVolatilePulseTimer();
     const snap = this.activeRowDualBuffer();
     if (snap) {
       this.hooks.onActiveRowTranslationFlush?.(snap);
     }
-    this.client.flushEnd();
+    let result: "completed" | "timeout" | "closed" | "error" = "closed";
+    try {
+      result = await this.client.flushEndAndWait(timeoutMs);
+    } catch {
+      result = "error";
+    }
+    // Confirmed finals already ingested via onFrame during the wait; freeze active row.
     this.state = applyManualStructuralFreeze(this.state);
     this.projections.sync(this.state);
     this.emitActiveRowTranslationTick();
@@ -506,6 +512,7 @@ export class CanonAppendWsIsolatedRuntime {
     this.flushDomImmediate();
     this.client.disconnect(true);
     this.scheduler.cancel();
+    return result;
   }
 
   resetDom(): void {

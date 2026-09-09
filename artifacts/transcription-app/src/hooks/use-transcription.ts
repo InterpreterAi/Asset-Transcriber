@@ -3997,6 +3997,8 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const wsRef        = useRef<WebSocket | null>(null);
   const workletRef   = useRef<AudioWorkletNode | null>(null);
+  /** Resolves when pcm-processor.js acknowledges `{ type: "flush" }` after draining its partial buffer. */
+  const workletFlushDoneRef = useRef<(() => void) | null>(null);
   const streamsRef   = useRef<MediaStream[]>([]);
   const isRecRef     = useRef(false);
   const startInFlightRef = useRef(false);
@@ -8252,15 +8254,57 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       heartbeatIntervalRef.current = null;
     }
     stopTranslationInterval();
+
+    const usedCanonEngine = canonWsIsolationRecordingRef.current;
+    const eng = canonWsIsolationEngineRef.current;
+
+    // Stop capturing new mic audio first, then drain pcm-processor.js's partial
+    // buffer. Flushing the WebSocket alone does not empty that worklet buffer.
+    streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
+    streamsRef.current = [];
+    setMicLevel(0);
+
+    const worklet = workletRef.current;
+    if (worklet) {
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          workletFlushDoneRef.current = null;
+          window.clearTimeout(timer);
+          resolve();
+        };
+        const timer = window.setTimeout(finish, 800);
+        workletFlushDoneRef.current = finish;
+        try {
+          worklet.port.postMessage({ type: "flush" });
+        } catch {
+          finish();
+        }
+      });
+    }
+
+    // Await Soniox completion so final results land before freeze/export/teardown.
+    if (usedCanonEngine && eng && typeof eng.stopSonioxGraceful === "function") {
+      await eng.stopSonioxGraceful();
+      eng.setHooks({ onSpeechToken: undefined });
+    } else {
+      eng?.stopSoniox();
+      eng?.setHooks({ onSpeechToken: undefined });
+      if (wsRef.current) {
+        try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    }
+
     finalizeLiveBubble();
 
     canonWsIsolationRecordingRef.current = false;
     sonioxSessionApiKeyRef.current = null;
     sonioxRtUrlRef.current = null;
     clearChunkV2GlossaryState();
-
-    canonWsIsolationEngineRef.current?.stopSoniox();
-    canonWsIsolationEngineRef.current?.setHooks({ onSpeechToken: undefined });
 
     activeBubbleStateRef.current?.liveTranslationAbort?.abort();
     const transcriptSegIsolationStop =
@@ -8286,10 +8330,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
 
     workletRef.current?.disconnect();
     workletRef.current = null;
+    workletFlushDoneRef.current = null;
 
     if (wsRef.current) {
-      try { wsRef.current.send(new ArrayBuffer(0)); } catch (_) { /* eof */ }
-      wsRef.current.close();
+      try { wsRef.current.close(); } catch (_) { /* ignore */ }
       wsRef.current = null;
     }
     pcmBacklogRef.current = [];
@@ -8298,10 +8342,6 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       await audioCtxRef.current.close();
       audioCtxRef.current = null;
     }
-
-    streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
-    streamsRef.current = [];
-    setMicLevel(0);
 
     if (sessionIdRef.current) {
       const wallSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -8368,6 +8408,7 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
     doClear,
     flushFinalTextRenderQueue,
     cancelOpenAiLiveDebounce,
+    clearChunkV2GlossaryState,
   ]);
 
   useEffect(() => {
@@ -9895,7 +9936,13 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
       worklet.connect(ctx.destination);
 
       worklet.port.onmessage = (e) => {
-        const raw = e.data as ArrayBuffer;
+        const data = e.data;
+        if (data && typeof data === "object" && (data as { type?: string }).type === "flushed") {
+          workletFlushDoneRef.current?.();
+          return;
+        }
+        const raw = data as ArrayBuffer;
+        if (!(raw instanceof ArrayBuffer)) return;
         if (canonWsIsolationRecordingRef.current && canonWsIsolationEngineRef.current) {
           canonWsIsolationEngineRef.current.sendPcm(raw);
         } else {

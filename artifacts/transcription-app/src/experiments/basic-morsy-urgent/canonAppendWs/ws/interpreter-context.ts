@@ -2,17 +2,12 @@
  * interpreter-context.ts
  * Builds the Soniox `context` payload for interpreter sessions.
  * Covers all 62+ Soniox languages with medical + legal term pinning.
- *
- * MUST stay under Soniox's 10k-char context limit or the realtime session
- * rejects config and chunk-v2 Trial/Basic/Professional STT+translation goes dark.
  */
 
-import { buildChunkV2MedicalPackContext } from "./chunk-v2-medical-term-pack";
 import {
   fitSonioxContextToBudget,
-  mergeUniqueTranslationTerms,
-  sonioxContextCharLength,
   SONIOX_CONTEXT_SAFE_CHARS,
+  sonioxContextCharLength,
 } from "./soniox-context-budget";
 
 export type SonioxContextTerm = { source: string; target: string };
@@ -22,6 +17,54 @@ export type SonioxContext = {
   terms: string[];
   translation_terms?: SonioxContextTerm[];
 };
+
+const MEDICAL_TERMS_EN: string[] = [
+  "stroke", "seizure", "hypertension", "diabetes", "hypoglycemia",
+  "hyperglycemia", "tachycardia", "bradycardia", "arrhythmia", "angina",
+  "myocardial infarction", "pulmonary embolism", "deep vein thrombosis",
+  "aneurysm", "sepsis", "pneumonia", "bronchitis", "asthma", "COPD",
+  "appendicitis", "peritonitis", "pancreatitis", "cholecystitis",
+  "hepatitis", "cirrhosis", "nephritis", "dialysis", "anemia",
+  "leukemia", "lymphoma", "chemotherapy", "radiation therapy", "biopsy",
+  "metastasis", "benign", "malignant", "carcinoma", "sarcoma",
+  "fracture", "dislocation", "laceration", "contusion", "concussion",
+  "dementia", "Alzheimer's", "Parkinson's", "multiple sclerosis",
+  "epilepsy", "migraine", "vertigo", "tinnitus", "glaucoma", "cataract",
+  "MRI", "CT scan", "X-ray", "ultrasound", "echocardiogram", "EKG", "ECG",
+  "colonoscopy", "endoscopy", "laparoscopy", "intubation", "CPR",
+  "defibrillation", "anesthesia", "angioplasty", "catheterization",
+  "lumbar puncture", "sutures", "transfusion", "vaccination",
+  "antibiotic", "antiviral", "anticoagulant", "antihistamine",
+  "analgesic", "acetaminophen", "ibuprofen", "amoxicillin", "penicillin",
+  "metformin", "insulin", "lisinopril", "atorvastatin", "warfarin",
+  "heparin", "aspirin", "nitroglycerin", "morphine", "opioid",
+  "benzodiazepine", "antidepressant", "antipsychotic",
+  "diagnosis", "prognosis", "dosage", "prescription", "referral",
+  "triage", "ICU", "emergency", "ambulatory", "inpatient", "outpatient",
+  "informed consent", "advance directive", "DNR", "palliative",
+  "physical therapy", "occupational therapy", "rehabilitation",
+  "blood pressure", "heart rate", "oxygen saturation", "temperature",
+  "CBC", "BMP", "urinalysis", "blood glucose", "cholesterol",
+  "contraindication", "side effect", "allergy", "adverse reaction",
+  "medical power of attorney", "HIPAA", "malpractice", "liability",
+];
+
+const LEGAL_TERMS_EN: string[] = [
+  "plaintiff", "defendant", "testimony", "subpoena", "deposition",
+  "affidavit", "jurisdiction", "indictment", "prosecution", "defense attorney",
+  "verdict", "injunction", "restraining order", "bail", "parole",
+  "probation", "felony", "misdemeanor", "statute", "ordinance",
+  "due process", "habeas corpus", "Miranda rights", "plea bargain",
+  "arraignment", "preliminary hearing", "grand jury", "cross-examination",
+  "objection", "sustained", "overruled", "contempt of court",
+  "perjury", "evidence", "exhibit", "hearsay", "circumstantial",
+  "reasonable doubt", "burden of proof", "acquittal", "conviction",
+  "sentence", "appeal", "class action", "settlement", "damages",
+  "negligence", "liability", "breach of contract", "intellectual property",
+  "copyright", "trademark", "patent", "asylum", "deportation",
+  "immigration", "visa", "citizenship", "naturalization", "green card",
+  "custody", "alimony", "guardian", "power of attorney", "notary",
+];
 
 type TermMap = Record<string, SonioxContextTerm[]>;
 
@@ -253,56 +296,43 @@ export function getInterpreterContext(
 ): SonioxContext {
   const a = langA.split("-")[0]!.toLowerCase();
   const b = langB.split("-")[0]!.toLowerCase();
-  /** Built in priority order so budget trim drops lowest-value rows first. */
-  const translationTerms: SonioxContextTerm[] = [];
+  const terms: SonioxContextTerm[] = [];
   const seen = new Set<string>();
 
-  // 1) Personal glossary first (highest priority — protected during budget trim).
-  const protectedGlossaryCount = mergeUniqueTranslationTerms(
-    translationTerms,
-    seen,
-    injectedTerms,
-  );
+  // Personal glossary first so Soniox budget trim keeps them when pack/builtins must drop.
+  for (const t of injectedTerms) {
+    const source = `${t.source ?? ""}`.trim();
+    const target = `${t.target ?? ""}`.trim();
+    if (!source || !target) continue;
+    const key = `${source}->${target}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      terms.push({ source, target });
+    }
+  }
+  const protectedGlossaryCount = terms.length;
 
-  // 1b) Spoken email / URL punctuation — keep Latin symbols, do not translate "dot".
-  const spokenEmailCount = mergeUniqueTranslationTerms(
-    translationTerms,
-    seen,
-    [
-      { source: "dot com", target: ".com" },
-      { source: "dot org", target: ".org" },
-      { source: "dot net", target: ".net" },
-      { source: "dot edu", target: ".edu" },
-      { source: "dot gov", target: ".gov" },
-      { source: "dot", target: "." },
-      { source: "period", target: "." },
-      { source: "underscore", target: "_" },
-      { source: "at sign", target: "@" },
-      { source: "at symbol", target: "@" },
-      { source: "نقطة كوم", target: ".com" },
-    ],
-  );
-
-  // 2) Vaccine + ISA medical pack (vaccines ordered first inside the builder).
-  const medicalPack = buildChunkV2MedicalPackContext(langA, langB);
-  mergeUniqueTranslationTerms(translationTerms, seen, medicalPack.translation_terms);
-
-  // 3) Pair builtin maps (can be large for ar/es expansions — trimmed last among these).
   const addTerms = (from: string, to: string) => {
     if (from === "en" && TERMS_BY_LANG[to]) {
-      mergeUniqueTranslationTerms(translationTerms, seen, TERMS_BY_LANG[to]!);
+      for (const t of TERMS_BY_LANG[to]!) {
+        const key = `${t.source}->${t.target}`;
+        if (!seen.has(key)) { seen.add(key); terms.push(t); }
+      }
     }
     if (to === "en" && TERMS_BY_LANG[from]) {
-      mergeUniqueTranslationTerms(
-        translationTerms,
-        seen,
-        TERMS_BY_LANG[from]!.map((t) => ({ source: t.target, target: t.source })),
-      );
+      for (const t of TERMS_BY_LANG[from]!) {
+        const flipped: SonioxContextTerm = { source: t.target, target: t.source };
+        const key = `${flipped.source}->${flipped.target}`;
+        if (!seen.has(key)) { seen.add(key); terms.push(flipped); }
+      }
     }
     if (from !== "en" && to !== "en") {
       for (const lang of [from, to]) {
         if (TERMS_BY_LANG[lang]) {
-          mergeUniqueTranslationTerms(translationTerms, seen, TERMS_BY_LANG[lang]!);
+          for (const t of TERMS_BY_LANG[lang]!) {
+            const key = `${t.source}->${t.target}`;
+            if (!seen.has(key)) { seen.add(key); terms.push(t); }
+          }
         }
       }
     }
@@ -312,7 +342,7 @@ export function getInterpreterContext(
   addTerms(b, a);
 
   if ((a === "en" && b === "es") || (a === "es" && b === "en")) {
-    mergeUniqueTranslationTerms(translationTerms, seen, [
+    const enEsExtraTerms: SonioxContextTerm[] = [
       { source: "safe for fluids", target: "apto para recibir líquidos" },
       { source: "urine analysis", target: "análisis de orina" },
       { source: "good faith exam", target: "examen de buena fe" },
@@ -322,7 +352,14 @@ export function getInterpreterContext(
       { source: "urinary tract infection", target: "infección de las vías urinarias" },
       { source: "date of birth", target: "fecha de nacimiento" },
       { source: "consent for telehealth", target: "consentimiento para teleconsulta" },
-    ]);
+    ];
+    for (const t of enEsExtraTerms) {
+      const key = `${t.source}->${t.target}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        terms.push(t);
+      }
+    }
   }
 
   const ctx: SonioxContext = {
@@ -331,29 +368,47 @@ export function getInterpreterContext(
       { key: "setting", value: "Live professional interpreter session" },
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
-      { key: "structured_speech", value: "Keep phone numbers, emails, URLs, and spelled IDs in the exact spoken letter and digit order. Never reverse number groups. Spoken 'dot' in an email or URL is '.' and 'dot com' is '.com'." },
+      { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
+      { key: "arabic_register", value: "Arabic: always use Modern Standard Arabic (Fusha / الفصحى). Never use Egyptian, Levantine, Gulf, Moroccan, or any Arabic dialect." },
+      { key: "spanish_register", value: "Spanish: always use standard formal Castilian Spanish. Never use regional slang, Chicano, Caribbean, or Latin American colloquial forms." },
+      { key: "portuguese_register", value: "Portuguese: always use standard formal European or Brazilian Portuguese grammar. Never use slang or street-level colloquial forms." },
+      { key: "chinese_register", value: "Chinese: always use Standard Mandarin (普通话 Putonghua) in simplified characters. Never use Cantonese, Hokkien, or regional dialect forms." },
+      { key: "french_register", value: "French: always use standard formal French. Never use Québécois informal speech, Verlan, or African French slang." },
+      { key: "german_register", value: "German: always use standard formal German (Hochdeutsch). Never use Austrian, Swiss, or regional dialect forms." },
+      { key: "russian_register", value: "Russian: always use standard literary Russian. Never use slang or informal colloquial forms." },
+      { key: "polish_register", value: "Polish: always use standard formal Polish. Never use regional or colloquial forms." },
+      { key: "italian_register", value: "Italian: always use standard formal Italian (italiano standard). Never use regional dialects like Sicilian, Neapolitan, or Venetian." },
+      { key: "korean_register", value: "Korean: always use formal polite Korean (존댓말 / 합쇼체). Never use casual speech (반말)." },
+      { key: "japanese_register", value: "Japanese: always use formal polite Japanese (丁寧語 / です・ます form). Never use casual or informal forms." },
+      { key: "hindi_register", value: "Hindi: always use standard formal Hindi. Avoid heavy Urdu mixing or regional colloquial forms." },
+      { key: "vietnamese_register", value: "Vietnamese: always use standard formal Vietnamese. Never use regional slang." },
+      { key: "turkish_register", value: "Turkish: always use standard formal Turkish. Never use slang or informal colloquial forms." },
+      { key: "somali_register", value: "Somali: always use standard formal Somali. Never use regional dialect forms." },
+      { key: "tagalog_register", value: "Tagalog/Filipino: always use standard formal Filipino. Avoid heavy Taglish mixing or colloquial forms." },
+      { key: "ukrainian_register", value: "Ukrainian: always use standard literary Ukrainian. Never use slang or informal forms." },
+      { key: "romanian_register", value: "Romanian: always use standard formal Romanian. Never use regional or colloquial forms." },
+      { key: "all_languages", value: "This rule applies to ALL 60 supported languages: output must always be in the formal, professional, written standard of that language as used in official medical and legal documents. Interpreters depend on this output for accuracy in professional settings." },
+      { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
+      { key: "spanish_gender", value: "Spanish gender rules: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Always write 'un análisis', 'el sistema', 'un problema'. Never use feminine articles with these words." },
+      { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
     ],
-    // Do not pin hundreds of English medical/legal words into STT `terms`.
-    // That list made Arabic (and other pair languages) transcribe as English
-    // that was never spoken. Native translation still uses translation_terms.
-    terms: [],
+    terms: [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN],
   };
 
-  if (translationTerms.length > 0) {
-    ctx.translation_terms = translationTerms;
+  if (terms.length > 0) {
+    ctx.translation_terms = terms;
   }
 
+  // Soniox hard-caps context at 10k chars — trim pack/terms before glossary.
   const fitted = fitSonioxContextToBudget(ctx, {
-    protectedTranslationTermCount: protectedGlossaryCount + spokenEmailCount,
+    protectedTranslationTermCount: protectedGlossaryCount,
     maxChars: SONIOX_CONTEXT_SAFE_CHARS,
   });
-
   if (!import.meta.env.PROD && sonioxContextCharLength(fitted) > SONIOX_CONTEXT_SAFE_CHARS) {
     console.warn(
       "[canonAppendWs] Soniox context still over budget after trim:",
       sonioxContextCharLength(fitted),
     );
   }
-
   return fitted;
 }
