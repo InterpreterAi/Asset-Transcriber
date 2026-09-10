@@ -232,4 +232,37 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.committedText).toContain("Okay.");
     expect(proj.rows[0]?.committedText).toContain("Good.");
   });
+
+  it('keeps "Good mor" + "ning." in one bubble across language flicker', () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello. ", { id: "j1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Good ", { id: "j2", speakerId: "1", language: "en", startMs: 50 }),
+        tok("mor", { id: "j3", speakerId: "1", language: "en", startMs: 100 }),
+      ]),
+      frame(2, [
+        tok("ning.", { id: "j4", speakerId: "1", language: "ar", startMs: 150 }),
+      ]),
+    ]);
+    const frozen = freezeActiveUtterance(state);
+    const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
+    expect(proj.rows).toHaveLength(1);
+    expect(proj.rows[0]?.committedText).toBe("Hello. Good morning.");
+  });
+
+  it("still opens a new bubble for a real language switch after a finished word", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello.", { id: "k1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok(" عندي ألم في الأنف", { id: "k2", speakerId: "1", language: "ar", startMs: 200 }),
+      ]),
+    ]);
+    const frozen = freezeActiveUtterance(state);
+    const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
+    expect(proj.rows.length).toBeGreaterThanOrEqual(2);
+    expect(proj.rows[0]?.committedText).toBe("Hello.");
+    expect(proj.rows[1]?.committedText).toContain("ألم");
+  });
 });

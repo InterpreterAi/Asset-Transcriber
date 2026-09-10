@@ -2,6 +2,7 @@ import type { AppendOnlyCanonLedger } from "../ledger/append-ledger";
 import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
+import { isChunkV2OpenRowMidWord } from "../policies/mid-word-open";
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
@@ -41,8 +42,11 @@ function tryLongPauseSplit(
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
+  const committed = utteranceCommittedText(au);
   // Do not pause-split a row that is still only a short acknowledgement.
-  if (isChunkV2ShortAcknowledgement(utteranceCommittedText(au))) return state;
+  if (isChunkV2ShortAcknowledgement(committed)) return state;
+  // Do not freeze while the last finalized token is still mid-word.
+  if (isChunkV2OpenRowMidWord(committed)) return state;
   return {
     ...freezeActiveUtterance(state),
     endpointPending: false,
@@ -55,6 +59,7 @@ function tryLongPauseSplit(
  * - Append finals once; replace non-finals each frame
  * - Language / speaker flips open a new row; short acknowledgements
  *   ("ها؟", "Okay.", "Huh?") absorb language flicker but still hand off speakers
+ * - Mid-word open rows absorb lang/speaker flicker so "Good mor"/"ning." stay one bubble
  * - Never overwrite established row speaker labels
  */
 function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
@@ -110,13 +115,19 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     ctx.ledger.appendFinalCanon(ct);
 
     const incomingShort = isChunkV2ShortAcknowledgement(ct.text);
+    const openMidWord = next.activeUtterance
+      ? isChunkV2OpenRowMidWord(utteranceCommittedText(next.activeUtterance))
+      : false;
 
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
       const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
       // Short acks: absorb language flicker into the open row (no "ها؟" / "Okay."
       // bubble storm). Real speaker handoffs still open a new row.
-      if (incomingShort && langBreak) {
+      // Mid-word: never shatter — Soniox subword + tag flicker ("mor"/"ning").
+      if (openMidWord && (langBreak || spkBreak)) {
+        next = { ...next, speakerChangeConsecutive: 0 };
+      } else if (incomingShort && langBreak) {
         next = { ...next, speakerChangeConsecutive: 0 };
       } else if (langBreak) {
         next = freezeActiveUtterance(next);
@@ -153,13 +164,17 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
   const tailLang = tail.language?.split("-")[0]?.toLowerCase();
   const activeLang = next.activeUtterance?.language;
   const nfJoined = frameNonFinals.map(t => t.text).join("");
+  const openCommitted = next.activeUtterance
+    ? utteranceCommittedText(next.activeUtterance)
+    : "";
   if (
     activeLang &&
     tailLang &&
     tailLang !== activeLang &&
     frameNonFinals.length > 0 &&
-    utteranceCommittedText(next.activeUtterance!).trim().length > 0 &&
-    !isChunkV2ShortAcknowledgement(nfJoined)
+    openCommitted.trim().length > 0 &&
+    !isChunkV2ShortAcknowledgement(nfJoined) &&
+    !isChunkV2OpenRowMidWord(openCommitted)
   ) {
     next = freezeActiveUtterance(next);
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
