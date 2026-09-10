@@ -35,6 +35,29 @@ describe("normalizeChunkV2StandardRegister", () => {
     expect(out).not.toContain("باركا");
   });
 
+  it("rewrites Egyptian clinical dialect phrases to MSA on en→ar", () => {
+    const out = normalizeChunkV2StandardRegister(
+      "كويس خليني أشوف الخشم ده بيتكلم مش قوي",
+      {
+        rowSourceLanguage: "en",
+        langA: "en",
+        langB: "ar",
+      },
+    );
+    expect(out).toContain("جيد");
+    expect(out).toContain("دعني");
+    expect(out).toContain("الأنف");
+    expect(out).toContain("هذا");
+    expect(out).toContain("يتحدث");
+    expect(out).toContain("ليس");
+    expect(out).not.toContain("كويس");
+    expect(out).not.toContain("خليني");
+    expect(out).not.toContain("الخشم");
+    expect(out).not.toContain("بيتكلم");
+    expect(out).not.toMatch(/(?<![\u0600-\u06FF])ده(?![\u0600-\u06FF])/);
+    expect(out).not.toMatch(/(?<![\u0600-\u06FF])مش(?![\u0600-\u06FF])/);
+  });
+
   it("does not rewrite Arabic originals when the translation target is English", () => {
     const dialect = "ليش أنا تعبان";
     const out = normalizeChunkV2StandardRegister(dialect, {

@@ -192,4 +192,44 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.liveText).toBe("");
     expect(joinCanonText(frozen.finalizedUtterances[0]!.finalTokens)).toBe("Confirmed ");
   });
+
+  it("absorbs short-ack language flicker into the open row", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("How are you", { id: "h1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok("ها؟", { id: "h2", speakerId: "1", language: "ar", startMs: 200 }),
+      ]),
+      frame(3, [
+        tok(" feeling", { id: "h3", speakerId: "1", language: "en", startMs: 400 }),
+      ]),
+    ]);
+    const frozen = freezeActiveUtterance(state);
+    const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
+    expect(proj.rows).toHaveLength(1);
+    expect(proj.rows[0]?.committedText).toContain("How are you");
+    expect(proj.rows[0]?.committedText).toContain("ها؟");
+    expect(proj.rows[0]?.committedText).toContain("feeling");
+  });
+
+  it("does not pause-split an acknowledgement-only row", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [tok("Okay.", { id: "i1", speakerId: "1", language: "en", startMs: 0 })]),
+      { ledger, wallMs: 1000, chunkV2NativeTranslate: true, sameSpeakerLongPauseSplitMs: 100 },
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [tok(" Good.", { id: "i2", speakerId: "1", language: "en", startMs: 50 })]),
+      { ledger, wallMs: 5000, chunkV2NativeTranslate: true, sameSpeakerLongPauseSplitMs: 100 },
+    );
+    const frozen = freezeActiveUtterance(state);
+    const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
+    expect(proj.rows).toHaveLength(1);
+    expect(proj.rows[0]?.committedText).toContain("Okay.");
+    expect(proj.rows[0]?.committedText).toContain("Good.");
+  });
 });

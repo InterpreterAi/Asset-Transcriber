@@ -3,6 +3,7 @@ import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
+import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
   appendFinalToActive,
   freezeActiveUtterance,
@@ -40,6 +41,8 @@ function tryLongPauseSplit(
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
+  // Do not pause-split a row that is still only a short acknowledgement.
+  if (isChunkV2ShortAcknowledgement(utteranceCommittedText(au))) return state;
   return {
     ...freezeActiveUtterance(state),
     endpointPending: false,
@@ -50,12 +53,12 @@ function tryLongPauseSplit(
 /**
  * Restored chunk-v2 Soniox row contract (4feb41b4 + Original integrity):
  * - Append finals once; replace non-finals each frame
- * - Hard freeze on language flip; speaker confirm = 1
+ * - Language / speaker flips open a new row; short acknowledgements
+ *   ("ها؟", "Okay.", "Huh?") absorb language flicker but still hand off speakers
  * - Never overwrite established row speaker labels
  */
 function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
-  const speakerBreakConfirmTokens = 1;
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
@@ -106,10 +109,16 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
     ctx.ledger.appendFinalCanon(ct);
 
+    const incomingShort = isChunkV2ShortAcknowledgement(ct.text);
+
     if (next.activeUtterance) {
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
       const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
-      if (langBreak) {
+      // Short acks: absorb language flicker into the open row (no "ها؟" / "Okay."
+      // bubble storm). Real speaker handoffs still open a new row.
+      if (incomingShort && langBreak) {
+        next = { ...next, speakerChangeConsecutive: 0 };
+      } else if (langBreak) {
         next = freezeActiveUtterance(next);
         next = {
           ...next,
@@ -119,19 +128,14 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
           metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
         };
       } else if (spkBreak) {
-        const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
-        if (consecutive >= speakerBreakConfirmTokens) {
-          next = freezeActiveUtterance(next);
-          next = {
-            ...next,
-            endpointPending: false,
-            endpointPendingAtMs: 0,
-            speakerChangeConsecutive: 0,
-            metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
-          };
-        } else {
-          next = { ...next, speakerChangeConsecutive: consecutive };
-        }
+        next = freezeActiveUtterance(next);
+        next = {
+          ...next,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+          speakerChangeConsecutive: 0,
+          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
+        };
       } else {
         next = { ...next, speakerChangeConsecutive: 0 };
       }
@@ -148,12 +152,14 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
 
   const tailLang = tail.language?.split("-")[0]?.toLowerCase();
   const activeLang = next.activeUtterance?.language;
+  const nfJoined = frameNonFinals.map(t => t.text).join("");
   if (
     activeLang &&
     tailLang &&
     tailLang !== activeLang &&
     frameNonFinals.length > 0 &&
-    utteranceCommittedText(next.activeUtterance!).trim().length > 0
+    utteranceCommittedText(next.activeUtterance!).trim().length > 0 &&
+    !isChunkV2ShortAcknowledgement(nfJoined)
   ) {
     next = freezeActiveUtterance(next);
     next = { ...next, endpointPending: false, endpointPendingAtMs: 0 };
