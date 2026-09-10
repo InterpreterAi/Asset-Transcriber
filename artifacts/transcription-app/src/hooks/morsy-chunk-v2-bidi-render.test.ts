@@ -14,6 +14,13 @@ describe("applyMorsyChunkV2BidiIsolates phones", () => {
     expect(out.includes(`${LRI}888${PDI}`)).toBe(false);
   });
 
+  it("wraps spaced phone 349 676 4432 as one LTR island", () => {
+    const src = "ورقم هاتفي هو 349 676 4432.";
+    const out = applyMorsyChunkV2BidiIsolates(src);
+    expect(out).toContain(`${LRI}349 676 4432${PDI}`);
+    expect(out.includes(`${LRI}349${PDI}`)).toBe(false);
+  });
+
   it("does not rewrite LTR-only English", () => {
     const src = "Yes, that's 1-888-642-7434.";
     const out = applyMorsyChunkV2BidiIsolates(src);

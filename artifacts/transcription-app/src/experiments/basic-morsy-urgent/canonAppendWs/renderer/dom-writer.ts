@@ -1,5 +1,6 @@
 import type { RowProjection } from "../projection/transcript-view";
 import { logChunkV2DomPaint } from "@/hooks/morsy-chunk-v2-instrumentation";
+import { isolateLtrRunsInRtl, isRtlTranslationText } from "@/lib/wrap-ltr-numbers";
 import {
   createWorkspaceCopyButton,
   markWorkspaceSelectableText,
@@ -33,13 +34,6 @@ function getLangDirection(langCode: string): "rtl" | "ltr" {
   const base = langCode.split("-")[0]?.toLowerCase() ?? "";
   return RTL_LANGS.has(base) ? "rtl" : "ltr";
 }
-function isolateForeignInRtl(text: string): string {
-  // Inside RTL text: isolate Latin words, brand names, numbers, codes, emails, URLs
-  return text.replace(
-    /([A-Za-z][A-Za-z0-9._@+\-/:%]*(?:\s[A-Za-z][A-Za-z0-9._@+\-/:%]*)*|\d[\d.,/:%-]*(?:\s*(?:mg|mL|kg|mmHg|bpm|%|dL|mcg|m2|USD|\$|lbs|oz|cm|mm|Hz|kHz|MHz))?)/g,
-    "\u2066$1\u2069",
-  );
-}
 function applyDirectionToElement(el: HTMLElement, langCode: string): void {
   const dir = getLangDirection(langCode);
   el.setAttribute("dir", dir);
@@ -47,10 +41,10 @@ function applyDirectionToElement(el: HTMLElement, langCode: string): void {
   el.style.unicodeBidi = "plaintext";
 }
 function prepareTextForDisplay(text: string, langCode: string): string {
-  const dir = getLangDirection(langCode);
-  // For RTL languages: isolate any embedded LTR content so it reads correctly
-  if (dir === "rtl") return isolateForeignInRtl(text);
-  // For LTR languages: no special handling needed, browser handles it correctly
+  // Always isolate full LTR islands inside RTL — never per digit group.
+  if (getLangDirection(langCode) === "rtl" || isRtlTranslationText(text)) {
+    return isolateLtrRunsInRtl(text);
+  }
   return text;
 }
 function rowSourceLanguage(row: HTMLElement): string {
