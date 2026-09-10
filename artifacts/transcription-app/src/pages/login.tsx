@@ -20,6 +20,7 @@ const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   disposable_email: "Temporary email addresses are not allowed.",
   account_closed: "This account is disabled. If you closed it, sign up again with Google to start a new account.",
   trial_email_used: "This email has already used a free trial.",
+  rate_limited: "Too many sign-in attempts from this network. Wait a few seconds, then try again.",
   session_failed:
     "Could not save your session (database). Check Postgres and the user_sessions table, then try again.",
 };

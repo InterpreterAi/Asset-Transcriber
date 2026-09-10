@@ -1,6 +1,5 @@
 /**
- * Restored chunk-v2 path: client-side glossary force is disabled.
- * Upstream Soniox translation_terms still carry saved glossary entries.
+ * Chunk-v2: no client glossary force; translation-only official register polish.
  */
 import { describe, expect, it } from "vitest";
 
@@ -11,8 +10,8 @@ import {
   type ChunkV2GlossaryEntry,
 } from "./chunk-v2-glossary";
 
-describe("applyGlossaryPostProcess (restored: no client force)", () => {
-  it("returns Soniox translation text unchanged", () => {
+describe("applyGlossaryPostProcess", () => {
+  it("does not force-replace glossary aliases client-side", () => {
     const entry: ChunkV2GlossaryEntry = {
       source: "tired",
       target: "مرهق",
@@ -24,6 +23,27 @@ describe("applyGlossaryPostProcess (restored: no client force)", () => {
     expect(applyGlossaryPostProcess("I am weary", [entry], { originalText: "I am tired" })).toBe(
       "I am weary",
     );
+  });
+
+  it("locks Arabic dialect particles to الفصحى on en→ar translation only", () => {
+    const out = applyGlossaryPostProcess(
+      "نعم ليش أنا متعب فين العيادة",
+      [],
+      {
+        originalText: "Yes why am I tired where is the clinic",
+        rowSourceLanguage: "en",
+        langA: "en",
+        langB: "ar",
+      },
+    );
+    expect(out).toContain("لماذا");
+    expect(out).toContain("أين");
+    expect(out).not.toContain("ليش");
+    expect(out).not.toContain("فين");
+  });
+
+  it("does not rewrite when direction opts are missing", () => {
+    expect(applyGlossaryPostProcess("نعم فين العيادة", [])).toBe("نعم فين العيادة");
   });
 
   it("ignores empty / missing terms without throwing", () => {

@@ -70,6 +70,30 @@ export function rateLimitUserOrIpKey(req: Request): string {
   return `ip:${ipKeyGenerator(clientIp(req))}`;
 }
 
+/** Google OAuth browser navigations — back/retry must not dump raw JSON 429s. */
+export function isGoogleOAuthBrowserPath(req: Request): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  const p = apiRequestPath(req);
+  return (
+    p === "/api/auth/google" ||
+    p === "/api/auth/google/callback" ||
+    p === "/api/auth/callback/google"
+  );
+}
+
+export function isAuthHeartbeatPost(req: Request): boolean {
+  if (req.method !== "POST") return false;
+  return apiRequestPath(req) === "/api/auth/heartbeat";
+}
+
+/** True when the client is navigating for a document (not XHR/fetch). */
+function isBrowserDocumentNavigation(req: Request): boolean {
+  const mode = (req.get("sec-fetch-mode") ?? "").toLowerCase();
+  if (mode === "navigate" || mode === "nested-navigate") return true;
+  const accept = (req.get("accept") ?? "").toLowerCase();
+  return accept.includes("text/html");
+}
+
 function rateLimitExceededHandler(limiterId: string) {
   return (req: Request, res: Response, _next: NextFunction, options: Options): void => {
     const lim = typeof options.limit === "number" ? options.limit : -1;
@@ -85,6 +109,16 @@ function rateLimitExceededHandler(limiterId: string) {
       },
       "API rate limit exceeded",
     );
+
+    // Never strand a paid (or any) user on a bare JSON page after Back/retry on OAuth.
+    if (
+      (req.method === "GET" || req.method === "HEAD") &&
+      isBrowserDocumentNavigation(req) &&
+      !res.headersSent
+    ) {
+      res.redirect(303, "/login?error=rate_limited");
+      return;
+    }
 
     const status = options.statusCode ?? 429;
     const base =
@@ -139,18 +173,28 @@ export const forgotPasswordLimiter = rateLimit({
   handler: rateLimitExceededHandler("forgot_password"),
 });
 
-/** Other /api/auth/* traffic (OAuth start, etc.). */
+/** Other /api/auth/* traffic. Google OAuth + session heartbeat are exempt (see skip). */
 export const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
+  // Prefer user id when signed in so office/NAT IPs do not share one bucket across accounts.
+  keyGenerator: rateLimitUserOrIpKey,
   message: { error: "Too many requests. Please wait a moment." },
   handler: rateLimitExceededHandler("auth"),
-  skip: (req) =>
-    req.method === "OPTIONS" ||
-    (req.method === "GET" && (req.path === "/me" || req.path.startsWith("/me/"))),
+  skip: (req) => {
+    if (req.method === "OPTIONS") return true;
+    // GET /me is polled by the SPA; never block session bootstrap.
+    if (req.method === "GET") {
+      const p = apiRequestPath(req);
+      if (p === "/api/auth/me" || p.startsWith("/api/auth/me/")) return true;
+      // OAuth start/callback are full-page redirects — Back/retry is normal and must not 429 JSON.
+      if (isGoogleOAuthBrowserPath(req)) return true;
+    }
+    if (isAuthHeartbeatPost(req)) return true;
+    return false;
+  },
 });
 
 /**

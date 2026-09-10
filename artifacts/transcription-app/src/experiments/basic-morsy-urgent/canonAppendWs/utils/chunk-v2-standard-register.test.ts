@@ -66,8 +66,8 @@ describe("normalizeChunkV2StandardRegister", () => {
   });
 });
 
-describe("applyGlossaryPostProcess register polish (restored: disabled)", () => {
-  it("does not rewrite MSA/dialect on the restored path", () => {
+describe("applyGlossaryPostProcess register polish (translation only)", () => {
+  it("rewrites dialect particles in the translation column to الفصحى", () => {
     const out = applyGlossaryPostProcess(
       "نعم فين العيادة",
       [],
@@ -78,6 +78,19 @@ describe("applyGlossaryPostProcess register polish (restored: disabled)", () => 
         langB: "ar",
       },
     );
-    expect(out).toBe("نعم فين العيادة");
+    expect(out).toContain("أين");
+    expect(out).not.toContain("فين");
+  });
+
+  it("leaves Arabic dialect alone when that text is treated as non-ar target", () => {
+    // ar→en: translation target is English — Arabic particles must not be rewritten.
+    const dialect = "ليش أنا تعبان";
+    const out = applyGlossaryPostProcess(dialect, [], {
+      originalText: dialect,
+      rowSourceLanguage: "ar",
+      langA: "en",
+      langB: "ar",
+    });
+    expect(out).toBe(dialect);
   });
 });

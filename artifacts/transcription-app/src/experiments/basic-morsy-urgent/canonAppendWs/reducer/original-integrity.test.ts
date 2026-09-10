@@ -134,10 +134,20 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(joinCanonText(au.finalTokens)).toBe("alpha beta");
   });
 
-  it("does not apply client glossary force / MSA rewrite on restored path", () => {
+  it("does not apply client glossary force on restored path", () => {
     expect(
       applyGlossaryPostProcess("Hello world", [{ source: "Hello", target: "Hi" }]),
     ).toBe("Hello world");
+  });
+
+  it("polishes translation dialect to MSA when direction opts are provided", () => {
+    expect(
+      applyGlossaryPostProcess("نعم ليش", [], {
+        rowSourceLanguage: "en",
+        langA: "en",
+        langB: "ar",
+      }),
+    ).toBe("نعم لماذا");
   });
 
   it("scopes token ids per message so reconnects do not collide", () => {

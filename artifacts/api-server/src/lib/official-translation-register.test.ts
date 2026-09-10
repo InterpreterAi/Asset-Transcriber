@@ -11,7 +11,15 @@ test("locks leaked Arabic dialect particles to MSA", () => {
   assert.doesNotMatch(out, /علاش/);
 });
 
-test("does not rewrite when the target is not Arabic or English", () => {
-  const dialect = "ليش أنا تعبان";
-  assert.equal(lockTranslationToOfficialRegister(dialect, "fr"), dialect);
+test("locks Iraqi and Sudanese particles to MSA", () => {
+  const out = lockTranslationToOfficialRegister("شلون شنو أكو ماكو", "ar");
+  assert.match(out, /كيف/);
+  assert.match(out, /ماذا/);
+  assert.match(out, /يوجد/);
+  assert.match(out, /لا يوجد/);
+  assert.doesNotMatch(out, /شلون/);
+  assert.doesNotMatch(out, /شنو/);
+  assert.doesNotMatch(out, /أكو/);
+  assert.doesNotMatch(out, /ماكو/);
 });
+
