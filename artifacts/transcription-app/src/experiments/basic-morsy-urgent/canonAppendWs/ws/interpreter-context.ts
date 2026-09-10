@@ -16,6 +16,8 @@ export type SonioxContext = {
   general: { key: string; value: string }[];
   terms: string[];
   translation_terms?: SonioxContextTerm[];
+  /** Intentionally unused — do not send prior-transcript / session memory as context.text. */
+  text?: never;
 };
 
 const MEDICAL_TERMS_EN: string[] = [
@@ -368,30 +370,50 @@ export function getInterpreterContext(
       { key: "setting", value: "Live professional interpreter session" },
       { key: "role", value: "Human interpreter relaying speech between two parties" },
       { key: "accuracy", value: "Preserve exact numbers, drug names, legal terms, and codes" },
-      { key: "language_register", value: "Always translate into formal, professional, standard written language. Never use colloquial, slang, or regional dialect forms in any language." },
-      { key: "original_dialect", value: "ORIGINAL / transcription column: write speech EXACTLY as heard, including every dialect and regional variety. Arabic originals may be Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, Moroccan, Algerian, Tunisian, Libyan, or MSA — never rewrite dialect into الفصحى in the original. The same rule applies to other multi-dialect languages: keep the spoken variety in the original." },
-      { key: "arabic_register", value: "TRANSLATION into Arabic only: always Modern Standard Arabic (العربية الفصحى / MSA). Never Egyptian, Levantine, Gulf, Iraqi, Sudanese, Yemeni, Moroccan, Algerian, Tunisian, Libyan, or any dialect particles in the translation column." },
-      { key: "spanish_register", value: "TRANSLATION into Spanish: always standard formal Spanish suitable for professional documents. Never regional slang or heavy colloquial forms in the translation." },
-      { key: "portuguese_register", value: "TRANSLATION into Portuguese: always standard formal Portuguese. Never slang or street-level colloquial forms in the translation." },
-      { key: "chinese_register", value: "TRANSLATION into Chinese: always Standard Mandarin (普通话 Putonghua) in simplified characters. Never Cantonese, Hokkien, or regional dialect forms in the translation." },
-      { key: "french_register", value: "TRANSLATION into French: always standard formal French. Never Québécois informal speech, Verlan, or slang in the translation." },
-      { key: "german_register", value: "TRANSLATION into German: always standard formal German (Hochdeutsch). Never Austrian, Swiss, or regional dialect forms in the translation." },
-      { key: "russian_register", value: "TRANSLATION into Russian: always standard literary Russian. Never slang in the translation." },
-      { key: "polish_register", value: "TRANSLATION into Polish: always standard formal Polish. Never regional or colloquial forms in the translation." },
-      { key: "italian_register", value: "TRANSLATION into Italian: always standard formal Italian (italiano standard). Never Sicilian, Neapolitan, Venetian, or other dialects in the translation." },
-      { key: "korean_register", value: "TRANSLATION into Korean: always formal polite Korean (존댓말 / 합쇼체). Never casual speech (반말) in the translation." },
-      { key: "japanese_register", value: "TRANSLATION into Japanese: always formal polite Japanese (丁寧語 / です・ます). Never casual forms in the translation." },
-      { key: "hindi_register", value: "TRANSLATION into Hindi: always standard formal Hindi. Avoid heavy regional colloquial forms in the translation." },
-      { key: "vietnamese_register", value: "TRANSLATION into Vietnamese: always standard formal Vietnamese. Never regional slang in the translation." },
-      { key: "turkish_register", value: "TRANSLATION into Turkish: always standard formal Turkish. Never slang in the translation." },
-      { key: "somali_register", value: "TRANSLATION into Somali: always standard formal Somali. Never regional dialect forms in the translation." },
-      { key: "tagalog_register", value: "TRANSLATION into Tagalog/Filipino: always standard formal Filipino. Avoid heavy Taglish or colloquial forms in the translation." },
-      { key: "ukrainian_register", value: "TRANSLATION into Ukrainian: always standard literary Ukrainian. Never slang in the translation." },
-      { key: "romanian_register", value: "TRANSLATION into Romanian: always standard formal Romanian. Never regional colloquial forms in the translation." },
-      { key: "all_languages", value: "For ALL supported languages: ORIGINAL = as spoken (any dialect). TRANSLATION = formal professional written standard of the TARGET only, as used in official medical and legal documents." },
-      { key: "no_invented_words", value: "Never invent, approximate, or guess a word. If uncertain, use the most common standard formal equivalent. Do not create words that do not exist in the target language." },
-      { key: "spanish_gender", value: "Spanish gender rules: 'análisis', 'sistema', 'problema', 'tema', 'idioma', 'diagnóstico' are masculine. Always write 'un análisis', 'el sistema', 'un problema'. Never use feminine articles with these words." },
-      { key: "full_phrase_meaning", value: "Translate the full clinical meaning of phrases, not word-by-word. 'Safe for fluids' means the patient is medically cleared to receive intravenous fluids — translate the full meaning. 'Good faith exam' is a formal medical examination." },
+      // Keep ≤ ~10 general keys (Soniox guidance). Put register rules early so budget trim never drops them.
+      {
+        key: "translation_register",
+        value:
+          "TRANSLATION column only: always the formal professional written standard of the TARGET language (medical/legal documents). Never colloquial, slang, or regional dialect in translation.",
+      },
+      {
+        key: "original_as_spoken",
+        value:
+          "ORIGINAL/transcription: write speech exactly as heard (any dialect). Critical: spoken dialect in the original must NEVER change translation register — do not mirror Egyptian, Iraqi, Levantine, Gulf, Maghrebi, or any dialect into the translation.",
+      },
+      ...(a === "ar" || b === "ar"
+        ? [
+            {
+              key: "arabic_translation_msa",
+              value:
+                "When translating INTO Arabic: ALWAYS Modern Standard Arabic only (العربية الفصحى / MSA). Forbidden in translation: Egyptian, Iraqi, Levantine, Gulf, Sudanese, Yemeni, Moroccan, Algerian, Tunisian, Libyan, or mixed dialect. Even if the other speaker's original is dialectal, or earlier turns used dialect, every Arabic translation token must stay MSA.",
+            },
+          ]
+        : []),
+      {
+        key: "language_register",
+        value:
+          "Always translate into formal standard written language of the target. Never use colloquial or regional dialect forms in any translation.",
+      },
+      {
+        key: "no_invented_words",
+        value:
+          "Never invent or guess words. If uncertain, use the most common standard formal equivalent in the target.",
+      },
+      {
+        key: "full_phrase_meaning",
+        value:
+          "Translate full clinical meaning of phrases, not word-by-word. Example: 'safe for fluids' means medically cleared for IV fluids.",
+      },
+      ...(a === "es" || b === "es"
+        ? [
+            {
+              key: "spanish_gender",
+              value:
+                "Spanish: análisis, sistema, problema, tema, idioma, diagnóstico are masculine (un análisis, el sistema).",
+            },
+          ]
+        : []),
     ],
     terms: [...MEDICAL_TERMS_EN, ...LEGAL_TERMS_EN],
   };

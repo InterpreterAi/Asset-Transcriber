@@ -54,10 +54,13 @@ describe("getInterpreterContext Soniox budget (restored 4feb41b4 + cap)", () => 
     });
   }
 
-  it("restores historical register guidance and medical STT term pins (budgeted)", () => {
+  it("keeps MSA register rules and does not send context.text session memory", () => {
     const ctx = getInterpreterContext("en", "ar");
     expect(ctx.general.some((g) => g.key === "language_register")).toBe(true);
-    expect(ctx.general.some((g) => g.key === "arabic_register")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "arabic_translation_msa")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "original_as_spoken")).toBe(true);
+    expect(ctx.general.some((g) => g.key === "original_dialect")).toBe(false);
+    expect((ctx as { text?: string }).text).toBeUndefined();
     expect(ctx.terms.length).toBeGreaterThan(0);
   });
 });

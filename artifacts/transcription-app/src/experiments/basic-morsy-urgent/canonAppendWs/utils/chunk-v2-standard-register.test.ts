@@ -58,6 +58,22 @@ describe("normalizeChunkV2StandardRegister", () => {
     expect(out).not.toMatch(/(?<![\u0600-\u06FF])مش(?![\u0600-\u06FF])/);
   });
 
+  it("rewrites Iraqi dialect leaks to MSA on en→ar", () => {
+    const out = normalizeChunkV2StandardRegister("شلونك خوش أكو ألم هسه مو قوي", {
+      rowSourceLanguage: "en",
+      langA: "en",
+      langB: "ar",
+    });
+    expect(out).toContain("كيف حالك");
+    expect(out).toContain("جيد");
+    expect(out).toContain("يوجد");
+    expect(out).toContain("الآن");
+    expect(out).toContain("ليس");
+    expect(out).not.toContain("شلونك");
+    expect(out).not.toContain("خوش");
+    expect(out).not.toContain("هسه");
+  });
+
   it("does not rewrite Arabic originals when the translation target is English", () => {
     const dialect = "ليش أنا تعبان";
     const out = normalizeChunkV2StandardRegister(dialect, {
