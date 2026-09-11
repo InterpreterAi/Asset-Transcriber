@@ -29,7 +29,7 @@ describe("fitSonioxContextToBudget", () => {
   });
 });
 
-describe("getInterpreterContext Soniox budget (restored 4feb41b4 + cap)", () => {
+describe("getInterpreterContext Soniox budget (tight 7.5k operating cap)", () => {
   const pairs: [string, string][] = [
     ["en", "ar"],
     ["en", "es"],

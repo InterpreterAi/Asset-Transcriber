@@ -29,9 +29,9 @@ const pack = packJson as MedicalTermPack;
  * Keep pack small; vaccines are ordered first so ISA fills only leftover slots.
  * Final hard trim lives in `fitSonioxContextToBudget`.
  */
-const MAX_PACK_TRANSLATION_TERMS = 72;
+const MAX_PACK_TRANSLATION_TERMS = 24;
 /** Soft cap for extra EN recognition pins from this pack (vaccines/abbr first). */
-const MAX_PACK_EN_PINS = 96;
+const MAX_PACK_EN_PINS = 56;
 
 function baseLang(code: string): string {
   return (code || "").trim().split("-")[0]!.toLowerCase();
@@ -102,16 +102,31 @@ export function buildChunkV2MedicalPackContext(
   const translationTerms: SonioxContextTerm[] = [];
   const termSeen = new Set<string>();
 
-  // Phase 1: vaccines first (higher priority), then ISA glossary terms.
-  const ordered: PackEntry[] = [...pack.vaccines, ...pack.isaTerms];
+  // Phase 1: vaccine EN names first (so MMR/BCG are not crowded out by abbr spam).
+  // Phase 2: vaccine abbreviations.
+  // Phase 3: leftover ISA pins / translation terms.
+  const vaccineEntries = pack.vaccines;
+  const isaEntries = pack.isaTerms;
+
+  for (const entry of vaccineEntries) {
+    if (pins.length >= MAX_PACK_EN_PINS) break;
+    pushPin(pins, pinSeen, entry.en);
+  }
+  for (const entry of vaccineEntries) {
+    if (pins.length >= MAX_PACK_EN_PINS) break;
+    for (const ab of entry.abbr ?? []) pushPin(pins, pinSeen, ab);
+    if (entry.sourceRaw) pushPin(pins, pinSeen, entry.sourceRaw);
+  }
+  for (const entry of isaEntries) {
+    if (pins.length >= MAX_PACK_EN_PINS) break;
+    pushPin(pins, pinSeen, entry.en);
+    for (const ab of entry.abbr ?? []) pushPin(pins, pinSeen, ab);
+    if (entry.sourceRaw) pushPin(pins, pinSeen, entry.sourceRaw);
+  }
+
+  const ordered: PackEntry[] = [...vaccineEntries, ...isaEntries];
 
   for (const entry of ordered) {
-    if (pins.length < MAX_PACK_EN_PINS) {
-      pushPin(pins, pinSeen, entry.en);
-      for (const ab of entry.abbr ?? []) pushPin(pins, pinSeen, ab);
-      if (entry.sourceRaw) pushPin(pins, pinSeen, entry.sourceRaw);
-    }
-
     if (translationTerms.length >= MAX_PACK_TRANSLATION_TERMS) continue;
 
     const trA = aKey && !aIsEn ? translationFor(entry, aKey) : null;

@@ -12,6 +12,7 @@
 import type { ChunkV2GlossaryEntry } from "./chunk-v2-glossary";
 import { normalizeChunkV2StandardRegister } from "./chunk-v2-standard-register";
 import { applyCriticalMedicalNativeRepair } from "./critical-medical-terms";
+import { applyCriticalClaimNativeRepair } from "./critical-claim-terms";
 
 export type GlossaryPostProcessOpts = {
   originalText?: string;
@@ -70,6 +71,7 @@ export function applyGlossaryPostProcess(
   if (o.originalText?.trim()) {
     const targetLang = targetLangFromPair(o.rowSourceLanguage, o.langA, o.langB);
     out = applyCriticalMedicalNativeRepair(out, o.originalText, targetLang);
+    out = applyCriticalClaimNativeRepair(out, o.originalText, targetLang);
   }
 
   return out;

@@ -10,8 +10,12 @@ import type { SonioxContext, SonioxContextTerm } from "./interpreter-context";
 
 /** Absolute Soniox API ceiling. */
 export const SONIOX_CONTEXT_MAX_CHARS = 10_000;
-/** Leave headroom for JSON punctuation / Unicode edge cases. */
-export const SONIOX_CONTEXT_SAFE_CHARS = 9_800;
+/**
+ * Operating budget — stay well under the hard 10k ceiling.
+ * Oversized / noisy context makes Soniox ignore or reject pins (vaccines,
+ * cholesterol, claims, etc.). Prefer a tight high-signal payload.
+ */
+export const SONIOX_CONTEXT_SAFE_CHARS = 7_500;
 
 export function sonioxContextCharLength(ctx: SonioxContext): number {
   return JSON.stringify(ctx).length;

@@ -36,13 +36,15 @@ describe("chunk-v2 medical term pack", () => {
   it("includes corrected ISA immunisation aliases as EN pins", () => {
     const ctx = buildChunkV2MedicalPackContext("en", "fr");
     expect(ctx.terms.some((t) => /Hib|Haemophilus/i.test(t))).toBe(true);
-    expect(ctx.terms.some((t) => /DTaP|DTP/i.test(t))).toBe(true);
+    expect(
+      ctx.terms.some((t) => /DTaP|DTP|Diphtheria.*Pertussis|Diphtheria, Tetanus/i.test(t)),
+    ).toBe(true);
     expect(ctx.terms.some((t) => /BCG/i.test(t))).toBe(true);
   });
 
   it("respects translation_terms budget", () => {
     const ctx = buildChunkV2MedicalPackContext("en", "ar");
-    expect(ctx.translation_terms.length).toBeLessThanOrEqual(72);
-    expect(ctx.terms.length).toBeLessThanOrEqual(96);
+    expect(ctx.translation_terms.length).toBeLessThanOrEqual(24);
+    expect(ctx.terms.length).toBeLessThanOrEqual(56);
   });
 });
