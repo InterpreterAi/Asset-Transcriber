@@ -2,13 +2,16 @@
  * Chunk-v2 translation column post-process.
  *
  * - Does NOT rewrite Original / STT text (callers pass translation only).
- * - Does NOT force-replace glossary aliases client-side (upstream Soniox
- *   `translation_terms` already carry saved glossary entries).
+ * - Does NOT force-replace personal glossary aliases client-side (upstream
+ *   Soniox `translation_terms` already carry saved glossary entries).
  * - DOES lock leaked dialect/slang in the translation into the official
  *   standard of the target (Arabic الفصحى, standard English, etc.).
+ * - DOES apply a tiny critical-medical safety net (e.g. cholesterol≠فقر الدم)
+ *   when the Original proves which EN lemma was spoken.
  */
 import type { ChunkV2GlossaryEntry } from "./chunk-v2-glossary";
 import { normalizeChunkV2StandardRegister } from "./chunk-v2-standard-register";
+import { applyCriticalMedicalNativeRepair } from "./critical-medical-terms";
 
 export type GlossaryPostProcessOpts = {
   originalText?: string;
@@ -28,6 +31,19 @@ function asEntries(terms: unknown): ChunkV2GlossaryEntry[] {
   );
 }
 
+function targetLangFromPair(
+  rowSourceLanguage: string,
+  langA: string,
+  langB: string,
+): string {
+  const src = rowSourceLanguage.split("-")[0]!.toLowerCase();
+  const a = langA.split("-")[0]!.toLowerCase();
+  const b = langB.split("-")[0]!.toLowerCase();
+  if (src === a) return b;
+  if (src === b) return a;
+  return b;
+}
+
 export function applyGlossaryPostProcess(
   text: string,
   terms?: unknown,
@@ -44,10 +60,17 @@ export function applyGlossaryPostProcess(
   const entries = asEntries(terms);
   const protectedPhrases = entries.map((e) => e.target.trim()).filter(Boolean);
 
-  return normalizeChunkV2StandardRegister(text, {
+  let out = normalizeChunkV2StandardRegister(text, {
     rowSourceLanguage: o.rowSourceLanguage,
     langA: o.langA,
     langB: o.langB,
     protectedPhrases,
   });
+
+  if (o.originalText?.trim()) {
+    const targetLang = targetLangFromPair(o.rowSourceLanguage, o.langA, o.langB);
+    out = applyCriticalMedicalNativeRepair(out, o.originalText, targetLang);
+  }
+
+  return out;
 }

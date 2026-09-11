@@ -1,9 +1,14 @@
 /**
  * interpreter-context.ts
  * Builds the Soniox `context` payload for interpreter sessions.
- * Covers all 62+ Soniox languages with medical + legal term pinning.
+ *
+ * Recognition pins (`terms`) cover medical/legal EN lemmas for all pairs.
+ * Bidirectional `translation_terms` are densest for ar/es/pl/pt/zh, plus a
+ * small critical-medical set (cholesterol, anemia, …) for ~16 languages.
+ * Everything is fitted under Soniox's ~10k-char hard limit.
  */
 
+import { criticalMedicalTermsForLang } from "../utils/critical-medical-terms";
 import {
   fitSonioxContextToBudget,
   SONIOX_CONTEXT_SAFE_CHARS,
@@ -301,7 +306,8 @@ export function getInterpreterContext(
   const terms: SonioxContextTerm[] = [];
   const seen = new Set<string>();
 
-  // Personal glossary first so Soniox budget trim keeps them when pack/builtins must drop.
+  // Personal glossary + critical medical pins first so Soniox budget trim keeps
+  // them when large TERMS_BY_LANG / body-part dumps must drop.
   for (const t of injectedTerms) {
     const source = `${t.source ?? ""}`.trim();
     const target = `${t.target ?? ""}`.trim();
@@ -310,6 +316,22 @@ export function getInterpreterContext(
     if (!seen.has(key)) {
       seen.add(key);
       terms.push({ source, target });
+    }
+  }
+  for (const lang of [a, b]) {
+    if (lang === "en") continue;
+    for (const t of criticalMedicalTermsForLang(lang)) {
+      const forwardKey = `${t.source}->${t.target}`;
+      if (!seen.has(forwardKey)) {
+        seen.add(forwardKey);
+        terms.push(t);
+      }
+      const flipped = { source: t.target, target: t.source };
+      const flipKey = `${flipped.source}->${flipped.target}`;
+      if (!seen.has(flipKey)) {
+        seen.add(flipKey);
+        terms.push(flipped);
+      }
     }
   }
   const protectedGlossaryCount = terms.length;
