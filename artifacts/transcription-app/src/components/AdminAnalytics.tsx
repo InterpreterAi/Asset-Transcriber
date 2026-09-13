@@ -62,7 +62,9 @@ interface PaidSubscriberMonthRow {
   hoursUsed: number;
   hoursUnused: number;
   hoursOverage: number;
-  estTotalUsd: number;
+  usedCostUsd: number;
+  unusedCostUsd: number;
+  entitledCostUsd: number;
 }
 
 interface PaidSubscriberReport {
@@ -77,6 +79,7 @@ interface PaidSubscriberReport {
   calendarWeekdays: number;
   calendarWeekendDays: number;
   costPerMinCombined: number;
+  costPerHourCombined: number;
   totals: {
     paidUsers: number;
     monthsPaid: number;
@@ -84,20 +87,26 @@ interface PaidSubscriberReport {
     hoursUsed: number;
     hoursUnused: number;
     hoursOverage: number;
-    estSonioxCostUsd: number;
+    usedCostUsd: number;
+    unusedCostUsd: number;
+    entitledCostUsd: number;
+    estSonioxCostUsd?: number;
   };
   users: {
     username: string;
     email: string | null;
     planType: string;
     subscribedAt: string;
+    paidStartEstimated?: boolean;
     monthsPaid: number;
     dailyCapHours: number;
     hoursEntitled: number;
     hoursUsed: number;
     hoursUnused: number;
     hoursOverage: number;
-    estTotalUsd: number;
+    usedCostUsd: number;
+    unusedCostUsd: number;
+    entitledCostUsd: number;
     months: PaidSubscriberMonthRow[];
   }[];
 }
@@ -386,8 +395,9 @@ function PaidSubscribersPanel() {
         </button>
       </div>
       <p className="text-[11px] text-muted-foreground mt-1 mb-3">
-        Each paid month is 30 days. Basic = 5h/day × 30 = 150h. Professional / Platinum = 12h/day × 30 = 360h.
-        Unused = that month’s entitled hours minus hours used. Cost is one Soniox total.
+        Months start on the paid subscribe date (not the trial signup). Each paid month is 30 days.
+        Basic = 5h × 30 = 150h. Professional = 12h × 30 = 360h. Trial sessions before subscribe are excluded.
+        Soniox cost is STT + translation together ($0.0025 + $0.001 = $0.21/h) for used and for unused.
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -451,25 +461,24 @@ function PaidSubscribersPanel() {
               {" · "}
               <span className="font-semibold tabular-nums">{data.totals.monthsPaid}</span> paid months
               {" · "}
-              <span className="font-semibold tabular-nums">{data.totals.hoursEntitled} h</span> entitled
+              {data.totals.hoursEntitled} h entitled ({fmtUsd(data.totals.entitledCostUsd)})
               {" · "}
-              <span className="font-semibold tabular-nums">{data.totals.hoursUsed} h</span> used
+              {data.totals.hoursUsed} h used ({fmtUsd(data.totals.usedCostUsd)})
               {" · "}
-              <span className="font-semibold tabular-nums">{data.totals.hoursUnused} h</span> unused
-              {" · "}
-              <span className="font-semibold tabular-nums">{fmtUsd(data.totals.estSonioxCostUsd)}</span> est. Soniox
+              {data.totals.hoursUnused} h unused ({fmtUsd(data.totals.unusedCostUsd)})
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
               Basic {data.basicHoursPerMonth}h / month · Professional {data.professionalHoursPerMonth}h / month
               {" · "}each month is {data.billingDaysPerMonth} days
+              {" · "}Soniox ${(data.costPerHourCombined ?? 0.21).toFixed(2)}/h (STT + translation)
               {data.mode !== "since_subscribe"
                 ? ` · window ${data.calendarDays} days (${data.calendarWeekdays} weekdays, ${data.calendarWeekendDays} weekend)`
-                : ""}
+                : " · every calendar month since each user paid"}
               {data.totals.hoursOverage > 0 ? ` · overage ${data.totals.hoursOverage} h` : ""}
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <StatCard
               icon={<Users className="w-4.5 h-4.5" />}
               label="Paid subscribers"
@@ -481,29 +490,36 @@ function PaidSubscribersPanel() {
               icon={<Clock className="w-4.5 h-4.5" />}
               label="Hours entitled"
               value={`${data.totals.hoursEntitled} h`}
-              sub="30 days × plan hours × months"
+              sub={fmtUsd(data.totals.entitledCostUsd)}
               color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
             />
             <StatCard
               icon={<Clock className="w-4.5 h-4.5" />}
               label="Hours used"
               value={`${data.totals.hoursUsed} h`}
-              sub="Billable sessions"
+              sub={fmtUsd(data.totals.usedCostUsd)}
               color="bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"
+            />
+            <StatCard
+              icon={<DollarSign className="w-4.5 h-4.5" />}
+              label="Used Soniox $"
+              value={fmtUsd(data.totals.usedCostUsd)}
+              sub={`${data.totals.hoursUsed} h × $${(data.costPerHourCombined ?? 0.21).toFixed(2)}`}
+              color="bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
             />
             <StatCard
               icon={<Clock className="w-4.5 h-4.5" />}
               label="Hours unused"
               value={`${data.totals.hoursUnused} h`}
-              sub="Entitled minus used"
+              sub={fmtUsd(data.totals.unusedCostUsd)}
               color="bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-200"
             />
             <StatCard
               icon={<DollarSign className="w-4.5 h-4.5" />}
-              label="Est. Soniox cost"
-              value={fmtUsd(data.totals.estSonioxCostUsd)}
-              sub={`STT + translation · $${data.costPerMinCombined}/min`}
-              color="bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
+              label="Unused Soniox $"
+              value={fmtUsd(data.totals.unusedCostUsd)}
+              sub={`${data.totals.hoursUnused} h × $${(data.costPerHourCombined ?? 0.21).toFixed(2)}`}
+              color="bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200"
             />
           </div>
 
@@ -514,7 +530,7 @@ function PaidSubscribersPanel() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[920px]">
+                <table className="w-full text-sm min-w-[1100px]">
                   <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                     <tr>
                       <th className="px-4 py-2 font-semibold text-left">#</th>
@@ -524,8 +540,9 @@ function PaidSubscribersPanel() {
                       <th className="px-4 py-2 font-semibold text-right">Months</th>
                       <th className="px-4 py-2 font-semibold text-right">Entitled</th>
                       <th className="px-4 py-2 font-semibold text-right">Used</th>
+                      <th className="px-4 py-2 font-semibold text-right">Used $</th>
                       <th className="px-4 py-2 font-semibold text-right">Unused</th>
-                      <th className="px-4 py-2 font-semibold text-right">Est. cost</th>
+                      <th className="px-4 py-2 font-semibold text-right">Unused $</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -539,7 +556,9 @@ function PaidSubscribersPanel() {
                               <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{u.email}</div>
                             )}
                             <div className="text-[11px] text-muted-foreground">
-                              Subscribed {format(parseISO(u.subscribedAt), "MMM d, yyyy")}
+                              Paid from {format(parseISO(u.subscribedAt), "MMM d, yyyy")}
+                              {u.paidStartEstimated ? " (estimated)" : ""}
+                              {" · "}every month since
                             </div>
                           </td>
                           <td className="px-4 py-2.5">
@@ -557,11 +576,14 @@ function PaidSubscribersPanel() {
                           <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary tabular-nums">
                             {u.hoursUsed} h
                           </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
+                            {fmtUsd(u.usedCostUsd)}
+                          </td>
                           <td className="px-4 py-2.5 text-right text-xs tabular-nums">
                             {fmtHoursCell(u.hoursUnused)}
                           </td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
-                            {fmtUsd(u.estTotalUsd)}
+                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">
+                            {fmtUsd(u.unusedCostUsd)}
                           </td>
                         </tr>
                         {u.months.map((m) => (
@@ -578,8 +600,9 @@ function PaidSubscribersPanel() {
                             <td className="px-4 py-1.5 text-right text-[11px] text-muted-foreground">1</td>
                             <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{m.hoursEntitled} h</td>
                             <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{m.hoursUsed} h</td>
+                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{fmtUsd(m.usedCostUsd)}</td>
                             <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{m.hoursUnused} h</td>
-                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{fmtUsd(m.estTotalUsd)}</td>
+                            <td className="px-4 py-1.5 text-right text-[12px] tabular-nums">{fmtUsd(m.unusedCostUsd)}</td>
                           </tr>
                         ))}
                       </Fragment>
@@ -596,11 +619,14 @@ function PaidSubscribersPanel() {
                       <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
                         {data.totals.hoursUsed} h
                       </td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
+                        {fmtUsd(data.totals.usedCostUsd)}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-xs font-semibold tabular-nums">
                         {data.totals.hoursUnused} h
                       </td>
                       <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
-                        {fmtUsd(data.totals.estSonioxCostUsd)}
+                        {fmtUsd(data.totals.unusedCostUsd)}
                       </td>
                     </tr>
                   </tfoot>

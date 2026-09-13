@@ -113,6 +113,8 @@ function roundAdminUsd(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+const SONIOX_COMBINED_COST_PER_HOUR = SONIOX_COMBINED_COST_PER_MIN * 60;
+
 function planProductDailyHours(planType: string): number {
   const p = (planType ?? "").trim().toLowerCase();
   if (
@@ -127,6 +129,28 @@ function planProductDailyHours(planType: string): number {
     return PUBLIC_PROFESSIONAL_DAILY_LIMIT_MINUTES / 60;
   }
   return PUBLIC_BASIC_DAILY_LIMIT_MINUTES / 60;
+}
+
+function sonioxUsdFromHours(hours: number): number {
+  return roundAdminUsd(Math.max(0, hours) * SONIOX_COMBINED_COST_PER_HOUR);
+}
+
+/** Paid start: subscription date, else current period end minus 30 days, else signup. */
+function resolvePaidStartedAt(u: {
+  subscriptionStartedAt: Date | null;
+  subscriptionPeriodEndsAt: Date | null;
+  createdAt: Date;
+}): { at: Date; estimated: boolean } {
+  if (u.subscriptionStartedAt && Number.isFinite(u.subscriptionStartedAt.getTime())) {
+    return { at: u.subscriptionStartedAt, estimated: false };
+  }
+  if (u.subscriptionPeriodEndsAt && Number.isFinite(u.subscriptionPeriodEndsAt.getTime())) {
+    return {
+      at: new Date(u.subscriptionPeriodEndsAt.getTime() - BILLING_FALLBACK_MS),
+      estimated: true,
+    };
+  }
+  return { at: u.createdAt, estimated: true };
 }
 
 type PaidSubscriberRangeMode = "month" | "since_subscribe" | "custom";
@@ -195,6 +219,7 @@ async function buildPaidSubscriberReport(opts: {
         email: usersTable.email,
         planType: usersTable.planType,
         subscriptionStartedAt: usersTable.subscriptionStartedAt,
+        subscriptionPeriodEndsAt: usersTable.subscriptionPeriodEndsAt,
         createdAt: usersTable.createdAt,
       })
       .from(usersTable)
@@ -206,7 +231,16 @@ async function buildPaidSubscriberReport(opts: {
       .select({
         userId: sql<number>`s.user_id`,
         month: sql<string>`TO_CHAR(DATE_TRUNC('month', timezone('America/New_York', s.started_at)), 'YYYY-MM')`,
-        minutes: sql<number>`COALESCE(SUM((${sql.raw(effectiveSessionSecondsSqlAliasS())})), 0) / 60.0`,
+        minutes: sql<number>`
+          COALESCE(SUM(CASE
+            WHEN s.started_at >= COALESCE(
+              ${usersTable.subscriptionStartedAt},
+              ${usersTable.subscriptionPeriodEndsAt} - interval '30 days',
+              ${usersTable.createdAt}
+            )
+              THEN (${sql.raw(effectiveSessionSecondsSqlAliasS())})
+            ELSE 0
+          END), 0) / 60.0`,
       })
       .from(sql`sessions s`)
       .innerJoin(usersTable, sql`s.user_id = ${usersTable.id}`)
@@ -221,54 +255,62 @@ async function buildPaidSubscriberReport(opts: {
 
   const minutesByUserMonth = new Map<string, number>();
   for (const row of usageRows) {
-    minutesByUserMonth.set(`${row.userId}:${row.month}`, Math.max(0, Number(row.minutes) || 0));
+    minutesByUserMonth.set(`${Number(row.userId)}:${row.month}`, Math.max(0, Number(row.minutes) || 0));
   }
 
   const users = paidUsers.map((u) => {
-    const subscribedAt = u.subscriptionStartedAt ?? u.createdAt;
+    const paid = resolvePaidStartedAt(u);
     const dailyHours = planProductDailyHours(u.planType);
     const hoursPerPaidMonth = dailyHours * PAID_BILLING_DAYS_PER_MONTH;
-    const monthStart = new Date(Math.max(rangeStart.getTime(), subscribedAt.getTime()));
+    const monthStart = new Date(Math.max(rangeStart.getTime(), paid.at.getTime()));
+    if (monthStart.getTime() >= rangeEndExclusive.getTime()) {
+      return null;
+    }
     const months = iterateAppYearMonthsInclusive(monthStart, entitledLastInclusive)
-      .filter((ym) => {
-        if (monthKey && ym !== monthKey) return false;
-        return true;
-      })
+      .filter((ym) => !monthKey || ym === monthKey)
       .map((ym) => {
-        const minutes = minutesByUserMonth.get(`${u.id}:${ym}`) ?? 0;
-        const hoursUsed = minutes / 60;
-        const hoursEntitled = hoursPerPaidMonth;
+        const minutesUsed = minutesByUserMonth.get(`${u.id}:${ym}`) ?? 0;
+        const hoursUsed = minutesUsed / 60;
+        const hoursUnused = Math.max(0, hoursPerPaidMonth - hoursUsed);
+        const hoursOverage = Math.max(0, hoursUsed - hoursPerPaidMonth);
         return {
           month: ym,
           billingDays: PAID_BILLING_DAYS_PER_MONTH,
           dailyHours,
-          hoursEntitled: roundAdminHours(hoursEntitled),
+          hoursEntitled: roundAdminHours(hoursPerPaidMonth),
           hoursUsed: roundAdminHours(hoursUsed),
-          hoursUnused: roundAdminHours(Math.max(0, hoursEntitled - hoursUsed)),
-          hoursOverage: roundAdminHours(Math.max(0, hoursUsed - hoursEntitled)),
-          estTotalUsd: roundAdminUsd(minutes * SONIOX_COMBINED_COST_PER_MIN),
+          hoursUnused: roundAdminHours(hoursUnused),
+          hoursOverage: roundAdminHours(hoursOverage),
+          usedCostUsd: sonioxUsdFromHours(hoursUsed),
+          unusedCostUsd: sonioxUsdFromHours(hoursUnused),
+          entitledCostUsd: sonioxUsdFromHours(hoursPerPaidMonth),
         };
       });
     const hoursEntitled = months.reduce((s, m) => s + m.hoursEntitled, 0);
     const hoursUsed = months.reduce((s, m) => s + m.hoursUsed, 0);
     const hoursUnused = months.reduce((s, m) => s + m.hoursUnused, 0);
     const hoursOverage = months.reduce((s, m) => s + m.hoursOverage, 0);
-    const estTotalUsd = months.reduce((s, m) => s + m.estTotalUsd, 0);
+    const usedCostUsd = months.reduce((s, m) => s + m.usedCostUsd, 0);
+    const unusedCostUsd = months.reduce((s, m) => s + m.unusedCostUsd, 0);
+    const entitledCostUsd = months.reduce((s, m) => s + m.entitledCostUsd, 0);
     return {
       username: u.username,
       email: u.email ?? null,
       planType: u.planType,
-      subscribedAt: subscribedAt.toISOString(),
+      subscribedAt: paid.at.toISOString(),
+      paidStartEstimated: paid.estimated,
       monthsPaid: months.length,
       dailyCapHours: dailyHours,
       hoursEntitled: roundAdminHours(hoursEntitled),
       hoursUsed: roundAdminHours(hoursUsed),
       hoursUnused: roundAdminHours(hoursUnused),
       hoursOverage: roundAdminHours(hoursOverage),
-      estTotalUsd: roundAdminUsd(estTotalUsd),
+      usedCostUsd: roundAdminUsd(usedCostUsd),
+      unusedCostUsd: roundAdminUsd(unusedCostUsd),
+      entitledCostUsd: roundAdminUsd(entitledCostUsd),
       months,
     };
-  }).filter((u) => u.monthsPaid > 0)
+  }).filter((u): u is NonNullable<typeof u> => u != null && u.monthsPaid > 0)
     .sort((a, b) => b.hoursUsed - a.hoursUsed || a.username.localeCompare(b.username));
 
   const totals = users.reduce(
@@ -279,7 +321,9 @@ async function buildPaidSubscriberReport(opts: {
       acc.hoursUsed += u.hoursUsed;
       acc.hoursUnused += u.hoursUnused;
       acc.hoursOverage += u.hoursOverage;
-      acc.estSonioxCostUsd += u.estTotalUsd;
+      acc.usedCostUsd += u.usedCostUsd;
+      acc.unusedCostUsd += u.unusedCostUsd;
+      acc.entitledCostUsd += u.entitledCostUsd;
       return acc;
     },
     {
@@ -289,7 +333,9 @@ async function buildPaidSubscriberReport(opts: {
       hoursUsed: 0,
       hoursUnused: 0,
       hoursOverage: 0,
-      estSonioxCostUsd: 0,
+      usedCostUsd: 0,
+      unusedCostUsd: 0,
+      entitledCostUsd: 0,
     },
   );
 
@@ -309,6 +355,7 @@ async function buildPaidSubscriberReport(opts: {
       calendarWeekdays,
       calendarWeekendDays,
       costPerMinCombined: SONIOX_COMBINED_COST_PER_MIN,
+      costPerHourCombined: SONIOX_COMBINED_COST_PER_HOUR,
       totals: {
         paidUsers: totals.paidUsers,
         monthsPaid: totals.monthsPaid,
@@ -316,7 +363,10 @@ async function buildPaidSubscriberReport(opts: {
         hoursUsed: roundAdminHours(totals.hoursUsed),
         hoursUnused: roundAdminHours(totals.hoursUnused),
         hoursOverage: roundAdminHours(totals.hoursOverage),
-        estSonioxCostUsd: roundAdminUsd(totals.estSonioxCostUsd),
+        usedCostUsd: roundAdminUsd(totals.usedCostUsd),
+        unusedCostUsd: roundAdminUsd(totals.unusedCostUsd),
+        entitledCostUsd: roundAdminUsd(totals.entitledCostUsd),
+        estSonioxCostUsd: roundAdminUsd(totals.usedCostUsd),
       },
       users,
     },
