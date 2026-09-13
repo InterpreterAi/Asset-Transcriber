@@ -23,3 +23,17 @@ test("locks Iraqi and Sudanese particles to MSA", () => {
   assert.doesNotMatch(out, /ماكو/);
 });
 
+test("locks Egyptian beauty-session dialect with clitics to MSA", () => {
+  const out = lockTranslationToOfficialRegister(
+    "إحنا وهنجيب الشعر وهيبقى زي كده",
+    "ar",
+  );
+  assert.match(out, /نحن/);
+  assert.match(out, /سنحصل على/);
+  assert.match(out, /سيكون/);
+  assert.match(out, /مثل/);
+  assert.doesNotMatch(out, /إحنا/);
+  assert.doesNotMatch(out, /هنجيب/);
+  assert.doesNotMatch(out, /هيبقى/);
+  assert.doesNotMatch(out, /زي/);
+});

@@ -325,26 +325,26 @@ export function getInterpreterContext(
       {
         key: "translation_register",
         value:
-          "TRANSLATION column only: always the formal professional written standard of the TARGET language (medical/legal documents). Never colloquial, slang, or regional dialect in translation.",
+          "TRANSLATION column ONLY: always the formal professional WRITTEN standard of the TARGET language (medical/legal documents). Never colloquial, slang, street speech, or regional dialect in translation — lock one official register for the whole session.",
       },
       {
         key: "original_as_spoken",
         value:
-          "ORIGINAL/transcription: write speech exactly as heard (any dialect). Critical: spoken dialect in the original must NEVER change translation register.",
+          "ORIGINAL/transcription: write speech exactly as heard (any dialect). Spoken dialect in the original must NEVER change translation register.",
       },
       ...(a === "ar" || b === "ar"
         ? [
             {
               key: "arabic_translation_msa",
               value:
-                "When translating INTO Arabic: ALWAYS Modern Standard Arabic only (العربية الفصحى / MSA). Forbidden in translation: Egyptian, Iraqi, Levantine, Gulf, or any dialect.",
+                "When translating INTO Arabic: ALWAYS العربية الفصحى (MSA) only — formal full clauses. FORBIDDEN in translation: Egyptian, Levantine, Gulf, Iraqi, Maghrebi, or any dialect. Ban particles/forms such as: زي، إحنا، احنا، كده، كدة، عشان، علشان، ليش، ليه، فين، وين، إزاي، مش، ده، دي، بتاع، دلوقتي، هنجيب، هيبقى، هيكون، هعمل، أبين، راسك، برضو، خالص، واش، بزاف، كيفاش، دابا. Use مثل، نحن، هكذا، لأن، لماذا، أين، كيف، ليس، هذا، هذه، الآن، سيكون، سأحصل على، أبدو، رأسك instead.",
             },
           ]
         : []),
       {
         key: "language_register",
         value:
-          "Always translate into formal standard written language of the target. Never use colloquial or regional dialect forms in any translation.",
+          "Always translate into the formal standard written language of the target (e.g. Arabic الفصحى, standard international English, formal Latin American / European Spanish without slang). Never switch into colloquial or regional dialect mid-session.",
       },
       {
         key: "no_invented_words",

@@ -500,11 +500,52 @@ describe("chunk-v2 Original integrity (restored path)", () => {
       frame(2, [
         tok(" عندي ألم في الأنف", { id: "k2", speakerId: "1", language: "ar", startMs: 200 }),
       ]),
+      frame(3, [
+        tok(" اليوم", { id: "k3", speakerId: "1", language: "ar", startMs: 400 }),
+      ]),
     ]);
     const frozen = freezeActiveUtterance(state);
     const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
     expect(proj.rows.length).toBeGreaterThanOrEqual(2);
     expect(proj.rows[0]?.committedText).toBe("Hello.");
     expect(proj.rows[1]?.committedText).toContain("ألم");
+  });
+
+  it("does not open a new bubble on mid-monologue same-speaker language flicker", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("We're currently in Korea and we're going", {
+          id: "mm1",
+          speakerId: "1",
+          language: "en",
+          startMs: 0,
+          endMs: 800,
+        }),
+      ]),
+      frame(2, [
+        tok(" to get the magic straight perm", {
+          id: "mm2",
+          speakerId: "1",
+          language: "ar",
+          startMs: 850,
+          endMs: 1400,
+        }),
+      ]),
+      frame(3, [
+        tok(" that every Korean person has", {
+          id: "mm3",
+          speakerId: "1",
+          language: "en",
+          startMs: 1450,
+          endMs: 2000,
+        }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("Korea");
+    expect(text).toContain("magic straight perm");
+    expect(text).toContain("Korean person");
   });
 });

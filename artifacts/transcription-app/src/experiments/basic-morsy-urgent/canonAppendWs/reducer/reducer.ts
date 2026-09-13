@@ -302,9 +302,14 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     : "";
   // While N=2 debounce is holding a break, do not force-freeze from NF language
   // tail — that confirmed early and left the first pending word stranded / split.
+  // Same speaker: never freeze from NF LID alone (no pause / no new talker).
   const breakPending = next.pendingSpeakerFinals.length > 0;
+  const activeSp = next.activeUtterance?.speaker?.trim();
+  const tailSp = tail.speaker?.trim();
+  const sameSpeakerNf = Boolean(activeSp && tailSp && activeSp === tailSp);
   if (
     !breakPending &&
+    !sameSpeakerNf &&
     activeLang &&
     tailLang &&
     tailLang !== activeLang &&

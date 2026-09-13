@@ -12,8 +12,7 @@ describe("normalizeChunkV2StandardRegister", () => {
       langB: "ar",
     });
     expect(out).toContain("لماذا");
-    expect(out).toContain("لأن");
-    expect(out).toContain("هكذا");
+    expect(out).toContain("لذلك");
     expect(out).not.toContain("ليش");
     expect(out).not.toContain("عشان");
     expect(out).not.toContain("كده");
@@ -56,6 +55,33 @@ describe("normalizeChunkV2StandardRegister", () => {
     expect(out).not.toContain("بيتكلم");
     expect(out).not.toMatch(/(?<![\u0600-\u06FF])ده(?![\u0600-\u06FF])/);
     expect(out).not.toMatch(/(?<![\u0600-\u06FF])مش(?![\u0600-\u06FF])/);
+  });
+
+  it("rewrites Egyptian beauty-session dialect leaks to MSA including clitics", () => {
+    const out = normalizeChunkV2StandardRegister(
+      "أنا ليس زي آسيوي. شعري موجع جدا جدا. إحنا الآن في كوريا وهنجيب الشعر. أنا حاس بالفعل إن هذا هيبقى تطوير. لا أريد أبين زي الممثلين لأن راسك ليس مبني لليفل هذا.",
+      {
+        rowSourceLanguage: "en",
+        langA: "en",
+        langB: "ar",
+      },
+    );
+    expect(out).toContain("مثل");
+    expect(out).toContain("نحن");
+    expect(out).toContain("سنحصل على");
+    expect(out).toContain("أشعر");
+    expect(out).toContain("سيكون");
+    expect(out).toContain("أبدو");
+    expect(out).toContain("رأسك");
+    expect(out).toContain("لهذا المستوى");
+    expect(out).toContain("مموج جدا");
+    expect(out).not.toContain("زي");
+    expect(out).not.toContain("إحنا");
+    expect(out).not.toContain("هنجيب");
+    expect(out).not.toContain("هيبقى");
+    expect(out).not.toContain("أبين");
+    expect(out).not.toContain("راسك");
+    expect(out).not.toContain("لليفل");
   });
 
   it("rewrites Iraqi dialect leaks to MSA on en→ar", () => {
