@@ -40,6 +40,62 @@ export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boole
   return !!(rsp && tsp && rsp !== tsp);
 }
 
+function tokenScript(t: CanonToken): "ar" | "la" | "other" {
+  const text = t.text ?? "";
+  if (/[\u0600-\u06FF]/.test(text)) return "ar";
+  if (/[A-Za-z]/.test(text)) return "la";
+  const lg = langBase(t.language);
+  if (lg === "ar") return "ar";
+  if (lg) return "la";
+  return "other";
+}
+
+/**
+ * Same speaker, different script, overlapping audio = LID catch-up, not a
+ * real code-switch. Drop the wrong-script finals (English hallucination)
+ * so the Arabic (or other script) can own the bubble.
+ * Requires start_ms + end_ms. Sequential code-switch without overlap is kept.
+ */
+export function retractOverlappingWrongScriptTokens(
+  row: CanonUtterance,
+  incoming: CanonToken,
+): { row: CanonUtterance; retracted: boolean } {
+  const inStart = incoming.start_ms;
+  const inEnd = incoming.end_ms ?? incoming.start_ms;
+  if (inStart === undefined || inEnd === undefined) return { row, retracted: false };
+  const inScript = tokenScript(incoming);
+  if (inScript === "other") return { row, retracted: false };
+
+  let retracted = false;
+  const keep: CanonToken[] = [];
+  for (const t of row.finalTokens) {
+    const tStart = t.start_ms;
+    const tEnd = t.end_ms ?? t.start_ms;
+    const tScript = tokenScript(t);
+    if (
+      tStart !== undefined &&
+      tEnd !== undefined &&
+      tScript !== "other" &&
+      tScript !== inScript &&
+      tStart < inEnd + 80 &&
+      inStart < tEnd + 80
+    ) {
+      retracted = true;
+      continue;
+    }
+    keep.push(t);
+  }
+  if (!retracted) return { row, retracted: false };
+  return {
+    retracted: true,
+    row: {
+      ...row,
+      finalTokens: keep,
+      language: langBase(incoming.language) ?? row.language,
+    },
+  };
+}
+
 export function openActiveUtterance(
   state: EngineState,
   speaker: string | undefined,

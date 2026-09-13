@@ -121,6 +121,33 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(patient?.committedText).toBe("No.");
   });
 
+  it("drops overlapping English LID hallucination when Arabic covers the same audio", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("What was your name? Spikevax, Tetanus, and acellular.", {
+          id: "h1",
+          speakerId: "1",
+          language: "en",
+          startMs: 0,
+          endMs: 2400,
+        }),
+      ]),
+      frame(2, [
+        tok(" اسمها بس", {
+          id: "h2",
+          speakerId: "1",
+          language: "ar",
+          startMs: 80,
+          endMs: 2200,
+        }),
+      ]),
+    ]);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).not.toMatch(/Spikevax|Tetanus|acellular|What was your name/i);
+    expect(text).toContain("اسمها");
+    expect(state.activeUtterance?.language).toBe("ar");
+  });
+
   it("keeps same-speaker language code-switch on one bubble", () => {
     const state = reduceAll([
       frame(1, [

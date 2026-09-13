@@ -15,6 +15,7 @@ import {
   appendFinalToActive,
   freezeActiveUtterance,
   openActiveUtterance,
+  retractOverlappingWrongScriptTokens,
   rowBreaksForLanguage,
   rowBreaksForSpeaker,
 } from "./row-lifecycle";
@@ -236,6 +237,15 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
         // stabilizeCanonSpeakers already collapsed one-token A→B→A flicker inside the frame.
         next = freezeForSpeakerHandoff(next);
       } else {
+        const lidFix = retractOverlappingWrongScriptTokens(next.activeUtterance, cleaned);
+        if (lidFix.retracted) {
+          next = {
+            ...next,
+            activeUtterance: lidFix.row,
+            activeTranslationText: translationChunk,
+            activeTranslationPreviewText: translationPreview || translationChunk,
+          };
+        }
         next = clearChunkV2Pending(next);
       }
     }

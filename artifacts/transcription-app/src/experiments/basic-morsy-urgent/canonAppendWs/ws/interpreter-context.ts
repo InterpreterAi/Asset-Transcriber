@@ -32,54 +32,6 @@ export type SonioxContext = {
   text?: never;
 };
 
-const MEDICAL_TERMS_EN: string[] = [
-  "stroke", "seizure", "hypertension", "diabetes", "hypoglycemia",
-  "hyperglycemia", "tachycardia", "bradycardia", "arrhythmia", "angina",
-  "myocardial infarction", "pulmonary embolism", "deep vein thrombosis",
-  "aneurysm", "sepsis", "pneumonia", "bronchitis", "asthma", "COPD",
-  "appendicitis", "peritonitis", "pancreatitis", "cholecystitis",
-  "hepatitis", "cirrhosis", "nephritis", "dialysis", "anemia",
-  "leukemia", "lymphoma", "chemotherapy", "radiation therapy", "biopsy",
-  "metastasis", "benign", "malignant", "carcinoma", "sarcoma",
-  "fracture", "dislocation", "laceration", "contusion", "concussion",
-  "dementia", "Alzheimer's", "Parkinson's", "multiple sclerosis",
-  "epilepsy", "migraine", "vertigo", "tinnitus", "glaucoma", "cataract",
-  "MRI", "CT scan", "X-ray", "ultrasound", "echocardiogram", "EKG", "ECG",
-  "colonoscopy", "endoscopy", "laparoscopy", "intubation", "CPR",
-  "defibrillation", "anesthesia", "angioplasty", "catheterization",
-  "lumbar puncture", "sutures", "transfusion", "vaccination",
-  "antibiotic", "antiviral", "anticoagulant", "antihistamine",
-  "analgesic", "acetaminophen", "ibuprofen", "amoxicillin", "penicillin",
-  "metformin", "insulin", "lisinopril", "atorvastatin", "warfarin",
-  "heparin", "aspirin", "nitroglycerin", "morphine", "opioid",
-  "benzodiazepine", "antidepressant", "antipsychotic",
-  "diagnosis", "prognosis", "dosage", "prescription", "referral",
-  "triage", "ICU", "emergency", "ambulatory", "inpatient", "outpatient",
-  "informed consent", "advance directive", "DNR", "palliative",
-  "physical therapy", "occupational therapy", "rehabilitation",
-  "blood pressure", "heart rate", "oxygen saturation", "temperature",
-  "CBC", "BMP", "urinalysis", "blood glucose", "cholesterol",
-  "contraindication", "side effect", "allergy", "adverse reaction",
-  "medical power of attorney", "HIPAA", "malpractice", "liability",
-];
-
-const LEGAL_TERMS_EN: string[] = [
-  "plaintiff", "defendant", "testimony", "subpoena", "deposition",
-  "affidavit", "jurisdiction", "indictment", "prosecution", "defense attorney",
-  "verdict", "injunction", "restraining order", "bail", "parole",
-  "probation", "felony", "misdemeanor", "statute", "ordinance",
-  "due process", "habeas corpus", "Miranda rights", "plea bargain",
-  "arraignment", "preliminary hearing", "grand jury", "cross-examination",
-  "objection", "sustained", "overruled", "contempt of court",
-  "perjury", "evidence", "exhibit", "hearsay", "circumstantial",
-  "reasonable doubt", "burden of proof", "acquittal", "conviction",
-  "sentence", "appeal", "class action", "settlement", "damages",
-  "negligence", "liability", "breach of contract", "intellectual property",
-  "copyright", "trademark", "patent", "asylum", "deportation",
-  "immigration", "visa", "citizenship", "naturalization", "green card",
-  "custody", "alimony", "guardian", "power of attorney", "notary",
-];
-
 type TermMap = Record<string, SonioxContextTerm[]>;
 
 const TERMS_BY_LANG: TermMap = {
@@ -312,17 +264,6 @@ export function getInterpreterContext(
   for (const t of medicalPack.terms) pushPin(t);
   for (const en of CRITICAL_MEDICAL_EN_SET) pushPin(en);
   for (const en of CRITICAL_CLAIM_EN_SET) pushPin(en);
-  // Small legal STT anchors (claims / court).
-  for (const t of [
-    "plaintiff", "defendant", "testimony", "subpoena", "deposition",
-    "verdict", "settlement", "liability", "negligence", "malpractice",
-    "custody", "asylum", "deportation", "restraining order",
-  ]) {
-    pushPin(t);
-  }
-  // Remaining medical/legal pins are low priority (budget trim drops from end).
-  for (const t of MEDICAL_TERMS_EN) pushPin(t);
-  for (const t of LEGAL_TERMS_EN) pushPin(t);
 
   // Official Soniox context.general: short key/values only (docs: ideally ≤10 pairs).
   // @see https://soniox.com/docs/stt/concepts/context
