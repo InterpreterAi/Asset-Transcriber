@@ -108,10 +108,10 @@ describe("chunk-v2 Original integrity (restored path)", () => {
   it('keeps short patient "No." under that patient speaker', () => {
     const state = reduceAll([
       frame(1, [
-        tok("How are you?", { id: "d0", speakerId: "1", language: "en", startMs: 0 }),
+        tok("How are you?", { id: "d0", speakerId: "1", language: "en", startMs: 0, endMs: 400 }),
       ]),
       frame(2, [
-        tok("No.", { id: "d1", speakerId: "2", language: "en", startMs: 500 }),
+        tok("No.", { id: "d1", speakerId: "2", language: "en", startMs: 3200, endMs: 3400 }),
       ]),
     ]);
     // One conflicting final is held pending (N=2); freeze force-confirms the handoff.
@@ -123,30 +123,31 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(patient?.committedText).toBe("No.");
   });
 
-  it("does not freeze on a single language-flicker final (needs N=2)", () => {
+  it("absorbs same-speaker language flicker into the open row (no bubble)", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello there.", { id: "l1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello there.", { id: "l1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" عندي ألم شديد", { id: "l2", speakerId: "1", language: "ar", startMs: 100 }),
+        tok(" عندي ألم شديد", { id: "l2", speakerId: "1", language: "ar", startMs: 250, endMs: 500 }),
       ]),
     ]);
     expect(state.finalizedUtterances).toHaveLength(0);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello there.");
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("Hello there.");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("ألم");
   });
 
-  it("freezes after two consecutive language-agreeing finals", () => {
+  it("freezes after two consecutive language-agreeing finals from a different speaker with audio gap", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello there.", { id: "m1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello there.", { id: "m1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" عندي ألم", { id: "m2", speakerId: "1", language: "ar", startMs: 100 }),
+        tok(" عندي ألم", { id: "m2", speakerId: "2", language: "ar", startMs: 3000, endMs: 3200 }),
       ]),
       frame(3, [
-        tok(" في الأنف اليوم", { id: "m3", speakerId: "1", language: "ar", startMs: 200 }),
+        tok(" في الأنف اليوم", { id: "m3", speakerId: "2", language: "ar", startMs: 3300, endMs: 3600 }),
       ]),
     ]);
     expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
@@ -158,28 +159,29 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText).toContain("الأنف");
   });
 
-  it("does not freeze on a single speaker-flicker final (needs N=2)", () => {
+  it("does not freeze on a sub-second speaker-id flicker (needs audio gap)", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello doctor.", { id: "s1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello doctor.", { id: "s1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" wait", { id: "s2", speakerId: "2", language: "en", startMs: 100 }),
+        tok(" wait", { id: "s2", speakerId: "2", language: "en", startMs: 300, endMs: 400 }),
       ]),
     ]);
     expect(state.finalizedUtterances).toHaveLength(0);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello doctor.");
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("Hello doctor.");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("wait");
   });
 
   it("does not paint pending speaker-break live text onto the old row", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello doctor.", { id: "pb1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello doctor.", { id: "pb1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" I", { id: "pb2", speakerId: "2", language: "en", startMs: 100, isFinal: true }),
-        tok(" have", { id: "pb3", speakerId: "2", language: "en", startMs: 150, isFinal: false }),
+        tok(" I", { id: "pb2", speakerId: "2", language: "en", startMs: 3000, endMs: 3100, isFinal: true }),
+        tok(" have", { id: "pb3", speakerId: "2", language: "en", startMs: 3150, isFinal: false }),
       ]),
     ]);
     expect(state.pendingSpeakerFinals).toHaveLength(1);
@@ -191,14 +193,14 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(active?.committedText + (active?.liveText ?? "")).not.toContain("have");
   });
 
-  it("does not paint pending language-break live text onto the old row", () => {
+  it("does not paint pending cross-speaker language-break live text onto the old row", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello there.", { id: "pl1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello there.", { id: "pl1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" عندي ألم شديد", { id: "pl2", speakerId: "1", language: "ar", startMs: 100, isFinal: true }),
-        tok(" في الأنف", { id: "pl3", speakerId: "1", language: "ar", startMs: 150, isFinal: false }),
+        tok(" عندي ألم شديد", { id: "pl2", speakerId: "2", language: "ar", startMs: 3000, endMs: 3200, isFinal: true }),
+        tok(" في الأنف", { id: "pl3", speakerId: "2", language: "ar", startMs: 3250, isFinal: false }),
       ]),
     ]);
     expect(state.pendingSpeakerFinals).toHaveLength(1);
@@ -210,16 +212,16 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(active?.committedText + (active?.liveText ?? "")).not.toMatch(/عندي|الأنف/);
   });
 
-  it("freezes after two consecutive speaker-agreeing finals", () => {
+  it("freezes after two consecutive speaker-agreeing finals with audio gap", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello doctor.", { id: "t1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello doctor.", { id: "t1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" I", { id: "t2", speakerId: "2", language: "en", startMs: 100 }),
+        tok(" I", { id: "t2", speakerId: "2", language: "en", startMs: 3000, endMs: 3100 }),
       ]),
       frame(3, [
-        tok(" have pain", { id: "t3", speakerId: "2", language: "en", startMs: 200 }),
+        tok(" have pain", { id: "t3", speakerId: "2", language: "en", startMs: 3200, endMs: 3500 }),
       ]),
     ]);
     expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
@@ -227,20 +229,19 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
     expect(activeText).toContain("I");
     expect(activeText).toContain("have pain");
-    // First pending word must lead the new row — not start at the second final.
     expect(activeText?.trimStart().startsWith("I")).toBe(true);
   });
 
   it("absorbs a rejected speaker flicker back onto the old row", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello doctor.", { id: "ab1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello doctor.", { id: "ab1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" wait", { id: "ab2", speakerId: "2", language: "en", startMs: 100 }),
+        tok(" wait", { id: "ab2", speakerId: "2", language: "en", startMs: 3000, endMs: 3100 }),
       ]),
       frame(3, [
-        tok(" please", { id: "ab3", speakerId: "1", language: "en", startMs: 200 }),
+        tok(" please", { id: "ab3", speakerId: "1", language: "en", startMs: 3200, endMs: 3400 }),
       ]),
     ]);
     expect(state.pendingSpeakerFinals).toHaveLength(0);
@@ -250,6 +251,44 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(text).toContain("Hello doctor.");
     expect(text).toContain("wait");
     expect(text).toContain("please");
+  });
+
+  it("keeps continuous same-speaker English clauses in one bubble despite brief speaker-id flips", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Barges killed Instagram. You can now connect Claude.", {
+          id: "ig1",
+          speakerId: "1",
+          language: "en",
+          startMs: 0,
+          endMs: 2000,
+        }),
+      ]),
+      // Sub-second breath + false speaker flip — must NOT open a bubble.
+      frame(2, [
+        tok(" It's called the Instagram agent skill.", {
+          id: "ig2",
+          speakerId: "2",
+          language: "en",
+          startMs: 2400,
+          endMs: 4000,
+        }),
+      ]),
+      frame(3, [
+        tok(" One comments on other people's posts for you.", {
+          id: "ig3",
+          speakerId: "1",
+          language: "en",
+          startMs: 4300,
+          endMs: 6000,
+        }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("Barges killed Instagram");
+    expect(text).toContain("Instagram agent skill");
+    expect(text).toContain("comments on other");
   });
 
   it("keeps distinct tokens that share timestamps", () => {
@@ -343,7 +382,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.committedText).toContain("feeling");
   });
 
-  it("does not glue a real language-switch short ack onto the previous row", () => {
+  it("opens a new bubble for a real cross-speaker language handoff with audio gap", () => {
     const state = reduceAll([
       frame(1, [
         tok("Sí, la factura es correcta.", {
@@ -357,19 +396,19 @@ describe("chunk-v2 Original integrity (restored path)", () => {
       frame(2, [
         tok(" Perfect.", {
           id: "sw2",
-          speakerId: "1",
+          speakerId: "2",
           language: "en",
-          startMs: 900,
-          endMs: 1100,
+          startMs: 3500,
+          endMs: 3700,
         }),
       ]),
       frame(3, [
         tok(" Also, the server returned a 503.", {
           id: "sw3",
-          speakerId: "1",
+          speakerId: "2",
           language: "en",
-          startMs: 1200,
-          endMs: 2000,
+          startMs: 3800,
+          endMs: 4500,
         }),
       ]),
     ]);
@@ -492,16 +531,16 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.committedText).toBe("Hello. Good morning.");
   });
 
-  it("still opens a new bubble for a real language switch after a finished word", () => {
+  it("still opens a new bubble for a real cross-speaker language switch after a finished word", () => {
     const state = reduceAll([
       frame(1, [
-        tok("Hello.", { id: "k1", speakerId: "1", language: "en", startMs: 0 }),
+        tok("Hello.", { id: "k1", speakerId: "1", language: "en", startMs: 0, endMs: 200 }),
       ]),
       frame(2, [
-        tok(" عندي ألم في الأنف", { id: "k2", speakerId: "1", language: "ar", startMs: 200 }),
+        tok(" عندي ألم في الأنف", { id: "k2", speakerId: "2", language: "ar", startMs: 3000, endMs: 3400 }),
       ]),
       frame(3, [
-        tok(" اليوم", { id: "k3", speakerId: "1", language: "ar", startMs: 400 }),
+        tok(" اليوم", { id: "k3", speakerId: "2", language: "ar", startMs: 3500, endMs: 3700 }),
       ]),
     ]);
     const frozen = freezeActiveUtterance(state);

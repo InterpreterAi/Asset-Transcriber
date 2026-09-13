@@ -2,10 +2,6 @@ import type { CanonToken } from "../types/canon-token";
 import type { CanonUtterance } from "../types/canon-utterance";
 import { utteranceCommittedText, utteranceLiveText } from "../types/canon-utterance";
 import type { EngineState } from "../types/transcript";
-import {
-  endsWithIncompleteSentenceFragment,
-  endsWithSentenceBoundary,
-} from "../policies/endpoint-row-close";
 
 function norm(s: string | undefined): string | undefined {
   const t = s?.trim();
@@ -23,10 +19,10 @@ function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
 }
 
 /**
- * Language change may open a new bubble.
- * Same diarized speaker mid-monologue: do NOT split on LID alone — that was
- * opening bubbles with no pause while one person kept talking / code-switching.
- * Same speaker may still language-split after a finished sentence boundary.
+ * Language change alone must NOT open a bubble for the same talker.
+ * Soniox LID flickers constantly; bubbles come from speaker handoff (with audio
+ * gap) or long pause — not from "new sentence + maybe different lang tag".
+ * Only treat as a language-row break when diarized speakers clearly differ.
  */
 export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
@@ -35,11 +31,8 @@ export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): bool
   if (!(rlg && tlg && rlg !== tlg)) return false;
   const rsp = norm(row.speaker);
   const tsp = norm(tok.speaker);
-  if (rsp && tsp && rsp === tsp) {
-    const committed = utteranceCommittedText(row);
-    if (!endsWithSentenceBoundary(committed)) return false;
-    if (endsWithIncompleteSentenceFragment(committed)) return false;
-  }
+  // Unlabeled or same speaker → keep one bubble (append / absorb).
+  if (!rsp || !tsp || rsp === tsp) return false;
   return true;
 }
 
