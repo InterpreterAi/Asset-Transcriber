@@ -105,7 +105,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(row.committedText + row.liveText).toBe("How are you");
   });
 
-  it('keeps short patient "No." under that patient speaker', () => {
+  it('keeps short patient "No." under that patient speaker on first final (N=1)', () => {
     const state = reduceAll([
       frame(1, [
         tok("How are you?", { id: "d0", speakerId: "1", language: "en", startMs: 0 }),
@@ -114,16 +114,13 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok("No.", { id: "d1", speakerId: "2", language: "en", startMs: 500 }),
       ]),
     ]);
-    // One conflicting final is held pending (N=2); freeze force-confirms the handoff.
-    const proj = projectTranscriptView(
-      freezeActiveUtterance(state),
-      { chunkV2NativeTranslate: true },
-    );
+    const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
+    expect(state.finalizedUtterances).toHaveLength(1);
     const patient = proj.rows.find(r => r.speaker === "2");
     expect(patient?.committedText).toBe("No.");
   });
 
-  it("does not freeze on a single language-flicker final (needs N=2)", () => {
+  it("keeps same-speaker language code-switch on one bubble (Aug)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello there.", { id: "l1", speakerId: "1", language: "en", startMs: 0 }),
@@ -133,11 +130,13 @@ describe("chunk-v2 Original integrity (restored path)", () => {
       ]),
     ]);
     expect(state.finalizedUtterances).toHaveLength(0);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello there.");
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("Hello there.");
+    expect(text).toContain("عندي");
   });
 
-  it("opens a new bubble after two consecutive language-agreeing finals", () => {
+  it("keeps extended same-speaker bilingual speech in one bubble", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello there.", { id: "m1", speakerId: "1", language: "en", startMs: 0 }),
@@ -149,16 +148,14 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" في الأنف اليوم", { id: "m3", speakerId: "1", language: "ar", startMs: 200 }),
       ]),
     ]);
-    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
-    expect(state.finalizedUtterances[0] && utteranceCommittedText(state.finalizedUtterances[0]!)).toBe(
-      "Hello there.",
-    );
+    expect(state.finalizedUtterances).toHaveLength(0);
     const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(activeText).toContain("Hello there.");
     expect(activeText).toContain("عندي");
     expect(activeText).toContain("الأنف");
   });
 
-  it("does not freeze on a single speaker-flicker final (needs N=2)", () => {
+  it("opens a new colored bubble on the first new-speaker final (N=1)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "s1", speakerId: "1", language: "en", startMs: 0 }),
@@ -167,12 +164,13 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" wait", { id: "s2", speakerId: "2", language: "en", startMs: 100 }),
       ]),
     ]);
-    expect(state.finalizedUtterances).toHaveLength(0);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toBe("Hello doctor.");
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toBe("Hello doctor.");
+    expect(state.activeUtterance?.speaker).toBe("2");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("wait");
   });
 
-  it("does not paint pending speaker-break live text onto the old row", () => {
+  it("types live non-finals on the new speaker row immediately (no freeze dump)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "pb1", speakerId: "1", language: "en", startMs: 0 }),
@@ -182,16 +180,17 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" have", { id: "pb3", speakerId: "2", language: "en", startMs: 150, isFinal: false }),
       ]),
     ]);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
-    expect(state.activeUtterance?.nonFinalTokens ?? []).toHaveLength(0);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.activeUtterance?.speaker).toBe("2");
     const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
     const active = proj.rows.find(r => !r.finalized);
-    expect(active?.committedText).toBe("Hello doctor.");
-    expect(active?.liveText).toBe("");
-    expect(active?.committedText + (active?.liveText ?? "")).not.toContain("have");
+    expect(active?.speaker).toBe("2");
+    expect(active?.committedText).toContain("I");
+    expect(active?.liveText).toContain("have");
   });
 
-  it("does not paint pending language-break live text onto the old row", () => {
+  it("keeps same-speaker language live text typing on the open row", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello there.", { id: "pl1", speakerId: "1", language: "en", startMs: 0 }),
@@ -201,16 +200,16 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" في الأنف", { id: "pl3", speakerId: "1", language: "ar", startMs: 150, isFinal: false }),
       ]),
     ]);
-    expect(state.pendingSpeakerFinals).toHaveLength(1);
+    expect(state.pendingSpeakerFinals).toHaveLength(0);
     expect(state.finalizedUtterances).toHaveLength(0);
     const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
     const active = proj.rows.find(r => !r.finalized);
-    expect(active?.committedText).toBe("Hello there.");
-    expect(active?.liveText).toBe("");
-    expect(active?.committedText + (active?.liveText ?? "")).not.toMatch(/عندي|الأنف/);
+    expect(active?.committedText).toContain("Hello there.");
+    expect(active?.committedText).toMatch(/عندي/);
+    expect(active?.liveText).toMatch(/الأنف/);
   });
 
-  it("opens a new bubble after two consecutive speaker-agreeing finals (same language)", () => {
+  it("opens a new bubble immediately then continues same-speaker finals on it", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "t1", speakerId: "1", language: "en", startMs: 0 }),
@@ -222,7 +221,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" have pain", { id: "t3", speakerId: "2", language: "en", startMs: 200 }),
       ]),
     ]);
-    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+    expect(state.finalizedUtterances).toHaveLength(1);
     expect(state.activeUtterance?.speaker).toBe("2");
     const activeText = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
     expect(activeText).toContain("I");
@@ -230,7 +229,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText?.trimStart().startsWith("I")).toBe(true);
   });
 
-  it("absorbs a rejected speaker flicker back onto the old row", () => {
+  it("treats a brief speaker flip then return as a real handoff (N=1 Aug)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello doctor.", { id: "ab1", speakerId: "1", language: "en", startMs: 0 }),
@@ -242,13 +241,10 @@ describe("chunk-v2 Original integrity (restored path)", () => {
         tok(" please", { id: "ab3", speakerId: "1", language: "en", startMs: 200 }),
       ]),
     ]);
-    expect(state.pendingSpeakerFinals).toHaveLength(0);
-    expect(state.finalizedUtterances).toHaveLength(0);
+    // August opens on first speaker change; return to speaker 1 opens another row.
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(2);
     expect(state.activeUtterance?.speaker).toBe("1");
-    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
-    expect(text).toContain("Hello doctor.");
-    expect(text).toContain("wait");
-    expect(text).toContain("please");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain("please");
   });
 
   it("keeps continuous same-speaker same-language speech in one bubble", () => {
@@ -379,7 +375,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.committedText).toContain("feeling");
   });
 
-  it("opens a new bubble for a language switch (same or different speaker)", () => {
+  it("keeps same-speaker language switch on one bubble (factura → Perfect)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Sí, la factura es correcta.", {
@@ -411,12 +407,10 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     ]);
     const frozen = freezeActiveUtterance(state);
     const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
-    const esRow = proj.rows.find(r => r.committedText.includes("factura"));
-    const enRow = proj.rows.find(r => r.committedText.includes("503"));
-    expect(esRow?.committedText).toContain("Sí, la factura es correcta.");
-    expect(esRow?.committedText ?? "").not.toContain("Perfect");
-    expect(enRow?.committedText).toContain("Perfect");
-    expect(enRow?.committedText).toContain("503");
+    expect(proj.rows).toHaveLength(1);
+    expect(proj.rows[0]?.committedText).toContain("Sí, la factura es correcta.");
+    expect(proj.rows[0]?.committedText).toContain("Perfect");
+    expect(proj.rows[0]?.committedText).toContain("503");
   });
 
   it("does not pause-split an acknowledgement-only row", () => {
@@ -528,7 +522,7 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows[0]?.committedText).toBe("Hello. Good morning.");
   });
 
-  it("still opens a new bubble for a language switch after a finished word", () => {
+  it("keeps language switch after a finished word on the same bubble (Aug)", () => {
     const state = reduceAll([
       frame(1, [
         tok("Hello.", { id: "k1", speakerId: "1", language: "en", startMs: 0 }),
@@ -542,9 +536,9 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     ]);
     const frozen = freezeActiveUtterance(state);
     const proj = projectTranscriptView(frozen, { chunkV2NativeTranslate: true });
-    expect(proj.rows.length).toBeGreaterThanOrEqual(2);
-    expect(proj.rows[0]?.committedText).toBe("Hello.");
-    expect(proj.rows[1]?.committedText).toContain("ألم");
+    expect(proj.rows).toHaveLength(1);
+    expect(proj.rows[0]?.committedText).toContain("Hello.");
+    expect(proj.rows[0]?.committedText).toContain("ألم");
   });
 
   it("does not open a new bubble on mid-word same-speaker language flicker", () => {

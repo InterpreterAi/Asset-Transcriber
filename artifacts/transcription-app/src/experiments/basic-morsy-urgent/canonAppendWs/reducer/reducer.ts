@@ -8,7 +8,6 @@ import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-const
 import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
   appendFinalToActive,
-  confirmPendingBreakToActive,
   freezeActiveUtterance,
   openActiveUtterance,
   rowBreaksForLanguage,
@@ -20,7 +19,7 @@ import {
   translationPreviewTextFromFrame,
   translationTextFromFrame,
   inferTailSpeakerLang,
-  nonFinalsForChunkV2ActiveRow,
+  nonFinalsForRow,
 } from "./soniox-frame-split";
 import { reduceCanonAppendWsNonChunkV2 } from "./reducer.non-chunk-v2";
 
@@ -31,22 +30,6 @@ export type ReduceContext = {
   chunkV2NativeTranslate?: boolean;
 };
 
-/**
- * Same N as non-chunk `SPEAKER_BREAK_CONFIRM_TOKENS` — two consecutive finals
- * must agree on the new language/speaker before the row freezes.
- */
-const CHUNK_V2_BREAK_CONFIRM_TOKENS = 2;
-
-function langBase(s: string | undefined): string | undefined {
-  const t = s?.trim();
-  return t?.length ? t.split("-")[0]!.toLowerCase() : undefined;
-}
-
-function speakerId(s: string | undefined): string | undefined {
-  const t = s?.trim();
-  return t?.length ? t : undefined;
-}
-
 function clearChunkV2Pending(state: EngineState): EngineState {
   return {
     ...state,
@@ -55,26 +38,6 @@ function clearChunkV2Pending(state: EngineState): EngineState {
     pendingSpeakerFinals: [],
     speakerChangeConsecutive: 0,
   };
-}
-
-/** False-alarm buffer: rewrite pending finals onto the open row's labels. */
-function absorbChunkV2PendingIntoActive(state: EngineState): EngineState {
-  const pending = state.pendingSpeakerFinals;
-  const au = state.activeUtterance;
-  if (!pending.length || !au) return clearChunkV2Pending(state);
-  let next = clearChunkV2Pending(state);
-  for (const tok of pending) {
-    next = appendFinalToActive(
-      next,
-      {
-        ...tok,
-        speaker: au.speaker,
-        language: au.language ?? tok.language,
-      },
-      { preserveEstablishedSpeaker: true },
-    );
-  }
-  return next;
 }
 
 function tokenAudioStartMs(t: CanonToken): number | undefined {
@@ -110,7 +73,6 @@ function maxTokenAudioEndMs(tokens: readonly CanonToken[]): number | undefined {
 /**
  * Same speaker, speech resumes after a long gap in the *recording* — new row.
  * Gap is Soniox audio time (incoming start_ms − prior end_ms), never client wall-clock.
- * Delivery latency / endpoint-only quiet must not look like silence.
  */
 function tryLongPauseSplit(
   state: EngineState,
@@ -126,9 +88,7 @@ function tryLongPauseSplit(
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
   if (!hasContent) return state;
   const committed = utteranceCommittedText(au);
-  // Do not pause-split a row that is still only a short acknowledgement.
   if (isChunkV2ShortAcknowledgement(committed)) return state;
-  // Do not freeze while the last finalized token is still mid-word.
   if (isChunkV2OpenRowMidWord(committed)) return state;
   return {
     ...freezeActiveUtterance(state),
@@ -138,11 +98,11 @@ function tryLongPauseSplit(
 }
 
 /**
- * Restored chunk-v2 Soniox row contract (4feb41b4 + Original integrity):
- * - Append finals once; replace non-finals each frame
- * - Language / speaker flips require N consecutive agreeing finals (same N as non-chunk)
- * - Mid-word guard still absorbs flicker; short language-switch acks use normal debounce
- * - Never overwrite established row speaker labels
+ * August / a029ed6a Soniox bubble timing (chunk-v2):
+ * - New speaker → freeze immediately and open a new colored row (N=1)
+ * - Language-only code-switch (same speaker) → stay on the same row
+ * - Same speaker long audio pause → new row
+ * - Live non-finals keep typing on the open row (no pending buffer / chunk dump)
  */
 function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: ReduceContext): EngineState {
   const wallMs = ctx.wallMs;
@@ -196,91 +156,37 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     next = { ...next, seenFinalTokenIds: [...next.seenFinalTokenIds, ct.token_id] };
     ctx.ledger.appendFinalCanon(ct);
 
-    const openMidWord = next.activeUtterance
-      ? isChunkV2OpenRowMidWord(utteranceCommittedText(next.activeUtterance))
-      : false;
-
     if (next.activeUtterance) {
+      const openMidWord = isChunkV2OpenRowMidWord(utteranceCommittedText(next.activeUtterance));
       const langBreak = rowBreaksForLanguage(next.activeUtterance, ct);
-      const spkBreak = !langBreak && rowBreaksForSpeaker(next.activeUtterance, ct);
-      // Mid-word only: absorb LID/speaker flicker into the open row.
-      // Do NOT special-case short acks on language break — that glued real
-      // handoff words ("Perfect.", "Okay.") onto the previous language's bubble.
-      // Short flicker still clears when the next final returns to the open language
-      // (pending absorb below).
-      if (openMidWord && (langBreak || spkBreak)) {
-        next = absorbChunkV2PendingIntoActive(next);
-      } else if (langBreak) {
-        const tlg = langBase(ct.language);
-        if (tlg && next.pendingLanguage === tlg) {
-          const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
-          if (consecutive >= CHUNK_V2_BREAK_CONFIRM_TOKENS) {
-            next = {
-              ...next,
-              pendingLanguage: tlg,
-              pendingSpeakerId: undefined,
-              pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
-              speakerChangeConsecutive: consecutive,
-              endpointPending: false,
-              endpointPendingAtMs: 0,
-            };
-            next = confirmPendingBreakToActive(next);
-            continue;
-          }
-          next = {
-            ...next,
-            pendingLanguage: tlg,
-            pendingSpeakerId: undefined,
-            pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
-            speakerChangeConsecutive: consecutive,
-          };
-          continue;
-        }
+      // Independent of language — reducer decides handoff vs code-switch.
+      const spkBreak = rowBreaksForSpeaker(next.activeUtterance, ct);
+
+      if (openMidWord && langBreak && !spkBreak) {
+        // Mid-word LID flicker only — never swallow a real speaker handoff.
+        next = clearChunkV2Pending(next);
+      } else if (langBreak && spkBreak) {
+        // Genuine handoff: different language AND different speaker.
+        next = freezeActiveUtterance(next);
         next = {
           ...next,
-          pendingLanguage: tlg,
-          pendingSpeakerId: undefined,
-          pendingSpeakerFinals: [ct],
-          speakerChangeConsecutive: 1,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+          speakerChangeConsecutive: 0,
+          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
         };
-        continue;
       } else if (spkBreak) {
-        const sid = speakerId(ct.speaker);
-        if (sid && next.pendingSpeakerId === sid && !next.pendingLanguage) {
-          const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
-          if (consecutive >= CHUNK_V2_BREAK_CONFIRM_TOKENS) {
-            next = {
-              ...next,
-              pendingSpeakerId: sid,
-              pendingLanguage: undefined,
-              pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
-              speakerChangeConsecutive: consecutive,
-              endpointPending: false,
-              endpointPendingAtMs: 0,
-            };
-            next = confirmPendingBreakToActive(next);
-            continue;
-          }
-          next = {
-            ...next,
-            pendingSpeakerId: sid,
-            pendingLanguage: undefined,
-            pendingSpeakerFinals: [...next.pendingSpeakerFinals, ct],
-            speakerChangeConsecutive: consecutive,
-          };
-          continue;
-        }
+        // New speaker (same language) — immediate new colored segment (Aug 25 / a029).
+        next = freezeActiveUtterance(next);
         next = {
           ...next,
-          pendingSpeakerId: sid,
-          pendingLanguage: undefined,
-          pendingSpeakerFinals: [ct],
-          speakerChangeConsecutive: 1,
+          endpointPending: false,
+          endpointPendingAtMs: 0,
+          speakerChangeConsecutive: 0,
+          metrics: { ...next.metrics, speakerFlipCount: next.metrics.speakerFlipCount + 1 },
         };
-        continue;
-      } else if (next.pendingSpeakerFinals.length) {
-        next = absorbChunkV2PendingIntoActive(next);
       } else {
+        // Same speaker (incl. language-only code-switch): stay on this row.
         next = clearChunkV2Pending(next);
       }
     }
@@ -296,22 +202,21 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
 
   const tailLang = tail.language?.split("-")[0]?.toLowerCase();
   const activeLang = next.activeUtterance?.language;
-  const nfJoined = frameNonFinals.map(t => t.text).join("");
   const openCommitted = next.activeUtterance
     ? utteranceCommittedText(next.activeUtterance)
     : "";
-  // While N=2 debounce is holding a break, do not force-freeze from NF language
-  // tail — wait for confirming finals. Language switches still open bubbles via
-  // the final-token path above.
-  const breakPending = next.pendingSpeakerFinals.length > 0;
+  // Same-speaker language flicker in non-finals must not shatter the row
+  // (Aug kept code-switch on one bubble; NF lang freeze only when speaker also differs).
+  const activeSp = next.activeUtterance?.speaker?.trim();
+  const tailSp = tail.speaker?.trim();
+  const speakerChangedInNf = Boolean(activeSp && tailSp && activeSp !== tailSp);
   if (
-    !breakPending &&
+    speakerChangedInNf &&
     activeLang &&
     tailLang &&
     tailLang !== activeLang &&
     frameNonFinals.length > 0 &&
     openCommitted.trim().length > 0 &&
-    !isChunkV2ShortAcknowledgement(nfJoined) &&
     !isChunkV2OpenRowMidWord(openCommitted)
   ) {
     next = freezeActiveUtterance(next);
@@ -331,13 +236,7 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
         ...row,
         speaker: row.speaker ?? tail.speaker,
         language: row.language ?? tail.language,
-        nonFinalTokens: nonFinalsForChunkV2ActiveRow(frameNonFinals, {
-          rowSpeaker,
-          rowLanguage: row.language ?? tail.language,
-          pendingSpeakerId: next.pendingSpeakerId,
-          pendingLanguage: next.pendingLanguage,
-          pendingFinalsCount: next.pendingSpeakerFinals.length,
-        }),
+        nonFinalTokens: nonFinalsForRow(frameNonFinals, rowSpeaker),
       },
     };
   }

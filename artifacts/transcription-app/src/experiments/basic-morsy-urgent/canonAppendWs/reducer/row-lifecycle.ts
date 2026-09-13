@@ -19,8 +19,8 @@ function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
 }
 
 /**
- * Language changed → new bubble (N=2 debounce in reducer).
- * Same speaker code-switching still opens a new bubble — that is intentional.
+ * Language changed — used with speaker break in the reducer.
+ * Language alone (same speaker code-switch) is NOT a bubble boundary (Aug / a029).
  */
 export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
@@ -29,10 +29,12 @@ export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): bool
   return !!(rlg && tlg && rlg !== tlg);
 }
 
-/** Different speaker, same language → new bubble (N=2 debounce in reducer). */
+/**
+ * Speaker changed — evaluated independently of language.
+ * Reducer opens a new colored bubble immediately when this is true (Aug 25 / a029).
+ */
 export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
-  if (rowBreaksForLanguage(row, tok)) return false;
   const rsp = norm(row.speaker);
   const tsp = norm(tok.speaker);
   return !!(rsp && tsp && rsp !== tsp);
