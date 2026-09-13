@@ -13,7 +13,7 @@ import type { ChunkV2GlossaryEntry } from "./chunk-v2-glossary";
 import { normalizeChunkV2StandardRegister } from "./chunk-v2-standard-register";
 import { applyCriticalMedicalNativeRepair } from "./critical-medical-terms";
 import { applyCriticalClaimNativeRepair } from "./critical-claim-terms";
-import { repairArabicInterpreterAddress } from "./arabic-interpreter-address";
+import { repairArabicSessionGender } from "./arabic-interpreter-address";
 
 export type GlossaryPostProcessOpts = {
   originalText?: string;
@@ -75,7 +75,7 @@ export function applyGlossaryPostProcess(
     out = applyCriticalClaimNativeRepair(out, o.originalText, targetLang);
     const src = o.rowSourceLanguage.split("-")[0]!.toLowerCase();
     if (targetLang === "ar" && src !== "ar") {
-      out = repairArabicInterpreterAddress(out, o.originalText);
+      out = repairArabicSessionGender(out, o.originalText);
     }
   }
 

@@ -1,15 +1,16 @@
 /**
- * Arabic 2nd-person gender when English addresses the *interpreter*.
+ * Arabic gender repairs for interpreter sessions (EN→AR).
  *
- * Soniox often defaults "you" → feminine (منكِ / تترجمي) even when the
- * interpreter is male. Patient-directed "you" must keep clinical gender —
- * only rewrite clear interpreter-directed lines.
- *
- * Default: app interpreter is male until a UI preference exists.
+ * 1) Interpreter address: Soniox often marks "you" feminine; default male.
+ * 2) Ungendered "patient": Soniox often emits مريضة from "a patient" with no
+ *    she/her — use masculine/generic مريض unless English marks a female patient.
  */
 
 const INTERPRETER_DIRECTED_EN =
   /\b(?:translat(?:e|es|ed|ing|ion)?|interpret(?:er|s|ed|ing)?|relay(?:s|ed|ing)?|let (?:her|him|them) know|tell (?:her|him|them)|ask (?:her|him|them)|inform (?:her|him|them)|need you to|want you to|could you|can you(?: please)?|if you could|please (?:tell|ask|let|inform|translate|interpret)|introduce yourself)\b/i;
+
+const FEMALE_PATIENT_EN =
+  /\b(?:she|her|hers|herself|female\s+patient|woman\s+patient|lady\s+patient|pregnant(?:\s+patient)?|Ms\.|Mrs\.)\b/i;
 
 /** Feminine 2nd-person / imperative forms → masculine (interpreter default). */
 const FEMININE_TO_MASCULINE: readonly [RegExp, string][] = [
@@ -36,8 +37,21 @@ const FEMININE_TO_MASCULINE: readonly [RegExp, string][] = [
   [/بنفسكِ/gu, "بنفسك"],
 ];
 
+/** Feminine patient noun → masculine/generic when English did not mark female. */
+const FEMALE_PATIENT_NOUN: readonly [RegExp, string][] = [
+  [/للمريضة/gu, "للمريض"],
+  [/بالمريضة/gu, "بالمريض"],
+  [/والمريضة/gu, "والمريض"],
+  [/المريضة/gu, "المريض"],
+  [/مريضة/gu, "مريض"],
+];
+
 export function isInterpreterDirectedEnglish(original: string): boolean {
   return INTERPRETER_DIRECTED_EN.test(original);
+}
+
+export function englishMarksFemalePatient(original: string): boolean {
+  return FEMALE_PATIENT_EN.test(original);
 }
 
 /**
@@ -55,5 +69,33 @@ export function repairArabicInterpreterAddress(
   for (const [re, rep] of FEMININE_TO_MASCULINE) {
     out = out.replace(re, rep);
   }
+  return out;
+}
+
+/**
+ * When English says "a/the/my patient" with no female markers, do not keep
+ * Soniox's default مريضة — use مريض.
+ */
+export function repairArabicUngenderedPatient(
+  translation: string,
+  originalEnglish: string,
+): string {
+  if (!translation.trim()) return translation;
+  if (!/\bpatients?\b/i.test(originalEnglish)) return translation;
+  if (englishMarksFemalePatient(originalEnglish)) return translation;
+  let out = translation;
+  for (const [re, rep] of FEMALE_PATIENT_NOUN) {
+    out = out.replace(re, rep);
+  }
+  return out;
+}
+
+/** Apply all EN→AR Arabic gender session repairs. */
+export function repairArabicSessionGender(
+  translation: string,
+  originalEnglish: string,
+): string {
+  let out = repairArabicInterpreterAddress(translation, originalEnglish);
+  out = repairArabicUngenderedPatient(out, originalEnglish);
   return out;
 }

@@ -342,7 +342,12 @@ export function getInterpreterContext(
             {
               key: "arabic_interpreter_address",
               value:
-                "The live interpreter operating this app is male. When a speaker addresses the interpreter as YOU (translate for me, tell her/him, let them know, ask her, introduce yourself), use masculine 2nd-person Arabic: أنتَ، منك، لك، تترجم، ترجم، قل، أخبر، اسأل — never default the interpreter to feminine (منكِ، تترجمي، قولي). Patient/clinician gender still follows clear clinical context (e.g. female patient → ألمكِ).",
+                "The live interpreter operating this app is male. When a speaker addresses the interpreter as YOU (translate for me, tell her/him, let them know, ask her, introduce yourself), use masculine 2nd-person Arabic: أنتَ، منك، لك، تترجم، ترجم، قل، أخبر، اسأل — never default the interpreter to feminine (منكِ، تترجمي، قولي).",
+            },
+            {
+              key: "arabic_patient_gender",
+              value:
+                "Do not assume a female patient from English 'a patient' / 'the patient' / 'my patient' alone. Use masculine/generic مريض / المريض / لمريض unless English clearly marks female (she, her, female patient, woman, pregnant, Ms., Mrs.). Keep feminine مريضة only with clear female markers.",
             },
           ]
         : []),
