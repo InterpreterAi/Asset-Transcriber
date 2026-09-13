@@ -156,6 +156,28 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(activeText).toContain("الأنف");
   });
 
+  it("opens a new bubble when the same-language second speaker arrives on a mixed frame", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("Hello doctor.", { id: "m1", speakerId: "1", language: "en", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok("Hello doctor.", { id: "m1", speakerId: "1", language: "en", startMs: 0 }),
+        tok(" Yeah I know.", { id: "m2", speakerId: "2", language: "en", startMs: 200 }),
+        tok(" right", { id: "m3", speakerId: "2", language: "en", startMs: 280, isFinal: false }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(1);
+    expect(state.finalizedUtterances[0]?.speaker).toBe("1");
+    expect(state.activeUtterance?.speaker).toBe("2");
+    const proj = projectTranscriptView(state, { chunkV2NativeTranslate: true });
+    expect(proj.rows).toHaveLength(2);
+    expect(proj.rows[0]?.speaker).toBe("1");
+    expect(proj.rows[1]?.speaker).toBe("2");
+    expect(proj.rows[1]?.committedText).toContain("Yeah");
+    expect(proj.rows[1]?.liveText).toContain("right");
+  });
+
   it("opens a new colored bubble on the first new-speaker final (live typing)", () => {
     const state = reduceAll([
       frame(1, [

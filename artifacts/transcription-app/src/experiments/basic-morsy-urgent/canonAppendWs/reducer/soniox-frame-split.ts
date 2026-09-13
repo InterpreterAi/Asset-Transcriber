@@ -96,8 +96,10 @@ function coalesceSpeakerRuns(runs: SpeakerRun[]): SpeakerRun[] {
 }
 
 /**
- * Collapse short A→B→A / leading / trailing speaker flicker inside one frame
- * so a one-token diarization glitch does not look like a real handoff.
+ * Collapse only interior one-token A→B→A flicker inside one frame.
+ * Never rewrite a leading or trailing speaker run — two same-language
+ * speakers (e.g. two males) usually arrive as a short new-speaker tail
+ * on a frame that still includes the previous speaker's finals.
  */
 export function stabilizeCanonSpeakers(tokens: CanonToken[]): CanonToken[] {
   const n = tokens.length;
@@ -128,24 +130,16 @@ export function stabilizeCanonSpeakers(tokens: CanonToken[]): CanonToken[] {
     for (let i = r.start; i < r.end; i++) c += (tokens[i]!.text ?? "").length;
     return c;
   };
-  const isEphemeral = (r: SpeakerRun): boolean => r.end - r.start < 3 && runChars(r) < 28;
+  const isInteriorFlicker = (r: SpeakerRun): boolean => r.end - r.start === 1 && runChars(r) < 16;
   for (let pass = 0; pass < 4; pass++) {
     let changed = false;
-    for (let k = 0; k < runs.length; k++) {
+    for (let k = 1; k < runs.length - 1; k++) {
       const r = runs[k]!;
-      if (!isEphemeral(r)) continue;
-      if (k > 0 && k < runs.length - 1) {
-        const prev = runs[k - 1]!;
-        const next = runs[k + 1]!;
-        if (prev.sp === next.sp && r.sp !== prev.sp) {
-          r.sp = prev.sp;
-          changed = true;
-        }
-      } else if (k === 0 && runs.length > 1 && r.sp !== runs[1]!.sp) {
-        r.sp = runs[1]!.sp;
-        changed = true;
-      } else if (k === runs.length - 1 && k > 0 && r.sp !== runs[k - 1]!.sp) {
-        r.sp = runs[k - 1]!.sp;
+      if (!isInteriorFlicker(r)) continue;
+      const prev = runs[k - 1]!;
+      const next = runs[k + 1]!;
+      if (prev.sp === next.sp && r.sp !== prev.sp) {
+        r.sp = prev.sp;
         changed = true;
       }
     }
