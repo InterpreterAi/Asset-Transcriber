@@ -30,9 +30,10 @@ describe("joinCanonTextParts", () => {
     expect(joinCanonTextParts(["", "only live"])).toBe("only live");
   });
 
-  it("inserts a space between Arabic words when Soniox omitted it", () => {
-    expect(joinCanonTextParts(["تتأكد", "هذه"])).toBe("تتأكد هذه");
-    expect(joinCanonText(["تتأكد", "أنها"].map(tok))).toBe("تتأكد أنها");
+  it("does not invent spaces between Arabic tokens — Soniox owns spacing", () => {
+    expect(joinCanonTextParts(["تتأكد", "هذه"])).toBe("تتأكدهذه");
+    expect(joinCanonText(["مش", "عايزين"].map(tok))).toBe("مشعايزين");
+    expect(joinCanonTextParts(["م", "ش", " ", "ع"])).toBe("مش ع");
   });
 
   it("does not insert a space inside Latin subwords (Soniox morn+ing)", () => {
