@@ -7,10 +7,10 @@ import {
 import { format, parseISO } from "date-fns";
 import {
   Activity, TrendingUp, Clock, DollarSign, Users, Zap, RefreshCw,
-  Mic, Monitor, ChevronDown, Calendar,
+  Mic, Monitor, Calendar, CreditCard,
 } from "lucide-react";
 import { Card } from "@/components/ui-components";
-import { adminTranslationStack, isTrialLikePlanType } from "@/lib/utils";
+import { adminTranslationStack, isTrialLikePlanType, workspacePlanTierKey } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -50,6 +50,28 @@ interface AnalyticsData {
     totalMinutes: number;
     planType: string;
   }[];
+  paidSubscribersMonth?: {
+    includesWeekends: boolean;
+    calendarMonthDaysTotal: number;
+    calendarMonthDaysElapsed: number;
+    calendarMonthWeekdays: number;
+    calendarMonthWeekendDays: number;
+    paidUsers: number;
+    totalHoursUsed: number;
+    totalEstSonioxCostUsd: number;
+    sttCostPerMin: number;
+    translationCostPerMin: number;
+    users: {
+      username: string;
+      email: string | null;
+      planType: string;
+      dailyCapHours: number;
+      hoursUsed: number;
+      estSttUsd: number;
+      estTranslationUsd: number;
+      estTotalUsd: number;
+    }[];
+  };
 }
 
 interface ExtendedData {
@@ -113,6 +135,20 @@ function fmtUsd(n: number) {
   if (n === 0) return "$0.00";
   if (n < 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(2)}`;
+}
+
+function paidPlanLabel(planType: string): string {
+  const t = workspacePlanTierKey(planType);
+  if (t === "basic") return "Basic";
+  if (t === "professional") return "Professional";
+  if (t === "platinum") return "Platinum";
+  return "Paid";
+}
+
+function fmtDailyCapHours(h: number): string {
+  if (h >= 150) return "Unlimited-style";
+  if (h <= 0) return "—";
+  return `${h}h / day`;
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -282,6 +318,7 @@ export default function AdminAnalytics() {
 
   const { userGrowth, dau, usageStats, conversion, topUsers } = data;
   const business = data.businessMetrics;
+  const paidMonth = data.paidSubscribersMonth;
 
   const conversionPie = [
     { name: "Paid",  value: conversion.paidUsers  },
@@ -312,6 +349,116 @@ export default function AdminAnalytics() {
           Refresh now
         </button>
       </div>
+
+      {/* ── Paid subscribers (calendar month) ────────────────────────────── */}
+      <section className="rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+        <SectionTitle>
+          <CreditCard className="w-4 h-4 text-emerald-600 dark:text-emerald-300" />
+          Paid subscribers — this calendar month
+        </SectionTitle>
+        <p className="text-[11px] text-muted-foreground mt-1 mb-3">
+          Paying accounts only (no trials, no admins). Hours and estimated Soniox STT
+          (${paidMonth?.sttCostPerMin ?? 0.0025}/min) + native translation
+          (${paidMonth?.translationCostPerMin ?? 0.001}/min). Saturday and Sunday are
+          included (full week). America/New_York calendar month.
+        </p>
+        {paidMonth ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <StatCard
+                icon={<Users className="w-4.5 h-4.5" />}
+                label="Paid subscribers"
+                value={paidMonth.paidUsers}
+                sub="Basic / Pro / Platinum"
+                color="bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200"
+              />
+              <StatCard
+                icon={<Clock className="w-4.5 h-4.5" />}
+                label="Hours used"
+                value={`${paidMonth.totalHoursUsed} h`}
+                sub={`${paidMonth.calendarMonthDaysElapsed} of ${paidMonth.calendarMonthDaysTotal} days elapsed`}
+                color="bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"
+              />
+              <StatCard
+                icon={<DollarSign className="w-4.5 h-4.5" />}
+                label="Est. Soniox cost"
+                value={fmtUsd(paidMonth.totalEstSonioxCostUsd)}
+                sub="STT + native translation"
+                color="bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
+              />
+              <StatCard
+                icon={<Calendar className="w-4.5 h-4.5" />}
+                label="Days this month"
+                value={paidMonth.calendarMonthDaysTotal}
+                sub={`${paidMonth.calendarMonthWeekdays} weekdays · ${paidMonth.calendarMonthWeekendDays} weekend`}
+                color="bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-200"
+              />
+              <StatCard
+                icon={<Calendar className="w-4.5 h-4.5" />}
+                label="Weekends included"
+                value={paidMonth.includesWeekends ? "Yes" : "No"}
+                sub="Sat + Sun count toward the month"
+                color="bg-teal-50 text-teal-700 dark:bg-teal-500/15 dark:text-teal-200"
+              />
+            </div>
+            <Card className="border-border mt-4 overflow-hidden">
+              {paidMonth.users.length === 0 ? (
+                <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
+                  No paid subscribers yet
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[720px]">
+                    <thead className="bg-gray-50 dark:bg-muted text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                      <tr>
+                        <th className="px-4 py-2 font-semibold text-left">#</th>
+                        <th className="px-4 py-2 font-semibold text-left">Subscriber</th>
+                        <th className="px-4 py-2 font-semibold text-left">Plan</th>
+                        <th className="px-4 py-2 font-semibold text-right">Daily cap</th>
+                        <th className="px-4 py-2 font-semibold text-right">Hours this month</th>
+                        <th className="px-4 py-2 font-semibold text-right">STT $</th>
+                        <th className="px-4 py-2 font-semibold text-right">Translation $</th>
+                        <th className="px-4 py-2 font-semibold text-right">Est. total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {paidMonth.users.map((u, i) => (
+                        <tr key={`${u.username}-${u.email ?? i}`} className="hover:bg-muted/30">
+                          <td className="px-4 py-2.5 text-muted-foreground text-xs font-mono">{i + 1}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="font-medium text-sm">{u.username}</div>
+                            {u.email && (
+                              <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{u.email}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200">
+                              {paidPlanLabel(u.planType)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs text-muted-foreground tabular-nums">
+                            {fmtDailyCapHours(u.dailyCapHours)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-sm text-primary tabular-nums">
+                            {u.hoursUsed} h
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">{fmtUsd(u.estSttUsd)}</td>
+                          <td className="px-4 py-2.5 text-right text-xs tabular-nums">{fmtUsd(u.estTranslationUsd)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-sm tabular-nums">
+                            {fmtUsd(u.estTotalUsd)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Paid subscriber rollup is not on this server build yet. Refresh after deploy.</p>
+        )}
+      </section>
 
       {/* ── Global time filter ───────────────────────────────────────────── */}
       <section>

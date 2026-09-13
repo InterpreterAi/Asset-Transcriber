@@ -2409,6 +2409,17 @@ export default function Admin() {
                   <p className="font-semibold text-[11px] uppercase tracking-wide text-emerald-900/90 dark:text-emerald-100">
                     Paid users — billing window (admin only)
                   </p>
+                  <p className="text-[10px] text-emerald-900/70 dark:text-emerald-200/70 leading-snug">
+                    Full per-subscriber hours, days, weekends, and Soniox cost table is on the{" "}
+                    <button
+                      type="button"
+                      onClick={() => setMainTab("analytics")}
+                      className="underline font-semibold hover:no-underline"
+                    >
+                      Analytics
+                    </button>
+                    {" "}tab.
+                  </p>
                   {paidBillingRollup && (
                     <>
                       <p className="text-[11px] leading-snug text-emerald-900/85 dark:text-emerald-100/90">

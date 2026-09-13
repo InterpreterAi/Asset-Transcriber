@@ -1560,6 +1560,74 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
   const ltvEstimate = churnPercentMonthly > 0 ? +(activeMrr / churnPercentMonthly).toFixed(2) : null;
   const estimatedGrossMarginPct = activeMrr > 0 ? +((1 - Number(realCostMonth) / activeMrr) * 100).toFixed(1) : null;
 
+  const monthEndNy = new Date(startOfMonthNy);
+  monthEndNy.setMonth(monthEndNy.getMonth() + 1);
+  const calendarMonthDays = Math.max(
+    1,
+    Math.ceil((monthEndNy.getTime() - startOfMonthNy.getTime()) / 86_400_000),
+  );
+  const calendarMonthWeekdays = countAppTimezoneWeekdaysInclusive(
+    startOfMonthNy,
+    new Date(monthEndNy.getTime() - 1),
+  );
+  const calendarMonthWeekendDays = Math.max(0, calendarMonthDays - calendarMonthWeekdays);
+  const calendarMonthDaysElapsed = Math.min(
+    calendarMonthDays,
+    Math.max(1, Math.ceil((now.getTime() - startOfMonthNy.getTime()) / 86_400_000)),
+  );
+
+  const paidSubscriberRows = await db
+    .select({
+      username: usersTable.username,
+      email: usersTable.email,
+      planType: usersTable.planType,
+      dailyLimitMinutes: usersTable.dailyLimitMinutes,
+      minutesMonth: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN ${sessionsTable.startedAt} >= ${startOfMonthNy}
+            THEN ${effectiveSessionSecondsSql()}
+          ELSE 0
+        END), 0) / 60.0`,
+    })
+    .from(usersTable)
+    .leftJoin(sessionsTable, eq(sessionsTable.userId, usersTable.id))
+    .where(and(
+      eq(usersTable.isAdmin, false),
+      notInArray(usersTable.planType, [...TRIAL_LIKE_PLAN_TYPES]),
+    ))
+    .groupBy(
+      usersTable.id,
+      usersTable.username,
+      usersTable.email,
+      usersTable.planType,
+      usersTable.dailyLimitMinutes,
+    )
+    .orderBy(desc(sql`COALESCE(SUM(CASE
+          WHEN ${sessionsTable.startedAt} >= ${startOfMonthNy}
+            THEN ${effectiveSessionSecondsSql()}
+          ELSE 0
+        END), 0)`));
+
+  const paidSubscriberUsers = paidSubscriberRows.map((u) => {
+    const minutes = Math.max(0, Number(u.minutesMonth) || 0);
+    const hours = minutes / 60;
+    const sttUsd = minutes * SONIOX_STT_COST_PER_MIN;
+    const txUsd = minutes * SONIOX_NATIVE_TRANSLATION_COST_PER_MIN;
+    const dailyCapMin = Number(u.dailyLimitMinutes) || 0;
+    return {
+      username: u.username,
+      email: u.email ?? null,
+      planType: u.planType,
+      dailyCapHours: Math.round((dailyCapMin / 60) * 100) / 100,
+      hoursUsed: Math.round(hours * 10) / 10,
+      estSttUsd: Math.round((sttUsd + Number.EPSILON) * 100) / 100,
+      estTranslationUsd: Math.round((txUsd + Number.EPSILON) * 100) / 100,
+      estTotalUsd: Math.round((sttUsd + txUsd + Number.EPSILON) * 100) / 100,
+    };
+  });
+  const paidSubscriberHours = paidSubscriberUsers.reduce((s, u) => s + u.hoursUsed, 0);
+  const paidSubscriberCost = paidSubscriberUsers.reduce((s, u) => s + u.estTotalUsd, 0);
+
   res.json({
     userGrowth:  growthChart,
     dau:         dauChart,
@@ -1595,6 +1663,19 @@ ${sql.raw(effectiveSessionSecondsSqlAliasS())}
       totalMinutes: +Number(u.totalMinutes).toFixed(1),
       planType:     u.planType,
     })),
+    paidSubscribersMonth: {
+      includesWeekends: true,
+      calendarMonthDaysTotal: calendarMonthDays,
+      calendarMonthDaysElapsed,
+      calendarMonthWeekdays,
+      calendarMonthWeekendDays,
+      paidUsers: paidSubscriberUsers.length,
+      totalHoursUsed: Math.round(paidSubscriberHours * 10) / 10,
+      totalEstSonioxCostUsd: Math.round(paidSubscriberCost * 100) / 100,
+      sttCostPerMin: SONIOX_STT_COST_PER_MIN,
+      translationCostPerMin: SONIOX_NATIVE_TRANSLATION_COST_PER_MIN,
+      users: paidSubscriberUsers,
+    },
   });
 });
 
