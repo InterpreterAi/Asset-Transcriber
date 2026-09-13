@@ -348,12 +348,12 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     let state = createInitialEngineState();
     state = reduceCanonAppendWs(
       state,
-      frame(1, [tok("Okay.", { id: "i1", speakerId: "1", language: "en", startMs: 0 })]),
+      frame(1, [tok("Okay.", { id: "i1", speakerId: "1", language: "en", startMs: 0, endMs: 80 })]),
       { ledger, wallMs: 1000, chunkV2NativeTranslate: true, sameSpeakerLongPauseSplitMs: 100 },
     );
     state = reduceCanonAppendWs(
       state,
-      frame(2, [tok(" Good.", { id: "i2", speakerId: "1", language: "en", startMs: 50 })]),
+      frame(2, [tok(" Good.", { id: "i2", speakerId: "1", language: "en", startMs: 50, endMs: 120 })]),
       { ledger, wallMs: 5000, chunkV2NativeTranslate: true, sameSpeakerLongPauseSplitMs: 100 },
     );
     const frozen = freezeActiveUtterance(state);
@@ -361,6 +361,78 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(proj.rows).toHaveLength(1);
     expect(proj.rows[0]?.committedText).toContain("Okay.");
     expect(proj.rows[0]?.committedText).toContain("Good.");
+  });
+
+  it("does not pause-split on client delivery delay when audio gap is short", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [
+        tok("$7.2 million. The.", {
+          id: "p1",
+          speakerId: "1",
+          language: "en",
+          startMs: 1000,
+          endMs: 2500,
+        }),
+      ]),
+      { ledger, wallMs: 10_000, chunkV2NativeTranslate: true },
+    );
+    // 8s wall-clock stall (Soniox finalization latency) but only 300ms of audio silence.
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [
+        tok(" Medication dosage is 0.75 mg/kg.", {
+          id: "p2",
+          speakerId: "1",
+          language: "en",
+          startMs: 2800,
+          endMs: 4200,
+        }),
+      ]),
+      { ledger, wallMs: 18_000, chunkV2NativeTranslate: true },
+    );
+    expect(state.finalizedUtterances).toHaveLength(0);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("$7.2 million. The.");
+    expect(text).toContain("Medication dosage");
+  });
+
+  it("pause-splits when Soniox audio silence is >= threshold even if wall-clock is fast", () => {
+    const ledger = new AppendOnlyCanonLedger();
+    let state = createInitialEngineState();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [
+        tok("First sentence ends here.", {
+          id: "q1",
+          speakerId: "1",
+          language: "en",
+          startMs: 0,
+          endMs: 2000,
+        }),
+      ]),
+      { ledger, wallMs: 1000, chunkV2NativeTranslate: true },
+    );
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [
+        tok(" After a long audio pause.", {
+          id: "q2",
+          speakerId: "1",
+          language: "en",
+          startMs: 7500,
+          endMs: 9000,
+        }),
+      ]),
+      { ledger, wallMs: 1100, chunkV2NativeTranslate: true },
+    );
+    expect(state.finalizedUtterances.length).toBeGreaterThanOrEqual(1);
+    expect(utteranceCommittedText(state.finalizedUtterances[0]!)).toContain("First sentence");
+    expect(state.activeUtterance && utteranceCommittedText(state.activeUtterance)).toContain(
+      "long audio pause",
+    );
   });
 
   it('keeps "Good mor" + "ning." in one bubble across language flicker', () => {

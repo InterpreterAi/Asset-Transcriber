@@ -77,15 +77,50 @@ function absorbChunkV2PendingIntoActive(state: EngineState): EngineState {
   return next;
 }
 
-/** Same speaker, speech resumes after a long gap — new row (not every short Soniox `<end>`). */
+function tokenAudioStartMs(t: CanonToken): number | undefined {
+  return typeof t.start_ms === "number" && Number.isFinite(t.start_ms) ? t.start_ms : undefined;
+}
+
+/** Prefer end_ms; fall back to start_ms when Soniox omits end. */
+function tokenAudioEndMs(t: CanonToken): number | undefined {
+  if (typeof t.end_ms === "number" && Number.isFinite(t.end_ms)) return t.end_ms;
+  return tokenAudioStartMs(t);
+}
+
+function minTokenAudioStartMs(tokens: readonly CanonToken[]): number | undefined {
+  let min: number | undefined;
+  for (const t of tokens) {
+    const start = tokenAudioStartMs(t);
+    if (start === undefined) continue;
+    if (min === undefined || start < min) min = start;
+  }
+  return min;
+}
+
+function maxTokenAudioEndMs(tokens: readonly CanonToken[]): number | undefined {
+  let max: number | undefined;
+  for (const t of tokens) {
+    const end = tokenAudioEndMs(t);
+    if (end === undefined) continue;
+    if (max === undefined || end > max) max = end;
+  }
+  return max;
+}
+
+/**
+ * Same speaker, speech resumes after a long gap in the *recording* — new row.
+ * Gap is Soniox audio time (incoming start_ms − prior end_ms), never client wall-clock.
+ * Delivery latency / endpoint-only quiet must not look like silence.
+ */
 function tryLongPauseSplit(
   state: EngineState,
-  wallMs: number,
+  incomingAudioStartMs: number | undefined,
   pauseSplitMs: number,
 ): EngineState {
   const au = state.activeUtterance;
-  if (!au || state.lastTokenActivityWallMs <= 0) return state;
-  const gap = wallMs - state.lastTokenActivityWallMs;
+  if (!au || state.lastTokenAudioEndMs === null) return state;
+  if (incomingAudioStartMs === undefined) return state;
+  const gap = incomingAudioStartMs - state.lastTokenAudioEndMs;
   if (gap < pauseSplitMs) return state;
   const hasContent =
     utteranceCommittedText(au).trim().length > 0 || utteranceLiveText(au).trim().length > 0;
@@ -114,8 +149,9 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
-  if (frame.tokens.length > 0) {
-    next = tryLongPauseSplit(next, wallMs, pauseSplitMs);
+  const canon = canonTokensFromFrame(frame.tokens, frame.seq);
+  if (canon.length > 0) {
+    next = tryLongPauseSplit(next, minTokenAudioStartMs(canon), pauseSplitMs);
   }
 
   const finProc =
@@ -152,7 +188,6 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
         : nextFinalTranslation,
   };
 
-  const canon = canonTokensFromFrame(frame.tokens, frame.seq);
   const frameFinals = canon.filter(t => t.is_final);
   const frameNonFinals = canon.filter(t => !t.is_final);
 
@@ -307,6 +342,17 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
 
   if (frame.tokens.length > 0) {
     next = { ...next, lastTokenActivityWallMs: wallMs };
+  }
+
+  const audioEnd = maxTokenAudioEndMs(canon);
+  if (audioEnd !== undefined) {
+    next = {
+      ...next,
+      lastTokenAudioEndMs:
+        next.lastTokenAudioEndMs === null
+          ? audioEnd
+          : Math.max(next.lastTokenAudioEndMs, audioEnd),
+    };
   }
 
   if (frame.endpoint) {

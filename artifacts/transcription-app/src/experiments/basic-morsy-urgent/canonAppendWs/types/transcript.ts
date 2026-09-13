@@ -28,7 +28,13 @@ export type EngineState = {
   /** Soniox `<end>` seen — row closes only after quiet + finalized tail (Intercall-style). */
   endpointPending: boolean;
   endpointPendingAtMs: number;
+  /** Client arrival time of last frame that carried tokens (endpoint quiet / lag only). */
   lastTokenActivityWallMs: number;
+  /**
+   * Soniox audio timeline: max end_ms (else start_ms) seen on any token so far.
+   * Pause-split uses this vs the next token's start_ms — never wall-clock.
+   */
+  lastTokenAudioEndMs: number | null;
 
   metrics: {
     speakerFlipCount: number;
@@ -58,6 +64,7 @@ export function createInitialEngineState(): EngineState {
     endpointPending: false,
     endpointPendingAtMs: 0,
     lastTokenActivityWallMs: 0,
+    lastTokenAudioEndMs: null,
 
     metrics: {
       speakerFlipCount: 0,
