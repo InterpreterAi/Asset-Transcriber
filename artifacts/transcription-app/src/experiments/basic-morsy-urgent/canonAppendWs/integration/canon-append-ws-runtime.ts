@@ -46,12 +46,13 @@ const CANON_VOLATILE_TAIL_MIN_CHARS = 6;
 const CANON_MIN_TRANSLATION_SOURCE_CHARS = 1;
 /**
  * After this quiet (no original speech tokens), ask Soniox to finalize trailing
- * non-finals so the last spoken words get a finished translation (docs: ~200ms+
- * silence before finalize; keep a safer gap so diarization isn't thrashed).
+ * non-finals so the last spoken words get a finished translation.
+ * Soniox docs: finalize reduces diarization accuracy — keep this conservative
+ * (longer quiet + only when translation preview is ahead of finals).
  */
-const CHUNK_V2_TRAILING_FINALIZE_QUIET_MS = 900;
+const CHUNK_V2_TRAILING_FINALIZE_QUIET_MS = 1800;
 /** Soniox: do not finalize too frequently. */
-const CHUNK_V2_TRAILING_FINALIZE_MIN_INTERVAL_MS = 2500;
+const CHUNK_V2_TRAILING_FINALIZE_MIN_INTERVAL_MS = 4500;
 
 export type CanonFrozenRowPayload = {
   utterance: CanonUtterance;
@@ -460,12 +461,11 @@ export class CanonAppendWsIsolatedRuntime {
     if (!committed.length) return;
     const finalsTx = (this.state.activeTranslationText ?? "").trim();
     const previewTx = (this.state.activeTranslationPreviewText ?? "").trim();
-    // Only nudge Soniox when translation still looks incomplete vs spoken text,
-    // or preview is ahead of committed finals (trailing NF not sealed).
+    // Conservative: only when non-final translation is still ahead of finals
+    // (trailing NF not sealed). Avoid length heuristics that finalize mid-turn.
     const translationLagging =
       previewTx.length > finalsTx.length ||
-      (finalsTx.length > 0 && finalsTx.length + 12 < committed.length) ||
-      (finalsTx.length === 0 && committed.length >= 3);
+      (finalsTx.length === 0 && previewTx.length === 0 && committed.length >= 8);
     if (!translationLagging) return;
     this.lastTrailingFinalizeWallMs = wallMs;
     this.client.sendFinalize();
