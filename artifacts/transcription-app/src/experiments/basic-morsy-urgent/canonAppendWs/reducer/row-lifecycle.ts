@@ -19,24 +19,17 @@ function trimTrailingSubwordTokens(tokens: CanonToken[]): CanonToken[] {
 }
 
 /**
- * Language change alone must NOT open a bubble for the same talker.
- * Soniox LID flickers constantly; bubbles come from speaker handoff (with audio
- * gap) or long pause — not from "new sentence + maybe different lang tag".
- * Only treat as a language-row break when diarized speakers clearly differ.
+ * Language changed → new bubble (N=2 debounce in reducer).
+ * Same speaker code-switching still opens a new bubble — that is intentional.
  */
 export function rowBreaksForLanguage(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
   const rlg = langBase(row.language);
   const tlg = langBase(tok.language);
-  if (!(rlg && tlg && rlg !== tlg)) return false;
-  const rsp = norm(row.speaker);
-  const tsp = norm(tok.speaker);
-  // Unlabeled or same speaker → keep one bubble (append / absorb).
-  if (!rsp || !tsp || rsp === tsp) return false;
-  return true;
+  return !!(rlg && tlg && rlg !== tlg);
 }
 
-/** Speaker changed within same language → requires debounce confirmation */
+/** Different speaker, same language → new bubble (N=2 debounce in reducer). */
 export function rowBreaksForSpeaker(row: CanonUtterance, tok: CanonToken): boolean {
   if (!row.finalTokens.length) return false;
   if (rowBreaksForLanguage(row, tok)) return false;

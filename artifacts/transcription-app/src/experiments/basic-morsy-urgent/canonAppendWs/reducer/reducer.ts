@@ -4,10 +4,7 @@ import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
 import { isChunkV2OpenRowMidWord } from "../policies/mid-word-open";
-import {
-  SAME_SPEAKER_LONG_PAUSE_SPLIT_MS,
-  SPEAKER_BREAK_MIN_AUDIO_GAP_MS,
-} from "../policies/segmentation-constants";
+import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
   appendFinalToActive,
@@ -48,20 +45,6 @@ function langBase(s: string | undefined): string | undefined {
 function speakerId(s: string | undefined): string | undefined {
   const t = s?.trim();
   return t?.length ? t : undefined;
-}
-
-/** True only when Soniox audio shows a real gap since the *open row* last spoke. */
-function speakerHandoffHasAudioGap(state: EngineState, tok: CanonToken): boolean {
-  const au = state.activeUtterance;
-  const rowEnd =
-    au && typeof au.end_ms === "number" && Number.isFinite(au.end_ms)
-      ? au.end_ms
-      : state.lastTokenAudioEndMs;
-  if (rowEnd === null || rowEnd === undefined) return false;
-  const start =
-    typeof tok.start_ms === "number" && Number.isFinite(tok.start_ms) ? tok.start_ms : undefined;
-  if (start === undefined) return false;
-  return start - rowEnd >= SPEAKER_BREAK_MIN_AUDIO_GAP_MS;
 }
 
 function clearChunkV2Pending(state: EngineState): EngineState {
@@ -228,11 +211,6 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
       if (openMidWord && (langBreak || spkBreak)) {
         next = absorbChunkV2PendingIntoActive(next);
       } else if (langBreak) {
-        // Different diarized speakers + different language — still require audio gap
-        // so a sub-second breath cannot open a bubble.
-        if (!speakerHandoffHasAudioGap(next, ct)) {
-          next = absorbChunkV2PendingIntoActive(next);
-        } else {
         const tlg = langBase(ct.language);
         if (tlg && next.pendingLanguage === tlg) {
           const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
@@ -266,13 +244,7 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
           speakerChangeConsecutive: 1,
         };
         continue;
-        }
       } else if (spkBreak) {
-        // Sub-second diarization flips after a period are extremely common — ignore
-        // unless the audio timeline itself shows a real handoff gap.
-        if (!speakerHandoffHasAudioGap(next, ct)) {
-          next = absorbChunkV2PendingIntoActive(next);
-        } else {
         const sid = speakerId(ct.speaker);
         if (sid && next.pendingSpeakerId === sid && !next.pendingLanguage) {
           const consecutive = (next.speakerChangeConsecutive ?? 0) + 1;
@@ -306,7 +278,6 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
           speakerChangeConsecutive: 1,
         };
         continue;
-        }
       } else if (next.pendingSpeakerFinals.length) {
         next = absorbChunkV2PendingIntoActive(next);
       } else {
@@ -330,15 +301,11 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     ? utteranceCommittedText(next.activeUtterance)
     : "";
   // While N=2 debounce is holding a break, do not force-freeze from NF language
-  // tail — that confirmed early and left the first pending word stranded / split.
-  // Same speaker: never freeze from NF LID alone (no pause / no new talker).
+  // tail — wait for confirming finals. Language switches still open bubbles via
+  // the final-token path above.
   const breakPending = next.pendingSpeakerFinals.length > 0;
-  const activeSp = next.activeUtterance?.speaker?.trim();
-  const tailSp = tail.speaker?.trim();
-  const sameSpeakerNf = Boolean(activeSp && tailSp && activeSp === tailSp);
   if (
     !breakPending &&
-    !sameSpeakerNf &&
     activeLang &&
     tailLang &&
     tailLang !== activeLang &&

@@ -21,12 +21,6 @@ export const CANON_SILENCE_SEGMENT_MS = 2200;
 export const SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 5000;
 export const MORSY_CLEAN_MT_SAME_SPEAKER_LONG_PAUSE_SPLIT_MS = 4500;
 
-/**
- * Chunk-v2: Soniox often flips diarization speaker IDs across a sub-second breath.
- * Require this much *audio* silence before a speaker-id change may open a bubble.
- */
-export const SPEAKER_BREAK_MIN_AUDIO_GAP_MS = 2500;
-
 export const MAX_UTTERANCE_WALL_MS = 120_000;
 
 export const LIVE_RENDER_BATCH_MS = 32;
