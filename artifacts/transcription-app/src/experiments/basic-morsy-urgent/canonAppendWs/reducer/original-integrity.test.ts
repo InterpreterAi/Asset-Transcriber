@@ -148,6 +148,24 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(state.activeUtterance?.language).toBe("ar");
   });
 
+  it("writes okay/uh in Arabic inside an Arabic bubble without opening English", () => {
+    const state = reduceAll([
+      frame(1, [
+        tok("مرحبا. ", { id: "ok1", speakerId: "1", language: "ar", startMs: 0 }),
+      ]),
+      frame(2, [
+        tok("Okay. ", { id: "ok2", speakerId: "1", language: "en", startMs: 200 }),
+        tok("تمام، تعال.", { id: "ok3", speakerId: "1", language: "ar", startMs: 400 }),
+      ]),
+    ]);
+    expect(state.finalizedUtterances).toHaveLength(0);
+    const text = state.activeUtterance && utteranceCommittedText(state.activeUtterance);
+    expect(text).toContain("مرحبا");
+    expect(text).toContain("حسنًا");
+    expect(text).toContain("تمام");
+    expect(text).not.toMatch(/Okay/i);
+  });
+
   it("keeps same-speaker language code-switch on one bubble", () => {
     const state = reduceAll([
       frame(1, [

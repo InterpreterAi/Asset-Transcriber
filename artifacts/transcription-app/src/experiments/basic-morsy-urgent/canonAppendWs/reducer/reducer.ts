@@ -4,6 +4,7 @@ import type { EngineState } from "../types/transcript";
 import type { SonioxFrame } from "../ws/frame-types";
 
 import { isChunkV2OpenRowMidWord } from "../policies/mid-word-open";
+import { localizeFillersInCanonTokens } from "../policies/localize-speech-fillers";
 import { SAME_SPEAKER_LONG_PAUSE_SPLIT_MS } from "../policies/segmentation-constants";
 import { isChunkV2ShortAcknowledgement } from "../policies/short-acknowledgement";
 import {
@@ -156,7 +157,16 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
 
   let next: EngineState = state;
   const pauseSplitMs = ctx.sameSpeakerLongPauseSplitMs ?? SAME_SPEAKER_LONG_PAUSE_SPLIT_MS;
-  const canon = stabilizeCanonSpeakers(canonTokensFromFrame(frame.tokens, frame.seq));
+  const rowHint = state.activeUtterance
+    ? {
+        text: utteranceCommittedText(state.activeUtterance),
+        language: state.activeUtterance.language,
+      }
+    : undefined;
+  const canon = localizeFillersInCanonTokens(
+    stabilizeCanonSpeakers(canonTokensFromFrame(frame.tokens, frame.seq)),
+    rowHint,
+  );
   if (canon.length > 0) {
     next = tryLongPauseSplit(next, minTokenAudioStartMs(canon), pauseSplitMs, wallMs);
   }
