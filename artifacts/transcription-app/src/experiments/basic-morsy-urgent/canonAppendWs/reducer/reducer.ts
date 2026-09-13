@@ -153,13 +153,23 @@ function reduceChunkV2Restored(state: EngineState, frame: SonioxFrame, ctx: Redu
     translationChunk.length > 0
       ? (next.activeTranslationText ?? "") + translationChunk
       : next.activeTranslationText ?? "";
+  // Soniox often sends original-only frames while translation NF is still in flight.
+  // Never wipe a longer preview just because this frame had no translation tokens —
+  // that left the last spoken partial untranslated until the next utterance.
+  let nextPreviewTranslation: string;
+  if (translationPreview.length > 0) {
+    nextPreviewTranslation = `${nextFinalTranslation}${translationPreview}`;
+  } else if (translationChunk.length > 0) {
+    nextPreviewTranslation = nextFinalTranslation;
+  } else {
+    const prevPreview = next.activeTranslationPreviewText ?? "";
+    nextPreviewTranslation =
+      prevPreview.length > nextFinalTranslation.length ? prevPreview : nextFinalTranslation;
+  }
   next = {
     ...next,
     activeTranslationText: nextFinalTranslation,
-    activeTranslationPreviewText:
-      translationPreview.length > 0
-        ? `${nextFinalTranslation}${translationPreview}`
-        : nextFinalTranslation,
+    activeTranslationPreviewText: nextPreviewTranslation,
   };
 
   const frameFinals = canon.filter(t => t.is_final);

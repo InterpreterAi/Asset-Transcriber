@@ -133,7 +133,8 @@ export function confirmPendingBreakToActive(state: EngineState): EngineState {
       finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
       nonFinalTokens: [],
       is_final: true,
-      translationText: next.activeTranslationText?.trim() || undefined,
+      translationText:
+        (next.activeTranslationPreviewText ?? next.activeTranslationText)?.trim() || undefined,
     };
     next = {
       ...next,
@@ -172,7 +173,8 @@ export function freezeActiveUtterance(state: EngineState): EngineState {
     finalTokens: trimTrailingSubwordTokens([...au.finalTokens]),
     nonFinalTokens: [],
     is_final: true,
-    translationText: next.activeTranslationText?.trim() || undefined,
+    translationText:
+      (next.activeTranslationPreviewText ?? next.activeTranslationText)?.trim() || undefined,
   };
   return {
     ...next,

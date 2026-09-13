@@ -2,7 +2,7 @@ import type { CanonToken } from "../types/canon-token";
 import type { Token } from "../types/tokens";
 
 function isEndpointText(text: string): boolean {
-  return text === "<end>" || text === "<eos>" || text === "<eps>";
+  return text === "<end>" || text === "<eos>" || text === "<eps>" || text === "<fin>";
 }
 
 /**

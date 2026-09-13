@@ -630,4 +630,35 @@ describe("chunk-v2 Original integrity (restored path)", () => {
     expect(text).toContain("magic straight perm");
     expect(text).toContain("Korean person");
   });
+
+  it("keeps sticky translation preview when a later frame has only original tokens", () => {
+    let state = createInitialEngineState();
+    const ledger = new AppendOnlyCanonLedger();
+    state = reduceCanonAppendWs(
+      state,
+      frame(1, [
+        tok("Hello world.", { id: "tx1", speakerId: "1", language: "en", startMs: 0 }),
+        {
+          id: "tr1",
+          text: "مرحبا",
+          isFinal: false,
+          confidence: 1,
+          translation_status: "translation",
+        },
+      ]),
+      { ledger, wallMs: 1000, chunkV2NativeTranslate: true },
+    );
+    expect(state.activeTranslationPreviewText).toContain("مرحبا");
+    state = reduceCanonAppendWs(
+      state,
+      frame(2, [
+        tok(" More speech.", { id: "tx2", speakerId: "1", language: "en", startMs: 200 }),
+      ]),
+      { ledger, wallMs: 1100, chunkV2NativeTranslate: true },
+    );
+    // Original-only frame must not wipe the in-flight translation preview.
+    expect(state.activeTranslationPreviewText).toContain("مرحبا");
+    const frozen = freezeActiveUtterance(state);
+    expect(frozen.finalizedUtterances[0]?.translationText).toContain("مرحبا");
+  });
 });

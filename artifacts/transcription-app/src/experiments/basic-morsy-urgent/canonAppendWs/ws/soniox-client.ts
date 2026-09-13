@@ -178,6 +178,17 @@ export class SonioxRealtimeClient {
     }
   }
 
+  /** Ask Soniox to finalize trailing non-finals (incl. translation) without ending the session. */
+  sendFinalize(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type: "finalize" }));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   /**
    * Flush remaining buffered audio and request Soniox completion (empty buffer).
    * Does not wait — prefer {@link flushEndAndWait} on stop.
@@ -186,6 +197,7 @@ export class SonioxRealtimeClient {
     if (this.ws?.readyState === WebSocket.OPEN) {
       try {
         this.flushPcmQueue();
+        this.sendFinalize();
         this.ws.send(new ArrayBuffer(0));
       } catch {
         /* ignore */

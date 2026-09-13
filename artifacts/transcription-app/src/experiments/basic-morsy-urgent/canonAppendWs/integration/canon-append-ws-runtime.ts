@@ -44,6 +44,14 @@ const CANON_VOLATILE_TAIL_PULSE_MS = 800;
 const CANON_VOLATILE_TAIL_MIN_CHARS = 6;
 /** Short back-and-forth utterances ("Yeah.", "6.") must still reach translation hooks. */
 const CANON_MIN_TRANSLATION_SOURCE_CHARS = 1;
+/**
+ * After this quiet (no original speech tokens), ask Soniox to finalize trailing
+ * non-finals so the last spoken words get a finished translation (docs: ~200ms+
+ * silence before finalize; keep a safer gap so diarization isn't thrashed).
+ */
+const CHUNK_V2_TRAILING_FINALIZE_QUIET_MS = 900;
+/** Soniox: do not finalize too frequently. */
+const CHUNK_V2_TRAILING_FINALIZE_MIN_INTERVAL_MS = 2500;
 
 export type CanonFrozenRowPayload = {
   utterance: CanonUtterance;
@@ -110,6 +118,11 @@ export class CanonAppendWsIsolatedRuntime {
   private lastActiveStableEmitted = "";
 
   private pendingDomFlush = false;
+
+  /** Wall time of last frame that carried original (non-translation) speech tokens. */
+  private lastSpeechActivityWallMs = 0;
+
+  private lastTrailingFinalizeWallMs = 0;
 
   /** Basic · Morsy Urgent — faster endpoint, pause split, and DOM batch tuning. */
   private morsyUrgentTuning = false;
@@ -407,6 +420,7 @@ export class CanonAppendWsIsolatedRuntime {
     });
 
     if (canonTokensFromFrame(frame.tokens).length > 0) {
+      this.lastSpeechActivityWallMs = wallMs;
       this.hooks.onSpeechToken?.();
     }
 
@@ -420,6 +434,8 @@ export class CanonAppendWsIsolatedRuntime {
       total_audio_proc_ms: frame.total_audio_proc_ms,
     });
 
+    // `<end>` (rare with endpoint off) or `<fin>` after manual finalize — flush
+    // trailing native translation without closing the speaker bubble.
     if (frame.endpoint) {
       emitDebugEvent({ kind: "endpoint_flush", segmentId: "soniox-endpoint", seq: frame.seq });
       const snap = this.activeRowDualBuffer();
@@ -429,6 +445,30 @@ export class CanonAppendWsIsolatedRuntime {
     }
 
     this.scheduleDomBatch(Boolean(frame.endpoint));
+  }
+
+  private maybeTrailingFinalize(wallMs: number): void {
+    if (!this.chunkV2NativeTranslate) return;
+    if (!this.state.activeUtterance) return;
+    if (this.lastSpeechActivityWallMs <= 0) return;
+    const quiet = wallMs - this.lastSpeechActivityWallMs;
+    if (quiet < CHUNK_V2_TRAILING_FINALIZE_QUIET_MS) return;
+    if (wallMs - this.lastTrailingFinalizeWallMs < CHUNK_V2_TRAILING_FINALIZE_MIN_INTERVAL_MS) {
+      return;
+    }
+    const committed = utteranceCommittedText(this.state.activeUtterance).trim();
+    if (!committed.length) return;
+    const finalsTx = (this.state.activeTranslationText ?? "").trim();
+    const previewTx = (this.state.activeTranslationPreviewText ?? "").trim();
+    // Only nudge Soniox when translation still looks incomplete vs spoken text,
+    // or preview is ahead of committed finals (trailing NF not sealed).
+    const translationLagging =
+      previewTx.length > finalsTx.length ||
+      (finalsTx.length > 0 && finalsTx.length + 12 < committed.length) ||
+      (finalsTx.length === 0 && committed.length >= 3);
+    if (!translationLagging) return;
+    this.lastTrailingFinalizeWallMs = wallMs;
+    this.client.sendFinalize();
   }
 
   startSoniox(apiKey: string, langPair: LangPair, sampleRate = 16_000, rtUrl?: string): void {
@@ -481,6 +521,7 @@ export class CanonAppendWsIsolatedRuntime {
       this.projections.sync(this.state);
       this.scheduleDomBatch(true);
     }
+    this.maybeTrailingFinalize(wall);
     this.client.sendPcm(chunk);
   }
 
