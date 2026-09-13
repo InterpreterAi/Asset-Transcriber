@@ -923,7 +923,7 @@ export default function WorkspaceDefault() {
     return () => clearTimeout(t);
   }, [user?.trialExpired]);
 
-  // Re-render while recording so half-daily trial feedback can use live PCM minutes (server total updates on session stop).
+  // Re-render while recording so the 1h trial feedback gate can use live PCM minutes (server total updates on session stop).
   const [usageRecomputeTick, setUsageRecomputeTick] = useState(0);
   useEffect(() => {
     if (!transcription.isRecording) return;
@@ -1132,8 +1132,8 @@ export default function WorkspaceDefault() {
         isOpen={showUserFeedback}
         onClose={() => setShowUserFeedback(false)}
       />
-      {/* Mandatory feedback is trial-only now (half of the trial daily cap, i.e. 1 hour of a 2-hour trial).
-          Paid plans no longer get any feedback prompt — mandatory or dismissible. */}
+      {/* Mandatory feedback: all active trials after ~1h billable usage.
+          Prompt waits until Stop; Start/token stay blocked until submitted. */}
       {paddlePaymentProcessing && (
         <div className="fixed top-3 left-1/2 z-50 -translate-x-1/2 max-w-md w-[calc(100%-1.5rem)] rounded-lg border border-border bg-background px-4 py-3 shadow-lg text-sm text-foreground">
           <p className="font-semibold">Payment processing</p>
@@ -1147,6 +1147,7 @@ export default function WorkspaceDefault() {
         trialExpired={user.trialExpired}
         effectiveMinutesUsedToday={effectiveMinutesUsedToday}
         dailyLimitMinutes={user.dailyLimitMinutes}
+        isRecording={transcription.isRecording}
       />
       {showInviteModal && (
         <InviteModal userId={user.id} username={user.username} onClose={() => setShowInviteModal(false)} />

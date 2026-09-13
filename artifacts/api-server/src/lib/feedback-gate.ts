@@ -7,6 +7,7 @@ import {
   startOfAppDay,
 } from "@workspace/app-timezone";
 import { isTrialExpired, isTrialLikePlanType } from "./usage.js";
+import { TRIAL_DAILY_LIMIT_MINUTES } from "./trial-constants.js";
 
 /** Stored on feedback rows; name kept for backwards compatibility with existing DB rows. */
 export const MANDATORY_FEEDBACK_SOURCE = "trial-half-daily-mandatory";
@@ -24,7 +25,12 @@ export const DAILY_PROMPT_FEEDBACK_SOURCE = "daily-prompt";
 export const UNLIMITED_DAILY_CAP_MINUTES = 9000;
 
 /**
- * Paid post-session mandatory feedback: reduced frequency to **once per {@link WORKING_DAYS_BEFORE_PAID_FEEDBACK_REQUIRED_AFTER_SUBMISSION}
+ * All active trial users must submit mandatory feedback after this much billable
+ * interpreting today (1 hour). Caps at the account daily limit when shorter.
+ */
+export const TRIAL_MANDATORY_FEEDBACK_AFTER_MINUTES = 60;
+
+/** Paid post-session mandatory feedback: reduced frequency to **once per {@link WORKING_DAYS_BEFORE_PAID_FEEDBACK_REQUIRED_AFTER_SUBMISSION}
  * weekdays** (Mon–Fri, `{@link APP_TIME_ZONE}` calendar) after each qualifying submission — not every app calendar day.
  * Explicit allow-by-email list (lowercase). Request: Representative Cordova inbox (`acordova` / `cordova` aliases).
  */
@@ -49,16 +55,22 @@ export function workingWeekdaysAfterSubmissionSubmissionDay(submittedAt: Date, r
   return countAppTimezoneWeekdaysInclusive(firstDayAfterSubmission, refDayStart);
 }
 
-const REQUIRED_USAGE_RATIO = 0.5;
-
+/**
+ * Trial mandatory feedback threshold: always **1 hour** of billable usage
+ * (or the full daily cap when the trial day is shorter than 1 hour).
+ * `dailyLimitMinutes` is kept so short-cap trials still get asked before they
+ * burn the whole day; paid callers of this helper are currently disabled.
+ */
 export function getMandatoryFeedbackThresholdMinutes(dailyLimitMinutes: number): number {
   const limit = Number(dailyLimitMinutes);
-  if (!Number.isFinite(limit) || limit <= 0) return 0;
-  return limit * REQUIRED_USAGE_RATIO;
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return Math.min(TRIAL_MANDATORY_FEEDBACK_AFTER_MINUTES, TRIAL_DAILY_LIMIT_MINUTES);
+  }
+  return Math.min(TRIAL_MANDATORY_FEEDBACK_AFTER_MINUTES, limit);
 }
 
 /**
- * Half-daily mandatory feedback mid-session: **active trial accounts only.** Paid plans have no
+ * Half-daily mandatory feedback: **active trial accounts only.** Paid plans have no
  * mandatory (or dismissible) feedback prompt at all — see {@link isPaidPostSessionFeedbackEligible}.
  */
 export function isMandatoryFeedbackEligible(user: User): boolean {
@@ -72,7 +84,7 @@ export function isMandatoryFeedbackEligible(user: User): boolean {
 /**
  * Paid (non–trial-like plan_type) mandatory post-session feedback: **disabled by product decision.**
  * Only active trial accounts get mandatory feedback now (see {@link isMandatoryFeedbackEligible}, at
- * half of the trial daily cap). Kept as a hard `false` — rather than deleting the surrounding
+ * 1 hour of billable trial usage). Kept as a hard `false` — rather than deleting the surrounding
  * dedupe/email plumbing below — so paid gating can be re-enabled later without re-deriving the rules.
  * This single switch disables the server session-start gate (`mandatoryFeedbackGateSatisfied` in
  * transcription.ts), the `/api/feedback/status` `paidPostSession` flags, and the client prompt.
@@ -81,18 +93,24 @@ export function isPaidPostSessionFeedbackEligible(_user: User): boolean {
   return false;
 }
 
-export function isMandatoryFeedbackRequiredByUsage(user: User): boolean {
+export function isMandatoryFeedbackRequiredByUsage(
+  user: User,
+  usedMinutesOverride?: number,
+): boolean {
   if (!isMandatoryFeedbackEligible(user)) return false;
-  const used = Number(user.minutesUsedToday);
+  const used =
+    usedMinutesOverride !== undefined
+      ? Number(usedMinutesOverride)
+      : Number(user.minutesUsedToday);
   const threshold = getMandatoryFeedbackThresholdMinutes(Number(user.dailyLimitMinutes));
-  if (!Number.isFinite(used) || !Number.isFinite(threshold)) return false;
+  if (!Number.isFinite(used) || !Number.isFinite(threshold) || threshold <= 0) return false;
   return used >= threshold - 1e-6;
 }
 
 /**
  * Same gate as {@link isMandatoryFeedbackRequiredByUsage}, but includes live
  * billable minutes from open sessions so in-session usage cannot bypass the
- * half-daily feedback prompt.
+ * 1-hour feedback requirement on the next Start.
  */
 export function isMandatoryFeedbackRequiredByUsageWithLive(
   user: User,
@@ -101,9 +119,7 @@ export function isMandatoryFeedbackRequiredByUsageWithLive(
   if (!isMandatoryFeedbackEligible(user)) return false;
   const used = Number(user.minutesUsedToday);
   const live = Math.max(0, Number(liveBillableMinutes));
-  const threshold = getMandatoryFeedbackThresholdMinutes(Number(user.dailyLimitMinutes));
-  if (!Number.isFinite(used) || !Number.isFinite(threshold)) return false;
-  return used + live >= threshold - 1e-6;
+  return isMandatoryFeedbackRequiredByUsage(user, used + live);
 }
 
 export function isPaidPostSessionFeedbackRequiredByUsage(user: User): boolean {

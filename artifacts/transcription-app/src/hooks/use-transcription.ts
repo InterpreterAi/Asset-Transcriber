@@ -79,6 +79,7 @@ import {
   liveDirectionTraceWsLang,
 } from "@/hooks/live-direction-trace";
 import { applyGlossaryPostProcess } from "../experiments/basic-morsy-urgent/canonAppendWs/utils/glossary-post-process";
+import { TRIAL_FEEDBACK_REQUIRED_EVENT } from "@/components/EarlyTrialFeedbackPrompt";
 import {
   chunkV2GlossaryToSonioxTerms,
   fetchChunkV2GlossaryForPair,
@@ -10045,7 +10046,10 @@ export function useTranscription(isAdmin = false, options?: UseTranscriptionOpti
           getApiErrorMessage(err) ??
           "Live transcription is temporarily unavailable. Please try again later or contact support.";
       } else if (errCode === "FEEDBACK_REQUIRED") {
-        msg = "Daily feedback is required before you can start another session.";
+        msg = "Trial feedback is required before you can start another session.";
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent(TRIAL_FEEDBACK_REQUIRED_EVENT));
+        }
       } else if (errCode === "DAILY_LIMIT_REACHED") {
         msg =
           getApiErrorMessage(err) ??

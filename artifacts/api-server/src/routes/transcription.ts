@@ -65,7 +65,7 @@ import { TRIAL_DAILY_LIMIT_MINUTES } from "../lib/trial-constants.js";
 import {
   hasMandatoryFeedbackGateSatisfied,
   isMandatoryFeedbackEligible,
-  isMandatoryFeedbackRequiredByUsageWithLive,
+  isMandatoryFeedbackRequiredByUsage,
   isPaidPostSessionFeedbackEligible,
   isPaidPostSessionFeedbackRequiredByUsage,
   UNLIMITED_DAILY_CAP_MINUTES,
@@ -282,15 +282,19 @@ function trialLimitBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean
   return user.isAdmin === true;
 }
 
-/** Mandatory feedback (trial mid-session or paid post-session): once per account ever; admins bypass for plan testing. */
+/** Mandatory feedback for active trials after 1h billable usage: once per account ever; admins bypass. */
 async function mandatoryFeedbackGateSatisfied(
   user: User,
   liveBillableMinutes: number,
+  billableMinutesToday?: number,
 ): Promise<boolean> {
   if (trialLimitBypassedForAdmin(user)) return true;
+  const usedForTrial = Number.isFinite(Number(billableMinutesToday))
+    ? Math.max(0, Number(billableMinutesToday))
+    : Number(user.minutesUsedToday) + Math.max(0, liveBillableMinutes);
   const usageRequiresFeedback =
     (isMandatoryFeedbackEligible(user) &&
-      isMandatoryFeedbackRequiredByUsageWithLive(user, liveBillableMinutes)) ||
+      isMandatoryFeedbackRequiredByUsage(user, usedForTrial)) ||
     (isPaidPostSessionFeedbackEligible(user) &&
       liveBillableMinutes < 1e-6 &&
       isPaidPostSessionFeedbackRequiredByUsage(user));
@@ -554,9 +558,9 @@ router.post("/token", requireAuth, async (req, res) => {
       });
       return;
     }
-    if (!(await mandatoryFeedbackGateSatisfied(user, liveBillable))) {
+    if (!(await mandatoryFeedbackGateSatisfied(user, liveBillable, billableToday))) {
       res.status(403).json({
-        error: "Daily feedback required before starting another session.",
+        error: "Trial feedback is required before starting another session.",
         code: "FEEDBACK_REQUIRED",
       });
       return;
@@ -1284,9 +1288,9 @@ router.post("/session/start", requireAuth, async (req, res) => {
     });
     return;
   }
-  if (!(await mandatoryFeedbackGateSatisfied(userForCap, liveAfterOrphans))) {
+  if (!(await mandatoryFeedbackGateSatisfied(userForCap, liveAfterOrphans, billableToday))) {
     res.status(403).json({
-      error: "Daily feedback required before starting another session.",
+      error: "Trial feedback is required before starting another session.",
       code: "FEEDBACK_REQUIRED",
     });
     return;

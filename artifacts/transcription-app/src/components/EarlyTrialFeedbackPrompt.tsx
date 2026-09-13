@@ -3,18 +3,25 @@ import { CheckCircle, AlertCircle } from "lucide-react";
 import { FeedbackStarRating } from "@/components/FeedbackStarRating";
 import { isTrialLikePlanType } from "@/lib/utils";
 
+export const TRIAL_FEEDBACK_REQUIRED_EVENT = "interpreterai:trial-feedback-required";
+
 type Props = {
   planType?: string;
   trialExpired: boolean;
   /** Includes server `minutesUsedToday` plus in-session PCM estimate while recording. */
   effectiveMinutesUsedToday: number;
   dailyLimitMinutes: number;
+  /** While recording, never interrupt — prompt only after Stop (Start stays blocked server-side). */
+  isRecording: boolean;
 };
 
 const MIN_COMMENT_LENGTH = 10;
 
-/** Align with api-server `UNLIMITED_DAILY_CAP_MINUTES` — no half-daily gate for “unlimited” plans. */
+/** Align with api-server `UNLIMITED_DAILY_CAP_MINUTES` — no 1h gate for “unlimited” plans. */
 const UNLIMITED_DAILY_CAP_MINUTES = 9000;
+
+/** Align with api-server `TRIAL_MANDATORY_FEEDBACK_AFTER_MINUTES`. */
+const TRIAL_FEEDBACK_AFTER_MINUTES = 60;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -28,16 +35,23 @@ function retryAfterSecondsFromHeader(header: string | null): number | null {
   return sec;
 }
 
+function trialFeedbackThresholdMinutes(dailyLimitMinutes: number): number {
+  const limit = Number(dailyLimitMinutes);
+  if (!Number.isFinite(limit) || limit <= 0) return TRIAL_FEEDBACK_AFTER_MINUTES;
+  return Math.min(TRIAL_FEEDBACK_AFTER_MINUTES, limit);
+}
+
 /**
- * Once per app day, after the user has used ≥ half of their daily allowance (**active trial** accounts only),
- * blocks the workspace until they submit a star rating and a written comment. Same rules as
- * POST /transcription/token and /session/start (`FEEDBACK_REQUIRED`). Paid users use post-session prompt instead.
+ * Active trial accounts only: after ~1 hour of billable usage, block the workspace
+ * until they submit stars + a written comment. Does **not** interrupt an open call —
+ * shows after Stop. `/session/start` and `/token` return `FEEDBACK_REQUIRED` until submitted.
  */
 export function EarlyTrialFeedbackPrompt({
   planType,
   trialExpired,
   effectiveMinutesUsedToday,
   dailyLimitMinutes,
+  isRecording,
 }: Props) {
   const [visible, setVisible] = useState(false);
   const [animate, setAnimate] = useState(false);
@@ -49,17 +63,20 @@ export function EarlyTrialFeedbackPrompt({
   const [err, setErr] = useState<string | null>(null);
   const [requiredByServer, setRequiredByServer] = useState(false);
   const [submittedByServer, setSubmittedByServer] = useState(false);
+  const [forceShow, setForceShow] = useState(false);
   /** Avoid spamming `/api/feedback/status` when parent re-renders every PCM tick. */
   const lastStatusPollAtMsRef = useRef(0);
+  const wasRecordingRef = useRef(isRecording);
 
   const gateApplies =
     isTrialLikePlanType(planType) &&
+    planType !== "morsy-urgent" &&
     !trialExpired &&
     Number.isFinite(dailyLimitMinutes) &&
     dailyLimitMinutes > 0 &&
     dailyLimitMinutes < UNLIMITED_DAILY_CAP_MINUTES;
-  const halfThreshold = dailyLimitMinutes / 2;
-  const halfUsageReached = effectiveMinutesUsedToday >= halfThreshold - 1e-6;
+  const thresholdMinutes = trialFeedbackThresholdMinutes(dailyLimitMinutes);
+  const oneHourReached = effectiveMinutesUsedToday >= thresholdMinutes - 1e-6;
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -71,23 +88,42 @@ export function EarlyTrialFeedbackPrompt({
       const data = (await res.json()) as { required?: boolean; submitted?: boolean };
       setRequiredByServer(Boolean(data.required));
       setSubmittedByServer(Boolean(data.submitted));
+      if (data.submitted) setForceShow(false);
     } catch {
       // non-blocking; backend still enforces on session start
     }
   }, []);
 
-  /** When crossing into “half usage” we only need coarse server sync — not on every `effectiveMinutesUsedToday` tick. */
+  /** After Stop (or when crossing 1h while idle), sync with server. */
   useEffect(() => {
-    if (!gateApplies || !halfUsageReached) return;
+    if (!gateApplies) return;
+    const justStopped = wasRecordingRef.current && !isRecording;
+    wasRecordingRef.current = isRecording;
+    if (isRecording) return;
+    if (!oneHourReached && !forceShow && !justStopped) return;
     const now = Date.now();
-    const minGapMs = 20_000;
+    const minGapMs = justStopped || forceShow ? 0 : 20_000;
     if (now - lastStatusPollAtMsRef.current < minGapMs) return;
     lastStatusPollAtMsRef.current = now;
     void refreshStatus();
-  }, [gateApplies, halfUsageReached, refreshStatus]);
+  }, [gateApplies, oneHourReached, isRecording, forceShow, refreshStatus]);
 
   useEffect(() => {
-    const shouldShow = requiredByServer && !submittedByServer && gateApplies && halfUsageReached;
+    const onRequired = () => {
+      setForceShow(true);
+      lastStatusPollAtMsRef.current = 0;
+      void refreshStatus();
+    };
+    window.addEventListener(TRIAL_FEEDBACK_REQUIRED_EVENT, onRequired);
+    return () => window.removeEventListener(TRIAL_FEEDBACK_REQUIRED_EVENT, onRequired);
+  }, [refreshStatus]);
+
+  useEffect(() => {
+    const shouldShow =
+      gateApplies &&
+      !isRecording &&
+      !submittedByServer &&
+      (requiredByServer || forceShow);
     if (!shouldShow) {
       setAnimate(false);
       setVisible(false);
@@ -98,9 +134,15 @@ export function EarlyTrialFeedbackPrompt({
       setTimeout(() => setAnimate(true), 30);
     }, 300);
     return () => clearTimeout(t);
-  }, [requiredByServer, submittedByServer, gateApplies, halfUsageReached]);
+  }, [
+    requiredByServer,
+    submittedByServer,
+    gateApplies,
+    isRecording,
+    forceShow,
+  ]);
 
-  /** Modal is visible: re-sync `/status` once (fixes cold-open after a failed poll; cheap vs. PCM-tick spam). */
+  /** Modal is visible: re-sync `/status` once. */
   useEffect(() => {
     if (!visible || done) return;
     const t = setTimeout(() => void refreshStatus(), 400);
@@ -139,6 +181,7 @@ export function EarlyTrialFeedbackPrompt({
 
         if (res.ok) {
           await refreshStatus();
+          setForceShow(false);
           setDone(true);
           setTimeout(() => {
             setAnimate(false);
@@ -192,7 +235,7 @@ export function EarlyTrialFeedbackPrompt({
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
             <p className="font-semibold text-foreground">Thank you!</p>
-            <p className="text-sm text-muted-foreground">You can continue your session.</p>
+            <p className="text-sm text-muted-foreground">You can start your next trial session now.</p>
           </div>
         ) : (
           <>
@@ -200,16 +243,16 @@ export function EarlyTrialFeedbackPrompt({
               <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
               <div className="min-w-0">
                 <h2 id="trial-feedback-title" className="text-sm font-semibold text-foreground">
-                  Daily feedback required
+                  Feedback required to continue your trial
                 </h2>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  You&apos;ve used about half of today&apos;s allowance. Please rate your experience and leave a short comment to continue (one-time per account).
+                  You&apos;ve used about 1 hour of your trial. Rate your experience and leave a short comment to keep using the trial (once per account).
                 </p>
               </div>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-xs text-muted-foreground">
-                Tap the stars below, then add a short comment (about {MIN_COMMENT_LENGTH} characters). You only need to do this once — plan changes won&apos;t ask again.
+                Tap the stars below, then add a short comment (about {MIN_COMMENT_LENGTH} characters). You cannot start another session until this is submitted.
               </p>
               <FeedbackStarRating
                 value={rating}
@@ -244,7 +287,7 @@ export function EarlyTrialFeedbackPrompt({
                 onClick={() => void handleSubmit()}
                 className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
               >
-                {loading ? "Sending…" : "Submit and continue"}
+                {loading ? "Sending…" : "Submit to continue trial"}
               </button>
             </div>
           </>

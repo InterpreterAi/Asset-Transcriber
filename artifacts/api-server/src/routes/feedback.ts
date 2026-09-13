@@ -4,17 +4,18 @@ import { and, eq, isNull } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { sendTelegramNotification } from "../lib/telegram.js";
 import {
+  getMandatoryFeedbackThresholdMinutes,
   hasMandatoryFeedbackGateSatisfied,
   isMandatoryFeedbackEligible,
-  isMandatoryFeedbackRequiredByUsageWithLive,
   isMandatoryFeedbackRequiredByUsage,
+  isMandatoryFeedbackRequiredByUsageWithLive,
   isPaidPostSessionFeedbackEligible,
   isPaidPostSessionFeedbackRequiredByUsage,
   MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH,
   MANDATORY_FEEDBACK_SOURCE,
   PAID_POST_SESSION_FEEDBACK_SOURCE,
 } from "../lib/feedback-gate.js";
-import { getUserWithResetCheck } from "../lib/usage.js";
+import { getBillableMinutesUsedToday, getUserWithResetCheck } from "../lib/usage.js";
 
 function feedbackGateBypassedForAdmin(user: { isAdmin?: boolean | null }): boolean {
   return user.isAdmin === true;
@@ -42,13 +43,16 @@ router.get("/status", requireAuth, async (req, res) => {
     return;
   }
   const liveOpenMinutes = await sumOpenSessionsBillableMinutes(user.id);
+  const billableToday = await getBillableMinutesUsedToday(user.id);
 
   const gateSatisfied =
     feedbackGateBypassedForAdmin(user) || (await hasMandatoryFeedbackGateSatisfied(user.id));
 
+  // Prefer session-history billable minutes so counter lag cannot skip the 1h gate.
   const trialUsageRequires =
     isMandatoryFeedbackEligible(user) &&
-    isMandatoryFeedbackRequiredByUsageWithLive(user, liveOpenMinutes);
+    (isMandatoryFeedbackRequiredByUsage(user, billableToday) ||
+      isMandatoryFeedbackRequiredByUsageWithLive(user, liveOpenMinutes));
   const trialRequired = trialUsageRequires && !gateSatisfied;
   const trialSubmitted = trialUsageRequires && gateSatisfied;
 
@@ -64,6 +68,7 @@ router.get("/status", requireAuth, async (req, res) => {
     submitted: trialSubmitted,
     paidPostSession: { required: paidRequired, submitted: paidSubmitted },
     source: MANDATORY_FEEDBACK_SOURCE,
+    thresholdMinutes: getMandatoryFeedbackThresholdMinutes(Number(user.dailyLimitMinutes)),
   });
 });
 
@@ -115,7 +120,11 @@ router.post("/", requireAuth, async (req, res) => {
   ) {
     resolvedSource = PAID_POST_SESSION_FEEDBACK_SOURCE;
   } else if (
-    isMandatoryFeedbackRequiredByUsage(userFull) &&
+    (isMandatoryFeedbackRequiredByUsage(userFull) ||
+      isMandatoryFeedbackRequiredByUsageWithLive(
+        userFull,
+        await sumOpenSessionsBillableMinutes(userId),
+      )) &&
     commentLen >= MANDATORY_FEEDBACK_MIN_COMMENT_LENGTH
   ) {
     resolvedSource = MANDATORY_FEEDBACK_SOURCE;
